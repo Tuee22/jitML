@@ -3,6 +3,7 @@
 module JitML.Docs.Check
   ( DocsDrift (..)
   , checkDocs
+  , checkDocumentClosureClaimsText
   , checkDocumentMetadataText
   , docsDriftRemedy
   , renderDocsDrift
@@ -26,6 +27,12 @@ import JitML.Generated.Registry
   , generatedSectionRules
   , startMarker
   )
+import JitML.Lint.Docs
+  ( ClosureClaim (..)
+  , closureClaimKey
+  , scanClosureClaims
+  )
+import JitML.Product.PhaseStatus qualified as PhaseStatus
 
 data DocsDrift = DocsDrift
   { driftPath :: FilePath
@@ -38,8 +45,10 @@ checkDocs :: IO [DocsDrift]
 checkDocs = do
   sectionDrifts <- concat <$> traverse checkGeneratedSection generatedSectionRules
   pathDrifts <- concat <$> traverse checkTrackedGeneratedPath trackingGeneratedPaths
-  metadataDrifts <- concat <$> (governedMarkdownPaths >>= traverse checkDocumentMetadata)
-  pure (sectionDrifts <> pathDrifts <> metadataDrifts)
+  governedPaths <- governedMarkdownPaths
+  metadataDrifts <- concat <$> traverse checkDocumentMetadata governedPaths
+  closureClaimDrifts <- concat <$> traverse checkDocumentClosureClaims governedPaths
+  pure (sectionDrifts <> pathDrifts <> metadataDrifts <> closureClaimDrifts)
 
 renderDocsDrift :: DocsDrift -> Text
 renderDocsDrift drift =
@@ -54,6 +63,8 @@ docsDriftRemedy :: DocsDrift -> Text
 docsDriftRemedy drift
   | "metadata." `Text.isPrefixOf` driftKey drift =
       "update governed document header metadata"
+  | "closure-claim." `Text.isPrefixOf` driftKey drift =
+      "remove the current product-closure claim, or mark dated historical evidence explicitly"
   | otherwise = "run `jitml docs generate` to update"
 
 checkGeneratedSection :: GeneratedSectionRule -> IO [DocsDrift]
@@ -106,6 +117,14 @@ markdownFilesUnder path = do
 checkDocumentMetadata :: FilePath -> IO [DocsDrift]
 checkDocumentMetadata path =
   checkDocumentMetadataText path <$> Text.IO.readFile path
+
+checkDocumentClosureClaims :: FilePath -> IO [DocsDrift]
+checkDocumentClosureClaims path =
+  checkDocumentClosureClaimsText PhaseStatus.allProductPhasesDone path <$> Text.IO.readFile path
+
+checkDocumentClosureClaimsText :: Bool -> FilePath -> Text -> [DocsDrift]
+checkDocumentClosureClaimsText productPhasesDone path =
+  fmap closureClaimDrift . scanClosureClaims productPhasesDone path
 
 checkDocumentMetadataText :: FilePath -> Text -> [DocsDrift]
 checkDocumentMetadataText path content =
@@ -221,6 +240,18 @@ metadataDrift path key reason =
     { driftPath = path
     , driftKey = key
     , driftReason = reason
+    }
+
+closureClaimDrift :: ClosureClaim -> DocsDrift
+closureClaimDrift claim =
+  DocsDrift
+    { driftPath = closureClaimPath claim
+    , driftKey = closureClaimKey claim
+    , driftReason =
+        "product closure claim before Phases 19-31 are Done at line "
+          <> Text.pack (show (closureClaimLineNumber claim))
+          <> ": "
+          <> closureClaimLine claim
     }
 
 parseGeneratedSectionsMetadata :: Text -> Either Text [Text]

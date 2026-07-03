@@ -1,6 +1,6 @@
 # Phase 24: Real Supervised Architectures
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
 **Generated sections**: none
@@ -11,7 +11,11 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `23`.
+✅ **Done**. Phase `23` is Done; Sprints `24.1` and `24.2` completed literal
+supervised architecture topology, per-row feature parity, convergence,
+weight-update, and learning-evidence gates. Sprint `24.3` completed supervised
+`CompletedTraining` manifests, graph/layout checkpoint evidence, and
+fail-closed inference rejection coverage.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -30,12 +34,11 @@ throughput, and clears `median(k=5) >= literature_target - slack`. Each row writ
 an inference-eligible `CompletedTraining` checkpoint, and partial, synthetic, or
 untrained supervised manifests are rejected.
 
-## Sprint 24.1: Literal Architectures [⏸️ Blocked]
+## Sprint 24.1: Literal Architectures [✅ Done]
 
-**Status**: Blocked
-**Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`
-**Blocked by**: Phase `23`
-**Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`
+**Status**: Done
+**Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
 ### Objective
 
@@ -65,16 +68,22 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+Current validation: `docker compose run --rm jitml jitml test
+jitml-sl-canonicals --linux-cpu` passed 28 / 28 on 2026-07-02, including the
+ProductRow feature-parity, literal topology block-count, simplified-topology
+negative case, and live SL materialization/training tests. `docker compose run
+--rm jitml jitml test jitml-unit --linux-cpu` passed 270 / 270, `jitml docs
+check` passed, and `docker compose run --rm jitml cabal run exe:jitml --
+check-code` passed after formatting the Sprint `24.1` Haskell edits.
+
 ### Remaining Work
 
-- Build each literal architecture from the Phase `23` layer engine.
-- Add per-row feature-parity metadata and the topology-mismatch rejection test.
+None.
 
-## Sprint 24.2: Convergence and Evidence [⏸️ Blocked]
+## Sprint 24.2: Convergence and Evidence [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `test/sl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`
-**Blocked by**: Sprint `24.1`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/numerical_core.md`
 
 ### Objective
@@ -102,17 +111,22 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml test jitml-integration --linux-cpu
 ```
 
+Current validation: `docker compose run --rm jitml jitml test
+jitml-sl-canonicals --linux-cpu` passed 31 / 31 on 2026-07-02, including the
+measured supervised row evidence assertion, invalid/smoke evidence rejection,
+and underpowered two-step negative case. `docker compose run --rm jitml jitml
+test jitml-integration --linux-cpu` passed 79 / 79 against the live linux-cpu
+cluster. `jitml docs check` and `jitml check-code` passed after the Sprint
+`24.2` module/docs update.
+
 ### Remaining Work
 
-- Add weight-delta, non-degenerate-gradient, and throughput assertions per row.
-- Anchor each convergence bar to its literature target and slack and add the
-  underpowered-model negative case.
+None.
 
-## Sprint 24.3: CompletedTraining SL Manifests [⏸️ Blocked]
+## Sprint 24.3: CompletedTraining SL Manifests [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/Checkpoint/`, `test/integration/Main.hs`
-**Blocked by**: Sprint `24.2`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`
 
 ### Objective
@@ -137,11 +151,18 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+Current validation: `docker compose run --rm jitml jitml test
+jitml-integration --linux-cpu` passed 81 / 81 on 2026-07-02, including the
+supervised completed-manifest graph/layout/evidence cases and fail-closed
+partial/synthetic/untrained/malformed manifest loader cases. `docker compose
+run --rm jitml jitml test jitml-sl-canonicals --linux-cpu` passed 31 / 31,
+including the live MNIST and all-canonical-row supervised materialization and
+training checks. `docker compose run --rm jitml jitml check-code` passed after
+formatting the Sprint `24.3` integration test wrapping.
+
 ### Remaining Work
 
-- Extend manifests with supervised `CompletedTraining`, convergence, and
-  weight-delta fields.
-- Add negative inference tests for every supervised family.
+None.
 
 ## Documentation Requirements
 

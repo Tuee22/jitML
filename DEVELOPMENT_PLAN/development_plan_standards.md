@@ -245,10 +245,11 @@ modifying the owned closure of Phases `0`–`18`, and the user elected to
 implement every row **for real** — the plan narrows nothing by documentation;
 each obligation is closed by real training, real inference, and real kernels.
 Phase `19` installs the typed product-truth gates, the single `ProductRow`
-registry, a matrix floor, and per-row convergence bars. Phase `20` removes the
-legacy fake-ML fossils and installs the forbidden-scaffold + import-edge lint.
-Phase `21` makes inference eligibility a type-state property and training
-evidence non-fabricable. Phase `22` makes the canonical matrix and
+registry, a matrix floor, per-row convergence bars, and the typed Phase `19`–`31`
+sprint-status registry that downstream closure gates consume. Phase `20`
+removes the legacy fake-ML fossils and installs the forbidden-scaffold +
+import-edge lint. Phase `21` makes inference eligibility a type-state property
+and training evidence non-fabricable. Phase `22` makes the canonical matrix and
 dataset-integrity boundary singular. Phase `23` builds the general
 differentiable layer engine — reverse-mode autodiff over the full layer catalog
 wired to real oneDNN. Phase `24` closes the real, literal supervised

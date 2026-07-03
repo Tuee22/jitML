@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 tqcModule :: AlgorithmModule
@@ -18,6 +19,13 @@ tqcModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "TQC" Specialized True
     , moduleHyperparameters = tqcHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.tqc.truncated-quantile-critics"
+          "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantTQC"
+          "replay-buffer.continuous-actions"
+          "mlp-stochastic-actor-quantile-critics"
+          ["pooled-critic-atoms", "top-atom-truncation", "entropy-regularized-target"]
     }
 
 tqcHyperparameters :: [AlgorithmHyperparameter]

@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 sacModule :: AlgorithmModule
@@ -18,6 +19,13 @@ sacModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "SAC" OffPolicy True
     , moduleHyperparameters = sacHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.sac.entropy-regularized-twin-critic"
+          "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantSAC"
+          "replay-buffer.continuous-actions"
+          "mlp-stochastic-actor-twin-critic"
+          ["entropy-regularized-target", "twin-critics", "temperature-weighted-policy-loss"]
     }
 
 sacHyperparameters :: [AlgorithmHyperparameter]

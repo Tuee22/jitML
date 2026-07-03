@@ -50,7 +50,7 @@ Run a hyperparameter sweep.
 .SS JITML RL TRAIN
 Train an RL policy.
 .PP
-.B jitml rl train <rl\\-experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml rl train <rl\\-experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-algorithm <algorithm>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML RL EVAL
 Evaluate an RL policy.
 .PP
@@ -62,7 +62,7 @@ Run a fixed\\-seed rollout.
 .SS JITML RL ALPHAZERO SELF-PLAY
 Run AlphaZero self\\-play.
 .PP
-.B jitml rl alphazero self\\-play [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-games <n>] [\\-\\-sims <n>] [\\-\\-max\\-plies <n>] [\\-\\-updates <n>] [\\-\\-arena\\-games <n>]
+.B jitml rl alphazero self\\-play [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-game <game>] [\\-\\-games <n>] [\\-\\-sims <n>] [\\-\\-max\\-plies <n>] [\\-\\-updates <n>] [\\-\\-arena\\-games <n>]
 .SS JITML INFERENCE RUN
 Run inference at any point.
 .PP
@@ -168,9 +168,13 @@ Upload a real dataset blob to MinIO.
 .PP
 .B jitml internal upload\\-dataset [\\-\\-name <name>] [\\-\\-split <split>] [\\-\\-artifact <artifact>] [\\-\\-path <path>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML INTERNAL SEED-DEMO-CHECKPOINTS
-Seed demo inference checkpoints into MinIO.
+Seed legacy fixture checkpoints into MinIO.
 .PP
 .B jitml internal seed\\-demo\\-checkpoints
+.SS JITML INTERNAL TRAIN-AND-PUBLISH-PRODUCT-ROWS
+Train and publish product row checkpoints.
+.PP
+.B jitml internal train\\-and\\-publish\\-product\\-rows [\\-\\-apple\\-silicon] [\\-\\-linux\\-cpu] [\\-\\-linux\\-cuda]
 .SS JITML INTERNAL DHALL-SCHEMA
 Print the reflected Dhall config schema.
 .PP

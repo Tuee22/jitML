@@ -1,6 +1,6 @@
 # Phase 27: Demo All-Model Rendering
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/purescript_frontend.md](../documents/engineering/purescript_frontend.md), [../documents/engineering/cli_command_surface.md](../documents/engineering/cli_command_surface.md)
 **Generated sections**: none
@@ -11,7 +11,9 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `26`.
+✅ **Done**. Phase `26` is Done, and Sprints `27.1` through `27.3` are Done.
+The browser demo now uses ProductRow artifact selectors, row-specific renderers,
+and fail-closed browser states for missing or invalid artifacts.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -29,10 +31,9 @@ a `503 checkpoint-required` response whenever no eligible artifact exists for th
 requested row. A unit guard plus a live Playwright guard prove the browser can
 never serve a `*-demo-weights` artifact for a product row.
 
-## Sprint 27.1: Train-and-Publish + Artifact Selectors [⏸️ Blocked]
+## Sprint 27.1: Train-and-Publish + Artifact Selectors [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `26`
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`, `web/src/Panels/Checkpoints.purs`
 **Docs to update**: `../documents/engineering/cli_command_surface.md`, `../documents/engineering/purescript_frontend.md`
 
@@ -66,18 +67,13 @@ docker compose run --rm jitml jitml test jitml-e2e --linux-cpu
 docker compose run --rm jitml jitml docs check
 ```
 
-### Remaining Work
+Validation passed on 2026-07-02 for `jitml-unit --linux-cpu` (276 / 276),
+`jitml-e2e --linux-cpu` (23 / 23), and `jitml docs check`.
 
-- Implement `train-and-publish-product-rows` and wire it into `src/JitML/App.hs`.
-- Replace static product-matrix proof with `ProductRow`-grouped artifact-backed
-  selectors and assert every selector state.
-- Move retired seed-demo-checkpoint helpers into the pending-removal ledger.
+## Sprint 27.2: Row-Specific Renderers [✅ Done]
 
-## Sprint 27.2: Row-Specific Renderers [⏸️ Blocked]
-
-**Status**: Blocked
-**Blocked by**: Sprint `27.1`
-**Implementation**: `web/src/Panels/Mnist.purs`, `web/src/Panels/Cifar.purs`, `web/src/Panels/Rl.purs`, `web/src/Panels/Replay.purs`, `web/src/Panels/Connect4.purs`, `src/JitML/Web/Contracts.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Test/WorkflowMatrix.hs`, `web/src/Panels/Checkpoints.purs`, `web/src/Panels/Mnist.purs`, `web/src/Panels/Cifar.purs`, `web/src/Panels/GenericInference.purs`, `web/src/Panels/CheckpointCompare.purs`, `web/src/Panels/Connect4.purs`, `web/src/Panels/Rl.purs`, `web/src/Panels/Training.purs`, `web/src/Panels/Tune.purs`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`
 
 ### Objective
@@ -99,20 +95,19 @@ trained artifact and the checkpoint manifest's convergence/provenance metadata.
 ### Validation
 
 ```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml test jitml-e2e --linux-cpu
 docker compose run --rm jitml jitml lint purescript
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+Validation passed on 2026-07-02 for `jitml-unit --linux-cpu` (276 / 276),
+`jitml-e2e --linux-cpu` (23 / 23), `jitml lint purescript`, and
+`jitml check-code`.
 
-- Add the missing row-specific panels and per-family metadata contracts.
-- Remove any remaining seeded synthetic demo checkpoints from product evidence.
+## Sprint 27.3: Browser Fail-Closed [✅ Done]
 
-## Sprint 27.3: Browser Fail-Closed [⏸️ Blocked]
-
-**Status**: Blocked
-**Blocked by**: Sprint `27.2`
+**Status**: Done
 **Implementation**: `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -137,14 +132,13 @@ A product row with no inference-eligible checkpoint returns
 ```bash
 docker compose run --rm jitml jitml test jitml-e2e --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml lint purescript
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
-
-- Add the fail-closed server responses and matching UI states.
-- Add the unit and Playwright `*-demo-weights` guards and the negative-state e2e
-  cases.
+Validation passed on 2026-07-03 for `jitml-e2e --linux-cpu` (24 / 24),
+`jitml-unit --linux-cpu` (277 / 277), `jitml lint purescript`, and
+`jitml check-code`.
 
 ## Documentation Requirements
 

@@ -16,6 +16,8 @@ import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Proto.Tune
   ( StartSweep (..)
   , StopSweep (..)
@@ -72,7 +74,7 @@ completedTrainingFixture experimentHash observedUnits metrics =
   either
     (error . Text.unpack)
     id
-    ( TrainingBudget.completedTrainingFromMetrics
+    ( TrainingBudget.completedTraining
         TrainingBudget.TrainingBudget
           { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
           , TrainingBudget.tbTargetUnits = max 1 observedUnits
@@ -80,12 +82,38 @@ completedTrainingFixture experimentHash observedUnits metrics =
           , TrainingBudget.tbSeed = Nothing
           }
         observedUnits
-        metrics
+        (trainingEvidenceFixture experimentHash observedUnits)
+        (convergenceObservationsFixture metrics)
         TrainingBudget.TensorBoardRunMetadata
           { TrainingBudget.tbrRunId = experimentHash
           , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
           , TrainingBudget.tbrScalarTags = fmap fst metrics
           }
+    )
+
+trainingEvidenceFixture :: Text -> Word64 -> ProductEvidence.TrainingEvidence
+trainingEvidenceFixture experimentHash observedUnits =
+  either
+    (error . Text.unpack)
+    id
+    ( ProductEvidence.mkTrainingEvidence
+        ("hyperparameter-initial-" <> experimentHash)
+        ("hyperparameter-final-" <> experimentHash <> "-" <> Text.pack (show observedUnits))
+        (max 1 observedUnits)
+        ("hyperparameter-dataset-" <> experimentHash)
+    )
+
+convergenceObservationsFixture :: [(Text, Double)] -> [TrainingBudget.ConvergenceObservation]
+convergenceObservationsFixture =
+  either
+    (error . Text.unpack)
+    id
+    ( traverse
+        ( \metric@(name, value) ->
+            ProductConvergence.evaluateConvergence
+              (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
+              (ProductConvergence.MeasuredMetrics [metric])
+        )
     )
 
 main :: IO ()

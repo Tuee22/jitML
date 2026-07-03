@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 td3Module :: AlgorithmModule
@@ -18,6 +19,13 @@ td3Module =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "TD3" OffPolicy True
     , moduleHyperparameters = td3Hyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.td3.clipped-double-q-delayed-policy"
+          "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantTD3"
+          "replay-buffer.continuous-actions"
+          "mlp-actor-twin-critic"
+          ["twin-critics", "target-policy-smoothing", "delayed-actor-update"]
     }
 
 td3Hyperparameters :: [AlgorithmHyperparameter]

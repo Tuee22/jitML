@@ -35,8 +35,7 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import JitML.RL.ConvergenceThresholds qualified as RLConvergence
-import JitML.SL.Canonicals qualified as SL
+import JitML.Product.Matrix qualified as Product
 import JitML.Substrate (Substrate (..), allSubstrates, renderSubstrate)
 import JitML.Training.Budget qualified as TrainingBudget
 
@@ -87,11 +86,14 @@ data ModelKind
   | RlAlgorithmModelCell
   | HerModelCell
   | AlphaZeroGameModelCell
+  | TuningModelCell
   deriving stock (Eq, Show, Enum, Bounded)
 
 data ModelCell = ModelCell
   { modelCellKind :: ModelKind
   , modelCellName :: Text
+  , modelCellExperimentHash :: Text
+  , modelCellDemoPanel :: Text
   , modelCellBudget :: Text
   , modelCellCommand :: [Text]
   , modelCellRequiresTrainedArtifact :: Bool
@@ -99,90 +101,56 @@ data ModelCell = ModelCell
   deriving stock (Eq, Show)
 
 allModelCells :: [ModelCell]
-allModelCells =
-  supervisedModelCells
-    <> rlModelCells
-    <> [herModelCell]
-    <> alphaZeroModelCells
+allModelCells = fmap productModelCell Product.allProductRows
 
-supervisedModelCells :: [ModelCell]
-supervisedModelCells =
-  [ ModelCell
-      { modelCellKind = SupervisedModelCell
-      , modelCellName = SL.problemName problem
-      , modelCellBudget =
-          TrainingBudget.renderTrainingBudget
-            TrainingBudget.TrainingBudget
-              { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
-              , TrainingBudget.tbTargetUnits = 1
-              , TrainingBudget.tbUnitLabel = "fixed-epochs"
-              , TrainingBudget.tbSeed = Just (fromIntegral (SL.problemSeed problem))
-              }
-      , modelCellCommand =
-          ["train", "experiments/" <> SL.problemName problem <> ".dhall"]
-      , modelCellRequiresTrainedArtifact = True
-      }
-  | problem <- SL.trainableCanonicalCohort
-  ]
+productModelCell :: Product.ProductRow state -> ModelCell
+productModelCell row =
+  ModelCell
+    { modelCellKind = productModelKind row
+    , modelCellName = Product.rowId row
+    , modelCellExperimentHash = Product.productRowExperimentHash row
+    , modelCellDemoPanel = Product.demoPanel row
+    , modelCellBudget = TrainingBudget.renderTrainingBudget (Product.trainingBudget row)
+    , modelCellCommand = productModelCommand row
+    , modelCellRequiresTrainedArtifact = True
+    }
 
-rlModelCells :: [ModelCell]
-rlModelCells =
-  [ ModelCell
-      { modelCellKind = RlAlgorithmModelCell
-      , modelCellName =
-          RLConvergence.fbrAlgorithm row <> "/" <> RLConvergence.fbrEnvironment row
-      , modelCellBudget =
-          TrainingBudget.renderTrainingBudget (RLConvergence.fbrBudget row)
-      , modelCellCommand =
-          [ "rl"
-          , "train"
-          , "experiments/" <> RLConvergence.fbrEnvironment row <> ".dhall"
-          , "--algorithm"
-          , RLConvergence.fbrAlgorithm row
-          ]
-      , modelCellRequiresTrainedArtifact = True
-      }
-  | row <- RLConvergence.fixedBudgetRlConvergenceRows
-  ]
+productModelKind :: Product.ProductRow state -> ModelKind
+productModelKind row =
+  case Product.family row of
+    Product.Supervised -> SupervisedModelCell
+    Product.ReinforcementLearning ->
+      case Product.rowClass row of
+        Product.RlGoalConditioned _ -> HerModelCell
+        _ -> RlAlgorithmModelCell
+    Product.AlphaZero -> AlphaZeroGameModelCell
+    Product.Tuning -> TuningModelCell
 
-herModelCell :: ModelCell
-herModelCell =
-  let metric = RLConvergence.herGoalMetric
-   in ModelCell
-        { modelCellKind = HerModelCell
-        , modelCellName = "HER/" <> RLConvergence.hgmEnvironment metric
-        , modelCellBudget =
-            TrainingBudget.renderTrainingBudget (RLConvergence.hgmBudget metric)
-        , modelCellCommand =
-            [ "rl"
-            , "train"
-            , "experiments/" <> RLConvergence.hgmEnvironment metric <> ".dhall"
-            , "--algorithm"
-            , "HER"
-            ]
-        , modelCellRequiresTrainedArtifact = True
-        }
+productModelCommand :: Product.ProductRow state -> [Text]
+productModelCommand row =
+  case Product.rowClass row of
+    Product.SupervisedClassification _ _ ->
+      ["train", Product.experimentConfig row]
+    Product.SupervisedRegression _ _ ->
+      ["train", Product.experimentConfig row]
+    Product.RlAlgorithmEnvironment algorithm _ ->
+      ["rl", "train", Product.experimentConfig row, "--algorithm", algorithm]
+    Product.RlGoalConditioned _ ->
+      ["rl", "train", Product.experimentConfig row, "--algorithm", "HER"]
+    Product.AlphaZeroGame game ->
+      ["rl", "alphazero", "self-play", "--game", game, "--sims", alphaZeroSims game]
+    Product.HyperparameterTuning _ ->
+      ["tune", Product.experimentConfig row]
 
-alphaZeroModelCells :: [ModelCell]
-alphaZeroModelCells =
-  [ ModelCell
-      { modelCellKind = AlphaZeroGameModelCell
-      , modelCellName = RLConvergence.azgGame row
-      , modelCellBudget =
-          TrainingBudget.renderTrainingBudget (RLConvergence.azgBudget row)
-      , modelCellCommand =
-          [ "rl"
-          , "alphazero"
-          , "self-play"
-          , "--game"
-          , RLConvergence.azgGame row
-          , "--sims"
-          , Text.pack (show (RLConvergence.azgMctsSimulationsPerMove row))
-          ]
-      , modelCellRequiresTrainedArtifact = True
-      }
-  | row <- RLConvergence.alphaZeroGameConvergenceRows
-  ]
+alphaZeroSims :: Text -> Text
+alphaZeroSims game =
+  Text.pack . show $
+    case game of
+      "connect4" -> 128 :: Int
+      "othello" -> 192
+      "hex" -> 256
+      "gomoku" -> 256
+      _ -> 128
 
 data WorkflowPlacementExpectation
   = WorkflowRunsInProcess

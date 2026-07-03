@@ -32,14 +32,24 @@ The result is:
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
 > **Current product status (reopened 2026-07-01):** The public no-caveat
-> product claim is **not closed**. A model-runtime audit found that the
-> worktree still contains fake/deterministic infrastructure, static demo matrix
-> proof, incomplete documented SL/RL implementation coverage, and
-> representative rather than per-model integration/e2e evidence. Phases `0`–`18`
-> remain historical evidence for the surfaces they actually validated; the
-> reopened completion path is the forward-only Phase `19`–`31` chain in
-> [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). Every documented
-> model row is implemented **for real** — literal deep architectures, genuinely
+> product claim is **not closed**. A model-runtime audit found that the previous
+> claim outran the implementation: at reopen the worktree lacked a singular
+> canonical matrix/data-integrity boundary, carried static demo matrix proof,
+> incomplete documented SL/RL implementation coverage, and representative rather
+> than per-model integration/e2e evidence.
+> Phases `0`–`18` remain historical evidence for the surfaces they actually
+> validated; Phases `19`–`27` are complete after Phase `25` re-closed on
+> 2026-07-03 with production RL trainer/environment dispatch and full RL live
+> publisher evidence. Sprint `28.1` is active on replacing synthetic/local row
+> evidence with real product-row publisher evidence and staging the remaining
+> non-MNIST supervised datasets. The reopened completion path remains the
+> forward-only
+> Phase `19`–`31` chain in
+> [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). Governed docs are
+> machine-checked: `jitml docs check` rejects current product-closure claims
+> unless `src/JitML/Product/PhaseStatus.hs` reports the Phase `19`–`31` chain
+> Done, while explicitly dated historical-evidence blocks remain allowed. Every
+> documented model row is implemented **for real** — literal deep architectures, genuinely
 > distinct RL algorithms, real per-substrate conv/attention kernels, and
 > non-fabricable weight-delta training evidence — rather than narrowed to fit a
 > simpler implementation. No future closure may claim "all phases done" until
@@ -82,7 +92,10 @@ We want a runtime that is:
 The binding product-completion rules live in
 [documents/engineering/product_completion_contract.md](documents/engineering/product_completion_contract.md).
 This README owns the documented model surface; the contract owns the proof
-required before that surface may be called complete.
+required before that surface may be called complete. The executable product
+surface is registered in `src/JitML/Product/Matrix.hs` as `ProductRow` values;
+browser contracts, workflow-matrix tests, and report-card product denominators
+consume that registry instead of maintaining separate row lists.
 
 Completion is per row, not per category. Every row documented under
 [Canonical supervised learning problems](#canonical-supervised-learning-problems),
@@ -93,9 +106,9 @@ must have all of the following:
 
 1. an implementation matching the documented dataset/environment/model/algorithm;
 2. a checked-in or generated Dhall experiment config that runs that row;
-3. product training that verifies dataset bytes, executes the selected substrate
-   device for update-critical work, and records that learned state changed from
-   initialization;
+3. product training that verifies dataset bytes at read time before decode,
+   executes the selected substrate device for update-critical work, and records
+   that learned state changed from initialization;
 4. a completed checkpoint with `CompletedTraining` and convergence metrics;
 5. inference that accepts only an inference-eligible trained artifact;
 6. demo rendering from that trained artifact, not from a static row name or
@@ -979,6 +992,7 @@ mindmap
       install-metal-bridge
       upload-dataset
       seed-demo-checkpoints
+      train-and-publish-product-rows
       dhall-schema
       third-party-images
       gc
@@ -1004,10 +1018,10 @@ mindmap
 | `jitml train` | Run a supervised training job. | `jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]` |
 | `jitml eval` | Run deterministic evaluation. | `jitml eval <experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml tune` | Run a hyperparameter sweep. | `jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <name>] [--pruner <name>] [--trials <natural>] [--parallelism <natural>] [--dry-run] [--plan-file <path>]` |
-| `jitml rl train` | Train an RL policy. | `jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]` |
+| `jitml rl train` | Train an RL policy. | `jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--algorithm <algorithm>] [--dry-run] [--plan-file <path>]` |
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
-| `jitml rl alphazero self-play` | Run AlphaZero self-play. | `jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]` |
+| `jitml rl alphazero self-play` | Run AlphaZero self-play. | `jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]` |
 | `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--experiment-hash <experiment-hash>]` |
 | `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]` |
 | `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
@@ -1034,7 +1048,8 @@ mindmap
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
 | `jitml internal install-metal-bridge` | Build the fixed Apple Metal bridge. | `jitml internal install-metal-bridge` |
 | `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]` |
-| `jitml internal seed-demo-checkpoints` | Seed demo inference checkpoints into MinIO. | `jitml internal seed-demo-checkpoints` |
+| `jitml internal seed-demo-checkpoints` | Seed legacy fixture checkpoints into MinIO. | `jitml internal seed-demo-checkpoints` |
+| `jitml internal train-and-publish-product-rows` | Train and publish product row checkpoints. | `jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda]` |
 | `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>] [--catalog <catalog>]` |
 | `jitml internal third-party-images` | Print the third-party chart image list. | `jitml internal third-party-images` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
@@ -1169,7 +1184,13 @@ Per doctrine §Progressive Introspection: `jitml commands`, `jitml commands --tr
 
 ## Layer catalog
 
-`jitML` supports arbitrarily-shaped non-recurrent feedforward networks. Every layer is a first-class Dhall constructor; networks are composed as arbitrary DAGs over these primitives.
+`jitML` supports arbitrarily-shaped non-recurrent feedforward networks. Every
+layer is a first-class Dhall constructor; networks are composed as arbitrary
+DAGs over these primitives. The Phase `23` implementation adds the checked-in
+`JitML.Numerics.LayerGraph` IR plus `JitML.Numerics.Autodiff` pure
+reverse-mode tape for Dense, convolution, pooling, normalization, residual,
+attention, GeGLU, and patch-embedding nodes, with oneDNN training kernels and
+graph checkpoint/inference serialization complete on `linux-cpu`.
 
 - **Dense / Linear.** With or without bias; optional spectral norm.
 - **Convolution.** `Conv1D`, `Conv2D`, `Conv3D`. Variants: standard, transposed, depthwise / separable, dilated / atrous, grouped.
@@ -1488,7 +1509,11 @@ model family must train for its declared fixed `TrainingBudget`, mint a
 completed-training witness, checkpoint convergence statistics, evaluate, infer
 only through an inference-eligible checkpoint, and appear in the
 Playwright-validated demo surface on each real substrate lane where that lane is
-selected.
+selected. The current literal-topology evidence is recorded in
+`JitML.SL.Architecture.archLayerGraph` and mirrored by
+`ProductRow.rowArchitectureFeatures`, so a Dense-only graph cannot satisfy a row
+that claims Conv2D, BatchNorm, Dropout, GroupNorm, residual blocks, attention,
+patch embedding, LayerNorm, or GeGLU.
 
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
@@ -1499,9 +1524,9 @@ selected.
 | Fashion-MNIST | small ResNet | Conv2D + BatchNorm + BasicBlock | ~93% | He et al. 2015 [^he2015] |
 | CIFAR-10 | ResNet-20 | BasicBlock + global avg pool | 91.25% | He et al. 2015 [^he2015] |
 | CIFAR-10 | ResNet-56 | Deeper residual + 3-stage downsample | ~93.0% | He et al. 2015 [^he2015] |
-| CIFAR-100 | Wide ResNet-28-10 | Wider residual + Dropout | ~81.2% | Zagoruyko & Komodakis 2016 [^zagoruyko2016] |
+| CIFAR-100 | Wide ResNet-28-10 | Wider residual + GroupNorm | ~81.2% | Zagoruyko & Komodakis 2016 [^zagoruyko2016] |
 | CIFAR-10 | small ViT | Patch embed + MultiHeadAttention + LayerNorm + GeGLU | ~80–85% from-scratch (no pre-training) | Dosovitskiy et al. 2020 [^dosovitskiy2020] |
-| Tiny ImageNet (200-class, 64×64) | ResNet-50 | BottleneckBlock + GroupNorm option | ~50–65% top-1 from-scratch | Le & Yang 2015 [^leyang2015]; He et al. 2015 [^he2015] |
+| Tiny ImageNet (200-class, 64×64) | ResNet-50 | BottleneckBlock + BatchNorm | ~50–65% top-1 from-scratch | Le & Yang 2015 [^leyang2015]; He et al. 2015 [^he2015] |
 | California Housing (UCI tabular regression) | small MLP | MSE loss; non-classification path | RMSE ≈ 0.50 (standardized target) | Pace & Barry 1997 [^pace1997]; Hernández-Lobato & Adams 2015 [^hernandez2015] |
 
 ## Dataset sources
@@ -1594,6 +1619,9 @@ KeyDoorGrid is the default visual discrete-control demo target: a seeded grid
 map with walls, key, locked door, goal, legal-action masks, vector/grid
 observations, and generated render frames. For each non-jitML-original env, the
 dynamics are re-implemented in Haskell from the published equations.
+As of Sprint `25.1`, `JitML.RL.Environments.canonicalEnvironments` and
+`JitML.RL.Simulator` cover these seven product environments; `atari-subset` is
+optional ROM-gated runtime support, not a product catalog row.
 
 Default examples, demos, and required canonical tests must not need copyrighted
 runtime assets. Phase `8` Sprint `8.9` implements `KeyDoorGrid-v0` and swaps
@@ -2021,6 +2049,11 @@ Reproduce the entire **stable-baselines3** family — core and contrib — as fi
 
 Retired SB3 algorithms (`ACER`, `ACKTR`, `GAIL`) are not adopted.
 
+As of Sprint `25.2`, every traditional product algorithm module carries an
+`AlgorithmUpdateContract` with a unique update identity, trainer entry point,
+rollout surface, learned-artifact shape, and update-feature list; registry tests
+fail if two product algorithm ids resolve to the same update contract.
+
 Algorithm defaults are pinned via SB3 RL Zoo3 as a sanity check, not as a source of truth (a baselined number that differs from RL Zoo3's by more than 1σ on the same env+algo is worth investigating before pinning).
 
 ---
@@ -2087,6 +2120,7 @@ placeholder fixtures. Target coverage:
 | DQN / QR-DQN | cartpole, mountain-car, key-door-grid median evaluation return |
 | DDPG / TD3 / SAC / CrossQ / TQC | lunar-lander median evaluation return |
 | ARS | cartpole, mountain-car, lunar-lander, key-door-grid median evaluation return plus accepted-direction improvement |
+| Environment-floor parity rows | PPO/acrobot, SAC/pendulum, PPO/gridworld-deterministic median evaluation return |
 | HER | goal-conditioned canonical env success rate plus achieved-goal distance |
 | AlphaZero | per-game arena win-rate for Connect 4, Othello, Hex, and Gomoku |
 
@@ -2182,7 +2216,9 @@ Root Dirichlet noise is drawn from a seed derived per game via `splitSeed master
 Triples `(canonicalState, mctsVisits, valueTarget)` plus all game symmetries (Connect 4's horizontal mirror is a free 2× data multiplier). The buffer is content-addressed and checkpointed exactly like the off-policy `ReplayBuffer` (see [Checkpoint object layout](#checkpoint-object-layout)).
 `jitml rl alphazero self-play` prints both the policy/value checkpoint keys and
 an `alphazero-transcript` artifact containing sampled states, MCTS visit
-distributions, and value targets for replay/inspection.
+distributions, and value targets for replay/inspection. The command accepts
+`--game connect4|othello|hex|gomoku`; each game resolves its own initial state,
+observation size, action count, transcript id, and policy/value checkpoint tensor.
 
 ### Arena gating
 
@@ -2203,8 +2239,8 @@ The run-to-run determinism check from [Convergence and determinism checks for RL
 | Tic-Tac-Toe | 2 | 3×3 | `Masked Discrete(9)` | ≤ 9 | optimal play → draw; minimax-equivalence property |
 | Connect 4 | 2 | 6×7 (gravity) | `Masked Discrete(7)` | ≤ 7 | **canonical entry**; arena win-rate threshold |
 | Othello (Reversi) | 2 | 8×8 | `Masked Discrete(64)` | ~ 5–15 | same AlphaZero arena surface |
-| Gomoku-9x9 | 2 | 9×9 | `Masked Discrete(81)` | ≤ 81 | same AlphaZero arena surface |
-| Hex-7x7 | 2 | 7×7 hex | `Masked Discrete(49)` | ≤ 49 | same AlphaZero arena surface |
+| Gomoku | 2 | 15×15 | `Masked Discrete(225)` | ≤ 225 | same AlphaZero arena surface |
+| Hex | 2 | 11×11 hex | `Masked Discrete(121)` | ≤ 121 | same AlphaZero arena surface |
 
 Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level convergence anchor via a minimax property: the game is solved by minimax, so a sufficiently-trained AlphaZero policy's argmax-visit move at every reachable state must lie in the minimax-optimal move set. The property is checked at test time against a freshly-computed minimax oracle — no committed move-sequence file. (Raw visit *counts* are a function of `mctsSimsPerMove`, the PUCT exploration constant, the policy prior, and the Dirichlet root noise — those are not equal to minimax values; only the argmax over visits is, and only the argmax is asserted.)
 

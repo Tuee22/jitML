@@ -2,9 +2,48 @@
 -- these (rendered to Dhall text in a per-run ConfigMap) before dispatching a
 -- worker Job, and the worker decodes it via `Dhall.inputFile` from
 -- `/etc/jitml/run/RunConfig.dhall` instead of reading the former `JITML_*`
--- environment variables. The three constructors mirror the three command
--- envelopes the daemon already dispatches (`StartTraining`, `StartSweep`,
--- `StartRLRun`).
+-- environment variables. The worker records mirror the three command envelopes
+-- the daemon already dispatches (`StartTraining`, `StartSweep`, `StartRLRun`).
+-- The inference-selector records mirror the Phase 21 type-state boundary: a
+-- browser or worker inference selector names completed-training evidence rather
+-- than a declared or partial experiment.
+
+let TrainingEvidence : Type =
+      { initialWeightHash : Text
+      , finalWeightHash : Text
+      , updateCount : Natural
+      , datasetShaAtRead : Text
+      }
+
+let CompletedTrainingWitness : Type =
+      { experimentHash : Text
+      , manifestSha : Text
+      , provenanceKind : Text
+      , evidence :
+          { initialWeightHash : Text
+          , finalWeightHash : Text
+          , updateCount : Natural
+          , datasetShaAtRead : Text
+          }
+      , convergencePassed : Bool
+      }
+
+let InferenceSelector : Type =
+      { experimentHash : Text
+      , manifestSha : Text
+      , completedTraining :
+          { experimentHash : Text
+          , manifestSha : Text
+          , provenanceKind : Text
+          , evidence :
+              { initialWeightHash : Text
+              , finalWeightHash : Text
+              , updateCount : Natural
+              , datasetShaAtRead : Text
+              }
+          , convergencePassed : Bool
+          }
+      }
 
 let TrainingRunConfig : Type =
       { experimentHash : Text
@@ -43,7 +82,10 @@ let RlRunConfig : Type =
       , pulsarWsUrl : Text
       }
 
-in  { TrainingRunConfig = TrainingRunConfig
+in  { TrainingEvidence = TrainingEvidence
+    , CompletedTrainingWitness = CompletedTrainingWitness
+    , InferenceSelector = InferenceSelector
+    , TrainingRunConfig = TrainingRunConfig
     , TuneRunConfig = TuneRunConfig
     , RlRunConfig = RlRunConfig
     }

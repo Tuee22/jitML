@@ -12,6 +12,7 @@ import Data.ByteString qualified as ByteString
 import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (lefts)
+import Data.List qualified as List
 import Data.Maybe qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -51,8 +52,12 @@ import JitML.SL.Classifier
 import JitML.Bootstrap (readExistingLivePublication)
 import JitML.Cluster.Publication (publicationEdgePort, publicationSubstrate)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Training
   ( CheckpointDone (..)
   , EpochCompleted (..)
@@ -99,12 +104,13 @@ import JitML.Service.MinIOSubprocess
   , minioSettingsForLocalEdge
   , runMinIOSubprocess
   )
-import JitML.Service.Retry (ServiceError)
+import JitML.Service.Retry (ServiceError (..))
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCardKnobs (..)
   , loadReportCardKnobs
   )
+import JitML.Test.RowAssertions qualified as RowAssertions
 import JitML.Training.Budget qualified as TrainingBudget
 
 completedTrainingFixture
@@ -117,7 +123,7 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
   either
     (error . Text.unpack)
     id
-    ( TrainingBudget.completedTrainingFromMetrics
+    ( TrainingBudget.completedTraining
         TrainingBudget.TrainingBudget
           { TrainingBudget.tbKind = kind
           , TrainingBudget.tbTargetUnits = max 1 observedUnits
@@ -125,12 +131,39 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
           , TrainingBudget.tbSeed = Nothing
           }
         observedUnits
-        metrics
+        (trainingEvidenceFixture experimentHash observedUnits)
+        (convergenceObservationsFixture metrics)
         TrainingBudget.TensorBoardRunMetadata
           { TrainingBudget.tbrRunId = experimentHash
           , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
           , TrainingBudget.tbrScalarTags = fmap fst metrics
           }
+    )
+
+trainingEvidenceFixture :: Text -> Word64 -> ProductEvidence.TrainingEvidence
+trainingEvidenceFixture experimentHash observedUnits =
+  either
+    (error . Text.unpack)
+    id
+    ( ProductEvidence.mkTrainingEvidence
+        ("sl-initial-" <> experimentHash)
+        ("sl-final-" <> experimentHash <> "-" <> Text.pack (show observedUnits))
+        (max 1 observedUnits)
+        ("sl-dataset-" <> experimentHash)
+    )
+
+convergenceObservationsFixture :: [(Text, Double)] -> [TrainingBudget.ConvergenceObservation]
+convergenceObservationsFixture metrics =
+  either
+    (error . Text.unpack)
+    id
+    ( traverse
+        ( \metric@(name, value) ->
+            ProductConvergence.evaluateConvergence
+              (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
+              (ProductConvergence.MeasuredMetrics [metric])
+        )
+        metrics
     )
 
 main :: IO ()
@@ -162,6 +195,121 @@ main =
                   }
               specs = Architecture.allCanonicalArchitectureSpecs config
           fmap (problemName . Architecture.archProblem) specs @?= fmap problemName canonicalProblems
+      , testCase "ProductRow architecture features match literal LayerGraph topology (Sprint 24.1)" $ do
+          let config =
+                defaultClassifierConfig
+                  { clfInputs = 16
+                  , clfHidden = 8
+                  , clfClasses = 3
+                  }
+              specs = Architecture.allCanonicalArchitectureSpecs config
+              supervisedRows =
+                [ row
+                | row <- ProductMatrix.allProductRows
+                , ProductMatrix.family row == ProductMatrix.Supervised
+                ]
+              specFor row =
+                List.find
+                  ((== ProductMatrix.rowId row) . problemName . Architecture.archProblem)
+                  specs
+              rowFailures row =
+                case specFor row of
+                  Nothing ->
+                    [ProductMatrix.rowId row <> " has no canonical ArchitectureSpec"]
+                  Just spec ->
+                    let claimed = ProductMatrix.rowArchitectureFeatures row
+                        expected = Architecture.architectureClaimedFeatures spec
+                     in Architecture.validateArchitectureFeatureParity spec claimed
+                          <> [ ProductMatrix.rowId row
+                                 <> " records "
+                                 <> Text.pack (show (fmap Architecture.renderArchitectureFeature claimed))
+                                 <> " but architecture declares "
+                                 <> Text.pack (show (fmap Architecture.renderArchitectureFeature expected))
+                             | claimed /= expected
+                             ]
+              failures = concatMap rowFailures supervisedRows
+          failures @?= []
+      , testCase "literal supervised graph topologies carry documented named blocks (Sprint 24.1)" $ do
+          let config =
+                defaultClassifierConfig
+                  { clfInputs = 16
+                  , clfHidden = 8
+                  , clfClasses = 3
+                  }
+              specs = Architecture.allCanonicalArchitectureSpecs config
+              specNamed name =
+                List.find ((== name) . problemName . Architecture.archProblem) specs
+              countNodes name predicate =
+                case specNamed name of
+                  Nothing -> assertFailure ("missing canonical ArchitectureSpec for " <> Text.unpack name)
+                  Just spec ->
+                    pure
+                      ( length
+                          [ ()
+                          | node <- LayerGraph.layerGraphNodes (Architecture.archLayerGraph spec)
+                          , predicate (LayerGraph.layerNodeKind node)
+                          ]
+                      )
+              assertCount name label predicate expected = do
+                actual <- countNodes name predicate
+                assertBool
+                  ( Text.unpack name
+                      <> " expected "
+                      <> show expected
+                      <> " "
+                      <> label
+                      <> " nodes, got "
+                      <> show actual
+                  )
+                  (actual == expected)
+              assertAtLeast name label predicate expected = do
+                actual <- countNodes name predicate
+                assertBool
+                  ( Text.unpack name
+                      <> " expected at least "
+                      <> show expected
+                      <> " "
+                      <> label
+                      <> " nodes, got "
+                      <> show actual
+                  )
+                  (actual >= expected)
+          assertCount "mnist-deep-mlp" "BatchNorm" isBatchNorm 2
+          assertCount "mnist-deep-mlp" "Dropout" isDropout 2
+          assertCount "mnist-lenet" "Conv2D" isConv2D 2
+          assertAtLeast "mnist-lenet" "pooling" isPool 2
+          assertCount "fashion-mnist-resnet" "BasicBlock" isBasicBlock 2
+          assertCount "cifar10-resnet20" "BasicBlock" isBasicBlock 20
+          assertCount "cifar10-resnet56" "BasicBlock" isBasicBlock 56
+          assertCount "cifar100-wide-resnet" "BasicBlock" isBasicBlock 12
+          assertAtLeast "cifar100-wide-resnet" "GroupNorm" isGroupNorm 1
+          assertCount "cifar10-vit" "MultiHeadAttention" isAttention 1
+          assertCount "cifar10-vit" "LayerNorm" isLayerNorm 2
+          assertCount "cifar10-vit" "GeGLU" isGeGLU 1
+          assertCount "tiny-imagenet-resnet50" "BottleneckBlock" isBottleneckBlock 16
+      , testCase "feature parity rejects a simplified graph for a richer row (Sprint 24.1)" $ do
+          let config =
+                defaultClassifierConfig
+                  { clfInputs = 16
+                  , clfHidden = 8
+                  , clfClasses = 3
+                  }
+              specs = Architecture.allCanonicalArchitectureSpecs config
+              rows = ProductMatrix.allProductRows
+              denseSpec =
+                List.find ((== "mnist-shallow-mlp") . problemName . Architecture.archProblem) specs
+              lenetRow =
+                List.find ((== "mnist-lenet") . ProductMatrix.rowId) rows
+          case (denseSpec, lenetRow) of
+            (Just spec, Just row) -> do
+              let failures =
+                    Architecture.validateArchitectureFeatureParity
+                      spec
+                      (ProductMatrix.rowArchitectureFeatures row)
+              assertBool
+                "Dense-only graph must not satisfy the LeNet Conv2D/pooling feature claim"
+                (not (null failures))
+            _ -> assertFailure "missing dense spec or LeNet ProductRow"
       , testCase "supervised experiment Dhall resolves the canonical problem row (Sprint 8.12)" $ do
           mnist <- SL.loadCanonicalProblemExperiment "experiments/mnist.dhall"
           fmap problemName mnist @?= Right "mnist-shallow-mlp"
@@ -383,6 +531,23 @@ main =
                       Right fetched ->
                         fetchedSha256 fetched @?= datasetRefHash ref
               Nothing -> assertFailure "expected at least one canonical problem with synthetic SHA"
+      , testCase "verified artifact reads reject corrupt canonical bytes before decode (Sprint 22.3)" $
+          withSystemTempDirectory "jitml-sl-corrupt-dataset" $ \dir -> do
+            let ref = Dataset.DatasetRef "MNIST" Dataset.TrainSplit 0 "ignored"
+                payload = ByteString.Char8.pack "not the canonical MNIST train image gzip"
+            result <-
+              runFilesystemMinIO dir $ do
+                _ <- putBlobBytesIfAbsent (Dataset.datasetArtifactObjectRef ref Dataset.ImagesArtifact) payload
+                Dataset.fetchVerifiedDatasetArtifactBytes ref Dataset.ImagesArtifact
+            case result of
+              Left (SEConflict message) ->
+                assertBool
+                  "corrupt canonical bytes fail before decode with a SHA diagnostic"
+                  ("dataset SHA mismatch for MNIST/train/images" `Text.isInfixOf` message)
+              Left err ->
+                assertFailure ("expected SHA conflict, got " <> show err)
+              Right _ ->
+                assertFailure "corrupt canonical bytes unexpectedly verified"
       , testCase "sl-canonicals consumes cabal.project sl_epochs and sl_batch knobs" $ do
           loaded <- loadReportCardKnobs "cabal.project"
           case loaded of
@@ -577,6 +742,111 @@ main =
                         <> show (Architecture.slmTrainLoss metrics)
                     )
                     (abs (ce - Architecture.slmTrainLoss metrics) < 1.0e-9)
+      , testCase
+          "supervised row evidence assertions cover split, throughput, hashes, and convergence (Sprint 24.2)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            substrate <- selectedTestSubstrate
+            let device = mlpDeviceForSubstrate substrate env
+            requireMlpDevice substrate device
+            let config =
+                  defaultClassifierConfig
+                    { clfSeed = 29
+                    , clfInputs = 16
+                    , clfHidden = 16
+                    , clfClasses = 3
+                    , clfEpochs = 400
+                    , clfLearningRate = 1.0e-2
+                    }
+                denseProblem =
+                  case filter ((== "Dense") . SL.problemModel) canonicalProblems of
+                    (p : _) -> p
+                    [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
+                spec = Architecture.architectureSpecForProblem config denseProblem
+                (trainSet, validationSet, testSet) = architectureEvidenceSplits
+            threshold <-
+              case slCohortThreshold (problemName denseProblem) of
+                Just value -> pure value
+                Nothing -> assertFailure "missing Dense SL convergence threshold"
+            result <-
+              Architecture.trainArchitectureWithDeviceSelected device spec config trainSet validationSet
+            case result of
+              Left err -> assertFailure ("evidence SL training failed: " <> Text.unpack err)
+              Right (trained, metrics) -> do
+                testAccE <- Architecture.accuracyArchitectureWithDevice device trained testSet
+                case testAccE of
+                  Left err -> assertFailure ("evidence test accuracy failed: " <> Text.unpack err)
+                  Right testAcc -> do
+                    let finalWeights = Architecture.trainedArchitectureWeights trained
+                        evidence =
+                          RowAssertions.SupervisedRowEvidence
+                            { RowAssertions.sreRowId = problemName denseProblem
+                            , RowAssertions.sreInitialWeightHash =
+                                weightDigest
+                                  ( VU.toList
+                                      (LayerGraph.graphParameterVector (Architecture.archLayerGraph spec))
+                                  )
+                            , RowAssertions.sreFinalWeightHash = weightDigest finalWeights
+                            , RowAssertions.sreUpdateCount =
+                                fromIntegral (Architecture.slmExamplesProcessed metrics)
+                            , RowAssertions.sreTrainExamples = length trainSet
+                            , RowAssertions.sreValidationExamples = length validationSet
+                            , RowAssertions.sreTestExamples = length testSet
+                            , RowAssertions.sreExamplesSeen =
+                                fromIntegral (Architecture.slmExamplesProcessed metrics)
+                            , RowAssertions.sreThroughputExamples =
+                                fromIntegral (Architecture.slmExamplesProcessed metrics)
+                            , RowAssertions.sreTrainLoss = Architecture.slmTrainLoss metrics
+                            , RowAssertions.sreValidationLoss = Architecture.slmValidationLoss metrics
+                            , RowAssertions.sreTestMetricName = "test_accuracy"
+                            , RowAssertions.sreTestMetricGoal = TrainingBudget.MetricMaximise
+                            , RowAssertions.sreTestMetricValue = testAcc
+                            , RowAssertions.sreConvergenceThreshold = slLiteratureTarget threshold
+                            , RowAssertions.sreConvergenceSlack = slSlack threshold
+                            , RowAssertions.sreGradientNorm = vectorMagnitude finalWeights
+                            , RowAssertions.sreSmokeThreshold = False
+                            }
+                    RowAssertions.assertSupervisedRowEvidence evidence @?= []
+      , testCase "supervised row assertions reject invalid or smoke-only learning evidence (Sprint 24.2)" $ do
+          let failures =
+                RowAssertions.assertSupervisedRowEvidence
+                  validSupervisedEvidence
+                    { RowAssertions.sreFinalWeightHash = RowAssertions.sreInitialWeightHash validSupervisedEvidence
+                    , RowAssertions.sreUpdateCount = 0
+                    , RowAssertions.sreValidationExamples = 0
+                    , RowAssertions.sreGradientNorm = 0.0
+                    , RowAssertions.sreSmokeThreshold = True
+                    }
+          assertBool
+            "equal initial/final hashes are rejected"
+            ("final weight hash equals initial weight hash" `elem` failures)
+          assertBool
+            "zero updates are rejected"
+            ("update count must be positive" `elem` failures)
+          assertBool
+            "missing validation partition is rejected"
+            ("validation examples must be positive" `elem` failures)
+          assertBool
+            "zero gradients are rejected"
+            ("gradient norm must be finite and positive" `elem` failures)
+          assertBool
+            "smoke thresholds are rejected"
+            ("uses a smoke threshold rather than a literature/slack bar" `elem` failures)
+      , testCase "underpowered two-step supervised evidence fails the literature bar (Sprint 24.2)" $ do
+          let failures =
+                RowAssertions.assertSupervisedRowEvidence
+                  validSupervisedEvidence
+                    { RowAssertions.sreRowId = "underpowered-2-step"
+                    , RowAssertions.sreUpdateCount = 2
+                    , RowAssertions.sreExamplesSeen = 2
+                    , RowAssertions.sreTestMetricValue = 0.10
+                    }
+          assertBool
+            "two-step model must fail the convergence bar"
+            ( any
+                ("test_accuracy failed convergence" `Text.isPrefixOf`)
+                failures
+            )
       , testCase "SL regression converges through the substrate JIT device (Sprint 8.12 --linux-cpu)" $ do
           env <- buildEnv defaultGlobalFlags
           substrate <- selectedTestSubstrate
@@ -771,10 +1041,10 @@ main =
                   let settings = minioSettingsForLocalEdge (publicationEdgePort pub)
                       testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
                       run = runMinIOSubprocess settings
-                  trainImg <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
-                  trainLbl <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
-                  testImg <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.ImagesArtifact)
-                  testLbl <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.LabelsArtifact)
+                  trainImg <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
+                  trainLbl <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
+                  testImg <- run (Dataset.fetchVerifiedDatasetArtifactBytes testRef Dataset.ImagesArtifact)
+                  testLbl <- run (Dataset.fetchVerifiedDatasetArtifactBytes testRef Dataset.LabelsArtifact)
                   case (trainImg, trainLbl, testImg, testLbl) of
                     (Right ti, Right tl, Right vi, Right vl) -> do
                       env <- buildEnv defaultGlobalFlags
@@ -794,8 +1064,8 @@ main =
                       case decodeBoundedDataset
                         config
                         (Just 10000)
-                        (Dataset.maybeGunzip ti)
-                        (Dataset.maybeGunzip tl) of
+                        (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload ti))
+                        (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload tl)) of
                         Left err -> assertFailure ("live MNIST training failed: " <> err)
                         Right (configForData, trainSet) -> do
                           let spec = Architecture.architectureSpecForProblem configForData problem
@@ -805,8 +1075,8 @@ main =
                               assertFailure ("live MNIST device architecture training failed: " <> Text.unpack err)
                             Right (trained, _trainAcc) -> do
                               testAccE <-
-                                case ( parseIdxImages (Dataset.maybeGunzip vi)
-                                     , parseIdxLabels (Dataset.maybeGunzip vl)
+                                case ( parseIdxImages (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload vi))
+                                     , parseIdxLabels (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload vl))
                                      ) of
                                   (Right (_, images), Right labels) ->
                                     Architecture.accuracyArchitectureWithDevice
@@ -916,7 +1186,9 @@ requireMlpDevice substrate device = do
         )
 
 trainLiveIdx
-  :: (MinIOSubprocess (Either ServiceError ByteString) -> IO (Either ServiceError ByteString))
+  :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
+       -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
+     )
   -> MlpDevice
   -> SL.CanonicalProblem
   -> Dataset.DatasetRef
@@ -925,22 +1197,22 @@ trainLiveIdx run device problem trainRef = do
   let (trainLimit, testLimit, epochs, minimumTrainAccuracy) = liveClassifierBudget problem
       testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
       config = defaultClassifierConfig {clfEpochs = epochs}
-  trainImg <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
-  trainLbl <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
-  testImg <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.ImagesArtifact)
-  testLbl <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.LabelsArtifact)
+  trainImg <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
+  trainLbl <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
+  testImg <- run (Dataset.fetchVerifiedDatasetArtifactBytes testRef Dataset.ImagesArtifact)
+  testLbl <- run (Dataset.fetchVerifiedDatasetArtifactBytes testRef Dataset.LabelsArtifact)
   case (trainImg, trainLbl, testImg, testLbl) of
     (Right ti, Right tl, Right vi, Right vl) ->
       case ( decodeBoundedDataset
                config
                (Just trainLimit)
-               (Dataset.maybeGunzip ti)
-               (Dataset.maybeGunzip tl)
+               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload ti))
+               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload tl))
            , decodeBoundedDataset
                config
                (Just testLimit)
-               (Dataset.maybeGunzip vi)
-               (Dataset.maybeGunzip vl)
+               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload vi))
+               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload vl))
            ) of
         (Right (configForData, trainSet), Right (_, testSet)) ->
           trainLiveClassifierDataset
@@ -958,7 +1230,9 @@ trainLiveIdx run device problem trainRef = do
       pure (Left (problemLabel problem <> " staged IDX image/label bytes are missing"))
 
 trainLiveArchiveClassifier
-  :: (MinIOSubprocess (Either ServiceError ByteString) -> IO (Either ServiceError ByteString))
+  :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
+       -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
+     )
   -> MlpDevice
   -> SL.CanonicalProblem
   -> Dataset.DatasetRef
@@ -972,26 +1246,27 @@ trainLiveArchiveClassifier
 trainLiveArchiveClassifier run device problem trainRef decodeArchive = do
   let (trainLimit, testLimit, epochs, minimumTrainAccuracy) = liveClassifierBudget problem
       config = defaultClassifierConfig {clfEpochs = epochs}
-  archiveE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
+  archiveE <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
   case archiveE of
     Left _ ->
       pure (Left (problemLabel problem <> " staged archive bytes are missing"))
-    Right archiveBytes ->
-      case ( decodeArchive config Dataset.TrainSplit (Just trainLimit) archiveBytes
-           , decodeArchive config Dataset.TestSplit (Just testLimit) archiveBytes
-           ) of
-        (Right (configForData, trainSet), Right (_, testSet)) ->
-          trainLiveClassifierDataset
-            device
-            problem
-            configForData
-            minimumTrainAccuracy
-            trainSet
-            testSet
-        (Left err, _) ->
-          pure (Left (problemLabel problem <> " archive train decode failed: " <> err))
-        (_, Left err) ->
-          pure (Left (problemLabel problem <> " archive test decode failed: " <> err))
+    Right archiveArtifact ->
+      let archiveBytes = Dataset.fetchedArtifactPayload archiveArtifact
+       in case ( decodeArchive config Dataset.TrainSplit (Just trainLimit) archiveBytes
+               , decodeArchive config Dataset.TestSplit (Just testLimit) archiveBytes
+               ) of
+            (Right (configForData, trainSet), Right (_, testSet)) ->
+              trainLiveClassifierDataset
+                device
+                problem
+                configForData
+                minimumTrainAccuracy
+                trainSet
+                testSet
+            (Left err, _) ->
+              pure (Left (problemLabel problem <> " archive train decode failed: " <> err))
+            (_, Left err) ->
+              pure (Left (problemLabel problem <> " archive test decode failed: " <> err))
 
 trainLiveClassifierDataset
   :: MlpDevice
@@ -1030,42 +1305,45 @@ trainLiveClassifierDataset device problem config minimumTrainAccuracy trainSet t
           | otherwise -> pure (Right ())
 
 trainLiveCalifornia
-  :: (MinIOSubprocess (Either ServiceError ByteString) -> IO (Either ServiceError ByteString))
+  :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
+       -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
+     )
   -> MlpDevice
   -> SL.CanonicalProblem
   -> Dataset.DatasetRef
   -> IO (Either String ())
 trainLiveCalifornia run device problem trainRef = do
-  archiveE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
+  archiveE <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
   case archiveE of
     Left _ ->
       pure (Left (problemLabel problem <> " staged archive bytes are missing"))
-    Right archiveBytes ->
-      case Regression.decodeCaliforniaHousingArchiveBoundedData (Just 512) archiveBytes of
-        Left err ->
-          pure (Left (problemLabel problem <> " archive decode failed: " <> err))
-        Right dataset ->
-          case dataset of
-            [] -> pure (Left (problemLabel problem <> " archive produced no examples"))
-            firstExample : _ -> do
-              let normalizedDataset = Regression.standardizeRegressionExamples dataset
-                  config =
-                    Regression.defaultRegressionConfig
-                      { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
-                      , Regression.regHidden = 24
-                      , Regression.regEpochs = 120
-                      , Regression.regLearningRate = 5.0e-3
-                      }
-              trainedE <- Regression.trainRegressorWithDevice device config normalizedDataset
-              case trainedE of
-                Left err ->
-                  pure (Left (problemLabel problem <> " regression training failed: " <> Text.unpack err))
-                Right (_, mse)
-                  | not (finiteDouble mse) ->
-                      pure (Left (problemLabel problem <> " regression MSE was not finite: " <> show mse))
-                  | mse >= 5.0 ->
-                      pure (Left (problemLabel problem <> " regression MSE too high: " <> show mse))
-                  | otherwise -> pure (Right ())
+    Right archiveArtifact ->
+      let archiveBytes = Dataset.fetchedArtifactPayload archiveArtifact
+       in case Regression.decodeCaliforniaHousingArchiveBoundedData (Just 512) archiveBytes of
+            Left err ->
+              pure (Left (problemLabel problem <> " archive decode failed: " <> err))
+            Right dataset ->
+              case dataset of
+                [] -> pure (Left (problemLabel problem <> " archive produced no examples"))
+                firstExample : _ -> do
+                  let normalizedDataset = Regression.standardizeRegressionExamples dataset
+                      config =
+                        Regression.defaultRegressionConfig
+                          { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
+                          , Regression.regHidden = 24
+                          , Regression.regEpochs = 120
+                          , Regression.regLearningRate = 5.0e-3
+                          }
+                  trainedE <- Regression.trainRegressorWithDevice device config normalizedDataset
+                  case trainedE of
+                    Left err ->
+                      pure (Left (problemLabel problem <> " regression training failed: " <> Text.unpack err))
+                    Right (_, mse)
+                      | not (finiteDouble mse) ->
+                          pure (Left (problemLabel problem <> " regression MSE was not finite: " <> show mse))
+                      | mse >= 5.0 ->
+                          pure (Left (problemLabel problem <> " regression MSE too high: " <> show mse))
+                      | otherwise -> pure (Right ())
 
 liveClassifierBudget :: SL.CanonicalProblem -> (Int, Int, Int, Double)
 liveClassifierBudget problem =
@@ -1127,6 +1405,54 @@ architectureSyntheticDataset =
       | j == c + 8 = 0.5
       | otherwise = 0.0
     jitter j = fromIntegral ((c * 19 + i * 5 + j * 3) `mod` 7) / 200.0
+
+architectureEvidenceSplits :: (Dataset, Dataset, Dataset)
+architectureEvidenceSplits =
+  (concatMap (take 4 . classExamples) [0, 1, 2], validationSet, testSet)
+ where
+  classExamples label =
+    filter ((== label) . exampleLabel) architectureSyntheticDataset
+  validationSet =
+    concatMap (take 1 . drop 4 . classExamples) [0, 1, 2]
+  testSet =
+    concatMap (take 1 . drop 5 . classExamples) [0, 1, 2]
+
+validSupervisedEvidence :: RowAssertions.SupervisedRowEvidence
+validSupervisedEvidence =
+  RowAssertions.SupervisedRowEvidence
+    { RowAssertions.sreRowId = "mnist-shallow-mlp"
+    , RowAssertions.sreInitialWeightHash = "initial-hash"
+    , RowAssertions.sreFinalWeightHash = "final-hash"
+    , RowAssertions.sreUpdateCount = 12
+    , RowAssertions.sreTrainExamples = 6
+    , RowAssertions.sreValidationExamples = 3
+    , RowAssertions.sreTestExamples = 3
+    , RowAssertions.sreExamplesSeen = 12
+    , RowAssertions.sreThroughputExamples = 12.0
+    , RowAssertions.sreTrainLoss = 0.25
+    , RowAssertions.sreValidationLoss = 0.30
+    , RowAssertions.sreTestMetricName = "test_accuracy"
+    , RowAssertions.sreTestMetricGoal = TrainingBudget.MetricMaximise
+    , RowAssertions.sreTestMetricValue = 0.95
+    , RowAssertions.sreConvergenceThreshold = 0.97
+    , RowAssertions.sreConvergenceSlack = 0.07
+    , RowAssertions.sreGradientNorm = 1.0
+    , RowAssertions.sreSmokeThreshold = False
+    }
+
+weightDigest :: [Double] -> Text
+weightDigest weights =
+  Text.intercalate
+    ":"
+    [ "weights"
+    , Text.pack (show (length weights))
+    , Text.pack (show (sum weights))
+    , Text.pack (show (sum (fmap (\value -> value * value) weights)))
+    ]
+
+vectorMagnitude :: [Double] -> Double
+vectorMagnitude =
+  sum . fmap abs
 
 regressionSyntheticDataset :: [Regression.RegressionExample]
 regressionSyntheticDataset =
@@ -1200,6 +1526,46 @@ zipArchive entries =
   addEntry (path, payload) =
     Zip.addEntryToArchive
       (Zip.toEntry path 0 (LazyByteString.fromStrict payload))
+
+isBatchNorm :: LayerGraph.LayerKind -> Bool
+isBatchNorm (LayerGraph.NormLayer LayerGraph.BatchNorm) = True
+isBatchNorm _ = False
+
+isDropout :: LayerGraph.LayerKind -> Bool
+isDropout (LayerGraph.DropoutLayer _) = True
+isDropout _ = False
+
+isConv2D :: LayerGraph.LayerKind -> Bool
+isConv2D LayerGraph.Conv2DLayer = True
+isConv2D _ = False
+
+isPool :: LayerGraph.LayerKind -> Bool
+isPool (LayerGraph.PoolLayer _) = True
+isPool _ = False
+
+isBasicBlock :: LayerGraph.LayerKind -> Bool
+isBasicBlock (LayerGraph.BasicBlockLayer _) = True
+isBasicBlock _ = False
+
+isBottleneckBlock :: LayerGraph.LayerKind -> Bool
+isBottleneckBlock (LayerGraph.BottleneckBlockLayer _) = True
+isBottleneckBlock _ = False
+
+isGroupNorm :: LayerGraph.LayerKind -> Bool
+isGroupNorm (LayerGraph.NormLayer (LayerGraph.GroupNorm _)) = True
+isGroupNorm _ = False
+
+isAttention :: LayerGraph.LayerKind -> Bool
+isAttention (LayerGraph.MultiHeadAttentionLayer _) = True
+isAttention _ = False
+
+isLayerNorm :: LayerGraph.LayerKind -> Bool
+isLayerNorm (LayerGraph.NormLayer LayerGraph.LayerNorm) = True
+isLayerNorm _ = False
+
+isGeGLU :: LayerGraph.LayerKind -> Bool
+isGeGLU LayerGraph.GeGLULayer = True
+isGeGLU _ = False
 
 -- | The first canonical problem whose dataset does not have a
 -- published canonical SHA in 'Dataset.canonicalSha256For'. Such a

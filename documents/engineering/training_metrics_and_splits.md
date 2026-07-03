@@ -42,24 +42,47 @@ eligibility is minted by `JitML.Checkpoint.Format` and enforced by
 | Concept | Meaning | Invariant |
 |---|---|---|
 | `TrainingBudget` | A pure declaration of the exact terminating work: epochs / environment steps / self-play generations / tuning trials, seed cohort, and unit label. | Known before execution; no adaptive "keep training until convergence" loop. |
-| `CompletedTraining` | The pure witness that the workflow executed the full budget and emitted all required metric observations plus TensorBoard scalar metadata. | Constructed only by `completedTraining`; failed, cancelled, partial, skipped, or smoke-only runs do not satisfy it. |
-| `InferenceEligibleCheckpoint` | The value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints can consume weights. | Minted only from a manifest carrying `CompletedTraining`, passing convergence observations, and TensorBoard scalar tags. |
+| `TrainingEvidence` | The smart-constructed weight-delta witness in `JitML.Product.Evidence`: initial weight hash, final weight hash, positive update count, and dataset SHA observed at read. For product SL rows this SHA is produced by `JitML.SL.Dataset.datasetReadShaForArtifacts` over payloads returned by `fetchVerifiedDatasetArtifactBytes`, after each artifact has matched its pinned SHA and before any decoder receives bytes. | `mkTrainingEvidence` rejects empty hashes, equal initial/final hashes, zero updates, and missing dataset-read provenance. |
+| `CompletedTraining` | The pure witness that the workflow executed the full budget, moved learned state, emitted bar-evaluated convergence observations, and wrote TensorBoard scalar metadata. | Constructed only by `completedTraining` from `TrainingEvidence`; failed, cancelled, partial, skipped, equal-weight, zero-update, smoke-only, or hardcoded-pass runs do not satisfy it. |
+| `InferenceEligibleCheckpoint` | The value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints can consume weights. | Minted only from a manifest carrying `CompletedTraining`, mirrored weight-delta evidence fields, passing convergence observations, and TensorBoard scalar tags. |
 
 The type boundary is the product requirement: an untrained initialization,
 seed-only demo network, hardcoded fixture checkpoint, or transport-smoke
 checkpoint has no representation as `InferenceEligibleCheckpoint`.
+
+`JitML.Test.RowAssertions` is the executable supervised-row evidence gate used
+by Sprint `24.2`. A row evidence record must carry non-empty and unequal
+initial/final weight hashes, a positive update count, positive train,
+validation, and test split sizes, positive examples seen and throughput,
+finite non-negative train/validation losses, a finite held-out test metric, a
+finite literature target/slack bar, and a finite positive gradient norm. It
+also rejects smoke-threshold evidence and deliberately underpowered two-step
+evidence whose held-out metric fails the row's literature/slack bar.
+
+Dataset-read provenance is not an upload-time promise. Product training obtains
+artifact bytes through the verified read boundary, records the observed
+image/label/archive digest for the row, and only then enters gunzip, IDX, tar,
+Zip64/JPEG, or regression parsing. Corrupt canonical bytes are typed failures
+before decode and cannot produce `TrainingEvidence`.
 
 The completed checkpoint records:
 
 - full budget fields;
 - completed iteration counters (`completed_epochs`, `completed_env_steps`,
   `completed_self_play_generations`, or `completed_trials`, as applicable);
+- initial/final weight hashes, positive update count, and dataset SHA observed
+  at read;
 - seed-cohort identity;
 - substrate and device runner identity;
 - convergence-statistics payload for the model;
 - performance metric payload;
 - TensorBoard run key and scalar tag prefix;
 - readiness witness for the checkpoint store and inference loader.
+
+Convergence observations are derived by
+`JitML.Product.Convergence.evaluateConvergence` from a `ConvergenceBar` and
+measured metric payload. The removed `completedTrainingFromMetrics` helper can
+no longer mint `coPassed = True` with no threshold.
 
 TensorBoard and the PureScript UI consume the same metric names that appear in
 the checkpoint manifest. TensorBoard is the scalar history; the UI is the
@@ -94,6 +117,9 @@ as validation.)
 - **Performance** — a **non-wall-clock** throughput metric (examples/sec). Wall-clock latency
   is excluded from the determinism contract (see [determinism_contract.md](determinism_contract.md)),
   so the performance metric is a distinct, deterministic, non-timing measure.
+  Sprint `24.2` treats the deterministic examples-seen count emitted by
+  `JitML.SL.Architecture.SlRunMetrics` as the row throughput evidence; it is
+  positive and reproducible for the same fixed budget and split.
 
 | Canonical SL model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
@@ -114,6 +140,13 @@ as validation.)
 - **Convergence** — `JitML.RL.ConvergenceThresholds` holds the per-cohort return thresholds;
   a cohort converges when the **real measured-median** episode return over `k` seeds clears
   its threshold (replacing any literature-target placeholder probe).
+- **Row evidence** — neural and learned-policy RL rows record deterministic
+  initial/final policy-or-Q hashes, a positive update count, the fixed-budget
+  observation count, and `linux-cpu` device evidence before a
+  `CompletedTraining` witness can enter the checkpoint manifest. HER rows use
+  goal success rate and achieved-goal distance as their convergence observations.
+  Row assertions reject synthetic transitions, missing thresholds, missing
+  device evidence, initialized-only checkpoints, and failed convergence.
 - **AlphaZero** — convergence is measured by **arena win-rate** against the prior best
   network (a deliberate non-return metric), not an episode-return threshold.
 - **Performance** — a non-wall-clock RL performance metric (sample efficiency, i.e.

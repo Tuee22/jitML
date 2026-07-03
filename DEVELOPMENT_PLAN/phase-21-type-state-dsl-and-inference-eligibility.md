@@ -1,6 +1,6 @@
 # Phase 21: Type-State DSL & Inference Eligibility
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/durable_state_dsl.md](../documents/engineering/durable_state_dsl.md)
 **Generated sections**: none
@@ -11,7 +11,10 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `20`.
+✅ **Done**. Phase `20` has closed the de-fossilization and scaffold-lint gate,
+Sprint `21.1` has installed non-fabricable training evidence, Sprint `21.2` has
+installed the Haskell type-state pipeline, and Sprint `21.3` has closed the
+Dhall boundary plus fail-closed decode surface.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -28,10 +31,9 @@ accept only a `ModelRef InferenceEligible`, so declared experiments, partial
 manifests, failed runs, seeded demo fixtures, and static matrix rows cannot
 decode as inference targets in Haskell, in Dhall, or in the browser.
 
-## Sprint 21.1: Non-Fabricable Training Evidence [⏸️ Blocked]
+## Sprint 21.1: Non-Fabricable Training Evidence [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `20`
+**Status**: Done
 **Implementation**: `src/JitML/Product/Evidence.hs`, `src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/training_metrics_and_splits.md`
 
@@ -48,12 +50,16 @@ per-row numeric bar table the RL rows already use.
   evidence. `CompletedTraining` (in `src/JitML/Training/Budget.hs`) and
   `CheckpointManifest` (in `src/JitML/Checkpoint/Format.hs`) gain
   `initialWeightHash`, `finalWeightHash`, `updateCount`, and `datasetShaAtRead`
-  fields, populated only via non-exported smart constructors that reject
-  `initialWeightHash == finalWeightHash` and `updateCount <= 0`.
+  fields, populated only via smart constructors that reject empty hashes,
+  `initialWeightHash == finalWeightHash`, `updateCount <= 0`, and missing
+  dataset-read provenance; `attachCompletedTraining` mirrors the witness fields
+  into the manifest and inference eligibility rejects missing or mismatched
+  manifest evidence.
 - The `coPassed = True` fabrication in `completedTrainingFromMetrics`
   (`src/JitML/Training/Budget.hs`) is deleted; the pass flag is replaced by
-  `evaluateConvergence :: ConvergenceBar -> MeasuredMetrics -> Outcome`, which
-  compares measured metrics against a numeric bar and returns `Pass`/`Fail`.
+  `evaluateConvergence :: ConvergenceBar -> MeasuredMetrics -> Either Text ConvergenceObservation`,
+  which compares measured metrics against a numeric bar and sets `coPassed` from
+  the threshold result.
 - `src/JitML/SL/ConvergenceThresholds.hs` carries a per-row numeric bar table
   mirroring the RL threshold table (`src/JitML/RL/ConvergenceThresholds.hs`), so
   every supervised row resolves to an explicit numeric `ConvergenceBar`.
@@ -64,23 +70,18 @@ per-row numeric bar table the RL rows already use.
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu # passed, 253/253 tests
+docker compose run --rm jitml jitml docs check                  # passed
+docker compose run --rm jitml jitml check-code                  # passed
 ```
 
 ### Remaining Work
 
-- Add the smart-constructor module and thread the four evidence fields through
-  the witness and manifest types.
-- Delete the hardcoded `coPassed = True` path and route convergence through the
-  numeric bar table for both SL and RL rows.
-- Add the negative unit tests that reject fabricated evidence.
+- None.
 
-## Sprint 21.2: Type-State Pipeline (Haskell) [⏸️ Blocked]
+## Sprint 21.2: Type-State Pipeline (Haskell) [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `21.1`
+**Status**: Done
 **Implementation**: `src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`, `src/JitML/App.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/checkpoint_format.md`
 
@@ -97,38 +98,38 @@ commands.
 - `ModelRef (state :: ModelState)` with `Declared`, `TrainingStarted`,
   `TrainingCompleted`, and `InferenceEligible` states, so an untrained model
   cannot be passed where an inference-eligible one is required.
-- `train :: Experiment Declared -> TrainingBudget -> m (ModelRef TrainingCompleted)`
-  and `markInferenceEligible :: ModelRef TrainingCompleted -> CompletedTraining -> m (ModelRef InferenceEligible)`,
-  where promotion requires valid weight-delta evidence from Sprint `21.1` and a
-  `ConvergenceOutcome == Pass`.
-- `infer`, demo inference, and checkpoint-compare entrypoints in
-  `src/JitML/App.hs` accept only `ModelRef InferenceEligible`; call sites that
-  previously accepted an untyped artifact ref no longer typecheck.
-- A unit test proves the illegal transitions (infer from `Declared`,
-  `TrainingStarted`, or a `TrainingCompleted` ref with failing/absent evidence)
-  are rejected at the type boundary.
+- `train :: ModelRef TrainingStarted -> CompletedTraining -> m (ModelRef TrainingCompleted)`
+  and
+  `markInferenceEligible :: Text -> ModelRef TrainingCompleted -> CompletedTraining -> Either Text InferenceEligibleRef`,
+  where promotion requires the exact Sprint `21.1` weight-delta witness already
+  carried by the completed model reference and passing convergence.
+- `JitML.Checkpoint.Store` mints `InferenceEligibleRef` only from a validated
+  `InferenceEligibleCheckpoint`, and `src/JitML/App.hs`,
+  `src/JitML/Service/Runtime.hs`, and `src/JitML/Service/Workload.hs` thread
+  that typed reference into inference, demo, checkpoint-compare, and adversarial
+  move runners.
+- Unit tests compile the legal `Declared -> TrainingStarted ->
+  TrainingCompleted -> InferenceEligible` path, reject a mismatched
+  completed-training witness, and prove that `InferenceEligibleCheckpoint`
+  mints only an `InferenceEligibleRef`.
 
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml test jitml-integration --linux-cpu
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu       # passed, 256/256 tests
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu # passed, 77/77 tests after `jitml bootstrap --linux-cpu`
+docker compose run --rm jitml jitml check-code                        # passed
+docker compose run --rm jitml jitml docs check                        # passed
 ```
 
 ### Remaining Work
 
-- Add the state-indexed `ModelRef` and the `train`/`markInferenceEligible`
-  transitions gated on real evidence.
-- Retype the inference, demo, and checkpoint-compare entrypoints and fix every
-  broken call site.
-- Add the negative unit tests for each illegal state transition.
+- None.
 
-## Sprint 21.3: Dhall Boundary & Fail-Closed Decode [⏸️ Blocked]
+## Sprint 21.3: Dhall Boundary & Fail-Closed Decode [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `21.2`
-**Implementation**: `dhall/project`, `dhall/run`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `test/integration/Main.hs`
+**Status**: Done
+**Implementation**: `dhall/project/Schema.dhall`, `dhall/run/Schema.dhall`, `src/JitML/Service/RunConfig.hs`, `src/JitML/Service/DhallSchema.hs`, `src/JitML/Project/Config.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/Service/Workload.hs`, `src/JitML/Web/Contracts.hs`, `web/src/Generated/Contracts.purs`, `web/src/Panels/Checkpoints.purs`, `test/unit/Main.hs`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/durable_state_dsl.md`, `../documents/engineering/product_completion_contract.md`
 
 ### Objective
@@ -140,35 +141,40 @@ instead of substituting a fabricated artifact.
 
 ### Deliverables
 
-- Dhall schemas under `dhall/project` and `dhall/run` distinguish declared
-  experiments, completed-training witnesses, and inference selectors, mirroring
-  the `ModelState` boundary from Sprint `21.2`.
-- Manifest decode in `src/JitML/Checkpoint/Format.hs` and
-  `src/JitML/Checkpoint/Store.hs` rejects any manifest missing the weight-delta
-  evidence fields or carrying a failing convergence outcome, before any inference
-  IO runs.
-- The demo selector shows an explicit fail-closed state for a row with no
-  inference-eligible artifact rather than falling back to seeded or synthetic
-  data.
-- Integration tests assert that declared/partial/synthetic/seeded/failed-training
-  manifests fail closed with a typed error, and that a valid completed manifest
-  decodes as an inference target.
+- Dhall schemas under `dhall/project/Schema.dhall` and `dhall/run/Schema.dhall`
+  distinguish declared experiments, completed-training witnesses, and inference
+  selectors, mirroring the `ModelState` boundary from Sprint `21.2`.
+  `JitML.Service.RunConfig.tryLoadInferenceSelectorConfig` decodes and validates
+  selector facts at the Dhall boundary.
+- `src/JitML/Checkpoint/Format.hs` exposes
+  `decodeInferenceEligibleManifestCbor`, and `src/JitML/Checkpoint/Store.hs`
+  rejects any manifest missing the weight-delta evidence fields, carrying
+  synthetic/seeded provenance, or carrying a failing convergence outcome before
+  weight blobs are read or an inference runner is invoked.
+- `JitML.Service.Workload.renderCheckpointListResult`, the generated browser
+  contracts, and `web/src/Panels/Checkpoints.purs` carry
+  `selector-state: fail-closed:no-inference-eligible-artifact` when no row has
+  an inference-eligible artifact, so the browser shows an explicit fail-closed
+  state rather than falling back to seeded or synthetic data.
+- Unit and integration tests assert that declared, partial, synthetic, seeded,
+  zero-update, unchanged-weight, and failed-training selectors/manifests fail
+  closed with typed errors, that invalid manifests are rejected before blob or
+  runner IO, and that a valid completed manifest decodes as an inference target.
 
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test jitml-integration --linux-cpu
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml docs check
+docker compose build jitml                                                        # passed; refreshed image, embedded check-code: ok
+docker compose run --rm -e JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 jitml jitml bootstrap --linux-cpu # passed, 105 rollout steps
+docker compose run --rm jitml jitml docs check                                    # passed
+docker compose run --rm jitml jitml check-code                                    # passed
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu                   # passed, 258/258 tests
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu            # passed, 78/78 tests
 ```
 
 ### Remaining Work
 
-- Add the state-indexed Dhall schema surface and negative Dhall fixtures for
-  illegal inference states.
-- Add fail-closed decode in the checkpoint reader and the demo selector.
-- Add the end-to-end negative integration cases and remove any selector fallback
-  to seeded demo data.
+- None.
 
 ## Documentation Requirements
 

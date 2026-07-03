@@ -91,21 +91,33 @@ Metal cannot be containerized.
 
 The current product baseline reopened on 2026-07-01 after a model-runtime audit
 found that the public no-caveat claim still outran the implementation. Phases
-`0`–`18` remain dated evidence for their owned surfaces, but product completion
-now depends on Phases `19`–`31`: product-truth gates and registry,
-de-fossilization and scaffold lint, type-state inference eligibility, canonical
-matrix/data integrity, a general differentiable layer engine, real supervised
-architectures, real RL algorithms/environments, AlphaZero real self-play per
-game, all-row demo rendering, per-row integration/e2e coverage, `linux-cuda`
-lane validation, `apple-silicon` lane validation, and final `linux-cpu`
-aggregation.
+`0`–`18` remain dated evidence for their owned surfaces. Phases `19`–`27` are
+complete after Phase `25` re-closed on 2026-07-03: production RL trainer
+dispatch now consumes the row-requested simulator catalog, and the full RL-only
+live publisher pass reported **39 / 39** eligible rows with **0** unsupported
+rows and **0** errors. Remaining product completion now resumes at Phase `28`:
+Sprint `28.1` must replace row-keyed integration scaffolding with real
+product-row publisher evidence and stage the remaining non-MNIST supervised
+datasets before the per-row e2e coverage, `linux-cuda` lane validation,
+`apple-silicon` lane validation, and final `linux-cpu` aggregation can close.
+The 2026-07-03 `linux-cpu` integration validation passed **137 / 137**, but the
+aggregate matrix still accepts local checkpoint fixtures instead of the real
+publisher manifests required by the product-completion contract.
 
-The active gaps are concrete: fake/deterministic infrastructure remains present,
-some documented rows are catalog or UI rows rather than literal implementations,
-product dataset reads are not all verified at read time, the demo can prove
-static model-name rendering rather than trained-artifact rendering, and the test
-matrix is representative instead of row-complete. The binding remediation rules
-live in
+The executable truth sources for the reopened product chain are
+`src/JitML/Product/Matrix.hs` for row identity/matrix-floor membership and
+`src/JitML/Product/PhaseStatus.hs` for the Phase `19`–`31` sprint-status
+registry consumed by downstream closure gates. `jitml docs check` also rejects
+current product-closure claims in governed docs while that registry reports an
+unfinished product phase; explicitly dated historical-evidence blocks are
+allowed.
+
+The active gaps are concrete: the documented matrix, typed registry, generated
+browser constants, and executable configs are not yet proven equal; some
+documented rows are catalog or UI rows rather than literal implementations;
+product dataset reads are not all verified at read time; the demo can prove
+static model-name rendering rather than trained-artifact rendering; and the test
+matrix is representative instead of row-complete. The binding remediation rules live in
 [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
 
 Historical 2026-06-30 evidence remains useful but no longer closes the product:
@@ -483,10 +495,10 @@ and the deletion ledger has no pending rows.
   metadata, registered rollout helpers over real environment dynamics, the three
   GADT-indexed lifecycles
   (`TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle`), the
-  runtime RL primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`),
-  and run-to-run determinism for the PPO/CartPole trajectory (two
-  fresh runs compared against each other; no committed trajectory
-  fixture per [../README.md → Snapshot targets → Numerical-fixture
+  runtime RL primitives (`Policy`, `ReplayBuffer`, `AsyncBuffer`,
+  `EpisodeEnvelope`), and run-to-run determinism for real trainer rollouts (two
+  fresh runs compared against each other; no committed trajectory fixture per
+  [../README.md → Snapshot targets → Numerical-fixture
   prohibition](../README.md#snapshot-targets)). The typed proto
   envelopes (`proto/jitml/{training,rl,tune,inference}.proto` and
   `JitML.Proto.{Training,Rl,Tune,Inference}`) declare the substrate-scoped Pulsar

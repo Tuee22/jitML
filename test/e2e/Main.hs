@@ -329,89 +329,55 @@ main =
           "demo REST routes parse browser envelopes and call checkpoint runtime handler (Sprint 11.9)"
           $ do
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
-              inference <-
-                httpPost
-                  port
-                  "/api/inference"
-                  ( unlines
-                      [ "kind: BrowserInferenceRequest"
-                      , "panel: mnist-live-inference"
-                      , "model-id: mnist-deep-mlp"
-                      , "experiment-hash: mnist-deep-mlp"
-                      , "input: 1.0,2.0"
-                      ]
-                  )
+              inference <- httpPost port "/api/inference" productInferenceBody
               assertBool "inference HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` inference)
               assertBool "typed inference result" ("kind: InferenceResult" `isInfixOf` inference)
               assertBool "checkpoint sha" ("checkpoint-sha: sha256:browser-runtime" `isInfixOf` inference)
               assertBool "top class from runtime output" ("top-class: 1" `isInfixOf` inference)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
-              generic <-
-                httpPost
-                  port
-                  "/api/inference/generic"
-                  ( unlines
-                      [ "kind: BrowserGenericInferenceRequest"
-                      , "panel: generic-inference-lab"
-                      , "experiment-hash: generic-tensor-demo"
-                      , "input: 1.0,2.0"
-                      ]
-                  )
+              generic <- httpPost port "/api/inference/generic" productGenericBody
               assertBool "generic HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` generic)
               assertBool "typed generic result" ("kind: GenericInferenceResult" `isInfixOf` generic)
               assertBool
                 "generic checkpoint sha"
-                ("checkpoint-sha: sha256:generic-tensor-demo" `isInfixOf` generic)
+                ("checkpoint-sha: sha256:product-row-california-housing-mlp" `isInfixOf` generic)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
-              image <-
-                httpPost
-                  port
-                  "/api/images"
-                  ( unlines
-                      [ "kind: BrowserImageRequest"
-                      , "panel: cifar-imagenet-upload"
-                      , "dataset: CIFAR-10"
-                      , "experiment-hash: cifar-imagenet"
-                      , "image-base64: "
-                      , "input: 1.0,2.0"
-                      ]
-                  )
+              image <- httpPost port "/api/images" productImageBody
               assertBool "image HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` image)
               assertBool "typed image result" ("kind: ImageInferenceResult" `isInfixOf` image)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
-              compareResp <-
-                httpPost
-                  port
-                  "/api/checkpoints/compare"
-                  ( unlines
-                      [ "kind: BrowserCheckpointCompareRequest"
-                      , "panel: checkpoint-compare-lab"
-                      , "baseline-experiment-hash: generic-tensor-demo"
-                      , "candidate-experiment-hash: generic-tensor-demo-candidate"
-                      , "input: 1.0,2.0"
-                      ]
-                  )
+              compareResp <- httpPost port "/api/checkpoints/compare" productCompareBody
               assertBool "compare HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` compareResp)
               assertBool "typed compare result" ("kind: CheckpointCompareResult" `isInfixOf` compareResp)
               assertBool "compare max delta" ("max-abs-delta: 0.5" `isInfixOf` compareResp)
               assertBool "compare mean delta" ("mean-abs-delta: 0.25" `isInfixOf` compareResp)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
-              move <-
-                httpPost
-                  port
-                  "/api/connect4/move"
-                  ( unlines
-                      [ "kind: BrowserAdversarialMoveRequest"
-                      , "panel: connect4-human-vs-alphazero"
-                      , "game: connect4"
-                      , "experiment-hash: connect4-alphazero"
-                      , "moves: 3"
-                      , "human-is-player: 1"
-                      , "simulations-per-move: 3"
-                      ]
-                  )
+              move <- httpPost port "/api/connect4/move" productConnect4Body
               assertBool "move HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` move)
               assertBool "typed move result" ("kind: AdversarialMoveResult" `isInfixOf` move)
+      , testCase
+          "demo product REST routes fail closed for missing or invalid product artifacts (Sprint 27.3)"
+          $ do
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) demoHttpRoutes $ \port -> do
+              missingCluster <- httpPost port "/api/inference" productInferenceBody
+              assertFailClosed "missing cluster" "checkpoint-backed runtime publication required" missingCluster
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) demoHttpRoutes $ \port -> do
+              seededArtifact <- httpPost port "/api/inference" seededDemoArtifactBody
+              assertFailClosed "seeded artifact" "seeded demo artifact rejected" seededArtifact
+            traverse_
+              ( \(label, reason) ->
+                  withHttpRoutesOnce
+                    (HttpListener "127.0.0.1" 0)
+                    (demoHttpRoutesWithRuntime (failingBrowserRuntime reason))
+                    $ \port -> do
+                      response <- httpPost port "/api/inference" productInferenceBody
+                      assertFailClosed label (Text.unpack reason) response
+              )
+              [ ("missing artifact", "pointer read failed: missing latest pointer")
+              , ("untrained artifact", "manifest not inference eligible: completed training witness missing")
+              , ("partial checkpoint", "manifest not inference eligible: partial checkpoint")
+              , ("unsupported substrate", "unsupported substrate: apple-silicon")
+              ]
       , testCase "post-teardown leaves no jitml-e2e Kind clusters" $ do
           -- Asserts the deterministic-teardown property from Sprint 12.8
           -- post-teardown. After all live work completes, `kind get
@@ -447,6 +413,81 @@ main =
                         )
       ]
 
+productInferenceBody :: String
+productInferenceBody =
+  unlines
+    [ "kind: BrowserInferenceRequest"
+    , "panel: mnist-live-inference"
+    , "model-id: mnist-deep-mlp"
+    , "experiment-hash: product-row-mnist-deep-mlp"
+    , "input: 1.0,2.0"
+    ]
+
+productGenericBody :: String
+productGenericBody =
+  unlines
+    [ "kind: BrowserGenericInferenceRequest"
+    , "panel: generic-inference-lab"
+    , "experiment-hash: product-row-california-housing-mlp"
+    , "input: 1.0,2.0"
+    ]
+
+productImageBody :: String
+productImageBody =
+  unlines
+    [ "kind: BrowserImageRequest"
+    , "panel: cifar-imagenet-upload"
+    , "dataset: CIFAR-10"
+    , "experiment-hash: product-row-cifar10-resnet20"
+    , "image-base64: "
+    , "input: 1.0,2.0"
+    ]
+
+productCompareBody :: String
+productCompareBody =
+  unlines
+    [ "kind: BrowserCheckpointCompareRequest"
+    , "panel: checkpoint-compare-lab"
+    , "baseline-experiment-hash: product-row-mnist-shallow-mlp"
+    , "candidate-experiment-hash: product-row-mnist-deep-mlp"
+    , "input: 1.0,2.0"
+    ]
+
+productConnect4Body :: String
+productConnect4Body =
+  unlines
+    [ "kind: BrowserAdversarialMoveRequest"
+    , "panel: connect4-human-vs-alphazero"
+    , "game: connect4"
+    , "experiment-hash: product-row-connect4"
+    , "moves: 3"
+    , "human-is-player: 1"
+    , "simulations-per-move: 3"
+    ]
+
+seededDemoArtifactBody :: String
+seededDemoArtifactBody =
+  unlines
+    [ "kind: BrowserInferenceRequest"
+    , "panel: mnist-live-inference"
+    , "model-id: mnist-deep-mlp"
+    , "experiment-hash: mnist-demo-weights"
+    , "input: 1.0,2.0"
+    ]
+
+assertFailClosed :: String -> String -> String -> IO ()
+assertFailClosed label reason response = do
+  assertBool (label <> " HTTP 503") ("HTTP/1.1 503 Service Unavailable" `isInfixOf` response)
+  assertBool (label <> " checkpoint required") ("checkpoint-required: inference" `isInfixOf` response)
+  assertBool (label <> " reason") (reason `isInfixOf` response)
+  assertBool
+    (label <> " selector state")
+    ("selector-state: fail-closed:no-inference-eligible-artifact" `isInfixOf` response)
+
+failingBrowserRuntime :: Text -> BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)
+failingBrowserRuntime reason _request =
+  pure (Left reason)
+
 fakeBrowserRuntime :: BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)
 fakeBrowserRuntime request =
   pure $
@@ -468,7 +509,7 @@ fakeBrowserRuntime request =
         }
  where
   genericOutput =
-    if "candidate" `Text.isInfixOf` browserRuntimeExperimentHash request
+    if "product-row-mnist-deep-mlp" == browserRuntimeExperimentHash request
       then [0.75, 0.5]
       else [0.25, 0.5]
 

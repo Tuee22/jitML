@@ -72,5 +72,7 @@ renderEnvoyProxy edgePort =
     , "          resources:"
     , "            requests:"
     , "              cpu: 50m"
-    , "              memory: 64Mi"
+    , "              memory: 512Mi"
+    , "            limits:"
+    , "              memory: 1Gi"
     ]

@@ -1,6 +1,6 @@
 # Phase 26: AlphaZero Real Self-Play Per Game
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
 **Generated sections**: none
@@ -11,7 +11,11 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `25`.
+✅ **Done**. Phase `25` is Done, Sprint `26.1` completed real per-game
+self-play generation, product-row registration, game-specific MCTS visit
+targets, and persistent cache evidence, and Sprint `26.2` completed arena
+convergence, same-seed evidence, row evidence, and inference-eligible
+checkpoint artifacts for every canonical AlphaZero game.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -28,11 +32,10 @@ count, and a measured arena win-rate that clears the declared convergence bar an
 is bit-identical on rerun under the same seed. Each game writes an
 inference-eligible checkpoint artifact for the demo and inference read paths.
 
-## Sprint 26.1: Per-Game Self-Play [⏸️ Blocked]
+## Sprint 26.1: Per-Game Self-Play [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `25`
-**Implementation**: `src/JitML/RL/AlphaZero/SelfPlay.hs`, `src/JitML/RL/AlphaZero/Mcts.hs`, `src/JitML/RL/AlphaZero/PolicyValueNet.hs`, `src/JitML/Product/Matrix.hs`
+**Status**: Done
+**Implementation**: `src/JitML/RL/AlphaZero.hs`, `src/JitML/RL/AlphaZero/SelfPlay.hs`, `src/JitML/RL/AlphaZero/Mcts.hs`, `src/JitML/RL/AlphaZero/PolicyValueNet.hs`, `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/product_completion_contract.md`
 
 ### Objective
@@ -68,19 +71,20 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+Validated on 2026-07-02: focused Sprint `26.1` RL canonical test passed 1/1,
+focused AlphaZero canonical group passed 7/7, `jitml-rl-canonicals
+--linux-cpu` passed 36/36, `jitml-unit --linux-cpu` passed 274/274, and
+`jitml check-code` passed after the Phase `26.1` closure and Sprint `26.2`
+activation status updates.
+
 ### Remaining Work
 
-- Wire each game's self-play generation to the network forward pass and the
-  visit-count/outcome training targets.
-- Bind the persistent exploration cache across moves for all four games and prove
-  its `(seed, episode-history)` reconstruction.
-- Add the four `AlphaZero` product rows to the typed matrix.
+None.
 
-## Sprint 26.2: Arena Convergence + Evidence [⏸️ Blocked]
+## Sprint 26.2: Arena Convergence + Evidence [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `26.1`
-**Implementation**: `test/rl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Product/Matrix.hs`, `src/JitML/Test/RowAssertions.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/determinism_contract.md`, `../documents/engineering/product_completion_contract.md`
 
 ### Objective
@@ -116,14 +120,14 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
+Validated on 2026-07-02: focused Sprint `26.2` RL canonical test passed 1/1,
+`jitml-rl-canonicals --linux-cpu` passed 37/37, `jitml-unit --linux-cpu`
+passed 274/274, `jitml docs generate` reported no changes, `jitml docs check`
+passed, and `jitml check-code` passed.
+
 ### Remaining Work
 
-- Collect init/final network hashes and generation counts into each game's
-  checkpoint manifest.
-- Add the per-game arena-win-rate convergence assertions and the same-seed
-  determinism reruns.
-- Emit and register the four inference-eligible AlphaZero artifacts and their row
-  assertions.
+None.
 
 ## Documentation Requirements
 

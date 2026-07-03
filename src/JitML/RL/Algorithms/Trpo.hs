@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 trpoModule :: AlgorithmModule
@@ -18,6 +19,13 @@ trpoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "TRPO" OnPolicy False
     , moduleHyperparameters = trpoHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "on-policy.trpo.kl-trust-region"
+          "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantTRPO"
+          "rollout-buffer.gae.cartpole"
+          "mlp-policy-value"
+          ["unclipped-surrogate", "kl-trust-region", "early-stop-line-search"]
     }
 
 trpoHyperparameters :: [AlgorithmHyperparameter]

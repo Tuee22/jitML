@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 crossQModule :: AlgorithmModule
@@ -18,6 +19,13 @@ crossQModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "CrossQ" Specialized True
     , moduleHyperparameters = crossQHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.crossq.batch-renorm-no-target-network"
+          "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantCrossQ"
+          "replay-buffer.continuous-actions"
+          "mlp-stochastic-actor-online-twin-critic"
+          ["batch-renormalized-q-target", "no-target-network", "entropy-regularized-target"]
     }
 
 crossQHyperparameters :: [AlgorithmHyperparameter]

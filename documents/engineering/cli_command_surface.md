@@ -342,13 +342,14 @@ Train an RL policy.
 Plans and applies an RL training job.
 
 Usage:
-  jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
+  jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--algorithm <algorithm>] [--dry-run] [--plan-file <path>]
 
 Options:
   <rl-experiment-dhall>     RL experiment Dhall file.
   --resume <checkpoint-id>  Checkpoint identifier to resume from.
   --substrate <substrate>   Override the RL experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda).
   --seed <word64>           Override the RL experiment Dhall's seed.
+  --algorithm <algorithm>   Override the RL experiment Dhall's algorithm.
   --dry-run                 Print the plan without applying it.
   --plan-file <path>        Write the plan to a file.
 
@@ -414,11 +415,12 @@ Run AlphaZero self-play.
 Runs a bounded AlphaZero self-play generation through the selected substrate MLP device.
 
 Usage:
-  jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
+  jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
 
 Options:
   --substrate <substrate>  Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda).
   --seed <word64>          Self-play seed.
+  --game <game>            AlphaZero game (connect4, othello, hex, or gomoku).
   --games <n>              Number of self-play games.
   --sims <n>               MCTS simulations per move.
   --max-plies <n>          Maximum plies per self-play game.
@@ -1043,9 +1045,9 @@ Examples:
 ```text
 jitml internal seed-demo-checkpoints
 
-Seed demo inference checkpoints into MinIO.
+Seed legacy fixture checkpoints into MinIO.
 
-Writes self-describing MLP weight checkpoints (manifest + .jmw1 + latest-pointer) at the demo browser-panel experiment hashes (mnist-deep-mlp, generic-tensor-demo, generic-tensor-demo-candidate, cifar-imagenet, connect4-alphazero, othello-alphazero, hex-alphazero, gomoku-alphazero) through the routed MinIOSubprocess, so the live jitml-demo checkpoint-backed panels serve real full-width inference results. Requires a live cluster.
+Writes self-describing development fixture checkpoints (manifest + .jmw1 + latest-pointer) at the historical demo browser-panel experiment hashes through the routed MinIOSubprocess. This is not a product-row artifact producer; product rows are published by `jitml internal train-and-publish-product-rows`. Requires a live cluster.
 
 Usage:
   jitml internal seed-demo-checkpoints
@@ -1054,7 +1056,30 @@ Usage:
 
 Examples:
   jitml internal seed-demo-checkpoints
-      Seed the demo panel checkpoints into live MinIO.
+      Seed the legacy fixture checkpoints into live MinIO.
+```
+
+### `jitml internal train-and-publish-product-rows`
+
+```text
+jitml internal train-and-publish-product-rows
+
+Train and publish product row checkpoints.
+
+Trains the ProductRow matrix on the selected substrate and publishes inference-eligible checkpoints into the product-row artifact namespace. Requires a live cluster and staged datasets for supervised rows.
+
+Usage:
+  jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda]
+
+Options:
+  --apple-silicon  Select the Apple Silicon substrate.
+  --linux-cpu      Select the Linux CPU substrate.
+  --linux-cuda     Select the Linux CUDA substrate.
+
+
+Examples:
+  jitml internal train-and-publish-product-rows --linux-cpu
+      Train and publish product-row artifacts for the Linux CPU lane.
 ```
 
 ### `jitml internal dhall-schema`

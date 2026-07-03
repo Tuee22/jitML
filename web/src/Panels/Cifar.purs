@@ -56,7 +56,7 @@ defaultDataset :: String
 defaultDataset = "CIFAR-10"
 
 defaultExperimentHash :: String
-defaultExperimentHash = "cifar-imagenet"
+defaultExperimentHash = "product-row-cifar10-resnet20"
 
 renderUploadRequest :: String -> CifarUploadRequest
 renderUploadRequest imageBase64 =

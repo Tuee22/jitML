@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 ddpgModule :: AlgorithmModule
@@ -18,6 +19,13 @@ ddpgModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "DDPG" OffPolicy True
     , moduleHyperparameters = ddpgHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.ddpg.deterministic-actor-critic"
+          "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantDDPG"
+          "replay-buffer.continuous-actions"
+          "mlp-actor-single-critic"
+          ["deterministic-policy-gradient", "single-critic", "soft-target-network"]
     }
 
 ddpgHyperparameters :: [AlgorithmHyperparameter]

@@ -20,7 +20,10 @@ module JitML.RL.Algorithms.ArsTrainer
   , defaultArsTrainConfig
   , ArsTrainResult (..)
   , ArsIterationStat (..)
+  , initialArsParams
   , trainArsOnCartpole
+  , trainArsOnEnvironment
+  , evaluateArsPolicyWithEnvironment
   )
 where
 
@@ -30,10 +33,11 @@ import System.Random qualified as Random
 
 import JitML.RL.Algorithms.ArsLoss (arsTopDirections, arsUpdateDirection)
 import JitML.RL.Simulator
-  ( CartPoleState (..)
-  , SimStep (..)
-  , cartPoleInitial
-  , cartPoleStep
+  ( SimStep (..)
+  , SimulatedEnvironment (..)
+  , SomeSimulatedEnvironment (..)
+  , cartPoleEnvironment
+  , renderObservation
   )
 
 data ArsTrainConfig = ArsTrainConfig
@@ -83,19 +87,41 @@ paramDim :: ArsTrainConfig -> Int
 paramDim config = arsActionCount config * arsObsSize config
 
 trainArsOnCartpole :: ArsTrainConfig -> IO ArsTrainResult
-trainArsOnCartpole config = do
-  let theta0 = VU.replicate (paramDim config) 0.0
+trainArsOnCartpole =
+  trainArsOnSimulatedEnvironment cartPoleEnvironment
+
+trainArsOnEnvironment :: SomeSimulatedEnvironment -> ArsTrainConfig -> IO ArsTrainResult
+trainArsOnEnvironment (SomeSimulatedEnvironment environment) =
+  trainArsOnSimulatedEnvironment environment
+
+evaluateArsPolicyWithEnvironment
+  :: SomeSimulatedEnvironment
+  -> ArsTrainConfig
+  -> Vector Double
+  -> Int
+  -> [(Double, Int)]
+evaluateArsPolicyWithEnvironment (SomeSimulatedEnvironment environment) config theta episodeCount =
+  replicate (max 1 episodeCount) (evaluatePolicyEpisode environment config theta)
+
+trainArsOnSimulatedEnvironment :: SimulatedEnvironment state -> ArsTrainConfig -> IO ArsTrainResult
+trainArsOnSimulatedEnvironment environment config = do
+  let theta0 = initialArsParams config
       gen0 = Random.mkStdGen (arsSeed config)
-  pure (go config theta0 gen0 0 [])
+  pure (go environment config theta0 gen0 0 [])
+
+initialArsParams :: ArsTrainConfig -> Vector Double
+initialArsParams config =
+  VU.replicate (paramDim config) 0.0
 
 go
-  :: ArsTrainConfig
+  :: SimulatedEnvironment state
+  -> ArsTrainConfig
   -> Vector Double
   -> Random.StdGen
   -> Int
   -> [ArsIterationStat]
   -> ArsTrainResult
-go config theta gen iteration stats
+go environment config theta gen iteration stats
   | iteration >= arsIterations config =
       ArsTrainResult
         { arsResultStats = reverse stats
@@ -106,8 +132,8 @@ go config theta gen iteration stats
       let (deltas, gen') = sampleDirections config gen
           nu = arsNoiseStd config
           triples =
-            [ ( evaluatePolicy config (VU.zipWith (\t d -> t + nu * d) theta delta)
-              , evaluatePolicy config (VU.zipWith (\t d -> t - nu * d) theta delta)
+            [ ( evaluatePolicy environment config (VU.zipWith (\t d -> t + nu * d) theta delta)
+              , evaluatePolicy environment config (VU.zipWith (\t d -> t - nu * d) theta delta)
               , VU.toList delta
               )
             | delta <- deltas
@@ -127,29 +153,39 @@ go config theta gen iteration stats
             if null allReturns then 0.0 else sum allReturns / fromIntegral (length allReturns)
           bestR = if null allReturns then 0.0 else maximum allReturns
           stat = ArsIterationStat iteration meanR bestR
-       in go config thetaNext gen' (iteration + 1) (stat : stats)
+       in go environment config thetaNext gen' (iteration + 1) (stat : stats)
 
 -- | Evaluate one episode's return under the deterministic linear-argmax
--- policy from the fixed cartpole start.
-evaluatePolicy :: ArsTrainConfig -> Vector Double -> Double
-evaluatePolicy config theta = loop cartPoleInitial 0 0.0
+-- policy from the selected canonical environment start.
+evaluatePolicy :: SimulatedEnvironment state -> ArsTrainConfig -> Vector Double -> Double
+evaluatePolicy environment config theta =
+  fst (evaluatePolicyEpisode environment config theta)
+
+evaluatePolicyEpisode
+  :: SimulatedEnvironment state -> ArsTrainConfig -> Vector Double -> (Double, Int)
+evaluatePolicyEpisode environment config theta = loop (envInitial environment) 0 0.0
  where
   loop !state !len !ret
-    | len >= arsMaxEpisodeSteps config = ret
+    | len >= arsMaxEpisodeSteps config = (ret, len)
     | otherwise =
-        let action = linearAction config theta (obsVector state)
-            stepResult = cartPoleStep state action
+        let action = linearAction environment config state theta (obsVector environment state)
+            stepResult = envStep environment state action
             ret' = ret + simStepReward stepResult
+            len' = len + 1
          in if simStepDone stepResult
-              then ret'
-              else loop (simStepState stepResult) (len + 1) ret'
+              then (ret', len')
+              else loop (simStepState stepResult) len' ret'
 
-linearAction :: ArsTrainConfig -> Vector Double -> Vector Double -> Int
-linearAction config theta obs =
+linearAction
+  :: SimulatedEnvironment state -> ArsTrainConfig -> state -> Vector Double -> Vector Double -> Int
+linearAction environment config state theta obs =
   let obsSize = arsObsSize config
+      mask = envActionMask environment <*> Just state
       scoreFor a =
         let row = VU.slice (a * obsSize) obsSize theta
-         in VU.sum (VU.zipWith (*) row obs)
+         in case mask of
+              Just legal | a < length legal && not (legal !! a) -> -1.0e12
+              _ -> VU.sum (VU.zipWith (*) row obs)
       scores = [scoreFor a | a <- [0 .. arsActionCount config - 1]]
    in argmax scores
 
@@ -193,11 +229,6 @@ stddev xs =
       varX = sum (map (\x -> (x - meanX) ^ (2 :: Int)) xs) / n
    in sqrt varX
 
-obsVector :: CartPoleState -> Vector Double
-obsVector state =
-  VU.fromList
-    [ cartPosition state
-    , cartVelocity state
-    , poleAngle state
-    , poleAngularVelocity state
-    ]
+obsVector :: SimulatedEnvironment state -> state -> Vector Double
+obsVector environment =
+  VU.fromList . renderObservation . envRenderFrame environment

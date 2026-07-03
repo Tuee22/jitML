@@ -11,14 +11,17 @@
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
-**Current audit status (2026-07-01).** Browser product closure is reopened.
-Existing panels and Playwright specs prove useful route and representative
-workflow behavior, but a static generated model list or seeded demo checkpoint
-does not prove that every documented product row renders from a real trained
-artifact. The binding browser contract lives in
-[product_completion_contract.md](product_completion_contract.md); Phase `27`
-owns artifact-backed all-row demo rendering, and Phase `28` owns per-row e2e
-coverage on `linux-cpu` before the accelerator lanes revalidate it.
+**Current audit status (2026-07-03).** Browser product closure is reopened.
+Phase `27` has replaced product-path seeded demo proof with ProductRow artifact
+selectors produced by `jitml internal train-and-publish-product-rows`, wired
+row-specific renderers to checkpoint-summary metadata, and added fail-closed
+browser guards for missing, invalid, partial, untrained, unsupported, and
+`*-demo-weights` artifacts. A static generated model list or seeded fixture
+checkpoint still does not prove that every documented product row has integration
+and e2e evidence. The binding browser contract lives in
+[product_completion_contract.md](product_completion_contract.md); Phase `28` is
+active on row-keyed integration/e2e coverage on `linux-cpu` before the accelerator
+lanes revalidate it.
 
 ## Stack
 
@@ -37,7 +40,7 @@ coverage on `linux-cpu` before the accelerator lanes revalidate it.
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec currently covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, and adversarial selectors. Phase `27`/`28` expand this into row-complete trained-artifact/convergence-statistics proof for every product row. | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec currently covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, adversarial selectors, ProductRow artifact hashes, and checkpoint-required fail-closed rendering. Phase `28` expands this into row-complete trained-artifact/convergence-statistics proof for every product row. | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Webapp role | HTTP/WebSocket server selected by typed `BootConfig.activeRole = Webapp` | `src/JitML/App.hs`, `chart/local/jitml-demo` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -132,13 +135,27 @@ crossed by the REST / WebSocket surface. The current local renderer produces
 `web/src/Generated/Contracts.purs`, identifies itself as
 `local-purescript-bridge-compatible-renderer`, and the generated contract path
 is an active `trackingGeneratedPaths` entry; hand edits fail
-`jitml docs check`. `CheckpointSummary` now carries only Engine-listed
-inference-eligible artifacts and includes the manifest SHA, step, model family,
-tensor count, eligibility string, completed-budget rendering,
-convergence-metric rendering, and TensorBoard prefix. The browser contract
-therefore receives the same `CompletedTraining`/checkpoint eligibility state
-that the Haskell loader enforces, instead of inferring readiness from seeded or
-smoke manifests.
+`jitml docs check`. `CheckpointList` now carries `rowSelectors`, one
+`ProductRowSelector` per product-row artifact namespace, with `rowId`,
+`experimentHash`, `family`, `selectorState`, `checkpointCount`, and `demoPanel`.
+`selectorState` is one of `eligible`, `training-required`, `unsupported`, or
+`error`. `CheckpointSummary` carries only Engine-listed inference-eligible
+artifacts and includes the row id, manifest SHA, step, model family, tensor
+count, eligibility string, completed-budget rendering, convergence-metric
+rendering, and TensorBoard prefix. The browser contract therefore receives the
+same `CompletedTraining`/checkpoint eligibility state that the Haskell loader
+enforces, instead of inferring readiness from seeded or smoke manifests.
+`ModelMatrixRow` carries the generated `experimentHash` and `demoPanel` for each
+ProductRow, and the default panel requests use the stable `product-row-*`
+artifact namespaces rather than legacy seeded demo hashes. The checkpoint panel
+uses `rowSelectors` plus matching `CheckpointSummary.rowId` values to render one
+artifact card per ProductRow with family-specific supervised, RL, AlphaZero, or
+tuning metadata.
+Product REST routes validate the submitted artifact namespace against the
+ProductRow registry before publishing work or calling the runtime; non-product
+hashes and `*-demo-weights` names return `503 checkpoint-required` with
+`selector-state: fail-closed:no-inference-eligible-artifact`, and panels render
+that text through their existing error state.
 The non-live integration selector test constructs one completed and one partial
 manifest and asserts that only the completed manifest appears in the browser
 summary list.

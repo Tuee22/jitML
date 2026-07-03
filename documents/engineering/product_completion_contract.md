@@ -40,18 +40,30 @@ Each row carries these machine-checkable fields:
 |-------|------------------|
 | `rowId` | Stable identifier used by docs, CLI experiment files, checkpoint metadata, demo contracts, integration tests, and e2e tests. |
 | `family` | `Supervised`, `ReinforcementLearning`, `AlphaZero`, or `Tuning`. |
+| `rowClass` | Typed row dimension: supervised dataset/model, RL algorithm/environment, HER goal-conditioned row, AlphaZero game, or tuning family. |
 | `implementation` | Owning Haskell module and constructor/function that implements the documented dataset/env/model/algorithm pair. |
 | `experimentConfig` | Checked-in Dhall config or generated reflected config that can run the row through `jitml`. |
+| `trainingBudget` | Fixed terminating budget used by the row's training or tuning run. |
+| `convergenceBar` | Per-row metric, direction, literature target, slack, and threshold; representative category thresholds cannot satisfy another row. |
+| `deviceClaim` | The substrate-backed execution claim the row must prove before product closure. |
 | `trainingEvidence` | Proof that training ran for the declared fixed budget and parameters changed from initialization. |
 | `deviceEvidence` | Proof that the selected substrate device executed the forward/backward/update-critical kernels, or an explicit non-product classification if no device-backed model is claimed. |
 | `checkpointEvidence` | `CompletedTraining` witness plus convergence metrics in the checkpoint manifest. |
 | `demoEvidence` | Browser contract and panel path that renders the trained artifact, not only the row name. |
 | `integrationTest` | Test identifier that executes the row through the real training/checkpoint path. |
 | `e2eTest` | Test identifier that renders or interacts with the row through the live demo app. |
+| `demoPanel` | Browser panel that must render the row from an inference-eligible trained artifact. |
 
-A matrix generator may render this table into README/browser contracts, but the
-source of truth must be one typed registry. Hand-maintained duplicate row lists
-are not closure evidence.
+The source of truth is the typed registry in
+`src/JitML/Product/Matrix.hs`, with convergence-bar helpers in
+`src/JitML/Product/Convergence.hs`. The `MatrixFloor` pins the current product
+minimum: eleven supervised rows, seven canonical RL environments, the
+stable-baselines3 algorithm family plus HER, four AlphaZero games, and the
+hyperparameter-tuning row. Unit tests reject duplicate rows, rows outside that
+documented floor, documented floor members missing from the registry, and rows
+without integration/e2e ids. Browser contracts and workflow-matrix projections
+are generated from the registry; hand-maintained duplicate row lists are not
+closure evidence.
 
 ## Real-ML Rules
 
@@ -79,38 +91,74 @@ row, may stay in the research catalog only if they are typed as non-product rows
 or carry their own learned-policy artifact and do not claim substrate-backed ANN
 training. The product matrix must make that state explicit.
 
+RL product rows additionally require per-row convergence evidence from
+`JitML.RL.ConvergenceThresholds`: the row's `(algorithm, environment)` cohort
+must have a concrete threshold, the measured median or HER goal metric must pass
+that threshold, policy-or-Q hashes must change across a positive update count,
+and the manifest must carry `linux-cpu` device evidence. Synthetic transition
+traces, missing thresholds, initialized-only checkpoints, and generic
+self-thresholded metric fallbacks cannot mint `CompletedTraining` for RL rows.
+
+AlphaZero product rows are game-specific, not a single Connect 4 proxy. Connect
+4, Othello, Hex, and Gomoku each resolve their own initial state, observation
+shape, action count, self-play command (`--game <id>`), MCTS visit distribution
+targets, outcome labels, and policy/value checkpoint tensor name. Self-play
+evidence must show network-backed priors and leaf values, persistent per-game
+MCTS cache state across moves, deterministic root-noise seeding, and the row's
+own transcript/game id. Each row carries training, device, and checkpoint
+evidence handles; its checkpoint manifest carries a `CompletedTraining` witness
+with the initial/final policy-value network hashes, positive generation count,
+passing per-game arena win-rate observation, and an
+`InferenceEligibleCheckpoint` proof from the checkpoint loader boundary.
+
 ## Type-State DSL Contract
 
 It must be impossible to represent "run inference on an untrained model" in the
-DSL accepted by product commands. The target shape is a type-state pipeline:
+DSL accepted by product commands. The Haskell boundary is the opaque
+`JitML.Product.Pipeline.ModelRef (state :: ModelState)` pipeline:
 
 ```haskell
--- Example: target type-state shape, not a checked-in API promise.
 data ModelState = Declared | TrainingStarted | TrainingCompleted | InferenceEligible
 
-newtype ModelRef (state :: ModelState) = ModelRef ArtifactRef
+declareExperiment :: Text -> Experiment Declared
+declareModel :: Experiment Declared -> ModelRef Declared
+startTraining :: ModelRef Declared -> ModelRef TrainingStarted
 
 train
-  :: Experiment Declared
-  -> TrainingBudget
+  :: ModelRef TrainingStarted
+  -> CompletedTraining
   -> m (ModelRef TrainingCompleted)
 
 markInferenceEligible
-  :: ModelRef TrainingCompleted
+  :: Text
+  -> ModelRef TrainingCompleted
   -> CompletedTraining
-  -> ConvergenceMetrics
-  -> m (ModelRef InferenceEligible)
+  -> Either Text (ModelRef InferenceEligible)
 
 infer
-  :: ModelRef InferenceEligible
+  :: InferenceEligibleRef
+  -> CheckpointManifest
   -> InputBatch
   -> m OutputBatch
 ```
 
-Dhall mirrors the same state boundary with separate constructors or records for
-declared experiments, completed training witnesses, and inference-eligible
-artifacts. A manifest with missing, partial, synthetic, seeded-demo, or
-failed-training provenance cannot decode as an inference target.
+`CompletedTraining` can only be built with the Sprint `21.1` training evidence:
+initial weight hash, final weight hash, positive update count, dataset SHA at
+read time, fixed-budget completion, TensorBoard metadata, and passing numeric
+convergence observations. `markInferenceEligible` promotes only a
+`TrainingCompleted` reference carrying that exact witness and rejects mismatches
+or failed convergence. `InferenceEligibleRef` is minted from a validated
+`InferenceEligibleCheckpoint` at the checkpoint loader boundary before any
+substrate runner receives weights.
+
+Dhall mirrors the same state boundary with separate records for declared
+experiments, completed-training witnesses, and inference selectors in
+`dhall/project/Schema.dhall` and `dhall/run/Schema.dhall`.
+`tryLoadInferenceSelectorConfig` validates the selector/witness hash match,
+completed-training provenance, passing convergence, changed weight hashes,
+positive update count, and dataset-read SHA. A manifest or selector with
+missing, partial, synthetic, seeded-demo, or failed-training provenance cannot
+decode as an inference target.
 
 ## Demo Contract
 
@@ -126,6 +174,27 @@ The demo app is complete only when every product matrix row has:
 
 Static model names, seeded synthetic checkpoints, route-shape tests, and demo
 fixtures may support development, but they cannot count as product completion.
+The product-row artifact publisher is
+`jitml internal train-and-publish-product-rows --<substrate>`; it trains rows
+through the real family-specific path and writes artifacts under stable
+`product-row-*` experiment hashes. The browser checkpoint-list frame carries one
+`row-selector` per `ProductRow` with a selector state of `eligible`,
+`training-required`, `unsupported`, or `error`, and carries global
+`selector-state: fail-closed:no-inference-eligible-artifact` when the daemon
+finds no eligible summary rows. The checkpoint panel renders those states
+directly instead of substituting a seeded or synthetic artifact. Generated
+`ModelMatrixRow` values carry the same `product-row-*` experiment hashes and
+demo panel names, the default panel requests use those hashes, and the checkpoint
+panel renders supervised, RL, AlphaZero, and tuning artifact cards from the
+matching `CheckpointSummary.rowId` metadata rather than from static row names.
+Browser REST handlers validate product requests against the ProductRow registry
+before any runtime or publisher path runs; non-product hashes, panel/row
+mismatches, stale seeded hashes, `*-demo-weights`, missing artifacts, untrained or
+partial manifests, and unsupported substrate states return a `503
+checkpoint-required` fail-closed envelope instead of a fake result. The
+Playwright guard asserts the browser posts `product-row-*` hashes and does not
+render `*-demo-weights`; Phase `28` owns converting that browser proof into one
+integration/e2e evidence row per ProductRow.
 
 ## Test Contract
 
@@ -134,7 +203,7 @@ Every product row owns all of the following test evidence:
 | Evidence | Required behavior |
 |----------|-------------------|
 | Catalog parity | Generated docs/browser matrix exactly matches the typed product matrix. |
-| Integration | The row trains through the real command path, verifies data, updates learned state, writes a completed checkpoint, and rejects inference before completion. |
+| Integration | The row trains through the real command path, verifies data, updates learned state, writes a completed checkpoint, rejects inference before completion, and records evidence from the product-row publisher manifest rather than from synthetic row-local hashes or loss curves. |
 | E2E | The live demo renders or interacts with that row through an inference-eligible artifact. |
 | Negative | Missing dataset, missing cluster, malformed checkpoint, untrained checkpoint, and unsupported substrate fail closed. |
 | Lane | The same row is validated on `linux-cpu`; accelerator phases separately validate `linux-cuda` and `apple-silicon` without requiring both accelerators in one phase. |

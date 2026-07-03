@@ -13,6 +13,7 @@ module JitML.RL.AlphaZero
   , TwoHeadedNetwork (..)
   , applyMove
   , arenaWinRate
+  , actionCountFor
   , canonicalGames
   , connect4BoardAfter
   , connect4Network
@@ -33,7 +34,9 @@ module JitML.RL.AlphaZero
   , initialGomoku
   , initialHex
   , initialOthello
+  , initialStateFor
   , isLegalMove
+  , observationSizeFor
   , othelloActionCount
   , othelloApplyMove
   , othelloBoardAfter
@@ -128,6 +131,15 @@ initialGomoku :: GameState
 initialGomoku =
   GameState "gomoku" [] 1
 
+initialStateFor :: Text -> GameState
+initialStateFor raw =
+  case normalizeGameName raw of
+    "connect4" -> initialConnect4
+    "othello" -> initialOthello
+    "hex" -> initialHex
+    "gomoku" -> initialGomoku
+    _ -> initialConnect4
+
 canonicalGames :: [PerfectInformationGame]
 canonicalGames =
   [ PerfectInformationGame "connect4" 6 7 connect4ActionCount
@@ -147,6 +159,19 @@ hexActionCount = 11 * 11
 
 gomokuActionCount :: Int
 gomokuActionCount = 15 * 15
+
+actionCountFor :: Text -> Int
+actionCountFor raw =
+  case normalizeGameName raw of
+    "connect4" -> connect4ActionCount
+    "othello" -> othelloActionCount
+    "hex" -> hexActionCount
+    "gomoku" -> gomokuActionCount
+    _ -> connect4ActionCount
+
+observationSizeFor :: Text -> Int
+observationSizeFor raw =
+  actionCountFor raw + 1
 
 connect4Network :: TwoHeadedNetwork
 connect4Network =
@@ -191,6 +216,18 @@ twoHeadedNetworkFor other =
     , policyHeadSize = 1
     , valueHeadSize = 1
     }
+
+normalizeGameName :: Text -> Text
+normalizeGameName raw =
+  case Text.toLower (Text.strip raw) of
+    "connect 4" -> "connect4"
+    "connect4" -> "connect4"
+    "othello" -> "othello"
+    "othello (reversi)" -> "othello"
+    "hex" -> "hex"
+    "gomoku" -> "gomoku"
+    "gomoku-9x9" -> "gomoku"
+    other -> other
 
 applyMove :: Int -> GameState -> GameState
 applyMove candidate state =

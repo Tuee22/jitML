@@ -15,11 +15,13 @@ spec:
             spec:
               ports:
                 - name: http
-                  port: 9091
+                  port: 9090
                   nodePort: 30090
       envoyDeployment:
         container:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 512Mi
+            limits:
+              memory: 1Gi

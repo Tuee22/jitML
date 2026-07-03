@@ -1026,8 +1026,9 @@ Resolved live-validation failures on this host (2026-06-11 / 2026-06-12):
   fresh live coordinate, so a failed or cross-substrate publication cannot send
   validation traffic to the wrong edge.
 - `EnvoyProxy/jitml-edge` now pins the managed Envoy data-plane request to
-  `cpu: 50m` / `memory: 64Mi`, allowing the single-node local Kind stack to
-  schedule the proxy after the full platform rollout.
+  `cpu: 50m` / `memory: 512Mi` with a `1Gi` memory limit, allowing the local
+  Kind stack to schedule the proxy while keeping large dataset/archive uploads
+  inside a bounded data-plane envelope.
 - The live WorkflowMatrix runner now prefers the freshly built
   `dist-newstyle/.../jitml` executable over the container image's installed
   fallback, so newly added CLI leaves are exercised by the test binary that was

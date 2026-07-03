@@ -1,40 +1,40 @@
 # Phase 20: De-Fossilization & Scaffold Lint
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md), [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md), [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md), [../documents/engineering/code_quality.md](../documents/engineering/code_quality.md)
 **Generated sections**: none
 
 > **Purpose**: Delete the legacy fake-ML fossils from product code and install a
 > forbidden-scaffold lint whose import-edge reachability check proves no product
-> command path can reach a fake, deterministic, or seeded helper.
+> command path can reach a removed fake or deterministic helper.
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `19`. Phase `19` installs the typed product matrix and
-the forbidden-scaffold audit contract; this phase physically removes the fossils
-that contract names and turns the reachability lint on. De-fossilization lands
-**before** the scaffold lint so the lint does not red-flag live fossils that are
-already scheduled for deletion here.
+✅ **Done**. Phase `19` installed the typed product matrix, the Phase `19`–`31`
+status registry, and the docs-check closure guard. Sprint `20.1` removed the
+legacy fake-ML fossils from the product path, and Sprint `20.2` turns on the
+forbidden-scaffold registry and reachability lint over the de-fossilized tree.
 
 **Validation substrate**: `linux-cpu` only.
 
 ## Objective
 
-Product code contains no fake-ML fossil. The dead vectorized-environment module
-is gone, the deterministic fake-policy runners live only in test-support code,
-and the product-facing episode envelope is a plain projection type consumed by
-the real trainers. One lint pass — `src/JitML/Lint/ProductTruth.hs` — owns a
-forbidden-scaffold registry scanned over `src/` and an import-edge reachability
-check that fails when any module reachable from an `App.hs:runParsed` handler
-imports a scaffold module. `jitml lint` and `jitml check-code` both run the pass,
-and a registry `nonProductScaffolding` list plus its test guarantee no fossil can
-be named as a `ProductRow` implementation.
+Product code contains no Sprint `20.1` fake-ML fossil. The dead
+vectorized-environment module is gone, the deterministic fake-policy runners
+live only in test-support code, and the product-facing episode envelope is a
+plain projection type consumed by the real trainers. One lint pass —
+`src/JitML/Lint/ProductTruth.hs` — owns a forbidden-scaffold registry scanned
+over `src/` for entries that are enforced now and an import-edge reachability
+check that fails when `JitML.App` reaches a scaffold module. The same registry
+tracks future-owned scaffold entries for later phases without enforcing their
+source removal before their owning sprint. `jitml lint files` and
+`jitml check-code` both run the pass, and a `nonProductScaffolding` list plus
+its test guarantee no fossil can be named as a `ProductRow` implementation.
 
-## Sprint 20.1: Remove Fossils [⏸️ Blocked]
+## Sprint 20.1: Remove Fossils [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `19`
+**Status**: Done
 **Implementation**: `src/JitML/RL/VecEnv.hs`, `src/JitML/RL/Loop.hs`, `src/JitML/RL/SimulatorLoop.hs`, `src/JitML/RL/EpisodeEnvelope.hs`, `src/JitML/App.hs`, `jitml.cabal`, `test/rl-canonicals/Support/`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`, `legacy-tracking-for-deletion.md`
 
@@ -81,25 +81,19 @@ module.
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml test jitml-rl --linux-cpu
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu          # passed, 246/246 tests
+docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu # passed, 31/31 tests
+docker compose run --rm jitml jitml docs check                           # passed
+docker compose run --rm jitml jitml check-code                           # passed
 ```
 
 ### Remaining Work
 
-- Delete `VecEnv.hs` and relocate the fake runners plus `deterministicStep` into
-  `test/rl-canonicals/Support/`.
-- Create `src/JitML/RL/EpisodeEnvelope.hs`, repoint the real trainers and the
-  `EpisodeDone` publication path at it, and update `jitml.cabal`.
-- Fix the `runTrainerEpisodes` docstring and prefix the retained determinism
-  tests with `scaffolding:`.
-- Record every removal in the legacy ledger under Sprint `20.1`.
+- None.
 
-## Sprint 20.2: Scaffold Lint + Reachability [⏸️ Blocked]
+## Sprint 20.2: Scaffold Lint + Reachability [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `20.1`
+**Status**: Done
 **Implementation**: `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Lint/Stack.hs`, `src/JitML/Product/Matrix.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/code_quality.md`, `../documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -111,11 +105,17 @@ cannot reach a fossil module.
 
 ### Deliverables
 
-- `src/JitML/Lint/ProductTruth.hs` owns a forbidden-scaffold registry —
-  `deterministicStep`, `runRLLoop`, `runSimulatedEpisode`, `VecEnv`, the
-  identity-copy family kernels, degenerate conv, `completedTrainingFromMetrics`,
-  and seeded `*-demo-weights` hashes — scanned over `src/` only (`test/` is
-  exempt so the relocated Sprint `20.1` scaffolding is legal).
+- `src/JitML/Lint/ProductTruth.hs` owns a forbidden-scaffold registry. Entries
+  enforced by Sprint `20.2` — `deterministicStep`, `runRLLoop`,
+  `runSimulatedEpisode*`, and `VecEnv` / `JitML.RL.VecEnv` — are scanned over
+  `src/` only (`test/` is exempt so the relocated Sprint `20.1` scaffolding is
+  legal).
+- The same registry also carries future-owner entries for seeded
+  `*-demo-weights`, identity-copy CUDA kernels, and degenerate CUDA/Metal
+  convolution scaffolds. Those names feed the `ProductRow` implementation guard
+  now, while hard source removal remains owned by Sprints `27.1`, `29.1`, and
+  `30.1` in numerical order. Sprint `21.1` later promotes
+  `completedTrainingFromMetrics` from future-owned entry to enforced removal.
 - The pass adds an import-edge reachability check: starting from the
   `App.hs:runParsed` handlers, it walks the module import graph and fails when
   any product-reachable module imports a scaffold/fossil module.
@@ -131,19 +131,15 @@ cannot reach a fossil module.
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml lint src
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml lint files                 # passed
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu # passed, 249/249 tests
+docker compose run --rm jitml jitml docs check                  # passed
+docker compose run --rm jitml jitml check-code                  # passed
 ```
 
 ### Remaining Work
 
-- Implement `ProductTruth.hs` with the registry and the reachability walk over
-  the `runParsed` handler graph.
-- Wire the stage into `Lint/Stack.hs` and add the `nonProductScaffolding` matrix
-  guard test.
-- Update `code_quality.md`, `unit_testing_policy.md`, and `system-components.md`
-  to describe the new pass.
+- None.
 
 ## Documentation Requirements
 

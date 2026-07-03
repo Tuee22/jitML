@@ -141,14 +141,52 @@ test("mnist panel renders an inference canvas", async ({ page }) => {
   const response = await responsePromise;
   const body = await response.text();
   expect(response.request().postData() ?? "").toContain("input: 0.42,0.42");
+  expect(response.request().postData() ?? "").toContain(
+    "experiment-hash: product-row-mnist-deep-mlp",
+  );
+  expect(response.request().postData() ?? "").not.toContain("-demo-weights");
   expect(response.ok()).toBeTruthy();
   expect(body).toContain("kind: InferenceResult");
   expect(body).toContain("checkpoint-sha:");
+  expect(body).not.toContain("-demo-weights");
   await expect(page.locator("#mnist-live-inference-prediction")).toContainText(
     "predicted",
   );
   await expect(page.locator("#mnist-live-inference-distribution li")).toHaveCount(
     10,
+  );
+});
+
+test("mnist panel renders checkpoint-required fail-closed responses", async ({
+  page,
+}) => {
+  await page.route("**/api/inference", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "text/plain; charset=utf-8",
+      body:
+        "checkpoint-required: inference\n" +
+        "reason: pointer read failed: missing latest pointer\n" +
+        "selector-state: fail-closed:no-inference-eligible-artifact\n" +
+        "status: failed\n",
+    });
+  });
+  await loadPanel(page, "mnist-live-inference");
+  await expect(page.locator("#mnist-live-inference")).toBeVisible();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/inference") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#mnist-live-inference-submit").click();
+  const response = await responsePromise;
+  expect(response.status()).toBe(503);
+  await expect(page.locator("#mnist-live-inference-error")).toContainText(
+    "checkpoint-required: inference",
+  );
+  await expect(page.locator("#mnist-live-inference-error")).toContainText(
+    "fail-closed:no-inference-eligible-artifact",
   );
 });
 
@@ -165,9 +203,16 @@ test("generic inference panel renders checkpoint output", async ({ page }) => {
   await page.locator("#generic-inference-lab-submit").click();
   const response = await responsePromise;
   const body = await response.text();
-  expect(response.request().postData() ?? "").toContain("input: 0.9,-0.5,1.0,2.0");
+  expect(response.request().postData() ?? "").toContain(
+    "experiment-hash: product-row-california-housing-mlp",
+  );
+  expect(response.request().postData() ?? "").toContain(
+    "input: 0.9,-0.5,1.0,2.0,0.0,0.0,0.0,1.0",
+  );
+  expect(response.request().postData() ?? "").not.toContain("generic-tensor-demo");
   expect(response.ok()).toBeTruthy();
   expect(body).toContain("kind: GenericInferenceResult");
+  expect(body).not.toContain("-demo-weights");
   await expect(page.locator("#generic-inference-lab-result")).toBeVisible();
   await expect(page.locator("#generic-inference-lab-output li")).toHaveCount(3);
 });
@@ -193,8 +238,13 @@ test("cifar panel renders an upload control", async ({ page }) => {
   expect(response.ok()).toBeTruthy();
   const postData = response.request().postData() ?? "";
   expect(postData).toContain("sample-cifar.bin");
+  expect(postData).toContain("experiment-hash: product-row-cifar10-resnet20");
+  expect(postData).not.toContain("experiment-hash: cifar-imagenet\n");
+  expect(postData).not.toContain("-demo-weights");
   expect(postData).toContain("input: 1.0,1.0");
-  expect(await response.text()).toContain("kind: ImageInferenceResult");
+  const body = await response.text();
+  expect(body).toContain("kind: ImageInferenceResult");
+  expect(body).not.toContain("-demo-weights");
 });
 
 test("checkpoint compare panel renders output deltas", async ({ page }) => {
@@ -211,8 +261,16 @@ test("checkpoint compare panel renders output deltas", async ({ page }) => {
   const response = await responsePromise;
   const body = await response.text();
   expect(response.request().postData() ?? "").toContain("input: 0.7,-0.5,1.0,2.0");
+  expect(response.request().postData() ?? "").toContain(
+    "baseline-experiment-hash: product-row-mnist-shallow-mlp",
+  );
+  expect(response.request().postData() ?? "").toContain(
+    "candidate-experiment-hash: product-row-mnist-deep-mlp",
+  );
+  expect(response.request().postData() ?? "").not.toContain("generic-tensor-demo");
   expect(response.ok()).toBeTruthy();
   expect(body).toContain("kind: CheckpointCompareResult");
+  expect(body).not.toContain("-demo-weights");
   await expect(page.locator("#checkpoint-compare-lab-result")).toBeVisible();
   await expect(page.locator("#checkpoint-compare-lab-baseline-output li")).toHaveCount(
     3,
@@ -234,18 +292,24 @@ test("connect4 panel renders the board", async ({ page }) => {
   await page.locator("#connect4-human-vs-alphazero-move-0").click();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
+  expect(response.request().postData() ?? "").toContain(
+    "experiment-hash: product-row-connect4",
+  );
+  expect(response.request().postData() ?? "").not.toContain("-demo-weights");
   // Sprint 16.11 — the converged Webapp publishes the move command and the
   // `AdversarialMoveResult` (carrying the AI's `chosen-column`) streams back over
   // `/api/ws/inference`; the POST returns the publish ack. Assert the result on the
   // websocket-rendered moves list — the human move `0` followed by the AI's chosen
   // numeric column — rather than reading the column from the synchronous ack body.
-  expect(await response.text()).toContain("kind: AdversarialMoveResult");
+  const body = await response.text();
+  expect(body).toContain("kind: AdversarialMoveResult");
+  expect(body).not.toContain("-demo-weights");
   await expect(page.locator("#connect4-human-vs-alphazero-moves")).toContainText(
     /moves: \[0,\s*[0-9]+\]/,
   );
 });
 
-test("adversarial game selectors submit seeded policy-value hashes", async ({
+test("adversarial game selectors submit product-row policy-value hashes", async ({
   page,
 }) => {
   await loadPanel(page, "connect4-human-vs-alphazero");
@@ -255,9 +319,9 @@ test("adversarial game selectors submit seeded policy-value hashes", async ({
     move: number;
     cell: number;
   }> = [
-    { name: "othello", hash: "othello-alphazero", move: 19, cell: 19 },
-    { name: "hex", hash: "hex-alphazero", move: 0, cell: 0 },
-    { name: "gomoku", hash: "gomoku-alphazero", move: 0, cell: 0 },
+    { name: "othello", hash: "product-row-othello", move: 19, cell: 19 },
+    { name: "hex", hash: "product-row-hex", move: 0, cell: 0 },
+    { name: "gomoku", hash: "product-row-gomoku", move: 0, cell: 0 },
   ];
 
   for (const game of games) {
@@ -276,6 +340,7 @@ test("adversarial game selectors submit seeded policy-value hashes", async ({
     expect(response.ok()).toBeTruthy();
     expect(postData).toContain(`game: ${game.name}`);
     expect(postData).toContain(`experiment-hash: ${game.hash}`);
+    expect(postData).not.toContain("-demo-weights");
     expect(postData).toContain(`moves: ${game.move}`);
     await expect(page.locator("#connect4-human-vs-alphazero-moves")).toContainText(
       new RegExp(`moves: \\[${game.move},\\s*[0-9]+\\]`),
@@ -285,7 +350,7 @@ test("adversarial game selectors submit seeded policy-value hashes", async ({
 
 test("checkpoint browse panel lists eligible checkpoints and every model row", async ({ page }) => {
   // Sprint 14.1 (Feature A) — the panel POSTs `/api/checkpoints` on init; the
-  // Engine lists the seeded experiments' manifests from MinIO and replies
+  // Engine lists the product-row experiment manifests from MinIO and replies
   // with a `CheckpointList` frame over `/api/ws/inference`, which the panel
   // renders as a list. Sprint 14.4 also renders the generated all-model matrix
   // so the browser surface covers every trained-artifact row in the shared
@@ -315,6 +380,7 @@ test("checkpoint browse panel lists eligible checkpoints and every model row", a
   expect(checkpointText).not.toContain("untrained");
   expect(checkpointText).not.toContain("smoke");
   expect(checkpointText).not.toContain("fake-runtime");
+  expect(checkpointText).not.toContain("-demo-weights");
 
   const modelRows = page.locator("#checkpoint-browse-model-matrix-list li");
   await expect(modelRows).toHaveCount(EXPECTED_MODEL_NAMES.length);
@@ -323,6 +389,11 @@ test("checkpoint browse panel lists eligible checkpoints and every model row", a
     await expect(matrix).toContainText(`model: ${modelName}`);
   }
   await expect(matrix).toContainText("requires trained artifact: yes");
+  await expect(matrix).toContainText("experiment: product-row-mnist-deep-mlp");
+  await expect(matrix).not.toContainText("-demo-weights");
+  await expect(page.locator("#checkpoint-browse-artifact-renderers")).not.toContainText(
+    "-demo-weights",
+  );
 });
 
 test("workflow status panel renders a live status table", async ({ page }) => {

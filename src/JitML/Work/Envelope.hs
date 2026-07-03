@@ -50,6 +50,7 @@ module JitML.Work.Envelope
   )
 where
 
+import Data.Either (isRight)
 import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -63,6 +64,7 @@ import JitML.Checkpoint.Format
   , manifestCompletedTraining
   , manifestExperiment
   , manifestStep
+  , manifestTrainingEvidence
   )
 import JitML.Coordinator.Topology (Workflow (..))
 import JitML.Substrate (Substrate)
@@ -99,7 +101,8 @@ artifactRefStep = arStep
 mintArtifactRef :: CheckpointManifest -> Maybe ArtifactRef
 mintArtifactRef manifest
   | manifestStep manifest >= 1
-      && isJust (manifestCompletedTraining manifest) =
+      && isJust (manifestCompletedTraining manifest)
+      && isRight (manifestTrainingEvidence manifest) =
       Just ArtifactRef {arExperiment = manifestExperiment manifest, arStep = manifestStep manifest}
   | otherwise = Nothing
 

@@ -1,6 +1,6 @@
 # Phase 22: Canonical Matrix & Dataset Integrity
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md), [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md)
 **Generated sections**: none
@@ -11,8 +11,10 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `21`. This phase starts only after inference eligibility
-is a type-state property and training evidence is non-fabricable.
+✅ **Done**. Phase `21` closed inference eligibility and
+non-fabricable-training-evidence as type-state properties. Sprints `22.1`,
+`22.2`, and `22.3` have closed bidirectional product matrix parity, per-row
+runnable Dhall configs, and read-time dataset SHA integrity.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -29,10 +31,9 @@ generated PureScript constant, or a test helper, and product training bytes
 cannot be substituted, truncated, or corrupted without a typed fail-closed
 error observed before decode.
 
-## Sprint 22.1: Matrix Parity [⏸️ Blocked]
+## Sprint 22.1: Matrix Parity [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `21`
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/SL/Canonicals.hs`, `src/JitML/RL/ConvergenceThresholds.hs`, `test/unit/Main.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -66,18 +67,20 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
+**Result (2026-07-02)**:
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` — passed,
+  261 / 261 tests.
+- `docker compose run --rm jitml jitml docs check` — passed.
+- `docker compose run --rm jitml jitml check-code` — passed.
+
 ### Remaining Work
 
-- Implement the bidirectional README-vs-registry parity test and the generated
-  PureScript matrix comparison.
-- Classify or schedule every missing/mismatched environment row so the parity
-  scan reports its zero-tolerance count.
+None.
 
-## Sprint 22.2: Per-Row Runnable Dhall [⏸️ Blocked]
+## Sprint 22.2: Per-Row Runnable Dhall [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `22.1`
-**Implementation**: `experiments/mnist.dhall`, `experiments/cartpole.dhall`, `src/JitML/Experiment/Overrides.hs`, `test/unit/Main.hs`
+**Status**: Done
+**Implementation**: `experiments/mnist.dhall`, `experiments/cartpole.dhall`, `src/JitML/Experiment/Product.hs`, `src/JitML/Experiment/Overrides.hs`, `src/JitML/App.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`
 
 ### Objective
@@ -109,17 +112,19 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
+**Result (2026-07-02)**:
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` — passed,
+  265 / 265 tests.
+- `docker compose run --rm jitml jitml docs check` — passed.
+- `docker compose run --rm jitml jitml check-code` — passed.
+
 ### Remaining Work
 
-- Add or generate the missing per-row Dhall configs and wire each to its registry
-  row.
-- Add the load-and-type-check-per-row test and the override-preserves-record
-  assertions.
+None.
 
-## Sprint 22.3: Read-Time Dataset SHA [⏸️ Blocked]
+## Sprint 22.3: Read-Time Dataset SHA [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `22.2`
+**Status**: Done
 **Implementation**: `src/JitML/SL/Dataset.hs`, `src/JitML/App.hs`, `test/integration/Main.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/checkpoint_format.md`
 
@@ -152,14 +157,16 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+**Result (2026-07-02)**:
+- `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu` —
+  passed, 25 / 25 tests.
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` —
+  passed, 79 / 79 tests.
+- `docker compose run --rm jitml jitml check-code` — passed.
+
 ### Remaining Work
 
-- Replace unverified product fetches with SHA-checking reads at the read
-  boundary.
-- Replace canonical-key synthetic live fixtures with test-only row ids or real
-  verified data.
-- Add the corrupt-bytes negative tests and thread the read-time SHA into the
-  checkpoint manifest.
+None.
 
 ## Documentation Requirements
 

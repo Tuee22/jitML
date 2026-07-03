@@ -39,6 +39,7 @@ module JitML.RL.AlphaZero.Mcts
 where
 
 import Crypto.Hash.SHA256 qualified as SHA256
+import Data.Bits (shiftR, xor)
 import Data.ByteString qualified as ByteString
 import Data.Char (intToDigit)
 import Data.List (maximumBy)
@@ -47,7 +48,7 @@ import Data.Ord (comparing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
-import Data.Word (Word8)
+import Data.Word (Word64, Word8)
 
 data MctsConfig = MctsConfig
   { mctsSimulations :: Int
@@ -144,7 +145,7 @@ selectEdge config node
   | otherwise =
       Just $
         maximumBy
-          (comparing (ucbScore config (nodeVisits node)))
+          (comparing (\edge -> (ucbScore config (nodeVisits node) edge, negate (edgeAction edge))))
           (nodeChildren node)
 
 selectAction :: MctsConfig -> MctsNode -> Maybe Int
@@ -257,11 +258,14 @@ runSearch = runSearchWithPrior defaultPriorOracle
 -- @seed@ argument is retained for caller compatibility; the search itself is
 -- deterministic (no root noise), so same oracle + same config ⇒ same tree.
 runSearchWithPrior :: PriorOracle -> MctsConfig -> Int -> MctsNode
-runSearchWithPrior oracle config _seed =
+runSearchWithPrior oracle config seed =
   go (max 1 (mctsSimulations config)) (freshNode [])
  where
+  rootedOracle moves
+    | null moves = applyRootNoise config seed (oracle moves)
+    | otherwise = oracle moves
   go 0 node = node
-  go n node = go (n - 1) (fst (simulate oracle config 0 node))
+  go n node = go (n - 1) (fst (simulate rootedOracle config 0 node))
 
 -- | Device-backed variant of 'runSearchWithPrior'. The search mechanics stay
 -- identical to the pure path, but each leaf expansion/evaluation is supplied by
@@ -269,15 +273,69 @@ runSearchWithPrior oracle config _seed =
 -- device. Any oracle failure aborts the search with 'Left' rather than falling
 -- back to the pure network.
 runSearchWithPriorIO :: PriorOracleIO -> MctsConfig -> Int -> IO (Either Text MctsNode)
-runSearchWithPriorIO oracle config _seed =
+runSearchWithPriorIO oracle config seed =
   go (max 1 (mctsSimulations config)) (freshNode [])
  where
   go 0 node = pure (Right node)
   go n node = do
-    simulated <- simulateIO oracle config 0 node
+    simulated <- simulateIO rootedOracle config 0 node
     case simulated of
       Left err -> pure (Left err)
       Right (node', _) -> go (n - 1) node'
+
+  rootedOracle moves
+    | null moves = fmap (fmap (applyRootNoise config seed)) (oracle moves)
+    | otherwise = oracle moves
+
+applyRootNoise :: MctsConfig -> Int -> NodeEval -> NodeEval
+applyRootNoise config seed ev
+  | evalTerminal ev = ev
+  | null (evalPriors ev) = ev
+  | mctsRootDirichletWeight config <= 0 = ev
+  | otherwise =
+      let n = max 1 (mctsActionSpace config)
+          weight = min 1.0 (max 0.0 (mctsRootDirichletWeight config))
+          base = normalisePrior n (evalPriors ev)
+          noise = deterministicDirichlet n (mctsRootDirichletAlpha config) seed
+          mixed = zipWith (\p eta -> (1.0 - weight) * p + weight * eta) base noise
+       in ev {evalPriors = mixed}
+
+normalisePrior :: Int -> [Double] -> [Double]
+normalisePrior n raw =
+  let clipped = fmap (max 0.0) (take n (raw <> repeat 0.0))
+      total = sum clipped
+   in if total <= 0
+        then replicate n (1.0 / fromIntegral n)
+        else fmap (/ total) clipped
+
+deterministicDirichlet :: Int -> Double -> Int -> [Double]
+deterministicDirichlet n alpha seed =
+  let concentration = max 1.0e-6 alpha
+      draws =
+        [ (-log (deterministicUnit seed action)) ** (1.0 / concentration)
+        | action <- [0 .. n - 1]
+        ]
+      total = sum draws
+   in if total <= 0
+        then replicate n (1.0 / fromIntegral n)
+        else fmap (/ total) draws
+
+deterministicUnit :: Int -> Int -> Double
+deterministicUnit seed action =
+  let mixed =
+        splitmix64
+          ( fromIntegral seed
+              + fromIntegral (action + 1) * 0x9e3779b97f4a7c15
+          )
+      bucket = fromIntegral (mixed `mod` 1000003) + 1.0
+   in bucket / 1000004.0
+
+splitmix64 :: Word64 -> Word64
+splitmix64 x0 =
+  let x1 = x0 + 0x9e3779b97f4a7c15
+      x2 = (x1 `xor` (x1 `shiftR` 30)) * 0xbf58476d1ce4e5b9
+      x3 = (x2 `xor` (x2 `shiftR` 27)) * 0x94d049bb133111eb
+   in x3 `xor` (x3 `shiftR` 31)
 
 -- | Transposition-table key. Two distinct move sequences that lead to the
 -- same position collapse to the same key. Hashing via SHA-256 keeps the key

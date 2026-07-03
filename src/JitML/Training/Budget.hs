@@ -9,11 +9,15 @@ module JitML.Training.Budget
   , TensorBoardRunMetadata (..)
   , TrainingBudget (..)
   , completedTrainingBudget
+  , completedTrainingDatasetShaAtRead
+  , completedTrainingEvidence
+  , completedTrainingFinalWeightHash
+  , completedTrainingInitialWeightHash
   , completedTrainingMetrics
   , completedTrainingObservedUnits
   , completedTrainingTensorBoard
+  , completedTrainingUpdateCount
   , completedTraining
-  , completedTrainingFromMetrics
   , convergencePassed
   , decodeCompletedTraining
   , encodeCompletedTraining
@@ -35,6 +39,14 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word64)
 import GHC.Generics (Generic)
+
+import JitML.Product.Evidence
+  ( TrainingEvidence
+  , evidenceDatasetShaAtRead
+  , evidenceFinalWeightHash
+  , evidenceInitialWeightHash
+  , evidenceUpdateCount
+  )
 
 data BudgetKind
   = SupervisedEpochBudget
@@ -81,6 +93,7 @@ data TensorBoardRunMetadata = TensorBoardRunMetadata
 data CompletedTraining = CompletedTraining
   { completedTrainingBudget :: TrainingBudget
   , completedTrainingObservedUnits :: Word64
+  , completedTrainingEvidence :: TrainingEvidence
   , completedTrainingMetrics :: [ConvergenceObservation]
   , completedTrainingTensorBoard :: TensorBoardRunMetadata
   }
@@ -114,13 +127,30 @@ renderTrainingBudget budget =
 convergencePassed :: ConvergenceObservation -> Bool
 convergencePassed = coPassed
 
+completedTrainingInitialWeightHash :: CompletedTraining -> Text
+completedTrainingInitialWeightHash =
+  evidenceInitialWeightHash . completedTrainingEvidence
+
+completedTrainingFinalWeightHash :: CompletedTraining -> Text
+completedTrainingFinalWeightHash =
+  evidenceFinalWeightHash . completedTrainingEvidence
+
+completedTrainingUpdateCount :: CompletedTraining -> Word64
+completedTrainingUpdateCount =
+  evidenceUpdateCount . completedTrainingEvidence
+
+completedTrainingDatasetShaAtRead :: CompletedTraining -> Text
+completedTrainingDatasetShaAtRead =
+  evidenceDatasetShaAtRead . completedTrainingEvidence
+
 completedTraining
   :: TrainingBudget
   -> Word64
+  -> TrainingEvidence
   -> [ConvergenceObservation]
   -> TensorBoardRunMetadata
   -> Either Text CompletedTraining
-completedTraining budget observedUnits observations tensorBoard
+completedTraining budget observedUnits evidence observations tensorBoard
   | tbTargetUnits budget == 0 =
       Left "training budget must have a positive target"
   | observedUnits < tbTargetUnits budget =
@@ -141,6 +171,7 @@ completedTraining budget observedUnits observations tensorBoard
             CompletedTraining
               { completedTrainingBudget = budget
               , completedTrainingObservedUnits = observedUnits
+              , completedTrainingEvidence = evidence
               , completedTrainingMetrics = observations
               , completedTrainingTensorBoard = tensorBoard
               }
@@ -149,24 +180,6 @@ completedTraining budget observedUnits observations tensorBoard
             ( "convergence metric failed: "
                 <> Text.intercalate "," (fmap coMetricName failed)
             )
-
-completedTrainingFromMetrics
-  :: TrainingBudget
-  -> Word64
-  -> [(Text, Double)]
-  -> TensorBoardRunMetadata
-  -> Either Text CompletedTraining
-completedTrainingFromMetrics budget observedUnits metrics =
-  completedTraining budget observedUnits (fmap metricObservation metrics)
- where
-  metricObservation (name, value) =
-    ConvergenceObservation
-      { coMetricName = name
-      , coMetricValue = value
-      , coMetricGoal = MetricMaximise
-      , coThreshold = Nothing
-      , coPassed = True
-      }
 
 encodeCompletedTraining :: CompletedTraining -> ByteString
 encodeCompletedTraining =

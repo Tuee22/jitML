@@ -1,19 +1,10 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Episode driver for the pure-Haskell simulators under
--- "JitML.RL.Simulator". Sprint 13.5 — the worker-side @jitml rl train@
--- entry point runs this loop against the simulator chosen by the
--- @JITML_ENVIRONMENT@ env var for cartpole / mountain-car / lunar-lander /
--- key-door-grid, publishes a per-episode @RlEpisode@ event to the broker, and
--- prints the summary. The @atari-subset@ environment is ALE-backed in
--- "JitML.RL.ALE".
--- The policy is the
--- deterministic
--- @action = (stepIx + episodeId + seed) `mod` actionCount@ rule from the
--- existing 'JitML.RL.Loop.runRLLoop' so a real RL math implementation
--- (Sprint 13.8) plugs in without changing the driver shape.
-module JitML.RL.SimulatorLoop
+-- | Test-support driver for the pure-Haskell simulators under
+-- "JitML.RL.Simulator". Product RL dispatch does not import this module; it is
+-- kept for scaffolding-labeled deterministic canonical checks.
+module Support.SimulatorLoop
   ( SimulatedEnvByName (..)
   , SimulatedEpisode (..)
   , SimulatedFrame (..)
@@ -27,38 +18,20 @@ where
 
 import Data.Text (Text)
 
+import JitML.RL.EpisodeEnvelope (SimulatedEpisode (..), SimulatedFrame (..))
 import JitML.RL.Simulator
   ( SimStep (..)
   , SimulatedEnvironment (..)
+  , acrobotEnvironment
   , cartPoleEnvironment
+  , gridWorldEnvironment
   , keyDoorGridEnvironment
   , lunarLanderEnvironment
   , mountainCarEnvironment
+  , pendulumDiscreteEnvironment
   , renderCaption
   , renderObservation
   )
-
-data SimulatedEpisode = SimulatedEpisode
-  { simEpisodeIndex :: Int
-  , simEpisodeSteps :: Int
-  , simEpisodeReward :: Double
-  , simEpisodeDone :: Bool
-  , simEpisodeFrames :: [SimulatedFrame]
-  }
-  deriving stock (Eq, Show)
-
-data SimulatedFrame = SimulatedFrame
-  { simFrameEpisodeIndex :: Int
-  , simFrameStepIndex :: Int
-  , simFrameAction :: Int
-  , simFrameReward :: Double
-  , simFrameDone :: Bool
-  , simFrameObservation :: [Double]
-  , simFrameNextObservation :: [Double]
-  , simFrameActionProbabilities :: [Double]
-  , simFrameCaption :: Text
-  }
-  deriving stock (Eq, Show)
 
 -- | Existential wrapper around the native pure-Haskell canonical simulators so callers
 -- look an environment up by name without having to plumb the per-env
@@ -70,19 +43,18 @@ simulatedEnvCatalog :: [(Text, SimulatedEnvByName)]
 simulatedEnvCatalog =
   [ ("cartpole", SimulatedEnvByName "cartpole" cartPoleEnvironment)
   , ("mountain-car", SimulatedEnvByName "mountain-car" mountainCarEnvironment)
+  , ("acrobot", SimulatedEnvByName "acrobot" acrobotEnvironment)
+  , ("pendulum", SimulatedEnvByName "pendulum" pendulumDiscreteEnvironment)
   , ("lunar-lander", SimulatedEnvByName "lunar-lander" lunarLanderEnvironment)
   , ("key-door-grid", SimulatedEnvByName "key-door-grid" keyDoorGridEnvironment)
   , ("KeyDoorGrid-v0", SimulatedEnvByName "key-door-grid" keyDoorGridEnvironment)
+  , ("gridworld-deterministic", SimulatedEnvByName "gridworld-deterministic" gridWorldEnvironment)
+  , ("GridWorld-Deterministic-v0", SimulatedEnvByName "gridworld-deterministic" gridWorldEnvironment)
   ]
 
 lookupSimulatedEnvByName :: Text -> Maybe SimulatedEnvByName
 lookupSimulatedEnvByName name = lookup name simulatedEnvCatalog
 
--- | Run one episode against the supplied simulator. The policy is the
--- deterministic @action = (stepIx + episodeId + seed) `mod` actionCount@
--- selector — the same shape the pre-sprint @runRLLoop@ used. A real
--- RL policy plugs in by replacing the policy expression with a JIT-engine
--- forward pass (Sprint 13.8).
 runSimulatedEpisode
   :: SimulatedEnvironment state -> Int -> Int -> Int -> SimulatedEpisode
 runSimulatedEpisode env seed episodeId maxSteps =

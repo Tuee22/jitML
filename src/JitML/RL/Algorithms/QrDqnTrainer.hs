@@ -19,11 +19,14 @@ module JitML.RL.Algorithms.QrDqnTrainer
   , defaultQrDqnTrainConfig
   , QrDqnTrainResult (..)
   , QrDqnIterationStat (..)
+  , initialQrDqnParams
   , trainQrDqnOnCartpole
   , trainQrDqnOnCartpoleCuda
   , trainQrDqnOnCartpoleOneDnn
   , trainQrDqnOnCartpoleMetal
   , trainQrDqnOnDevice
+  , trainQrDqnOnDeviceWithEnvironment
+  , evaluateQrDqnPolicyWithEnvironment
   )
 where
 
@@ -55,10 +58,11 @@ import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.QrDqnLoss (quantileMidpoints)
 import JitML.RL.Simulator
-  ( CartPoleState (..)
-  , SimStep (..)
-  , cartPoleInitial
-  , cartPoleStep
+  ( SimStep (..)
+  , SimulatedEnvironment (..)
+  , SomeSimulatedEnvironment (..)
+  , cartPoleEnvironment
+  , renderObservation
   )
 
 data QrDqnTrainConfig = QrDqnTrainConfig
@@ -133,14 +137,10 @@ data QrDqnTrainResult = QrDqnTrainResult
 
 trainQrDqnOnCartpole :: QrDqnTrainConfig -> IO QrDqnTrainResult
 trainQrDqnOnCartpole config = do
-  let shape =
-        MlpShape
-          { mlpInputs = qrObsSize config
-          , mlpHidden = qrHiddenUnits config
-          , mlpOutputs = qrActionCount config * qrNumQuantiles config
-          }
-      initialParams = mlpInit shape (qrSeed config)
+  let shape = qrDqnMlpShape config
+      initialParams = initialQrDqnParams config
   loop
+    cartPoleEnvironment
     config
     (\online target adam batch -> pure (qrUpdate config online target adam batch))
     initialParams
@@ -149,14 +149,15 @@ trainQrDqnOnCartpole config = do
     (Random.mkStdGen (qrSeed config + 1))
     []
     0
-    cartPoleInitial
+    (envInitial cartPoleEnvironment)
     0
     0.0
     []
     []
 
 loop
-  :: QrDqnTrainConfig
+  :: SimulatedEnvironment state
+  -> QrDqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
   -> MlpParams
   -> MlpParams
@@ -164,15 +165,16 @@ loop
   -> Random.StdGen
   -> [Transition]
   -> Int
-  -> CartPoleState
+  -> state
   -> Int
   -> Double
   -> [Double]
   -> [QrDqnIterationStat]
   -> IO QrDqnTrainResult
-loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+loop environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      environment
       config
       (\o t a batch -> Right <$> update o t a batch)
       online
@@ -189,7 +191,8 @@ loop config update online target adam gen buffer step state episodeLen episodeRe
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: QrDqnTrainConfig
+  :: SimulatedEnvironment state
+  -> QrDqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
   -> MlpParams
   -> MlpParams
@@ -197,13 +200,13 @@ loopEither
   -> Random.StdGen
   -> [Transition]
   -> Int
-  -> CartPoleState
+  -> state
   -> Int
   -> Double
   -> [Double]
   -> [QrDqnIterationStat]
   -> IO (Either Text QrDqnTrainResult)
-loopEither config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loopEither environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= qrNumSteps config =
       pure
         ( Right
@@ -215,21 +218,21 @@ loopEither config update online target adam gen buffer step state episodeLen epi
         )
   | otherwise = do
       let epsilon = currentEpsilon config step
-          obs = obsVector state
+          obs = obsVector environment state
           (u, gen1) = Random.uniformR (0.0 :: Double, 1.0) gen
           (actionU, gen2) = Random.uniformR (0 :: Int, qrActionCount config - 1) gen1
           greedyAction = greedyActionFor config online obs
           action = if u < epsilon then actionU else greedyAction
-          stepResult = cartPoleStep state action
+          stepResult = envStep environment state action
           terminal = simStepDone stepResult || episodeLen + 1 >= qrMaxEpisodeSteps config
-          nextObs = obsVector (simStepState stepResult)
+          nextObs = obsVector environment (simStepState stepResult)
           transition =
             Transition obs action (simStepReward stepResult) nextObs terminal
           newBuffer = take (qrReplayCapacity config) (transition : buffer)
           nextReturn = episodeReturn + simStepReward stepResult
           (nextState, nextLen, finalReturn, newEpisodes) =
             if terminal
-              then (cartPoleInitial, 0, 0.0, nextReturn : episodes)
+              then (envInitial environment, 0, 0.0, nextReturn : episodes)
               else (simStepState stepResult, episodeLen + 1, nextReturn, episodes)
       updateResult <-
         if step + 1 >= qrTrainStart config
@@ -257,6 +260,7 @@ loopEither config update online target adam gen buffer step state episodeLen epi
                      in QrDqnIterationStat (step + 1) (length newEpisodes) meanR : stats
                   else stats
           loopEither
+            environment
             config
             update
             onlineNext
@@ -300,6 +304,16 @@ argmax xs = snd (foldr1 step (zip xs [0 ..]))
   step (v1, i1) (v2, i2)
     | v1 >= v2 = (v1, i1)
     | otherwise = (v2, i2)
+
+maskedArgmax :: Maybe [Bool] -> [Double] -> Int
+maskedArgmax Nothing values = argmax values
+maskedArgmax (Just mask) values =
+  argmax
+    [ if ix < length mask && not (mask !! ix)
+        then -1.0e12
+        else value
+    | (ix, value) <- zip [0 ..] values
+    ]
 
 -- | QR-DQN gradient update on one batch. The quantile-Huber gradient for
 -- each predicted atom @theta_p_i@ of the taken action is
@@ -371,14 +385,9 @@ sampleBatch n buffer gen =
              in pickN (k - 1) g' (buffer !! idx : acc)
    in pickN n gen []
 
-obsVector :: CartPoleState -> Vector Double
-obsVector state =
-  VU.fromList
-    [ cartPosition state
-    , cartVelocity state
-    , poleAngle state
-    , poleAngularVelocity state
-    ]
+obsVector :: SimulatedEnvironment state -> state -> Vector Double
+obsVector environment =
+  VU.fromList . renderObservation . envRenderFrame environment
 
 -- | Sprint 13.8 — train QR-DQN on cartpole with the quantile network's
 -- forward + backward running on the GPU through the batched device
@@ -403,15 +412,21 @@ trainQrDqnOnCartpoleMetal env = trainQrDqnOnDevice (metalMlpDevice env)
 -- device ('qrUpdateDevice'), reusing the shared quantile-Huber head
 -- 'qrResidualDLdy'.
 trainQrDqnOnDevice :: MlpDevice -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
-trainQrDqnOnDevice device config = do
-  let shape =
-        MlpShape
-          { mlpInputs = qrObsSize config
-          , mlpHidden = qrHiddenUnits config
-          , mlpOutputs = qrActionCount config * qrNumQuantiles config
-          }
-      initialParams = mlpInit shape (qrSeed config)
+trainQrDqnOnDevice device =
+  trainQrDqnOnDeviceWithSimulatedEnvironment device cartPoleEnvironment
+
+trainQrDqnOnDeviceWithEnvironment
+  :: MlpDevice -> SomeSimulatedEnvironment -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
+trainQrDqnOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) =
+  trainQrDqnOnDeviceWithSimulatedEnvironment device environment
+
+trainQrDqnOnDeviceWithSimulatedEnvironment
+  :: MlpDevice -> SimulatedEnvironment state -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
+trainQrDqnOnDeviceWithSimulatedEnvironment device environment config = do
+  let shape = qrDqnMlpShape config
+      initialParams = initialQrDqnParams config
   loopEither
+    environment
     config
     (qrUpdateDevice device config)
     initialParams
@@ -420,11 +435,53 @@ trainQrDqnOnDevice device config = do
     (Random.mkStdGen (qrSeed config + 1))
     []
     0
-    cartPoleInitial
+    (envInitial environment)
     0
     0.0
     []
     []
+
+qrDqnMlpShape :: QrDqnTrainConfig -> MlpShape
+qrDqnMlpShape config =
+  MlpShape
+    { mlpInputs = qrObsSize config
+    , mlpHidden = qrHiddenUnits config
+    , mlpOutputs = qrActionCount config * qrNumQuantiles config
+    }
+
+initialQrDqnParams :: QrDqnTrainConfig -> MlpParams
+initialQrDqnParams config =
+  mlpInit (qrDqnMlpShape config) (qrSeed config)
+
+evaluateQrDqnPolicyWithEnvironment
+  :: SomeSimulatedEnvironment
+  -> QrDqnTrainConfig
+  -> MlpParams
+  -> Int
+  -> [(Double, Int)]
+evaluateQrDqnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
+  replicate (max 1 episodeCount) (evaluateEpisode environment config params)
+
+evaluateEpisode
+  :: SimulatedEnvironment state
+  -> QrDqnTrainConfig
+  -> MlpParams
+  -> (Double, Int)
+evaluateEpisode environment config params = go (envInitial environment) 0 0.0
+ where
+  go state episodeLen episodeReturn
+    | episodeLen >= qrMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | otherwise =
+        let obs = obsVector environment state
+            output = forwardOutput (mlpForward params obs)
+            qValues = [actionMeanQ config output actionIndex | actionIndex <- [0 .. qrActionCount config - 1]]
+            action = maskedArgmax (envActionMask environment <*> Just state) qValues
+            stepResult = envStep environment state action
+            nextReturn = episodeReturn + simStepReward stepResult
+            nextLen = episodeLen + 1
+         in if simStepDone stepResult
+              then (nextReturn, nextLen)
+              else go (simStepState stepResult) nextLen nextReturn
 
 -- | Minibatch QR-DQN gradient update through the batched device primitives:
 -- batched online forward at the states + target forward at the next states,

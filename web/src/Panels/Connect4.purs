@@ -72,7 +72,7 @@ defaultSimulations :: Int
 defaultSimulations = 400
 
 defaultExperimentHash :: String
-defaultExperimentHash = "connect4-alphazero"
+defaultExperimentHash = "product-row-connect4"
 
 connect4Game :: GameSpec
 connect4Game =
@@ -87,7 +87,7 @@ othelloGame :: GameSpec
 othelloGame =
   { name: "othello"
   , label: "Othello"
-  , experimentHash: "othello-alphazero"
+  , experimentHash: "product-row-othello"
   , rows: 8
   , cols: 8
   }
@@ -96,7 +96,7 @@ hexGame :: GameSpec
 hexGame =
   { name: "hex"
   , label: "Hex"
-  , experimentHash: "hex-alphazero"
+  , experimentHash: "product-row-hex"
   , rows: 11
   , cols: 11
   }
@@ -105,7 +105,7 @@ gomokuGame :: GameSpec
 gomokuGame =
   { name: "gomoku"
   , label: "Gomoku"
-  , experimentHash: "gomoku-alphazero"
+  , experimentHash: "product-row-gomoku"
   , rows: 15
   , cols: 15
   }

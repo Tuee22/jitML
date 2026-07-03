@@ -78,6 +78,7 @@ library
         JitML.Engines.CudnnBindings
         JitML.Engines.Engine
         JitML.Engines.HasEngine
+        JitML.Engines.LayerGraphCheckpoint
         JitML.Engines.Loader
         JitML.Engines.Local
         JitML.Engines.MlpCheckpoint
@@ -93,16 +94,22 @@ library
         JitML.Env.Build
         JitML.Env.Env
         JitML.Experiment.Overrides
+        JitML.Experiment.Product
         JitML.Generated.Paths
         JitML.Generated.Registry
         JitML.Lint.Chart
         JitML.Lint.DhallNumerics
         JitML.Lint.DhallRL
+        JitML.Lint.Docs
         JitML.Lint.ForbiddenPaths
+        JitML.Lint.ProductTruth
         JitML.Lint.Stack
         JitML.Lint.Stack.Types
+        JitML.Numerics.Autodiff
         JitML.Numerics.Catalog
         JitML.Numerics.FamilyReference
+        JitML.Numerics.LayerGraph
+        JitML.Numerics.LayerGraphOneDnn
         JitML.Numerics.Mlp
         JitML.Numerics.MlpCuda
         JitML.Numerics.MlpDevice
@@ -117,6 +124,11 @@ library
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
+        JitML.Product.Convergence
+        JitML.Product.Evidence
+        JitML.Product.Matrix
+        JitML.Product.PhaseStatus
+        JitML.Product.Pipeline
         JitML.Project.Config
         JitML.Proto.Gc
         JitML.Proto.Inference
@@ -178,14 +190,12 @@ library
         JitML.RL.AsyncBuffer
         JitML.RL.Buffer
         JitML.RL.ConvergenceThresholds
+        JitML.RL.EpisodeEnvelope
         JitML.RL.Environments
         JitML.RL.Framework
-        JitML.RL.Loop
         JitML.RL.Policy
         JitML.RL.Schema
         JitML.RL.Simulator
-        JitML.RL.SimulatorLoop
-        JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
         JitML.Service.CatalogSchema
@@ -229,6 +239,7 @@ library
         JitML.Substrate
         JitML.Test.LivePlan
         JitML.Test.Report
+        JitML.Test.RowAssertions
         JitML.Test.WorkflowMatrix
         JitML.Training.Budget
         JitML.Tune.Catalog
@@ -371,7 +382,8 @@ test-suite jitml-integration
         tasty-hunit,
         temporary,
         text,
-        time
+        time,
+        vector
 
 test-suite jitml-sl-canonicals
     type:             exitcode-stdio-1.0
@@ -402,6 +414,11 @@ test-suite jitml-rl-canonicals
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/rl-canonicals
+    other-modules:
+        Support.DeterministicStep
+        Support.Loop
+        Support.SimulatorLoop
+
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
@@ -411,11 +428,14 @@ test-suite jitml-rl-canonicals
 
     build-depends:
         base >=4.21 && <4.22,
+        bytestring,
+        cryptohash-sha256,
         jitml,
         random,
         text,
         tasty,
         tasty-hunit,
+        temporary,
         vector
 
 test-suite jitml-hyperparameter

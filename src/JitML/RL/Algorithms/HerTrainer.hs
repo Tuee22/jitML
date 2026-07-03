@@ -25,6 +25,7 @@ module JitML.RL.Algorithms.HerTrainer
   , defaultHerTrainConfig
   , HerTrainResult (..)
   , HerIterationStat (..)
+  , initialHerParams
   , trainHerOnBitFlip
   , trainHerOnBitFlipCuda
   , trainHerOnBitFlipOneDnn
@@ -132,14 +133,8 @@ bitDistance s g =
 
 trainHerOnBitFlip :: HerTrainConfig -> IO HerTrainResult
 trainHerOnBitFlip config = do
-  let n = herNumBits config
-      shape =
-        MlpShape
-          { mlpInputs = 2 * n
-          , mlpHidden = herHiddenUnits config
-          , mlpOutputs = n
-          }
-      initialParams = mlpInit shape (herSeed config)
+  let shape = herMlpShape config
+      initialParams = initialHerParams config
   episodeLoop
     config
     (\online target adam batch -> pure (dqnUpdate config online target adam batch))
@@ -401,14 +396,8 @@ trainHerOnBitFlipMetal env = trainHerOnDevice (metalMlpDevice env)
 -- gradient update runs on the device ('herUpdateDevice').
 trainHerOnDevice :: MlpDevice -> HerTrainConfig -> IO (Either Text HerTrainResult)
 trainHerOnDevice device config = do
-  let n = herNumBits config
-      shape =
-        MlpShape
-          { mlpInputs = 2 * n
-          , mlpHidden = herHiddenUnits config
-          , mlpOutputs = n
-          }
-      initialParams = mlpInit shape (herSeed config)
+  let shape = herMlpShape config
+      initialParams = initialHerParams config
   episodeLoopEither
     config
     (herUpdateDevice device config)
@@ -420,6 +409,19 @@ trainHerOnDevice device config = do
     0
     []
     []
+
+herMlpShape :: HerTrainConfig -> MlpShape
+herMlpShape config =
+  let n = herNumBits config
+   in MlpShape
+        { mlpInputs = 2 * n
+        , mlpHidden = herHiddenUnits config
+        , mlpOutputs = n
+        }
+
+initialHerParams :: HerTrainConfig -> MlpParams
+initialHerParams config =
+  mlpInit (herMlpShape config) (herSeed config)
 
 -- | Minibatch HER/DQN gradient update through the batched device primitives:
 -- batched online forward at the (state||goal) inputs + target forward at

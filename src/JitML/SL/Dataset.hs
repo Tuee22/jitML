@@ -2,6 +2,7 @@
 
 module JitML.SL.Dataset
   ( DatasetArtifact (..)
+  , DatasetArtifactBytes (..)
   , DatasetFetchResult (..)
   , DatasetRef (..)
   , DatasetSplit (..)
@@ -16,21 +17,26 @@ module JitML.SL.Dataset
   , datasetObjectKey
   , datasetObjectRef
   , datasetRefHash
+  , datasetReadShaForArtifacts
   , datasetSplitText
   , fetchDatasetArtifactBytes
   , fetchDatasetRef
+  , fetchVerifiedDatasetArtifactBytes
   , maybeGunzip
   , renderDatasetCatalog
+  , verifyDatasetArtifactBytes
   , verifyDatasetBytes
   )
 where
 
 import Codec.Compression.GZip qualified as GZip
+import Control.Applicative ((<|>))
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (intToDigit)
+import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -87,6 +93,14 @@ data DatasetFetchResult = DatasetFetchResult
   { fetchedDataset :: DatasetRef
   , fetchedBytes :: Int
   , fetchedSha256 :: Text
+  }
+  deriving stock (Eq, Show)
+
+data DatasetArtifactBytes = DatasetArtifactBytes
+  { fetchedArtifactDataset :: DatasetRef
+  , fetchedArtifact :: DatasetArtifact
+  , fetchedArtifactPayload :: ByteString
+  , fetchedArtifactSha256 :: Text
   }
   deriving stock (Eq, Show)
 
@@ -265,6 +279,44 @@ fetchDatasetRef ref = do
       Right verified -> Right verified
       Left message -> Left (SEConflict message)
 
+verifyDatasetArtifactBytes
+  :: DatasetRef -> DatasetArtifact -> ByteString -> Either Text DatasetArtifactBytes
+verifyDatasetArtifactBytes ref artifact payload =
+  case expectedDatasetArtifactSha256 ref artifact of
+    Nothing ->
+      Left
+        ( "dataset SHA pin missing for "
+            <> datasetName ref
+            <> "/"
+            <> datasetSplitText (datasetSplit ref)
+            <> "/"
+            <> datasetArtifactText artifact
+        )
+    Just expected ->
+      let actual = hashHex (SHA256.hash payload)
+       in if actual == expected
+            then
+              Right
+                DatasetArtifactBytes
+                  { fetchedArtifactDataset = ref
+                  , fetchedArtifact = artifact
+                  , fetchedArtifactPayload = payload
+                  , fetchedArtifactSha256 = actual
+                  }
+            else
+              Left
+                ( "dataset SHA mismatch for "
+                    <> datasetName ref
+                    <> "/"
+                    <> datasetSplitText (datasetSplit ref)
+                    <> "/"
+                    <> datasetArtifactText artifact
+                    <> ": expected "
+                    <> expected
+                    <> ", got "
+                    <> actual
+                )
+
 -- | Sprint 13.4 — read the raw stored bytes of a dataset artefact
 -- (images or labels) from MinIO. Unlike 'fetchDatasetRef' this does not
 -- SHA-verify (the training loop verifies whole-dataset integrity through
@@ -278,6 +330,56 @@ fetchDatasetArtifactBytes
   -> m (Either ServiceError ByteString)
 fetchDatasetArtifactBytes ref artifact =
   minioReadBytes (datasetArtifactObjectRef ref artifact)
+
+fetchVerifiedDatasetArtifactBytes
+  :: (HasMinIO m)
+  => DatasetRef
+  -> DatasetArtifact
+  -> m (Either ServiceError DatasetArtifactBytes)
+fetchVerifiedDatasetArtifactBytes ref artifact = do
+  result <- minioReadBytes (datasetArtifactObjectRef ref artifact)
+  pure $ do
+    payload <- result
+    case verifyDatasetArtifactBytes ref artifact payload of
+      Right verified -> Right verified
+      Left message -> Left (SEConflict message)
+
+datasetReadShaForArtifacts :: [DatasetArtifactBytes] -> Text
+datasetReadShaForArtifacts [] =
+  hashHex (SHA256.hash ByteString.empty)
+datasetReadShaForArtifacts [artifact] =
+  fetchedArtifactSha256 artifact
+datasetReadShaForArtifacts artifacts =
+  hashHex
+    ( SHA256.hash
+        ( Text.Encoding.encodeUtf8
+            (Text.intercalate "|" (List.sort (fmap renderArtifactSha artifacts)))
+        )
+    )
+ where
+  renderArtifactSha artifact =
+    let ref = fetchedArtifactDataset artifact
+     in datasetName ref
+          <> "/"
+          <> datasetSplitText (datasetSplit ref)
+          <> "/"
+          <> datasetArtifactText (fetchedArtifact artifact)
+          <> "="
+          <> fetchedArtifactSha256 artifact
+
+expectedDatasetArtifactSha256 :: DatasetRef -> DatasetArtifact -> Maybe Text
+expectedDatasetArtifactSha256 ref artifact =
+  canonicalArtifactSha256For
+    (datasetName ref)
+    (datasetSplit ref)
+    artifact
+    <|> legacyImageSha
+ where
+  legacyImageSha =
+    case artifact of
+      ImagesArtifact -> Just (datasetExpectedSha256 ref)
+      LabelsArtifact -> Nothing
+      ArchiveArtifact -> Nothing
 
 -- | Sprint 13.4 — gunzip a payload when it carries the gzip magic header
 -- (@0x1f 0x8b@), otherwise return it unchanged. The canonical MNIST blobs

@@ -1,22 +1,34 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
+import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Char (intToDigit)
 import Data.List qualified as List
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isNothing, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64)
 import System.Environment (lookupEnv)
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
-import JitML.Numerics.Mlp (forwardOutput, mlpForward)
+import JitML.Numerics.Mlp (forwardOutput, mlpForward, mlpParamsToFlat)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl
   ( CheckpointDoneRL (..)
   , EpisodeDone (..)
@@ -61,14 +73,18 @@ import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
 import JitML.RL.AlphaZero
   ( GameOutcome (..)
   , GameState (..)
+  , actionCountFor
   , applyMove
   , gameIsTerminal
   , gameMoves
+  , gameName
   , gameOutcome
   , initialConnect4
   , initialGomoku
   , initialHex
   , initialOthello
+  , initialStateFor
+  , observationSizeFor
   , selfPlayTranscript
   , selfPlayTranscriptFor
   , terminalValueForToMove
@@ -83,12 +99,34 @@ import JitML.RL.ConvergenceThresholds
   , passesAlphaZeroArena
   , passesConvergence
   )
+import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.RL.Environments
-  ( canonicalEnvironments
+  ( ActionSpace (..)
+  , canonicalEnvironments
   , environmentActionCount
+  , environmentActionSpace
+  , environmentHorizon
+  , environmentName
   , environmentObservationSize
+  , environmentRewardFunction
+  , environmentTermination
   )
-import JitML.RL.Loop
+import JitML.RL.Policy (defaultPolicy)
+import JitML.RL.Simulator (cartPoleInitial)
+import JitML.RL.Simulator qualified as Sim
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
+import JitML.Test.Report
+  ( ReportCardKnobs (..)
+  , loadReportCardKnobs
+  )
+import JitML.Test.RowAssertions
+  ( AlphaZeroRowEvidence (..)
+  , RlRowEvidence (..)
+  , assertAlphaZeroRowEvidence
+  , assertRlRowEvidence
+  )
+import JitML.Training.Budget qualified as TrainingBudget
+import Support.Loop
   ( RLConfig (..)
   , RLLoop (..)
   , defaultRLConfig
@@ -96,16 +134,7 @@ import JitML.RL.Loop
   , resultEpisodes
   , runRLLoop
   )
-import JitML.RL.Policy (defaultPolicy)
-import JitML.RL.Simulator (cartPoleInitial)
-import JitML.RL.Simulator qualified as Sim
-import JitML.RL.SimulatorLoop qualified as SimulatorLoop
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
-import JitML.Test.Report
-  ( ReportCardKnobs (..)
-  , loadReportCardKnobs
-  )
-import JitML.Training.Budget qualified as TrainingBudget
+import Support.SimulatorLoop qualified as SimulatorLoop
 import System.Random qualified as Random
 
 completedTrainingFixture
@@ -118,7 +147,7 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
   either
     (error . Text.unpack)
     id
-    ( TrainingBudget.completedTrainingFromMetrics
+    ( TrainingBudget.completedTraining
         TrainingBudget.TrainingBudget
           { TrainingBudget.tbKind = kind
           , TrainingBudget.tbTargetUnits = max 1 observedUnits
@@ -126,12 +155,39 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
           , TrainingBudget.tbSeed = Nothing
           }
         observedUnits
-        metrics
+        (trainingEvidenceFixture experimentHash observedUnits)
+        (convergenceObservationsFixture metrics)
         TrainingBudget.TensorBoardRunMetadata
           { TrainingBudget.tbrRunId = experimentHash
           , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
           , TrainingBudget.tbrScalarTags = fmap fst metrics
           }
+    )
+
+trainingEvidenceFixture :: Text -> Word64 -> ProductEvidence.TrainingEvidence
+trainingEvidenceFixture experimentHash observedUnits =
+  either
+    (error . Text.unpack)
+    id
+    ( ProductEvidence.mkTrainingEvidence
+        ("rl-initial-" <> experimentHash)
+        ("rl-final-" <> experimentHash <> "-" <> Text.pack (show observedUnits))
+        (max 1 observedUnits)
+        ("rl-dataset-" <> experimentHash)
+    )
+
+convergenceObservationsFixture :: [(Text, Double)] -> [TrainingBudget.ConvergenceObservation]
+convergenceObservationsFixture metrics =
+  either
+    (error . Text.unpack)
+    id
+    ( traverse
+        ( \metric@(name, value) ->
+            ProductConvergence.evaluateConvergence
+              (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
+              (ProductConvergence.MeasuredMetrics [metric])
+        )
+        metrics
     )
 
 main :: IO ()
@@ -145,6 +201,40 @@ main =
           assertContains "SAC" names
           assertContains "HER" names
           assertContains "AlphaZero" names
+      , testCase "canonical RL environment catalog exposes native product dynamics metadata (Sprint 25.1)" $ do
+          fmap environmentName canonicalEnvironments
+            @?= [ "cartpole"
+                , "mountain-car"
+                , "acrobot"
+                , "pendulum"
+                , "lunar-lander"
+                , "key-door-grid"
+                , "gridworld-deterministic"
+                ]
+          lookup
+            "pendulum"
+            (fmap environmentName canonicalEnvironments `zip` fmap environmentActionSpace canonicalEnvironments)
+            @?= Just (ContinuousActions 1 (-2.0) 2.0)
+          mapM_
+            ( \environment -> do
+                assertBool
+                  "canonical environment has positive horizon"
+                  (environmentHorizon environment > 0)
+                assertBool
+                  "canonical environment names reward function"
+                  (not (Text.null (environmentRewardFunction environment)))
+                assertBool
+                  "canonical environment names termination condition"
+                  (not (Text.null (environmentTermination environment)))
+                case SimulatorLoop.lookupSimulatedEnvByName (environmentName environment) of
+                  Nothing ->
+                    assertFailure
+                      ( "missing native simulator for "
+                          <> Text.unpack (environmentName environment)
+                      )
+                  Just _ -> pure ()
+            )
+            canonicalEnvironments
       , testCase "PPO trained-policy CartPole rollout regenerates deterministically without fixtures" $ do
           first <- ppoCartpoleTrainedRollout 42
           second <- ppoCartpoleTrainedRollout 42
@@ -153,7 +243,7 @@ main =
           assertBool
             "trained rollout has rewards"
             (not (null (fmap PpoTrainer.rsReward (PpoTrainer.rolloutSteps first))))
-      , testCase "deterministic RL loop records rollout transitions in the replay buffer" $
+      , testCase "scaffolding: deterministic RL loop records rollout transitions in the replay buffer" $
           case (algorithmCatalog, canonicalEnvironments) of
             (algorithm : _, environment : _) -> do
               let policy =
@@ -211,13 +301,19 @@ main =
           "real measured-median PPO/cartpole convergence + sample-efficiency metric (Sprint 9.13)"
           assertMeasuredMedianConvergence
       , testCase
+          "RL row evidence asserts hashes, device evidence, convergence, and non-synthetic transitions (Sprint 25.3)"
+          assertRlRowEvidenceContract
+      , testCase
+          "RL product rows expose concrete thresholded evidence bars (Sprint 25.3)"
+          assertRlProductRowsHaveEvidenceBars
+      , testCase
           "AlphaZero arena win-rate convergence against the baseline opponent (Sprint 9.13)"
           assertAlphaZeroArenaConvergence
       , testCase
-          "simulator loop is run-to-run deterministic across the canonical env catalog (Sprint 13.6 + 13.5)"
+          "scaffolding: simulator loop is run-to-run deterministic across the canonical env catalog (Sprint 13.6 + 13.5)"
           $ mapM_ assertSimulatorLoopDeterminism SimulatorLoop.simulatedEnvCatalog
       , testCase
-          "KeyDoorGrid-v0 canonical coverage is deterministic and maskable (Sprint 8.9 + 9.8)"
+          "scaffolding: KeyDoorGrid-v0 canonical coverage is deterministic and maskable (Sprint 8.9 + 9.8)"
           assertKeyDoorGridCanonicals
       , testCase
           "atari-subset uses explicit ROM policy and optional ALE smoke validation (Sprint 8.8)"
@@ -241,6 +337,9 @@ main =
           "every on-policy variant trains and improves on cartpole (Sprint 13.8 A2C/TRPO/MaskablePPO/RecurrentPPO)"
           assertOnPolicyVariantsImprove
       , testCase
+          "on-policy variants expose distinct update behavior (Sprint 25.2)"
+          assertOnPolicyVariantsDistinctUpdates
+      , testCase
           "DDPG continuous actor-critic runs deterministically on pendulum (Sprint 13.8 continuous seam)"
           assertDdpgTrainerDeterministicOnPendulum
       , testCase
@@ -255,6 +354,12 @@ main =
       , testCase
           "network-driven MCTS self-play is deterministic and legal (Sprint 13.9 production prior)"
           assertNetworkSelfPlayDeterministic
+      , testCase
+          "AlphaZero self-play is game-specific with persistent MCTS cache evidence (Sprint 26.1)"
+          assertAlphaZeroPerGameSelfPlay
+      , testCase
+          "AlphaZero per-game arena evidence writes inference-eligible checkpoints (Sprint 26.2)"
+          assertAlphaZeroArenaEvidenceAndCheckpoints
       , testCase
           "MCTS visit-count target is a valid search-derived distribution (Sprint 13.9 visit targets)"
           assertMctsVisitTargets
@@ -509,6 +614,69 @@ assertMeasuredMedianConvergence = do
         @?= fmap PpoTrainer.iterMeanReward seed42Stats
     _ ->
       assertBool "every PPO run produced iteration stats and at least one run exists" False
+
+assertRlRowEvidenceContract :: IO ()
+assertRlRowEvidenceContract = do
+  let good =
+        RlRowEvidence
+          { rleRowId = "PPO/cartpole"
+          , rleAlgorithm = "PPO"
+          , rleEnvironment = "cartpole"
+          , rleInitialPolicyHash = "initial-policy-sha"
+          , rleFinalPolicyHash = "final-policy-sha"
+          , rleUpdateCount = 500
+          , rleObservedUnits = 25_600
+          , rleDeviceEvidence = "linux-cpu:oneDNN"
+          , rleMetricName = "median_final_reward"
+          , rleMetricGoal = TrainingBudget.MetricMaximise
+          , rleMetricValue = 460.0
+          , rleConvergenceThreshold = 475.0
+          , rleConvergenceSlack = 25.0
+          , rleSyntheticTransitionEvidence = False
+          }
+      bad =
+        good
+          { rleFinalPolicyHash = rleInitialPolicyHash good
+          , rleUpdateCount = 0
+          , rleDeviceEvidence = ""
+          , rleMetricValue = 100.0
+          , rleSyntheticTransitionEvidence = True
+          }
+      failures = assertRlRowEvidence bad
+  assertRlRowEvidence good @?= []
+  assertBool
+    "matching hashes are rejected"
+    ("final policy/Q hash equals initial policy/Q hash" `elem` failures)
+  assertBool
+    "missing device evidence is rejected"
+    ("device evidence is required" `elem` failures)
+  assertBool
+    "synthetic transition evidence is rejected"
+    (any ("synthetic-transition evidence" `Text.isInfixOf`) failures)
+  assertBool
+    "failed convergence is rejected"
+    (any ("failed convergence" `Text.isInfixOf`) failures)
+
+assertRlProductRowsHaveEvidenceBars :: IO ()
+assertRlProductRowsHaveEvidenceBars = do
+  let malformedBars =
+        [ ProductMatrix.rowId row
+        | row <- ProductMatrix.allProductRows
+        , ProductMatrix.family row == ProductMatrix.ReinforcementLearning
+        , let bar = ProductMatrix.convergenceBar row
+        , Text.null (ProductConvergence.convergenceMetricName bar)
+            || isNaN (ProductConvergence.convergenceThreshold bar)
+            || isInfinite (ProductConvergence.convergenceThreshold bar)
+        ]
+      missingThresholds =
+        [ ProductMatrix.rowId row
+        | row <- ProductMatrix.allProductRows
+        , ProductMatrix.family row == ProductMatrix.ReinforcementLearning
+        , ProductMatrix.RlAlgorithmEnvironment algorithm environment <- [ProductMatrix.rowClass row]
+        , isNothing (cohortThreshold algorithm environment)
+        ]
+  malformedBars @?= []
+  missingThresholds @?= []
 
 -- | Sprint 9.13 — real AlphaZero arena-win-rate convergence: train a
 -- policy/value network through several generations of self-play and assert its
@@ -1263,6 +1431,55 @@ assertOnPolicyVariantsImprove =
           (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
       [] -> assertBool (show variant <> " returned no stats") False
 
+assertOnPolicyVariantsDistinctUpdates :: IO ()
+assertOnPolicyVariantsDistinctUpdates = do
+  baseline <- finalParamsFor PpoTrainer.VariantPPO
+  mapM_
+    ( \variant -> do
+        candidate <- finalParamsFor variant
+        assertBool
+          ("variant " <> show variant <> " must not collapse to PPO's final parameters")
+          (candidate /= baseline)
+    )
+    [ PpoTrainer.VariantA2C
+    , PpoTrainer.VariantTRPO
+    , PpoTrainer.VariantRecurrentPPO
+    ]
+  maskableRollout <- rolloutFor PpoTrainer.VariantMaskablePPO
+  assertBool
+    "MaskablePPO rollout must carry an action mask through the trained path"
+    (any hasActionMask (PpoTrainer.rolloutSteps maskableRollout))
+ where
+  finalParamsFor variant = do
+    let config = shortOnPolicyConfig variant
+    result <- PpoTrainer.trainOnPolicyOnCartpole variant config
+    pure (mlpParamsToFlat (PpoTrainer.resultFinalParams result))
+  rolloutFor variant = do
+    let config = shortOnPolicyConfig variant
+    result <- PpoTrainer.trainOnPolicyOnCartpole variant config
+    (rollout, _state, _gen) <-
+      PpoTrainer.collectRollout
+        config
+        (PpoTrainer.resultFinalParams result)
+        cartPoleInitial
+        (Random.mkStdGen 1701)
+    pure rollout
+  hasActionMask step =
+    case PpoTrainer.rsActionMask step of
+      Just mask -> not (null mask)
+      Nothing -> False
+  shortOnPolicyConfig variant =
+    PpoTrainer.defaultPpoTrainConfig
+      { PpoTrainer.ppoSeed = 42
+      , PpoTrainer.ppoRolloutSteps = 96
+      , PpoTrainer.ppoNumIterations = 2
+      , PpoTrainer.ppoEpochsPerUpdate = 2
+      , PpoTrainer.ppoMiniBatchSize = 32
+      , PpoTrainer.ppoLearningRate = 1.0e-3
+      , PpoTrainer.ppoMaxEpisodeSteps = 200
+      , PpoTrainer.ppoVariant = variant
+      }
+
 -- | Sprint 13.9 — assert the policy/value network's forward pass
 -- produces a valid policy distribution on the initial Connect 4 board.
 assertPolicyValueForwardValid :: IO ()
@@ -1391,6 +1608,352 @@ assertNetworkSelfPlayDeterministic = do
   assertBool
     "network self-play moves are legal Connect 4 columns"
     (all (\c -> c >= 0 && c < 7) allMoves)
+
+assertAlphaZeroPerGameSelfPlay :: IO ()
+assertAlphaZeroPerGameSelfPlay =
+  mapM_ assertGame ["connect4", "othello", "hex", "gomoku"]
+ where
+  assertGame game = do
+    let actionCount = actionCountFor game
+        observationSize = observationSizeFor game
+        initialState = initialStateFor game
+        net = PVN.initPolicyValueNet observationSize actionCount 16 83
+        config =
+          SelfPlay.defaultSelfPlayConfig
+            { SelfPlay.selfPlayGame = game
+            , SelfPlay.selfPlayGamesPerGeneration = 1
+            , SelfPlay.selfPlaySimulationsPerMove = 8
+            , SelfPlay.selfPlayMaxPlies = 4
+            , SelfPlay.selfPlayActionSpace = actionCount
+            }
+        bufferA = PVN.runNetworkSelfPlay net config
+        bufferB = PVN.runNetworkSelfPlay net config
+        samples = PVN.generatePolicyValueSamplesFrom initialState net 83 8 4
+    SelfPlay.bufferTranscriptHash bufferA @?= SelfPlay.bufferTranscriptHash bufferB
+    case SelfPlay.unBuffer bufferA of
+      [selfPlayGame] -> do
+        assertBool
+          ("expected self-play transcript for " <> Text.unpack game)
+          (all ((== game) . gameName) (SelfPlay.gameTranscript selfPlayGame))
+        assertBool
+          ("expected MCTS cache evidence for " <> Text.unpack game)
+          (not (null (SelfPlay.gameMctsCacheSizes selfPlayGame)))
+        case SelfPlay.gameMctsCacheSizes selfPlayGame of
+          firstSize : rest ->
+            assertBool
+              ("expected persistent cache to grow for " <> Text.unpack game)
+              (all (>= firstSize) rest)
+          [] ->
+            assertFailure ("expected MCTS cache sizes for " <> Text.unpack game)
+      other ->
+        assertFailure
+          ("expected exactly one self-play game for " <> Text.unpack game <> ", got " <> show (length other))
+    assertBool
+      ("expected policy/value samples for " <> Text.unpack game)
+      (not (null samples))
+    assertBool
+      ("sample states should name " <> Text.unpack game)
+      (all ((== game) . gameName . PVN.sampleState) samples)
+    assertBool
+      ("visit distributions should use action count for " <> Text.unpack game)
+      (all ((== actionCount) . Data.Vector.Unboxed.length . PVN.sampleVisitDist) samples)
+
+data AlphaZeroCheckpointRun = AlphaZeroCheckpointRun
+  { azRunSamples :: ![PVN.PolicyValueTrainingSample]
+  , azRunInitialHash :: !Text
+  , azRunFinalHash :: !Text
+  , azRunGenerationCount :: !Word64
+  , azRunArenaWinRate :: !Double
+  , azRunCompletedTraining :: !TrainingBudget.CompletedTraining
+  , azRunManifest :: !Checkpoint.CheckpointManifest
+  , azRunPayloads :: ![(Text, LazyByteString.ByteString)]
+  }
+  deriving stock (Eq, Show)
+
+assertAlphaZeroArenaEvidenceAndCheckpoints :: IO ()
+assertAlphaZeroArenaEvidenceAndCheckpoints =
+  withSystemTempDirectory "jitml-alphazero-26-2" $ \root ->
+    mapM_ (uncurry (assertGame root)) (zip [0 :: Int ..] ["connect4", "othello", "hex", "gomoku"])
+ where
+  assertGame root gameIndex game = do
+    let seed = 101 + gameIndex * 37
+    first <- runAlphaZeroCheckpointGame game seed
+    second <- runAlphaZeroCheckpointGame game seed
+    azRunSampleSignature first @?= azRunSampleSignature second
+    azRunFinalHash first @?= azRunFinalHash second
+    azRunArenaWinRate first @?= azRunArenaWinRate second
+    assertBool
+      ("AlphaZero final network hash changed for " <> Text.unpack game)
+      (azRunInitialHash first /= azRunFinalHash first)
+    assertBool
+      ("AlphaZero arena win rate clears threshold for " <> Text.unpack game)
+      (passesAlphaZeroArena alphaZeroArenaThreshold (azRunArenaWinRate first))
+
+    storedResult <-
+      CheckpointStore.writeCheckpointSnapshot
+        root
+        (azRunManifest first)
+        (azRunPayloads first)
+        Nothing
+    stored <- case storedResult of
+      Left err -> assertFailure ("checkpoint write failed for " <> Text.unpack game <> ": " <> Text.unpack err)
+      Right value -> pure value
+    let manifestSha = Checkpoint.manifestContentSha (azRunManifest first)
+    CheckpointStore.storedManifestSha stored @?= manifestSha
+    loadedManifest <-
+      CheckpointStore.readCheckpointManifest root (azExperimentHash game seed) manifestSha
+    loadedManifest @?= Right (azRunManifest first)
+    pointer <-
+      CheckpointStore.readCheckpointPointer
+        root
+        (Checkpoint.latestPointerKey (azExperimentHash game seed))
+    pointer @?= Right (Just manifestSha)
+    case Checkpoint.requireInferenceEligibleCheckpoint manifestSha (azRunManifest first) of
+      Left err ->
+        assertFailure
+          ( "AlphaZero checkpoint should be inference-eligible for "
+              <> Text.unpack game
+              <> ": "
+              <> Text.unpack (Checkpoint.renderEligibilityError err)
+          )
+      Right eligible -> do
+        Checkpoint.eligibleCheckpointManifestSha eligible @?= manifestSha
+        Checkpoint.eligibleCheckpointCompletedTraining eligible @?= azRunCompletedTraining first
+
+    row <- alphaZeroProductRow game
+    assertAlphaZeroRowEvidence
+      AlphaZeroRowEvidence
+        { azreRowId = ProductMatrix.rowId row
+        , azreGame = game
+        , azreInitialNetworkHash = azRunInitialHash first
+        , azreFinalNetworkHash = azRunFinalHash first
+        , azreGenerationCount = azRunGenerationCount first
+        , azreArenaWinRate = azRunArenaWinRate first
+        , azreArenaThreshold = RLConvergence.azTargetWinRate alphaZeroArenaThreshold
+        , azreConvergenceSlack = RLConvergence.azSlack alphaZeroArenaThreshold
+        , azreTrainingEvidenceHandle = evidenceHandleText (ProductMatrix.trainingEvidence row)
+        , azreDeviceEvidenceHandle = evidenceHandleText (ProductMatrix.deviceEvidence row)
+        , azreCheckpointEvidenceHandle = evidenceHandleText (ProductMatrix.checkpointEvidence row)
+        , azreCheckpointManifestSha = manifestSha
+        , azreCompletedTraining = Just (azRunCompletedTraining first)
+        }
+      @?= []
+
+runAlphaZeroCheckpointGame :: Text -> Int -> IO AlphaZeroCheckpointRun
+runAlphaZeroCheckpointGame game seed = do
+  let actionCount = actionCountFor game
+      observationSize = observationSizeFor game
+      initialState = initialStateFor game
+      net0 = PVN.initPolicyValueNet observationSize actionCount 16 seed
+      adam0 = PVN.initAdamFor net0
+      generationCount = 1
+      selfPlayGames = 2
+      sims = 8
+      maxPlies = 4
+      gradientUpdates = 8
+      arenaGames = 8
+      samples =
+        concat
+          [ PVN.generatePolicyValueSamplesFrom initialState net0 (seed + gameIndex) sims maxPlies
+          | gameIndex <- [0 .. selfPlayGames - 1]
+          ]
+      (trainedNet, _trainedAdam) =
+        PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-3 gradientUpdates samples
+      arenaWinRate =
+        PVN.arenaWinRateAgainstUniformFrom initialState trainedNet arenaGames maxPlies (seed + 7919)
+      initialWeights = PVN.policyValueNetToFlat net0
+      finalWeights = PVN.policyValueNetToFlat trainedNet
+      initialHash = hashWeightListTest initialWeights
+      finalHash = hashWeightListTest finalWeights
+      experimentHash = azExperimentHash game seed
+      tensorName = "alphazero-" <> game <> "-policy-value-weights"
+  completed <-
+    case alphaZeroCompletedTrainingTest
+      experimentHash
+      game
+      generationCount
+      initialHash
+      finalHash
+      arenaWinRate of
+      Left err -> assertFailure (Text.unpack err)
+      Right value -> pure value
+  let (manifest, payloads) =
+        alphaZeroCheckpointSnapshot
+          experimentHash
+          game
+          tensorName
+          generationCount
+          observationSize
+          actionCount
+          arenaWinRate
+          samples
+          completed
+          finalWeights
+  pure
+    AlphaZeroCheckpointRun
+      { azRunSamples = samples
+      , azRunInitialHash = initialHash
+      , azRunFinalHash = finalHash
+      , azRunGenerationCount = generationCount
+      , azRunArenaWinRate = arenaWinRate
+      , azRunCompletedTraining = completed
+      , azRunManifest = manifest
+      , azRunPayloads = payloads
+      }
+
+azRunSampleSignature :: AlphaZeroCheckpointRun -> [([Int], [Double], Double)]
+azRunSampleSignature run =
+  [ ( gameMoves (PVN.sampleState sample)
+    , Data.Vector.Unboxed.toList (PVN.sampleVisitDist sample)
+    , PVN.sampleOutcome sample
+    )
+  | sample <- azRunSamples run
+  ]
+
+alphaZeroCheckpointSnapshot
+  :: Text
+  -> Text
+  -> Text
+  -> Word64
+  -> Int
+  -> Int
+  -> Double
+  -> [PVN.PolicyValueTrainingSample]
+  -> TrainingBudget.CompletedTraining
+  -> [Double]
+  -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
+alphaZeroCheckpointSnapshot experimentHash game tensorName generationCount observationSize actionCount arenaWinRate samples completed weights =
+  let payload = encodeJmw1 weights
+      blobSha = hexBytes (SHA256.hash (LazyByteString.toStrict payload))
+      blobObjectKey = Checkpoint.blobKey experimentHash blobSha
+      weightTensor = Checkpoint.TensorBlob tensorName [length weights] blobObjectKey
+      baseManifest =
+        ( Checkpoint.emptyManifest
+            ("alphazero-" <> game <> "-generation-" <> Text.pack (show generationCount))
+            experimentHash
+            [weightTensor]
+        )
+          { Checkpoint.manifestModelFamily = Checkpoint.AlphaZeroPolicyValueFamily
+          , Checkpoint.manifestArchitecture =
+              Checkpoint.ArchitectureMetadata
+                { Checkpoint.architectureName = "alphazero-policy-value-" <> game
+                , Checkpoint.architectureModelFamily = Checkpoint.AlphaZeroPolicyValueFamily
+                , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "board" [observationSize] "F64"]
+                , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "policy-value" [actionCount + 1] "F64"]
+                , Checkpoint.architectureLayerGraph = Nothing
+                }
+          , Checkpoint.manifestOutputDecoders =
+              [ outputDecoder "mcts-visits" Checkpoint.MctsVisitDistributionOutput
+              , outputDecoder "policy" Checkpoint.PolicyDistributionOutput
+              , outputDecoder "value" Checkpoint.ValueEstimateOutput
+              ]
+          , Checkpoint.manifestWeightLayout =
+              Checkpoint.NamedTensorWeightLayout [Checkpoint.tensorSpecFromBlob weightTensor]
+          , Checkpoint.manifestStep = generationCount
+          , Checkpoint.manifestMetrics =
+              [ ("arena_win_rate", arenaWinRate)
+              , ("self_play_generations", fromIntegral generationCount)
+              , ("self_play_samples", fromIntegral (length samples))
+              ]
+          }
+      manifest = Checkpoint.attachCompletedTraining completed baseManifest
+   in (manifest, [(blobObjectKey, payload)])
+
+outputDecoder :: Text -> Checkpoint.OutputDecoderKind -> Checkpoint.OutputDecoder
+outputDecoder name kind =
+  Checkpoint.OutputDecoder
+    { Checkpoint.outputDecoderName = name
+    , Checkpoint.outputDecoderKind = kind
+    , Checkpoint.outputDecoderLabels = []
+    , Checkpoint.outputDecoderUnits = Nothing
+    , Checkpoint.outputDecoderArtifactKind = Nothing
+    }
+
+alphaZeroCompletedTrainingTest
+  :: Text
+  -> Text
+  -> Word64
+  -> Text
+  -> Text
+  -> Double
+  -> Either Text TrainingBudget.CompletedTraining
+alphaZeroCompletedTrainingTest experimentHash game generationCount initialHash finalHash arenaWinRate = do
+  evidence <-
+    ProductEvidence.mkTrainingEvidence
+      initialHash
+      finalHash
+      generationCount
+      (hashText ("alphazero-self-play:" <> experimentHash <> ":" <> game))
+  let threshold = alphaZeroArenaThreshold
+      thresholdValue = RLConvergence.azTargetWinRate threshold - RLConvergence.azSlack threshold
+      arenaObservation =
+        TrainingBudget.ConvergenceObservation
+          { TrainingBudget.coMetricName = "arena_win_rate"
+          , TrainingBudget.coMetricValue = arenaWinRate
+          , TrainingBudget.coMetricGoal = TrainingBudget.MetricMaximise
+          , TrainingBudget.coThreshold = Just thresholdValue
+          , TrainingBudget.coPassed = passesAlphaZeroArena threshold arenaWinRate
+          }
+  TrainingBudget.completedTraining
+    TrainingBudget.TrainingBudget
+      { TrainingBudget.tbKind = TrainingBudget.AlphaZeroSelfPlayBudget
+      , TrainingBudget.tbTargetUnits = generationCount
+      , TrainingBudget.tbUnitLabel = "self-play-generations"
+      , TrainingBudget.tbSeed = Nothing
+      }
+    generationCount
+    evidence
+    [arenaObservation]
+    TrainingBudget.TensorBoardRunMetadata
+      { TrainingBudget.tbrRunId = experimentHash
+      , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+      , TrainingBudget.tbrScalarTags = ["arena_win_rate"]
+      }
+
+alphaZeroProductRow :: Text -> IO (ProductMatrix.ProductRow 'ProductMatrix.Declared)
+alphaZeroProductRow game =
+  case [ row
+       | row <- ProductMatrix.allProductRows
+       , ProductMatrix.rowClass row == ProductMatrix.AlphaZeroGame game
+       ] of
+    [row] -> pure row
+    [] -> assertFailure ("missing AlphaZero product row for " <> Text.unpack game)
+    rows ->
+      assertFailure
+        ("duplicate AlphaZero product rows for " <> Text.unpack game <> ": " <> show (length rows))
+
+evidenceHandleText :: Maybe (ProductMatrix.EvidenceHandle state kind) -> Text
+evidenceHandleText =
+  maybe "" ProductMatrix.unEvidenceHandle
+
+azExperimentHash :: Text -> Int -> Text
+azExperimentHash game seed =
+  hashText ("alphazero:" <> game <> ":" <> Text.pack (show seed))
+
+hashWeightListTest :: [Double] -> Text
+hashWeightListTest =
+  hashLazy . encodeJmw1
+
+hashLazy :: LazyByteString.ByteString -> Text
+hashLazy =
+  hashStrict . LazyByteString.toStrict
+
+hashText :: Text -> Text
+hashText =
+  hashStrict . Text.Encoding.encodeUtf8
+
+hashStrict :: ByteString.ByteString -> Text
+hashStrict =
+  ("sha256:" <>) . hexBytes . SHA256.hash
+
+hexBytes :: ByteString.ByteString -> Text
+hexBytes =
+  Text.pack . concatMap hexByte . ByteString.unpack
+ where
+  hexByte byte =
+    [ intToDigit (fromIntegral byte `div` 16)
+    , intToDigit (fromIntegral byte `mod` 16)
+    ]
 
 -- | Sprint 13.9 — the policy training target is now the true MCTS
 -- visit-count distribution from 'mctsVisitDistribution', not the

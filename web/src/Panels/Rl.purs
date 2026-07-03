@@ -51,6 +51,9 @@ data Action
 panelName :: String
 panelName = "rl-trajectory"
 
+defaultExperimentHash :: String
+defaultExperimentHash = "product-row-PPO.cartpole"
+
 renderFrame :: Int -> Int -> Number -> Boolean -> String -> RlStreamFrame
 renderFrame episodeIndex stepIndex reward done observationHash =
   Contracts.renderRlAnimationFrame
@@ -69,7 +72,7 @@ renderFrame episodeIndex stepIndex reward done observationHash =
 
 workflowStatus :: String -> String -> WorkflowStatus
 workflowStatus status detail =
-  Contracts.renderWorkflowStatus panelName "rl-demo" status detail
+  Contracts.renderWorkflowStatus panelName defaultExperimentHash status detail
 
 initialState :: State
 initialState =
@@ -136,7 +139,7 @@ component =
       H.modify_ (_ { commandStatus = Just (workflowStatus "failed" message), lastError = Just message })
     SendCommand command -> do
       H.modify_ (_ { commandStatus = Just (workflowStatus "queued" ("sending " <> command)), lastError = Nothing })
-      requestText "POST" "/api/runs/rl-demo/command" (commandPayload command) CommandText StreamFailed
+      requestText "POST" ("/api/runs/" <> defaultExperimentHash <> "/command") (commandPayload command) CommandText StreamFailed
     CommandText payload ->
       case Contracts.parseWorkflowCommandAck payload of
         Just ack ->
@@ -195,9 +198,9 @@ component =
   commandPayload command =
     case command of
       "start" ->
-        Contracts.renderStartRlCommand "rl-demo" "ppo" "cartpole" 1 128 4
+        Contracts.renderStartRlCommand defaultExperimentHash "ppo" "cartpole" 1 128 4
       _ ->
-        Contracts.renderStopRlCommand "rl-demo" true
+        Contracts.renderStopRlCommand defaultExperimentHash true
 
   renderEpisodeFrame frame =
     HH.li_

@@ -50,10 +50,10 @@ panelName :: String
 panelName = "checkpoint-compare-lab"
 
 defaultBaselineExperimentHash :: String
-defaultBaselineExperimentHash = "generic-tensor-demo"
+defaultBaselineExperimentHash = "product-row-mnist-shallow-mlp"
 
 defaultCandidateExperimentHash :: String
-defaultCandidateExperimentHash = "generic-tensor-demo-candidate"
+defaultCandidateExperimentHash = "product-row-mnist-deep-mlp"
 
 defaultInputText :: Array String
 defaultInputText = [ "0.25", "-0.5", "1.0", "2.0" ]
@@ -149,7 +149,8 @@ component =
                   <> " vs "
                   <> defaultCandidateExperimentHash
                   <> " on "
-                  <> show (compareInput state)
+                  <> show (Array.take 4 (compareInput state))
+                  <> " ..."
               )
           ]
       , HH.div
@@ -201,7 +202,7 @@ component =
       ]
 
   compareInput state =
-    map parseNumber state.inputText
+    Array.take 784 (map parseNumber state.inputText <> Array.replicate 784 0.0)
 
   parseNumber raw =
     Maybe.fromMaybe 0.0 (Number.fromString raw)

@@ -5,13 +5,16 @@ module JitML.Test.Report
   , ReportMeasurement (..)
   , ReportMeasurements (..)
   , ReportCardKnobs (..)
+  , RowIntegrationEvidence (..)
   , defaultReportCardKnobs
   , emptyReportMeasurements
   , loadReportCardKnobs
   , parseReportCardKnobs
   , renderReportCardForTargets
   , renderReportCardWithKnobs
+  , renderRowIntegrationEvidence
   , reportStanzas
+  , rowIntegrationCoverageFailures
   , substrateRuntimeStanzas
   , substratePartitionedStanzas
   , substrateTestInvocations
@@ -19,11 +22,15 @@ module JitML.Test.Report
   )
 where
 
+import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Word (Word64)
 
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Test.RowAssertions qualified as RowAssertions
 
 data ReportCard = ReportCard
   { reportPassed :: Int
@@ -64,6 +71,22 @@ data ReportCardKnobs = ReportCardKnobs
   , knobTuneTrials :: Int
   , knobTuneBudgetPerTrial :: Int
   , knobCrossClusterKindNodes :: Int
+  }
+  deriving stock (Eq, Show)
+
+data RowIntegrationEvidence = RowIntegrationEvidence
+  { rieRowId :: !Text
+  , rieIntegrationTest :: !Text
+  , rieFamily :: !Text
+  , rieInitialParamHash :: !Text
+  , rieFinalParamHash :: !Text
+  , rieUpdateCount :: !Word64
+  , rieObservedUnits :: !Word64
+  , rieCompletedMetricNames :: ![Text]
+  , rieCompletedTrainingPassed :: !Bool
+  , rieDatasetShaAtRead :: !Text
+  , rieManifestSha :: !Text
+  , rieRejectedBeforeCompletion :: !Bool
   }
   deriving stock (Eq, Show)
 
@@ -277,6 +300,98 @@ measurementLine label (Just measurement) =
 renderMeasurement :: ReportMeasurement -> Text
 renderMeasurement (MeasurementAvailable value) = value
 renderMeasurement MeasurementUnavailable = "unavailable"
+
+rowIntegrationCoverageFailures
+  :: [ProductMatrix.ProductRow state]
+  -> [RowIntegrationEvidence]
+  -> [Text]
+rowIntegrationCoverageFailures rows observed =
+  missingFailures
+    <> duplicateFailures
+    <> orphanFailures
+    <> concatMap evidenceFailures observed
+ where
+  expectedPairs =
+    [ (ProductMatrix.rowId row, ProductMatrix.integrationTest row)
+    | row <- rows
+    ]
+  observedPairs =
+    [ (rieRowId evidence, rieIntegrationTest evidence)
+    | evidence <- observed
+    ]
+  missingFailures =
+    [ "missing integration evidence: rowId="
+        <> rowId
+        <> " testId="
+        <> testId
+    | (rowId, testId) <- expectedPairs
+    , (rowId, testId) `notElem` observedPairs
+    ]
+  duplicateFailures =
+    [ "duplicate integration evidence: rowId="
+        <> rowId
+        <> " testId="
+        <> testId
+        <> " count="
+        <> showText (length group)
+    | group@((rowId, testId) : _) <- List.group (List.sort observedPairs)
+    , length group > 1
+    ]
+  orphanFailures =
+    [ "orphan integration evidence: rowId="
+        <> rowId
+        <> " testId="
+        <> testId
+    | (rowId, testId) <- observedPairs
+    , (rowId, testId) `notElem` expectedPairs
+    ]
+  evidenceFailures evidence =
+    RowAssertions.assertLearnedStateChanged
+      RowAssertions.LearnedStateEvidence
+        { RowAssertions.lseRowId = rieRowId evidence
+        , RowAssertions.lseInitialParamHash = rieInitialParamHash evidence
+        , RowAssertions.lseFinalParamHash = rieFinalParamHash evidence
+        , RowAssertions.lseUpdateCount = rieUpdateCount evidence
+        }
+      <> [ "completed-training observed units must be positive for row " <> rieRowId evidence
+         | rieObservedUnits evidence == 0
+         ]
+      <> [ "completed-training convergence metrics are required for row " <> rieRowId evidence
+         | null (rieCompletedMetricNames evidence)
+         ]
+      <> [ "completed-training convergence metrics failed for row " <> rieRowId evidence
+         | not (rieCompletedTrainingPassed evidence)
+         ]
+      <> [ "dataset sha at read is required for row " <> rieRowId evidence
+         | Text.null (Text.strip (rieDatasetShaAtRead evidence))
+         ]
+      <> [ "manifest sha is required for row " <> rieRowId evidence
+         | Text.null (Text.strip (rieManifestSha evidence))
+         ]
+      <> [ "inference was not rejected before completion for row " <> rieRowId evidence
+         | not (rieRejectedBeforeCompletion evidence)
+         ]
+
+renderRowIntegrationEvidence :: [RowIntegrationEvidence] -> Text
+renderRowIntegrationEvidence rows =
+  Text.unlines
+    ( [ "row_id\tintegration_test\tfamily\tupdates\tobserved_units\tmetrics\tdataset_sha\tmanifest_sha"
+      ]
+        <> fmap renderRow rows
+    )
+ where
+  renderRow row =
+    Text.intercalate
+      "\t"
+      [ rieRowId row
+      , rieIntegrationTest row
+      , rieFamily row
+      , showText (rieUpdateCount row)
+      , showText (rieObservedUnits row)
+      , Text.intercalate "," (rieCompletedMetricNames row)
+      , rieDatasetShaAtRead row
+      , rieManifestSha row
+      ]
 
 showText :: (Show a) => a -> Text
 showText = Text.pack . show

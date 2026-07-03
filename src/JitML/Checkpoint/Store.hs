@@ -18,6 +18,7 @@ module JitML.Checkpoint.Store
   , loadInferenceCheckpointWith
   , loadInferenceCheckpointWithWeights
   , loadInferenceCheckpointDecodedWithWeights
+  , layerGraphFromCheckpoint
   , loadWeightTensors
   , objectPathForKey
   , readCheckpointManifest
@@ -38,6 +39,7 @@ import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
 import System.Directory
   ( createDirectoryIfMissing
@@ -49,7 +51,13 @@ import System.Directory
 import System.FilePath (isRelative, normalise, takeDirectory, (</>))
 
 import JitML.Checkpoint.Format
-  ( CheckpointManifest (..)
+  ( ArchitectureMetadata (..)
+  , CheckpointManifest (..)
+  , LayerGraphActivationMetadata (..)
+  , LayerGraphKindMetadata (..)
+  , LayerGraphMetadata (..)
+  , LayerGraphModeMetadata (..)
+  , LayerGraphNodeMetadata (..)
   , PointerWrite (..)
   , PointerWriteResult (..)
   , TensorBlob (..)
@@ -67,6 +75,8 @@ import JitML.Checkpoint.Format
   , weightOnlyTensors
   )
 import JitML.Inference.Decode (DecodedInference, decodeManifestOutput)
+import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag
@@ -448,7 +458,7 @@ executeGcPlan plan =
 -- injected runners and tests.
 loadInferenceCheckpointWith
   :: (HasMinIO m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => (ProductPipeline.InferenceEligibleRef -> CheckpointManifest -> [Double] -> m (Either Text [Double]))
   -> Text
   -- ^ experiment hash
   -> [Double]
@@ -481,14 +491,19 @@ loadInferenceCheckpointWith runInference experimentHash input = do
                               { manifestOptimizer = []
                               , manifestRng = []
                               }
-                          _ = weightOnlyTensors validManifest
-                       in runInference weightOnly input
+                          modelRef = ProductPipeline.inferenceEligibleModelRef eligible
+                       in runInference modelRef weightOnly input
 
 -- | Variant of `loadInferenceCheckpointWith` that also reads and decodes
 -- weight-only `.jmw1` tensor blobs before invoking the supplied runner.
 loadInferenceCheckpointWithWeights
   :: (HasMinIO m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => ( ProductPipeline.InferenceEligibleRef
+       -> CheckpointManifest
+       -> [LoadedWeightTensor]
+       -> [Double]
+       -> m (Either Text [Double])
+     )
   -> Text
   -- ^ experiment hash
   -> [Double]
@@ -496,7 +511,7 @@ loadInferenceCheckpointWithWeights
   -> m (Either Text [Double])
 loadInferenceCheckpointWithWeights runInference experimentHash input =
   withWeightedCheckpoint
-    (\manifest weights -> runInference manifest weights input)
+    (\modelRef manifest weights -> runInference modelRef manifest weights input)
     experimentHash
 
 -- | Sprint 11.10 — variant that, after running weighted inference, applies the
@@ -506,7 +521,12 @@ loadInferenceCheckpointWithWeights runInference experimentHash input =
 -- without computing.
 loadInferenceCheckpointDecodedWithWeights
   :: (HasMinIO m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => ( ProductPipeline.InferenceEligibleRef
+       -> CheckpointManifest
+       -> [LoadedWeightTensor]
+       -> [Double]
+       -> m (Either Text [Double])
+     )
   -> Text
   -- ^ experiment hash
   -> [Double]
@@ -514,10 +534,10 @@ loadInferenceCheckpointDecodedWithWeights
   -> m (Either Text ([Double], DecodedInference))
 loadInferenceCheckpointDecodedWithWeights runInference experimentHash input =
   withWeightedCheckpoint
-    ( \manifest weights ->
+    ( \modelRef manifest weights ->
         fmap
           (fmap (\output -> (output, decodeManifestOutput manifest output)))
-          (runInference manifest weights input)
+          (runInference modelRef manifest weights input)
     )
     experimentHash
 
@@ -525,7 +545,11 @@ loadInferenceCheckpointDecodedWithWeights runInference experimentHash input =
 -- manifest, decode the weight-only tensors, and run a continuation with both.
 withWeightedCheckpoint
   :: (HasMinIO m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> m (Either Text a))
+  => ( ProductPipeline.InferenceEligibleRef
+       -> CheckpointManifest
+       -> [LoadedWeightTensor]
+       -> m (Either Text a)
+     )
   -> Text
   -> m (Either Text a)
 withWeightedCheckpoint continuation experimentHash = do
@@ -555,10 +579,11 @@ withWeightedCheckpoint continuation experimentHash = do
                               { manifestOptimizer = []
                               , manifestRng = []
                               }
+                          modelRef = ProductPipeline.inferenceEligibleModelRef eligible
                       loadedWeights <- loadWeightTensors weightOnly
                       case loadedWeights of
                         Left err -> pure (Left err)
-                        Right weights -> continuation weightOnly weights
+                        Right weights -> continuation modelRef weightOnly weights
 
 loadWeightTensors
   :: (HasMinIO m)
@@ -585,6 +610,118 @@ loadWeightTensors manifest = do
             Right values -> do
               validateTensorPayloadShape tensor values
               Right (LoadedWeightTensor tensor values)
+
+layerGraphFromCheckpoint
+  :: CheckpointManifest -> [LoadedWeightTensor] -> Either Text (Maybe LayerGraph.LayerGraph)
+layerGraphFromCheckpoint manifest weights =
+  case architectureLayerGraph (manifestArchitecture manifest) of
+    Nothing -> Right Nothing
+    Just metadata -> Just <$> rebuildLayerGraph metadata weights
+
+rebuildLayerGraph
+  :: LayerGraphMetadata -> [LoadedWeightTensor] -> Either Text LayerGraph.LayerGraph
+rebuildLayerGraph metadata weights = do
+  nodes <- traverse (rebuildLayerNode weights) (layerGraphMetadataNodes metadata)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = layerGraphMetadataName metadata
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape (layerGraphMetadataInputShape metadata)
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape (layerGraphMetadataOutputShape metadata)
+      , LayerGraph.layerGraphNodes = nodes
+      }
+
+rebuildLayerNode
+  :: [LoadedWeightTensor] -> LayerGraphNodeMetadata -> Either Text LayerGraph.LayerNode
+rebuildLayerNode weights metadata = do
+  kind <- layerKindFromMetadata (layerGraphNodeKind metadata)
+  mode <- layerModeFromMetadata (layerGraphNodeMode metadata)
+  activation <- layerActivationFromMetadata (layerGraphNodeActivation metadata)
+  params <- layerParametersFromMetadata weights metadata
+  pure
+    LayerGraph.LayerNode
+      { LayerGraph.layerNodeName = layerGraphNodeName metadata
+      , LayerGraph.layerNodeKind = kind
+      , LayerGraph.layerInputShape = LayerGraph.TensorShape (layerGraphNodeInputShape metadata)
+      , LayerGraph.layerOutputShape = LayerGraph.TensorShape (layerGraphNodeOutputShape metadata)
+      , LayerGraph.layerMode = mode
+      , LayerGraph.layerActivation = activation
+      , LayerGraph.layerParameters = params
+      }
+
+layerParametersFromMetadata
+  :: [LoadedWeightTensor] -> LayerGraphNodeMetadata -> Either Text (Maybe LayerGraph.LayerParameters)
+layerParametersFromMetadata weights metadata =
+  case (layerGraphNodeWeightTensor metadata, layerGraphNodeBiasTensor metadata) of
+    (Nothing, Nothing) -> Right Nothing
+    (Just weightName, Just biasName) -> do
+      inputWidth <-
+        LayerGraph.tensorShapeWidth (LayerGraph.TensorShape (layerGraphNodeInputShape metadata))
+      outputWidth <-
+        LayerGraph.tensorShapeWidth (LayerGraph.TensorShape (layerGraphNodeOutputShape metadata))
+      weightValues <- lookupGraphTensor weights weightName [outputWidth, inputWidth]
+      biasValues <- lookupGraphTensor weights biasName [outputWidth]
+      Right
+        ( Just
+            LayerGraph.LayerParameters
+              { LayerGraph.layerWeights = VU.fromList weightValues
+              , LayerGraph.layerBias = VU.fromList biasValues
+              }
+        )
+    _ ->
+      Left
+        ( "layer graph checkpoint node "
+            <> layerGraphNodeName metadata
+            <> " must declare both weight and bias tensors or neither"
+        )
+
+lookupGraphTensor :: [LoadedWeightTensor] -> Text -> [Int] -> Either Text [Double]
+lookupGraphTensor weights name expectedShape =
+  case filter ((== name) . tensorName . loadedWeightTensor) weights of
+    [] -> Left ("layer graph checkpoint missing tensor " <> name)
+    [loaded]
+      | tensorShape (loadedWeightTensor loaded) /= expectedShape ->
+          Left
+            ( "layer graph checkpoint tensor "
+                <> name
+                <> " has shape "
+                <> Text.pack (show (tensorShape (loadedWeightTensor loaded)))
+                <> ", expected "
+                <> Text.pack (show expectedShape)
+            )
+      | otherwise -> Right (loadedWeightValues loaded)
+    _ -> Left ("layer graph checkpoint has duplicate tensor " <> name)
+
+layerModeFromMetadata :: LayerGraphModeMetadata -> Either Text LayerGraph.LayerMode
+layerModeFromMetadata LayerGraphTrainingMode = Right LayerGraph.TrainingMode
+layerModeFromMetadata LayerGraphInferenceMode = Right LayerGraph.InferenceMode
+
+layerActivationFromMetadata
+  :: LayerGraphActivationMetadata -> Either Text LayerGraph.LayerActivation
+layerActivationFromMetadata LayerGraphLinearActivation = Right LayerGraph.LinearActivation
+layerActivationFromMetadata LayerGraphTanhActivation = Right LayerGraph.TanhActivation
+layerActivationFromMetadata LayerGraphReluActivation = Right LayerGraph.ReluActivation
+layerActivationFromMetadata LayerGraphSoftmaxActivation = Right LayerGraph.SoftmaxActivation
+
+layerKindFromMetadata :: LayerGraphKindMetadata -> Either Text LayerGraph.LayerKind
+layerKindFromMetadata LayerGraphDenseLayer = Right LayerGraph.DenseLayer
+layerKindFromMetadata LayerGraphConv2DLayer = Right LayerGraph.Conv2DLayer
+layerKindFromMetadata LayerGraphConv3DLayer = Right LayerGraph.Conv3DLayer
+layerKindFromMetadata LayerGraphMaxPoolLayer = Right (LayerGraph.PoolLayer LayerGraph.MaxPool)
+layerKindFromMetadata LayerGraphAvgPoolLayer = Right (LayerGraph.PoolLayer LayerGraph.AvgPool)
+layerKindFromMetadata LayerGraphGlobalAvgPoolLayer = Right (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
+layerKindFromMetadata LayerGraphBatchNormLayer = Right (LayerGraph.NormLayer LayerGraph.BatchNorm)
+layerKindFromMetadata LayerGraphLayerNormLayer = Right (LayerGraph.NormLayer LayerGraph.LayerNorm)
+layerKindFromMetadata (LayerGraphGroupNormLayer groups) =
+  Right (LayerGraph.NormLayer (LayerGraph.GroupNorm groups))
+layerKindFromMetadata (LayerGraphDropoutLayer rate) = Right (LayerGraph.DropoutLayer rate)
+layerKindFromMetadata (LayerGraphResidualLayer scale) = Right (LayerGraph.ResidualLayer scale)
+layerKindFromMetadata (LayerGraphBasicBlockLayer scale) = Right (LayerGraph.BasicBlockLayer scale)
+layerKindFromMetadata (LayerGraphBottleneckBlockLayer scale) =
+  Right (LayerGraph.BottleneckBlockLayer scale)
+layerKindFromMetadata (LayerGraphMultiHeadAttentionLayer heads) =
+  Right (LayerGraph.MultiHeadAttentionLayer heads)
+layerKindFromMetadata LayerGraphGeGLULayer = Right LayerGraph.GeGLULayer
+layerKindFromMetadata LayerGraphPatchEmbedLayer = Right LayerGraph.PatchEmbedLayer
 
 validateLoadedManifest :: Text -> Text -> CheckpointManifest -> Either Text CheckpointManifest
 validateLoadedManifest experimentHash manifestSha manifest

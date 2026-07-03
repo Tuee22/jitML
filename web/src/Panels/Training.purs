@@ -44,6 +44,9 @@ data Action
 panelName :: String
 panelName = "training-progress"
 
+defaultExperimentHash :: String
+defaultExperimentHash = "product-row-mnist-deep-mlp"
+
 renderFrame :: String -> Int -> Number -> Number -> Int -> TrainingFrame
 renderFrame experimentHash epoch trainingLoss validationLoss timestampNs =
   Contracts.renderTrainingEventFrame
@@ -60,7 +63,7 @@ renderFrame experimentHash epoch trainingLoss validationLoss timestampNs =
 
 workflowStatus :: String -> String -> WorkflowStatus
 workflowStatus status detail =
-  Contracts.renderWorkflowStatus panelName "training-demo" status detail
+  Contracts.renderWorkflowStatus panelName defaultExperimentHash status detail
 
 initialState :: State
 initialState = { frames: [], commandStatus: Nothing, lastError: Nothing }
@@ -93,7 +96,7 @@ component =
         )
     SendCommand command -> do
       H.modify_ (_ { commandStatus = Just (workflowStatus "queued" ("sending " <> command)), lastError = Nothing })
-      requestText "POST" "/api/runs/training-demo/command" (commandPayload command) CommandText StreamFailed
+      requestText "POST" ("/api/runs/" <> defaultExperimentHash <> "/command") (commandPayload command) CommandText StreamFailed
     CommandText payload ->
       case Contracts.parseWorkflowCommandAck payload of
         Just ack ->
@@ -144,11 +147,11 @@ component =
   commandPayload command =
     case command of
       "start" ->
-        Contracts.renderStartTrainingCommand "training-demo" "experiments/mnist.dhall" 1 2 32
+        Contracts.renderStartTrainingCommand defaultExperimentHash "experiments/mnist-deep-mlp.dhall" 1 2 32
       "kill" ->
-        Contracts.renderStopTrainingCommand "training-demo" false
+        Contracts.renderStopTrainingCommand defaultExperimentHash false
       _ ->
-        Contracts.renderStopTrainingCommand "training-demo" true
+        Contracts.renderStopTrainingCommand defaultExperimentHash true
 
   renderLossChart frames =
     HH.div

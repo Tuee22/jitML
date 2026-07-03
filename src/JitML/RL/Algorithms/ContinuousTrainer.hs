@@ -39,11 +39,14 @@ module JitML.RL.Algorithms.ContinuousTrainer
   , ContinuousTrainResult (..)
   , ContinuousIterationStat (..)
   , ContTransition (..)
+  , initialContinuousActor
   , trainContinuousOnPendulum
   , trainContinuousOnPendulumCuda
   , trainContinuousOnPendulumOneDnn
   , trainContinuousOnPendulumMetal
   , trainContinuousOnDevice
+  , trainContinuousOnDeviceWithEnvironment
+  , evaluateContinuousPolicyWithEnvironment
   )
 where
 
@@ -81,12 +84,11 @@ import JitML.RL.Algorithms.SacLoss (sacCriticTarget)
 import JitML.RL.Algorithms.Td3Loss (td3ClippedDoubleTarget, td3SmoothTargetActions)
 import JitML.RL.Algorithms.TqcLoss (tqcTarget)
 import JitML.RL.Simulator
-  ( ContinuousSimStep (..)
-  , PendulumState
+  ( ContinuousEnvironment (..)
+  , ContinuousSimStep (..)
+  , SomeContinuousEnvironment (..)
   , pendulumEnvironment
-  , pendulumInitial
   )
-import JitML.RL.Simulator qualified as Sim
 
 -- | The five continuous-control off-policy algorithms.
 data ContinuousVariant
@@ -202,12 +204,16 @@ usesTargetSmoothing :: ContinuousVariant -> Bool
 usesTargetSmoothing v = v `elem` [VariantTD3, VariantSAC, VariantTQC]
 
 trainContinuousOnPendulum :: ContinuousTrainConfig -> IO ContinuousTrainResult
-trainContinuousOnPendulum config = do
-  let actorShape =
-        MlpShape {mlpInputs = ctObsSize config, mlpHidden = ctHidden config, mlpOutputs = 1}
+trainContinuousOnPendulum =
+  trainContinuousInEnvironment pendulumEnvironment
+
+trainContinuousInEnvironment
+  :: ContinuousEnvironment state -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousInEnvironment environment config = do
+  let actorShape = continuousActorShape config
       criticShape =
         MlpShape {mlpInputs = ctObsSize config + 1, mlpHidden = ctHidden config, mlpOutputs = 1}
-      actor0 = mlpInit actorShape (ctSeed config)
+      actor0 = initialContinuousActor config
       criticA0 = mlpInit criticShape (ctSeed config + 101)
       criticB0 = mlpInit criticShape (ctSeed config + 202)
       nets0 =
@@ -226,6 +232,7 @@ trainContinuousOnPendulum config = do
           , acCriticBAdam = adamInit criticShape
           }
   loop
+    environment
     config
     (\nets opt batch doActor -> pure (updateStep config nets opt batch doActor))
     nets0
@@ -233,14 +240,15 @@ trainContinuousOnPendulum config = do
     (Random.mkStdGen (ctSeed config + 1))
     []
     0
-    pendulumInitial
+    (cEnvInitial environment)
     0
     0.0
     []
     []
 
 loop
-  :: ContinuousTrainConfig
+  :: ContinuousEnvironment state
+  -> ContinuousTrainConfig
   -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (ACNets, ACOpt))
   -- ^ minibatch update: nets → opt → batch → doActor → (nets', opt')
   -> ACNets
@@ -248,15 +256,16 @@ loop
   -> Random.StdGen
   -> [ContTransition]
   -> Int
-  -> PendulumState
+  -> state
   -> Int
   -> Double
   -> [Double]
   -> [ContinuousIterationStat]
   -> IO ContinuousTrainResult
-loop config update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
+loop environment config update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      environment
       config
       (\ns op batch doActor -> Right <$> update ns op batch doActor)
       nets
@@ -272,7 +281,8 @@ loop config update nets opt gen buffer step state episodeLen episodeReturn episo
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: ContinuousTrainConfig
+  :: ContinuousEnvironment state
+  -> ContinuousTrainConfig
   -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (Either Text (ACNets, ACOpt)))
   -- ^ minibatch update: nets → opt → batch → doActor → either fault or (nets', opt')
   -> ACNets
@@ -280,13 +290,13 @@ loopEither
   -> Random.StdGen
   -> [ContTransition]
   -> Int
-  -> PendulumState
+  -> state
   -> Int
   -> Double
   -> [Double]
   -> [ContinuousIterationStat]
   -> IO (Either Text ContinuousTrainResult)
-loopEither config update nets opt gen buffer step state episodeLen episodeReturn episodes stats
+loopEither environment config update nets opt gen buffer step state episodeLen episodeReturn episodes stats
   | step >= ctNumSteps config =
       pure
         ( Right
@@ -297,7 +307,7 @@ loopEither config update nets opt gen buffer step state episodeLen episodeReturn
               }
         )
   | otherwise = do
-      let obs = obsVector state
+      let obs = obsVector environment state
           -- Action selection: random during warmup, else actor + Gaussian noise.
           (rawNoise, gen1) = gaussian gen
           (rawUniform, gen2) = Random.uniformR (ctActionLow config, ctActionHigh config) gen1
@@ -308,10 +318,10 @@ loopEither config update nets opt gen buffer step state episodeLen episodeReturn
             if step < ctStartSteps config
               then rawUniform
               else noisy
-          stepResult = Sim.cEnvStep pendulumEnvironment state action
+          stepResult = cEnvStep environment state action
           terminal =
             cStepDone stepResult || episodeLen + 1 >= ctMaxEpisodeSteps config
-          nextObs = obsVector (cStepState stepResult)
+          nextObs = obsVector environment (cStepState stepResult)
           transition =
             ContTransition
               { contObs = obs
@@ -324,7 +334,7 @@ loopEither config update nets opt gen buffer step state episodeLen episodeReturn
           nextReturn = episodeReturn + cStepReward stepResult
           (nextState, nextLen, finalReturn, newEpisodes) =
             if terminal
-              then (pendulumInitial, 0, 0.0, nextReturn : episodes)
+              then (cEnvInitial environment, 0, 0.0, nextReturn : episodes)
               else (cStepState stepResult, episodeLen + 1, nextReturn, episodes)
       updateResult <-
         if step + 1 >= ctTrainStart config && length newBuffer >= ctBatchSize config
@@ -356,6 +366,7 @@ loopEither config update nets opt gen buffer step state episodeLen episodeReturn
                           : stats
                   else stats
           loopEither
+            environment
             config
             update
             netsNext
@@ -545,8 +556,9 @@ firstOr :: a -> [a] -> a
 firstOr def [] = def
 firstOr _ (x : _) = x
 
-obsVector :: PendulumState -> Vector Double
-obsVector = VU.fromList . Sim.pendulumObservation
+obsVector :: ContinuousEnvironment state -> state -> Vector Double
+obsVector environment =
+  VU.fromList . cEnvObservation environment
 
 -- | Gaussian log-density of @x@ under @N(mean, std^2)@.
 gaussianLogProb :: Double -> Double -> Double -> Double
@@ -610,12 +622,27 @@ trainContinuousOnPendulumMetal env = trainContinuousOnDevice (metalMlpDevice env
 -- gradient step ('updateStepDevice') runs on the device.
 trainContinuousOnDevice
   :: MlpDevice -> ContinuousTrainConfig -> IO (Either Text ContinuousTrainResult)
-trainContinuousOnDevice device config = do
-  let actorShape =
-        MlpShape {mlpInputs = ctObsSize config, mlpHidden = ctHidden config, mlpOutputs = 1}
+trainContinuousOnDevice device =
+  trainContinuousOnDeviceWithContinuousEnvironment device pendulumEnvironment
+
+trainContinuousOnDeviceWithEnvironment
+  :: MlpDevice
+  -> SomeContinuousEnvironment
+  -> ContinuousTrainConfig
+  -> IO (Either Text ContinuousTrainResult)
+trainContinuousOnDeviceWithEnvironment device (SomeContinuousEnvironment environment) =
+  trainContinuousOnDeviceWithContinuousEnvironment device environment
+
+trainContinuousOnDeviceWithContinuousEnvironment
+  :: MlpDevice
+  -> ContinuousEnvironment state
+  -> ContinuousTrainConfig
+  -> IO (Either Text ContinuousTrainResult)
+trainContinuousOnDeviceWithContinuousEnvironment device environment config = do
+  let actorShape = continuousActorShape config
       criticShape =
         MlpShape {mlpInputs = ctObsSize config + 1, mlpHidden = ctHidden config, mlpOutputs = 1}
-      actor0 = mlpInit actorShape (ctSeed config)
+      actor0 = initialContinuousActor config
       criticA0 = mlpInit criticShape (ctSeed config + 101)
       criticB0 = mlpInit criticShape (ctSeed config + 202)
       nets0 =
@@ -634,6 +661,7 @@ trainContinuousOnDevice device config = do
           , acCriticBAdam = adamInit criticShape
           }
   loopEither
+    environment
     config
     (updateStepDevice device config)
     nets0
@@ -641,11 +669,47 @@ trainContinuousOnDevice device config = do
     (Random.mkStdGen (ctSeed config + 1))
     []
     0
-    pendulumInitial
+    (cEnvInitial environment)
     0
     0.0
     []
     []
+
+continuousActorShape :: ContinuousTrainConfig -> MlpShape
+continuousActorShape config =
+  MlpShape {mlpInputs = ctObsSize config, mlpHidden = ctHidden config, mlpOutputs = 1}
+
+initialContinuousActor :: ContinuousTrainConfig -> MlpParams
+initialContinuousActor config =
+  mlpInit (continuousActorShape config) (ctSeed config)
+
+evaluateContinuousPolicyWithEnvironment
+  :: SomeContinuousEnvironment
+  -> ContinuousTrainConfig
+  -> MlpParams
+  -> Int
+  -> [(Double, Int)]
+evaluateContinuousPolicyWithEnvironment (SomeContinuousEnvironment environment) config actor episodeCount =
+  replicate (max 1 episodeCount) (evaluateEpisode environment config actor)
+
+evaluateEpisode
+  :: ContinuousEnvironment state
+  -> ContinuousTrainConfig
+  -> MlpParams
+  -> (Double, Int)
+evaluateEpisode environment config actor = go (cEnvInitial environment) 0 0.0
+ where
+  go state episodeLen episodeReturn
+    | episodeLen >= ctMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | otherwise =
+        let obs = obsVector environment state
+            action = actorAction config actor obs
+            stepResult = cEnvStep environment state action
+            nextReturn = episodeReturn + cStepReward stepResult
+            nextLen = episodeLen + 1
+         in if cStepDone stepResult
+              then (nextReturn, nextLen)
+              else go (cStepState stepResult) nextLen nextReturn
 
 -- | Device-backed minibatch actor-critic update. The critic param
 -- gradient, the actor's @dQ/da@ (the critic's input gradient), and the

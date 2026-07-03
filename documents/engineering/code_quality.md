@@ -86,6 +86,23 @@ renderers and is materialized only under
 foreign-language source allowlist; runtime adapter shims must also be generated
 by Haskell into the build/cache tree or supplied outside the repository.
 
+### ProductTruth Scaffold Lint (`jitml lint files`)
+
+Owned by `src/JitML/Lint/ProductTruth.hs` (Sprint `20.2`). The file lint scans
+`src/` for scaffold names that are enforced now: the relocated deterministic
+environment step, the non-learned RL loop, the fake simulated episode runners,
+and the deleted vectorized-environment module. It separately walks the product
+module graph from `JitML.App` and fails if that graph imports a forbidden fossil
+module such as `JitML.RL.Loop`, `JitML.RL.SimulatorLoop`, `JitML.RL.VecEnv`, or
+the test-support homes for those helpers.
+
+The same registry now enforces the removed `completedTrainingFromMetrics`
+fabrication helper and still lists future-owned scaffolds, including seeded demo
+weights, identity-copy CUDA kernels, and degenerate CUDA/Metal convolution
+scaffolds. Those future entries are exposed as `nonProductScaffolding` so the
+unit suite can prove no `ProductRow` implementation names them before their
+owning phases remove the source paths.
+
 ### Chart-Shape Lint (`jitml lint chart`)
 
 Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). The current implementation
@@ -203,7 +220,8 @@ the full target stack:
    the same.
 3. `cabal format` temp-file round-trip byte-equality on `jitml.cabal`.
 4. `cabal build all --ghc-options=-Werror` (warning-clean build gate).
-5. `jitml lint files` (`forbiddenPathRegistry` + tracked-generated-paths).
+5. `jitml lint files` (`forbiddenPathRegistry`, tracked-generated-paths,
+   static-JIT artifact rejection, and ProductTruth scaffold/reachability lint).
 6. `jitml lint docs` (metadata, relative links, forbidden stale commands).
 7. `jitml lint chart`.
 8. `jitml lint haskell` (forbidden subprocess and IO primitives).

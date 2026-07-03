@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
@@ -45,6 +45,29 @@ self-describing shape contract subordinate to the stronger trained-artifact
 contract: the manifest shape is necessary but not sufficient for inference. See
 [training_metrics_and_splits.md](training_metrics_and_splits.md).
 
+**Layer-graph checkpoints (Sprint 23.3).** `ArchitectureMetadata` also carries
+an optional `LayerGraphMetadata` block. It serializes the graph name,
+input/output shapes, and ordered node list; every node records its layer kind,
+mode, activation, input/output shapes, and optional weight/bias tensor names.
+The `.jmw1` payloads remain normal weight blobs, so graph parameters are still
+content-addressed and validated by `TensorBlob` shape. `layerGraphFromCheckpoint`
+reconstructs a `JitML.Numerics.LayerGraph.LayerGraph` from that metadata plus
+loaded tensors and rejects missing, duplicate, or shape-mismatched graph tensor
+blobs before inference runs.
+
+**Supervised completed manifests (Sprint 24.3).** A `SupervisedModelFamily`
+manifest is inference-eligible only when the completed-training witness is paired
+with literal graph and layout evidence. `requireInferenceEligibleCheckpoint`
+calls `validateSupervisedManifestShapeLayout`, which requires a supervised
+architecture family, exactly one input `TensorSpec`, exactly one output
+`TensorSpec`, positive shapes, `LayerGraphMetadata`, a non-empty
+`NamedTensorWeightLayout`, and exact equality between the manifest tensors, named
+layout specs, and the graph-derived weight/bias tensor specs. A parameterized
+graph node must name both its weight and bias tensors or neither. The shared
+MinIO-backed inference loaders therefore reject supervised partial, synthetic,
+untrained, missing-graph, or malformed-layout manifests before loading weight
+blobs or invoking a substrate runner.
+
 ## Inference Eligibility
 
 A checkpoint manifest can be loaded for inspection at any step, but only an
@@ -54,23 +77,37 @@ value is minted only when all of the following are true:
 
 - the manifest carries a `CompletedTraining` witness built from a
   `TrainingBudget`;
+- the manifest mirrors the witness's `initialWeightHash`, `finalWeightHash`,
+  positive `updateCount`, and `datasetShaAtRead`, and those fields match the
+  witness exactly;
 - the completed observed units meet the declared fixed budget and do not exceed
   the manifest step;
 - required convergence-statistics fields are present and pass the model's metric
   predicate;
 - the checkpoint payload includes real model weights and the model-family weight
   layout;
+- for supervised rows, the manifest's named tensor layout exactly matches the
+  literal layer graph's parameter tensors and the declared input/output specs;
 - TensorBoard scalar metadata exists for the same run and metric prefix.
 
 This is a shared loader boundary, not a best-effort runtime convention:
-`loadInferenceCheckpointWith`, `loadInferenceCheckpointWithWeights`, and the
-Engine-decoded weighted path reject partially trained, smoke-test, randomly
-initialized, hardcoded, demo-only, or transport-fixture checkpoints before
-weights are handed to a substrate runner. Raw manifest listing and manifest
-reads remain available for inspection, resume, and GC.
+`decodeInferenceEligibleManifestCbor`, `loadInferenceCheckpointWith`,
+`loadInferenceCheckpointWithWeights`, and the Engine-decoded weighted path
+reject partially trained, smoke-test, randomly initialized, hardcoded,
+demo-only, or transport-fixture checkpoints before weights are handed to a
+substrate runner. On success, the loaders convert the validated
+`InferenceEligibleCheckpoint` into
+`JitML.Product.Pipeline.InferenceEligibleRef` and pass that typed reference to
+the inference, demo, checkpoint-compare, and adversarial-move runners alongside
+the weight-only manifest. Raw manifest listing and manifest reads remain
+available for inspection, resume, and GC.
 The browser checkpoint-list selector uses the same eligibility boundary:
 incomplete manifests can be inspected by lower-level tooling, but they are
-omitted from `CheckpointSummary` rows served to model-selection panels.
+omitted from `CheckpointSummary` rows served to model-selection panels. When no
+eligible rows remain, the daemon emits `selector-state:
+fail-closed:no-inference-eligible-artifact` in the `CheckpointList` frame and
+the browser renders that fail-closed state instead of substituting a seeded or
+synthetic artifact.
 
 ## No-Caveat Checkpoint Target
 
@@ -246,6 +283,8 @@ implemented local shape: manifest id, experiment hash, model-family identifier,
 architecture metadata, preprocessing metadata, output decoders, weight layout,
 replay/transcript pointers, per-substrate artifact identities, tensor blobs,
 optimizer blobs, RNG blobs, monotonic step, metrics, completed-budget metadata,
+weight-delta evidence metadata (`manifestInitialWeightHash`,
+`manifestFinalWeightHash`, `manifestUpdateCount`, `manifestDatasetShaAtRead`),
 convergence-statistics metadata, TensorBoard metadata, and optional parent
 manifest SHA. `TensorSpec`, `ArchitectureMetadata`,
 `PreprocessingMetadata`, `OutputDecoder`, `WeightLayout`, `ArtifactPointer`,
@@ -259,6 +298,19 @@ and `manifestContentSha` hashes the deterministic CBOR bytes. The richer target
 shape above still documents the full runtime contract for wall-clock telemetry,
 epoch, substrate, schema version, and generalized part roles. `cmWallClockNs`
 is telemetry only and is never an input to any content hash.
+
+Completed manifests are populated through `attachCompletedTraining`, which
+mirrors the `CompletedTraining` witness's smart-constructed weight-delta
+evidence into the manifest fields. `requireInferenceEligibleCheckpoint` rejects
+a manifest that has a completed-training witness but lacks mirrored evidence,
+carries invalid evidence, or has evidence that differs from the witness.
+For product supervised rows, `manifestDatasetShaAtRead` is the observed digest
+from the verified dataset read boundary: image/label or archive bytes are
+fetched through `JitML.SL.Dataset.fetchVerifiedDatasetArtifactBytes`, checked
+against the canonical pins before decode, combined through
+`datasetReadShaForArtifacts`, and mirrored into the manifest with the rest of
+the completed-training evidence. A checkpoint cannot become inference-eligible
+from upload-time SHA claims alone.
 
 ## Concurrency Model
 
@@ -378,12 +430,20 @@ that provide an injected manifest runner. `loadInferenceCheckpointWithWeights`
 also loads and decodes the `.jmw1` weight blobs before invoking the weighted
 runner; both loaders validate that the loaded manifest records the requested
 experiment hash and that the manifest body's content SHA matches the pointer.
-`loadInferenceCheckpointWithWeights` also rejects a decoded `.jmw1` payload when
-its element count disagrees with the manifest tensor shape. `jitml inference
-run` and daemon self-inference use this weighted path.
+Before reading any weight blob or invoking the runner, both loaders require the
+manifest to mint an `InferenceEligibleCheckpoint`; `decodeInferenceEligibleManifestCbor`
+offers the same raw-CBOR decode boundary for callers that already hold a
+validated manifest SHA. `loadInferenceCheckpointWithWeights` also rejects a
+decoded `.jmw1` payload when its element count disagrees with the manifest
+tensor shape. `jitml inference run` and daemon self-inference use this weighted
+path.
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validates that the local
 Linux CPU path can compile, load, and execute a generated FFI kernel from that
-checkpoint read. `JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`
+checkpoint read. `JitML.Engines.LayerGraphCheckpoint` handles manifests with
+`LayerGraphMetadata`: on `linux-cpu`, it reconstructs the graph and runs the
+forward pass through `JitML.Numerics.LayerGraphOneDnn.runLayerGraphForwardOneDnn`
+before the legacy `W1/b1/W2/b2` MLP shortcut or Dense2D fallback can run.
+`JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`
 keeps that explicit injected-runner hook available for tests. Production
 `jitml service` self-inference selects
 `daemonWorkloadDispatcherWithWeightedInference`, which uses

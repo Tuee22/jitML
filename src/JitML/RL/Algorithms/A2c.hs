@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 a2cModule :: AlgorithmModule
@@ -18,6 +19,13 @@ a2cModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "A2C" OnPolicy False
     , moduleHyperparameters = a2cHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "on-policy.a2c.unclipped-advantage-actor-critic"
+          "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantA2C"
+          "rollout-buffer.gae.cartpole"
+          "mlp-policy-value"
+          ["unclipped-policy-gradient", "value-loss", "synchronous-actor-critic"]
     }
 
 a2cHyperparameters :: [AlgorithmHyperparameter]

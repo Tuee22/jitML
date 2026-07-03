@@ -12,27 +12,35 @@
 -- pure-Haskell reference path.
 module JitML.SL.Architecture
   ( ArchitectureFamily (..)
+  , ArchitectureFeature (..)
   , ArchitectureSpec (..)
   , TrainedArchitecture (..)
   , SlRunMetrics (..)
   , architectureSpecForProblem
   , allCanonicalArchitectureSpecs
+  , architectureClaimedFeatures
+  , architectureClaimedFeaturesForProblem
+  , architectureImplementedFeatures
+  , renderArchitectureFeature
   , trainArchitectureWithDevice
   , trainArchitectureWithDeviceSelected
   , accuracyArchitectureWithDevice
   , crossEntropyArchitectureWithDevice
   , trainedArchitectureWeights
+  , validateArchitectureFeatureParity
   )
 where
 
 import Control.Monad (foldM)
 import Data.Bifunctor (second)
+import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
@@ -66,10 +74,27 @@ data ArchitectureFamily
   | VisionTransformerFamily
   deriving stock (Eq, Show)
 
+data ArchitectureFeature
+  = FeatureDense
+  | FeatureBatchNorm
+  | FeatureDropout
+  | FeatureConv2D
+  | FeaturePooling
+  | FeatureGroupNorm
+  | FeatureResidual
+  | FeatureBasicBlock
+  | FeatureBottleneckBlock
+  | FeatureAttention
+  | FeaturePatchEmbedding
+  | FeatureLayerNorm
+  | FeatureGeGLU
+  deriving stock (Eq, Ord, Show)
+
 data ArchitectureSpec = ArchitectureSpec
   { archProblem :: !CanonicalProblem
   , archFamily :: !ArchitectureFamily
   , archLayers :: ![LayerSpec]
+  , archLayerGraph :: !LayerGraph.LayerGraph
   }
   deriving stock (Eq, Show)
 
@@ -177,16 +202,31 @@ data AttentionToken = AttentionToken
   }
   deriving stock (Eq, Show)
 
+data GraphLayerPlan
+  = GraphAffine !Text !LayerGraph.LayerKind !Int !LayerGraph.LayerActivation
+  | GraphIdentity !Text !LayerGraph.LayerKind
+
 -- | Architecture row for every canonical SL problem. The specs are sized from
 -- the concrete training config, so the same row works for small tests and for
 -- real IDX image widths.
 architectureSpecForProblem :: ClassifierConfig -> CanonicalProblem -> ArchitectureSpec
 architectureSpecForProblem config problem =
-  ArchitectureSpec
-    { archProblem = problem
-    , archFamily = familyForModel (problemModel problem)
-    , archLayers = layersForFamily (familyForModel (problemModel problem))
-    }
+  let family = familyForModel (problemModel problem)
+      layers = layersForFamily family
+   in ArchitectureSpec
+        { archProblem = problem
+        , archFamily = family
+        , archLayers = layers
+        , archLayerGraph =
+            architectureLayerGraphForFamily
+              family
+              (problemName problem)
+              inputs
+              outputs
+              (clfSeed config)
+              latent
+              wideLatent
+        }
  where
   inputs = clfInputs config
   outputs = clfClasses config + 1
@@ -233,6 +273,162 @@ architectureSpecForProblem config problem =
     , denseFinal "vit-classifier" latent
     ]
 
+architectureLayerGraphForFamily
+  :: ArchitectureFamily
+  -> Text
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> LayerGraph.LayerGraph
+architectureLayerGraphForFamily family name inputWidth outputWidth seed latent wideLatent =
+  LayerGraph.LayerGraph
+    { LayerGraph.layerGraphName = name
+    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [inputWidth]
+    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputWidth]
+    , LayerGraph.layerGraphNodes =
+        graphNodes seed inputWidth (graphPlansForFamily family outputWidth latent wideLatent)
+    }
+
+graphPlansForFamily :: ArchitectureFamily -> Int -> Int -> Int -> [GraphLayerPlan]
+graphPlansForFamily family outputWidth latent wideLatent =
+  case family of
+    DenseFamily ->
+      [GraphAffine "dense-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation]
+    DeepDenseFamily ->
+      [ GraphAffine "deep-dense-1" LayerGraph.DenseLayer latent LayerGraph.ReluActivation
+      , GraphIdentity "deep-dense-1-batchnorm" (LayerGraph.NormLayer LayerGraph.BatchNorm)
+      , GraphIdentity "deep-dense-1-dropout" (LayerGraph.DropoutLayer 0.1)
+      , GraphAffine "deep-dense-2" LayerGraph.DenseLayer latent LayerGraph.ReluActivation
+      , GraphIdentity "deep-dense-2-batchnorm" (LayerGraph.NormLayer LayerGraph.BatchNorm)
+      , GraphIdentity "deep-dense-2-dropout" (LayerGraph.DropoutLayer 0.1)
+      , GraphAffine "deep-dense-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+      ]
+    Conv2DLeNetFamily ->
+      [ GraphAffine "lenet-conv1" LayerGraph.Conv2DLayer latent LayerGraph.ReluActivation
+      , GraphIdentity "lenet-pool1" (LayerGraph.PoolLayer LayerGraph.MaxPool)
+      , GraphAffine "lenet-conv2" LayerGraph.Conv2DLayer latent LayerGraph.ReluActivation
+      , GraphIdentity "lenet-global-avg-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
+      , GraphAffine "lenet-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+      ]
+    ResidualFamily depth
+      | depth == 50 ->
+          residualStem "resnet50" latent
+            <> concatMap (bottleneckBlock "resnet50" latent) [1 .. 16 :: Int]
+            <> residualHead "resnet50" outputWidth
+      | otherwise ->
+          residualStem "resnet" latent
+            <> concatMap (basicBlock "resnet" latent) [1 .. depth]
+            <> residualHead "resnet" outputWidth
+    WideResidualFamily depth ->
+      [ GraphAffine "wide-resnet-conv-stem" LayerGraph.Conv2DLayer wideLatent LayerGraph.ReluActivation
+      , GraphIdentity "wide-resnet-groupnorm-stem" (LayerGraph.NormLayer (LayerGraph.GroupNorm 4))
+      ]
+        <> concatMap (wideBasicBlock wideLatent) [1 .. depth]
+        <> [ GraphIdentity "wide-resnet-global-avg-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
+           , GraphAffine "wide-resnet-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+           ]
+    VisionTransformerFamily ->
+      [ GraphAffine "vit-patch-embedding" LayerGraph.PatchEmbedLayer latent LayerGraph.ReluActivation
+      , GraphIdentity "vit-layernorm-1" (LayerGraph.NormLayer LayerGraph.LayerNorm)
+      , GraphAffine
+          "vit-self-attention"
+          (LayerGraph.MultiHeadAttentionLayer 2)
+          latent
+          LayerGraph.TanhActivation
+      , GraphIdentity "vit-layernorm-2" (LayerGraph.NormLayer LayerGraph.LayerNorm)
+      , GraphAffine "vit-geglu-mlp" LayerGraph.GeGLULayer latent LayerGraph.TanhActivation
+      , GraphIdentity "vit-token-mean-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
+      , GraphAffine "vit-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+      ]
+
+residualStem :: Text -> Int -> [GraphLayerPlan]
+residualStem prefix width =
+  [ GraphAffine (prefix <> "-conv-stem") LayerGraph.Conv2DLayer width LayerGraph.ReluActivation
+  , GraphIdentity (prefix <> "-stem-batchnorm") (LayerGraph.NormLayer LayerGraph.BatchNorm)
+  ]
+
+residualHead :: Text -> Int -> [GraphLayerPlan]
+residualHead prefix outputWidth =
+  [ GraphIdentity (prefix <> "-global-avg-pool") (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
+  , GraphAffine (prefix <> "-classifier") LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+  ]
+
+basicBlock :: Text -> Int -> Int -> [GraphLayerPlan]
+basicBlock prefix width idx =
+  [ GraphAffine
+      (prefix <> "-basic-block-" <> Text.pack (show idx))
+      (LayerGraph.BasicBlockLayer 0.1)
+      width
+      LayerGraph.ReluActivation
+  , GraphIdentity
+      (prefix <> "-basic-block-" <> Text.pack (show idx) <> "-batchnorm")
+      (LayerGraph.NormLayer LayerGraph.BatchNorm)
+  ]
+
+bottleneckBlock :: Text -> Int -> Int -> [GraphLayerPlan]
+bottleneckBlock prefix width idx =
+  [ GraphAffine
+      (prefix <> "-bottleneck-block-" <> Text.pack (show idx))
+      (LayerGraph.BottleneckBlockLayer 0.1)
+      width
+      LayerGraph.ReluActivation
+  , GraphIdentity
+      (prefix <> "-bottleneck-block-" <> Text.pack (show idx) <> "-batchnorm")
+      (LayerGraph.NormLayer LayerGraph.BatchNorm)
+  ]
+
+wideBasicBlock :: Int -> Int -> [GraphLayerPlan]
+wideBasicBlock width idx =
+  [ GraphAffine
+      ("wide-resnet-basic-block-" <> Text.pack (show idx))
+      (LayerGraph.BasicBlockLayer 0.1)
+      width
+      LayerGraph.ReluActivation
+  , GraphIdentity
+      ("wide-resnet-basic-block-" <> Text.pack (show idx) <> "-groupnorm")
+      (LayerGraph.NormLayer (LayerGraph.GroupNorm 4))
+  ]
+
+graphNodes :: Int -> Int -> [GraphLayerPlan] -> [LayerGraph.LayerNode]
+graphNodes seed inputWidth plans =
+  snd (List.mapAccumL step (inputWidth, 0 :: Int) plans)
+ where
+  step (currentWidth, idx) plan =
+    case plan of
+      GraphAffine name kind outputWidth activation ->
+        let node =
+              fromRight (fallbackIdentity name currentWidth) $
+                LayerGraph.mkAffineLayer
+                  name
+                  kind
+                  currentWidth
+                  outputWidth
+                  activation
+                  LayerGraph.TrainingMode
+                  (LayerGraph.deterministicParameters (seed + idx) currentWidth outputWidth)
+         in ((outputWidth, idx + 1), node)
+      GraphIdentity name kind ->
+        let node =
+              fromRight (fallbackIdentity name currentWidth) $
+                LayerGraph.mkIdentityLayer
+                  name
+                  kind
+                  currentWidth
+                  LayerGraph.TrainingMode
+         in ((currentWidth, idx + 1), node)
+  fallbackIdentity name' width =
+    LayerGraph.LayerNode
+      { LayerGraph.layerNodeName = name'
+      , LayerGraph.layerNodeKind = LayerGraph.DenseLayer
+      , LayerGraph.layerInputShape = LayerGraph.TensorShape [max 1 width]
+      , LayerGraph.layerOutputShape = LayerGraph.TensorShape [max 1 width]
+      , LayerGraph.layerMode = LayerGraph.TrainingMode
+      , LayerGraph.layerActivation = LayerGraph.LinearActivation
+      , LayerGraph.layerParameters = Nothing
+      }
+
 allCanonicalArchitectureSpecs :: ClassifierConfig -> [ArchitectureSpec]
 allCanonicalArchitectureSpecs config =
   fmap (architectureSpecForProblem config) canonicalProblems
@@ -244,10 +440,96 @@ familyForModel "Conv2D" = Conv2DLeNetFamily
 familyForModel "ResidualBlock" = ResidualFamily 2
 familyForModel "ResidualBlock20" = ResidualFamily 20
 familyForModel "ResidualBlock56" = ResidualFamily 56
-familyForModel "WideResidualBlock" = WideResidualFamily 16
+familyForModel "WideResidualBlock" = WideResidualFamily 12
 familyForModel "VisionTransformer" = VisionTransformerFamily
 familyForModel "ResidualBlock50" = ResidualFamily 50
 familyForModel _ = DenseFamily
+
+architectureClaimedFeatures :: ArchitectureSpec -> [ArchitectureFeature]
+architectureClaimedFeatures =
+  architectureClaimedFeaturesForProblem . archProblem
+
+architectureClaimedFeaturesForProblem :: CanonicalProblem -> [ArchitectureFeature]
+architectureClaimedFeaturesForProblem problem =
+  case problemModel problem of
+    "Dense" ->
+      [FeatureDense]
+    "DeepDense" ->
+      [FeatureDense, FeatureBatchNorm, FeatureDropout]
+    "Conv2D" ->
+      [FeatureDense, FeatureConv2D, FeaturePooling]
+    "ResidualBlock" ->
+      resNetFeatures FeatureBasicBlock
+    "ResidualBlock20" ->
+      resNetFeatures FeatureBasicBlock
+    "ResidualBlock56" ->
+      resNetFeatures FeatureBasicBlock
+    "WideResidualBlock" ->
+      [FeatureDense, FeatureConv2D, FeatureGroupNorm, FeatureResidual, FeatureBasicBlock]
+    "VisionTransformer" ->
+      [FeatureDense, FeaturePatchEmbedding, FeatureLayerNorm, FeatureAttention, FeatureGeGLU]
+    "ResidualBlock50" ->
+      resNetFeatures FeatureBottleneckBlock
+    _ ->
+      [FeatureDense]
+ where
+  resNetFeatures blockFeature =
+    [FeatureDense, FeatureConv2D, FeatureBatchNorm, FeatureResidual, blockFeature]
+
+architectureImplementedFeatures :: ArchitectureSpec -> [ArchitectureFeature]
+architectureImplementedFeatures spec =
+  List.nub
+    ( concatMap
+        (featuresForKind . LayerGraph.layerNodeKind)
+        (LayerGraph.layerGraphNodes (archLayerGraph spec))
+    )
+
+validateArchitectureFeatureParity :: ArchitectureSpec -> [ArchitectureFeature] -> [Text]
+validateArchitectureFeatureParity spec claimed =
+  [ problemName (archProblem spec)
+      <> " claims "
+      <> renderArchitectureFeature feature
+      <> " but archLayerGraph does not implement it"
+  | feature <- claimed
+  , feature `notElem` implemented
+  ]
+ where
+  implemented = architectureImplementedFeatures spec
+
+renderArchitectureFeature :: ArchitectureFeature -> Text
+renderArchitectureFeature feature =
+  case feature of
+    FeatureDense -> "Dense"
+    FeatureBatchNorm -> "BatchNorm"
+    FeatureDropout -> "Dropout"
+    FeatureConv2D -> "Conv2D"
+    FeaturePooling -> "pooling"
+    FeatureGroupNorm -> "GroupNorm"
+    FeatureResidual -> "residual"
+    FeatureBasicBlock -> "BasicBlock"
+    FeatureBottleneckBlock -> "BottleneckBlock"
+    FeatureAttention -> "attention"
+    FeaturePatchEmbedding -> "patch-embedding"
+    FeatureLayerNorm -> "LayerNorm"
+    FeatureGeGLU -> "GeGLU"
+
+featuresForKind :: LayerGraph.LayerKind -> [ArchitectureFeature]
+featuresForKind kind =
+  case kind of
+    LayerGraph.DenseLayer -> [FeatureDense]
+    LayerGraph.Conv2DLayer -> [FeatureConv2D]
+    LayerGraph.Conv3DLayer -> []
+    LayerGraph.PoolLayer _ -> [FeaturePooling]
+    LayerGraph.NormLayer LayerGraph.BatchNorm -> [FeatureBatchNorm]
+    LayerGraph.NormLayer LayerGraph.LayerNorm -> [FeatureLayerNorm]
+    LayerGraph.NormLayer (LayerGraph.GroupNorm _) -> [FeatureGroupNorm]
+    LayerGraph.DropoutLayer _ -> [FeatureDropout]
+    LayerGraph.ResidualLayer _ -> [FeatureResidual]
+    LayerGraph.BasicBlockLayer _ -> [FeatureResidual, FeatureBasicBlock]
+    LayerGraph.BottleneckBlockLayer _ -> [FeatureResidual, FeatureBottleneckBlock]
+    LayerGraph.MultiHeadAttentionLayer _ -> [FeatureAttention]
+    LayerGraph.GeGLULayer -> [FeatureGeGLU]
+    LayerGraph.PatchEmbedLayer -> [FeaturePatchEmbedding]
 
 -- | Train a canonical architecture through the substrate device. The loss is
 -- mean softmax cross entropy; Adam updates are host-owned but every layer's

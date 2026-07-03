@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Web.Server
@@ -26,7 +27,7 @@ where
 
 import Control.Exception qualified
 import Control.Monad.IO.Class qualified
-import Data.List (maximumBy, sortOn)
+import Data.List (find, maximumBy, sortOn)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Ord (Down (..), comparing)
 import Data.Text (Text)
@@ -37,6 +38,7 @@ import System.Directory (doesFileExist)
 import Text.Read (readMaybe)
 
 import JitML.Cluster.Publication qualified as Publication
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as ProtoTraining
 import JitML.Proto.Tune qualified as ProtoTune
@@ -99,7 +101,7 @@ data BrowserCommandPublishers = BrowserCommandPublishers
   -- ^ game, experiment hash, moves, human-is-player, simulations
   , publishListCheckpointsCommand :: IO (Either Text ())
   -- ^ Sprint 14.1 (Feature A) — publish a checkpoint-browse command; the Engine
-  -- lists the seeded experiments' manifests and replies with a @CheckpointList@.
+  -- lists product-row experiment manifests and replies with a @CheckpointList@.
   , publishLoadTranscriptCommand :: Text -> IO (Either Text Text)
   -- ^ Sprint 14.1 (Feature B) — publish a transcript-replay command (carrying a
   -- persisted transcript key); the Engine replies with a @TranscriptReplay@.
@@ -381,13 +383,76 @@ renderApiIndex =
 
 checkpointBackedDemoRequired :: Text -> EndpointResponse
 checkpointBackedDemoRequired surface =
+  checkpointBackedDemoFailed surface "checkpoint-backed runtime publication required"
+
+checkpointBackedDemoFailed :: Text -> Text -> EndpointResponse
+checkpointBackedDemoFailed surface reason =
   EndpointResponse
     503
     ( Text.unlines
         [ "checkpoint-required: " <> surface
-        , "reason: checkpoint-backed runtime publication required"
+        , "reason: " <> reason
+        , "selector-state: fail-closed:no-inference-eligible-artifact"
+        , "status: failed"
         ]
     )
+
+productRowByExperimentHash :: Text -> Maybe (ProductMatrix.ProductRow 'ProductMatrix.Declared)
+productRowByExperimentHash experimentHash =
+  find
+    ((== experimentHash) . ProductMatrix.productRowExperimentHash)
+    ProductMatrix.allProductRows
+
+requireProductRowByHash
+  :: Text -> Text -> Either Text (ProductMatrix.ProductRow 'ProductMatrix.Declared)
+requireProductRowByHash role experimentHash =
+  case productRowByExperimentHash experimentHash of
+    Just row -> Right row
+    Nothing
+      | "-demo-weights" `Text.isInfixOf` experimentHash ->
+          Left (role <> " seeded demo artifact rejected for product row: " <> experimentHash)
+      | otherwise ->
+          Left (role <> " experiment hash is not a ProductRow artifact: " <> experimentHash)
+
+requireProductPanelRow
+  :: Text -> Text -> Text -> Either Text (ProductMatrix.ProductRow 'ProductMatrix.Declared)
+requireProductPanelRow panel role experimentHash = do
+  row <- requireProductRowByHash role experimentHash
+  if ProductMatrix.demoPanel row == panel
+    then Right row
+    else
+      Left
+        ( role
+            <> " product row "
+            <> ProductMatrix.rowId row
+            <> " belongs to panel "
+            <> ProductMatrix.demoPanel row
+            <> ", not "
+            <> panel
+        )
+
+requireAlphaZeroProductRow :: Text -> Text -> Either Text ()
+requireAlphaZeroProductRow game experimentHash =
+  case find matchingGame ProductMatrix.allProductRows of
+    Nothing ->
+      Left ("unsupported alphazero game: " <> game)
+    Just row
+      | ProductMatrix.productRowExperimentHash row == experimentHash ->
+          Right ()
+      | otherwise ->
+          Left
+            ( "alphazero game "
+                <> game
+                <> " requires "
+                <> ProductMatrix.productRowExperimentHash row
+                <> ", got "
+                <> experimentHash
+            )
+ where
+  matchingGame row =
+    case ProductMatrix.rowClass row of
+      ProductMatrix.AlphaZeroGame rowGame -> rowGame == game
+      _ -> False
 
 data BrowserInferenceRequest = BrowserInferenceRequest
   { birPanel :: Text
@@ -436,15 +501,30 @@ browserInferenceResponse runtimeHandler request =
   case parseBrowserInferenceRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "inference-request-invalid" err)
     Right inferenceRequest ->
-      withTimedRuntime
-        runtimeHandler
-        "inference"
-        ( BrowserRuntimeRequest
-            BrowserRuntimeInference
-            (birExperimentHash inferenceRequest)
-            (birInput inferenceRequest)
-        )
-        (renderInferenceResultResponse inferenceRequest)
+      case requireProductPanelRow (birPanel inferenceRequest) "inference" (birExperimentHash inferenceRequest) of
+        Left err ->
+          pure (checkpointBackedDemoFailed "inference" err)
+        Right row
+          | ProductMatrix.rowId row /= birModelId inferenceRequest ->
+              pure
+                ( checkpointBackedDemoFailed
+                    "inference"
+                    ( "model-id "
+                        <> birModelId inferenceRequest
+                        <> " does not match ProductRow "
+                        <> ProductMatrix.rowId row
+                    )
+                )
+          | otherwise ->
+              withTimedRuntime
+                runtimeHandler
+                "inference"
+                ( BrowserRuntimeRequest
+                    BrowserRuntimeInference
+                    (birExperimentHash inferenceRequest)
+                    (birInput inferenceRequest)
+                )
+                (renderInferenceResultResponse inferenceRequest)
 
 browserGenericInferenceResponse
   :: Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
@@ -452,15 +532,22 @@ browserGenericInferenceResponse runtimeHandler request =
   case parseBrowserGenericInferenceRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "generic-inference-request-invalid" err)
     Right inferenceRequest ->
-      withTimedRuntime
-        runtimeHandler
+      case requireProductPanelRow
+        (bgirPanel inferenceRequest)
         "generic-inference"
-        ( BrowserRuntimeRequest
-            BrowserRuntimeGeneric
-            (bgirExperimentHash inferenceRequest)
-            (bgirInput inferenceRequest)
-        )
-        (renderGenericInferenceResultResponse inferenceRequest)
+        (bgirExperimentHash inferenceRequest) of
+        Left err ->
+          pure (checkpointBackedDemoFailed "generic-inference" err)
+        Right _row ->
+          withTimedRuntime
+            runtimeHandler
+            "generic-inference"
+            ( BrowserRuntimeRequest
+                BrowserRuntimeGeneric
+                (bgirExperimentHash inferenceRequest)
+                (bgirInput inferenceRequest)
+            )
+            (renderGenericInferenceResultResponse inferenceRequest)
 
 browserImageResponse
   :: Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
@@ -468,15 +555,19 @@ browserImageResponse runtimeHandler request =
   case parseBrowserImageRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "image-request-invalid" err)
     Right imageRequest ->
-      withTimedRuntime
-        runtimeHandler
-        "image"
-        ( BrowserRuntimeRequest
-            BrowserRuntimeImage
-            (bimExperimentHash imageRequest)
-            (bimInput imageRequest)
-        )
-        (renderImageInferenceResultResponse imageRequest)
+      case requireProductPanelRow (bimPanel imageRequest) "image" (bimExperimentHash imageRequest) of
+        Left err ->
+          pure (checkpointBackedDemoFailed "image" err)
+        Right _row ->
+          withTimedRuntime
+            runtimeHandler
+            "image"
+            ( BrowserRuntimeRequest
+                BrowserRuntimeImage
+                (bimExperimentHash imageRequest)
+                (bimInput imageRequest)
+            )
+            (renderImageInferenceResultResponse imageRequest)
 
 browserCheckpointCompareResponse
   :: Maybe BrowserCommandPublishers -> Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
@@ -484,20 +575,25 @@ browserCheckpointCompareResponse publishers runtimeHandler request =
   case parseBrowserCheckpointCompareRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "checkpoint-compare-request-invalid" err)
     Right compareRequest ->
-      case publishers of
-        _
-          | Just _ <- runtimeHandler ->
+      case requireProductRowByHash "baseline" (bccBaselineExperimentHash compareRequest)
+        *> requireProductRowByHash "candidate" (bccCandidateExperimentHash compareRequest) of
+        Left err ->
+          pure (checkpointBackedDemoFailed "checkpoint-compare" err)
+        Right _ ->
+          case publishers of
+            _
+              | Just _ <- runtimeHandler ->
+                  withTimedCheckpointCompare runtimeHandler compareRequest
+            Just p -> do
+              published <-
+                publishCompareCommand
+                  p
+                  (bccBaselineExperimentHash compareRequest)
+                  (bccCandidateExperimentHash compareRequest)
+                  (bccInput compareRequest)
+              pure (publishedAckResponse "CheckpointCompareResult" published)
+            Nothing ->
               withTimedCheckpointCompare runtimeHandler compareRequest
-        Just p -> do
-          published <-
-            publishCompareCommand
-              p
-              (bccBaselineExperimentHash compareRequest)
-              (bccCandidateExperimentHash compareRequest)
-              (bccInput compareRequest)
-          pure (publishedAckResponse "CheckpointCompareResult" published)
-        Nothing ->
-          withTimedCheckpointCompare runtimeHandler compareRequest
 
 browserAdversarialResponse
   :: Maybe BrowserCommandPublishers -> Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
@@ -505,30 +601,35 @@ browserAdversarialResponse publishers runtimeHandler request =
   case parseBrowserAdversarialRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "adversarial-request-invalid" err)
     Right moveRequest ->
-      case publishers of
-        Just p -> do
-          frame <-
-            publishMoveCommand
-              p
-              (barGame moveRequest)
-              (barExperimentHash moveRequest)
-              (barMoves moveRequest)
-              (barHumanIsPlayer moveRequest)
-              (barSimulationsPerMove moveRequest)
-          pure (frameResponse "AdversarialMoveResult" frame)
-        Nothing ->
-          withTimedRuntime
-            runtimeHandler
-            "connect4"
-            ( BrowserRuntimeRequest
-                BrowserRuntimeAdversarial
-                (barExperimentHash moveRequest)
-                (adversarialRuntimeInput moveRequest)
-            )
-            (renderAdversarialMoveResultResponse moveRequest)
+      case requireAlphaZeroProductRow (barGame moveRequest) (barExperimentHash moveRequest) of
+        Left err ->
+          pure (checkpointBackedDemoFailed "adversarial-move" err)
+        Right () ->
+          case publishers of
+            Just p -> do
+              frame <-
+                publishMoveCommand
+                  p
+                  (barGame moveRequest)
+                  (barExperimentHash moveRequest)
+                  (barMoves moveRequest)
+                  (barHumanIsPlayer moveRequest)
+                  (barSimulationsPerMove moveRequest)
+              pure (frameResponse "AdversarialMoveResult" frame)
+            Nothing ->
+              withTimedRuntime
+                runtimeHandler
+                "connect4"
+                ( BrowserRuntimeRequest
+                    BrowserRuntimeAdversarial
+                    (barExperimentHash moveRequest)
+                    (adversarialRuntimeInput moveRequest)
+                )
+                (renderAdversarialMoveResultResponse moveRequest)
 
--- | Sprint 14.1 (Feature A) — checkpoint browse: publish a @ListCheckpointsCommand@
--- fire-and-forget; the Engine lists the seeded experiments' manifests and replies
+-- | Sprint 14.1 / 27.1 (Feature A) — checkpoint browse: publish a
+-- @ListCheckpointsCommand@ fire-and-forget; the Engine lists product-row
+-- experiment manifests and replies
 -- with a @CheckpointList@ frame on @/api/ws/inference@, which the panel renders.
 -- The request body is a trigger only (no fields required).
 browserListCheckpointsResponse
@@ -603,13 +704,9 @@ withTimedRuntime (Just runtimeHandler) _surface runtimeRequest renderResponse = 
   pure $
     case result of
       Left err ->
-        EndpointResponse
-          503
-          ( Text.unlines
-              [ "checkpoint-runtime-failed: " <> err
-              , "status: failed"
-              ]
-          )
+        checkpointBackedDemoFailed
+          (surfaceName (browserRuntimeSurface runtimeRequest))
+          err
       Right runtimeResult ->
         renderResponse runtimeResult latencyMs
 
@@ -734,13 +831,16 @@ renderCheckpointCompareResultResponse request baseline candidate latencyMs =
 
 checkpointCompareFailed :: Text -> Text -> EndpointResponse
 checkpointCompareFailed side err =
-  EndpointResponse
-    503
-    ( Text.unlines
-        [ "checkpoint-compare-failed: " <> side <> ": " <> err
-        , "status: failed"
-        ]
-    )
+  checkpointBackedDemoFailed "checkpoint-compare" (side <> ": " <> err)
+
+surfaceName :: BrowserRuntimeSurface -> Text
+surfaceName surface =
+  case surface of
+    BrowserRuntimeInference -> "inference"
+    BrowserRuntimeGeneric -> "generic-inference"
+    BrowserRuntimeImage -> "image"
+    BrowserRuntimeAdversarial -> "adversarial-move"
+    BrowserRuntimeCompare -> "checkpoint-compare"
 
 renderAdversarialMoveResultResponse
   :: BrowserAdversarialRequest -> BrowserRuntimeResult -> Double -> EndpointResponse

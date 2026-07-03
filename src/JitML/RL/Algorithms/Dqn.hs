@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 dqnModule :: AlgorithmModule
@@ -18,6 +19,13 @@ dqnModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "DQN" OffPolicy True
     , moduleHyperparameters = dqnHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.dqn.scalar-bellman-target-network"
+          "JitML.RL.Algorithms.DqnTrainer.trainDqnOnCartpole"
+          "replay-buffer.epsilon-greedy"
+          "mlp-q-network"
+          ["scalar-q-head", "hard-target-network", "td-residual"]
     }
 
 dqnHyperparameters :: [AlgorithmHyperparameter]

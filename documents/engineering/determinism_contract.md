@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific bit-determinism contract for jitML — the per-
@@ -204,8 +204,13 @@ full-run bit-equality holds.
 
 For SL training, full-run bit-equality holds.
 
-For AlphaZero self-play, per-game bit-equality holds (deterministic
-stochasticity).
+For AlphaZero self-play, per-game bit-equality holds: two same-substrate,
+same-seed runs of Connect 4, Othello, Hex, and Gomoku produce identical
+self-play game sequences and MCTS visit-count vectors. The checkpoint evidence
+for each game records deterministic initial/final policy-value network hashes,
+the self-play generation count, and an arena win-rate observation that clears
+`JitML.RL.ConvergenceThresholds.alphaZeroArenaThreshold`; replay compares fresh
+runs against each other, never against committed transcript fixtures.
 
 The current local Phase 7 executable anchor proves the Linux CPU side of the
 runtime contract: `jitml-backends` runs the Linux CPU oneDNN reorder,
@@ -222,6 +227,30 @@ compile/load/launch; in unavailable environments it fails closed before compile.
 Apple Metal source metadata carries the same family/output-count contract for
 the fixed bridge. The live Apple backend lane and live CUDA lane exercise these
 runtime proofs on matching hardware.
+
+## Layer-Graph Gradient Determinism
+
+The Phase `23` typed layer graph keeps the same within-substrate contract. The
+pure oracle in `JitML.Numerics.Autodiff` is deterministic because the forward
+tape records nodes in graph order, the backward pass replays them in reverse
+order, all row-major parameter tensors are traversed in stable index order, and
+seeded parameter initialization uses a fixed `StdGen` stream. Dropout in the
+Sprint `23.1` oracle is represented as a deterministic train/inference scaling
+node; stochastic masks belong to later substrate kernels only when their seed
+and traversal order are explicit cache-key inputs.
+
+`jitml-unit` asserts same-seed bit equality for a ResNet-shaped graph gradient
+and finite-difference agreement for every layer kind in the graph catalog. These
+tests compare fresh computations, not committed numerical fixtures, preserving
+the snapshot policy in
+[unit_testing_policy.md](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+Phase `23.2` extends this contract to oneDNN training-direction kernels; Phase
+`23.3` extends it to serialized layer-graph checkpoints and inference replay.
+The graph checkpoint metadata stores nodes in execution order and names
+parameter tensors explicitly; reconstruction rejects missing, duplicate, or
+shape-mismatched tensors, so a same-manifest reload restores the same graph
+topology and row-major parameter vectors before the oneDNN forward runner
+executes.
 
 ## Determinism Caveats
 

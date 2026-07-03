@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 arsModule :: AlgorithmModule
@@ -18,6 +19,13 @@ arsModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "ARS" Specialized False
     , moduleHyperparameters = arsHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "black-box.ars.finite-difference-linear-policy"
+          "JitML.RL.Algorithms.ArsTrainer.trainArsOnCartpole"
+          "paired-perturbation-rollouts"
+          "linear-policy-vector"
+          ["top-b-direction-selection", "return-weighted-finite-difference", "no-neural-gradient"]
     }
 
 arsHyperparameters :: [AlgorithmHyperparameter]

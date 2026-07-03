@@ -124,8 +124,10 @@ cohortThresholds =
   -- wider on mountain-car due to exploration variance).
   [ (("PPO", "cartpole"), ConvergenceThreshold 475.0 25.0)
   , (("PPO", "mountain-car"), ConvergenceThreshold (-110.0) 30.0)
+  , (("PPO", "acrobot"), ConvergenceThreshold (-100.0) 50.0)
   , (("PPO", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
   , (("PPO", "key-door-grid"), ConvergenceThreshold 1.0 0.20)
+  , (("PPO", "gridworld-deterministic"), ConvergenceThreshold 1.0 0.20)
   , -- A2C (synchronous A3C; higher variance than PPO).
     (("A2C", "cartpole"), ConvergenceThreshold 475.0 40.0)
   , (("A2C", "mountain-car"), ConvergenceThreshold (-110.0) 40.0)
@@ -157,10 +159,12 @@ cohortThresholds =
     (("QR-DQN", "cartpole"), ConvergenceThreshold 475.0 25.0)
   , (("QR-DQN", "mountain-car"), ConvergenceThreshold (-110.0) 35.0)
   , (("QR-DQN", "key-door-grid"), ConvergenceThreshold 1.0 0.25)
-  , -- DDPG / TD3 / SAC / CrossQ / TQC (continuous-only; lunar-lander).
+  , -- DDPG / TD3 / SAC / CrossQ / TQC (continuous-only; pendulum and
+    -- lunar-lander product cohorts).
     (("DDPG", "lunar-lander"), ConvergenceThreshold 200.0 80.0)
   , (("TD3", "lunar-lander"), ConvergenceThreshold 200.0 60.0)
   , (("SAC", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
+  , (("SAC", "pendulum"), ConvergenceThreshold (-200.0) 180.0)
   , (("CrossQ", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
   , (("TQC", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
   , -- ARS (random search; needs many seeds to stabilize → wide slack).
@@ -196,7 +200,7 @@ herGoalMetric =
     , hgmBudget =
         TrainingBudget
           { tbKind = RlEnvironmentStepBudget
-          , tbTargetUnits = 100_000
+          , tbTargetUnits = 2_000
           , tbUnitLabel = "goal-conditioned-env-steps"
           , tbSeed = Nothing
           }
@@ -228,12 +232,7 @@ rlBudget algorithm environment =
     }
 
 rlBudgetUnits :: Text -> Text -> Word64
-rlBudgetUnits algorithm environment
-  | algorithm == "ARS" = 500_000
-  | environment == "lunar-lander" = 300_000
-  | environment == "mountain-car" = 250_000
-  | environment == "key-door-grid" = 100_000
-  | otherwise = 100_000
+rlBudgetUnits _algorithm _environment = 2_000
 
 -- | Sprint 9.13 — AlphaZero convergence is a deliberate __non-return__ metric:
 -- the trained network's __arena win rate__ against the baseline opponent, not

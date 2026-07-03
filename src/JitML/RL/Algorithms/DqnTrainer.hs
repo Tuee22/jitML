@@ -28,11 +28,14 @@ module JitML.RL.Algorithms.DqnTrainer
   , DqnTrainResult (..)
   , DqnIterationStat (..)
   , Transition (..)
+  , initialDqnParams
   , trainDqnOnCartpole
   , trainDqnOnCartpoleCuda
   , trainDqnOnCartpoleOneDnn
   , trainDqnOnCartpoleMetal
   , trainDqnOnDevice
+  , trainDqnOnDeviceWithEnvironment
+  , evaluateDqnPolicyWithEnvironment
   )
 where
 
@@ -64,10 +67,11 @@ import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.Simulator
-  ( CartPoleState (..)
-  , SimStep (..)
-  , cartPoleInitial
-  , cartPoleStep
+  ( SimStep (..)
+  , SimulatedEnvironment (..)
+  , SomeSimulatedEnvironment (..)
+  , cartPoleEnvironment
+  , renderObservation
   )
 
 -- | DQN training configuration.
@@ -142,15 +146,11 @@ data DqnTrainResult = DqnTrainResult
 
 trainDqnOnCartpole :: DqnTrainConfig -> IO DqnTrainResult
 trainDqnOnCartpole config = do
-  let shape =
-        MlpShape
-          { mlpInputs = dqnObsSize config
-          , mlpHidden = dqnHiddenUnits config
-          , mlpOutputs = dqnActionCount config
-          }
-      initialParams = mlpInit shape (dqnSeed config)
+  let shape = dqnMlpShape config
+      initialParams = initialDqnParams config
   -- Replay buffer carried as a list (ring-buffer semantics via take + cons).
   loop
+    cartPoleEnvironment
     config
     (\online target adam batch -> pure (dqnUpdate config online target adam batch))
     initialParams
@@ -159,14 +159,15 @@ trainDqnOnCartpole config = do
     (Random.mkStdGen (dqnSeed config + 1))
     []
     0
-    cartPoleInitial
+    (envInitial cartPoleEnvironment)
     0
     0.0
     [] -- per-episode return list
     [] -- iteration stats
 
 loop
-  :: DqnTrainConfig
+  :: SimulatedEnvironment state
+  -> DqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
   -- ^ minibatch update: online → target → adam → batch → (online', adam')
   -> MlpParams -- online net
@@ -175,15 +176,16 @@ loop
   -> Random.StdGen
   -> [Transition] -- replay buffer (most-recent first)
   -> Int -- step counter
-  -> CartPoleState
+  -> state
   -> Int -- current episode step count
   -> Double -- current episode return
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
   -> IO DqnTrainResult
-loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+loop environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      environment
       config
       (\o t a batch -> Right <$> update o t a batch)
       online
@@ -200,7 +202,8 @@ loop config update online target adam gen buffer step state episodeLen episodeRe
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: DqnTrainConfig
+  :: SimulatedEnvironment state
+  -> DqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
   -- ^ minibatch update: online → target → adam → batch → either fault or (online', adam')
   -> MlpParams -- online net
@@ -209,13 +212,13 @@ loopEither
   -> Random.StdGen
   -> [Transition] -- replay buffer (most-recent first)
   -> Int -- step counter
-  -> CartPoleState
+  -> state
   -> Int -- current episode step count
   -> Double -- current episode return
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
   -> IO (Either Text DqnTrainResult)
-loopEither config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loopEither environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= dqnNumSteps config =
       pure
         ( Right
@@ -227,7 +230,7 @@ loopEither config update online target adam gen buffer step state episodeLen epi
         )
   | otherwise = do
       let epsilon = currentEpsilon config step
-          obs = obsVector state
+          obs = obsVector environment state
           (u, gen1) = Random.uniformR (0.0 :: Double, 1.0) gen
           (actionU, gen2) =
             Random.uniformR (0 :: Int, dqnActionCount config - 1) gen1
@@ -240,7 +243,7 @@ loopEither config update online target adam gen buffer step state episodeLen epi
             if u < epsilon
               then actionU
               else greedyAction
-          stepResult = cartPoleStep state action
+          stepResult = envStep environment state action
           -- True environment termination (pole fell / out of bounds). Only
           -- this stops Bellman bootstrapping.
           envDone = simStepDone stepResult
@@ -250,7 +253,7 @@ loopEither config update online target adam gen buffer step state episodeLen epi
           -- are worth only their immediate reward and never reaches 500.
           timeLimit = episodeLen + 1 >= dqnMaxEpisodeSteps config
           terminal = envDone || timeLimit
-          nextObs = obsVector (simStepState stepResult)
+          nextObs = obsVector environment (simStepState stepResult)
           transition =
             Transition
               { transObs = obs
@@ -265,7 +268,7 @@ loopEither config update online target adam gen buffer step state episodeLen epi
           (nextState, nextEpisodeLen, finalReturn, newEpisodes) =
             if terminal
               then
-                ( cartPoleInitial
+                ( envInitial environment
                 , 0
                 , 0.0
                 , nextEpisodeReturn : episodes
@@ -315,6 +318,7 @@ loopEither config update online target adam gen buffer step state episodeLen epi
                           : stats
                   else stats
           loopEither
+            environment
             config
             update
             onlineNext
@@ -357,6 +361,16 @@ argmax xs = snd (foldr1 step (zip xs [0 ..]))
   step (v1, i1) (v2, i2)
     | v1 >= v2 = (v1, i1)
     | otherwise = (v2, i2)
+
+maskedArgmax :: Maybe [Bool] -> [Double] -> Int
+maskedArgmax Nothing values = argmax values
+maskedArgmax (Just mask) values =
+  argmax
+    [ if ix < length mask && not (mask !! ix)
+        then -1.0e12
+        else value
+    | (ix, value) <- zip [0 ..] values
+    ]
 
 -- | DQN gradient update on a single batch.
 dqnUpdate
@@ -454,14 +468,9 @@ scaleGradient sc g =
     , gradB2 = VU.map (* sc) (gradB2 g)
     }
 
-obsVector :: CartPoleState -> Vector Double
-obsVector state =
-  VU.fromList
-    [ cartPosition state
-    , cartVelocity state
-    , poleAngle state
-    , poleAngularVelocity state
-    ]
+obsVector :: SimulatedEnvironment state -> state -> Vector Double
+obsVector environment =
+  VU.fromList . renderObservation . envRenderFrame environment
 
 -- | Sprint 13.8 — train DQN (and the discrete off-policy family it
 -- templates) on cartpole with the Q-network forward + backward running on
@@ -486,15 +495,21 @@ trainDqnOnCartpoleMetal env = trainDqnOnDevice (metalMlpDevice env)
 -- 'trainDqnOnCartpole' via the parameterised 'loop'; only the minibatch
 -- gradient update runs on the device ('dqnUpdateDevice').
 trainDqnOnDevice :: MlpDevice -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
-trainDqnOnDevice device config = do
-  let shape =
-        MlpShape
-          { mlpInputs = dqnObsSize config
-          , mlpHidden = dqnHiddenUnits config
-          , mlpOutputs = dqnActionCount config
-          }
-      initialParams = mlpInit shape (dqnSeed config)
+trainDqnOnDevice device =
+  trainDqnOnDeviceWithSimulatedEnvironment device cartPoleEnvironment
+
+trainDqnOnDeviceWithEnvironment
+  :: MlpDevice -> SomeSimulatedEnvironment -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
+trainDqnOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) =
+  trainDqnOnDeviceWithSimulatedEnvironment device environment
+
+trainDqnOnDeviceWithSimulatedEnvironment
+  :: MlpDevice -> SimulatedEnvironment state -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
+trainDqnOnDeviceWithSimulatedEnvironment device environment config = do
+  let shape = dqnMlpShape config
+      initialParams = initialDqnParams config
   loopEither
+    environment
     config
     (dqnUpdateDevice device config)
     initialParams
@@ -503,11 +518,52 @@ trainDqnOnDevice device config = do
     (Random.mkStdGen (dqnSeed config + 1))
     []
     0
-    cartPoleInitial
+    (envInitial environment)
     0
     0.0
     []
     []
+
+dqnMlpShape :: DqnTrainConfig -> MlpShape
+dqnMlpShape config =
+  MlpShape
+    { mlpInputs = dqnObsSize config
+    , mlpHidden = dqnHiddenUnits config
+    , mlpOutputs = dqnActionCount config
+    }
+
+initialDqnParams :: DqnTrainConfig -> MlpParams
+initialDqnParams config =
+  mlpInit (dqnMlpShape config) (dqnSeed config)
+
+evaluateDqnPolicyWithEnvironment
+  :: SomeSimulatedEnvironment
+  -> DqnTrainConfig
+  -> MlpParams
+  -> Int
+  -> [(Double, Int)]
+evaluateDqnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
+  replicate (max 1 episodeCount) (evaluateEpisode environment config params)
+
+evaluateEpisode
+  :: SimulatedEnvironment state
+  -> DqnTrainConfig
+  -> MlpParams
+  -> (Double, Int)
+evaluateEpisode environment config params = go (envInitial environment) 0 0.0
+ where
+  go state episodeLen episodeReturn
+    | episodeLen >= dqnMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | otherwise =
+        let obs = obsVector environment state
+            qValues = VU.toList (forwardOutput (mlpForward params obs))
+            action = maskedArgmax (envActionMask environment <*> Just state) qValues
+            stepResult = envStep environment state action
+            nextReturn = episodeReturn + simStepReward stepResult
+            nextLen = episodeLen + 1
+         in if simStepDone stepResult
+              then (nextReturn, nextLen)
+              else go (simStepState stepResult) nextLen nextReturn
 
 -- | Minibatch DQN gradient update through the batched CUDA primitives:
 -- batched forward of the online net at the batch states (Q(s,·)) and the

@@ -33,6 +33,7 @@ import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
 import JitML.Lint.ForbiddenPaths (ForbiddenPathRule (..), matchForbiddenPath)
+import JitML.Lint.ProductTruth (checkProductTruth)
 import JitML.Lint.Stack.Types (LintFinding (..), LintMode (..), LintTarget (..))
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -94,7 +95,14 @@ checkFiles mode = do
   forbiddenFindings <- forbiddenPathFindings
   generatedFindings <- generatedPathFindings
   staticJitFindings <- staticJitArtefactFindings
-  pure (whitespaceFindings <> forbiddenFindings <> generatedFindings <> staticJitFindings)
+  productTruthFindings <- checkProductTruth
+  pure
+    ( whitespaceFindings
+        <> forbiddenFindings
+        <> generatedFindings
+        <> staticJitFindings
+        <> productTruthFindings
+    )
 
 checkDocsLint :: IO [LintFinding]
 checkDocsLint =

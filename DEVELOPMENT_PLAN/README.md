@@ -59,28 +59,39 @@ maintenance rules that govern this plan suite.
 **🔄 Product closure reopened 2026-07-01.** Phases `0`–`18` remain historical
 evidence for the surfaces they actually validated, but they are not a current
 no-caveat product handoff. A model-runtime audit found that the worktree still
-contains fake/deterministic infrastructure, static demo matrix proof,
+lacked a scaffold-reachability lint, carried static demo matrix proof,
 documented-vs-implemented SL/RL mismatches, unverified product dataset reads,
 and representative rather than per-model integration/e2e evidence. The current
 completion path is the new forward-only Phase `19`–`31` chain:
 
-- Phase `19` installs product-truth gates, the typed `ProductRow` registry and
-  matrix floor, and forbids scaffold evidence from satisfying product rows.
-- Phase `20` de-fossilizes the codebase and lints fake/deterministic scaffold
-  infrastructure out of the product path.
-- Phase `21` makes illegal inference state unrepresentable in Haskell/Dhall.
-- Phase `22` makes the documented product matrix, executable configs, and
+- Phase `19` has installed product-truth gates, the typed `ProductRow` registry,
+  matrix floor, Phase `19`–`31` status registry, and docs-check closure guard.
+- Phase `20` has removed the legacy fake-ML fossils from the product path and
+  installed the scaffold lint/reachability gate.
+- Phase `21` has installed non-fabricable training evidence, the Haskell/Dhall
+  type-state boundary, and fail-closed inference selector/decode gates.
+- Phase `22` has made the documented product matrix, executable configs, and
   dataset SHA boundary singular.
-- Phase `23` provides the general differentiable layer engine every real
-  architecture is built on.
+- Phase `23` has completed the typed layer graph, pure reverse-mode autodiff,
+  oneDNN training-direction layer-kernel surfaces, and graph checkpoint and
+  inference serialization.
 - Phase `24` closes every documented SL row with literal implementation,
   weight-update evidence, convergence, checkpointing, and inference eligibility.
-- Phase `25` closes every documented RL row with real env/algorithm dispatch,
-  policy/weight update evidence, and no deterministic product stand-ins.
-- Phase `26` proves real AlphaZero self-play per game.
-- Phase `27` renders every product row in the demo from real eligible artifacts.
-- Phase `28` gives every product row integration and e2e coverage on
-  `linux-cpu`.
+- Phase `25` re-closed on 2026-07-03 after production RL trainer dispatch was
+  wired to the row-requested simulator catalog and the full RL-only live
+  publisher pass reported **39 / 39** eligible rows with **0** unsupported rows
+  and **0** errors.
+- Phase `26` closes every documented AlphaZero game with per-game self-play,
+  arena convergence, deterministic rerun evidence, row evidence, and
+  inference-eligible checkpoint artifacts.
+- Phase `27` has completed train-and-publish product-row artifacts,
+  artifact-backed selectors, row-specific renderers, and fail-closed browser
+  states.
+- Phase `28` is active. The row-keyed coverage/report scaffolding is present
+  and `jitml-integration --linux-cpu` passed **137 / 137** on 2026-07-03, but
+  Sprint `28.1` must replace synthetic/local row evidence with real
+  product-row publisher evidence and stage the remaining non-MNIST supervised
+  datasets before every `ProductRow` can publish an inference-eligible manifest.
 - Phase `29` validates the row-complete product lane on `linux-cuda`.
 - Phase `30` validates the row-complete product lane on `apple-silicon`.
 - Phase `31` re-aggregates on `linux-cpu` only and restores the no-caveat claim
@@ -1293,16 +1304,16 @@ obligation exists.
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
 | 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence only; current product handoff reopened by Phase `19` | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
-| 19 | Product Truth Gates & Registry | 🔄 Active (typed `ProductRow` registry + matrix floor, phase-status registry, docs-check closure gate) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
-| 20 | De-Fossilization & Scaffold Lint | ⏸️ Blocked by Phase `19` | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
-| 21 | Type-State DSL and Inference Eligibility | ⏸️ Blocked by Phase `20` | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
-| 22 | Canonical Matrix and Dataset Integrity | ⏸️ Blocked by Phase `21` | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
-| 23 | General Differentiable Layer Engine | ⏸️ Blocked by Phase `22` | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
-| 24 | Real Supervised Architectures | ⏸️ Blocked by Phase `23` | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
-| 25 | Real RL Algorithms and Environments | ⏸️ Blocked by Phase `24` | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
-| 26 | AlphaZero Real Self-Play Per Game | ⏸️ Blocked by Phase `25` | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
-| 27 | Demo All-Model Rendering | ⏸️ Blocked by Phase `26` | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
-| 28 | Per-Model Integration and E2E | ⏸️ Blocked by Phase `27` | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
+| 19 | Product Truth Gates & Registry | ✅ Done (Sprints 19.1-19.3 complete; docs-check closure enforcement active for later phases) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
+| 20 | De-Fossilization & Scaffold Lint | ✅ Done (Sprints 20.1-20.2 complete; ProductTruth scaffold/reachability lint active) | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
+| 21 | Type-State DSL and Inference Eligibility | ✅ Done (Sprints 21.1-21.3 complete; Haskell/Dhall inference eligibility and fail-closed decode validated) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
+| 22 | Canonical Matrix and Dataset Integrity | ✅ Done (Sprints 22.1-22.3 complete; matrix parity, per-row Dhall, and read-time dataset SHA validated) | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
+| 23 | General Differentiable Layer Engine | ✅ Done (Sprints 23.1-23.3 complete; graph checkpoint/inference validated on linux-cpu) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
+| 24 | Real Supervised Architectures | ✅ Done (Sprints 24.1-24.3 complete; supervised graph/layout checkpoint evidence validated on linux-cpu) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
+| 25 | Real RL Algorithms and Environments | ✅ Done (Sprints 25.1-25.3 complete; full RL-only publisher pass reported 39/39 eligible on linux-cpu) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
+| 26 | AlphaZero Real Self-Play Per Game | ✅ Done (Sprints 26.1-26.2 complete; per-game self-play, arena evidence, and inference-eligible checkpoints validated on linux-cpu) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
+| 27 | Demo All-Model Rendering | ✅ Done (Sprints 27.1-27.3 complete; product-row artifacts, renderers, and fail-closed browser guards validated) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
+| 28 | Per-Model Integration and E2E | 🔄 Active (Sprint 28.1; replace synthetic row evidence with real product-row publisher evidence) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
 | 29 | Linux CUDA Product Lane | ⏸️ Blocked by Phase `28`; validates `linux-cpu` + `linux-cuda` only | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
 | 30 | Apple Silicon Product Lane | ⏸️ Blocked by Phase `29`; validates `linux-cpu` + `apple-silicon` only | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
 | 31 | No-Caveat Product Aggregation | ⏸️ Blocked by Phase `30`; `linux-cpu` aggregation only | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
@@ -1331,9 +1342,8 @@ single-accelerator rule.
   `27` → `30`; old Aggregation `28` → `31`. The new phases are inserted at `20`,
   `23`, and `26`.
 - **Known blocking gaps:** fake/deterministic infrastructure remains available
-  in the codebase; product training dataset reads are not all SHA-verified at
-  read time; documented SL architectures are not all literal; documented RL
-  environments and algorithm/env rows do not all map to actual trainers; demo
+  in the codebase; documented SL architectures are not all literal; documented
+  RL environments and algorithm/env rows do not all map to actual trainers; demo
   proof includes static matrix listing and seeded/synthetic artifacts; e2e
   coverage is representative rather than row-complete.
 - **Exit condition:** every product row has implementation, config, verified
@@ -1917,11 +1927,13 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-07-01, Phases `0`–`18` are historical evidence and Phase `19` is
-`🔄 Active`. Phases `20`–`31` are blocked in order behind Phase `19`. The fixed
-budget `linux-cpu`, `linux-cuda`, and `apple-silicon` closure notes below remain
-dated evidence only; they do not satisfy the current product-completion
-contract until the Phase `19`–`31` row-complete gates close.
+As of 2026-07-03, Phases `0`–`18` are historical evidence, Phases `19`–`27` are
+`✅ Done`, and Phase `28` is `🔄 Active` on replacing synthetic row evidence with
+real product-row publisher evidence plus row-complete integration/e2e coverage.
+Phases `29`–`31` remain blocked in order behind Phase `28`. The fixed budget
+`linux-cpu`, `linux-cuda`, and `apple-silicon` closure notes below remain dated
+evidence only; they do not satisfy the current product-completion contract until
+the Phase `19`–`31` row-complete gates close.
 
 Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals
@@ -2631,7 +2643,7 @@ reverse-mode backprop + Adam optimisation; the real on-policy PPO trainer
 475 by iteration ~15 (2026-05-27 fourth session); the real off-policy
 DQN trainer (`JitML.RL.Algorithms.DqnTrainer`) with replay buffer + target
 network + epsilon-greedy + Adam (2026-05-27 fourth session); the runtime
-RL primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`); the
+RL primitives (`Policy`, `ReplayBuffer`, `AsyncBuffer`, `EpisodeEnvelope`); the
 AlphaZero substack (`Mcts`, `SelfPlay`, `Arena`,
 `PolicyValueNet`) plus the `PerfectInformation` typeclass admitting
 Connect 4 / Othello / Hex / Gomoku, including the two-headed

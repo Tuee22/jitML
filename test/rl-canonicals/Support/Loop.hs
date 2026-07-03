@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module JitML.RL.Loop
+module Support.Loop
   ( EpisodeResult (..)
   , RLConfig (..)
   , RLLoop (..)
@@ -8,6 +8,7 @@ module JitML.RL.Loop
   , defaultRLConfig
   , renderRLLoopResult
   , rlEpisodes
+  , runOneEpisode
   , runRLLoop
   )
 where
@@ -17,9 +18,10 @@ import Data.Text qualified as Text
 
 import JitML.RL.Algorithms (RLAlgorithm (..))
 import JitML.RL.Buffer (BufferKind (..), ReplayBuffer, Transition (..), bufferInsert, emptyBuffer)
-import JitML.RL.Environments (EnvStep (..), RLEnvironment (..), deterministicStep)
+import JitML.RL.Environments (EnvStep (..), RLEnvironment (..))
 import JitML.RL.Framework (RLRunPhase (..), rlRunPlan)
 import JitML.RL.Policy (Policy, policyName)
+import Support.DeterministicStep (deterministicStep)
 
 data RLConfig = RLConfig
   { rlSeed :: Int

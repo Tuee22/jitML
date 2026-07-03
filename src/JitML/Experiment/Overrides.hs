@@ -18,6 +18,7 @@ module JitML.Experiment.Overrides
   , overridePruner
   , overrideTrials
   , overrideParallelism
+  , overrideAlgorithm
   , renderOverrideError
   , renderExperimentOverrides
   , renderTuningOverrides
@@ -32,6 +33,7 @@ import Numeric.Natural (Natural)
 import Text.Read (readMaybe)
 
 import JitML.CLI.Parser (ParsedOption (..))
+import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 import JitML.Tune.Catalog
   ( Pruner
@@ -55,14 +57,16 @@ import JitML.Tune.Catalog
 data ExperimentOverrides = ExperimentOverrides
   { eoSubstrate :: !(Maybe Substrate)
   , eoSeed :: !(Maybe Word64)
+  , eoAlgorithm :: !(Maybe Text)
   }
   deriving stock (Eq, Show)
 
 emptyExperimentOverrides :: ExperimentOverrides
-emptyExperimentOverrides = ExperimentOverrides Nothing Nothing
+emptyExperimentOverrides = ExperimentOverrides Nothing Nothing Nothing
 
 hasExperimentOverrides :: ExperimentOverrides -> Bool
-hasExperimentOverrides (ExperimentOverrides s e) = isJust s || isJust e
+hasExperimentOverrides (ExperimentOverrides s e a) =
+  isJust s || isJust e || isJust a
 
 -- | CLI overrides for `jitml tune`. The five Tuning axes are independently
 -- substitutable; absent fields preserve the Dhall.
@@ -92,6 +96,7 @@ data OverrideError
   | InvalidPruner Text
   | InvalidTrials Text
   | InvalidParallelism Text
+  | InvalidAlgorithm Text
   deriving stock (Eq, Show)
 
 renderOverrideError :: OverrideError -> Text
@@ -121,8 +126,15 @@ renderOverrideError = \case
     "invalid --trials value: " <> quote raw <> "; expected a non-negative integer"
   InvalidParallelism raw ->
     "invalid --parallelism value: " <> quote raw <> "; expected a non-negative integer"
+  InvalidAlgorithm raw ->
+    "invalid --algorithm value: "
+      <> quote raw
+      <> "; expected one of "
+      <> algorithmHint
  where
   quote raw = "\"" <> raw <> "\""
+  algorithmHint =
+    Text.intercalate ", " (fmap RLAlgorithms.algorithmName RLAlgorithms.algorithmCatalog)
   samplerHint =
     "Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT"
   schedulerHint = "Fifo, SuccessiveHalving, Hyperband, ASHA"
@@ -132,12 +144,18 @@ parseExperimentOverrides :: [ParsedOption] -> Either OverrideError ExperimentOve
 parseExperimentOverrides parsedOptions = do
   substrate <- optionalDecode "substrate" parsedSubstrate parsedOptions
   seed <- optionalDecode "seed" parsedSeed parsedOptions
-  pure (ExperimentOverrides substrate seed)
+  algorithm <- optionalDecode "algorithm" parsedAlgorithm parsedOptions
+  pure (ExperimentOverrides substrate seed algorithm)
  where
   parsedSubstrate raw =
     maybe (Left (InvalidSubstrate raw)) Right (parseSubstrate raw)
   parsedSeed raw =
     maybe (Left (InvalidSeed raw)) Right (readMaybe (Text.unpack raw) :: Maybe Word64)
+  parsedAlgorithm raw =
+    let stripped = Text.strip raw
+     in if stripped `elem` fmap RLAlgorithms.algorithmName RLAlgorithms.algorithmCatalog
+          then Right stripped
+          else Left (InvalidAlgorithm raw)
 
 parseTuningOverrides :: [ParsedOption] -> Either OverrideError TuningOverrides
 parseTuningOverrides parsedOptions = do
@@ -181,6 +199,9 @@ overrideSubstrate ovr base = fromMaybe base (eoSubstrate ovr)
 
 overrideSeed :: ExperimentOverrides -> Word64 -> Word64
 overrideSeed ovr base = fromMaybe base (eoSeed ovr)
+
+overrideAlgorithm :: ExperimentOverrides -> Text -> Text
+overrideAlgorithm ovr base = fromMaybe base (eoAlgorithm ovr)
 
 overrideSampler :: TuningOverrides -> Sampler -> Sampler
 overrideSampler ovr base = fromMaybe base (toSampler ovr)
@@ -234,6 +255,8 @@ renderExperimentOverrides ovr =
     [ "substrate=" <> renderSubstrate s | Just s <- [eoSubstrate ovr]
     ]
       <> [ "seed=" <> Text.pack (show n) | Just n <- [eoSeed ovr]
+         ]
+      <> [ "algorithm=" <> algorithm | Just algorithm <- [eoAlgorithm ovr]
          ]
 
 renderTuningOverrides :: TuningOverrides -> Text

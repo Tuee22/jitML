@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, training_workloads.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, training_workloads.md, training_metrics_and_splits.md
 **Generated sections**: numerics.layers, numerics.activations, numerics.spectral, numerics.optimizers, numerics.schedulers, numerics.losses
 
 > **Purpose**: Project-specific numerical-core catalog for jitML — the current
@@ -38,6 +38,71 @@ The current schema mirror is a constructor-name audit, not a full parameterized
 model schema. Future schema extensions should keep the same ownership model and
 add richer parameterized constructors and typed records for layer shapes,
 optimizer hyperparameters, scheduler parameters, and loss parameters.
+
+## Typed Layer Graph and Autodiff
+
+Phase `23` adds the executable typed layer-graph surface in
+`src/JitML/Numerics/LayerGraph.hs` and the public pure reverse-mode API in
+`src/JitML/Numerics/Autodiff.hs`. A `LayerGraph` carries input/output tensor
+shapes, ordered layer nodes, per-node training-vs-inference mode, activation,
+and optional row-major parameter tensors. The catalog represented by graph
+nodes covers Dense, Conv2D, Conv3D, MaxPool, AvgPool, GlobalAvgPool, BatchNorm,
+LayerNorm, GroupNorm, Dropout, Residual, BasicBlock, BottleneckBlock,
+MultiHeadAttention, GeGLU, and patch-embed.
+
+The pure oracle records a forward tape and replays it backward to produce both
+input gradients and per-node parameter gradients. `JitML.Numerics.Mlp` is now
+the two-layer special case of that graph: its public `mlpBackward` and
+`mlpInputGradient` APIs lower the cached MLP forward pass into a two-node graph
+tape, call `Autodiff.runBackward`, and project the result back into the legacy
+`MlpGradient` record. `JitML.SL.Architecture` also attaches a literal
+`archLayerGraph` to every canonical supervised family so later execution,
+checkpointing, and inference work can consume the same topology instead of
+inferring architecture from a sequence of MLP helper blocks.
+
+The Sprint `23.1` unit coverage checks four invariants: the MLP graph forward
+matches the historical MLP forward exactly; finite-difference gradient checks
+cover every graph layer kind; a ResNet-shaped graph produces bit-identical
+gradients on repeated same-seed runs; and a ViT-shaped patch/attention/head graph
+round-trips through the same forward/backward API.
+
+Sprint `23.2` adds the linux-cpu oneDNN training path for the current graph
+algebra. `JitML.Codegen.OneDnn.renderOneDnnLayerTrainingSource` emits a
+content-addressed shared object with `jitml_layer_forward`,
+`jitml_layer_backward_data`, and `jitml_layer_backward_weights`; dense and other
+affine graph nodes execute oneDNN matmul, while `Conv2D` and `Conv3D` execute
+oneDNN `convolution_forward` in `forward_training` mode plus
+`convolution_backward_data` and `convolution_backward_weights` over the graph's
+flat 1x1 channel projection. `JitML.Numerics.LayerGraphOneDnn` reuses the pure
+forward tape for activation/residual/parameterless semantics and replaces each
+parameterized node's update-critical gradients with backend-computed values. The
+backend test compares that device gradient against the pure oracle across the
+full `LayerGraph.allLayerKinds` catalog and records per-node primitive evidence.
+Sprint `23.3` serializes that graph topology into checkpoints and runs
+checkpoint inference through the stored graph.
+
+Phase `24` Sprint `24.1` binds the canonical supervised rows to literal graph
+topology and feature metadata. `ArchitectureFeature` records the feature claims
+that product rows make (`Dense`, `BatchNorm`, `Dropout`, `Conv2D`, pooling,
+`GroupNorm`, residual, `BasicBlock`, `BottleneckBlock`, attention, patch
+embedding, `LayerNorm`, and `GeGLU`), while
+`architectureImplementedFeatures` derives the implemented feature set from
+`archLayerGraph`. The `jitml-sl-canonicals` gate rejects feature mismatches and
+checks the named topology counts: LeNet has two Conv2D nodes, ResNet-20 and
+ResNet-56 have 20 and 56 BasicBlock nodes, WideResNet-28-10 has 12
+GroupNorm-backed BasicBlock nodes, the small ViT has patch embedding,
+MultiHeadAttention, two LayerNorm nodes, and GeGLU, and ResNet-50 has 16
+BottleneckBlock nodes.
+
+Sprint `24.2` adds the supervised learning-evidence assertion layer in
+`JitML.Test.RowAssertions`. The assertion consumes measured row evidence from
+the device-backed SL path: deterministic initial/final weight hashes, update
+count, train/validation/test split sizes, examples seen, non-wall-clock
+throughput, real train and validation losses, held-out test metric, gradient
+norm, and the literature/slack convergence bar. It rejects equal weights,
+zero-update runs, missing validation/test partitions, zero or non-finite
+gradient evidence, smoke thresholds, and deliberately underpowered two-step
+evidence that fails the convergence bar.
 
 ## Layers
 

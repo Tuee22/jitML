@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 ppoModule :: AlgorithmModule
@@ -18,6 +19,13 @@ ppoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "PPO" OnPolicy False
     , moduleHyperparameters = ppoHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "on-policy.ppo.clipped-surrogate"
+          "JitML.RL.Algorithms.PpoTrainer.trainPpoOnCartpole"
+          "rollout-buffer.gae.cartpole"
+          "mlp-policy-value"
+          ["clipped-surrogate", "gae", "adam-minibatch"]
     }
 
 ppoHyperparameters :: [AlgorithmHyperparameter]

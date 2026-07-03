@@ -39,7 +39,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
           ( "kind: BrowserInferenceRequest\n"
               <> "panel: mnist-live-inference\n"
               <> "model-id: mnist-deep-mlp\n"
-              <> "experiment-hash: mnist-deep-mlp\n"
+              <> "experiment-hash: product-row-mnist-deep-mlp\n"
               <> "input: 1.0,2.0\n"
           )
       Contracts.renderBrowserImageRequest Cifar.panelName Cifar.defaultDataset Cifar.defaultExperimentHash "" [ 1.0, 2.0 ]
@@ -47,7 +47,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
           ( "kind: BrowserImageRequest\n"
               <> "panel: cifar-imagenet-upload\n"
               <> "dataset: CIFAR-10\n"
-              <> "experiment-hash: cifar-imagenet\n"
+              <> "experiment-hash: product-row-cifar10-resnet20\n"
               <> "image-base64: \n"
               <> "input: 1.0,2.0\n"
           )
@@ -55,7 +55,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
         `shouldEqual`
           ( "kind: BrowserGenericInferenceRequest\n"
               <> "panel: generic-inference-lab\n"
-              <> "experiment-hash: generic-tensor-demo\n"
+              <> "experiment-hash: product-row-california-housing-mlp\n"
               <> "input: 1.0,2.0\n"
           )
       Contracts.renderBrowserCheckpointCompareRequest
@@ -66,8 +66,8 @@ main = runSpecAndExitProcess [ consoleReporter ] do
         `shouldEqual`
           ( "kind: BrowserCheckpointCompareRequest\n"
               <> "panel: checkpoint-compare-lab\n"
-              <> "baseline-experiment-hash: generic-tensor-demo\n"
-              <> "candidate-experiment-hash: generic-tensor-demo-candidate\n"
+              <> "baseline-experiment-hash: product-row-mnist-shallow-mlp\n"
+              <> "candidate-experiment-hash: product-row-mnist-deep-mlp\n"
               <> "input: 1.0,2.0\n"
           )
       Contracts.renderBrowserAdversarialMoveRequest Connect4.panelName "connect4" Connect4.defaultExperimentHash [ 3, 4 ] 1 Connect4.defaultSimulations
@@ -75,7 +75,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
           ( "kind: BrowserAdversarialMoveRequest\n"
               <> "panel: connect4-human-vs-alphazero\n"
               <> "game: connect4\n"
-              <> "experiment-hash: connect4-alphazero\n"
+              <> "experiment-hash: product-row-connect4\n"
               <> "moves: 3,4\n"
               <> "human-is-player: 1\n"
               <> "simulations-per-move: 400\n"
@@ -219,7 +219,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
         genericPayload =
           "kind: GenericInferenceResult\n"
             <> "panel: generic-inference-lab\n"
-            <> "experiment-hash: generic-tensor-demo\n"
+            <> "experiment-hash: product-row-california-housing-mlp\n"
             <> "checkpoint-sha: sha256:generic\n"
             <> "latency-ms: 2.25\n"
             <> "output: 0.1,0.2,0.3\n"
@@ -297,7 +297,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               "ok"
           )
       Contracts.parseDecodedInference
-        ( "experiment-hash: mnist-deep-mlp\n"
+        ( "experiment-hash: product-row-mnist-deep-mlp\n"
             <> "decoded-kind: classification\n"
             <> "decoded-top-class: 2\n"
             <> "decoded-confidence: 0.9\n"
@@ -328,16 +328,16 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       Contracts.parseCompareFrame
         ( "kind: CheckpointCompareResult\n"
             <> "call-id: c1\n"
-            <> "baseline-experiment-hash: generic-tensor-demo\n"
-            <> "candidate-experiment-hash: generic-tensor-demo-candidate\n"
+            <> "baseline-experiment-hash: product-row-mnist-shallow-mlp\n"
+            <> "candidate-experiment-hash: product-row-mnist-deep-mlp\n"
             <> "baseline-output: 0.25,0.5\n"
             <> "candidate-output: 0.75,0.5\n"
             <> "max-abs-delta: 0.5\n"
             <> "mean-abs-delta: 0.25\n"
         )
         `shouldEqual` Just
-          { baselineExperimentHash: "generic-tensor-demo"
-          , candidateExperimentHash: "generic-tensor-demo-candidate"
+          { baselineExperimentHash: "product-row-mnist-shallow-mlp"
+          , candidateExperimentHash: "product-row-mnist-deep-mlp"
           , baselineOutput: [ 0.25, 0.5 ]
           , candidateOutput: [ 0.75, 0.5 ]
           , maxAbsDelta: 0.5
@@ -346,7 +346,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       Contracts.parseMoveFrame
         ( "kind: AdversarialMoveResult\n"
             <> "call-id: m1\n"
-            <> "experiment-hash: connect4-alphazero\n"
+            <> "experiment-hash: product-row-connect4\n"
             <> "game: connect4\n"
             <> "chosen-column: 3\n"
             <> "legal-moves: 0,1,2,3,4,5,6\n"
@@ -357,7 +357,7 @@ main = runSpecAndExitProcess [ consoleReporter ] do
             <> "transcript-id: connect4:3:1\n"
         )
         `shouldEqual` Just
-          { experimentHash: "connect4-alphazero"
+          { experimentHash: "product-row-connect4"
           , game: "connect4"
           , chosenColumn: 3
           , legalMoves: [ 0, 1, 2, 3, 4, 5, 6 ]
@@ -453,26 +453,26 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       Contracts.parseTuneTrialFrame "data: placeholder" `shouldEqual` Nothing
 
     it "generated workflow commands render daemon command envelopes" do
-      Contracts.renderStartTrainingCommand "training-demo" "experiments/mnist.dhall" 1 2 32
+      Contracts.renderStartTrainingCommand Training.defaultExperimentHash "experiments/mnist-deep-mlp.dhall" 1 2 32
         `shouldEqual`
           ( "kind: StartTraining\n"
-              <> "experiment-hash: training-demo\n"
-              <> "dhall-object-key: experiments/mnist.dhall\n"
+              <> "experiment-hash: product-row-mnist-deep-mlp\n"
+              <> "dhall-object-key: experiments/mnist-deep-mlp.dhall\n"
               <> "substrate: live\n"
               <> "seed: 1\n"
               <> "epochs: 2\n"
               <> "batch-size: 32\n"
           )
-      Contracts.renderStopTrainingCommand "training-demo" false
+      Contracts.renderStopTrainingCommand Training.defaultExperimentHash false
         `shouldEqual`
           ( "kind: StopTraining\n"
-              <> "experiment-hash: training-demo\n"
+              <> "experiment-hash: product-row-mnist-deep-mlp\n"
               <> "drain: False\n"
           )
-      Contracts.renderStartRlCommand "rl-demo" "ppo" "cartpole" 1 128 4
+      Contracts.renderStartRlCommand Rl.defaultExperimentHash "ppo" "cartpole" 1 128 4
         `shouldEqual`
           ( "kind: StartRLRun\n"
-              <> "experiment-hash: rl-demo\n"
+              <> "experiment-hash: product-row-PPO.cartpole\n"
               <> "algorithm: ppo\n"
               <> "environment: cartpole\n"
               <> "substrate: live\n"
@@ -480,10 +480,10 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               <> "max-steps: 128\n"
               <> "eval-episodes: 4\n"
           )
-      Contracts.renderStartTuneCommand "tune-demo" "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
+      Contracts.renderStartTuneCommand Tune.defaultExperimentHash "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
         `shouldEqual`
           ( "kind: StartSweep\n"
-              <> "experiment-hash: tune-demo\n"
+              <> "experiment-hash: product-row-hyperparameter-tuning\n"
               <> "dhall-object-key: experiments/mnist-tune.dhall\n"
               <> "substrate: live\n"
               <> "sweep-seed: 1\n"
@@ -494,15 +494,25 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               <> "pruner: none\n"
           )
       Contracts.parseWorkflowCommandAck
-        "kind: WorkflowCommandAck\nrun-id: training-demo\ncommand: StopTraining\nstatus: published\n"
-        `shouldEqual` Just (Contracts.renderWorkflowCommandAck "training-demo" "StopTraining" "published")
+        "kind: WorkflowCommandAck\nrun-id: product-row-mnist-deep-mlp\ncommand: StopTraining\nstatus: published\n"
+        `shouldEqual` Just (Contracts.renderWorkflowCommandAck Training.defaultExperimentHash "StopTraining" "published")
       Contracts.parseWorkflowStatus
-        "kind: WorkflowStatus\npanel: training-progress\nrun-id: training-demo\nstatus: running\ndetail: epoch 1\n"
-        `shouldEqual` Just (Contracts.renderWorkflowStatus Training.panelName "training-demo" "running" "epoch 1")
+        "kind: WorkflowStatus\npanel: training-progress\nrun-id: product-row-mnist-deep-mlp\nstatus: running\ndetail: epoch 1\n"
+        `shouldEqual` Just (Contracts.renderWorkflowStatus Training.panelName Training.defaultExperimentHash "running" "epoch 1")
 
   describe "generated browser contracts" do
     it "generated endpoints catalog is non-empty" do
       Contracts.endpoints `shouldSatisfy` (\eps -> length eps > 0)
+
+    it "generated model matrix rows expose product-row artifact selectors" do
+      Contracts.allModelMatrixRows `shouldSatisfy`
+        any
+          ( \row ->
+              row.kind == "supervised"
+                && row.name == "mnist-deep-mlp"
+                && row.experimentHash == "product-row-mnist-deep-mlp"
+                && row.demoPanel == Mnist.panelName
+          )
 
     it "generated admin portals catalog covers the six bundled portals" do
       length AdminPortals.adminPortals `shouldEqual` 6

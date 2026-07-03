@@ -11,15 +11,16 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Current audit status (2026-07-01).** Product training closure is reopened.
+**Current audit status (2026-07-02).** Product training closure is reopened.
 Historical runs prove selected real paths, but they do not prove the complete
-documented SL/RL surface. Active gaps include documented SL architectures that
-are not yet literal implementations, documented RL rows that do not all dispatch
-to their named environment, production dataset reads that are not all
-SHA-verified at read time, remaining fake/deterministic scaffolds, and test/demo
-evidence that is representative rather than row-complete. The binding contract
-lives in [product_completion_contract.md](product_completion_contract.md) and
-the remediation phases are
+documented SL/RL surface. The current worktree routes product dataset reads
+through read-time SHA verification before decode, and Phase `24` Sprint `24.1`
+records literal supervised architecture topology plus per-row feature parity.
+Remaining gaps include supervised convergence/evidence closure, remaining
+fake/deterministic scaffolds, and test/demo evidence that is representative
+rather than row-complete. The binding contract lives in
+[product_completion_contract.md](product_completion_contract.md) and the
+remediation phases are
 [Phase 22](../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md),
 [Phase 24](../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md), and
 [Phase 25](../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md).
@@ -40,31 +41,34 @@ the canonical problem catalog and all-row trainable product cohort in
 runtime in `src/JitML/SL/Architecture.hs`.
 
 - Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket
-  `jitml-datasets`, exposes `fetchDatasetRef` through the `HasMinIO`
-  capability, and verifies fetched bytes against the pinned SHA-256. The
-  filesystem-backed `HasMinIO` test covers the capability boundary; live
-  routed MinIO fetch covers every canonical dataset/model row in the
-  fixed-budget `linux-cpu` baseline.
+  `jitml-datasets`, exposes `fetchDatasetRef` and
+  `fetchVerifiedDatasetArtifactBytes` through the `HasMinIO` capability, and
+  verifies fetched bytes against the pinned SHA-256 at the product read
+  boundary. The filesystem-backed `HasMinIO` test covers the capability
+  boundary; live routed MinIO fetch covers every canonical dataset/model row in
+  the fixed-budget `linux-cpu` baseline.
 
 ### Canonical SL Problems
 
-The catalog names the intended no-caveat architecture set. Current product
-closure is reopened until Phase `24` proves that each documented feature is
-implemented literally. A simplified trainable topology is useful evidence, but
-it cannot close a row that documents a richer architecture.
+The catalog names the intended no-caveat architecture set. Phase `24` Sprint
+`24.1` records each supervised row's claimed `ArchitectureFeature` values in
+`ProductRow.rowArchitectureFeatures` and rejects any row whose literal
+`archLayerGraph` lacks those features. A simplified trainable topology is still
+useful implementation evidence, but it cannot close a row that documents a
+richer architecture.
 
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
 | `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | DeepDense device stack; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Patch-convolution stem plus classifier; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | Literal graph has Dense, two BatchNorm nodes, and two Dropout nodes; fixed-budget convergence, checkpoint reload, and inference eligibility remain later evidence gates |
+| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Literal LeNet-style graph has two Conv2D nodes, pooling, and a classifier head; fixed-budget convergence, checkpoint reload, and inference eligibility remain later evidence gates |
 | `fashion-mnist-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; SHA pins plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Residual device stack; SHA pins plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 20-block residual device stack; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 56-block residual device stack; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Wide residual device stack; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Patch embedding plus trainable Q/K/V attention; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | 50-block residual device stack; archive SHA pin, Zip64/JPEG tensor materialization, fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Literal small ResNet graph has Conv2D, BatchNorm, and two BasicBlock residual nodes; SHA pins and convergence evidence remain later gates |
+| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal graph has Conv2D, BatchNorm, global pooling, and 20 BasicBlock residual nodes; archive parser evidence remains separate |
+| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal graph has Conv2D, BatchNorm, global pooling, and 56 BasicBlock residual nodes; archive parser evidence remains separate |
+| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal WideResNet-28-10 graph has Conv2D, GroupNorm, global pooling, and 12 wide BasicBlock residual nodes; archive parser evidence remains separate |
+| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal small ViT graph has patch embedding, two LayerNorm nodes, MultiHeadAttention, GeGLU, token pooling, and a classifier head |
+| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | Literal ResNet-50 graph has Conv2D, BatchNorm, global pooling, and 16 BottleneckBlock residual nodes; archive SHA pin and Zip64/JPEG evidence remain separate |
 | `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense regression topology; parser, device-MSE trainer, fixed-budget RMSE/MSE convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
 
 Convergence is accepted only where the test performs the row's declared fixed
@@ -91,7 +95,7 @@ publication and a staged canonical dataset and otherwise exits with
 is no synthetic summary and no pure-Haskell fallback: the staged dataset bytes
 are decoded once through `JitML.SL.Classifier.decodeBoundedDataset`, the
 experiment Dhall is resolved to a canonical row through
-`JitML.SL.Canonicals.loadCanonicalProblemExperiment`, the row resolves to a
+`JitML.Experiment.Product.loadSupervisedProblemByPath`, the row resolves to a
 `JitML.SL.Architecture.ArchitectureSpec`, and
 `JitML.SL.Architecture.trainArchitectureWithDevice` trains through the resolved
 substrate's JIT-compiled `MlpDevice`, selected by
@@ -103,44 +107,52 @@ or tensor shape metadata fails closed before the runner is invoked. Sprint
 `10.6` adds model-family architecture, preprocessing, output-decoder, and
 weight-layout metadata to the checkpoint manifest consumed by this path.
 
-The worker fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`, gunzips
-(`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains over the bytes —
-example count / epochs / test size capped by the typed Dhall `RunConfig` so a
-live run stays tractable. The worker decodes these caps from Dhall, not environment
-variables: Phase `5` Sprint `5.7` retires the former `JITML_SL_TRAIN_LIMIT` /
-`JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT` env IPC in favour of the typed
-`RunConfig` per the `Application Environment` doctrine (see
+The worker fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`
+through `JitML.SL.Dataset.fetchVerifiedDatasetArtifactBytes`, verifies the
+canonical SHA-256 for each image/label object, then gunzips
+(`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains over the verified
+bytes. Corrupt, substituted, truncated, or unpinned payloads fail closed as a
+typed service error before decode. Example count / epochs / test size are
+capped by the typed Dhall `RunConfig` so a live run stays tractable. The worker
+decodes these caps from Dhall, not environment variables: Phase `5` Sprint
+`5.7` retires the former `JITML_SL_TRAIN_LIMIT` / `JITML_SL_EPOCHS` /
+`JITML_SL_TEST_LIMIT` env IPC in favour of the typed `RunConfig` per the
+`Application Environment` doctrine (see
 [Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29)).
 Sprint `5.17` keeps that mount fail-closed: a present but malformed
 `/etc/jitml/run/RunConfig.dhall` exits as a typed configuration error instead of
-falling back to env/default caps. The measured `train_acc` / `test_acc` are reported and the published
-`EpochCompleted` loss becomes the live measurement. The `jitml-sl-canonicals`
-live MNIST assertion exercises the same architecture/device runtime when the
-publication and staged bytes exist, so the test does not certify a separate
-Dense-only path. Image + label blobs are
+falling back to env/default caps. The measured `train_acc` / `test_acc` are
+reported and the published `EpochCompleted` loss becomes the live measurement.
+The `jitml-sl-canonicals` live MNIST assertion exercises the same
+architecture/device runtime when the publication and staged bytes exist, so the
+test does not certify a separate Dense-only path. Image + label blobs are
 staged via `jitml internal upload-dataset --name MNIST --split <split>
 --artifact {images,labels} --path <gz>`, SHA-verified against
-`JitML.SL.Dataset.canonicalArtifactSha256For`. Fashion-MNIST now has the same
-train/test image+label gzip SHA-pinned surface. CIFAR-10 and CIFAR-100 now use
-`ArchiveArtifact` pins for the canonical Toronto binary tarballs, staged with
-`--artifact archive`, and `JitML.SL.Classifier` parses extracted CIFAR binary
-batch payloads into 3072-feature labeled examples through the shared
-`JitML.SL.Archive` tar extractor. California Housing now uses an
-`ArchiveArtifact` pin for `cal_housing.tgz`, and `JitML.SL.Regression` parses
+`JitML.SL.Dataset.canonicalArtifactSha256For` on upload and again on read.
+Fashion-MNIST has the same train/test image+label gzip SHA-pinned surface.
+CIFAR-10 and CIFAR-100 use `ArchiveArtifact` pins for the canonical Toronto
+binary tarballs, staged with `--artifact archive`, verified on read, and parsed
+by `JitML.SL.Classifier` from extracted CIFAR binary batch payloads into
+3072-feature labeled examples through the shared `JitML.SL.Archive` tar
+extractor. California Housing uses an `ArchiveArtifact` pin for
+`cal_housing.tgz`; after read-time verification, `JitML.SL.Regression` parses
 `CaliforniaHousing/cal_housing.data` from the archive into eight-feature
-regression examples with the raw target value; the runtime standardizes feature
-columns and target values before training a one-output MSE regressor through the
-selected `MlpDevice`. Tiny ImageNet now uses `JuicyPixels` plus a narrow
-Zip64-aware central-directory reader to decode JPEG tensors from the pinned
-archive.
+regression examples with the raw target value, and the runtime standardizes
+feature columns and target values before training a one-output MSE regressor
+through the selected `MlpDevice`. Tiny ImageNet uses `JuicyPixels` plus a narrow
+Zip64-aware central-directory reader to decode JPEG tensors from the verified
+pinned archive.
 `jitml train` routes staged CIFAR, Tiny ImageNet, and California archives
 through these archive-backed decoders before training. Successful supervised
 training flattens the trained weights, writes a `.jmw1` checkpoint manifest
-with `CompletedTraining`, and publishes a `CheckpointDone` event whose
+with `CompletedTraining`, records the read-time artifact digest in
+`manifestDatasetShaAtRead`, and publishes a `CheckpointDone` event whose
 completion metrics include train loss, validation loss, held-out metric, and
-examples processed. Phase `13` promotes the earlier all-row staged-byte smoke
-into fixed-budget convergence, checkpoint reload, evaluation, and inference for
-every row; that gate is closed for the `linux-cpu` baseline.
+examples processed. Phase `22` removes canonical-key synthetic live fixtures
+from product workflow tests: product-row evidence uses real verified data or
+fails closed before training. Phase `13` promotes the earlier all-row
+staged-byte smoke into fixed-budget convergence, checkpoint reload, evaluation,
+and inference for every row; that gate is closed for the `linux-cpu` baseline.
 `src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips
 for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
@@ -155,25 +167,35 @@ experiment Dhall, reconcile prerequisites, materialize the dataset, publish
 `StartTraining` on `training.command.<mode>`, consume `training.event.<mode>`
 through the daemon, and persist checkpoints for every canonical model family.
 
+Product-row experiment resolution is centralized in
+`JitML.Experiment.Product`. Every `ProductRow` `experimentConfig` either points
+at a checked-in file under `experiments/` or is reflected from the typed product
+registry into the same small Dhall record shape. The unit gate loads every
+product row through that resolver, type-checks the resolved config, and fails on
+missing files, malformed Dhall, unknown dataset/model keys, unknown
+environment/game keys, or a generated PureScript/browser matrix constant that
+has diverged from the Haskell registry.
+
 ## RL Framework Primitives
 
 `src/JitML/RL/` owns the framework. Per doctrine `GADT-Indexed State
 Machines`, the run lifecycle is the phase-indexed GADT
 `RLRunLifecycle` in `src/JitML/RL/Framework.hs`. Its current data-kind
 phases are `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate →
-RLCheckpoint`; `src/JitML/RL/Loop.hs` provides the deterministic local
-`RLLoop` / `runRLLoop` surface, including deterministic rollout transition
-capture into the local `ReplayBuffer`. The no-caveat closure brackets this with
-live load/ready/serve/drain states and trained-policy artifacts for the
-supported algorithm matrix.
+RLCheckpoint`; `src/JitML/RL/EpisodeEnvelope.hs` provides the product
+projection type used by trainer summaries, trajectory artifacts, animation
+frames, and `EpisodeDone` publications. The deterministic `RLLoop` /
+`runRLLoop` scaffold is test-support only under
+`test/rl-canonicals/Support/Loop.hs`, where `scaffolding:`-prefixed tests keep
+its historical determinism checks out of the product path.
 
 Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and
-`src/JitML/RL/{Policy,VecEnv,Buffer,AsyncBuffer,Loop}.hs`, plus one module per
-traditional algorithm under `src/JitML/RL/Algorithms/` and the AlphaZero
-substack under `src/JitML/RL/AlphaZero/`. They provide deterministic catalog,
-environment, run-plan, lifecycle, policy, buffer, loop, per-algorithm module,
-canonical-game, MCTS, self-play, and arena helpers. Current device-backed paths
+`src/JitML/RL/{Policy,Buffer,AsyncBuffer,EpisodeEnvelope}.hs`, plus one module
+per traditional algorithm under `src/JitML/RL/Algorithms/` and the AlphaZero
+substack under `src/JitML/RL/AlphaZero/`. They provide catalog, environment,
+run-plan, lifecycle, policy, buffer, per-algorithm module, canonical-game,
+MCTS, self-play, arena, and publication-envelope helpers. Current device-backed paths
 exist for the implemented workflow surface. Sprint `9.12` removes the
 reward-derived algorithm-level projection helpers from canonical validation and
 writes `.jmw1` checkpoints plus line-oriented replay artifacts from `jitml rl
@@ -189,8 +211,13 @@ replay/animation payloads before it is treated as inference-eligible.
 The current `AlgorithmFamily` metadata in `src/JitML/RL/Algorithms.hs`
 enumerates `OnPolicy`, `OffPolicy`, `Specialized`, and `SelfPlay`; the concrete
 per-algorithm modules are aggregated by
-`src/JitML/RL/Algorithms/Registry.hs`. The no-caveat runtime grows this into a
-GADT-indexed `Algorithm` kind with traits:
+`src/JitML/RL/Algorithms/Registry.hs`. Sprint `25.2` makes that registry carry
+an `AlgorithmUpdateContract` per traditional product algorithm: a unique update
+identity, trainer entry point, rollout surface, learned-artifact shape, and
+update-feature list. `validateAlgorithmModuleRegistry` rejects duplicate
+algorithm ids, duplicate update identities, and incomplete contracts, and the
+product-row unit tests resolve every RL product algorithm through that registry.
+The no-caveat runtime grows this into a GADT-indexed `Algorithm` kind with traits:
 
 - `OnPolicy` / `OffPolicy` / `Hierarchical` / `Recurrent`
 - `MaskingCapable` (algorithm supports action masks)
@@ -206,14 +233,19 @@ declarations.
   substrate binding, and the substrate-bound `KernelHandle` model id; final
   runtime work loads and executes the referenced checkpointed policy for every
   algorithm-specific train/eval/rollout path.
-- Current `RLEnvironment` metadata plus `VecEnv` combinator cover local
-  deterministic stepping for native simulators. Default examples and required
-  canonical tests use copyright-free environments only; `KeyDoorGrid-v0` is the
-  active repo-owned visual discrete-control replacement for the former
-  Atari-backed demo target.
-- Current `src/JitML/RL/Environments.hs` provides local metadata and a
-  deterministic step helper for cartpole, mountain-car, lunar-lander,
-  `KeyDoorGrid-v0`, and the optional `atari-subset` row. `KeyDoorGrid-v0` is a
+- Current `RLEnvironment` metadata plus `src/JitML/RL/Simulator.hs` cover native
+  simulator dynamics. Default examples and required canonical tests use
+  copyright-free environments only; `KeyDoorGrid-v0` is the active repo-owned
+  visual discrete-control replacement for the former Atari-backed demo target.
+- Current `src/JitML/RL/Environments.hs` provides local metadata for the seven
+  product canonical environments: CartPole-v1, MountainCar-v0, Acrobot-v1,
+  Pendulum-v1, LunarLander-v2 (discrete), KeyDoorGrid-v0, and
+  GridWorld-Deterministic-v0. `src/JitML/RL/Simulator.hs` owns the native
+  Haskell dynamics and render-frame projection for the same catalog; Pendulum
+  remains a continuous-action environment with explicit torque bounds, with a
+  discrete wrapper used only by generic test episode drivers. The old
+  deterministic step helper is test-support only in
+  `test/rl-canonicals/Support/DeterministicStep.hs`. `KeyDoorGrid-v0` is a
   deterministic seeded grid/key/locked-door environment with legal-action
   masks, vector/grid observations, generated render frames, and no external
   assets.
@@ -285,10 +317,9 @@ deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
 command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
 `encodeRlEventProto` and `decodeRlEventProto` round-trip the current
 `RlEvent` oneof, including `RlAnimationFrame` and `RlReplayFrame`, through the
-same local wire helper. `JitML.RL.SimulatorLoop` records per-step
-`SimulatedFrame` transitions from real environment dynamics, and the worker /
-host publishers project those frames into typed animation events on
-`rl.event.<mode>` when frames are available. Generated proto-lens Haskell
+same local wire helper. `JitML.RL.EpisodeEnvelope` records the per-episode and
+per-frame projection shape, and the worker / host publishers project available
+trainer frames into typed animation events on `rl.event.<mode>`. Generated proto-lens Haskell
 bindings live under `gen/Proto/Jitml/Rl.hs` and
 `gen/Proto/Jitml/Rl_Fields.hs`. The no-caveat runtime publishes
 `rl.command.<mode>` for the daemon's at-least-once `RlHandler` and requires the
@@ -354,12 +385,16 @@ bridge.
 algorithm catalog and is audited by `JitML.RL.Schema` plus the Haskell lint
 stack. The traditional algorithms have concrete modules under
 `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`
-aggregated by `Registry.algorithmModuleRegistry`. PPO/CartPole determinism
-is asserted by `jitml-rl-canonicals` as run-to-run equality on the same
-substrate and seed (two fresh runs compared against each other). Richer Dhall
-types at `dhall/rl/algos/<algo>.dhall`, trained-policy checkpoint loading, and
-all-algorithm update/eval/rollout closure are implemented for the `linux-cpu`
-baseline.
+aggregated by `Registry.algorithmModuleRegistry`; each module names the
+algorithm-specific update contract that product rows must resolve before
+training. PPO/CartPole determinism is asserted by `jitml-rl-canonicals` as
+run-to-run equality on the same substrate and seed (two fresh runs compared
+against each other), and Sprint `25.2` adds a trained-parameter/update-path guard
+for the on-policy variants so A2C, TRPO, and RecurrentPPO cannot collapse to
+PPO's final parameters while MaskablePPO must carry the mask path through
+rollout. Richer Dhall types at `dhall/rl/algos/<algo>.dhall`, trained-policy
+checkpoint loading, and all-algorithm update/eval/rollout closure are
+implemented for the `linux-cpu` baseline.
 Per-algorithm trajectory `.txt` fixtures are explicitly
 **not** committed — see [unit_testing_policy.md → Snapshot Tests and
 the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
@@ -369,6 +404,13 @@ A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ,
 TQC, ARS, HER, and AlphaZero each require their own fixed budget, completed
 training witness, convergence-statistics record, checkpoint, and UI/e2e
 evidence. Family-level smoke tests do not close a model row.
+
+Phase `22` also registers the environment-floor parity rows `PPO/acrobot`,
+`SAC/pendulum`, and `PPO/gridworld-deterministic` so every documented canonical
+environment resolves to a product row rather than passing by representative
+algorithm coverage alone. Those rows carry their own fixed budgets, convergence
+bars, experiment configs, integration ids, and e2e ids in
+`JitML.Product.Matrix`.
 
 For off-policy algorithms, the bit-equality anchor is the first-N-
 steps prefix per [determinism_contract.md → Same-Substrate Bit-Equality (RL
@@ -408,6 +450,10 @@ a prior seed. `JitML.RL.AlphaZero.Mcts` now provides the persistent
 `TranspositionTable`, `TranspositionKey`, `runSearchWithTable`, and effectful
 `runSearchWithPriorIO` helpers; the production self-play path uses the real
 two-headed policy/value network evaluator instead of a deterministic prior.
+Sprint `26.1` threads a transposition table through each self-play game's plies,
+records per-ply cache-size evidence, applies deterministic root Dirichlet noise
+from the supplied seed, and resolves equal PUCT scores by the lowest action
+index.
 
 ### `jitml rl alphazero self-play` CLI
 
@@ -415,6 +461,7 @@ two-headed policy/value network evaluator instead of a deterministic prior.
 jitml rl alphazero self-play
                             [--substrate <substrate>]
                             [--seed <word64>]
+                            [--game <connect4|othello|hex|gomoku>]
                             [--games <n>]
                             [--sims <n>]
                             [--max-plies <n>]
@@ -422,30 +469,37 @@ jitml rl alphazero self-play
                             [--arena-games <n>]
 ```
 
-The command probes the selected substrate `MlpDevice`, generates bounded
-Connect 4 self-play samples through device-backed MCTS leaf policy/value
-evaluation, trains the policy/value head on that device, and prints the sample
-count plus arena win rate. The written checkpoint records the fixed-budget
-AlphaZero metric rows `arena_win_rate`, `legal_move_rate`,
-`mcts_simulations_per_move`, and `self_play_samples`; when the command runs in a
-worker context, the same completion publisher emits those rows through Pulsar.
-A missing substrate runtime or device execution error is an `InvalidConfig`
-failure; there is no pure-Haskell fallback on the CLI path.
+The command probes the selected substrate `MlpDevice`, resolves the selected
+game's initial state, observation size, and action count, generates bounded
+self-play samples through device-backed MCTS leaf policy/value evaluation,
+trains the policy/value head on that device, and prints the sample count plus
+arena win rate. The written checkpoint records a `CompletedTraining` witness
+with deterministic initial/final policy-value network hashes, a positive
+self-play generation count, and the fixed-budget AlphaZero metric rows
+`arena_win_rate`, `legal_move_rate`, `mcts_simulations_per_move`,
+`self_play_games`, `self_play_generations`, and `self_play_samples`; the
+checkpoint is inference-eligible only when the arena observation passes
+`JitML.RL.ConvergenceThresholds.alphaZeroArenaThreshold`. When the command runs
+in a worker context, the same completion publisher emits those rows through
+Pulsar. A missing substrate runtime, unknown game, or device execution error is
+an `InvalidConfig` failure; there is no pure-Haskell fallback on the CLI path.
 
 ### Deterministic Stochasticity
 
 Per-game RNG seeds derive from `splitmix64(experimentSeed, gameIndex)`. The
 MCTS root-noise seed is derived from the per-game seed. Same-substrate same-
-seed self-play produces bit-identical visit counts.
+seed self-play produces bit-identical game sequences and visit counts for each
+canonical game; the canonical test compares fresh reruns against each other and
+does not check in transcript or visit-count fixtures.
 
 ### Canonical Adversarial Games
 
 | Game | Owning module |
 |------|---------------|
-| Connect 4 | `src/JitML/RL/AlphaZero.hs` metadata, `initialConnect4`, `applyMove`, transcript helper, and two-headed network |
-| Othello | `src/JitML/RL/AlphaZero.hs` metadata, `initialOthello`, `othelloApplyMove`, transcript helper, and two-headed network |
-| Hex | `src/JitML/RL/AlphaZero.hs` metadata, `initialHex`, `hexApplyMove`, transcript helper, and two-headed network |
-| Gomoku | `src/JitML/RL/AlphaZero.hs` metadata, `initialGomoku`, `gomokuApplyMove`, transcript helper, and two-headed network |
+| Connect 4 | `src/JitML/RL/AlphaZero.hs` metadata, `initialConnect4`, `applyMove`, transcript helper, two-headed network, and `Masked Discrete(7)` action surface |
+| Othello | `src/JitML/RL/AlphaZero.hs` metadata, `initialOthello`, `othelloApplyMove`, transcript helper, two-headed network, and `Masked Discrete(64)` action surface |
+| Hex | `src/JitML/RL/AlphaZero.hs` metadata, `initialHex`, `hexApplyMove`, transcript helper, two-headed network, and `Masked Discrete(121)` action surface |
+| Gomoku | `src/JitML/RL/AlphaZero.hs` metadata, `initialGomoku`, `gomokuApplyMove`, transcript helper, two-headed network, and `Masked Discrete(225)` action surface |
 
 Connect 4 is the canonical demo game consumed by the PureScript Connect 4
 panel metadata. Per-game transcript files are explicitly **not** committed
@@ -506,7 +560,9 @@ values, returning a typed `OverrideError` on invalid flag values that the
 CLI boundary surfaces through the existing `AppError` /
 `exitWithError` path. `jitml train` and `jitml rl train` accept the
 analogous `--substrate` / `--seed` overrides for the experiment-Dhall
-substrate and seed fields. See
+substrate and seed fields, and `jitml rl train --algorithm <algorithm>` applies
+an algorithm override to the resolved RL experiment without replacing the
+surrounding environment/seed record. See
 [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md → Sprint 1.12](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md#sprint-112-cli-dhall-overrides-)
 for the owning sprint and the doctrine-deviation interval recorded in
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).

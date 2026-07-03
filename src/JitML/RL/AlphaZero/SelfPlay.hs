@@ -33,14 +33,16 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word8)
 import GHC.Generics (Generic)
 
-import JitML.RL.AlphaZero (GameState (..), applyMove, initialConnect4)
+import JitML.RL.AlphaZero (GameState (..), actionCountFor, applyMove, initialStateFor)
 import JitML.RL.AlphaZero.Mcts
   ( MctsConfig (..)
   , PriorOracle
   , defaultMctsConfig
   , defaultPriorOracle
-  , runSearchWithPrior
+  , emptyTranspositionTable
+  , runSearchWithTableAndPrior
   , selectAction
+  , transpositionSize
   )
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -57,6 +59,7 @@ data SelfPlayConfig = SelfPlayConfig
   , selfPlaySimulationsPerMove :: Int
   , selfPlayMaxPlies :: Int
   , selfPlaySeed :: Int
+  , selfPlayGame :: Text
   , selfPlayActionSpace :: Int
   }
   deriving stock (Eq, Show)
@@ -68,6 +71,7 @@ defaultSelfPlayConfig =
     , selfPlaySimulationsPerMove = 400
     , selfPlayMaxPlies = 42
     , selfPlaySeed = 42
+    , selfPlayGame = "connect4"
     , selfPlayActionSpace = 7
     }
 
@@ -75,6 +79,7 @@ data SelfPlayGame = SelfPlayGame
   { gameSeed :: Int
   , gameTranscript :: [GameState]
   , gameFinalPly :: Int
+  , gameMctsCacheSizes :: [Int]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
@@ -158,31 +163,45 @@ reportCardSelfPlayConfig knobs =
 playOneGame :: (GameState -> PriorOracle) -> SelfPlayConfig -> Int -> SelfPlayGame
 playOneGame oracleFactory config gameId =
   let seed = selfPlaySeed config + gameId
+      initial = initialStateFor (selfPlayGame config)
+      actionSpace = max 1 (actionCountFor (selfPlayGame config))
       mctsCfg =
-        (defaultMctsConfig (selfPlayActionSpace config))
+        (defaultMctsConfig actionSpace)
           { mctsSimulations = selfPlaySimulationsPerMove config
           }
-      step state ply
-        | ply >= selfPlayMaxPlies config = (state, ply)
+      step state table cacheSizes ply
+        | ply >= selfPlayMaxPlies config = (state, ply, cacheSizes)
         | otherwise =
             -- Build the prior oracle from the current position so a real
             -- network emits position-dependent priors (Sprint 13.9).
-            let tree = runSearchWithPrior (oracleFactory state) mctsCfg (seed + ply)
+            let (tree, table') =
+                  runSearchWithTableAndPrior
+                    (oracleFactory state)
+                    mctsCfg
+                    (splitSeed seed ply)
+                    (gameMoves state)
+                    table
+                cacheSizes' = cacheSizes <> [transpositionSize table']
              in case selectAction mctsCfg tree of
-                  Nothing -> (state, ply)
+                  Nothing -> (state, ply, cacheSizes')
                   Just action ->
                     let state' = applyMove action state
-                     in step state' (ply + 1)
-      (finalState, finalPly) = step initialConnect4 0
+                     in step state' table' cacheSizes' (ply + 1)
+      (finalState, finalPly, finalCacheSizes) = step initial emptyTranspositionTable [] 0
    in SelfPlayGame
         { gameSeed = seed
-        , gameTranscript = scanlMoves finalState
+        , gameTranscript = scanlMovesFrom initial finalState
         , gameFinalPly = finalPly
+        , gameMctsCacheSizes = finalCacheSizes
         }
 
-scanlMoves :: GameState -> [GameState]
-scanlMoves state =
-  scanl (flip applyMove) initialConnect4 (gameMoves state)
+splitSeed :: Int -> Int -> Int
+splitSeed seed ply =
+  seed * 1103515245 + ply * 12345 + 1013904223
+
+scanlMovesFrom :: GameState -> GameState -> [GameState]
+scanlMovesFrom initial state =
+  scanl (flip applyMove) initial (gameMoves state)
 
 -- | Sprint 13.9 — MinIO storage key for a self-play buffer. The
 -- experiment-hash-prefixed path lives under the same `jitml-checkpoints`

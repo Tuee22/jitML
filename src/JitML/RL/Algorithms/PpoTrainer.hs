@@ -28,10 +28,10 @@
 -- through @System.Random@'s 'StdGen', deterministic action sampling,
 -- pure-Haskell loss math and backprop).
 --
--- The A2C, TRPO, MaskablePPO, and RecurrentPPO algorithms all share
--- this same MLP + cartpole loop with their algorithm-specific loss
--- function from "JitML.RL.Algorithms.*Loss"; the architectural seam
--- (this module) is the same for all five on-policy algorithms.
+-- The A2C, TRPO, MaskablePPO, and RecurrentPPO algorithms share the same
+-- environment and MLP device seam but route through variant-specific update
+-- contracts: unclipped A2C, KL-gated TRPO, masked categorical PPO, and
+-- sequence-windowed RecurrentPPO.
 module JitML.RL.Algorithms.PpoTrainer
   ( -- * Configuration
     PpoTrainConfig (..)
@@ -41,6 +41,7 @@ module JitML.RL.Algorithms.PpoTrainer
     -- * Result
   , PpoTrainResult (..)
   , PpoIterationStat (..)
+  , initialPpoParams
 
     -- * Run
   , trainPpoOnCartpole
@@ -52,7 +53,9 @@ module JitML.RL.Algorithms.PpoTrainer
   , trainOnPolicyOnCartpoleOneDnn
   , trainOnPolicyOnCartpoleMetal
   , trainOnPolicyOnDevice
+  , trainOnPolicyOnDeviceWithEnvironment
   , collectRollout
+  , evaluateOnPolicyWithEnvironment
   , rolloutSummary
 
     -- * Internal pieces (re-exported for tests)
@@ -64,6 +67,7 @@ where
 import Control.Monad (foldM)
 import Data.IORef qualified as IORef
 import Data.List qualified
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
@@ -90,26 +94,29 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
+import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
+import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
 import JitML.RL.Simulator
-  ( CartPoleState (..)
+  ( CartPoleState
   , SimStep (..)
-  , cartPoleInitial
-  , cartPoleStep
+  , SimulatedEnvironment (..)
+  , SomeSimulatedEnvironment (..)
+  , cartPoleEnvironment
+  , renderObservation
   )
 
--- | The five on-policy algorithms in the catalog all share the same MLP
--- forward/backward seam + GAE + Adam loop; they differ only in the
--- surrogate-loss term and (for TRPO) a hard KL trust-region gate. On the
--- discrete cartpole env:
+-- | The five on-policy algorithms in the catalog share the MLP
+-- forward/backward seam + GAE + Adam plumbing, but each variant selects its
+-- own update contract:
 --
 --   * 'VariantPPO' — clipped surrogate (Schulman et al. 2017).
 --   * 'VariantA2C' — unclipped policy-gradient surrogate (Mnih et al. 2016).
 --   * 'VariantTRPO' — unclipped surrogate plus a per-epoch KL early-stop
 --     standing in for the natural-gradient trust region (Schulman et al. 2015).
---   * 'VariantMaskablePPO' — PPO with legal-action masking; cartpole has no
---     illegal actions so it coincides with 'VariantPPO' here.
---   * 'VariantRecurrentPPO' — PPO with BPTT windowing; the feed-forward MLP
---     coincides with 'VariantPPO' on cartpole.
+--   * 'VariantMaskablePPO' — clipped surrogate over the masked-renormalised
+--     categorical distribution.
+--   * 'VariantRecurrentPPO' — clipped surrogate applied through
+--     sequence-windowed BPTT-style minibatches.
 data OnPolicyVariant
   = VariantPPO
   | VariantA2C
@@ -175,6 +182,7 @@ data RolloutStep = RolloutStep
   , rsReward :: !Double
   , rsDone :: !Bool
   , rsPolicy :: !(Vector Double)
+  , rsActionMask :: !(Maybe [Bool])
   }
   deriving stock (Eq, Show)
 
@@ -211,27 +219,68 @@ collectRollout
   -> CartPoleState
   -> Random.StdGen
   -> IO (Rollout, CartPoleState, Random.StdGen)
-collectRollout config params startState gen0 = do
+collectRollout = collectRolloutInEnvironment cartPoleEnvironment
+
+evaluateOnPolicyWithEnvironment
+  :: SomeSimulatedEnvironment
+  -> PpoTrainConfig
+  -> MlpParams
+  -> Int
+  -> [(Double, Int)]
+evaluateOnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
+  replicate (max 1 episodeCount) (evaluateEpisode environment config params)
+
+evaluateEpisode
+  :: SimulatedEnvironment state
+  -> PpoTrainConfig
+  -> MlpParams
+  -> (Double, Int)
+evaluateEpisode environment config params = go (envInitial environment) 0 0.0
+ where
+  go !state !episodeLen !episodeReturn
+    | episodeLen >= ppoMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | otherwise =
+        let obs = obsVectorFor environment state
+            pvOut = policyValueForward params (ppoActionCount config) obs
+            actionMask = actionMaskFor environment config state
+            probs = maskedPolicyFor config actionMask (pvPolicy pvOut)
+            action = argmax (VU.toList probs)
+            stepResult = envStep environment state action
+            nextReturn = episodeReturn + simStepReward stepResult
+            nextLen = episodeLen + 1
+         in if simStepDone stepResult
+              then (nextReturn, nextLen)
+              else go (simStepState stepResult) nextLen nextReturn
+
+collectRolloutInEnvironment
+  :: SimulatedEnvironment state
+  -> PpoTrainConfig
+  -> MlpParams
+  -> state
+  -> Random.StdGen
+  -> IO (Rollout, state, Random.StdGen)
+collectRolloutInEnvironment environment config params startState gen0 = do
   stepsRef <- IORef.newIORef ([] :: [RolloutStep])
   episodesRef <- IORef.newIORef ([] :: [Double])
   let go !state !gen !episodeReturn !episodeLen !stepsLeft
         | stepsLeft <= 0 = do
             value <-
-              let obs = obsVector state
+              let obs = obsVectorFor environment state
                   fwd = policyValueForward params (ppoActionCount config) obs
                in pure (pvValue fwd)
             pure (state, gen, value)
         | otherwise = do
-            let obs = obsVector state
+            let obs = obsVectorFor environment state
                 pvOut = policyValueForward params (ppoActionCount config) obs
-                probs = pvPolicy pvOut
+                actionMask = actionMaskFor environment config state
+                probs = maskedPolicyFor config actionMask (pvPolicy pvOut)
                 (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
                 action = sampleCategorical probs u
                 logProb =
                   if probs VU.! action <= 0
                     then -1.0e9
                     else log (probs VU.! action)
-                stepResult = cartPoleStep state action
+                stepResult = envStep environment state action
                 done = simStepDone stepResult || episodeLen + 1 >= ppoMaxEpisodeSteps config
                 step =
                   RolloutStep
@@ -242,6 +291,7 @@ collectRollout config params startState gen0 = do
                     , rsReward = simStepReward stepResult
                     , rsDone = done
                     , rsPolicy = probs
+                    , rsActionMask = actionMask
                     }
             IORef.modifyIORef' stepsRef (step :)
             let nextReturn = episodeReturn + simStepReward stepResult
@@ -249,7 +299,7 @@ collectRollout config params startState gen0 = do
             if done
               then do
                 IORef.modifyIORef' episodesRef (nextReturn :)
-                go cartPoleInitial gen' 0.0 0 (stepsLeft - 1)
+                go (envInitial environment) gen' 0.0 0 (stepsLeft - 1)
               else
                 go (simStepState stepResult) gen' nextReturn nextLen (stepsLeft - 1)
   (endState, endGen, finalValue) <- go startState gen0 0.0 0 (ppoRolloutSteps config)
@@ -263,14 +313,24 @@ collectRollout config params startState gen0 = do
           }
   pure (rollout, endState, endGen)
 
-obsVector :: CartPoleState -> Vector Double
-obsVector state =
-  VU.fromList
-    [ cartPosition state
-    , cartVelocity state
-    , poleAngle state
-    , poleAngularVelocity state
-    ]
+obsVectorFor :: SimulatedEnvironment state -> state -> Vector Double
+obsVectorFor environment =
+  VU.fromList . renderObservation . envRenderFrame environment
+
+actionMaskFor :: SimulatedEnvironment state -> PpoTrainConfig -> state -> Maybe [Bool]
+actionMaskFor environment config state
+  | ppoVariant config == VariantMaskablePPO =
+      Just $
+        case envActionMask environment of
+          Nothing -> replicate (ppoActionCount config) True
+          Just mask -> mask state
+  | otherwise = Nothing
+
+maskedPolicyFor :: PpoTrainConfig -> Maybe [Bool] -> Vector Double -> Vector Double
+maskedPolicyFor config mask probs
+  | ppoVariant config == VariantMaskablePPO =
+      VU.fromList (MaskablePpoLoss.applyActionMask (fromMaybe [] mask) (VU.toList probs))
+  | otherwise = probs
 
 -- | Compute GAE advantages and value targets for a rollout.
 computeAdvantages
@@ -321,13 +381,9 @@ ppoUpdate
   -> [(RolloutStep, Double, Double)]
   -> (MlpParams, AdamState)
 ppoUpdate config params0 adam0 batch =
-  let runEpoch (params, adam) =
-        Data.List.foldl'
-          ( \(p, a) (step, advantage, target) ->
-              ppoSingleStep config p a step advantage target
-          )
-          (params, adam)
-          batch
+  let runEpoch
+        | ppoVariant config == VariantRecurrentPPO = recurrentPpoEpoch
+        | otherwise = ppoEpoch
       -- TRPO: stop updating once the trust region is exceeded.
       go acc@(params, _) epoch
         | ppoVariant config == VariantTRPO
@@ -338,13 +394,36 @@ ppoUpdate config params0 adam0 batch =
       approxBatchKl params =
         let kls =
               [ let pvOut = policyValueForward params (ppoActionCount config) (rsObs step)
-                    prob = pvPolicy pvOut VU.! rsAction step
+                    probs = maskedPolicyFor config (rsActionMask step) (pvPolicy pvOut)
+                    prob = probs VU.! rsAction step
                     newLogProb = if prob <= 0 then -1.0e9 else log prob
                  in rsLogProb step - newLogProb
               | (step, _, _) <- batch
               ]
          in if null kls then 0.0 else sum kls / fromIntegral (length kls)
    in Data.List.foldl' go (params0, adam0) [1 .. ppoEpochsPerUpdate config]
+ where
+  ppoEpoch (params, adam) =
+    Data.List.foldl'
+      ( \(p, a) (step, advantage, target) ->
+          ppoSingleStep config p a step advantage target
+      )
+      (params, adam)
+      batch
+  recurrentPpoEpoch (params, adam) =
+    Data.List.foldl' recurrentWindowStep (params, adam) (RecurrentPpoLoss.bpttWindows 16 batch)
+  recurrentWindowStep (params, adam) [] = (params, adam)
+  recurrentWindowStep (params, adam) window =
+    let gradient =
+          scaleGradient
+            (1.0 / fromIntegral (length window))
+            ( sumGradients
+                [ ppoSingleStepGradient config params step advantage target
+                | (step, advantage, target) <- window
+                ]
+            )
+        adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
+     in adamStep adamConfig adam params gradient
 
 ppoSingleStep
   :: PpoTrainConfig
@@ -355,18 +434,55 @@ ppoSingleStep
   -> Double
   -> (MlpParams, AdamState)
 ppoSingleStep config params adam step advantage target =
-  let actionCount = ppoActionCount config
-      pvOut = policyValueForward params actionCount (rsObs step)
-      (dLogitVec, valueGrad) =
-        ppoHeadGradient config (pvPolicy pvOut) (pvValue pvOut) step advantage target
-      gradient =
-        policyValueBackward params pvOut dLogitVec valueGrad
+  let gradient =
+        ppoSingleStepGradient config params step advantage target
    in adamStep adamConfig adam params gradient
  where
   adamConfig =
     defaultAdamConfig
       { adamLearningRate = ppoLearningRate config
       }
+
+ppoSingleStepGradient
+  :: PpoTrainConfig
+  -> MlpParams
+  -> RolloutStep
+  -> Double
+  -> Double
+  -> MlpGradient
+ppoSingleStepGradient config params step advantage target =
+  let actionCount = ppoActionCount config
+      pvOut = policyValueForward params actionCount (rsObs step)
+      (dLogitVec, valueGrad) =
+        ppoHeadGradient config (pvPolicy pvOut) (pvValue pvOut) step advantage target
+   in policyValueBackward params pvOut dLogitVec valueGrad
+
+sumGradients :: [MlpGradient] -> MlpGradient
+sumGradients [] =
+  MlpGradient VU.empty VU.empty VU.empty VU.empty
+sumGradients (g : gs) = Data.List.foldl' addGradient g gs
+
+addGradient :: MlpGradient -> MlpGradient -> MlpGradient
+addGradient a b =
+  MlpGradient
+    { gradW1 = VU.zipWith (+) (gradW1 a) (gradW1 b)
+    , gradB1 = VU.zipWith (+) (gradB1 a) (gradB1 b)
+    , gradW2 = VU.zipWith (+) (gradW2 a) (gradW2 b)
+    , gradB2 = VU.zipWith (+) (gradB2 a) (gradB2 b)
+    }
+
+scaleGradient :: Double -> MlpGradient -> MlpGradient
+scaleGradient sc g =
+  MlpGradient
+    { gradW1 = VU.map (* sc) (gradW1 g)
+    , gradB1 = VU.map (* sc) (gradB1 g)
+    , gradW2 = VU.map (* sc) (gradW2 g)
+    , gradB2 = VU.map (* sc) (gradB2 g)
+    }
+
+chunked :: Int -> [a] -> [[a]]
+chunked _ [] = []
+chunked k xs = let (h, t) = splitAt k xs in h : chunked k t
 
 -- | The per-sample policy/value loss-gradient head: given the network's
 -- softmax policy and tanh value for one rollout step, plus the step's
@@ -389,9 +505,10 @@ ppoHeadGradient
 ppoHeadGradient config probs value step advantage target =
   (dLogitVec, valueGrad)
  where
+  maskedProbs = maskedPolicyFor config (rsActionMask step) probs
   actionCount = ppoActionCount config
   action = rsAction step
-  prob = probs VU.! action
+  prob = maskedProbs VU.! action
   newLogProb = if prob <= 0 then -1.0e9 else log prob
   oldLogProb = rsLogProb step
   ratio = exp (newLogProb - oldLogProb)
@@ -410,14 +527,14 @@ ppoHeadGradient config probs value step advantage target =
     | surrogate1 < surrogate2 = ratio
     | otherwise = 0.0
   dLogProbDLogit i
-    | i == action = 1.0 - probs VU.! i
-    | otherwise = -(probs VU.! i)
+    | i == action = 1.0 - maskedProbs VU.! i
+    | otherwise = -(maskedProbs VU.! i)
   dPolicyLossDLogit i =
     -((effectiveRatio * advantage) * dLogProbDLogit i)
   meanLog =
-    VU.sum (VU.zipWith (*) probs (VU.map logSafe probs))
+    VU.sum (VU.zipWith (*) maskedProbs (VU.map logSafe maskedProbs))
   dEntropyDLogit i =
-    let p = probs VU.! i
+    let p = maskedProbs VU.! i
         logP = logSafe p
      in p * (logP - meanLog)
   dHeadDLogit i =
@@ -440,19 +557,18 @@ trainOnPolicyOnCartpole variant config =
 -- | Train PPO on cartpole for the configured number of iterations.
 -- Returns per-iteration statistics + the final network parameters.
 trainPpoOnCartpole :: PpoTrainConfig -> IO PpoTrainResult
-trainPpoOnCartpole config = do
-  let shape =
-        MlpShape
-          { mlpInputs = ppoObsSize config
-          , mlpHidden = ppoHiddenUnits config
-          , mlpOutputs = ppoActionCount config + 1
-          }
-      initialParams = mlpInit shape (ppoSeed config)
+trainPpoOnCartpole =
+  trainPpoInEnvironment cartPoleEnvironment
+
+trainPpoInEnvironment :: SimulatedEnvironment state -> PpoTrainConfig -> IO PpoTrainResult
+trainPpoInEnvironment environment config = do
+  let shape = ppoMlpShape config
+      initialParams = initialPpoParams config
       initialAdam = adamInit shape
   (_, _, _, _, stats, finalParams) <-
     foldM
       ( \(state, gen, params, adam, stats, _) iteration -> do
-          (rollout, nextState, nextGen) <- collectRollout config params state gen
+          (rollout, nextState, nextGen) <- collectRolloutInEnvironment environment config params state gen
           let (advs, targets) = computeAdvantages config rollout
               normAdvs = standardise advs
               triples = zip3 (rolloutSteps rollout) normAdvs targets
@@ -461,7 +577,7 @@ trainPpoOnCartpole config = do
               stat = rolloutSummary iteration episodeReturns
           pure (nextState, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
       )
-      ( cartPoleInitial
+      ( envInitial environment
       , Random.mkStdGen (ppoSeed config + 1)
       , initialParams
       , initialAdam
@@ -512,6 +628,15 @@ trainOnPolicyOnDevice
 trainOnPolicyOnDevice device variant config =
   trainPpoOnDevice device config {ppoVariant = variant}
 
+trainOnPolicyOnDeviceWithEnvironment
+  :: MlpDevice
+  -> SomeSimulatedEnvironment
+  -> OnPolicyVariant
+  -> PpoTrainConfig
+  -> IO (Either Text PpoTrainResult)
+trainOnPolicyOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) variant config =
+  trainPpoOnDeviceWithEnvironment device environment config {ppoVariant = variant}
+
 trainPpoOnCartpoleCuda :: Env -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
 trainPpoOnCartpoleCuda env = trainPpoOnDevice (cudaMlpDevice env)
 
@@ -524,20 +649,20 @@ trainPpoOnCartpoleMetal :: Env -> PpoTrainConfig -> IO (Either Text PpoTrainResu
 trainPpoOnCartpoleMetal env = trainPpoOnDevice (metalMlpDevice env)
 
 trainPpoOnDevice :: MlpDevice -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
-trainPpoOnDevice device config = do
-  let shape =
-        MlpShape
-          { mlpInputs = ppoObsSize config
-          , mlpHidden = ppoHiddenUnits config
-          , mlpOutputs = ppoActionCount config + 1
-          }
-      initialParams = mlpInit shape (ppoSeed config)
+trainPpoOnDevice device =
+  trainPpoOnDeviceWithEnvironment device cartPoleEnvironment
+
+trainPpoOnDeviceWithEnvironment
+  :: MlpDevice -> SimulatedEnvironment state -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainPpoOnDeviceWithEnvironment device environment config = do
+  let shape = ppoMlpShape config
+      initialParams = initialPpoParams config
       initialAdam = adamInit shape
   result <-
     foldM
       step
       ( Right
-          ( cartPoleInitial
+          ( envInitial environment
           , Random.mkStdGen (ppoSeed config + 1)
           , initialParams
           , initialAdam
@@ -559,7 +684,7 @@ trainPpoOnDevice device config = do
  where
   step (Left e) _ = pure (Left e)
   step (Right (state, gen, params, adam, stats, _)) iteration = do
-    (rollout, nextState, nextGen) <- collectRollout config params state gen
+    (rollout, nextState, nextGen) <- collectRolloutInEnvironment environment config params state gen
     let (advs, targets) = computeAdvantages config rollout
         normAdvs = standardise advs
         triples = zip3 (rolloutSteps rollout) normAdvs targets
@@ -572,6 +697,18 @@ trainPpoOnDevice device config = do
               ( Right
                   (nextState, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
               )
+
+ppoMlpShape :: PpoTrainConfig -> MlpShape
+ppoMlpShape config =
+  MlpShape
+    { mlpInputs = ppoObsSize config
+    , mlpHidden = ppoHiddenUnits config
+    , mlpOutputs = ppoActionCount config + 1
+    }
+
+initialPpoParams :: PpoTrainConfig -> MlpParams
+initialPpoParams config =
+  mlpInit (ppoMlpShape config) (ppoSeed config)
 
 -- | Minibatch on-policy update through an injected MLP device's batched
 -- primitives. For
@@ -592,7 +729,10 @@ ppoUpdateDevice device config params0 adam0 batch =
  where
   adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
   actionCount = ppoActionCount config
-  minibatches = chunked (max 1 (ppoMiniBatchSize config)) batch
+  minibatches
+    | ppoVariant config == VariantRecurrentPPO =
+        RecurrentPpoLoss.bpttWindows 16 batch
+    | otherwise = chunked (max 1 (ppoMiniBatchSize config)) batch
   runEpoch (Left e) _ = pure (Left e)
   runEpoch acc@(Right (params, _)) epoch
     | ppoVariant config == VariantTRPO
@@ -627,21 +767,13 @@ ppoUpdateDevice device config params0 adam0 batch =
   approxBatchKl params =
     let kls =
           [ let pvOut = policyValueForward params actionCount (rsObs step)
-                prob = pvPolicy pvOut VU.! rsAction step
+                probs = maskedPolicyFor config (rsActionMask step) (pvPolicy pvOut)
+                prob = probs VU.! rsAction step
                 newLogProb = if prob <= 0 then -1.0e9 else log prob
              in rsLogProb step - newLogProb
           | (step, _, _) <- batch
           ]
      in if null kls then 0.0 else sum kls / fromIntegral (length kls)
-  scaleGradient sc g =
-    MlpGradient
-      { gradW1 = VU.map (* sc) (gradW1 g)
-      , gradB1 = VU.map (* sc) (gradB1 g)
-      , gradW2 = VU.map (* sc) (gradW2 g)
-      , gradB2 = VU.map (* sc) (gradB2 g)
-      }
-  chunked _ [] = []
-  chunked k xs = let (h, t) = splitAt k xs in h : chunked k t
 
 rolloutSummary :: Int -> [Double] -> PpoIterationStat
 rolloutSummary iteration [] =
@@ -681,3 +813,11 @@ mergeSort xs =
   merge (a : as) (b : bs)
     | a <= b = a : merge as (b : bs)
     | otherwise = b : merge (a : as) bs
+
+argmax :: (Ord a) => [a] -> Int
+argmax [] = 0
+argmax xs = snd (foldr1 stepMax (zip xs [0 ..]))
+ where
+  stepMax (v1, i1) (v2, i2)
+    | v1 >= v2 = (v1, i1)
+    | otherwise = (v2, i2)

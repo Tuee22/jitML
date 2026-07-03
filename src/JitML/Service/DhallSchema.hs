@@ -19,6 +19,9 @@ module JitML.Service.DhallSchema
   , trainingRunConfigSchema
   , tuneRunConfigSchema
   , rlRunConfigSchema
+  , trainingEvidenceConfigSchema
+  , completedTrainingWitnessConfigSchema
+  , inferenceSelectorConfigSchema
   , runSchemaDhall
   , configSchemas
   )
@@ -36,7 +39,10 @@ import Dhall.Src (Src)
 import JitML.Service.BootConfig (rawBootConfigDecoder)
 import JitML.Service.LiveConfig (liveConfigDecoder)
 import JitML.Service.RunConfig
-  ( rlRunConfigDecoder
+  ( completedTrainingWitnessConfigDecoder
+  , inferenceSelectorConfigDecoder
+  , rlRunConfigDecoder
+  , trainingEvidenceConfigDecoder
   , trainingRunConfigDecoder
   , tuneRunConfigDecoder
   )
@@ -75,21 +81,39 @@ tuneRunConfigSchema = reflectedSchemaText tuneRunConfigDecoder
 rlRunConfigSchema :: Text
 rlRunConfigSchema = reflectedSchemaText rlRunConfigDecoder
 
+trainingEvidenceConfigSchema :: Text
+trainingEvidenceConfigSchema = reflectedSchemaText trainingEvidenceConfigDecoder
+
+completedTrainingWitnessConfigSchema :: Text
+completedTrainingWitnessConfigSchema =
+  reflectedSchemaText completedTrainingWitnessConfigDecoder
+
+inferenceSelectorConfigSchema :: Text
+inferenceSelectorConfigSchema = reflectedSchemaText inferenceSelectorConfigDecoder
+
 -- | The reflected form of @dhall/run/Schema.dhall@ — the worker @RunConfig@
--- let-record built from the three reflected `RunConfig` types, so the checked-in
--- run-schema file is also derived from the decoders rather than hand-written.
--- Formatting is irrelevant to the parity check: both sides go through
--- 'canonicalDhallType'.
+-- records plus the inference-selector records built from the same decoders the
+-- loaders use. Formatting is irrelevant to the parity check: both sides go
+-- through 'canonicalDhallType'.
 runSchemaDhall :: Text
 runSchemaDhall =
   Text.concat
-    [ "let TrainingRunConfig : Type =\n"
+    [ "let TrainingEvidence : Type =\n"
+    , trainingEvidenceConfigSchema
+    , "\nlet CompletedTrainingWitness : Type =\n"
+    , completedTrainingWitnessConfigSchema
+    , "\nlet InferenceSelector : Type =\n"
+    , inferenceSelectorConfigSchema
+    , "\nlet TrainingRunConfig : Type =\n"
     , trainingRunConfigSchema
     , "\nlet TuneRunConfig : Type =\n"
     , tuneRunConfigSchema
     , "\nlet RlRunConfig : Type =\n"
     , rlRunConfigSchema
-    , "\nin  { TrainingRunConfig = TrainingRunConfig"
+    , "\nin  { TrainingEvidence = TrainingEvidence"
+    , "\n    , CompletedTrainingWitness = CompletedTrainingWitness"
+    , "\n    , InferenceSelector = InferenceSelector"
+    , "\n    , TrainingRunConfig = TrainingRunConfig"
     , "\n    , TuneRunConfig = TuneRunConfig"
     , "\n    , RlRunConfig = RlRunConfig"
     , "\n    }\n"
@@ -104,4 +128,5 @@ configSchemas =
   , ("TrainingRunConfig", trainingRunConfigSchema)
   , ("TuneRunConfig", tuneRunConfigSchema)
   , ("RlRunConfig", rlRunConfigSchema)
+  , ("InferenceSelector", inferenceSelectorConfigSchema)
   ]

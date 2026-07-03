@@ -1,6 +1,6 @@
 # Phase 25: Real RL Algorithms & Environments
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md)
 **Generated sections**: none
@@ -11,7 +11,12 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `24`.
+✅ **Done, re-closed 2026-07-03**. Phase `24` is Done. Sprint `25.1`
+re-closed on 2026-07-03 after the production RL trainers were wired to the
+row-requested simulator catalog and the publisher reached formerly unsupported
+rows without reporting `unsupported`. Sprint `25.2` remains Done for the
+distinct algorithm update contracts that already exist. Sprint `25.3` re-closed
+after every live RL product row produced passing `CompletedTraining` evidence.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -29,11 +34,10 @@ named algorithms onto three trainer templates plus ARS, and it no longer trains
 only CartPole and Pendulum while claiming MountainCar, Acrobot, LunarLander,
 KeyDoorGrid, GridWorld, or a goal-conditioned environment.
 
-## Sprint 25.1: Real Environments [⏸️ Blocked]
+## Sprint 25.1: Real Environments [✅ Done]
 
-**Status**: Blocked
-**Implementation**: `src/JitML/RL/Simulator.hs`, `src/JitML/RL/Environments.hs`, `src/JitML/RL/SimulatorLoop.hs`, `src/JitML/RL/Algorithms/Common.hs`, `test/rl-canonicals/Main.hs`
-**Blocked by**: Phase `24`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Simulator.hs`, `src/JitML/RL/Environments.hs`, `src/JitML/RL/EpisodeEnvelope.hs`, `src/JitML/RL/Algorithms/Common.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
 ### Objective
@@ -68,19 +72,36 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+Validated on 2026-07-02: `jitml-rl-canonicals --linux-cpu` passed 32/32,
+`jitml-unit --linux-cpu` passed 273/273, and `jitml check-code` passed after
+the native Acrobot, Pendulum, KeyDoorGrid, and GridWorld catalog additions and
+the trainer fail-closed environment-selection guard.
+
+Reopened on 2026-07-03: the 2026-07-03 Phase `28` publisher reachability run
+reported **29** RL rows as unsupported because the production trainer dispatch
+still supports only CartPole for on-policy/discrete/ARS rows, Pendulum for
+continuous rows, and goal-reaching for HER. The simulator catalog exists, but
+the production trainer loops still do not consume the row-requested simulator
+for MountainCar, Acrobot, LunarLander, KeyDoorGrid, or GridWorld rows.
+
+Re-closed on 2026-07-03: `cabal build all --ghc-options=-Werror` passed in the
+`jitml` container; `jitml-rl-canonicals --linux-cpu` passed **37 / 37**;
+`jitml-unit --linux-cpu` passed **277 / 277**; and a row-filtered live
+publisher run through the rebuilt worktree executable for
+`PPO/mountain-car,DQN/key-door-grid,SAC/lunar-lander,ARS/lunar-lander` reported
+**4** rows, **0** eligible, **0** unsupported, and **4** `CompletedTraining`
+errors. That filtered publisher result proves the former fail-closed
+environment-dispatch blocker moved from Sprint `25.1` to Sprint `25.3`
+evidence/convergence work.
+
 ### Remaining Work
 
-- Implement the missing Acrobot, MountainCar, LunarLander, KeyDoorGrid, and
-  GridWorld dynamics and reconcile the README catalog with the Haskell catalog.
-- Thread `ProductRow` environment selection through `SimulatorLoop` so the
-  trainer cannot silently run CartPole for a MountainCar row.
-- Move deterministic environment scaffolds behind test-only gates or remove them.
+None.
 
-## Sprint 25.2: Distinct Algorithms [⏸️ Blocked]
+## Sprint 25.2: Distinct Algorithms [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/RL/Algorithms/Registry.hs`
-**Blocked by**: Sprint `25.1`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
 ### Objective
@@ -118,18 +139,20 @@ docker compose run --rm jitml jitml test jitml-integration --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+Validated on 2026-07-02: focused Sprint `25.2` unit and RL canonical tests
+passed, `jitml-rl-canonicals --linux-cpu` passed 33/33,
+`jitml-integration --linux-cpu` passed 81/81 after canonical MNIST train/test
+image+label blobs were staged through `jitml internal upload-dataset`, and
+`jitml check-code` passed.
+
 ### Remaining Work
 
-- Split the shared trainer templates into per-algorithm update implementations
-  and remove the PPO-alias collapse for discrete environments.
-- Add registry drift tests that fail when distinct algorithm ids share an update.
-- Classify ALE/Atari and ARS rows as product-with-artifact or typed-optional.
+None.
 
-## Sprint 25.3: Per-Row Convergence and Evidence [⏸️ Blocked]
+## Sprint 25.3: Per-Row Convergence and Evidence [✅ Done]
 
-**Status**: Blocked
-**Implementation**: `src/JitML/RL/ConvergenceThresholds.hs`, `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/Test/RowAssertions.hs`, `test/rl-canonicals/Main.hs`
-**Blocked by**: Sprint `25.2`
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/RL/ConvergenceThresholds.hs`, `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/Test/RowAssertions.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/product_completion_contract.md`
 
 ### Objective
@@ -165,13 +188,31 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
+Validated on 2026-07-02: focused Sprint `25.3` RL canonical tests passed 2/2,
+the ProductRow unit slice passed 8/8 after regenerating generated docs/contracts,
+`jitml-rl-canonicals --linux-cpu` passed 35/35, and
+`jitml-unit --linux-cpu` passed 274/274. Final `jitml docs check` and
+`jitml check-code` passed after the Phase `25` closure and Phase `26.1`
+activation status updates.
+
+Reopened on 2026-07-03: the Phase `28` live publisher run reported **18** error
+rows, including supported RL rows that did not produce passing
+`CompletedTraining` evidence in the reachability validation. After Sprint
+`25.1` re-closed, a row-filtered publisher run for formerly unsupported rows
+reported **0** unsupported rows and **4** `CompletedTraining` errors, confirming
+that this sprint now owns the active RL blocker: live RL product rows must emit
+passing convergence observations from real trainer evidence.
+
+Re-closed on 2026-07-03: `docker compose run --rm jitml cabal build all
+--ghc-options=-Werror` passed; the full RL-only live product publisher filter
+reported **39** rows, **39** eligible, **0** unsupported, and **0** errors;
+`jitml-rl-canonicals --linux-cpu` passed **37 / 37**; `jitml-unit --linux-cpu`
+passed **277 / 277**; `jitml docs check` passed after regenerating tracked
+contracts; and `jitml check-code` passed.
+
 ### Remaining Work
 
-- Add policy/Q hash, update-count, and device-evidence collection to every RL
-  trainer and thread it into the checkpoint manifest.
-- Fill in the remaining `cohortThresholds` cohorts and the HER goal metrics.
-- Add negative tests for missing convergence, missing device evidence, and
-  synthetic-transition evidence.
+None.
 
 ## Documentation Requirements
 

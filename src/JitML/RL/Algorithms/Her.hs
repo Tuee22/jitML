@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 herModule :: AlgorithmModule
@@ -18,6 +19,13 @@ herModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "HER" Specialized True
     , moduleHyperparameters = herHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "goal-conditioned.her.future-relabeling-off-policy-wrapper"
+          "JitML.RL.Algorithms.HerTrainer.trainHerOnBitFlip"
+          "her-wrapper.replay-buffer.goal-conditioned"
+          "goal-conditioned-q-network"
+          ["future-goal-relabeling", "sparse-goal-reward", "off-policy-q-update"]
     }
 
 herHyperparameters :: [AlgorithmHyperparameter]

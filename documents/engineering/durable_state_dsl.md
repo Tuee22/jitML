@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md), [DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md](../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md), [DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md), [DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md)
+**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md), [DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md](../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md), [DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md), [DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md), [DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md](../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md)
 **Generated sections**: none
 
 > **Purpose**: The closed, self-validating `jitml.dhall` durable-state config — the single declared source for jitML's MinIO buckets, Pulsar topic family, and retention — where illegal topologies are Dhall typecheck failures.
@@ -63,6 +63,24 @@ cannot drift from the declared registry:
 - **Checkpoint retention** — the GC retention is read from the registry's
   `checkpoints` store via `JitML.Project.Config.lookupStoreRetention` (the former
   hardcoded `LastN 5` is retired). See [checkpoint_format.md](checkpoint_format.md).
+
+## Inference Selector Boundary
+
+Phase `21` extends the Dhall vocabulary to mirror the Haskell model type-state
+boundary. `dhall/project/Schema.dhall` exports `ModelState`,
+`DeclaredExperiment`, `CompletedTrainingWitness`, and `InferenceSelector`, so a
+project-level selector names completed-training provenance instead of a bare
+declared experiment. `dhall/run/Schema.dhall` exports the reflected
+`TrainingEvidence`, `CompletedTrainingWitness`, and `InferenceSelector` records
+accepted by `JitML.Service.RunConfig`.
+
+`tryLoadInferenceSelectorConfig` decodes that Dhall shape and then validates the
+runtime facts Dhall cannot decide by itself: selector and witness hashes must
+match, provenance must be `completed-training`, convergence must pass, initial
+and final weight hashes must be present and different, `updateCount` must be
+positive, and `datasetShaAtRead` must be present. Declared, partial,
+synthetic, seeded-demo, and failed-convergence selectors therefore report a
+typed decode failure before any checkpoint or inference IO runs.
 
 ## The honest static-vs-runtime boundary
 

@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 recurrentPpoModule :: AlgorithmModule
@@ -18,6 +19,13 @@ recurrentPpoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "RecurrentPPO" OnPolicy False
     , moduleHyperparameters = recurrentPpoHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "on-policy.recurrent-ppo.sequence-bptt-clipped-surrogate"
+          "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantRecurrentPPO"
+          "rollout-buffer.sequence-gae"
+          "recurrent-policy-value"
+          ["sequence-batching", "bptt-windowing", "clipped-surrogate"]
     }
 
 recurrentPpoHyperparameters :: [AlgorithmHyperparameter]

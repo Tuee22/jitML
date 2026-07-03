@@ -49,10 +49,10 @@ panelName :: String
 panelName = "generic-inference-lab"
 
 defaultExperimentHash :: String
-defaultExperimentHash = "generic-tensor-demo"
+defaultExperimentHash = "product-row-california-housing-mlp"
 
 defaultInputText :: Array String
-defaultInputText = [ "0.25", "-0.5", "1.0", "2.0" ]
+defaultInputText = [ "0.25", "-0.5", "1.0", "2.0", "0.0", "0.0", "0.0", "1.0" ]
 
 renderRequest :: Array Number -> GenericInferenceRequest
 renderRequest input =

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -7,11 +8,12 @@ import Control.Monad qualified
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
+import Data.Char (isDigit)
 import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -40,7 +42,12 @@ import DurableStateTopology (durableStateTopologyTests)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
-import JitML.App (SeededDemoCheckpoint (..), parseUserIntOptionAtLeast, seededDemoCheckpoints)
+import JitML.App
+  ( SeededDemoCheckpoint (..)
+  , parseUserIntOptionAtLeast
+  , rlTrainerEnvironmentCompatibilityError
+  , seededDemoCheckpoints
+  )
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
 import JitML.AppError.Render (renderError)
@@ -88,6 +95,7 @@ import JitML.Engines.TuningStore qualified as TuningStore
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env (..), OutputFormat (..))
 import JitML.Experiment.Overrides qualified as Overrides
+import JitML.Experiment.Product qualified as ProductExperiment
 import JitML.Generated.Paths
   ( TrackedGeneratedPath (..)
   , trackingGeneratedPaths
@@ -101,6 +109,10 @@ import JitML.Inference.Decode qualified as Decode
 import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
+import JitML.Lint.ProductTruth qualified as ProductTruth
+import JitML.Lint.Stack.Types (LintFinding (..))
+import JitML.Numerics.Autodiff qualified as Autodiff
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Mlp qualified as Mlp
 import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
 import JitML.Numerics.Schema
@@ -130,6 +142,17 @@ import JitML.Prerequisite.Registry
   , syntheticMissingPrerequisite
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.Matrix (ModelState (..), ProductRow (..))
+import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.PhaseStatus
+  ( ProductPhaseStatus (..)
+  , ProductSprintStatus (..)
+  , SprintStatus (..)
+  )
+import JitML.Product.PhaseStatus qualified as PhaseStatus
+import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Inference qualified as ProtoInference
 import JitML.RL.ALE qualified as ALE
@@ -137,6 +160,7 @@ import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
 import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
@@ -150,6 +174,7 @@ import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
+import JitML.RL.Algorithms.Registry qualified as AlgorithmRegistry
 import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
 import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
@@ -177,6 +202,7 @@ import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.WebSocket qualified as WS
+import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
@@ -198,11 +224,26 @@ newtype CommandSchema = CommandSchema
 completedTestManifest :: Word64 -> Checkpoint.CheckpointManifest
 completedTestManifest step =
   let metrics = [("validation_accuracy", 0.95)]
+      evidence =
+        either
+          (error . Text.unpack)
+          id
+          ( ProductEvidence.mkTrainingEvidence
+              "unit-initial-weights"
+              ("unit-final-weights-" <> Text.pack (show step))
+              (max 1 step)
+              "unit-dataset-sha"
+          )
+      observations =
+        either
+          (error . Text.unpack)
+          id
+          (convergenceObservationsFixture metrics)
       completed =
         either
           (error . Text.unpack)
           id
-          ( TrainingBudget.completedTrainingFromMetrics
+          ( TrainingBudget.completedTraining
               TrainingBudget.TrainingBudget
                 { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
                 , TrainingBudget.tbTargetUnits = max 1 step
@@ -210,18 +251,91 @@ completedTestManifest step =
                 , TrainingBudget.tbSeed = Nothing
                 }
               step
-              metrics
+              evidence
+              observations
               TrainingBudget.TensorBoardRunMetadata
                 { TrainingBudget.tbrRunId = "unit-test"
                 , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/unit-test"
                 , TrainingBudget.tbrScalarTags = fmap fst metrics
                 }
           )
-   in (Checkpoint.emptyManifest "m" "exp1" [])
-        { Checkpoint.manifestStep = step
-        , Checkpoint.manifestMetrics = metrics
-        , Checkpoint.manifestCompletedTraining = Just completed
-        }
+      manifest =
+        (Checkpoint.emptyManifest "m" "exp1" [])
+          { Checkpoint.manifestStep = step
+          , Checkpoint.manifestMetrics = metrics
+          }
+   in Checkpoint.attachCompletedTraining completed manifest
+
+completedTrainingFixture :: Word64 -> TrainingBudget.CompletedTraining
+completedTrainingFixture step =
+  case Checkpoint.manifestCompletedTraining (completedTestManifest step) of
+    Nothing -> error "completedTestManifest did not attach completed training"
+    Just completed -> completed
+
+convergenceObservationsFixture
+  :: [(Text, Double)]
+  -> Either Text [TrainingBudget.ConvergenceObservation]
+convergenceObservationsFixture =
+  traverse
+    ( \metric@(name, value) ->
+        ProductConvergence.evaluateConvergence
+          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
+          (ProductConvergence.MeasuredMetrics [metric])
+    )
+
+readPlanSprintStatuses :: ProductPhaseStatus -> IO [(Text, SprintStatus)]
+readPlanSprintStatuses phase = do
+  content <- Text.IO.readFile (phaseDocument phase)
+  case parsePlanSprintStatuses (Text.pack (phaseDocument phase)) content of
+    Left err -> assertFailure (Text.unpack err)
+    Right statuses -> pure statuses
+
+parsePlanSprintStatuses :: Text -> Text -> Either Text [(Text, SprintStatus)]
+parsePlanSprintStatuses path =
+  go Nothing [] . Text.lines
+ where
+  go _ statuses [] = Right (reverse statuses)
+  go _ statuses (line : rest)
+    | Just sprintId' <- parseSprintHeader line =
+        go (Just sprintId') statuses rest
+  go (Just sprintId') statuses (line : rest)
+    | Just rawStatus <- Text.stripPrefix "**Status**:" (Text.strip line) =
+        case PhaseStatus.parseSprintStatus rawStatus of
+          Just status -> go Nothing ((sprintId', status) : statuses) rest
+          Nothing ->
+            Left $
+              path
+                <> ": unknown sprint status "
+                <> Text.strip rawStatus
+                <> " for "
+                <> sprintId'
+  go activeSprint statuses (_ : rest) =
+    go activeSprint statuses rest
+
+parseSprintHeader :: Text -> Maybe Text
+parseSprintHeader line =
+  case Text.stripPrefix "## Sprint " (Text.strip line) of
+    Nothing -> Nothing
+    Just rest ->
+      let sprintId' = Text.takeWhile isSprintIdChar rest
+       in if Text.null sprintId' then Nothing else Just sprintId'
+ where
+  isSprintIdChar char =
+    char == '.' || isDigit char
+
+registrySprintStatuses :: ProductPhaseStatus -> [(Text, SprintStatus)]
+registrySprintStatuses phase =
+  [ (sprintId sprint', sprintStatus sprint')
+  | sprint' <- phaseSprints phase
+  ]
+
+markProductPhaseDone :: ProductPhaseStatus -> ProductPhaseStatus
+markProductPhaseDone phase =
+  phase {phaseSprints = fmap markSprintDone (phaseSprints phase)}
+
+markSprintDone :: ProductSprintStatus -> ProductSprintStatus
+markSprintDone sprint' =
+  sprint' {sprintStatus = Done}
 
 instance FromJSON CommandSchema where
   parseJSON =
@@ -307,12 +421,23 @@ main =
               )
             , -- Sprint 1.12 — rl train --substrate / --seed Dhall overrides.
 
-              ( ["rl", "train", "experiments/cartpole.dhall", "--substrate", "apple-silicon", "--seed", "1729"]
+              (
+                [ "rl"
+                , "train"
+                , "experiments/cartpole.dhall"
+                , "--substrate"
+                , "apple-silicon"
+                , "--seed"
+                , "1729"
+                , "--algorithm"
+                , "QR-DQN"
+                ]
               , ParsedCommand
                   ["rl", "train"]
                   [ ParsedOption "rl-experiment-dhall" ["experiments/cartpole.dhall"]
                   , ParsedOption "substrate" ["apple-silicon"]
                   , ParsedOption "seed" ["1729"]
+                  , ParsedOption "algorithm" ["QR-DQN"]
                   ]
               )
             ,
@@ -534,6 +659,29 @@ main =
             @?= [ "metadata.generated-sections.cluster.routes"
                 , "metadata.generated-sections.cluster.routes"
                 ]
+      , testCase "docs closure-claim check rejects premature current product closure claims" $ do
+          let claimDoc = "The no-caveat product complete status is current."
+              activeDrifts =
+                DocsCheck.checkDocumentClosureClaimsText
+                  PhaseStatus.allProductPhasesDone
+                  "docs.md"
+                  claimDoc
+              allDone =
+                PhaseStatus.productPhasesDone
+                  (fmap markProductPhaseDone PhaseStatus.allProductPhaseStatuses)
+          fmap DocsCheck.driftKey activeDrifts
+            @?= ["closure-claim.no-caveat-product-complete"]
+          DocsCheck.checkDocumentClosureClaimsText allDone "docs.md" claimDoc @?= []
+      , testCase "docs closure-claim check exempts historical and prohibition blocks" $ do
+          let historical =
+                Text.unlines
+                  [ "Historical 2026-06-30 evidence:"
+                  , "The no-caveat product complete record is retained as history."
+                  ]
+              prohibition =
+                "No future closure may claim \"all phases done\" until evidence is current."
+          DocsCheck.checkDocumentClosureClaimsText False "docs.md" historical @?= []
+          DocsCheck.checkDocumentClosureClaimsText False "docs.md" prohibition @?= []
       , testCase "numerical Dhall schema mirrors the Haskell catalog" $ do
           catalog <- loadNumericsCatalog "."
           validateNumericsCatalog catalog @?= Right ()
@@ -563,6 +711,84 @@ main =
             assertDecodeFailure "training" training
             assertDecodeFailure "tune" tune
             assertDecodeFailure "rl" rl
+      , testCase "Sprint 21.3 — inference selector Dhall fails closed for illegal states" $
+          withSystemTempDirectory "jitml-inference-selector" $ \dir -> do
+            let path = dir </> "InferenceSelector.dhall"
+                load body = do
+                  Text.IO.writeFile path body
+                  RunConfig.tryLoadInferenceSelectorConfig path
+                validSelector provenanceKind convergencePassed updateCount finalHash =
+                  Text.unlines
+                    [ "{ experimentHash = \"exp-selector\""
+                    , ", manifestSha = \"manifest-selector\""
+                    , ", completedTraining ="
+                    , "    { experimentHash = \"exp-selector\""
+                    , "    , manifestSha = \"manifest-selector\""
+                    , "    , provenanceKind = \"" <> provenanceKind <> "\""
+                    , "    , evidence ="
+                    , "        { initialWeightHash = \"initial-selector\""
+                    , "        , finalWeightHash = \"" <> finalHash <> "\""
+                    , "        , updateCount = " <> Text.pack (show updateCount)
+                    , "        , datasetShaAtRead = \"dataset-selector\""
+                    , "        }"
+                    , "    , convergencePassed = " <> if convergencePassed then "True" else "False"
+                    , "    }"
+                    , "}"
+                    ]
+                assertRejected label expected body = do
+                  result <- load body
+                  case result of
+                    RunConfig.RunConfigDecodeFailed err ->
+                      assertBool
+                        (Text.unpack label)
+                        (Text.null expected || expected `Text.isInfixOf` err)
+                    other ->
+                      assertFailure
+                        ( "expected inference selector rejection for "
+                            <> Text.unpack label
+                            <> ", got "
+                            <> show other
+                        )
+            loaded <-
+              load (validSelector "completed-training" True (1 :: Int) "final-selector")
+            case loaded of
+              RunConfig.RunConfigLoaded selector -> do
+                RunConfig.iscExperimentHash selector @?= "exp-selector"
+                RunConfig.iscManifestSha selector @?= "manifest-selector"
+              other -> assertFailure ("expected valid selector to load, got " <> show other)
+            assertRejected
+              "declared selector"
+              ""
+              "{ experimentHash = \"declared-only\" }"
+            assertRejected
+              "partial selector"
+              ""
+              ( Text.unlines
+                  [ "{ experimentHash = \"exp-selector\""
+                  , ", manifestSha = \"manifest-selector\""
+                  , "}"
+                  ]
+              )
+            assertRejected
+              "synthetic selector"
+              "completed-training provenance"
+              (validSelector "synthetic" True (1 :: Int) "final-selector")
+            assertRejected
+              "seeded selector"
+              "completed-training provenance"
+              (validSelector "seeded-demo" True (1 :: Int) "final-selector")
+            assertRejected
+              "failed selector"
+              "failed convergence"
+              (validSelector "completed-training" False (1 :: Int) "final-selector")
+            assertRejected
+              "zero-update selector"
+              "positive updateCount"
+              (validSelector "completed-training" True (0 :: Int) "final-selector")
+            assertRejected
+              "unchanged-weight selector"
+              "changed weights"
+              (validSelector "completed-training" True (1 :: Int) "initial-selector")
       , testCase "every reflected config schema is well-formed Dhall and reflexive" $
           -- Each reflected schema must itself parse + canonicalise back to itself,
           -- proving the emitted type is valid Dhall (anti-drift for RunConfig too).
@@ -745,6 +971,16 @@ main =
               Overrides.ExperimentOverrides
                 { Overrides.eoSubstrate = Just Substrate.LinuxCPU
                 , Overrides.eoSeed = Just 42
+                , Overrides.eoAlgorithm = Nothing
+                }
+      , testCase "Sprint 22.2 — RL algorithm CLI override parses" $ do
+          let parsed = Overrides.parseExperimentOverrides [ParsedOption "algorithm" ["QR-DQN"]]
+          parsed
+            @?= Right
+              Overrides.ExperimentOverrides
+                { Overrides.eoSubstrate = Nothing
+                , Overrides.eoSeed = Nothing
+                , Overrides.eoAlgorithm = Just "QR-DQN"
                 }
       , testCase "Sprint 1.12 — train CLI overrides default to empty" $ do
           let parsed = Overrides.parseExperimentOverrides []
@@ -756,6 +992,9 @@ main =
       , testCase "Sprint 1.12 — invalid --seed value surfaces a typed error" $ do
           let parsed = Overrides.parseExperimentOverrides [ParsedOption "seed" ["not-a-number"]]
           parsed @?= Left (Overrides.InvalidSeed "not-a-number")
+      , testCase "Sprint 22.2 — invalid --algorithm value surfaces a typed error" $ do
+          let parsed = Overrides.parseExperimentOverrides [ParsedOption "algorithm" ["Bogus"]]
+          parsed @?= Left (Overrides.InvalidAlgorithm "Bogus")
       , testCase "Sprint 1.12 — tune CLI overrides parse for every catalog axis" $ do
           let parsed =
                 Overrides.parseTuningOverrides
@@ -827,6 +1066,7 @@ main =
           Overrides.overrideSubstrate Overrides.emptyExperimentOverrides Substrate.AppleSilicon
             @?= Substrate.AppleSilicon
           Overrides.overrideSeed Overrides.emptyExperimentOverrides 1729 @?= 1729
+          Overrides.overrideAlgorithm Overrides.emptyExperimentOverrides "PPO" @?= "PPO"
       , testCase "Sprint 1.12 — render override summary lists only present axes" $ do
           Overrides.renderExperimentOverrides Overrides.emptyExperimentOverrides @?= "(none)"
           Overrides.renderTuningOverrides Overrides.emptyTuningOverrides @?= "(none)"
@@ -834,8 +1074,9 @@ main =
                 Overrides.ExperimentOverrides
                   { Overrides.eoSubstrate = Just Substrate.LinuxCPU
                   , Overrides.eoSeed = Just 42
+                  , Overrides.eoAlgorithm = Just "DQN"
                   }
-          Overrides.renderExperimentOverrides ovr @?= "substrate=linux-cpu, seed=42"
+          Overrides.renderExperimentOverrides ovr @?= "substrate=linux-cpu, seed=42, algorithm=DQN"
       , testCase "renderSubprocess golden cases" $ do
           renderSubprocess (subprocess "kubectl" ["get", "pods"]) @?= "kubectl get pods"
           renderSubprocess (subprocess "npx" ["playwright", "test"]) @?= "npx playwright test"
@@ -2146,14 +2387,28 @@ main =
           pending @?= 0
       , testCase "canonical RL environments and framework surfaces are deterministic" $ do
           fmap RLEnvironments.environmentName RLEnvironments.canonicalEnvironments
-            @?= ["cartpole", "mountain-car", "lunar-lander", "key-door-grid", "atari-subset"]
-          case RLEnvironments.canonicalEnvironments of
-            [] -> assertFailure "missing canonical environments"
-            environment : _ ->
-              RLEnvironments.deterministicStep environment 7 1
-                @?= RLEnvironments.deterministicStep environment 7 1
+            @?= [ "cartpole"
+                , "mountain-car"
+                , "acrobot"
+                , "pendulum"
+                , "lunar-lander"
+                , "key-door-grid"
+                , "gridworld-deterministic"
+                ]
           fmap RLFramework.renderRLRunPhase RLFramework.rlRunPlan
             @?= ["collect", "compute-advantages", "optimise", "evaluate", "checkpoint"]
+      , testCase "RL trainer dispatch rejects unsupported environment fallbacks (Sprint 25.1)" $ do
+          rlTrainerEnvironmentCompatibilityError "ppo" "cartpole" @?= Nothing
+          rlTrainerEnvironmentCompatibilityError "ppo" "mountain-car" @?= Nothing
+          rlTrainerEnvironmentCompatibilityError "sac" "pendulum" @?= Nothing
+          rlTrainerEnvironmentCompatibilityError "sac" "lunar-lander" @?= Nothing
+          rlTrainerEnvironmentCompatibilityError "dqn" "lunar-lander"
+            @?= Just
+              "RL trainer dqn does not support environment lunar-lander; supported environments: cartpole, mountain-car, key-door-grid"
+          rlTrainerEnvironmentCompatibilityError "sac" "key-door-grid"
+            @?= Just
+              "RL trainer sac does not support environment key-door-grid; supported environments: pendulum, lunar-lander"
+          rlTrainerEnvironmentCompatibilityError "unknown" "mountain-car" @?= Nothing
       , testCase "AlphaZero catalog includes games, two-headed network, and arena summary" $ do
           fmap AlphaZero.pigName AlphaZero.canonicalGames
             @?= ["connect4", "othello", "hex", "gomoku"]
@@ -2183,6 +2438,22 @@ main =
           let goalState = Sim.MountainCarState 0.6 0.05
               goalStep = Sim.mountainCarStep goalState 2
           Sim.simStepDone goalStep @?= True
+          -- Acrobot starts hanging down. A positive torque changes angular
+          -- velocity, while a state with the tip above the target line
+          -- terminates.
+          let acrobotStep = Sim.acrobotStep Sim.acrobotInitial 2
+              acrobotState = Sim.simStepState acrobotStep
+          Sim.simStepReward acrobotStep @?= -1.0
+          assertBool
+            "acrobot torque changes angular velocity"
+            (abs (Sim.acrobotDTheta2 acrobotState) > 0)
+          Sim.acrobotStep Sim.acrobotInitial 2 @?= acrobotStep
+          let acrobotTerminal =
+                Sim.acrobotStep
+                  (Sim.AcrobotState pi 0.0 0.0 0.0)
+                  1
+          Sim.simStepDone acrobotTerminal @?= True
+          length (Sim.renderObservation (Sim.acrobotRenderFrame Sim.acrobotInitial)) @?= 6
           -- The render-frame observation has the documented length and the
           -- typed IO boundary mirrors the pure step semantics.
           length (Sim.renderObservation (Sim.cartPoleRenderFrame Sim.cartPoleInitial)) @?= 4
@@ -2191,6 +2462,19 @@ main =
           length obs @?= 4
           reward @?= 1.0
           done @?= False
+      , testCase "pendulum continuous-control simulator uses bounded torque dynamics (Sprint 25.1)" $ do
+          let left = Sim.pendulumStep Sim.pendulumInitial (-2.0)
+              right = Sim.pendulumStep Sim.pendulumInitial 2.0
+              overBound = Sim.pendulumStep Sim.pendulumInitial 100.0
+          assertBool
+            "pendulum left/right torques produce different angular velocities"
+            ( Sim.pendThetaDot (Sim.cStepState left)
+                /= Sim.pendThetaDot (Sim.cStepState right)
+            )
+          overBound @?= right
+          Sim.cStepDone right @?= False
+          length (Sim.pendulumObservation Sim.pendulumInitial) @?= 3
+          length (Sim.renderObservation (Sim.pendulumRenderFrame Sim.pendulumInitial)) @?= 3
       , testCase "lunar-lander simulator steps deterministically (Sprint 8.3)" $ do
           -- No-op above the pad: lander falls under gravity; vertical
           -- velocity becomes negative and the y coordinate decreases.
@@ -2236,6 +2520,7 @@ main =
                   , Sim.lunarLanderOmega = 0.0
                   , Sim.lunarLanderLeftLegContact = True
                   , Sim.lunarLanderRightLegContact = True
+                  , Sim.lunarLanderPrevShaping = Nothing
                   }
               crashStep = Sim.lunarLanderStep crashState 0
           Sim.simStepDone crashStep @?= True
@@ -2293,6 +2578,37 @@ main =
             Sim.keyDoorGridAgent (Sim.simStepState goal) @?= Sim.keyDoorGridGoal (Sim.simStepState goal)
             Sim.simStepDone goal @?= True
             assertBool "goal reward is positive" (Sim.simStepReward goal > 0)
+      , testCase
+          "gridworld-deterministic exposes tabular transitions, walls, and goal termination (Sprint 25.1)"
+          $ do
+            let start = Sim.gridWorldInitial
+                east = Sim.gridWorldStep start (fromEnum Sim.GridWorldEast)
+                south = Sim.gridWorldStep (Sim.simStepState east) (fromEnum Sim.GridWorldSouth)
+                blocked = Sim.gridWorldStep (Sim.simStepState south) (fromEnum Sim.GridWorldSouth)
+            length (Sim.gridWorldObservation start) @?= 16
+            Sim.gridWorldStep start (fromEnum Sim.GridWorldEast) @?= east
+            assertBool "gridworld normal move has step cost" (Sim.simStepReward east < 0)
+            assertBool
+              "gridworld wall collision has stronger penalty"
+              (Sim.simStepReward blocked < Sim.simStepReward east)
+            let routeToGoal =
+                  foldl
+                    ( \state action ->
+                        Sim.simStepState (Sim.gridWorldStep state (fromEnum action))
+                    )
+                    start
+                    [ Sim.GridWorldEast
+                    , Sim.GridWorldEast
+                    , Sim.GridWorldEast
+                    , Sim.GridWorldSouth
+                    , Sim.GridWorldSouth
+                    ]
+                goal = Sim.gridWorldStep routeToGoal (fromEnum Sim.GridWorldSouth)
+            Sim.simStepDone goal @?= True
+            assertBool "gridworld goal gives terminal reward" (Sim.simStepReward goal > 0)
+            assertBool
+              "gridworld render frame is generated from Haskell state"
+              ("G" `Text.isInfixOf` Sim.renderCaption (Sim.gridWorldRenderFrame start))
       , testCase "atari-subset requires an explicit uncommitted ROM path (Sprint 8.8)" $ do
           result <- ALE.resolveAtariRomPath (Just "/jitml/nonexistent-atari-rom.bin")
           case result of
@@ -2406,6 +2722,39 @@ main =
             @?= "jitml-checkpoints/exp-a/manifests/"
             <> Checkpoint.manifestContentSha manifest
             <> ".cbor"
+      , testCase "inference eligibility requires manifest weight-delta evidence" $ do
+          let completedManifest = completedTestManifest 1
+              stripped =
+                completedManifest
+                  { Checkpoint.manifestInitialWeightHash = Nothing
+                  , Checkpoint.manifestFinalWeightHash = Nothing
+                  , Checkpoint.manifestUpdateCount = Nothing
+                  , Checkpoint.manifestDatasetShaAtRead = Nothing
+                  }
+          Checkpoint.requireInferenceEligibleCheckpoint "sha" stripped
+            @?= Left Checkpoint.CompletedTrainingEvidenceMissing
+      , testCase "inference manifest CBOR decode fails closed before raw inference use" $ do
+          let completedManifest = completedTestManifest 1
+              manifestSha = Checkpoint.manifestContentSha completedManifest
+              stripped =
+                completedManifest
+                  { Checkpoint.manifestInitialWeightHash = Nothing
+                  , Checkpoint.manifestFinalWeightHash = Nothing
+                  , Checkpoint.manifestUpdateCount = Nothing
+                  , Checkpoint.manifestDatasetShaAtRead = Nothing
+                  }
+          case Checkpoint.decodeInferenceEligibleManifestCbor
+            manifestSha
+            (Checkpoint.encodeManifestCbor completedManifest) of
+            Left err -> assertFailure ("expected inference-eligible decode, got " <> Text.unpack err)
+            Right eligible ->
+              Checkpoint.eligibleCheckpointManifestSha eligible @?= manifestSha
+          Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor stripped)
+            @?= Right stripped
+          Checkpoint.decodeInferenceEligibleManifestCbor
+            "stripped-sha"
+            (Checkpoint.encodeManifestCbor stripped)
+            @?= Left "completed-training manifest is missing weight-delta evidence"
       , testCase "checkpoint manifest carries architecture-aware model-family metadata" $ do
           let weightA = Checkpoint.TensorBlob "a.weight" [2, 2] "blob-a"
               weightZ = Checkpoint.TensorBlob "z.weight" [3] "blob-z"
@@ -2426,6 +2775,7 @@ main =
                             Checkpoint.AlphaZeroPolicyValueFamily
                         , Checkpoint.architectureInputs = [inputSpec]
                         , Checkpoint.architectureOutputs = [valueSpec, policySpec]
+                        , Checkpoint.architectureLayerGraph = Nothing
                         }
                   , Checkpoint.manifestPreprocessing =
                       [ Checkpoint.PreprocessingMetadata
@@ -2495,6 +2845,31 @@ main =
                 @?= [Checkpoint.ArtifactPointer "self-play" "jitml-checkpoints/exp-rich/replay/a" (Just "sha-r")]
               Checkpoint.manifestTranscriptPointers decoded
                 @?= [Checkpoint.ArtifactPointer "training" "jitml-checkpoints/exp-rich/transcript/a" Nothing]
+      , testCase "checkpoint manifest round-trips LayerGraph topology and parameter tensors (Sprint 23.3)" $ do
+          graph <- either (assertFailure . Text.unpack) pure (vitShapedLayerGraph 31)
+          let tensors = layerGraphCheckpointTensors graph
+              loaded = loadedLayerGraphWeights graph
+              manifest =
+                (Checkpoint.emptyManifest "m-layergraph" "exp-layergraph" tensors)
+                  { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+                  , Checkpoint.manifestArchitecture =
+                      (Checkpoint.defaultArchitectureMetadata Checkpoint.SupervisedModelFamily)
+                        { Checkpoint.architectureName = "vit-shaped-layergraph"
+                        , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "input" [4] "F64"]
+                        , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "logits" [3] "F64"]
+                        , Checkpoint.architectureLayerGraph =
+                            Just (Checkpoint.layerGraphMetadataFromGraph graph)
+                        }
+                  , Checkpoint.manifestWeightLayout =
+                      Checkpoint.NamedTensorWeightLayout (fmap Checkpoint.tensorSpecFromBlob tensors)
+                  }
+          case Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor manifest) of
+            Left err -> assertFailure ("manifest decode failed: " <> Text.unpack err)
+            Right decoded -> do
+              Checkpoint.architectureLayerGraph (Checkpoint.manifestArchitecture decoded)
+                @?= Just (Checkpoint.layerGraphMetadataFromGraph graph)
+              CheckpointStore.layerGraphFromCheckpoint decoded loaded
+                @?= Right (Just graph)
       , testCase "checkpoint metadata covers every no-caveat trainable family" $ do
           let tensor = Checkpoint.TensorBlob "weights" [1] "blob"
               families =
@@ -2840,6 +3215,7 @@ main =
                             , Checkpoint.architectureModelFamily = Checkpoint.SupervisedModelFamily
                             , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "input" [3] "F64"]
                             , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "logits" [2] "F64"]
+                            , Checkpoint.architectureLayerGraph = Nothing
                             }
                       }
                   loaded =
@@ -2935,12 +3311,438 @@ main =
                 @?= 11
               assertBool "HER model cell is present" ("HER/goal-reaching" `elem` names)
               assertBool "Connect 4 AlphaZero model cell is present" ("connect4" `elem` names)
+              assertBool "tuning product cell is present" ("hyperparameter-tuning" `elem` names)
               assertBool
                 "model cells are unique"
                 (length names == length (nub names))
               assertBool
                 "every model cell requires a trained artifact"
                 (all WorkflowMatrix.modelCellRequiresTrainedArtifact cells)
+          , testCase "ProductRow registry satisfies the Sprint 19.1 matrix floor" $
+              ProductMatrix.validateProductMatrix ProductMatrix.allProductRows @?= []
+          , testCase "ProductRow artifact experiment hashes are stable and object-key safe" $ do
+              let hashes = fmap ProductMatrix.productRowExperimentHash ProductMatrix.allProductRows
+              assertBool
+                "product-row hashes are unique"
+                (length hashes == length (nub hashes))
+              assertBool
+                "product-row hashes use the product-row namespace"
+                (all ("product-row-" `Text.isPrefixOf`) hashes)
+              assertBool
+                "product-row hashes avoid slash-separated object prefixes"
+                (not (any (Text.isInfixOf "/") hashes))
+          , testCase "CheckpointList frames carry ProductRow selector state and row ids" $ do
+              case ProductMatrix.allProductRows of
+                [] -> assertFailure "ProductRow registry is unexpectedly empty"
+                row : _ -> do
+                  let rowId' = ProductMatrix.rowId row
+                      experimentHash = ProductMatrix.productRowExperimentHash row
+                      selectorStates = ["eligible", "training-required", "unsupported", "error"]
+                      summaries =
+                        Workload.checkpointSummariesForRow
+                          rowId'
+                          experimentHash
+                          [completedTestManifest 1]
+                      selector state =
+                        Text.intercalate
+                          "\t"
+                          [ rowId' <> "-" <> state
+                          , experimentHash <> "-" <> state
+                          , ProductMatrix.renderRowFamily (ProductMatrix.family row)
+                          , state
+                          , if state == "eligible" then "1" else "0"
+                          , ProductMatrix.demoPanel row
+                          ]
+                      frame =
+                        Workload.renderCheckpointListResultWithSelectors
+                          "call-product"
+                          (fmap selector selectorStates)
+                          summaries
+                  assertBool
+                    "checkpoint summary carries the product row id"
+                    ( any
+                        (("checkpoint-summary: " <> rowId' <> "\t" <> experimentHash) `Text.isPrefixOf`)
+                        (Text.lines frame)
+                    )
+                  traverse_
+                    ( \state ->
+                        assertBool
+                          ("row selector carries " <> Text.unpack state <> " state")
+                          (("\t" <> state <> "\t") `Text.isInfixOf` frame)
+                    )
+                    selectorStates
+                  assertBool
+                    "global selector is ready when at least one row is eligible"
+                    ("selector-state: ready" `Text.isInfixOf` frame)
+          , testCase "README matrix rows match the ProductRow registry in both directions" $ do
+              readme <- Text.IO.readFile "README.md"
+              case readmeProductParityFailures readme of
+                Left err -> assertFailure (Text.unpack err)
+                Right failures -> failures @?= []
+          , testCase "Generated PureScript model matrix constants match ProductRow registry rows" $ do
+              generated <- Text.IO.readFile "web/src/Generated/Contracts.purs"
+              generatedModelMatrixPairs generated @?= registryModelMatrixPairs
+          , testCase "ProductRow browser artifacts never use seeded demo weights" $ do
+              generated <- Text.IO.readFile "web/src/Generated/Contracts.purs"
+              let productHashes = fmap ProductMatrix.productRowExperimentHash ProductMatrix.allProductRows
+                  seededHashes = fmap sdcExperimentHash seededDemoCheckpoints
+                  seededTensorNames = fmap sdcTensorName seededDemoCheckpoints
+                  generatedHashes =
+                    [ experimentHash
+                    | (_, _, experimentHash, _) <- generatedModelMatrixPairs generated
+                    ]
+              List.intersect productHashes seededHashes @?= []
+              List.intersect generatedHashes seededHashes @?= []
+              filter ("demo-weights" `Text.isInfixOf`) productHashes @?= []
+              filter ("demo-weights" `Text.isInfixOf`) generatedHashes @?= []
+              filter (`Text.isInfixOf` generated) seededTensorNames @?= []
+          , testCase "ProductRow experiment configs resolve or reflect for every row" $ do
+              loaded <-
+                traverse
+                  ( \row -> do
+                      result <- ProductExperiment.loadProductExperimentForRow row
+                      pure (ProductMatrix.rowId row, result)
+                  )
+                  ProductMatrix.allProductRows
+              let failures =
+                    [ rowId' <> ": " <> err
+                    | (rowId', Left err) <- loaded
+                    ]
+              failures @?= []
+          , testCase "RL algorithm override preserves the resolved experiment record" $ do
+              loaded <- ProductExperiment.loadRlExperimentByPath "experiments/cartpole.dhall"
+              experiment <- case loaded of
+                Left err -> assertFailure (Text.unpack err)
+                Right value -> pure value
+              let override =
+                    Overrides.ExperimentOverrides
+                      { Overrides.eoSubstrate = Nothing
+                      , Overrides.eoSeed = Nothing
+                      , Overrides.eoAlgorithm = Just "A2C"
+                      }
+              ProductExperiment.rlExperimentEnvironment experiment @?= "cartpole"
+              ProductExperiment.rlExperimentAlgorithm experiment @?= "PPO"
+              Overrides.overrideAlgorithm override (ProductExperiment.rlExperimentAlgorithm experiment)
+                @?= "A2C"
+              ProductExperiment.rlExperimentEnvironment experiment @?= "cartpole"
+          , testCase "RL algorithm registry maps product algorithms to distinct update contracts (Sprint 25.2)" $ do
+              AlgorithmRegistry.validateAlgorithmModuleRegistry AlgorithmRegistry.algorithmModuleRegistry @?= []
+              let productAlgorithms =
+                    List.sort . nub $
+                      concatMap productRowRlAlgorithms ProductMatrix.allProductRows
+                  expectedAlgorithms =
+                    List.sort
+                      [ "PPO"
+                      , "A2C"
+                      , "TRPO"
+                      , "MaskablePPO"
+                      , "RecurrentPPO"
+                      , "DQN"
+                      , "QR-DQN"
+                      , "DDPG"
+                      , "TD3"
+                      , "SAC"
+                      , "CrossQ"
+                      , "TQC"
+                      , "ARS"
+                      , "HER"
+                      ]
+                  resolved =
+                    [ ( algorithm
+                      , AlgorithmCommon.updateIdentity contract
+                      , AlgorithmCommon.trainerEntryPoint contract
+                      )
+                    | algorithm <- productAlgorithms
+                    , Just contract <- [AlgorithmRegistry.updateContractFor algorithm]
+                    ]
+                  missing =
+                    [ algorithm
+                    | algorithm <- productAlgorithms
+                    , isNothing (AlgorithmRegistry.updateContractFor algorithm)
+                    ]
+                  updateIdentities = [identity | (_, identity, _) <- resolved]
+              productAlgorithms @?= expectedAlgorithms
+              missing @?= []
+              assertBool
+                "each product RL algorithm resolves to a distinct update identity"
+                (length updateIdentities == length (nub updateIdentities))
+              resolved
+                @?= List.sort
+                  [
+                    ( "A2C"
+                    , "on-policy.a2c.unclipped-advantage-actor-critic"
+                    , "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantA2C"
+                    )
+                  ,
+                    ( "ARS"
+                    , "black-box.ars.finite-difference-linear-policy"
+                    , "JitML.RL.Algorithms.ArsTrainer.trainArsOnCartpole"
+                    )
+                  ,
+                    ( "CrossQ"
+                    , "off-policy.crossq.batch-renorm-no-target-network"
+                    , "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantCrossQ"
+                    )
+                  ,
+                    ( "DDPG"
+                    , "off-policy.ddpg.deterministic-actor-critic"
+                    , "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantDDPG"
+                    )
+                  ,
+                    ( "DQN"
+                    , "off-policy.dqn.scalar-bellman-target-network"
+                    , "JitML.RL.Algorithms.DqnTrainer.trainDqnOnCartpole"
+                    )
+                  ,
+                    ( "HER"
+                    , "goal-conditioned.her.future-relabeling-off-policy-wrapper"
+                    , "JitML.RL.Algorithms.HerTrainer.trainHerOnBitFlip"
+                    )
+                  ,
+                    ( "MaskablePPO"
+                    , "on-policy.maskable-ppo.masked-categorical-clipped-surrogate"
+                    , "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantMaskablePPO"
+                    )
+                  , ("PPO", "on-policy.ppo.clipped-surrogate", "JitML.RL.Algorithms.PpoTrainer.trainPpoOnCartpole")
+                  ,
+                    ( "QR-DQN"
+                    , "off-policy.qr-dqn.quantile-huber-distributional"
+                    , "JitML.RL.Algorithms.QrDqnTrainer.trainQrDqnOnCartpole"
+                    )
+                  ,
+                    ( "RecurrentPPO"
+                    , "on-policy.recurrent-ppo.sequence-bptt-clipped-surrogate"
+                    , "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantRecurrentPPO"
+                    )
+                  ,
+                    ( "SAC"
+                    , "off-policy.sac.entropy-regularized-twin-critic"
+                    , "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantSAC"
+                    )
+                  ,
+                    ( "TD3"
+                    , "off-policy.td3.clipped-double-q-delayed-policy"
+                    , "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantTD3"
+                    )
+                  ,
+                    ( "TQC"
+                    , "off-policy.tqc.truncated-quantile-critics"
+                    , "JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulum/VariantTQC"
+                    )
+                  ,
+                    ( "TRPO"
+                    , "on-policy.trpo.kl-trust-region"
+                    , "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantTRPO"
+                    )
+                  ]
+          , testCase
+              "documented optional/research rows are typed non-product and absent from ProductRow registry"
+              $ do
+                let nonProductIds = fmap ProductMatrix.nonProductRowId ProductMatrix.nonProductRows
+                    productIds = ProductMatrix.productRowIds
+                assertBool
+                  "Tic-Tac-Toe minimax anchor is typed non-product"
+                  ("tic-tac-toe" `elem` nonProductIds)
+                assertBool
+                  "optional Atari/ALE support is typed non-product"
+                  ("atari-subset" `elem` nonProductIds)
+                let overlapping =
+                      [ nonProductId
+                      | nonProductId <- nonProductIds
+                      , nonProductId `elem` productIds
+                      ]
+                overlapping @?= []
+          , testCase
+              "ProductRow registry rejects duplicates, undocumented rows, missing rows, and missing test ids"
+              $ do
+                let rows = ProductMatrix.allProductRows
+                case rows of
+                  [] -> assertFailure "ProductRow registry is unexpectedly empty"
+                  firstRow : rest -> do
+                    let withoutMnist =
+                          filter ((/= "mnist-shallow-mlp") . ProductMatrix.rowId) rows
+                        duplicateRows = firstRow : rows
+                        undocumentedRows =
+                          firstRow
+                            { rowId = "undocumented-supervised-row"
+                            }
+                            : rows
+                        missingTestIdRows =
+                          firstRow
+                            { integrationTest = ""
+                            }
+                            : rest
+                    assertBool
+                      "duplicate row id is rejected"
+                      ( any
+                          ("duplicate row id: " `Text.isPrefixOf`)
+                          (ProductMatrix.validateProductMatrix duplicateRows)
+                      )
+                    assertBool
+                      "documented-but-unregistered supervised row is rejected"
+                      ( "missing matrix-floor supervised row: mnist-shallow-mlp"
+                          `elem` ProductMatrix.validateProductMatrix withoutMnist
+                      )
+                    assertBool
+                      "undocumented supervised row is rejected"
+                      ( "undocumented matrix supervised row: undocumented-supervised-row"
+                          `elem` ProductMatrix.validateProductMatrix undocumentedRows
+                      )
+                    assertBool
+                      "missing integration test id is rejected"
+                      ( any
+                          (" is missing integrationTest" `Text.isSuffixOf`)
+                          (ProductMatrix.validateProductMatrix missingTestIdRows)
+                      )
+          , testCase "Training evidence rejects fabricated weight state" $ do
+              ProductEvidence.mkTrainingEvidence "same" "same" 1 "dataset-sha"
+                @?= Left "training evidence requires weight movement"
+              ProductEvidence.mkTrainingEvidence "initial" "final" 0 "dataset-sha"
+                @?= Left "training evidence requires a positive update count"
+          , testCase "CompletedTraining rejects failed bar-evaluated convergence" $ do
+              let evidence =
+                    either
+                      (error . Text.unpack)
+                      id
+                      (ProductEvidence.mkTrainingEvidence "initial" "final" 1 "dataset-sha")
+                  failedObservation =
+                    either
+                      (error . Text.unpack)
+                      id
+                      ( ProductConvergence.evaluateConvergence
+                          (ProductConvergence.mkConvergenceBar "accuracy" TrainingBudget.MetricMaximise 0.90 0.0)
+                          (ProductConvergence.MeasuredMetrics [("accuracy", 0.50)])
+                      )
+                  result =
+                    TrainingBudget.completedTraining
+                      TrainingBudget.TrainingBudget
+                        { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
+                        , TrainingBudget.tbTargetUnits = 1
+                        , TrainingBudget.tbUnitLabel = "epoch"
+                        , TrainingBudget.tbSeed = Nothing
+                        }
+                      1
+                      evidence
+                      [failedObservation]
+                      TrainingBudget.TensorBoardRunMetadata
+                        { TrainingBudget.tbrRunId = "unit-test"
+                        , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/unit-test"
+                        , TrainingBudget.tbrScalarTags = ["accuracy"]
+                        }
+              assertBool
+                "failed convergence observation is rejected"
+                ( case result of
+                    Left err -> "convergence metric failed: accuracy" `Text.isInfixOf` err
+                    Right _ -> False
+                )
+          , testCase
+              "ModelRef type-state pipeline reaches inference eligibility only through completed training"
+              $ do
+                let completed = completedTrainingFixture 1
+                    declaredExperiment = ProductPipeline.declareExperiment "exp1"
+                    declaredModel = ProductPipeline.declareModel declaredExperiment
+                    startedModel = ProductPipeline.startTraining declaredModel
+                    acceptCompleted
+                      :: ProductPipeline.ModelRef 'TrainingCompleted
+                      -> Text
+                    acceptCompleted = ProductPipeline.modelRefExperimentHash
+                    acceptEligible :: ProductPipeline.InferenceEligibleRef -> Text
+                    acceptEligible = ProductPipeline.modelRefExperimentHash
+                trainedModel <- ProductPipeline.train startedModel completed
+                acceptCompleted trainedModel @?= "exp1"
+                case ProductPipeline.markInferenceEligible "manifest-sha" trainedModel completed of
+                  Left err -> assertFailure (Text.unpack err)
+                  Right eligibleModel -> do
+                    acceptEligible eligibleModel @?= "exp1"
+                    ProductPipeline.modelRefManifestSha eligibleModel @?= Just "manifest-sha"
+                    ProductPipeline.modelRefCompletedTraining eligibleModel @?= Just completed
+          , testCase "ModelRef inference eligibility rejects a mismatched completed-training witness" $ do
+              let completed = completedTrainingFixture 1
+                  mismatched = completedTrainingFixture 2
+                  declaredModel =
+                    ProductPipeline.declareModel
+                      (ProductPipeline.declareExperiment "exp1")
+                  startedModel = ProductPipeline.startTraining declaredModel
+                  trainedModel = ProductPipeline.completeTraining startedModel completed
+              ProductPipeline.markInferenceEligible "manifest-sha" trainedModel mismatched
+                @?= Left "completed-training witness does not match model reference"
+          , testCase "InferenceEligibleCheckpoint mints an inference-only ModelRef" $ do
+              let acceptEligible :: ProductPipeline.InferenceEligibleRef -> Text
+                  acceptEligible = ProductPipeline.modelRefExperimentHash
+                  completed = completedTrainingFixture 1
+              case Checkpoint.requireInferenceEligibleCheckpoint "manifest-sha" (completedTestManifest 1) of
+                Left err -> assertFailure (show err)
+                Right eligibleCheckpoint -> do
+                  let eligibleModel =
+                        ProductPipeline.inferenceEligibleModelRef eligibleCheckpoint
+                  acceptEligible eligibleModel @?= "exp1"
+                  ProductPipeline.modelRefManifestSha eligibleModel @?= Just "manifest-sha"
+                  ProductPipeline.modelRefCompletedTraining eligibleModel @?= Just completed
+          , testCase "Every ProductRow has a concrete numeric convergence bar" $ do
+              let offenders =
+                    [ ProductMatrix.rowId row
+                    | row <- ProductMatrix.allProductRows
+                    , let bar = ProductMatrix.convergenceBar row
+                    , Text.null (ProductConvergence.convergenceMetricName bar)
+                        || isNaN (ProductConvergence.convergenceThreshold bar)
+                        || isInfinite (ProductConvergence.convergenceThreshold bar)
+                    ]
+              offenders @?= []
+          , testCase "ProductTruth scanner rejects Sprint 20 fossil source mentions" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/RL/Reintroduced.hs"
+                      "module JitML.RL.Reintroduced where\nx = deterministicStep\n"
+              assertBool
+                "deterministicStep source mention is rejected"
+                ( any
+                    ((== "product-truth.scaffold.deterministicStep") . findingKey)
+                    findings
+                )
+          , testCase "ProductTruth reachability rejects product-reachable scaffold imports" $ do
+              let modules =
+                    [ ProductTruth.SourceModule
+                        "JitML.App"
+                        "src/JitML/App.hs"
+                        ["JitML.Product.Reintroduced"]
+                    , ProductTruth.SourceModule
+                        "JitML.Product.Reintroduced"
+                        "src/JitML/Product/Reintroduced.hs"
+                        ["JitML.RL.Loop"]
+                    ]
+                  findings = ProductTruth.scanProductTruthImports modules
+              assertBool
+                "reachable JitML.RL.Loop import is rejected"
+                ( any
+                    ((== "product-truth.reachable-import") . findingKey)
+                    findings
+                )
+          , testCase "ProductRow implementations do not name non-product scaffolding" $ do
+              let offenders =
+                    [ (ProductMatrix.rowId row, ProductMatrix.implementation row, scaffold)
+                    | row <- ProductMatrix.allProductRows
+                    , scaffold <- ProductTruth.nonProductScaffolding
+                    , Text.toLower scaffold
+                        `Text.isInfixOf` Text.toLower (ProductMatrix.implementation row)
+                    ]
+              offenders @?= []
+          ]
+      , testGroup
+          "Product phase status registry (Sprint 19.2)"
+          [ testCase "enumerates product phases 19 through 31" $ do
+              PhaseStatus.productPhaseNumbers @?= [19 .. 31]
+              PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
+          , testCase "reports incomplete while any product sprint is not Done" $ do
+              PhaseStatus.allProductPhasesDone @?= False
+              assertBool
+                "an all-Done registry satisfies the predicate"
+                ( PhaseStatus.productPhasesDone
+                    (fmap markProductPhaseDone PhaseStatus.allProductPhaseStatuses)
+                )
+          , testCase "matches the sprint Status headers in phase documents" $ do
+              actual <- concat <$> traverse readPlanSprintStatuses PhaseStatus.allProductPhaseStatuses
+              let expected = concatMap registrySprintStatuses PhaseStatus.allProductPhaseStatuses
+              actual @?= expected
           ]
       , -- Sprint 12.10 — backend-agnostic invariants relocated out of
         -- jitml-backends (which is now a per-substrate live lane). These
@@ -3391,6 +4193,47 @@ main =
                   params = Mlp.mlpInit shape 7
                   fwd = Mlp.mlpForward params (Data.Vector.Unboxed.fromList [0.1, 0.2, 0.3, 0.4])
               Data.Vector.Unboxed.length (Mlp.forwardOutput fwd) @?= 3
+          , testCase "MLP is expressible as a two-layer LayerGraph (Sprint 23.1)" $ do
+              let shape = Mlp.MlpShape 4 8 3
+                  params = Mlp.mlpInit shape 7
+                  input = Data.Vector.Unboxed.fromList [0.1, 0.2, 0.3, 0.4]
+                  expected = Mlp.forwardOutput (Mlp.mlpForward params input)
+              graph <- either assertFailure pure (Mlp.mlpLayerGraph params)
+              tape <- either (assertFailure . Text.unpack) pure (LayerGraph.runLayerGraph graph input)
+              LayerGraph.layerTapeOutput tape @?= expected
+          , testCase "LayerGraph finite-difference gradients cover every layer kind (Sprint 23.1)" $
+              Control.Monad.forM_ (zip [1 :: Int ..] LayerGraph.allLayerKinds) $ \(seed, kind) -> do
+                graph <- either (assertFailure . Text.unpack) pure (unitLayerGraph kind seed)
+                let input = Data.Vector.Unboxed.fromList [0.2, -0.3, 0.4]
+                    target = Data.Vector.Unboxed.fromList [0.1, -0.2, 0.3]
+                err <-
+                  either
+                    (assertFailure . Text.unpack)
+                    pure
+                    (Autodiff.maxFiniteDifferenceError 1.0e-5 graph input target)
+                assertBool
+                  (Text.unpack (LayerGraph.layerKindName kind) <> " finite-difference error too large: " <> show err)
+                  (err < 1.0e-4)
+          , testCase "LayerGraph gradients are deterministic for a ResNet-shaped graph (Sprint 23.1)" $ do
+              graph <- either (assertFailure . Text.unpack) pure (resNetShapedLayerGraph 17)
+              let input = Data.Vector.Unboxed.fromList [0.2, -0.3, 0.4]
+                  target = Data.Vector.Unboxed.fromList [0.0, 0.1, -0.1]
+                  gradA =
+                    fmap snd (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+                  gradB =
+                    fmap snd (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+              gradA @?= gradB
+          , testCase "LayerGraph supports a ViT-shaped patch plus attention graph (Sprint 23.1)" $ do
+              graph <- either (assertFailure . Text.unpack) pure (vitShapedLayerGraph 23)
+              let input = Data.Vector.Unboxed.fromList [0.1, 0.0, -0.2, 0.3]
+                  target = Data.Vector.Unboxed.fromList [0.0, 0.2, -0.1]
+              (tape, gradient) <-
+                either
+                  (assertFailure . Text.unpack)
+                  pure
+                  (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+              Data.Vector.Unboxed.length (LayerGraph.layerTapeOutput tape) @?= 3
+              length (LayerGraph.layerGraphLayerGradients gradient) @?= 3
           , testCase "mlpForward is run-to-run deterministic on same seed" $ do
               let shape = Mlp.MlpShape 4 8 3
                   paramsA = Mlp.mlpInit shape 99
@@ -3694,6 +4537,485 @@ main =
                 )
           ]
       ]
+
+readmeProductParityFailures :: Text -> Either Text [Text]
+readmeProductParityFailures readme = do
+  documentedRows <- readmeProductRowIds readme
+  documentedEnvironments <- readmeRlEnvironmentIds readme
+  let registryRows = ProductMatrix.productRowIds
+      registryEnvironments = registryRlEnvironmentIds
+  pure $
+    matrixSetFailures "README matrix row" documentedRows registryRows
+      <> matrixSetFailures "README RL environment" documentedEnvironments registryEnvironments
+
+readmeProductRowIds :: Text -> Either Text [Text]
+readmeProductRowIds readme = do
+  supervisedIds <-
+    traverse
+      readmeSupervisedRowId
+      (markdownRowsBetween "# Canonical supervised learning problems" "## Dataset sources" readme)
+  rlIds <- readmeRlProductRowIds readme
+  alphaZeroIds <- readmeAlphaZeroProductRowIds readme
+  pure $ supervisedIds <> rlIds <> alphaZeroIds <> ["hyperparameter-tuning"]
+
+readmeRlEnvironmentIds :: Text -> Either Text [Text]
+readmeRlEnvironmentIds readme =
+  traverse
+    readmeRlEnvironmentId
+    (markdownRowsBetween "# Canonical reinforcement learning environments" "---" readme)
+
+readmeRlProductRowIds :: Text -> Either Text [Text]
+readmeRlProductRowIds readme =
+  concat
+    <$> traverse
+      readmeRlTargetRowIds
+      ( markdownRowsBetween
+          "# Convergence and determinism checks for RL"
+          "# AlphaZero-style self-play and persistent MCTS state"
+          readme
+      )
+
+readmeAlphaZeroProductRowIds :: Text -> Either Text [Text]
+readmeAlphaZeroProductRowIds readme = do
+  gameIds <-
+    traverse
+      readmeAlphaZeroGameId
+      (markdownRowsBetween "### Canonical adversarial games" "---" readme)
+  pure [gameId | gameId <- gameIds, gameId `notElem` nonProductIds]
+ where
+  nonProductIds = fmap ProductMatrix.nonProductRowId ProductMatrix.nonProductRows
+
+readmeSupervisedRowId :: [Text] -> Either Text Text
+readmeSupervisedRowId cells =
+  case cells of
+    dataset : model : _ ->
+      case (dataset, model) of
+        ("MNIST", modelText)
+          | "shallow MLP" `Text.isInfixOf` modelText ->
+              Right "mnist-shallow-mlp"
+        ("MNIST", modelText)
+          | "deep MLP" `Text.isInfixOf` modelText ->
+              Right "mnist-deep-mlp"
+        ("MNIST", modelText)
+          | "deep CNN" `Text.isInfixOf` modelText ->
+              Right "mnist-lenet"
+        ("Fashion-MNIST", modelText)
+          | "shallow MLP" `Text.isInfixOf` modelText ->
+              Right "fashion-mnist-mlp"
+        ("Fashion-MNIST", modelText)
+          | "small ResNet" `Text.isInfixOf` modelText ->
+              Right "fashion-mnist-resnet"
+        ("CIFAR-10", modelText)
+          | "ResNet-20" `Text.isInfixOf` modelText ->
+              Right "cifar10-resnet20"
+        ("CIFAR-10", modelText)
+          | "ResNet-56" `Text.isInfixOf` modelText ->
+              Right "cifar10-resnet56"
+        ("CIFAR-100", modelText)
+          | "Wide ResNet-28-10" `Text.isInfixOf` modelText ->
+              Right "cifar100-wide-resnet"
+        ("CIFAR-10", modelText)
+          | "small ViT" `Text.isInfixOf` modelText ->
+              Right "cifar10-vit"
+        ("Tiny ImageNet (200-class, 64x64)", modelText)
+          | "ResNet-50" `Text.isInfixOf` modelText ->
+              Right "tiny-imagenet-resnet50"
+        ("Tiny ImageNet (200-class, 64×64)", modelText)
+          | "ResNet-50" `Text.isInfixOf` modelText ->
+              Right "tiny-imagenet-resnet50"
+        ("California Housing (UCI tabular regression)", modelText)
+          | "small MLP" `Text.isInfixOf` modelText ->
+              Right "california-housing-mlp"
+        _ ->
+          Left ("unmapped README supervised row: " <> dataset <> " / " <> model)
+    _ -> Left ("malformed README supervised row: " <> Text.intercalate " | " cells)
+
+readmeRlEnvironmentId :: [Text] -> Either Text Text
+readmeRlEnvironmentId cells =
+  case cells of
+    env : _ ->
+      case env of
+        "CartPole-v1" -> Right "cartpole"
+        "MountainCar-v0" -> Right "mountain-car"
+        "Acrobot-v1" -> Right "acrobot"
+        "Pendulum-v1" -> Right "pendulum"
+        "LunarLander-v2 (discrete)" -> Right "lunar-lander"
+        "KeyDoorGrid-v0" -> Right "key-door-grid"
+        "GridWorld-Deterministic-v0" -> Right "gridworld-deterministic"
+        _ -> Left ("unmapped README RL environment row: " <> env)
+    _ -> Left ("malformed README RL environment row: " <> Text.intercalate " | " cells)
+
+readmeRlTargetRowIds :: [Text] -> Either Text [Text]
+readmeRlTargetRowIds cells =
+  case cells of
+    familyCell : surface : _ ->
+      case familyCell of
+        "HER" -> Right ["HER/goal-reaching"]
+        "AlphaZero" -> Right []
+        "Environment-floor parity rows" ->
+          traverse readmeExplicitRlPair (commaListBefore " median" surface)
+        _ -> do
+          algorithms <- traverse readmeRlAlgorithm (slashList familyCell)
+          environments <- traverse readmeRlTargetEnvironment (commaListBefore " median" surface)
+          pure [algorithm <> "/" <> environment | algorithm <- algorithms, environment <- environments]
+    _ -> Left ("malformed README RL target row: " <> Text.intercalate " | " cells)
+
+readmeExplicitRlPair :: Text -> Either Text Text
+readmeExplicitRlPair pair =
+  case Text.splitOn "/" pair of
+    [algorithm, environment] -> do
+      algorithmId <- readmeRlAlgorithm algorithm
+      environmentId <- readmeRlTargetEnvironment environment
+      pure (algorithmId <> "/" <> environmentId)
+    _ -> Left ("malformed explicit RL pair: " <> pair)
+
+readmeRlAlgorithm :: Text -> Either Text Text
+readmeRlAlgorithm raw
+  | raw `elem` ProductMatrix.floorRlAlgorithms ProductMatrix.matrixFloor =
+      Right raw
+  | otherwise =
+      Left ("README names RL algorithm outside matrix floor: " <> raw)
+
+readmeRlTargetEnvironment :: Text -> Either Text Text
+readmeRlTargetEnvironment raw
+  | raw `elem` ProductMatrix.floorRlEnvironments ProductMatrix.matrixFloor =
+      Right raw
+  | otherwise =
+      Left ("README names RL environment outside matrix floor: " <> raw)
+
+readmeAlphaZeroGameId :: [Text] -> Either Text Text
+readmeAlphaZeroGameId cells =
+  case cells of
+    game : _ ->
+      case game of
+        "Tic-Tac-Toe" -> Right "tic-tac-toe"
+        "Connect 4" -> Right "connect4"
+        "Othello (Reversi)" -> Right "othello"
+        "Gomoku-9x9" -> Right "gomoku"
+        "Gomoku" -> Right "gomoku"
+        "Hex-7x7" -> Right "hex"
+        "Hex" -> Right "hex"
+        _ -> Left ("unmapped README AlphaZero game row: " <> game)
+    _ -> Left ("malformed README AlphaZero game row: " <> Text.intercalate " | " cells)
+
+registryRlEnvironmentIds :: [Text]
+registryRlEnvironmentIds =
+  List.sort . nub $
+    [ environment
+    | row <- ProductMatrix.allProductRows
+    , environment <- productRowRlEnvironments row
+    ]
+
+productRowRlEnvironments :: ProductRow state -> [Text]
+productRowRlEnvironments row =
+  case ProductMatrix.rowClass row of
+    ProductMatrix.RlAlgorithmEnvironment _ environment -> [environment]
+    ProductMatrix.RlGoalConditioned _ -> []
+    _ -> []
+
+productRowRlAlgorithms :: ProductRow state -> [Text]
+productRowRlAlgorithms row =
+  case ProductMatrix.rowClass row of
+    ProductMatrix.RlAlgorithmEnvironment algorithm _ -> [algorithm]
+    ProductMatrix.RlGoalConditioned _ -> ["HER"]
+    _ -> []
+
+registryModelMatrixPairs :: [(Text, Text, Text, Text)]
+registryModelMatrixPairs =
+  [ ( generatedModelKind row
+    , ProductMatrix.rowId row
+    , ProductMatrix.productRowExperimentHash row
+    , ProductMatrix.demoPanel row
+    )
+  | row <- ProductMatrix.allProductRows
+  ]
+
+generatedModelKind :: ProductMatrix.ProductRow state -> Text
+generatedModelKind row =
+  case ProductMatrix.family row of
+    ProductMatrix.Supervised -> "supervised"
+    ProductMatrix.ReinforcementLearning ->
+      case ProductMatrix.rowClass row of
+        ProductMatrix.RlGoalConditioned _ -> "her"
+        _ -> "rl"
+    ProductMatrix.AlphaZero -> "alphazero"
+    ProductMatrix.Tuning -> "tuning"
+
+generatedModelMatrixPairs :: Text -> [(Text, Text, Text, Text)]
+generatedModelMatrixPairs generated =
+  mapMaybe generatedModelMatrixPair (Text.lines generated)
+
+generatedModelMatrixPair :: Text -> Maybe (Text, Text, Text, Text)
+generatedModelMatrixPair line = do
+  kind <- quotedField "kind" line
+  name <- quotedField "name" line
+  experimentHash <- quotedField "experimentHash" line
+  demoPanel <- quotedField "demoPanel" line
+  pure (kind, name, experimentHash, demoPanel)
+
+quotedField :: Text -> Text -> Maybe Text
+quotedField field line =
+  let marker = field <> ": \""
+      (_, markerAndRest) = Text.breakOn marker line
+   in if Text.null markerAndRest
+        then Nothing
+        else
+          let afterMarker = Text.drop (Text.length marker) markerAndRest
+              (value, suffix) = Text.breakOn "\"" afterMarker
+           in if Text.null suffix then Nothing else Just value
+
+matrixSetFailures :: Text -> [Text] -> [Text] -> [Text]
+matrixSetFailures label documented registry =
+  missing <> unexpected <> duplicateDocs <> duplicateRegistry
+ where
+  documentedSorted = List.sort documented
+  registrySorted = List.sort registry
+  missing =
+    [ label <> " documented but missing from registry: " <> rowId'
+    | rowId' <- documentedSorted
+    , rowId' `notElem` registry
+    ]
+  unexpected =
+    [ label <> " registry row missing from docs: " <> rowId'
+    | rowId' <- registrySorted
+    , rowId' `notElem` documented
+    ]
+  duplicateDocs =
+    [ label <> " documented more than once: " <> rowId'
+    | rowId' <- duplicatesText documented
+    ]
+  duplicateRegistry =
+    [ label <> " registry row duplicated: " <> rowId'
+    | rowId' <- duplicatesText registry
+    ]
+
+markdownRowsBetween :: Text -> Text -> Text -> [[Text]]
+markdownRowsBetween start end document =
+  [ cells
+  | line <- sectionLines start end document
+  , let stripped = Text.strip line
+  , "|" `Text.isPrefixOf` stripped
+  , "|" `Text.isSuffixOf` stripped
+  , let cells = markdownTableCells stripped
+  , not (null cells)
+  , not (markdownHeaderOrSeparator cells)
+  ]
+
+sectionLines :: Text -> Text -> Text -> [Text]
+sectionLines start end document =
+  case dropWhile ((/= start) . Text.strip) (Text.lines document) of
+    [] -> []
+    _ : rest -> takeWhile ((/= end) . Text.strip) rest
+
+markdownTableCells :: Text -> [Text]
+markdownTableCells line =
+  case Text.splitOn "|" line of
+    _ : cellsWithTail ->
+      case reverse cellsWithTail of
+        _ : cells -> fmap Text.strip (reverse cells)
+        [] -> []
+    [] -> []
+
+markdownHeaderOrSeparator :: [Text] -> Bool
+markdownHeaderOrSeparator cells =
+  case cells of
+    first : _
+      | first
+          `elem` [ "Dataset"
+                 , "Env"
+                 , "algorithm family"
+                 , "Algorithm"
+                 , "Game"
+                 ] ->
+          True
+    _ -> all markdownSeparatorCell cells
+
+markdownSeparatorCell :: Text -> Bool
+markdownSeparatorCell cell =
+  not (Text.null cell)
+    && Text.all (\ch -> ch == '-' || ch == ':' || ch == ' ') cell
+
+slashList :: Text -> [Text]
+slashList = fmap Text.strip . Text.splitOn "/"
+
+commaListBefore :: Text -> Text -> [Text]
+commaListBefore marker =
+  fmap Text.strip
+    . Text.splitOn ","
+    . fst
+    . Text.breakOn marker
+
+duplicatesText :: [Text] -> [Text]
+duplicatesText values =
+  [ value
+  | value : _ : _ <- List.group (List.sort values)
+  ]
+
+unitLayerGraph :: LayerGraph.LayerKind -> Int -> Either Text LayerGraph.LayerGraph
+unitLayerGraph kind seed = do
+  node <-
+    case kind of
+      LayerGraph.PoolLayer _ ->
+        LayerGraph.mkIdentityLayer
+          "unit-pool"
+          kind
+          3
+          LayerGraph.TrainingMode
+      LayerGraph.DropoutLayer _ ->
+        LayerGraph.mkIdentityLayer
+          "unit-dropout"
+          kind
+          3
+          LayerGraph.TrainingMode
+      _ ->
+        LayerGraph.mkAffineLayer
+          "unit-layer"
+          kind
+          3
+          3
+          (activationForUnitKind kind)
+          LayerGraph.TrainingMode
+          (LayerGraph.deterministicParameters seed 3 3)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "unit-" <> LayerGraph.layerKindName kind
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphNodes = [node]
+      }
+
+activationForUnitKind :: LayerGraph.LayerKind -> LayerGraph.LayerActivation
+activationForUnitKind kind =
+  case kind of
+    LayerGraph.NormLayer _ -> LayerGraph.LinearActivation
+    LayerGraph.PoolLayer _ -> LayerGraph.LinearActivation
+    LayerGraph.DropoutLayer _ -> LayerGraph.LinearActivation
+    LayerGraph.DenseLayer -> LayerGraph.TanhActivation
+    _ -> LayerGraph.TanhActivation
+
+resNetShapedLayerGraph :: Int -> Either Text LayerGraph.LayerGraph
+resNetShapedLayerGraph seed = do
+  stem <-
+    LayerGraph.mkAffineLayer
+      "resnet-stem"
+      LayerGraph.DenseLayer
+      3
+      3
+      LayerGraph.TanhActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters seed 3 3)
+  block <-
+    LayerGraph.mkAffineLayer
+      "resnet-basic-block"
+      (LayerGraph.BasicBlockLayer 0.1)
+      3
+      3
+      LayerGraph.TanhActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 1) 3 3)
+  headNode <-
+    LayerGraph.mkAffineLayer
+      "resnet-head"
+      LayerGraph.DenseLayer
+      3
+      3
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 2) 3 3)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "unit-resnet"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphNodes = [stem, block, headNode]
+      }
+
+vitShapedLayerGraph :: Int -> Either Text LayerGraph.LayerGraph
+vitShapedLayerGraph seed = do
+  patch <-
+    LayerGraph.mkAffineLayer
+      "vit-patch"
+      LayerGraph.PatchEmbedLayer
+      4
+      3
+      LayerGraph.TanhActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters seed 4 3)
+  attention <-
+    LayerGraph.mkAffineLayer
+      "vit-attention"
+      (LayerGraph.MultiHeadAttentionLayer 1)
+      3
+      3
+      LayerGraph.TanhActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 1) 3 3)
+  headNode <-
+    LayerGraph.mkAffineLayer
+      "vit-head"
+      LayerGraph.DenseLayer
+      3
+      3
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 2) 3 3)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "unit-vit"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphNodes = [patch, attention, headNode]
+      }
+
+layerGraphCheckpointTensors :: LayerGraph.LayerGraph -> [Checkpoint.TensorBlob]
+layerGraphCheckpointTensors =
+  concatMap nodeTensors . LayerGraph.layerGraphNodes
+ where
+  nodeTensors node =
+    case LayerGraph.layerParameters node of
+      Nothing -> []
+      Just _ ->
+        let inputWidth = layerShapeWidth (LayerGraph.layerInputShape node)
+            outputWidth = layerShapeWidth (LayerGraph.layerOutputShape node)
+            weightName = LayerGraph.layerNodeName node <> ".weights"
+            biasName = LayerGraph.layerNodeName node <> ".bias"
+         in [ Checkpoint.TensorBlob
+                weightName
+                [outputWidth, inputWidth]
+                ("jitml-checkpoints/exp-layergraph/blobs/" <> weightName)
+            , Checkpoint.TensorBlob
+                biasName
+                [outputWidth]
+                ("jitml-checkpoints/exp-layergraph/blobs/" <> biasName)
+            ]
+
+loadedLayerGraphWeights :: LayerGraph.LayerGraph -> [CheckpointStore.LoadedWeightTensor]
+loadedLayerGraphWeights graph =
+  concatMap loadedNode (LayerGraph.layerGraphNodes graph)
+ where
+  tensorByName =
+    [(Checkpoint.tensorName tensor, tensor) | tensor <- layerGraphCheckpointTensors graph]
+  loadedNode node =
+    case LayerGraph.layerParameters node of
+      Nothing -> []
+      Just params ->
+        [ CheckpointStore.LoadedWeightTensor
+            (lookupTensor (LayerGraph.layerNodeName node <> ".weights"))
+            (Data.Vector.Unboxed.toList (LayerGraph.layerWeights params))
+        , CheckpointStore.LoadedWeightTensor
+            (lookupTensor (LayerGraph.layerNodeName node <> ".bias"))
+            (Data.Vector.Unboxed.toList (LayerGraph.layerBias params))
+        ]
+  lookupTensor name =
+    case lookup name tensorByName of
+      Just tensor -> tensor
+      Nothing -> error ("missing layer graph test tensor " <> Text.unpack name)
+
+layerShapeWidth :: LayerGraph.TensorShape -> Int
+layerShapeWidth shape =
+  case LayerGraph.tensorShapeWidth shape of
+    Right width -> width
+    Left err -> error (Text.unpack err)
 
 assertLeftContains :: Text -> IO (Either Text a) -> Assertion
 assertLeftContains expected action = do
@@ -4168,6 +5490,7 @@ canonicalLeafPaths =
   , ["internal", "install-metal-bridge"]
   , ["internal", "upload-dataset"]
   , ["internal", "seed-demo-checkpoints"]
+  , ["internal", "train-and-publish-product-rows"]
   , ["internal", "dhall-schema"]
   , ["internal", "third-party-images"]
   , ["internal", "gc"]

@@ -60,7 +60,7 @@ defaultModelId :: String
 defaultModelId = "mnist-deep-mlp"
 
 defaultExperimentHash :: String
-defaultExperimentHash = defaultModelId
+defaultExperimentHash = "product-row-mnist-deep-mlp"
 
 emptyCanvas :: Array Int
 emptyCanvas = []

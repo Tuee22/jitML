@@ -1,6 +1,6 @@
 # Phase 28: Per-Model Integration & Row-Complete E2E
 
-**Status**: Blocked
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md), [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md), [../documents/engineering/purescript_frontend.md](../documents/engineering/purescript_frontend.md)
 **Generated sections**: none
@@ -11,9 +11,47 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `27`.
+🔄 **Active**. Phase `27` remains Done for its owned demo-rendering surface, and
+Phase `25` re-closed on 2026-07-03 after every live RL product row produced
+passing `CompletedTraining` evidence. Sprint `28.1` now owns replacing the
+row-keyed integration scaffolding with real product-row publisher evidence and
+closing the remaining live dataset-staging gap for non-MNIST supervised rows.
 
 **Validation substrate**: `linux-cpu` only.
+
+### Current Validation State
+
+2026-07-03 `docker compose run --rm jitml jitml test jitml-integration
+--linux-cpu` passed **137 / 137** tests, including the row-keyed
+`ProductRow integration matrix` group and the live `linux-cpu` integration
+cases. This validates the current row-id/test-id coverage guard, but it does
+not close Sprint `28.1` because the aggregate matrix still accepts local
+checkpoint fixtures instead of the real product-row publisher evidence required
+by this phase.
+
+2026-07-03 `jitml internal train-and-publish-product-rows --linux-cpu` was run
+against the live `linux-cpu` cluster with reduced validation budgets to expose
+publisher reachability. It reported **55** rows, **8** eligible, **29**
+unsupported, and **18** errors. At that point the failures were non-MNIST
+supervised dataset artifacts missing from live MinIO, most RL product rows
+dispatching to trainer/environment pairs that
+`rlTrainerEnvironmentCompatibilityError` rejected, and supported RL rows that
+did not produce passing `CompletedTraining` evidence under the validation run.
+The RL dispatch/evidence portion reopened Phase `25`.
+
+2026-07-03 follow-up: after Sprint `25.1` was fixed, a row-filtered publisher
+run through the rebuilt worktree executable for
+`PPO/mountain-car,DQN/key-door-grid,SAC/lunar-lander,ARS/lunar-lander` reported
+**4** rows, **0** eligible, **0** unsupported, and **4** errors. The prior
+`unsupported` blocker moved back to Phase `25.1` closure evidence, and the
+remaining `CompletedTraining` errors moved to Phase `25.3`.
+
+2026-07-03 Phase `25` closure follow-up: the full RL-only live product publisher
+filter reported **39** rows, **39** eligible, **0** unsupported, and **0**
+errors. The RL portion no longer blocks this phase. Sprint `28.1` remains
+active because the integration matrix still accepts synthetic/local row
+evidence and the full publisher still needs live non-MNIST supervised dataset
+artifacts before every `ProductRow` can publish an inference-eligible manifest.
 
 ## Objective
 
@@ -28,10 +66,9 @@ registry. A green pass count without row identity does not close this phase: the
 report card enumerates every row and fails on any uncovered `rowId`/`testId`
 pair.
 
-## Sprint 28.1: Row-Keyed Integration Matrix [⏸️ Blocked]
+## Sprint 28.1: Row-Keyed Integration Matrix [🔄 Active]
 
-**Status**: Blocked
-**Blocked by**: Phase `27`
+**Status**: Active
 **Implementation**: `test/integration/Main.hs`, `src/JitML/Test/RowAssertions.hs`, `src/JitML/Test/Report.hs`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -70,10 +107,21 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Implement `RowAssertions.hs` (`paramHash`, `assertLearnedStateChanged`,
-  `assertRealLoss`) and the per-family dispatch in `test/integration/Main.hs`.
-- Add the uncovered-pair report and remove any representative-only workflow
-  closure from the integration stanza.
+- Replace the current deterministic `productRowIntegrationEvidence` construction
+  in `test/integration/Main.hs` with evidence collected from
+  `jitml internal train-and-publish-product-rows` or the same real per-row
+  training functions. `rowParamVector`, synthetic loss trajectories, and
+  registry-pinned convergence observations are scaffolding and do not satisfy
+  this sprint.
+- Close the remaining real product-row publisher gaps before the integration
+  report can be accepted as coverage: stage and verify the non-MNIST supervised
+  dataset artifacts during live validation and require a passing
+  `CompletedTraining` checkpoint manifest for every row.
+- Keep the uncovered-pair report in `src/JitML/Test/Report.hs`, but feed it real
+  manifest SHAs, learned-state hashes, update counts, and infer-before-complete
+  rejection evidence from the product-row publisher.
+- Rerun the Sprint `28.1` validation commands after the real evidence path
+  replaces the synthetic matrix.
 
 ## Sprint 28.2: Row-Complete Playwright [⏸️ Blocked]
 

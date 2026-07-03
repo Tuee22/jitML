@@ -58,11 +58,11 @@ reopened no-caveat closure and the maintainer elected to implement the full
 documented model surface for real rather than narrow it. The forward chain is
 renumbered and extended to Phases `19`–`31` (new Phase `20` De-Fossilization &
 Scaffold Lint, Phase `23` General Differentiable Layer Engine, and Phase `26`
-AlphaZero Real Self-Play inserted). The legacy fake-ML fossils still present in
-the worktree and the accelerator-kernel scaffolds are enqueued under Pending
-Removal below, each naming the sprint that deletes or replaces it. The primary
-"implement it for real" obligations are not ledger rows — they live in the
-owning sprints' `### Remaining Work` per rule C.
+AlphaZero Real Self-Play inserted). Sprint `20.1` has moved the legacy fake-ML
+fossils out of the product path; the remaining accelerator-kernel scaffolds are
+enqueued under Pending Removal below, each naming the sprint that deletes or
+replaces it. The primary "implement it for real" obligations are not ledger rows
+— they live in the owning sprints' `### Remaining Work` per rule C.
 
 **2026-06-30 — real cluster/tuning/runtime-config audit; ledger reopened.** A
 follow-up documentation/codebase audit found five doctrine deviations that can
@@ -303,20 +303,14 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-07-01): Pending Removal reopened by the product-truth
-audit.** The rows below are legacy fake-ML fossils and accelerator-kernel
-scaffolds present in the worktree that the Phase `19`–`31` chain deletes or
-replaces. Each row is removed when its owning sprint lands and the substrate
-lane it affects validates.
+**Current state (2026-07-02): Pending Removal remains open for accelerator-kernel
+scaffolds.** The rows below are remaining accelerator-kernel scaffolds present in
+the worktree that the Phase `19`–`31` chain deletes or replaces. Each row is
+removed when its owning sprint lands and the substrate lane it affects
+validates.
 
 | Item | Owning Sprint | Removal Condition |
 |------|---------------|-------------------|
-| Dead deterministic RL scaffold `src/JitML/RL/VecEnv.hs` (zero product callers) | Sprint `20.1` | Deleted from the library and `jitml.cabal` exposed-modules. |
-| Fake non-learned RL loop `src/JitML/RL/Loop.hs` (`runRLLoop`/`runOneEpisode`) and `deterministicStep` in `src/JitML/RL/Environments.hs` | Sprint `20.1` | Relocated to test-support (scaffolding-only); removed from the library so no product module imports them. |
-| Fake-policy simulator runners `runSimulatedEpisode`/`runSimulatedEpisodes`/`runSimulatedEpisodesByName` in `src/JitML/RL/SimulatorLoop.hs` | Sprint `20.1` | Moved to test-support; the `SimulatedEpisode` projection type kept in a product module consumed by the real trainers. |
-| Stale `runTrainerEpisodes` docstring in `src/JitML/App.hs` claiming a deterministic-simulator fallback that no longer exists | Sprint `20.1` | Corrected to describe the fail-closed real-trainer dispatch. |
-| Fabricated `coPassed = True` / `coThreshold = Nothing` completion witness in `JitML.Training.Budget.completedTrainingFromMetrics` | Sprint `21.1` | Removed; completion witnesses derive `coPassed` from measured convergence against the per-row bar. |
-| Product-path seeded demo checkpoints (`seededDemoCheckpoints`, `*-demo-weights`) in `src/JitML/App.hs` | Sprint `27.1` | Retired from the product path; replaced by `jitml internal train-and-publish-product-rows` real trained artifacts. |
 | Identity-copy CUDA generic-family kernels and degenerate 1×1 weighted Conv2D/Conv3D plus misleading "cuBLAS/cuDNN scaffold" comments in `src/JitML/Codegen/Cuda.hs` | Sprint `29.1` | Replaced by real cuDNN/cuBLAS convolution/attention/pool/norm kernels. |
 | Dead cuBLAS/cuDNN bindings (`src/JitML/Engines/CublasBindings.hs`, `CudnnBindings.hs`) — linked and version-probed but never invoked | Sprint `29.1` | Wired into the real CUDA kernels or removed with their link flags. |
 | Identity-copy Metal generic-family kernels and degenerate 1×1 weighted conv in `src/JitML/Codegen/Metal.hs` | Sprint `30.1` | Replaced by real Metal (MPS/MSL) convolution/attention/pool/norm kernels. |
@@ -414,6 +408,12 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Product-path seeded demo checkpoints (`seededDemoCheckpoints`, `*-demo-weights`) in `src/JitML/App.hs` | Sprint `27.1` (2026-07-02) | Retired from the product publish path. Product-row demo artifacts are now produced by `jitml internal train-and-publish-product-rows`; checkpoint browse groups artifacts by `ProductRow`, and row selectors expose `eligible`, `training-required`, `unsupported`, or `error` state. Validation: `jitml-unit --linux-cpu` 276 / 276 and `jitml-e2e --linux-cpu` 23 / 23. |
+| Fabricated `coPassed = True` / `coThreshold = Nothing` completion witness in `JitML.Training.Budget.completedTrainingFromMetrics` | Sprint `21.1` (2026-07-02 ledger move) | Completion witnesses derive `coPassed` from measured convergence against the per-row bar, and the typed training-evidence tests reject fabricated weight state and failed bar-evaluated convergence. The row moved out of Pending Removal after the Phase `21` status and unit guards were confirmed current. |
+| Dead deterministic RL scaffold `src/JitML/RL/VecEnv.hs` | Sprint `20.1` (2026-07-01) | Deleted the zero-product-caller module and removed it from `jitml.cabal` exposed modules. Validation: `jitml-unit --linux-cpu` 246/246, `jitml-rl-canonicals --linux-cpu` 31/31, `docs check: ok`, and `check-code: ok`. |
+| Fake non-learned RL loop `src/JitML/RL/Loop.hs` plus `deterministicStep` in `src/JitML/RL/Environments.hs` | Sprint `20.1` (2026-07-01) | Removed the library module and product `deterministicStep`; relocated `runRLLoop`, `runOneEpisode`, and the deterministic step helper to `test/rl-canonicals/Support/` with `scaffolding:` test titles. No product module imports them. Validation: `jitml-unit --linux-cpu` 246/246, `jitml-rl-canonicals --linux-cpu` 31/31, `docs check: ok`, and `check-code: ok`. |
+| Fake-policy simulator runners from `src/JitML/RL/SimulatorLoop.hs` | Sprint `20.1` (2026-07-01) | Removed the product simulator-loop module, moved `runSimulatedEpisode*` and the simulator catalog to `test/rl-canonicals/Support/SimulatorLoop.hs`, and split the product `SimulatedEpisode` / `SimulatedFrame` projection types into `src/JitML/RL/EpisodeEnvelope.hs` for real trainer publication. Validation: `jitml-unit --linux-cpu` 246/246, `jitml-rl-canonicals --linux-cpu` 31/31, `docs check: ok`, and `check-code: ok`. |
+| Stale `runTrainerEpisodes` docstring claiming a deterministic-simulator fallback | Sprint `20.1` (2026-07-01) | Reworded `src/JitML/App.hs` and `src/JitML/Service/Workload.hs` to describe fail-closed real-trainer dispatch, changed unknown algorithm trainer selection away from the old `"simulator"` sentinel, and kept `EpisodeEnvelope` as the projection boundary. Validation: `jitml-unit --linux-cpu` 246/246, `jitml-rl-canonicals --linux-cpu` 31/31, `docs check: ok`, and `check-code: ok`. |
 | File-only `jitml cluster up` implementation in `src/JitML/App.hs` | Sprint `3.7` (2026-06-30) | `runCluster ["cluster","up"]` now materializes the selected substrate files and executes `JitML.Bootstrap.liveExecutePhasedRollout`, so the command performs the documented live Kind/Helm lifecycle: dependency build, Kind create/export, Docker image build, explicit Kind image load, Helm/local apply, readiness, Pulsar topic creation, and measured publication write. Validation: `docker compose run --rm jitml jitml cluster up --substrate linux-cpu` completed a live 107-step rollout, and `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` passed 77/77 including 19/19 `Live` cases. |
 | Ready `defaultPublication` written or synthesized without live evidence (`src/JitML/Bootstrap.hs`, `src/JitML/Cluster/Publication.hs`, `src/JitML/App.hs`) | Sprint `3.7` (2026-06-30) | Bootstrap materialization no longer writes `cluster-publication.json`; measured live publications carry `evidence: live-readiness`; `cluster status` exits through typed configuration failure for missing, corrupt, or no-live-evidence publications instead of synthesizing ready state. Validation: spawned-binary integration regressions cover missing publication, corrupt bytes, and default all-ready publication without evidence; live `cluster status` reports `evidence: live-readiness`. |
 | Mounted `RunConfig.dhall` decode failure treated as missing in `src/JitML/Service/RunConfig.hs` and worker callers | Sprint `5.17` (2026-06-30) | `RunConfig.tryLoadFile` now distinguishes `RunConfigMissing`, `RunConfigLoaded`, and `RunConfigDecodeFailed`; worker Training/Tune/RL entrypoints, broker-target lookup, and experiment-hash lookup route present-but-malformed mounts to `InvalidConfig` before workflow side effects. Env/default fallback remains only when no mounted file exists for developer-local invocations. Validation: `jitml-unit --linux-cpu` 239/239 includes malformed mounted Training/Tune/RL regressions; `jitml-daemon-lifecycle --linux-cpu` 32/32; live `jitml-integration --linux-cpu` 77/77; `check-code: ok`. |

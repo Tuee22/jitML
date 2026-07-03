@@ -3,9 +3,11 @@
 module JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter (..)
   , AlgorithmModule (..)
+  , AlgorithmUpdateContract (..)
   , hyperparameterRow
   , renderAlgorithmModule
   , renderHyperparameters
+  , updateContract
   )
 where
 
@@ -24,10 +26,23 @@ data AlgorithmHyperparameter = AlgorithmHyperparameter
 data AlgorithmModule = AlgorithmModule
   { moduleAlgorithm :: RLAlgorithm
   , moduleHyperparameters :: [AlgorithmHyperparameter]
+  , moduleUpdateContract :: AlgorithmUpdateContract
   }
+
+data AlgorithmUpdateContract = AlgorithmUpdateContract
+  { updateIdentity :: Text
+  , trainerEntryPoint :: Text
+  , rolloutSurface :: Text
+  , learnedArtifact :: Text
+  , updateFeatures :: [Text]
+  }
+  deriving stock (Eq, Show)
 
 hyperparameterRow :: Text -> Text -> Bool -> AlgorithmHyperparameter
 hyperparameterRow = AlgorithmHyperparameter
+
+updateContract :: Text -> Text -> Text -> Text -> [Text] -> AlgorithmUpdateContract
+updateContract = AlgorithmUpdateContract
 
 renderHyperparameters :: [AlgorithmHyperparameter] -> Text
 renderHyperparameters hyperparameters =
@@ -46,6 +61,12 @@ renderAlgorithmModule m =
     [ "algorithm: " <> algorithmName (moduleAlgorithm m)
     , "family: " <> renderFamily (algorithmFamily (moduleAlgorithm m))
     , "replay-based: " <> if algorithmReplayBased (moduleAlgorithm m) then "yes" else "no"
+    , "update-identity: " <> updateIdentity (moduleUpdateContract m)
+    , "trainer-entrypoint: " <> trainerEntryPoint (moduleUpdateContract m)
+    , "rollout-surface: " <> rolloutSurface (moduleUpdateContract m)
+    , "learned-artifact: " <> learnedArtifact (moduleUpdateContract m)
+    , "update-features:"
+    , renderUpdateFeatures (updateFeatures (moduleUpdateContract m))
     , "hyperparameters:"
     , renderHyperparameters (moduleHyperparameters m)
     ]
@@ -54,3 +75,5 @@ renderAlgorithmModule m =
   renderFamily OffPolicy = "off-policy"
   renderFamily Specialized = "specialised"
   renderFamily SelfPlay = "self-play"
+  renderUpdateFeatures features =
+    Text.unlines ["  - " <> feature | feature <- features]

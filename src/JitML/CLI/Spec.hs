@@ -303,6 +303,7 @@ rlCommand =
             False
             "Override the RL experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda)."
         , value "seed" Nothing "word64" False "Override the RL experiment Dhall's seed."
+        , value "algorithm" Nothing "algorithm" False "Override the RL experiment Dhall's algorithm."
         , dryRunOption
         , planFileOption
         ]
@@ -342,6 +343,7 @@ rlCommand =
                 False
                 "Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda)."
             , value "seed" Nothing "word64" False "Self-play seed."
+            , value "game" Nothing "game" False "AlphaZero game (connect4, othello, hex, or gomoku)."
             , value "games" Nothing "n" False "Number of self-play games."
             , value "sims" Nothing "n" False "MCTS simulations per move."
             , value "max-plies" Nothing "n" False "Maximum plies per self-play game."
@@ -533,12 +535,21 @@ internalCommand =
         ]
     , leaf
         "seed-demo-checkpoints"
-        "Seed demo inference checkpoints into MinIO."
-        "Writes self-describing MLP weight checkpoints (manifest + .jmw1 + latest-pointer) at the demo browser-panel experiment hashes (mnist-deep-mlp, generic-tensor-demo, generic-tensor-demo-candidate, cifar-imagenet, connect4-alphazero, othello-alphazero, hex-alphazero, gomoku-alphazero) through the routed MinIOSubprocess, so the live jitml-demo checkpoint-backed panels serve real full-width inference results. Requires a live cluster."
+        "Seed legacy fixture checkpoints into MinIO."
+        "Writes self-describing development fixture checkpoints (manifest + .jmw1 + latest-pointer) at the historical demo browser-panel experiment hashes through the routed MinIOSubprocess. This is not a product-row artifact producer; product rows are published by `jitml internal train-and-publish-product-rows`. Requires a live cluster."
         []
         [ Example
             "jitml internal seed-demo-checkpoints"
-            "Seed the demo panel checkpoints into live MinIO."
+            "Seed the legacy fixture checkpoints into live MinIO."
+        ]
+    , leaf
+        "train-and-publish-product-rows"
+        "Train and publish product row checkpoints."
+        "Trains the ProductRow matrix on the selected substrate and publishes inference-eligible checkpoints into the product-row artifact namespace. Requires a live cluster and staged datasets for supervised rows."
+        substrateFlags
+        [ Example
+            "jitml internal train-and-publish-product-rows --linux-cpu"
+            "Train and publish product-row artifacts for the Linux CPU lane."
         ]
     , leaf
         "dhall-schema"

@@ -118,10 +118,10 @@ data AdversarialMoveResult = AdversarialMoveResult
   }
   deriving stock (Eq, Show)
 
--- | Sprint 14.1 (Feature A) — checkpoint browse as an __Engine__ job: the Webapp
--- publishes this command on the inference request topic and the Engine lists the
--- seeded experiments' manifests from MinIO, replying with a @CheckpointList@
--- frame on the reply topic. Carries no input beyond the reply topic.
+-- | Checkpoint browse as an __Engine__ job: the Webapp publishes this command on
+-- the inference request topic and the Engine lists product-row manifests from
+-- MinIO, replying with a @CheckpointList@ frame on the reply topic. Carries no
+-- input beyond the reply topic.
 data ListCheckpointsCommand = ListCheckpointsCommand
   { lccCallId :: Text
   , lccReplyTopic :: Text

@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Sprint 13.9 — real two-headed policy/value network for AlphaZero,
 -- wired through the differentiable MLP seam in "JitML.Numerics.Mlp".
@@ -52,10 +53,13 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , policyValueNetToFlat
   , loadPolicyValueNetWeights
   , generatePolicyValueSamples
+  , generatePolicyValueSamplesFrom
   , generatePolicyValueSamplesWithDevice
+  , generatePolicyValueSamplesWithDeviceFrom
   , runOneGenerationOfSelfPlay
   , GenerationResult (..)
   , arenaWinRateAgainstUniform
+  , arenaWinRateAgainstUniformFrom
 
     -- * Re-exports for tests
   , pvPolicy
@@ -65,6 +69,7 @@ module JitML.RL.AlphaZero.PolicyValueNet
 where
 
 import Control.Monad (foldM)
+import Data.IntMap.Strict qualified as IntMap
 import Data.List qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -103,7 +108,11 @@ import JitML.RL.AlphaZero
   , applyMove
   , connect4BoardAfter
   , gameOutcome
+  , gomokuActionCount
+  , hexActionCount
   , initialConnect4
+  , othelloActionCount
+  , othelloBoardAfter
   , terminalValueForToMove
   )
 import JitML.RL.AlphaZero.Mcts
@@ -170,16 +179,44 @@ encodeConnect4Board state =
       parity = if currentPlayer == 1 then 1.0 else -1.0
    in VU.fromList (cells <> [parity])
 
--- | Generic per-game observation encoder. Falls back to Connect 4 for
--- everything else (the network's observation surface is parameterised
--- by 'pvnObservationSize'; richer encoders for othello / hex / gomoku
--- are a follow-on delta).
+-- | Generic per-game observation encoder. The observation is the board from
+-- the side-to-move perspective plus a parity bit, so every AlphaZero product
+-- game has a fixed input shape while still preserving the game's own board
+-- size and legal-action surface.
 encodeGameState :: PolicyValueNet -> GameState -> Vector Double
 encodeGameState net state =
-  let encoded = encodeConnect4Board state
+  let encoded =
+        case gameName state of
+          "connect4" -> encodeConnect4Board state
+          "othello" -> encodeIndexedBoard othelloActionCount (othelloCells state) state
+          "hex" -> encodeIndexedBoard hexActionCount (moveCells hexActionCount state) state
+          "gomoku" -> encodeIndexedBoard gomokuActionCount (moveCells gomokuActionCount state) state
+          _ -> encodeConnect4Board state
    in if VU.length encoded >= pvnObservationSize net
         then VU.take (pvnObservationSize net) encoded
         else encoded VU.++ VU.replicate (pvnObservationSize net - VU.length encoded) 0.0
+
+encodeIndexedBoard :: Int -> [(Int, Int)] -> GameState -> Vector Double
+encodeIndexedBoard actionCount occupied state =
+  let currentPlayer = gameCurrentPlayer state
+      cellAt cell =
+        case lookup cell occupied of
+          Nothing -> 0.0
+          Just player
+            | player == currentPlayer -> 1.0
+            | otherwise -> -1.0
+      parity = if currentPlayer == 1 then 1.0 else -1.0
+   in VU.fromList ([cellAt cell | cell <- [0 .. actionCount - 1]] <> [parity])
+
+othelloCells :: GameState -> [(Int, Int)]
+othelloCells state =
+  IntMap.toList (othelloBoardAfter (gameMoves state))
+
+moveCells :: Int -> GameState -> [(Int, Int)]
+moveCells actionCount state =
+  [ (raw `mod` actionCount, if even ix then 1 else -1)
+  | (ix, raw) <- zip [0 :: Int ..] (gameMoves state)
+  ]
 
 -- | Compute the policy + value for a given board state.
 networkPolicyValue :: PolicyValueNet -> GameState -> PolicyValueOutput
@@ -464,7 +501,17 @@ generatePolicyValueSamples
   -> Int -- MCTS simulations per move
   -> Int -- max plies
   -> [PolicyValueTrainingSample]
-generatePolicyValueSamples net seed0 sims maxPlies =
+generatePolicyValueSamples =
+  generatePolicyValueSamplesFrom initialConnect4
+
+generatePolicyValueSamplesFrom
+  :: GameState
+  -> PolicyValueNet
+  -> Int -- seed
+  -> Int -- MCTS simulations per move
+  -> Int -- max plies
+  -> [PolicyValueTrainingSample]
+generatePolicyValueSamplesFrom initialState net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
       go !state !gen !plies !acc
         | plies >= maxPlies = annotatePolicyValueOutcome GameDraw (reverse acc)
@@ -487,7 +534,7 @@ generatePolicyValueSamples net seed0 sims maxPlies =
                         go nextState gen' (plies + 1) (sample : acc)
                   outcome ->
                     annotatePolicyValueOutcome outcome (reverse (sample : acc))
-   in go initialConnect4 gen0 0 []
+   in go initialState gen0 0 []
 
 -- | Device-backed variant of 'generatePolicyValueSamples'. The MCTS visit
 -- target for each sampled position is produced through
@@ -501,7 +548,18 @@ generatePolicyValueSamplesWithDevice
   -> Int -- MCTS simulations per move
   -> Int -- max plies
   -> IO (Either Text [PolicyValueTrainingSample])
-generatePolicyValueSamplesWithDevice device net seed0 sims maxPlies =
+generatePolicyValueSamplesWithDevice =
+  generatePolicyValueSamplesWithDeviceFrom initialConnect4
+
+generatePolicyValueSamplesWithDeviceFrom
+  :: GameState
+  -> MlpDevice
+  -> PolicyValueNet
+  -> Int -- seed
+  -> Int -- MCTS simulations per move
+  -> Int -- max plies
+  -> IO (Either Text [PolicyValueTrainingSample])
+generatePolicyValueSamplesWithDeviceFrom initialState device net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
       go !state !gen !plies !acc
         | plies >= maxPlies = pure (Right (annotatePolicyValueOutcome GameDraw (reverse acc)))
@@ -527,7 +585,7 @@ generatePolicyValueSamplesWithDevice device net seed0 sims maxPlies =
                         go nextState gen' (plies + 1) (sample : acc)
                   outcome ->
                     pure (Right (annotatePolicyValueOutcome outcome (reverse (sample : acc))))
-   in go initialConnect4 gen0 0 []
+   in go initialState gen0 0 []
 
 annotatePolicyValueOutcome
   :: GameOutcome -> [PolicyValueTrainingSample] -> [PolicyValueTrainingSample]
@@ -587,7 +645,11 @@ runOneGenerationOfSelfPlay net adam selfPlayGames maxPlies sims gradientUpdates 
 -- player 1 and uniform-random as player 2 in alternation by game
 -- index, with winner/draw detection coming from the shared game rules.
 arenaWinRateAgainstUniform :: PolicyValueNet -> Int -> Int -> Int -> Double
-arenaWinRateAgainstUniform net games maxPlies seed0 =
+arenaWinRateAgainstUniform =
+  arenaWinRateAgainstUniformFrom initialConnect4
+
+arenaWinRateAgainstUniformFrom :: GameState -> PolicyValueNet -> Int -> Int -> Int -> Double
+arenaWinRateAgainstUniformFrom initialState net games maxPlies seed0 =
   let gen0 = Random.mkStdGen seed0
       playOne g state gen plies =
         if plies >= maxPlies
@@ -613,7 +675,7 @@ arenaWinRateAgainstUniform net games maxPlies seed0 =
       go !g !gen !wins !drawn !losses
         | g >= games = (wins, drawn, losses)
         | otherwise =
-            let (result, gen') = playOne g initialConnect4 gen 0
+            let (result, gen') = playOne g initialState gen 0
              in case compare result 0.0 of
                   GT -> go (g + 1) gen' (wins + 1) drawn losses
                   EQ -> go (g + 1) gen' wins (drawn + 1) losses

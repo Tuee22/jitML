@@ -41,6 +41,8 @@ import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env, envCacheDir)
 import JitML.Numerics.FamilyReference (familyReference)
+import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Numerics.LayerGraphOneDnn qualified as LayerGraphOneDnn
 import JitML.Numerics.Mlp
   ( MlpForward (..)
   , MlpGradient (..)
@@ -367,6 +369,59 @@ main =
                 assertBool
                   "oneDNN gradB2 within tolerance of reference"
                   (approxEqualVec 1.0e-3 (gradB2 grad) (gradB2 refGrad))
+      , testCase
+          "linux-cpu LayerGraph oneDNN training kernels match the pure oracle and record device evidence (Sprint 23.2)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphOneDnnFixture
+            let input = VU.fromList [0.15, -0.25, 0.35, -0.45]
+                target = VU.fromList [-0.05, 0.10, -0.15, 0.20]
+            (_pureTape, pureGradient) <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+            run <-
+              LayerGraphOneDnn.layerGraphSquaredErrorGradientOneDnn env graph input target
+                >>= expectRight "LayerGraph oneDNN training run failed"
+            assertLayerGraphGradientClose
+              1.0e-3
+              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              pureGradient
+            let evidence = LayerGraphOneDnn.layerGraphOneDnnEvidence run
+                expectedEvidence =
+                  length (filter isParameterizedLayerKind LayerGraph.allLayerKinds)
+            length evidence @?= expectedEvidence
+            assertBool
+              "all LayerGraph device evidence entries report the oneDNN backend"
+              ( all
+                  ((== "linux-cpu-onednn") . LayerGraphOneDnn.layerEvidenceBackend)
+                  evidence
+              )
+            assertBool
+              "Conv2D node executed oneDNN convolution_backward_data"
+              ( any
+                  ( (== "onednn_convolution_backward_data_2d")
+                      . LayerGraphOneDnn.layerEvidenceBackwardDataPrimitive
+                  )
+                  evidence
+              )
+            assertBool
+              "Conv3D node executed oneDNN convolution_backward_weights"
+              ( any
+                  ( (== "onednn_convolution_backward_weights_3d")
+                      . LayerGraphOneDnn.layerEvidenceBackwardWeightsPrimitive
+                  )
+                  evidence
+              )
+            assertBool
+              "non-convolution nodes executed oneDNN matmul backward weights"
+              ( any
+                  ( (== "onednn_matmul_backward_weights")
+                      . LayerGraphOneDnn.layerEvidenceBackwardWeightsPrimitive
+                  )
+                  evidence
+              )
       , testCase
           "linux-cpu MLP kernels are bit-deterministic across repeated runs (Phase 2 rebalance)"
           $ do
@@ -1676,6 +1731,91 @@ approxEqualVec :: Double -> VU.Vector Double -> VU.Vector Double -> Bool
 approxEqualVec tol a b =
   VU.length a == VU.length b
     && VU.and (VU.zipWith (\x y -> abs (x - y) <= tol) a b)
+
+assertLayerGraphGradientClose
+  :: Double -> LayerGraph.LayerGraphGradient -> LayerGraph.LayerGraphGradient -> IO ()
+assertLayerGraphGradientClose tol actual expected = do
+  assertBool
+    "LayerGraph input gradient within tolerance"
+    ( approxEqualVec
+        tol
+        (LayerGraph.layerGraphInputGradient actual)
+        (LayerGraph.layerGraphInputGradient expected)
+    )
+  let actualLayers = LayerGraph.layerGraphLayerGradients actual
+      expectedLayers = LayerGraph.layerGraphLayerGradients expected
+  length actualLayers @?= length expectedLayers
+  for_ (zip [0 :: Int ..] (zip actualLayers expectedLayers)) $ \(idx, (actualLayer, expectedLayer)) -> do
+    LayerGraph.layerGradientName actualLayer @?= LayerGraph.layerGradientName expectedLayer
+    assertBool
+      ("LayerGraph layer " <> show idx <> " input gradient within tolerance")
+      ( approxEqualVec
+          tol
+          (LayerGraph.layerGradientInput actualLayer)
+          (LayerGraph.layerGradientInput expectedLayer)
+      )
+    case ( LayerGraph.layerGradientParameters actualLayer
+         , LayerGraph.layerGradientParameters expectedLayer
+         ) of
+      (Nothing, Nothing) -> pure ()
+      (Just actualParams, Just expectedParams) -> do
+        assertBool
+          ("LayerGraph layer " <> show idx <> " weight gradient within tolerance")
+          ( approxEqualVec
+              tol
+              (LayerGraph.layerGradWeights actualParams)
+              (LayerGraph.layerGradWeights expectedParams)
+          )
+        assertBool
+          ("LayerGraph layer " <> show idx <> " bias gradient within tolerance")
+          ( approxEqualVec
+              tol
+              (LayerGraph.layerGradBias actualParams)
+              (LayerGraph.layerGradBias expectedParams)
+          )
+      _ -> assertFailure ("LayerGraph layer " <> show idx <> " parameter-gradient shape mismatch")
+
+layerGraphOneDnnFixture :: Either Text.Text LayerGraph.LayerGraph
+layerGraphOneDnnFixture = do
+  nodes <-
+    traverse
+      ( \(idx, kind) ->
+          if isParameterizedLayerKind kind
+            then
+              LayerGraph.mkAffineLayer
+                ("backend-layer-" <> Text.pack (show idx) <> "-" <> LayerGraph.layerKindName kind)
+                kind
+                4
+                4
+                (layerGraphOneDnnActivation kind)
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicParameters (100 + idx) 4 4)
+            else
+              LayerGraph.mkIdentityLayer
+                ("backend-layer-" <> Text.pack (show idx) <> "-" <> LayerGraph.layerKindName kind)
+                kind
+                4
+                LayerGraph.TrainingMode
+      )
+      (zip [1 :: Int ..] LayerGraph.allLayerKinds)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "backend-layergraph-all-kinds"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [4]
+      , LayerGraph.layerGraphNodes = nodes
+      }
+
+layerGraphOneDnnActivation :: LayerGraph.LayerKind -> LayerGraph.LayerActivation
+layerGraphOneDnnActivation kind =
+  case kind of
+    LayerGraph.NormLayer _ -> LayerGraph.LinearActivation
+    _ -> LayerGraph.TanhActivation
+
+isParameterizedLayerKind :: LayerGraph.LayerKind -> Bool
+isParameterizedLayerKind (LayerGraph.PoolLayer _) = False
+isParameterizedLayerKind (LayerGraph.DropoutLayer _) = False
+isParameterizedLayerKind _ = True
 
 assertFamilySmoke :: Env -> KernelFamily -> IO ()
 assertFamilySmoke env family = do

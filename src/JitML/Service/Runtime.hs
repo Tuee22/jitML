@@ -41,6 +41,7 @@ import Data.Foldable (asum)
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Observability.TbSidecar qualified as TbSidecar
+import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , HttpListener (..)
@@ -600,7 +601,7 @@ daemonWorkloadDispatcher domain _eventId payload = do
 
 daemonWorkloadDispatcherWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => (ProductPipeline.InferenceEligibleRef -> CheckpointManifest -> [Double] -> m (Either Text [Double]))
   -> EventDomain
   -> EventId
   -> Text
@@ -614,14 +615,15 @@ daemonWorkloadDispatcherWithInference runInference domain _eventId payload = do
       workloadEffectsToUnit <$> Workload.dispatchDomainPayloadWithInference runInference domain payload
 
 -- | Sprint 13.11 — daemon dispatch variant that threads the weighted inference
--- callback (`CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
+-- callback (`InferenceEligibleRef -> CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
 -- so the substrate-bound runners can consume real `.jmw1`-decoded weight
 -- tensors instead of the removed manifest-only summary path. Used by
 -- `daemonWorkloadDispatcherForRuntime` whenever the loaded `BootConfig`
 -- requests `SelfInference` on `LinuxCPU` or `LinuxCUDA`.
 daemonWorkloadDispatcherWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => ( CheckpointManifest
+  => ( ProductPipeline.InferenceEligibleRef
+       -> CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]
        -> m (Either Text [Double])
@@ -679,7 +681,8 @@ daemonWorkloadDispatcherForwardingInference domain eventId payload
 -- values model). This is an alias for the weighted self-inference dispatcher.
 daemonWorkloadDispatcherHostingAppleInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => ( CheckpointManifest
+  => ( ProductPipeline.InferenceEligibleRef
+       -> CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]
        -> m (Either Text [Double])

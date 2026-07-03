@@ -9,6 +9,11 @@ module JitML.Checkpoint.Format
   , CheckpointPartKind (..)
   , EligibilityError (..)
   , InferenceEligibleCheckpoint
+  , LayerGraphActivationMetadata (..)
+  , LayerGraphKindMetadata (..)
+  , LayerGraphMetadata (..)
+  , LayerGraphModeMetadata (..)
+  , LayerGraphNodeMetadata (..)
   , MetricDirection (..)
   , ModelFamily (..)
   , OptimizerBlob (..)
@@ -27,9 +32,11 @@ module JitML.Checkpoint.Format
   , advanceLatest
   , applyAdvancePredicate
   , applyPointerWrite
+  , attachCompletedTraining
   , bestPointerKey
   , blobKey
   , decodeJmw1
+  , decodeInferenceEligibleManifestCbor
   , decodeManifestCbor
   , defaultArchitectureMetadata
   , deriveExperimentHash
@@ -37,9 +44,11 @@ module JitML.Checkpoint.Format
   , encodeJmw1
   , encodeManifestCbor
   , latestPointerKey
+  , layerGraphMetadataFromGraph
   , manifestContentSha
   , manifestKey
   , manifestPointer
+  , manifestTrainingEvidence
   , renderEligibilityError
   , requireInferenceEligibleCheckpoint
   , eligibleCheckpointCompletedTraining
@@ -47,6 +56,7 @@ module JitML.Checkpoint.Format
   , eligibleCheckpointManifestSha
   , tensorSpecFromBlob
   , trialPointerKey
+  , validateSupervisedManifestShapeLayout
   , weightOnlyTensors
   )
 where
@@ -57,7 +67,7 @@ import Data.Bits (Bits, shiftL, shiftR, (.&.))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (intToDigit)
-import Data.List (sortOn)
+import Data.List (group, sort, sortOn)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -65,12 +75,22 @@ import Data.Word (Word32, Word64, Word8)
 import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import GHC.Generics (Generic)
 
+import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Product.Evidence
+  ( TrainingEvidence
+  , mkTrainingEvidence
+  )
 import JitML.Training.Budget
   ( CompletedTraining
   , coMetricName
+  , completedTrainingDatasetShaAtRead
+  , completedTrainingEvidence
+  , completedTrainingFinalWeightHash
+  , completedTrainingInitialWeightHash
   , completedTrainingMetrics
   , completedTrainingObservedUnits
   , completedTrainingTensorBoard
+  , completedTrainingUpdateCount
   , convergencePassed
   , tbrScalarTags
   )
@@ -123,11 +143,68 @@ data TensorSpec = TensorSpec
   deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
 
+data LayerGraphModeMetadata
+  = LayerGraphTrainingMode
+  | LayerGraphInferenceMode
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data LayerGraphActivationMetadata
+  = LayerGraphLinearActivation
+  | LayerGraphTanhActivation
+  | LayerGraphReluActivation
+  | LayerGraphSoftmaxActivation
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data LayerGraphKindMetadata
+  = LayerGraphDenseLayer
+  | LayerGraphConv2DLayer
+  | LayerGraphConv3DLayer
+  | LayerGraphMaxPoolLayer
+  | LayerGraphAvgPoolLayer
+  | LayerGraphGlobalAvgPoolLayer
+  | LayerGraphBatchNormLayer
+  | LayerGraphLayerNormLayer
+  | LayerGraphGroupNormLayer Int
+  | LayerGraphDropoutLayer Double
+  | LayerGraphResidualLayer Double
+  | LayerGraphBasicBlockLayer Double
+  | LayerGraphBottleneckBlockLayer Double
+  | LayerGraphMultiHeadAttentionLayer Int
+  | LayerGraphGeGLULayer
+  | LayerGraphPatchEmbedLayer
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data LayerGraphNodeMetadata = LayerGraphNodeMetadata
+  { layerGraphNodeName :: Text
+  , layerGraphNodeKind :: LayerGraphKindMetadata
+  , layerGraphNodeInputShape :: [Int]
+  , layerGraphNodeOutputShape :: [Int]
+  , layerGraphNodeMode :: LayerGraphModeMetadata
+  , layerGraphNodeActivation :: LayerGraphActivationMetadata
+  , layerGraphNodeWeightTensor :: Maybe Text
+  , layerGraphNodeBiasTensor :: Maybe Text
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data LayerGraphMetadata = LayerGraphMetadata
+  { layerGraphMetadataName :: Text
+  , layerGraphMetadataInputShape :: [Int]
+  , layerGraphMetadataOutputShape :: [Int]
+  , layerGraphMetadataNodes :: [LayerGraphNodeMetadata]
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
 data ArchitectureMetadata = ArchitectureMetadata
   { architectureName :: Text
   , architectureModelFamily :: ModelFamily
   , architectureInputs :: [TensorSpec]
   , architectureOutputs :: [TensorSpec]
+  , architectureLayerGraph :: Maybe LayerGraphMetadata
   }
   deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
@@ -201,6 +278,10 @@ data CheckpointManifest = CheckpointManifest
   , manifestStep :: Word64
   , manifestMetrics :: [(Text, Double)]
   , manifestCompletedTraining :: Maybe CompletedTraining
+  , manifestInitialWeightHash :: Maybe Text
+  , manifestFinalWeightHash :: Maybe Text
+  , manifestUpdateCount :: Maybe Word64
+  , manifestDatasetShaAtRead :: Maybe Text
   , manifestParentManifestSha :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)
@@ -218,6 +299,10 @@ data EligibilityError
   | CompletedTrainingHasNoMetrics
   | CompletedTrainingHasFailedMetrics [Text]
   | CompletedTrainingOutrunsManifest Word64 Word64
+  | CompletedTrainingEvidenceMissing
+  | CompletedTrainingEvidenceInvalid Text
+  | CompletedTrainingEvidenceMismatch
+  | SupervisedManifestShapeLayoutInvalid [Text]
   | TensorBoardMetadataMissing
   deriving stock (Eq, Show)
 
@@ -309,8 +394,35 @@ emptyManifest mid experiment tensors =
     , manifestStep = 0
     , manifestMetrics = []
     , manifestCompletedTraining = Nothing
+    , manifestInitialWeightHash = Nothing
+    , manifestFinalWeightHash = Nothing
+    , manifestUpdateCount = Nothing
+    , manifestDatasetShaAtRead = Nothing
     , manifestParentManifestSha = Nothing
     }
+
+attachCompletedTraining :: CompletedTraining -> CheckpointManifest -> CheckpointManifest
+attachCompletedTraining completed manifest =
+  manifest
+    { manifestCompletedTraining = Just completed
+    , manifestInitialWeightHash = Just (completedTrainingInitialWeightHash completed)
+    , manifestFinalWeightHash = Just (completedTrainingFinalWeightHash completed)
+    , manifestUpdateCount = Just (completedTrainingUpdateCount completed)
+    , manifestDatasetShaAtRead = Just (completedTrainingDatasetShaAtRead completed)
+    }
+
+manifestTrainingEvidence :: CheckpointManifest -> Either EligibilityError TrainingEvidence
+manifestTrainingEvidence manifest =
+  case ( manifestInitialWeightHash manifest
+       , manifestFinalWeightHash manifest
+       , manifestUpdateCount manifest
+       , manifestDatasetShaAtRead manifest
+       ) of
+    (Just initialHash, Just finalHash, Just updateCount, Just datasetSha) ->
+      case mkTrainingEvidence initialHash finalHash updateCount datasetSha of
+        Right evidence -> Right evidence
+        Left err -> Left (CompletedTrainingEvidenceInvalid err)
+    _ -> Left CompletedTrainingEvidenceMissing
 
 requireInferenceEligibleCheckpoint
   :: Text
@@ -332,16 +444,181 @@ requireInferenceEligibleCheckpoint manifestSha manifest =
       | null (tbrScalarTags (completedTrainingTensorBoard completed)) ->
           Left TensorBoardMetadataMissing
       | otherwise ->
-          case filter (not . convergencePassed) (completedTrainingMetrics completed) of
-            [] ->
-              Right
-                InferenceEligibleCheckpoint
-                  { eligibleCheckpointManifest = manifest
-                  , eligibleCheckpointManifestSha = manifestSha
-                  , eligibleCheckpointCompletedTraining = completed
-                  }
-            failed ->
-              Left (CompletedTrainingHasFailedMetrics (fmap coMetricName failed))
+          case manifestTrainingEvidence manifest of
+            Left err -> Left err
+            Right evidence
+              | evidence /= completedTrainingEvidence completed ->
+                  Left CompletedTrainingEvidenceMismatch
+              | otherwise ->
+                  let supervisedShapeLayoutErrors =
+                        validateSupervisedManifestShapeLayout manifest
+                   in case filter (not . convergencePassed) (completedTrainingMetrics completed) of
+                        []
+                          | not (null supervisedShapeLayoutErrors) ->
+                              Left (SupervisedManifestShapeLayoutInvalid supervisedShapeLayoutErrors)
+                          | otherwise ->
+                              Right
+                                InferenceEligibleCheckpoint
+                                  { eligibleCheckpointManifest = manifest
+                                  , eligibleCheckpointManifestSha = manifestSha
+                                  , eligibleCheckpointCompletedTraining = completed
+                                  }
+                        failed ->
+                          Left (CompletedTrainingHasFailedMetrics (fmap coMetricName failed))
+
+validateSupervisedManifestShapeLayout :: CheckpointManifest -> [Text]
+validateSupervisedManifestShapeLayout manifest
+  | manifestModelFamily manifest /= SupervisedModelFamily = []
+  | otherwise =
+      concat
+        [ architectureFamilyErrors
+        , architectureShapeErrors
+        , tensorBlobErrors
+        , weightLayoutErrors
+        , layerGraphErrors
+        ]
+ where
+  architecture = manifestArchitecture manifest
+  tensors = manifestTensors manifest
+  tensorSpecs = fmap tensorSpecFromBlob tensors
+  layoutSpecs =
+    case manifestWeightLayout manifest of
+      NamedTensorWeightLayout specs -> Just specs
+      FlatWeightLayout _ -> Nothing
+
+  architectureFamilyErrors =
+    [ "supervised manifest architecture family is "
+        <> Text.pack (show (architectureModelFamily architecture))
+        <> ", expected SupervisedModelFamily"
+    | architectureModelFamily architecture /= SupervisedModelFamily
+    ]
+
+  architectureShapeErrors =
+    concat
+      [ singletonShapeErrors "architecture input" (architectureInputs architecture)
+      , singletonShapeErrors "architecture output" (architectureOutputs architecture)
+      , concatMap (tensorSpecShapeErrors "architecture input") (architectureInputs architecture)
+      , concatMap (tensorSpecShapeErrors "architecture output") (architectureOutputs architecture)
+      ]
+
+  tensorBlobErrors =
+    ["supervised manifest has no weight tensors" | null tensors]
+      <> concatMap tensorBlobShapeErrors tensors
+      <> duplicateNameErrors "weight tensor" (fmap tensorName tensors)
+
+  weightLayoutErrors =
+    case manifestWeightLayout manifest of
+      FlatWeightLayout _ ->
+        ["supervised manifest requires NamedTensorWeightLayout"]
+      NamedTensorWeightLayout specs ->
+        ["supervised manifest has empty NamedTensorWeightLayout" | null specs]
+          <> concatMap (tensorSpecShapeErrors "weight layout") specs
+          <> duplicateNameErrors "weight layout tensor" (fmap tensorSpecName specs)
+          <> [ "supervised manifest weight layout does not match manifest tensors"
+             | sortTensorSpecs specs /= sortTensorSpecs tensorSpecs
+             ]
+
+  layerGraphErrors =
+    case architectureLayerGraph architecture of
+      Nothing ->
+        ["supervised manifest missing layer graph metadata"]
+      Just graph ->
+        graphShapeErrors graph
+          <> graphNodeErrors graph
+          <> graphTensorErrors graph
+
+  graphShapeErrors graph =
+    concat
+      [ shapeErrors "layer graph input" (layerGraphMetadataInputShape graph)
+      , shapeErrors "layer graph output" (layerGraphMetadataOutputShape graph)
+      , [ "supervised layer graph input shape does not match architecture input"
+        | Just inputShape <- [singleTensorSpecShape (architectureInputs architecture)]
+        , layerGraphMetadataInputShape graph /= inputShape
+        ]
+      , [ "supervised layer graph output shape does not match architecture output"
+        | Just outputShape <- [singleTensorSpecShape (architectureOutputs architecture)]
+        , layerGraphMetadataOutputShape graph /= outputShape
+        ]
+      ]
+
+  graphNodeErrors graph =
+    ["supervised layer graph has no nodes" | null (layerGraphMetadataNodes graph)]
+      <> concatMap layerNodeShapeErrors (layerGraphMetadataNodes graph)
+      <> duplicateNameErrors "layer graph node" (fmap layerGraphNodeName (layerGraphMetadataNodes graph))
+
+  graphTensorErrors graph =
+    let expectedSpecs = concatMap expectedLayerGraphTensorSpecs (layerGraphMetadataNodes graph)
+        expectedNames = fmap tensorSpecName expectedSpecs
+        layoutMismatch =
+          case layoutSpecs of
+            Nothing -> []
+            Just specs ->
+              [ "supervised layer graph tensors do not match named weight layout"
+              | sortTensorSpecs expectedSpecs /= sortTensorSpecs specs
+              ]
+     in ["supervised layer graph declares no parameter tensors" | null expectedSpecs]
+          <> concatMap layerNodeTensorPairErrors (layerGraphMetadataNodes graph)
+          <> duplicateNameErrors "layer graph tensor" expectedNames
+          <> [ "supervised layer graph tensors do not match manifest tensors"
+             | sortTensorSpecs expectedSpecs /= sortTensorSpecs tensorSpecs
+             ]
+          <> layoutMismatch
+
+  expectedLayerGraphTensorSpecs node =
+    case (layerGraphNodeWeightTensor node, layerGraphNodeBiasTensor node) of
+      (Just weightName, Just biasName) ->
+        let inputWidth = product (layerGraphNodeInputShape node)
+            outputWidth = product (layerGraphNodeOutputShape node)
+         in [ TensorSpec weightName [outputWidth, inputWidth] "F64"
+            , TensorSpec biasName [outputWidth] "F64"
+            ]
+      _ -> []
+
+  layerNodeTensorPairErrors node =
+    case (layerGraphNodeWeightTensor node, layerGraphNodeBiasTensor node) of
+      (Nothing, Nothing) -> []
+      (Just _, Just _) -> []
+      _ ->
+        [ "layer graph node "
+            <> layerGraphNodeName node
+            <> " must declare both weight and bias tensors or neither"
+        ]
+
+  layerNodeShapeErrors node =
+    shapeErrors
+      ("layer graph node " <> layerGraphNodeName node <> " input")
+      (layerGraphNodeInputShape node)
+      <> shapeErrors
+        ("layer graph node " <> layerGraphNodeName node <> " output")
+        (layerGraphNodeOutputShape node)
+
+  tensorSpecShapeErrors label spec =
+    shapeErrors (label <> " " <> tensorSpecName spec) (tensorSpecShape spec)
+
+  tensorBlobShapeErrors tensor =
+    shapeErrors ("weight tensor " <> tensorName tensor) (tensorShape tensor)
+
+  singletonShapeErrors label specs =
+    [ "supervised manifest must declare exactly one " <> label <> " TensorSpec"
+    | length specs /= 1
+    ]
+
+  singleTensorSpecShape [spec] = Just (tensorSpecShape spec)
+  singleTensorSpecShape _ = Nothing
+
+  shapeErrors label shape =
+    [ label
+        <> " shape must be non-empty and positive, got "
+        <> Text.pack (show shape)
+    | null shape || any (<= 0) shape
+    ]
+
+  duplicateNameErrors label names =
+    [ "supervised manifest has duplicate " <> label <> " name " <> name
+    | name : _ : _ <- group (sort names)
+    ]
+
+  sortTensorSpecs = sortOn tensorSpecName
 
 renderEligibilityError :: EligibilityError -> Text
 renderEligibilityError err =
@@ -358,6 +635,15 @@ renderEligibilityError err =
         <> Text.pack (show observed)
         <> " units but manifest step is "
         <> Text.pack (show manifestStepValue)
+    CompletedTrainingEvidenceMissing ->
+      "completed-training manifest is missing weight-delta evidence"
+    CompletedTrainingEvidenceInvalid detail ->
+      "completed-training manifest has invalid weight-delta evidence: " <> detail
+    CompletedTrainingEvidenceMismatch ->
+      "completed-training manifest evidence does not match its witness"
+    SupervisedManifestShapeLayoutInvalid errors ->
+      "supervised manifest has invalid shape/layout metadata: "
+        <> Text.intercalate "; " errors
     TensorBoardMetadataMissing ->
       "completed-training witness has no TensorBoard scalar metadata"
 
@@ -368,7 +654,59 @@ defaultArchitectureMetadata family =
     , architectureModelFamily = family
     , architectureInputs = []
     , architectureOutputs = []
+    , architectureLayerGraph = Nothing
     }
+
+layerGraphMetadataFromGraph :: LayerGraph.LayerGraph -> LayerGraphMetadata
+layerGraphMetadataFromGraph graph =
+  LayerGraphMetadata
+    { layerGraphMetadataName = LayerGraph.layerGraphName graph
+    , layerGraphMetadataInputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphInputShape graph)
+    , layerGraphMetadataOutputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphOutputShape graph)
+    , layerGraphMetadataNodes = fmap nodeMetadata (LayerGraph.layerGraphNodes graph)
+    }
+ where
+  nodeMetadata node =
+    LayerGraphNodeMetadata
+      { layerGraphNodeName = LayerGraph.layerNodeName node
+      , layerGraphNodeKind = layerKindMetadata (LayerGraph.layerNodeKind node)
+      , layerGraphNodeInputShape = LayerGraph.unTensorShape (LayerGraph.layerInputShape node)
+      , layerGraphNodeOutputShape = LayerGraph.unTensorShape (LayerGraph.layerOutputShape node)
+      , layerGraphNodeMode = layerModeMetadata (LayerGraph.layerMode node)
+      , layerGraphNodeActivation = layerActivationMetadata (LayerGraph.layerActivation node)
+      , layerGraphNodeWeightTensor =
+          fmap (const (LayerGraph.layerNodeName node <> ".weights")) (LayerGraph.layerParameters node)
+      , layerGraphNodeBiasTensor =
+          fmap (const (LayerGraph.layerNodeName node <> ".bias")) (LayerGraph.layerParameters node)
+      }
+
+layerModeMetadata :: LayerGraph.LayerMode -> LayerGraphModeMetadata
+layerModeMetadata LayerGraph.TrainingMode = LayerGraphTrainingMode
+layerModeMetadata LayerGraph.InferenceMode = LayerGraphInferenceMode
+
+layerActivationMetadata :: LayerGraph.LayerActivation -> LayerGraphActivationMetadata
+layerActivationMetadata LayerGraph.LinearActivation = LayerGraphLinearActivation
+layerActivationMetadata LayerGraph.TanhActivation = LayerGraphTanhActivation
+layerActivationMetadata LayerGraph.ReluActivation = LayerGraphReluActivation
+layerActivationMetadata LayerGraph.SoftmaxActivation = LayerGraphSoftmaxActivation
+
+layerKindMetadata :: LayerGraph.LayerKind -> LayerGraphKindMetadata
+layerKindMetadata LayerGraph.DenseLayer = LayerGraphDenseLayer
+layerKindMetadata LayerGraph.Conv2DLayer = LayerGraphConv2DLayer
+layerKindMetadata LayerGraph.Conv3DLayer = LayerGraphConv3DLayer
+layerKindMetadata (LayerGraph.PoolLayer LayerGraph.MaxPool) = LayerGraphMaxPoolLayer
+layerKindMetadata (LayerGraph.PoolLayer LayerGraph.AvgPool) = LayerGraphAvgPoolLayer
+layerKindMetadata (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool) = LayerGraphGlobalAvgPoolLayer
+layerKindMetadata (LayerGraph.NormLayer LayerGraph.BatchNorm) = LayerGraphBatchNormLayer
+layerKindMetadata (LayerGraph.NormLayer LayerGraph.LayerNorm) = LayerGraphLayerNormLayer
+layerKindMetadata (LayerGraph.NormLayer (LayerGraph.GroupNorm groups)) = LayerGraphGroupNormLayer groups
+layerKindMetadata (LayerGraph.DropoutLayer rate) = LayerGraphDropoutLayer rate
+layerKindMetadata (LayerGraph.ResidualLayer scale) = LayerGraphResidualLayer scale
+layerKindMetadata (LayerGraph.BasicBlockLayer scale) = LayerGraphBasicBlockLayer scale
+layerKindMetadata (LayerGraph.BottleneckBlockLayer scale) = LayerGraphBottleneckBlockLayer scale
+layerKindMetadata (LayerGraph.MultiHeadAttentionLayer heads) = LayerGraphMultiHeadAttentionLayer heads
+layerKindMetadata LayerGraph.GeGLULayer = LayerGraphGeGLULayer
+layerKindMetadata LayerGraph.PatchEmbedLayer = LayerGraphPatchEmbedLayer
 
 tensorSpecFromBlob :: TensorBlob -> TensorSpec
 tensorSpecFromBlob tensor =
@@ -451,6 +789,17 @@ decodeManifestCbor payload =
   case deserialiseOrFail payload of
     Left failure -> Left (Text.pack (show failure))
     Right manifest -> Right manifest
+
+decodeInferenceEligibleManifestCbor
+  :: Text
+  -- ^ manifest content sha already validated by the caller
+  -> LazyByteString.ByteString
+  -> Either Text InferenceEligibleCheckpoint
+decodeInferenceEligibleManifestCbor manifestSha payload = do
+  manifest <- decodeManifestCbor payload
+  case requireInferenceEligibleCheckpoint manifestSha manifest of
+    Left err -> Left (renderEligibilityError err)
+    Right eligible -> Right eligible
 
 manifestContentSha :: CheckpointManifest -> Text
 manifestContentSha =

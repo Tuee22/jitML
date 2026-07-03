@@ -1,5 +1,5 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 
 module JitML.Service.Workload
   ( LoadedWeightTensor
@@ -29,6 +29,9 @@ module JitML.Service.Workload
   , runInferenceRequestWith
   , runInferenceRequestWithWeightedInference
   , checkpointSummaries
+  , checkpointSummariesForRow
+  , renderCheckpointListResult
+  , renderCheckpointListResultWithSelectors
   , runListCheckpointsRequest
   , runLoadTranscriptRequest
   , seededDemoExperimentHashes
@@ -71,6 +74,8 @@ import JitML.Inference.AdversarialMove
   , computeAdversarialMove
   )
 import JitML.Inference.Decode qualified as Decode
+import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Inference
   ( AdversarialMoveCommand (..)
   , AdversarialMoveResult (..)
@@ -138,7 +143,7 @@ import JitML.Service.Transcript
   , readTranscriptRecord
   , writeTranscriptRecord
   )
-import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateRuntimeClass)
 import JitML.Training.Budget
   ( ConvergenceObservation
   , coMetricName
@@ -149,6 +154,19 @@ import JitML.Training.Budget
   , renderTrainingBudget
   , tbrLogPrefix
   )
+
+type InferenceRunner m =
+  ProductPipeline.InferenceEligibleRef
+  -> CheckpointManifest
+  -> [Double]
+  -> m (Either Text [Double])
+
+type WeightedInferenceRunner m =
+  ProductPipeline.InferenceEligibleRef
+  -> CheckpointManifest
+  -> [LoadedWeightTensor]
+  -> [Double]
+  -> m (Either Text [Double])
 
 data WorkloadKind
   = WorkloadInference
@@ -193,7 +211,7 @@ runWorkloadEffect =
 
 runWorkloadEffectWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => InferenceRunner m
   -> WorkloadEffect
   -> m (Either ServiceError WorkloadEffectResult)
 runWorkloadEffectWithInference runInference effect =
@@ -224,7 +242,7 @@ runWorkloadEffects =
 
 runWorkloadEffectsWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => InferenceRunner m
   -> [WorkloadEffect]
   -> m [Either ServiceError WorkloadEffectResult]
 runWorkloadEffectsWithInference runInference =
@@ -239,7 +257,7 @@ dispatchWorkloadPayload =
 
 dispatchWorkloadPayloadWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => InferenceRunner m
   -> Text
   -> m (Maybe (Either ServiceError WorkloadEffectResult))
 dispatchWorkloadPayloadWithInference runInference payload =
@@ -257,7 +275,7 @@ dispatchDomainPayload =
 
 dispatchDomainPayloadWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => InferenceRunner m
   -> EventDomain
   -> Text
   -> m [Either ServiceError WorkloadEffectResult]
@@ -387,7 +405,7 @@ runInferenceRequest =
 
 runInferenceRequestWith
   :: (HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => InferenceRunner m
   -> InferenceRequest
   -> m (Either ServiceError Text)
 runInferenceRequestWith runInference request = do
@@ -412,10 +430,11 @@ runInferenceRequestWith runInference request = do
 
 defaultCheckpointInference
   :: (Applicative m)
-  => CheckpointManifest
+  => ProductPipeline.InferenceEligibleRef
+  -> CheckpointManifest
   -> [Double]
   -> m (Either Text [Double])
-defaultCheckpointInference _manifest _input =
+defaultCheckpointInference _modelRef _manifest _input =
   pure (Left "weighted inference runner required")
 
 -- | Weighted-callback variants of the dispatcher chain. Sprint 13.11: the
@@ -427,7 +446,7 @@ defaultCheckpointInference _manifest _input =
 -- callback through `runInferenceRequestWithWeightedInference`.
 runWorkloadEffectWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> WorkloadEffect
   -> m (Either ServiceError WorkloadEffectResult)
 runWorkloadEffectWithWeightedInference runInference effect =
@@ -452,7 +471,7 @@ runWorkloadEffectWithWeightedInference runInference effect =
 
 runWorkloadEffectsWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> [WorkloadEffect]
   -> m [Either ServiceError WorkloadEffectResult]
 runWorkloadEffectsWithWeightedInference runInference =
@@ -460,7 +479,7 @@ runWorkloadEffectsWithWeightedInference runInference =
 
 dispatchWorkloadPayloadWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> Text
   -> m (Maybe (Either ServiceError WorkloadEffectResult))
 dispatchWorkloadPayloadWithWeightedInference runInference payload =
@@ -470,7 +489,7 @@ dispatchWorkloadPayloadWithWeightedInference runInference payload =
 
 dispatchDomainPayloadWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> EventDomain
   -> Text
   -> m [Either ServiceError WorkloadEffectResult]
@@ -517,7 +536,7 @@ dispatchDomainPayloadWithWeightedInference runInference domain payload =
 
 runInferenceRequestWithWeightedInference
   :: (HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> InferenceRequest
   -> m (Either ServiceError Text)
 runInferenceRequestWithWeightedInference runInference request = do
@@ -548,7 +567,7 @@ runInferenceRequestWithWeightedInference runInference request = do
 -- compute the delta in the daemon, then publish one 'CheckpointCompareResult'.
 runCheckpointCompareRequestWithWeightedInference
   :: (HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> CheckpointCompareCommand
   -> m (Either ServiceError Text)
 runCheckpointCompareRequestWithWeightedInference runInference command = do
@@ -586,7 +605,7 @@ runCheckpointCompareRequestWithWeightedInference runInference command = do
 -- 'AdversarialMoveResult'.
 runAdversarialMoveRequestWithWeightedInference
   :: (HasMinIO m, HasPulsar m)
-  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  => WeightedInferenceRunner m
   -> AdversarialMoveCommand
   -> m (Either ServiceError Text)
 runAdversarialMoveRequestWithWeightedInference runInference command = do
@@ -660,56 +679,165 @@ runAdversarialMoveRequestWithWeightedInference runInference command = do
               }
         )
 
--- | Sprint 14.1 / 14.3 (Feature A) — the seeded demo experiment hashes the
--- checkpoint-browse panel lists (mirrors `runInternalSeedDemoCheckpoints` in
--- `JitML.App`). The browse Engine job lists each experiment's manifests from
--- MinIO and folds them into one `CheckpointList` frame.
+-- | Historical name retained for call sites that only need the experiment
+-- hashes. Phase 27.1 maps checkpoint browse to the product-row artifact
+-- namespace rather than to seeded demo hashes.
 seededDemoExperimentHashes :: [Text]
 seededDemoExperimentHashes =
-  [ "mnist-deep-mlp"
-  , "generic-tensor-demo"
-  , "generic-tensor-demo-candidate"
-  , "cifar-imagenet"
-  , "connect4-alphazero"
-  , "othello-alphazero"
-  , "hex-alphazero"
-  , "gomoku-alphazero"
-  ]
+  fmap (ProductMatrix.productRowExperimentHash . snd) productRowCheckpointTargets
 
--- | Sprint 14.1 (Feature A) — checkpoint browse as an Engine job: for each
--- seeded experiment hash, list its manifests from the `jitml-checkpoints`
--- MinIO bucket and publish a single `CheckpointList` frame summarising every
--- manifest, on the command's reply topic.
+productRowCheckpointTargets :: [(Text, ProductMatrix.ProductRow 'ProductMatrix.Declared)]
+productRowCheckpointTargets =
+  [(ProductMatrix.productRowExperimentHash row, row) | row <- ProductMatrix.allProductRows]
+
+-- | Checkpoint browse as an Engine job: for each product-row artifact
+-- namespace, list manifests from the `jitml-checkpoints` MinIO bucket and
+-- publish a single `CheckpointList` frame summarising eligible manifests plus
+-- per-row selector state on the command's reply topic.
 runListCheckpointsRequest
   :: (HasMinIO m, HasPulsar m)
   => ListCheckpointsCommand
   -> m (Either ServiceError Text)
 runListCheckpointsRequest command = do
+  let substrate = substrateFromInferenceResultTopic (lccReplyTopic command)
   listings <-
     traverse
-      ( \experimentHash -> do
+      ( \(experimentHash, row) -> do
           manifests <- CheckpointStore.listCheckpointManifestsMinIO experimentHash
-          pure (fmap (experimentHash,) manifests)
+          pure (rowCheckpointResult substrate experimentHash row manifests)
       )
-      seededDemoExperimentHashes
-  case sequence listings of
-    Left err -> pure (Left err)
-    Right perExperiment ->
-      let summaries = concatMap (uncurry checkpointSummaries) perExperiment
-       in pulsarPublish
-            (TopicName (lccReplyTopic command))
-            (renderCheckpointListResult (lccCallId command) summaries)
+      productRowCheckpointTargets
+  let summaries = concatMap productCheckpointSummaries listings
+      selectors = fmap productRowSelectorLine listings
+  pulsarPublish
+    (TopicName (lccReplyTopic command))
+    (renderCheckpointListResultWithSelectors (lccCallId command) selectors summaries)
+
+data ProductRowCheckpointResult = ProductRowCheckpointResult
+  { prcrRowId :: !Text
+  , prcrExperimentHash :: !Text
+  , prcrRowFamily :: !Text
+  , prcrDemoPanel :: !Text
+  , prcrSelectorState :: !Text
+  , prcrEligibleSummaries :: ![Text]
+  }
+  deriving stock (Eq, Show)
+
+rowCheckpointResult
+  :: Maybe Substrate
+  -> Text
+  -> ProductMatrix.ProductRow state
+  -> Either ServiceError [CheckpointManifest]
+  -> ProductRowCheckpointResult
+rowCheckpointResult substrate experimentHash row manifestsResult =
+  case productRowUnsupportedReason substrate row of
+    Just _ ->
+      baseResult "unsupported" []
+    Nothing ->
+      case manifestsResult of
+        Left _ ->
+          baseResult "error" []
+        Right manifests ->
+          let summaries = checkpointSummariesForRow (ProductMatrix.rowId row) experimentHash manifests
+           in baseResult (productRowSelectorState summaries) summaries
+ where
+  baseResult selectorState summaries =
+    ProductRowCheckpointResult
+      { prcrRowId = ProductMatrix.rowId row
+      , prcrExperimentHash = experimentHash
+      , prcrRowFamily = ProductMatrix.renderRowFamily (ProductMatrix.family row)
+      , prcrDemoPanel = ProductMatrix.demoPanel row
+      , prcrSelectorState = selectorState
+      , prcrEligibleSummaries = summaries
+      }
+
+productCheckpointSummaries :: ProductRowCheckpointResult -> [Text]
+productCheckpointSummaries =
+  prcrEligibleSummaries
+
+productRowSelectorLine :: ProductRowCheckpointResult -> Text
+productRowSelectorLine result =
+  Text.intercalate
+    "\t"
+    [ prcrRowId result
+    , prcrExperimentHash result
+    , prcrRowFamily result
+    , prcrSelectorState result
+    , Text.pack (show (length (prcrEligibleSummaries result)))
+    , prcrDemoPanel result
+    ]
+
+productRowSelectorState :: [Text] -> Text
+productRowSelectorState [] = "training-required"
+productRowSelectorState _ = "eligible"
+
+substrateFromInferenceResultTopic :: Text -> Maybe Substrate
+substrateFromInferenceResultTopic topic =
+  Text.stripPrefix "inference.result." (Text.strip topic) >>= parseSubstrate
+
+productRowUnsupportedReason :: Maybe Substrate -> ProductMatrix.ProductRow state -> Maybe Text
+productRowUnsupportedReason _ row =
+  case ProductMatrix.rowClass row of
+    ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
+      rlTrainerEnvironmentCompatibilityError (rlTrainerForAlgorithm algorithm) environment
+    ProductMatrix.RlGoalConditioned environment ->
+      rlTrainerEnvironmentCompatibilityError "her" environment
+    _ -> Nothing
+
+rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
+rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
+  case supportedEnvironments of
+    Nothing -> Nothing
+    Just envs
+      | environment `elem` envs -> Nothing
+      | otherwise ->
+          Just
+            ( "RL trainer "
+                <> trainer
+                <> " does not support environment "
+                <> environment
+                <> "; supported environments: "
+                <> Text.intercalate ", " envs
+            )
+ where
+  trainer = Text.toLower (Text.strip rawTrainer)
+  environment = Text.toLower (Text.strip rawEnvironment)
+  supportedEnvironments =
+    case trainer of
+      "ppo" -> Just discreteProductEnvironments
+      "a2c" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "trpo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "maskableppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "recurrentppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "dqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
+      "qrdqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
+      "ddpg" -> Just continuousProductEnvironments
+      "td3" -> Just continuousProductEnvironments
+      "sac" -> Just continuousProductEnvironments
+      "crossq" -> Just continuousProductEnvironments
+      "tqc" -> Just continuousProductEnvironments
+      "ars" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "her" -> Just ["goal-reaching"]
+      _ -> Nothing
+  discreteProductEnvironments =
+    ["cartpole", "mountain-car", "acrobot", "lunar-lander", "key-door-grid", "gridworld-deterministic"]
+  continuousProductEnvironments =
+    ["pendulum", "lunar-lander"]
 
 -- | Render the per-experiment manifests into `checkpoint-summary:` lines, one
 -- per inference-eligible manifest. Each summary is a tab-separated tuple of
--- experiment-hash / sha / step / model-family / tensor-count / eligibility /
--- completed budget / convergence metrics / TensorBoard prefix.
+-- row-id / experiment-hash / sha / step / model-family / tensor-count /
+-- eligibility / completed budget / convergence metrics / TensorBoard prefix.
 checkpointSummaries :: Text -> [CheckpointManifest] -> [Text]
 checkpointSummaries experimentHash =
-  mapMaybe (checkpointSummaryLine experimentHash)
+  checkpointSummariesForRow experimentHash experimentHash
 
-checkpointSummaryLine :: Text -> CheckpointManifest -> Maybe Text
-checkpointSummaryLine experimentHash manifest =
+checkpointSummariesForRow :: Text -> Text -> [CheckpointManifest] -> [Text]
+checkpointSummariesForRow rowId experimentHash =
+  mapMaybe (checkpointSummaryLine rowId experimentHash)
+
+checkpointSummaryLine :: Text -> Text -> CheckpointManifest -> Maybe Text
+checkpointSummaryLine rowId experimentHash manifest =
   let manifestSha = manifestContentSha manifest
    in case requireInferenceEligibleCheckpoint manifestSha manifest of
         Left _ -> Nothing
@@ -718,7 +846,8 @@ checkpointSummaryLine experimentHash manifest =
            in Just $
                 Text.intercalate
                   "\t"
-                  [ experimentHash
+                  [ rowId
+                  , experimentHash
                   , manifestSha
                   , Text.pack (show (manifestStep manifest))
                   , renderModelFamily (manifestModelFamily manifest)
@@ -750,14 +879,24 @@ renderModelFamily family =
 -- `checkpoint-summary:` line carries one tab-separated manifest summary; the
 -- browser panel splits them into a `CheckpointSummary` list.
 renderCheckpointListResult :: Text -> [Text] -> Text
-renderCheckpointListResult callId summaries =
+renderCheckpointListResult callId =
+  renderCheckpointListResultWithSelectors callId []
+
+renderCheckpointListResultWithSelectors :: Text -> [Text] -> [Text] -> Text
+renderCheckpointListResultWithSelectors callId selectors summaries =
   Text.unlines $
     [ "kind: CheckpointList"
     , "call-id: " <> callId
     , "panel: checkpoint-browse"
     , "count: " <> Text.pack (show (length summaries))
+    , "selector-state: " <> checkpointSelectorState summaries
     ]
+      <> fmap ("row-selector: " <>) selectors
       <> fmap ("checkpoint-summary: " <>) summaries
+
+checkpointSelectorState :: [Text] -> Text
+checkpointSelectorState [] = "fail-closed:no-inference-eligible-artifact"
+checkpointSelectorState _ = "ready"
 
 -- | Sprint 14.1 (Feature B) — transcript replay as an Engine job: read the
 -- persisted transcript record from the `jitml-transcripts` MinIO bucket keyed
@@ -905,11 +1044,12 @@ _renderRlJobLegacyEnv start =
     , ("JITML_SEED", Text.pack (show (srlSeed start)))
     , ("JITML_MAX_STEPS", Text.pack (show (srlMaxSteps start)))
     , ("JITML_EVAL_EPISODES", Text.pack (show (srlEvalEpisodes start)))
-    , -- Sprint 13.8 — route each catalog algorithm to its real
+    , -- Sprint 13.8 / 20.1 — route each catalog algorithm to its real
       -- network-backed trainer in the worker (PPO/A2C/TRPO/MaskablePPO/
       -- RecurrentPPO on-policy, DQN/QR-DQN/DDPG/TD3/SAC/CrossQ/TQC
       -- off-policy, ARS gradient-free, HER goal-conditioned). Unknown
-      -- algorithm names fall back to the deterministic simulator loop.
+      -- algorithm names become unknown trainer selectors and fail closed
+      -- inside the worker before publication.
       ("JITML_RL_TRAINER", rlTrainerForAlgorithm (srlAlgorithm start))
     , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
     ]
@@ -924,8 +1064,8 @@ inClusterPulsarWsUrl = "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
 
 -- | Map an RL algorithm name to the worker-side trainer selector the
 -- worker's @jitml rl train@ command reads from @JITML_RL_TRAINER@. Each
--- catalog algorithm selects its real MLP-backed trainer; an unrecognised
--- name keeps the deterministic per-episode simulator loop.
+-- catalog algorithm selects its real trainer; an unrecognised name is
+-- preserved as an unknown selector so worker dispatch fails closed.
 rlTrainerForAlgorithm :: Text -> Text
 rlTrainerForAlgorithm algorithm =
   case Text.toUpper (Text.strip algorithm) of
@@ -944,7 +1084,9 @@ rlTrainerForAlgorithm algorithm =
     "TQC" -> "tqc"
     "ARS" -> "ars"
     "HER" -> "her"
-    _ -> "simulator"
+    _ ->
+      let stripped = Text.toLower (Text.strip algorithm)
+       in if Text.null stripped then "unknown" else stripped
 
 renderJob :: Substrate -> Text -> Text -> [Text] -> [(Text, Text)] -> Text
 renderJob substrate component name args envVars =

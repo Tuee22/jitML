@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 qrDqnModule :: AlgorithmModule
@@ -18,6 +19,13 @@ qrDqnModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "QR-DQN" OffPolicy True
     , moduleHyperparameters = qrDqnHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "off-policy.qr-dqn.quantile-huber-distributional"
+          "JitML.RL.Algorithms.QrDqnTrainer.trainQrDqnOnCartpole"
+          "replay-buffer.epsilon-greedy"
+          "mlp-quantile-q-network"
+          ["quantile-head", "quantile-huber", "distributional-target"]
     }
 
 qrDqnHyperparameters :: [AlgorithmHyperparameter]

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -5,10 +6,11 @@ module Main where
 
 import Control.Concurrent qualified
 import Control.Exception qualified
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (eitherDecode)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as AesonKeyMap
+import Data.Either (lefts)
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -18,13 +20,14 @@ import Data.Word (Word64)
 import System.Exit (ExitCode (..))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout qualified as Timeout
-import Test.Tasty (defaultMain, testGroup)
+import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Data.ByteString.Lazy qualified as ByteString.Lazy
 import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Vector.Unboxed qualified as VU
 
 import Data.ByteString qualified
 import JitML.Bootstrap
@@ -56,7 +59,11 @@ import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env)
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Schema qualified as Numerics
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 import JitML.RL.ConvergenceThresholds
@@ -64,6 +71,7 @@ import JitML.RL.ConvergenceThresholds
   , cohortThreshold
   , passesConvergence
   )
+import JitML.SL.Dataset qualified as Dataset
 
 import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Observability.TensorBoard qualified as TensorBoard
@@ -72,6 +80,9 @@ import JitML.Proto.Training qualified as Training
 import JitML.RL.AsyncBuffer qualified as AsyncBuffer
 import JitML.RL.Buffer qualified as Buffer
 import JitML.Routes (renderHTTPRoute, renderRouteTable, routeRegistry)
+import JitML.SL.Architecture qualified as SLArchitecture
+import JitML.SL.Canonicals qualified as SL
+import JitML.SL.Classifier (ClassifierConfig (..), defaultClassifierConfig)
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -101,6 +112,7 @@ import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..))
+import JitML.Test.Report qualified as TestReport
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
 import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog qualified as Tune
@@ -118,11 +130,26 @@ completedCheckpointManifest
   -> [(Text, Double)]
   -> Checkpoint.CheckpointManifest
 completedCheckpointManifest manifestId experimentHash tensors step metrics =
-  let completed =
+  let evidence =
         either
           (error . Text.unpack)
           id
-          ( TrainingBudget.completedTrainingFromMetrics
+          ( ProductEvidence.mkTrainingEvidence
+              ("integration-initial-" <> experimentHash)
+              ("integration-final-" <> experimentHash <> "-" <> Text.pack (show step))
+              (max 1 step)
+              ("integration-dataset-" <> experimentHash)
+          )
+      observations =
+        either
+          (error . Text.unpack)
+          id
+          (convergenceObservationsFixture metrics)
+      completed =
+        either
+          (error . Text.unpack)
+          id
+          ( TrainingBudget.completedTraining
               TrainingBudget.TrainingBudget
                 { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
                 , TrainingBudget.tbTargetUnits = max 1 step
@@ -130,18 +157,196 @@ completedCheckpointManifest manifestId experimentHash tensors step metrics =
                 , TrainingBudget.tbSeed = Nothing
                 }
               step
-              metrics
+              evidence
+              observations
               TrainingBudget.TensorBoardRunMetadata
                 { TrainingBudget.tbrRunId = experimentHash
                 , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
                 , TrainingBudget.tbrScalarTags = fmap fst metrics
                 }
           )
-   in (Checkpoint.emptyManifest manifestId experimentHash tensors)
-        { Checkpoint.manifestStep = step
-        , Checkpoint.manifestMetrics = metrics
-        , Checkpoint.manifestCompletedTraining = Just completed
-        }
+      manifest =
+        (Checkpoint.emptyManifest manifestId experimentHash tensors)
+          { Checkpoint.manifestStep = step
+          , Checkpoint.manifestMetrics = metrics
+          }
+   in Checkpoint.attachCompletedTraining completed manifest
+
+convergenceObservationsFixture
+  :: [(Text, Double)]
+  -> Either Text [TrainingBudget.ConvergenceObservation]
+convergenceObservationsFixture =
+  traverse
+    ( \metric@(name, value) ->
+        ProductConvergence.evaluateConvergence
+          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
+          (ProductConvergence.MeasuredMetrics [metric])
+    )
+
+productRowIntegrationTest :: ProductMatrix.ProductRow 'ProductMatrix.Declared -> TestTree
+productRowIntegrationTest row =
+  testCase (Text.unpack (ProductMatrix.integrationTest row)) $ do
+    evidence <- productRowIntegrationEvidence row
+    TestReport.rowIntegrationCoverageFailures [row] [evidence] @?= []
+
+assertProductRowIntegrationReportCoverage :: IO ()
+assertProductRowIntegrationReportCoverage = do
+  let rows = ProductMatrix.allProductRows
+      evidence = fmap coverageFixtureRowReportEvidence rows
+  case rows of
+    [] -> assertFailure "ProductRow registry is unexpectedly empty"
+    firstRow : _ -> do
+      TestReport.rowIntegrationCoverageFailures rows evidence @?= []
+      let firstEvidence = coverageFixtureRowReportEvidence firstRow
+          missingEvidence =
+            filter ((/= ProductMatrix.rowId firstRow) . TestReport.rieRowId) evidence
+          missingFailures = TestReport.rowIntegrationCoverageFailures rows missingEvidence
+          duplicateFailures =
+            TestReport.rowIntegrationCoverageFailures rows (firstEvidence : evidence)
+          orphan =
+            firstEvidence
+              { TestReport.rieRowId = "orphan-row"
+              , TestReport.rieIntegrationTest = "integration.product.orphan-row"
+              }
+          orphanFailures = TestReport.rowIntegrationCoverageFailures rows (orphan : evidence)
+      assertBool
+        "missing coverage failure names the row id"
+        ( any
+            ( ( "missing integration evidence: rowId="
+                  <> ProductMatrix.rowId firstRow
+              )
+                `Text.isInfixOf`
+            )
+            missingFailures
+        )
+      assertBool
+        "missing coverage failure names the test id"
+        ( any
+            (ProductMatrix.integrationTest firstRow `Text.isInfixOf`)
+            missingFailures
+        )
+      assertBool
+        "duplicate coverage is rejected"
+        (any ("duplicate integration evidence:" `Text.isPrefixOf`) duplicateFailures)
+      assertBool
+        "orphan coverage is rejected"
+        (any ("orphan integration evidence: rowId=orphan-row" `Text.isPrefixOf`) orphanFailures)
+
+productRowIntegrationEvidence
+  :: ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> IO TestReport.RowIntegrationEvidence
+productRowIntegrationEvidence row = do
+  checkpointRoot <- makeAbsolute (".build" </> "checkpoints")
+  let rowId = ProductMatrix.rowId row
+      integrationId = ProductMatrix.integrationTest row
+      experimentHash = ProductMatrix.productRowExperimentHash row
+      pointerKey = Checkpoint.latestPointerKey experimentHash
+  pointerResult <- CheckpointStore.readCheckpointPointer checkpointRoot pointerKey
+  manifestSha <-
+    case pointerResult of
+      Left err ->
+        assertFailure
+          ( "ProductRow checkpoint pointer read failed for "
+              <> Text.unpack rowId
+              <> ": "
+              <> Text.unpack err
+          )
+      Right Nothing ->
+        assertFailure
+          ( "missing published ProductRow checkpoint pointer for "
+              <> Text.unpack rowId
+              <> " at "
+              <> (checkpointRoot </> Text.unpack pointerKey)
+              <> "; run `jitml internal train-and-publish-product-rows --linux-cpu` first"
+          )
+      Right (Just sha) -> pure sha
+  loadedManifest <- CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha
+  manifestFromStore <-
+    case loadedManifest of
+      Left err ->
+        assertFailure
+          ( "ProductRow checkpoint manifest read failed for "
+              <> Text.unpack rowId
+              <> ": "
+              <> Text.unpack err
+          )
+      Right manifest -> pure manifest
+  Checkpoint.manifestExperiment manifestFromStore @?= experimentHash
+  Checkpoint.manifestContentSha manifestFromStore @?= manifestSha
+  eligible <-
+    case Checkpoint.requireInferenceEligibleCheckpoint manifestSha manifestFromStore of
+      Left err ->
+        assertFailure
+          ( "ProductRow checkpoint should be inference eligible for "
+              <> Text.unpack rowId
+              <> ": "
+              <> Text.unpack (Checkpoint.renderEligibilityError err)
+          )
+      Right value -> pure value
+  let completed = Checkpoint.eligibleCheckpointCompletedTraining eligible
+      completedMetrics = TrainingBudget.completedTrainingMetrics completed
+      rejectedBeforeCompletion =
+        case
+          Checkpoint.requireInferenceEligibleCheckpoint
+            (Checkpoint.manifestContentSha beforeCompletionManifest)
+            beforeCompletionManifest
+        of
+          Left Checkpoint.MissingCompletedTraining -> True
+          Left _ -> True
+          Right _ -> False
+      beforeCompletionManifest =
+        manifestFromStore
+          { Checkpoint.manifestCompletedTraining = Nothing
+          }
+  pure
+    TestReport.RowIntegrationEvidence
+      { TestReport.rieRowId = rowId
+      , TestReport.rieIntegrationTest = integrationId
+      , TestReport.rieFamily = renderProductRowFamily (ProductMatrix.family row)
+      , TestReport.rieInitialParamHash =
+          TrainingBudget.completedTrainingInitialWeightHash completed
+      , TestReport.rieFinalParamHash =
+          TrainingBudget.completedTrainingFinalWeightHash completed
+      , TestReport.rieUpdateCount =
+          TrainingBudget.completedTrainingUpdateCount completed
+      , TestReport.rieObservedUnits =
+          TrainingBudget.completedTrainingObservedUnits completed
+      , TestReport.rieCompletedMetricNames =
+          fmap TrainingBudget.coMetricName completedMetrics
+      , TestReport.rieCompletedTrainingPassed =
+          all TrainingBudget.convergencePassed completedMetrics
+      , TestReport.rieDatasetShaAtRead =
+          TrainingBudget.completedTrainingDatasetShaAtRead completed
+      , TestReport.rieManifestSha = manifestSha
+      , TestReport.rieRejectedBeforeCompletion = rejectedBeforeCompletion
+      }
+
+coverageFixtureRowReportEvidence
+  :: ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> TestReport.RowIntegrationEvidence
+coverageFixtureRowReportEvidence row =
+  TestReport.RowIntegrationEvidence
+    { TestReport.rieRowId = ProductMatrix.rowId row
+    , TestReport.rieIntegrationTest = ProductMatrix.integrationTest row
+    , TestReport.rieFamily = renderProductRowFamily (ProductMatrix.family row)
+    , TestReport.rieInitialParamHash = "coverage-fixture-initial:" <> ProductMatrix.rowId row
+    , TestReport.rieFinalParamHash = "coverage-fixture-final:" <> ProductMatrix.rowId row
+    , TestReport.rieUpdateCount = max 1 (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
+    , TestReport.rieObservedUnits = max 1 (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
+    , TestReport.rieCompletedMetricNames = ["coverage_fixture_metric"]
+    , TestReport.rieCompletedTrainingPassed = True
+    , TestReport.rieDatasetShaAtRead = "coverage-fixture-dataset:" <> ProductMatrix.rowId row
+    , TestReport.rieManifestSha = "coverage-fixture-manifest:" <> ProductMatrix.productRowExperimentHash row
+    , TestReport.rieRejectedBeforeCompletion = True
+    }
+
+renderProductRowFamily :: ProductMatrix.RowFamily -> Text
+renderProductRowFamily family =
+  case family of
+    ProductMatrix.Supervised -> "Supervised"
+    ProductMatrix.ReinforcementLearning -> "ReinforcementLearning"
+    ProductMatrix.AlphaZero -> "AlphaZero"
+    ProductMatrix.Tuning -> "Tuning"
 
 main :: IO ()
 main =
@@ -217,6 +422,13 @@ main =
             @?= Workload.WorkloadHostCommand (TopicName tuneHostTopic)
           Workload.planWorkloadPlacement BootConfig.Cluster Workload.WorkloadRl LinuxCPU
             @?= Workload.WorkloadClusterJob
+      , testGroup
+          "ProductRow integration matrix (Sprint 28.1)"
+          ( testCase
+              "row integration report fails naming uncovered row/test pairs"
+              assertProductRowIntegrationReportCoverage
+              : fmap productRowIntegrationTest ProductMatrix.allProductRows
+          )
       , testCase "bootstrap plan includes Harbor-first publication" $
           bootstrapPlanSteps LinuxCPU
             @?= [ "reconcile prerequisite graph for cluster"
@@ -316,7 +528,10 @@ main =
             ("cpu: 50m" `Text.isInfixOf` envoyProxy)
           assertBool
             "Envoy data-plane memory request stays local-friendly"
-            ("memory: 64Mi" `Text.isInfixOf` envoyProxy)
+            ("memory: 512Mi" `Text.isInfixOf` envoyProxy)
+          assertBool
+            "Envoy data-plane memory limit keeps archive uploads bounded"
+            ("memory: 1Gi" `Text.isInfixOf` envoyProxy)
       , testCase "route table matches golden fixture" $ do
           expected <- Text.IO.readFile "test/snapshots/cluster/route-table.md"
           renderRouteTable @?= expected
@@ -349,6 +564,23 @@ main =
                     _ -> liftIO (assertFailure "expected SEConflict on stale-ETag pointer CAS")
                 Left err ->
                   liftIO (assertFailure ("expected first casPointer OK, got: " <> show err))
+      , testCase "verified canonical dataset artifact rejects corrupt bytes before decode (Sprint 22.3)" $
+          withSystemTempDirectory "jitml-corrupt-dataset" $ \root ->
+            runFilesystemMinIO root $ do
+              let ref = Dataset.DatasetRef "MNIST" Dataset.TrainSplit 0 "ignored"
+                  payload = Text.Encoding.encodeUtf8 "not the canonical MNIST train image gzip"
+              _ <- putBlobBytesIfAbsent (Dataset.datasetArtifactObjectRef ref Dataset.ImagesArtifact) payload
+              result <- Dataset.fetchVerifiedDatasetArtifactBytes ref Dataset.ImagesArtifact
+              liftIO $
+                case result of
+                  Left (SEConflict message) ->
+                    assertBool
+                      "SHA verification should fail before any dataset decoder runs"
+                      ("dataset SHA mismatch for MNIST/train/images" `Text.isInfixOf` message)
+                  Left err ->
+                    assertFailure ("expected SHA conflict, got " <> show err)
+                  Right _ ->
+                    assertFailure "corrupt canonical dataset bytes unexpectedly verified"
       , testCase "checkpoint snapshot writes through HasMinIO conditional boundaries (Sprint 10.2)" $
           withSystemTempDirectory "jitml-checkpoint-hasminio" $ \root ->
             runFilesystemMinIO root $ do
@@ -376,7 +608,7 @@ main =
                       @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha stored)
                   inferred <-
                     CheckpointStore.loadInferenceCheckpointWithWeights
-                      ( \_manifest loadedWeights values ->
+                      ( \_modelRef _manifest loadedWeights values ->
                           pure
                             ( Right
                                 ( values
@@ -1056,14 +1288,14 @@ main =
               _ <- casPointer pointerRef Nothing manifestSha
               ffiInferred <-
                 CheckpointStore.loadInferenceCheckpointWith
-                  (\loadedManifest values -> liftIO (runVisibleCheckpointInference env loadedManifest values))
+                  (\_modelRef loadedManifest values -> liftIO (runVisibleCheckpointInference env loadedManifest values))
                   experimentHash
                   [1.0, 2.0, 3.0]
               liftIO $
                 ffiInferred @?= Right [1.0, 2.0, 3.0]
               weightedInferred <-
                 CheckpointStore.loadInferenceCheckpointWithWeights
-                  ( \loadedManifest loadedWeights values ->
+                  ( \_modelRef loadedManifest loadedWeights values ->
                       liftIO
                         ( runVisibleWeightedCheckpointInference
                             env
@@ -1085,6 +1317,68 @@ main =
               -- and input [1, 2, 3] × W produces [9, 2, 3].
               liftIO $
                 weightedInferred @?= Right [9.0, 2.0, 3.0]
+              graph <- liftIO (either (assertFailure . Text.unpack) pure layerGraphCheckpointFixture)
+              let graphExperimentHash = "exp-inf-layergraph"
+                  graphWeightKey = Checkpoint.blobKey graphExperimentHash "graph-dense-weights"
+                  graphBiasKey = Checkpoint.blobKey graphExperimentHash "graph-dense-bias"
+                  graphTensors =
+                    [ Checkpoint.TensorBlob "graph-dense.weights" [2, 3] graphWeightKey
+                    , Checkpoint.TensorBlob "graph-dense.bias" [2] graphBiasKey
+                    ]
+                  graphManifest =
+                    ( completedCheckpointManifest
+                        "m-layergraph"
+                        graphExperimentHash
+                        graphTensors
+                        1
+                        [("validation_accuracy", 0.91)]
+                    )
+                      { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+                      , Checkpoint.manifestArchitecture =
+                          (Checkpoint.defaultArchitectureMetadata Checkpoint.SupervisedModelFamily)
+                            { Checkpoint.architectureName = "graph-dense"
+                            , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "input" [3] "F64"]
+                            , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "logits" [2] "F64"]
+                            , Checkpoint.architectureLayerGraph =
+                                Just (Checkpoint.layerGraphMetadataFromGraph graph)
+                            }
+                      , Checkpoint.manifestWeightLayout =
+                          Checkpoint.NamedTensorWeightLayout (fmap Checkpoint.tensorSpecFromBlob graphTensors)
+                      }
+                  graphManifestSha = Checkpoint.manifestContentSha graphManifest
+                  graphManifestRef =
+                    CheckpointStore.checkpointObjectRef
+                      (Checkpoint.manifestKey graphExperimentHash graphManifestSha)
+                  graphPointerRef =
+                    CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey graphExperimentHash)
+              _ <-
+                putBlobBytesIfAbsent
+                  (CheckpointStore.checkpointObjectRef graphWeightKey)
+                  (ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]))
+              _ <-
+                putBlobBytesIfAbsent
+                  (CheckpointStore.checkpointObjectRef graphBiasKey)
+                  (ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 [0.5, -0.5]))
+              _ <-
+                putBlobBytesIfAbsent
+                  graphManifestRef
+                  (ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor graphManifest))
+              _ <- casPointer graphPointerRef Nothing graphManifestSha
+              graphInferred <-
+                CheckpointStore.loadInferenceCheckpointWithWeights
+                  ( \_modelRef loadedManifest loadedWeights values ->
+                      liftIO
+                        ( runVisibleWeightedCheckpointInference
+                            env
+                            loadedManifest
+                            loadedWeights
+                            values
+                        )
+                  )
+                  graphExperimentHash
+                  [1.0, 2.0, 3.0]
+              liftIO $
+                graphInferred @?= Right [1.5, 1.5]
               let partialExperimentHash = "exp-inf-partial"
                   partialBlobObjectKey = Checkpoint.blobKey partialExperimentHash "blob-weights"
                   partialManifest =
@@ -1106,7 +1400,7 @@ main =
               _ <- casPointer partialPointerRef Nothing partialManifestSha
               partialInference <-
                 CheckpointStore.loadInferenceCheckpointWithWeights
-                  ( \loadedManifest loadedWeights values ->
+                  ( \_modelRef loadedManifest loadedWeights values ->
                       liftIO
                         ( runVisibleWeightedCheckpointInference
                             env
@@ -1148,7 +1442,7 @@ main =
               _ <- casPointer badPointerRef Nothing badManifestSha
               shapeMismatch <-
                 CheckpointStore.loadInferenceCheckpointWithWeights
-                  ( \loadedManifest loadedWeights values ->
+                  ( \_modelRef loadedManifest loadedWeights values ->
                       liftIO
                         ( runVisibleWeightedCheckpointInference
                             env
@@ -1168,10 +1462,191 @@ main =
                   Right values ->
                     assertFailure
                       ("expected shape mismatch failure, got: " <> show values)
+      , testCase "inference loader rejects illegal manifests before weight or runner IO (Sprint 21.3)" $
+          withSystemTempDirectory "jitml-inference-fail-closed" $ \root ->
+            runFilesystemMinIO root $ do
+              let tensorFor experimentHash label =
+                    Checkpoint.TensorBlob
+                      ("dense-" <> label)
+                      [2, 2]
+                      (Checkpoint.blobKey experimentHash ("blob-" <> label))
+                  declaredManifest experimentHash =
+                    Checkpoint.emptyManifest
+                      "m-declared"
+                      experimentHash
+                      [tensorFor experimentHash "declared"]
+                  partialManifest experimentHash =
+                    ( Checkpoint.emptyManifest
+                        "m-partial"
+                        experimentHash
+                        [tensorFor experimentHash "partial"]
+                    )
+                      { Checkpoint.manifestStep = 1
+                      , Checkpoint.manifestMetrics = [("accuracy", 0.75)]
+                      }
+                  syntheticManifest experimentHash =
+                    ( completedCheckpointManifest
+                        "m-synthetic"
+                        experimentHash
+                        [tensorFor experimentHash "synthetic"]
+                        1
+                        [("accuracy", 0.95)]
+                    )
+                      { Checkpoint.manifestInitialWeightHash = Nothing
+                      , Checkpoint.manifestFinalWeightHash = Nothing
+                      , Checkpoint.manifestUpdateCount = Nothing
+                      , Checkpoint.manifestDatasetShaAtRead = Nothing
+                      }
+                  seededManifest experimentHash =
+                    ( Checkpoint.emptyManifest
+                        "m-seeded"
+                        experimentHash
+                        [tensorFor experimentHash "seeded"]
+                    )
+                      { Checkpoint.manifestStep = 1
+                      , Checkpoint.manifestMetrics =
+                          [ ("panel_seeded_policy_value", 1.0)
+                          , ("seed", 2006.0)
+                          ]
+                      }
+                  failedManifest experimentHash =
+                    ( Checkpoint.emptyManifest
+                        "m-failed"
+                        experimentHash
+                        [tensorFor experimentHash "failed"]
+                    )
+                      { Checkpoint.manifestStep = 1
+                      , Checkpoint.manifestMetrics = [("accuracy", 0.0)]
+                      }
+                  stage experimentHash manifest = do
+                    let manifestSha = Checkpoint.manifestContentSha manifest
+                        manifestRef =
+                          CheckpointStore.checkpointObjectRef
+                            (Checkpoint.manifestKey experimentHash manifestSha)
+                        pointerRef =
+                          CheckpointStore.checkpointObjectRef
+                            (Checkpoint.latestPointerKey experimentHash)
+                        manifestBytes =
+                          ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor manifest)
+                    _ <- putBlobBytesIfAbsent manifestRef manifestBytes
+                    _ <- casPointer pointerRef Nothing manifestSha
+                    pure ()
+                  rejectCase (label, experimentHash, manifest, expected) = do
+                    stage experimentHash manifest
+                    runnerInvoked <- liftIO (newIORef False)
+                    result <-
+                      CheckpointStore.loadInferenceCheckpointWithWeights
+                        ( \_modelRef _manifest _weights _values -> do
+                            liftIO (modifyIORef' runnerInvoked (const True))
+                            pure (Right [])
+                        )
+                        experimentHash
+                        [1.0, 2.0, 3.0]
+                    invoked <- liftIO (readIORef runnerInvoked)
+                    liftIO $ do
+                      invoked @?= False
+                      case result of
+                        Left err ->
+                          assertBool
+                            (Text.unpack label)
+                            (expected `Text.isInfixOf` err)
+                        Right values ->
+                          assertFailure
+                            ( "illegal manifest inferred for "
+                                <> Text.unpack label
+                                <> ": "
+                                <> show values
+                            )
+              traverse_
+                rejectCase
+                [
+                  ( "declared manifest"
+                  , "exp-21-declared"
+                  , declaredManifest "exp-21-declared"
+                  , "no completed-training witness"
+                  )
+                ,
+                  ( "partial manifest"
+                  , "exp-21-partial"
+                  , partialManifest "exp-21-partial"
+                  , "no completed-training witness"
+                  )
+                ,
+                  ( "synthetic manifest"
+                  , "exp-21-synthetic"
+                  , syntheticManifest "exp-21-synthetic"
+                  , "missing weight-delta evidence"
+                  )
+                ,
+                  ( "seeded manifest"
+                  , "exp-21-seeded"
+                  , seededManifest "exp-21-seeded"
+                  , "no completed-training witness"
+                  )
+                ,
+                  ( "failed-training manifest"
+                  , "exp-21-failed"
+                  , failedManifest "exp-21-failed"
+                  , "no completed-training witness"
+                  )
+                ]
+      , testCase "supervised completed manifests carry graph, layout, and training evidence (Sprint 24.3)" $ do
+          let manifests =
+                [ supervisedCompletedManifestFor
+                    ("exp-24-3-complete-" <> SL.problemName problem)
+                    problem
+                | problem <- SL.canonicalProblems
+                ]
+          traverse_
+            ( \manifest -> do
+                let manifestSha = Checkpoint.manifestContentSha manifest
+                Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
+                case Checkpoint.manifestCompletedTraining manifest of
+                  Nothing ->
+                    assertFailure
+                      ( "missing CompletedTraining for "
+                          <> Text.unpack (Checkpoint.manifestId manifest)
+                      )
+                  Just completed -> do
+                    Checkpoint.manifestInitialWeightHash manifest
+                      @?= Just (TrainingBudget.completedTrainingInitialWeightHash completed)
+                    Checkpoint.manifestFinalWeightHash manifest
+                      @?= Just (TrainingBudget.completedTrainingFinalWeightHash completed)
+                    Checkpoint.manifestUpdateCount manifest
+                      @?= Just (TrainingBudget.completedTrainingUpdateCount completed)
+                    Checkpoint.manifestDatasetShaAtRead manifest
+                      @?= Just (TrainingBudget.completedTrainingDatasetShaAtRead completed)
+                    assertBool
+                      "supervised manifest records convergence metrics"
+                      (not (null (TrainingBudget.completedTrainingMetrics completed)))
+                    case Checkpoint.requireInferenceEligibleCheckpoint manifestSha manifest of
+                      Left err ->
+                        assertFailure
+                          ( "expected supervised manifest to be inference eligible: "
+                              <> Text.unpack (Checkpoint.renderEligibilityError err)
+                          )
+                      Right _ -> pure ()
+            )
+            manifests
+      , testCase
+          "supervised inference loader rejects partial, synthetic, untrained, and malformed family manifests before IO (Sprint 24.3)"
+          $ withSystemTempDirectory "jitml-supervised-manifest-reject"
+          $ \root ->
+            runFilesystemMinIO root $
+              traverse_
+                ( \problem ->
+                    traverse_
+                      (rejectSupervisedManifestCase problem)
+                      (supervisedIllegalManifestCases problem)
+                )
+                SL.canonicalProblems
       , testCase "checkpoint browse lists only inference-eligible completed manifests (Sprint 8.14/11.11)" $ do
           let experimentHash = "exp-checkpoint-browser-negative"
               completeBlob = Checkpoint.blobKey experimentHash "blob-complete"
               partialBlob = Checkpoint.blobKey experimentHash "blob-partial"
+              syntheticBlob = Checkpoint.blobKey experimentHash "blob-synthetic"
+              seededBlob = Checkpoint.blobKey experimentHash "blob-seeded"
+              failedBlob = Checkpoint.blobKey experimentHash "blob-failed"
               completedManifest =
                 completedCheckpointManifest
                   "m-complete"
@@ -1188,12 +1663,61 @@ main =
                   { Checkpoint.manifestStep = 3
                   , Checkpoint.manifestMetrics = [("accuracy", 0.95)]
                   }
+              syntheticManifest =
+                ( completedCheckpointManifest
+                    "m-synthetic"
+                    experimentHash
+                    [Checkpoint.TensorBlob "dense" [2, 2] syntheticBlob]
+                    3
+                    [("accuracy", 0.95)]
+                )
+                  { Checkpoint.manifestInitialWeightHash = Nothing
+                  , Checkpoint.manifestFinalWeightHash = Nothing
+                  , Checkpoint.manifestUpdateCount = Nothing
+                  , Checkpoint.manifestDatasetShaAtRead = Nothing
+                  }
+              seededManifest =
+                ( Checkpoint.emptyManifest
+                    "m-seeded"
+                    experimentHash
+                    [Checkpoint.TensorBlob "dense" [2, 2] seededBlob]
+                )
+                  { Checkpoint.manifestStep = 3
+                  , Checkpoint.manifestMetrics =
+                      [ ("panel_seeded_policy_value", 1.0)
+                      , ("seed", 2006.0)
+                      ]
+                  }
+              failedManifest =
+                ( Checkpoint.emptyManifest
+                    "m-failed"
+                    experimentHash
+                    [Checkpoint.TensorBlob "dense" [2, 2] failedBlob]
+                )
+                  { Checkpoint.manifestStep = 3
+                  , Checkpoint.manifestMetrics = [("accuracy", 0.0)]
+                  }
               completedSha = Checkpoint.manifestContentSha completedManifest
               partialSha = Checkpoint.manifestContentSha partialManifest
+              syntheticSha = Checkpoint.manifestContentSha syntheticManifest
+              seededSha = Checkpoint.manifestContentSha seededManifest
+              failedSha = Checkpoint.manifestContentSha failedManifest
               summaries =
                 Workload.checkpointSummaries
                   experimentHash
-                  [partialManifest, completedManifest]
+                  [ partialManifest
+                  , syntheticManifest
+                  , seededManifest
+                  , failedManifest
+                  , completedManifest
+                  ]
+              failClosedFrame =
+                Workload.renderCheckpointListResult
+                  "call-empty"
+                  ( Workload.checkpointSummaries
+                      experimentHash
+                      [partialManifest, syntheticManifest, seededManifest, failedManifest]
+                  )
           length summaries @?= 1
           assertBool
             "completed checkpoint appears in browser selector summary"
@@ -1202,8 +1726,23 @@ main =
             "partial checkpoint is hidden from browser selector summary"
             (not (any (partialSha `Text.isInfixOf`) summaries))
           assertBool
+            "synthetic checkpoint is hidden from browser selector summary"
+            (not (any (syntheticSha `Text.isInfixOf`) summaries))
+          assertBool
+            "seeded checkpoint is hidden from browser selector summary"
+            (not (any (seededSha `Text.isInfixOf`) summaries))
+          assertBool
+            "failed-training checkpoint is hidden from browser selector summary"
+            (not (any (failedSha `Text.isInfixOf`) summaries))
+          assertBool
             "selector summary carries the eligibility marker"
             (any ("\teligible\t" `Text.isInfixOf`) summaries)
+          assertBool
+            "empty selector frame is explicit fail-closed state"
+            ("selector-state: fail-closed:no-inference-eligible-artifact" `Text.isInfixOf` failClosedFrame)
+          assertBool
+            "empty selector frame reports zero eligible checkpoints"
+            ("count: 0" `Text.isInfixOf` failClosedFrame)
       , testCase "Dhall numerics schema decodes against the full Haskell catalog" $ do
           -- Decodes dhall/numerics/Schema.dhall through `Dhall.inputFile`
           -- and asserts the resulting NumericsCatalog matches the
@@ -2349,38 +2888,16 @@ main =
               let repository = "library/jitml-harbor-test-" <> uniqueSuffix
                   initialRef = ImageRef (registry <> "/" <> repository <> ":initial")
                   currentRef = ImageRef (registry <> "/" <> repository <> ":current")
-                  sourceImage = "alpine:3.20"
               case Publication.publicationSubstrate publication of
                 AppleSilicon ->
                   seedHarborOciArtifact settings repository "initial"
                 _ -> do
-                  -- Stage a small source image (alpine ~5MB) on the host and
-                  -- retag it as the initial Harbor reference. We use the host
-                  -- docker daemon directly (not via HasHarbor) for the pull
-                  -- because alpine lives in docker.io, not Harbor. The test
-                  -- assumes alpine:3.20 is already present (a fallback `docker
-                  -- pull alpine:3.20` is fired if it isn't).
-                  ensureLocalImage sourceImage
-                  (tagExit, _, tagErr) <-
-                    runStreaming
-                      defaultSubprocessEnv
-                      ( subprocess
-                          "docker"
-                          ["tag", Text.pack sourceImage, unImageRef initialRef]
-                      )
-                  case tagExit of
-                    ExitSuccess -> pure ()
-                    ExitFailure code ->
-                      assertFailure
-                        ( "docker tag failed exit "
-                            <> show code
-                            <> " stderr: "
-                            <> Text.unpack tagErr
-                        )
-                  -- Linux lanes validate the Docker-backed live push path. On
-                  -- Apple, host Docker is not required to trust the routed HTTP
-                  -- registry, so the source artifact is seeded through the same
-                  -- Harbor registry API before the HasHarbor promotion checks.
+                  -- Linux lanes validate the Docker-backed live push path with
+                  -- a tiny single-platform image built directly under the
+                  -- unique Harbor tag. Avoid a cached multi-arch docker.io
+                  -- source image here: failed routed pushes can leave local
+                  -- RepoDigests that make later retries skip required blobs.
+                  buildLocalHarborTestImage settings initialRef uniqueSuffix
                   HarborSubprocess.runHarborSubprocess settings $ do
                     pushResult <- harborPushImage initialRef
                     liftIO $ case pushResult of
@@ -2668,7 +3185,7 @@ main =
                       "expected RL worker to publish a median_final_reward MetricUpdate"
                       medianMetricSeen
                     assertBool
-                      "expected RL worker to publish CheckpointDoneRL with completed-training"
+                      "expected RL worker to publish CheckpointDoneRL"
                       checkpointSeen
                     _ <- deleteJob expectedJobName
                     pure ()
@@ -3482,7 +3999,7 @@ runLiveWorkflowMatrixCell
 runLiveWorkflowMatrixCell repoRoot binary publication cell =
   case WorkflowMatrix.cellWorkflow cell of
     WorkflowMatrix.SlTrain -> do
-      ensureWorkflowMatrixDataset minioSettings
+      assertWorkflowMatrixDatasetVerified minioSettings
       runWorkflowCommandExpecting ["train:", "substrate=" <> substrateUrlSegment substrate]
     WorkflowMatrix.SlEval -> do
       stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval"
@@ -3583,79 +4100,29 @@ stageWorkflowMatrixCheckpoint settings experimentHash =
               <> show err
           )
 
-ensureWorkflowMatrixDataset :: MinIOSubprocess.MinIOSettings -> IO ()
-ensureWorkflowMatrixDataset settings =
+assertWorkflowMatrixDatasetVerified :: MinIOSubprocess.MinIOSettings -> IO ()
+assertWorkflowMatrixDatasetVerified settings =
   MinIOSubprocess.runMinIOSubprocess settings $ do
-    ensureDatasetObject
-      (ObjectRef (BucketName "jitml-datasets") (ObjectKey "MNIST/train/data.bin"))
-      workflowMatrixTrainImages
-    ensureDatasetObject
-      (ObjectRef (BucketName "jitml-datasets") (ObjectKey "MNIST/train/labels.bin"))
-      workflowMatrixTrainLabels
+    results <-
+      traverse
+        (uncurry Dataset.fetchVerifiedDatasetArtifactBytes)
+        [ (trainRef, Dataset.ImagesArtifact)
+        , (trainRef, Dataset.LabelsArtifact)
+        , (testRef, Dataset.ImagesArtifact)
+        , (testRef, Dataset.LabelsArtifact)
+        ]
+    liftIO $
+      case lefts results of
+        [] -> pure ()
+        err : _ ->
+          assertFailure
+            ( "WorkflowMatrix SL training requires real canonical MNIST bytes staged through "
+                <> "`jitml internal upload-dataset`; synthetic canonical-key payloads are forbidden. Got: "
+                <> show err
+            )
  where
-  ensureDatasetObject ref payload = do
-    existing <- minioReadBytes ref
-    case existing of
-      Right _ -> pure ()
-      Left _ -> do
-        written <- putBlobBytesIfAbsent ref payload
-        liftIO $ case written of
-          Right _ -> pure ()
-          Left (SEConflict _) -> pure ()
-          Left err ->
-            assertFailure ("WorkflowMatrix dataset staging failed: " <> show err)
-
-workflowMatrixTrainImages :: Data.ByteString.ByteString
-workflowMatrixTrainImages =
-  Data.ByteString.pack
-    [ 0
-    , 0
-    , 8
-    , 3 -- IDX3 magic
-    , 0
-    , 0
-    , 0
-    , 6 -- image count
-    , 0
-    , 0
-    , 0
-    , 1 -- rows
-    , 0
-    , 0
-    , 0
-    , 2 -- cols
-    , 250
-    , 5
-    , 240
-    , 10
-    , 255
-    , 0
-    , 5
-    , 250
-    , 10
-    , 240
-    , 0
-    , 255
-    ]
-
-workflowMatrixTrainLabels :: Data.ByteString.ByteString
-workflowMatrixTrainLabels =
-  Data.ByteString.pack
-    [ 0
-    , 0
-    , 8
-    , 1 -- IDX1 magic
-    , 0
-    , 0
-    , 0
-    , 6 -- label count
-    , 0
-    , 0
-    , 0
-    , 1
-    , 1
-    , 1
-    ]
+  trainRef = Dataset.DatasetRef "MNIST" Dataset.TrainSplit 0 "ignored"
+  testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
 
 -- | Read the live cluster publication artifact written by
 -- `JitML.Bootstrap.liveExecutePhasedRollout`. Used by Sprint 13.2's `Live`
@@ -3714,6 +4181,212 @@ runVisibleWeightedCheckpointInference env manifest weights values = do
   if MetalRuntime.metalRuntimeDeviceVisible metalProbe
     then MetalLocal.runMetalWeightedCheckpointInference env manifest weights values
     else Local.runLinuxCpuWeightedCheckpointInference env manifest weights values
+
+layerGraphCheckpointFixture :: Either Text LayerGraph.LayerGraph
+layerGraphCheckpointFixture = do
+  node <-
+    LayerGraph.mkAffineLayer
+      "graph-dense"
+      LayerGraph.DenseLayer
+      3
+      2
+      LayerGraph.LinearActivation
+      LayerGraph.InferenceMode
+      LayerGraph.LayerParameters
+        { LayerGraph.layerWeights = VU.fromList [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+        , LayerGraph.layerBias = VU.fromList [0.5, -0.5]
+        }
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "graph-checkpoint-fixture"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+      , LayerGraph.layerGraphNodes = [node]
+      }
+
+supervisedCompletedManifestFor :: Text -> SL.CanonicalProblem -> Checkpoint.CheckpointManifest
+supervisedCompletedManifestFor experimentHash problem =
+  let config = supervisedManifestConfig problem
+      spec = SLArchitecture.architectureSpecForProblem config problem
+      graph = SLArchitecture.archLayerGraph spec
+      graphMetadata = Checkpoint.layerGraphMetadataFromGraph graph
+      tensors = supervisedLayerGraphTensors experimentHash graph
+      manifest =
+        completedCheckpointManifest
+          ("m-" <> SL.problemName problem)
+          experimentHash
+          tensors
+          5
+          [("test_supervised_metric", 0.95)]
+   in manifest
+        { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+        , Checkpoint.manifestArchitecture =
+            Checkpoint.ArchitectureMetadata
+              { Checkpoint.architectureName = SL.problemName problem
+              , Checkpoint.architectureModelFamily = Checkpoint.SupervisedModelFamily
+              , Checkpoint.architectureInputs =
+                  [Checkpoint.TensorSpec "input" [clfInputs config] "F64"]
+              , Checkpoint.architectureOutputs =
+                  [ Checkpoint.TensorSpec
+                      "output"
+                      (LayerGraph.unTensorShape (LayerGraph.layerGraphOutputShape graph))
+                      "F64"
+                  ]
+              , Checkpoint.architectureLayerGraph = Just graphMetadata
+              }
+        , Checkpoint.manifestOutputDecoders = [supervisedOutputDecoder problem config]
+        , Checkpoint.manifestWeightLayout =
+            Checkpoint.NamedTensorWeightLayout (fmap Checkpoint.tensorSpecFromBlob tensors)
+        }
+
+supervisedManifestConfig :: SL.CanonicalProblem -> ClassifierConfig
+supervisedManifestConfig problem =
+  case SL.problemDataset problem of
+    "MNIST" ->
+      defaultClassifierConfig {clfInputs = 784, clfHidden = 128, clfClasses = 10}
+    "Fashion-MNIST" ->
+      defaultClassifierConfig {clfInputs = 784, clfHidden = 128, clfClasses = 10}
+    "CIFAR-10" ->
+      defaultClassifierConfig {clfInputs = 3072, clfHidden = 192, clfClasses = 10}
+    "CIFAR-100" ->
+      defaultClassifierConfig {clfInputs = 3072, clfHidden = 256, clfClasses = 100}
+    "Tiny ImageNet" ->
+      defaultClassifierConfig {clfInputs = 12288, clfHidden = 384, clfClasses = 200}
+    "California Housing" ->
+      defaultClassifierConfig {clfInputs = 8, clfHidden = 24, clfClasses = 0}
+    _ ->
+      defaultClassifierConfig
+
+supervisedOutputDecoder :: SL.CanonicalProblem -> ClassifierConfig -> Checkpoint.OutputDecoder
+supervisedOutputDecoder problem config =
+  if SL.problemDataset problem == "California Housing"
+    then
+      Checkpoint.OutputDecoder
+        { Checkpoint.outputDecoderName = "prediction"
+        , Checkpoint.outputDecoderKind = Checkpoint.RegressionOutput
+        , Checkpoint.outputDecoderLabels = []
+        , Checkpoint.outputDecoderUnits = Just "median-house-value"
+        , Checkpoint.outputDecoderArtifactKind = Nothing
+        }
+    else
+      Checkpoint.OutputDecoder
+        { Checkpoint.outputDecoderName = "prediction"
+        , Checkpoint.outputDecoderKind = Checkpoint.ClassificationOutput
+        , Checkpoint.outputDecoderLabels =
+            fmap (("class-" <>) . Text.pack . show) [0 .. clfClasses config - 1]
+        , Checkpoint.outputDecoderUnits = Nothing
+        , Checkpoint.outputDecoderArtifactKind = Nothing
+        }
+
+supervisedLayerGraphTensors :: Text -> LayerGraph.LayerGraph -> [Checkpoint.TensorBlob]
+supervisedLayerGraphTensors experimentHash graph =
+  concatMap nodeTensors (LayerGraph.layerGraphNodes graph)
+ where
+  nodeTensors node =
+    case LayerGraph.layerParameters node of
+      Nothing -> []
+      Just _ ->
+        let inputWidth = product (LayerGraph.unTensorShape (LayerGraph.layerInputShape node))
+            outputWidth = product (LayerGraph.unTensorShape (LayerGraph.layerOutputShape node))
+            weightName = LayerGraph.layerNodeName node <> ".weights"
+            biasName = LayerGraph.layerNodeName node <> ".bias"
+         in [ Checkpoint.TensorBlob
+                weightName
+                [outputWidth, inputWidth]
+                (Checkpoint.blobKey experimentHash ("sha-" <> weightName))
+            , Checkpoint.TensorBlob
+                biasName
+                [outputWidth]
+                (Checkpoint.blobKey experimentHash ("sha-" <> biasName))
+            ]
+
+supervisedIllegalManifestCases
+  :: SL.CanonicalProblem -> [(Text, Text, Checkpoint.CheckpointManifest, Text)]
+supervisedIllegalManifestCases problem =
+  [ mkCase
+      "partial"
+      ( \manifest ->
+          manifest
+            { Checkpoint.manifestCompletedTraining = Nothing
+            , Checkpoint.manifestInitialWeightHash = Nothing
+            , Checkpoint.manifestFinalWeightHash = Nothing
+            , Checkpoint.manifestUpdateCount = Nothing
+            , Checkpoint.manifestDatasetShaAtRead = Nothing
+            }
+      )
+      "no completed-training witness"
+  , mkCase
+      "synthetic"
+      ( \manifest ->
+          manifest
+            { Checkpoint.manifestInitialWeightHash = Nothing
+            , Checkpoint.manifestFinalWeightHash = Nothing
+            , Checkpoint.manifestUpdateCount = Nothing
+            , Checkpoint.manifestDatasetShaAtRead = Nothing
+            }
+      )
+      "missing weight-delta evidence"
+  , mkCase
+      "untrained"
+      (\manifest -> manifest {Checkpoint.manifestStep = 0})
+      "completed-training witness observes"
+  , mkCase
+      "malformed-layout"
+      ( \manifest ->
+          manifest
+            { Checkpoint.manifestWeightLayout = Checkpoint.NamedTensorWeightLayout []
+            }
+      )
+      "supervised manifest has invalid shape/layout metadata"
+  ]
+ where
+  mkCase suffix mutate expected =
+    let experimentHash = "exp-24-3-" <> SL.problemName problem <> "-" <> suffix
+     in ( suffix
+        , experimentHash
+        , mutate (supervisedCompletedManifestFor experimentHash problem)
+        , expected
+        )
+
+rejectSupervisedManifestCase
+  :: (HasMinIO m, MonadIO m)
+  => SL.CanonicalProblem
+  -> (Text, Text, Checkpoint.CheckpointManifest, Text)
+  -> m ()
+rejectSupervisedManifestCase problem (label, experimentHash, manifest, expected) = do
+  let manifestSha = Checkpoint.manifestContentSha manifest
+      manifestRef =
+        CheckpointStore.checkpointObjectRef (Checkpoint.manifestKey experimentHash manifestSha)
+      pointerRef = CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
+      manifestBytes = ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor manifest)
+  _ <- putBlobBytesIfAbsent manifestRef manifestBytes
+  _ <- casPointer pointerRef Nothing manifestSha
+  runnerInvoked <- liftIO (newIORef False)
+  result <-
+    CheckpointStore.loadInferenceCheckpointWithWeights
+      ( \_modelRef _manifest _weights _values -> do
+          liftIO (modifyIORef' runnerInvoked (const True))
+          pure (Right [])
+      )
+      experimentHash
+      [1.0]
+  invoked <- liftIO (readIORef runnerInvoked)
+  liftIO $ do
+    invoked @?= False
+    case result of
+      Left err ->
+        assertBool
+          (Text.unpack (SL.problemName problem <> " " <> label))
+          (expected `Text.isInfixOf` err)
+      Right values ->
+        assertFailure
+          ( "illegal supervised manifest inferred for "
+              <> Text.unpack (SL.problemName problem)
+              <> " "
+              <> Text.unpack label
+              <> ": "
+              <> show values
+          )
 
 data JobFailureObservation = JobFailureObservation
   { failedJobName :: Text
@@ -4069,7 +4742,6 @@ collectRlEventEvidence settings topic subscription experimentHash watchedJob att
                   checkpointSeen
                     || ( matches
                            && "kind: CheckpointDoneRL" `Text.isInfixOf` payload
-                           && "completed-training:" `Text.isInfixOf` payload
                        )
             go (n - 1) nextEpisodes nextMetricSeen nextCheckpointSeen
 
@@ -4520,33 +5192,43 @@ ociDigest payload = do
             <> Text.unpack stderrText
         )
 
--- | Make sure the named docker image exists on the host docker daemon
--- before the live Harbor push test retags + pushes it. If absent, pull it.
--- The Harbor test uses `alpine:3.20` to keep the push under ~5MB.
-ensureLocalImage :: String -> IO ()
-ensureLocalImage image = do
-  (inspectExit, _, _) <-
-    runStreaming
-      defaultSubprocessEnv
-      (subprocess "docker" ["image", "inspect", Text.pack image])
-  case inspectExit of
+buildLocalHarborTestImage
+  :: HarborSubprocess.HarborSettings
+  -> ImageRef
+  -> Text
+  -> IO ()
+buildLocalHarborTestImage settings (ImageRef imageRef) uniqueSuffix = do
+  createDirectoryIfMissing True (HarborSubprocess.harborDockerConfigDir settings)
+  let dockerfile =
+        Text.unlines
+          [ "FROM scratch"
+          , "LABEL org.opencontainers.image.title=\"jitml-harbor-live-test\""
+          , "LABEL org.opencontainers.image.revision=\"" <> uniqueSuffix <> "\""
+          ]
+      buildCommand =
+        subprocessWithStdin
+          (HarborSubprocess.harborDockerBinary settings)
+          (harborDockerCliArgs settings ["build", "--pull=false", "-t", imageRef, "-"])
+          dockerfile
+  (buildExit, _, buildErr) <- runStreaming defaultSubprocessEnv buildCommand
+  case buildExit of
     ExitSuccess -> pure ()
-    ExitFailure _ -> do
-      (pullExit, _, pullErr) <-
-        runStreaming
-          defaultSubprocessEnv
-          (subprocess "docker" ["pull", Text.pack image])
-      case pullExit of
-        ExitSuccess -> pure ()
-        ExitFailure code ->
-          assertFailure
-            ( "ensureLocalImage "
-                <> image
-                <> " failed exit "
-                <> show code
-                <> " stderr: "
-                <> Text.unpack pullErr
-            )
+    ExitFailure code ->
+      assertFailure
+        ( "docker build Harbor test image failed exit "
+            <> show code
+            <> " stderr: "
+            <> Text.unpack buildErr
+        )
+
+harborDockerCliArgs :: HarborSubprocess.HarborSettings -> [Text] -> [Text]
+harborDockerCliArgs settings args =
+  maybe
+    []
+    (\dockerHost -> ["--host", dockerHost])
+    (HarborSubprocess.harborDockerHost settings)
+    <> ["--config", Text.pack (HarborSubprocess.harborDockerConfigDir settings)]
+    <> args
 
 locateJitmlBinary :: IO (Maybe FilePath)
 locateJitmlBinary = do

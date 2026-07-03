@@ -11,6 +11,7 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
+  , updateContract
   )
 
 maskablePpoModule :: AlgorithmModule
@@ -18,6 +19,13 @@ maskablePpoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "MaskablePPO" OnPolicy False
     , moduleHyperparameters = maskablePpoHyperparameters
+    , moduleUpdateContract =
+        updateContract
+          "on-policy.maskable-ppo.masked-categorical-clipped-surrogate"
+          "JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpole/VariantMaskablePPO"
+          "rollout-buffer.gae.action-mask"
+          "mlp-policy-value"
+          ["masked-categorical", "clipped-surrogate", "invalid-action-elimination"]
     }
 
 maskablePpoHyperparameters :: [AlgorithmHyperparameter]

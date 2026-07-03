@@ -1,12 +1,14 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Pure-Haskell simulator bindings used by the RL canonical stanza
 -- ahead of the live env runtime owned by Phase 13. Provides typed
 -- initial / step boundaries for the canonical @cartpole@
--- (CartPole-v1), @mountain-car@ (MountainCar-v0), @lunar-lander@
+-- (CartPole-v1), @mountain-car@ (MountainCar-v0), @acrobot@
+-- (Acrobot-v1), @pendulum@ (Pendulum-v1), @lunar-lander@
 -- (LunarLander-v2, simplified rigid-body port of the Gym Box2D
--- reference), and @key-door-grid@ (jitML-owned visual discrete control)
--- environments plus a deterministic render-frame projection.
+-- reference), @key-door-grid@, and @gridworld-deterministic@ environments
+-- plus a deterministic render-frame projection.
 --
 -- The lunar-lander port is a pure-Haskell rigid-body simulation in
 -- the style of OpenAI Gym's @lunar_lander.py@ but written from the
@@ -15,9 +17,13 @@
 -- same-seed reproducibility is. Atari 2600 execution is owned by
 -- "JitML.RL.ALE" so ROM bytes remain explicit and uncommitted.
 module JitML.RL.Simulator
-  ( CartPoleState (..)
+  ( AcrobotState (..)
+  , CartPoleState (..)
   , ContinuousEnvironment (..)
   , ContinuousSimStep (..)
+  , GridWorldAction (..)
+  , GridWorldPosition (..)
+  , GridWorldState (..)
   , KeyDoorGridAction (..)
   , KeyDoorGridPosition (..)
   , KeyDoorGridState (..)
@@ -26,11 +32,22 @@ module JitML.RL.Simulator
   , PendulumState (..)
   , RenderFrame (..)
   , SimStep (..)
+  , SomeContinuousEnvironment (..)
+  , SomeSimulatedEnvironment (..)
   , SimulatedEnvironment (..)
+  , acrobotEnvironment
+  , acrobotInitial
+  , acrobotRenderFrame
+  , acrobotStep
   , cartPoleEnvironment
   , cartPoleInitial
   , cartPoleRenderFrame
   , cartPoleStep
+  , gridWorldEnvironment
+  , gridWorldInitial
+  , gridWorldObservation
+  , gridWorldRenderFrame
+  , gridWorldStep
   , keyDoorGridEnvironment
   , keyDoorGridInitial
   , keyDoorGridLegalActionMask
@@ -38,16 +55,21 @@ module JitML.RL.Simulator
   , keyDoorGridRenderFrame
   , keyDoorGridStep
   , lunarLanderEnvironment
+  , lunarLanderContinuousEnvironment
   , lunarLanderInitial
   , lunarLanderRenderFrame
   , lunarLanderStep
+  , lookupContinuousEnvironmentByName
+  , lookupSimulatedEnvironmentByName
   , mountainCarEnvironment
   , mountainCarInitial
   , mountainCarRenderFrame
   , mountainCarStep
   , pendulumEnvironment
+  , pendulumDiscreteEnvironment
   , pendulumInitial
   , pendulumObservation
+  , pendulumRenderFrame
   , pendulumStep
   , stepEnvironmentIO
   )
@@ -86,7 +108,40 @@ data SimulatedEnvironment state = SimulatedEnvironment
   , envRenderFrame :: state -> RenderFrame
   , envActionCount :: Int
   , envObservationSize :: Int
+  , envMaxEpisodeSteps :: Int
+  , envActionMask :: Maybe (state -> [Bool])
   }
+
+data SomeSimulatedEnvironment
+  = forall state. SomeSimulatedEnvironment (SimulatedEnvironment state)
+
+data SomeContinuousEnvironment
+  = forall state. SomeContinuousEnvironment (ContinuousEnvironment state)
+
+simulatedEnvironmentCatalog :: [(Text, SomeSimulatedEnvironment)]
+simulatedEnvironmentCatalog =
+  [ ("cartpole", SomeSimulatedEnvironment cartPoleEnvironment)
+  , ("mountain-car", SomeSimulatedEnvironment mountainCarEnvironment)
+  , ("acrobot", SomeSimulatedEnvironment acrobotEnvironment)
+  , ("pendulum", SomeSimulatedEnvironment pendulumDiscreteEnvironment)
+  , ("lunar-lander", SomeSimulatedEnvironment lunarLanderEnvironment)
+  , ("key-door-grid", SomeSimulatedEnvironment keyDoorGridEnvironment)
+  , ("KeyDoorGrid-v0", SomeSimulatedEnvironment keyDoorGridEnvironment)
+  , ("gridworld-deterministic", SomeSimulatedEnvironment gridWorldEnvironment)
+  , ("GridWorld-Deterministic-v0", SomeSimulatedEnvironment gridWorldEnvironment)
+  ]
+
+lookupSimulatedEnvironmentByName :: Text -> Maybe SomeSimulatedEnvironment
+lookupSimulatedEnvironmentByName name = lookup name simulatedEnvironmentCatalog
+
+continuousEnvironmentCatalog :: [(Text, SomeContinuousEnvironment)]
+continuousEnvironmentCatalog =
+  [ ("pendulum", SomeContinuousEnvironment pendulumEnvironment)
+  , ("lunar-lander", SomeContinuousEnvironment lunarLanderContinuousEnvironment)
+  ]
+
+lookupContinuousEnvironmentByName :: Text -> Maybe SomeContinuousEnvironment
+lookupContinuousEnvironmentByName name = lookup name continuousEnvironmentCatalog
 
 -- | Wrap a pure simulator step in @IO@ to satisfy the doctrine env-step
 -- signature without duplicating the underlying physics. The pure form
@@ -126,6 +181,8 @@ cartPoleEnvironment =
     , envRenderFrame = cartPoleRenderFrame
     , envActionCount = 2
     , envObservationSize = 4
+    , envMaxEpisodeSteps = 500
+    , envActionMask = Nothing
     }
 
 cartPoleStep :: CartPoleState -> Int -> SimStep CartPoleState
@@ -225,6 +282,8 @@ mountainCarEnvironment =
     , envRenderFrame = mountainCarRenderFrame
     , envActionCount = 3
     , envObservationSize = 2
+    , envMaxEpisodeSteps = 200
+    , envActionMask = Nothing
     }
 
 mountainCarStep :: MountainCarState -> Int -> SimStep MountainCarState
@@ -278,6 +337,144 @@ mountainCarMinPosition = -1.2
 mountainCarMaxPosition = 0.6
 mountainCarGoalPosition = 0.5
 
+-- * Acrobot-v1
+
+-- | Acrobot-v1 state vector: first-link angle, second-link relative angle,
+-- first-link angular velocity, and second-link angular velocity. Observations
+-- project the two angles to @(cos, sin)@ pairs plus angular velocities.
+data AcrobotState = AcrobotState
+  { acrobotTheta1 :: Double
+  , acrobotTheta2 :: Double
+  , acrobotDTheta1 :: Double
+  , acrobotDTheta2 :: Double
+  }
+  deriving stock (Eq, Show)
+
+acrobotInitial :: AcrobotState
+acrobotInitial = AcrobotState 0.0 0.0 0.0 0.0
+
+acrobotEnvironment :: SimulatedEnvironment AcrobotState
+acrobotEnvironment =
+  SimulatedEnvironment
+    { envName = "acrobot"
+    , envInitial = acrobotInitial
+    , envStep = acrobotStep
+    , envRenderFrame = acrobotRenderFrame
+    , envActionCount = 3
+    , envObservationSize = 6
+    , envMaxEpisodeSteps = 500
+    , envActionMask = Nothing
+    }
+
+-- | Advance Acrobot one Gym-style timestep. Actions @0,1,2@ map to torques
+-- @-1,0,+1@. The equations are the classic underactuated two-link system used
+-- by Gym's @Acrobot-v1@: two unit-length links, center-of-mass at half-link,
+-- unit link masses/inertias, gravity 9.8, and semi-implicit Euler integration.
+acrobotStep :: AcrobotState -> Int -> SimStep AcrobotState
+acrobotStep state action =
+  let torque = fromIntegral (max 0 (min 2 action) - 1)
+      theta1 = acrobotTheta1 state
+      theta2 = acrobotTheta2 state
+      dtheta1 = acrobotDTheta1 state
+      dtheta2 = acrobotDTheta2 state
+      d1 =
+        acrobotM1 * acrobotLc1 * acrobotLc1
+          + acrobotM2
+            * ( acrobotL1 * acrobotL1
+                  + acrobotLc2 * acrobotLc2
+                  + 2.0 * acrobotL1 * acrobotLc2 * cos theta2
+              )
+          + acrobotI1
+          + acrobotI2
+      d2 = acrobotM2 * (acrobotLc2 * acrobotLc2 + acrobotL1 * acrobotLc2 * cos theta2) + acrobotI2
+      phi2 = acrobotM2 * acrobotLc2 * acrobotG * cos (theta1 + theta2 - pi / 2.0)
+      phi1 =
+        (-acrobotM2)
+          * acrobotL1
+          * acrobotLc2
+          * dtheta2
+          * dtheta2
+          * sin theta2
+          - 2.0
+            * acrobotM2
+            * acrobotL1
+            * acrobotLc2
+            * dtheta2
+            * dtheta1
+            * sin theta2
+          + (acrobotM1 * acrobotLc1 + acrobotM2 * acrobotL1)
+            * acrobotG
+            * cos (theta1 - pi / 2.0)
+          + phi2
+      ddtheta2 =
+        ( torque
+            + d2 / d1 * phi1
+            - acrobotM2 * acrobotL1 * acrobotLc2 * dtheta1 * dtheta1 * sin theta2
+            - phi2
+        )
+          / ( acrobotM2 * acrobotLc2 * acrobotLc2
+                + acrobotI2
+                - d2 * d2 / d1
+            )
+      ddtheta1 = -((d2 * ddtheta2 + phi1) / d1)
+      nextDTheta1 = clamp (dtheta1 + ddtheta1 * acrobotDt) (-acrobotMaxVel1) acrobotMaxVel1
+      nextDTheta2 = clamp (dtheta2 + ddtheta2 * acrobotDt) (-acrobotMaxVel2) acrobotMaxVel2
+      next =
+        AcrobotState
+          { acrobotTheta1 = wrapAngle (theta1 + nextDTheta1 * acrobotDt)
+          , acrobotTheta2 = wrapAngle (theta2 + nextDTheta2 * acrobotDt)
+          , acrobotDTheta1 = nextDTheta1
+          , acrobotDTheta2 = nextDTheta2
+          }
+      done = acrobotTerminal next
+   in SimStep next (if done then 0.0 else -1.0) done
+
+acrobotRenderFrame :: AcrobotState -> RenderFrame
+acrobotRenderFrame state =
+  RenderFrame
+    { renderObservation =
+        [ cos (acrobotTheta1 state)
+        , sin (acrobotTheta1 state)
+        , cos (acrobotTheta2 state)
+        , sin (acrobotTheta2 state)
+        , acrobotDTheta1 state
+        , acrobotDTheta2 state
+        ]
+    , renderCaption =
+        "acrobot theta1="
+          <> showDouble (acrobotTheta1 state)
+          <> " theta2="
+          <> showDouble (acrobotTheta2 state)
+    }
+
+acrobotTerminal :: AcrobotState -> Bool
+acrobotTerminal state =
+  (-cos (acrobotTheta1 state) - cos (acrobotTheta1 state + acrobotTheta2 state)) > 1.0
+
+acrobotM1
+  , acrobotM2
+  , acrobotL1
+  , acrobotLc1
+  , acrobotLc2
+  , acrobotI1
+  , acrobotI2
+  , acrobotG
+  , acrobotDt
+  , acrobotMaxVel1
+  , acrobotMaxVel2
+    :: Double
+acrobotM1 = 1.0
+acrobotM2 = 1.0
+acrobotL1 = 1.0
+acrobotLc1 = 0.5
+acrobotLc2 = 0.5
+acrobotI1 = 1.0
+acrobotI2 = 1.0
+acrobotG = 9.8
+acrobotDt = 0.2
+acrobotMaxVel1 = 4.0 * pi
+acrobotMaxVel2 = 9.0 * pi
+
 -- * LunarLander-v2
 
 -- | LunarLander-v2 state: lander position @(x, y)@ in metres above the
@@ -297,6 +494,7 @@ data LunarLanderState = LunarLanderState
   , lunarLanderOmega :: Double
   , lunarLanderLeftLegContact :: Bool
   , lunarLanderRightLegContact :: Bool
+  , lunarLanderPrevShaping :: Maybe Double
   }
   deriving stock (Eq, Show)
 
@@ -317,6 +515,7 @@ lunarLanderInitial =
     , lunarLanderOmega = 0.0
     , lunarLanderLeftLegContact = False
     , lunarLanderRightLegContact = False
+    , lunarLanderPrevShaping = Nothing
     }
 
 lunarLanderEnvironment :: SimulatedEnvironment LunarLanderState
@@ -328,6 +527,8 @@ lunarLanderEnvironment =
     , envRenderFrame = lunarLanderRenderFrame
     , envActionCount = 4
     , envObservationSize = 8
+    , envMaxEpisodeSteps = 1000
+    , envActionMask = Nothing
     }
 
 -- | Advance the lander one Gym timestep under the documented discrete
@@ -392,6 +593,7 @@ lunarLanderStep state action =
         , lunarLanderOmega = newOmega
         , lunarLanderLeftLegContact = leftContact
         , lunarLanderRightLegContact = rightContact
+        , lunarLanderPrevShaping = Just shaping
         }
     offPad = abs newX > lunarLanderOutOfBounds
     hardLanding =
@@ -407,11 +609,13 @@ lunarLanderStep state action =
     -- Gym shaping: heading reward + velocity reward + angle reward +
     -- leg bonus + engine penalty.
     shaping =
-      ((-100.0) * sqrt (newX * newX + (yClamped - lunarLanderInitialAltitude) ^ (2 :: Int)))
+      ((-100.0) * sqrt (newX * newX + yClamped ^ (2 :: Int)))
         - 100.0 * sqrt (newVx * newVx + vyAfterContact * vyAfterContact)
         - 100.0 * abs newAngle
         + 10.0 * boolToDouble leftContact
         + 10.0 * boolToDouble rightContact
+    shapingReward =
+      maybe 0.0 (shaping -) (lunarLanderPrevShaping state)
     enginePenalty
       | action == 2 = -0.30
       | action == 1 || action == 3 = -0.03
@@ -421,7 +625,7 @@ lunarLanderStep state action =
       | hardLanding = -100.0
       | offPad = -100.0
       | otherwise = 0.0
-    reward = shaping + enginePenalty + terminalReward
+    reward = shapingReward + enginePenalty + terminalReward
    in
     SimStep next reward done
 
@@ -491,7 +695,85 @@ data ContinuousEnvironment state = ContinuousEnvironment
   , cEnvActionLow :: Double
   , cEnvActionHigh :: Double
   , cEnvObservationSize :: Int
+  , cEnvMaxEpisodeSteps :: Int
   }
+
+lunarLanderContinuousEnvironment :: ContinuousEnvironment LunarLanderState
+lunarLanderContinuousEnvironment =
+  ContinuousEnvironment
+    { cEnvName = "lunar-lander"
+    , cEnvInitial = lunarLanderInitial
+    , cEnvStep = lunarLanderContinuousStep
+    , cEnvObservation = renderObservation . lunarLanderRenderFrame
+    , cEnvActionLow = -1.0
+    , cEnvActionHigh = 1.0
+    , cEnvObservationSize = 8
+    , cEnvMaxEpisodeSteps = 1000
+    }
+
+-- | Continuous one-dimensional LunarLander control used by the actor-critic
+-- product rows. The scalar action controls main-engine thrust continuously
+-- from idle (@-1@) to full thrust (@1@); lateral thrust stays zero because the
+-- deterministic product reset starts centered and upright.
+lunarLanderContinuousStep :: LunarLanderState -> Double -> ContinuousSimStep LunarLanderState
+lunarLanderContinuousStep state actionRaw =
+  let thrust01 = clamp ((actionRaw + 1.0) / 2.0) 0.0 1.0
+      mainThrust = thrust01 * lunarLanderMainThrust
+      cosA = cos (lunarLanderAngle state)
+      sinA = sin (lunarLanderAngle state)
+      ax = (-sinA) * mainThrust
+      ay = cosA * mainThrust - lunarLanderGravity
+      newVx = lunarLanderVx state + ax * lunarLanderTau
+      newVy = lunarLanderVy state + ay * lunarLanderTau
+      newX = lunarLanderX state + newVx * lunarLanderTau
+      yRaw = lunarLanderY state + newVy * lunarLanderTau
+      newOmega = lunarLanderOmega state
+      newAngle = lunarLanderAngle state + newOmega * lunarLanderTau
+      touchingGround = yRaw <= 0.0
+      yClamped = if touchingGround then 0.0 else yRaw
+      impactVy = newVy
+      vyAfterContact = if touchingGround then 0.0 else newVy
+      leftContact = touchingGround && newAngle <= 0.05
+      rightContact = touchingGround && newAngle >= -0.05
+      next =
+        LunarLanderState
+          { lunarLanderX = newX
+          , lunarLanderY = yClamped
+          , lunarLanderVx = newVx
+          , lunarLanderVy = vyAfterContact
+          , lunarLanderAngle = newAngle
+          , lunarLanderOmega = newOmega
+          , lunarLanderLeftLegContact = leftContact
+          , lunarLanderRightLegContact = rightContact
+          , lunarLanderPrevShaping = Just shaping
+          }
+      offPad = abs newX > lunarLanderOutOfBounds
+      hardLanding =
+        touchingGround
+          && (abs impactVy > lunarLanderCrashSpeed || abs newAngle > lunarLanderUprightTolerance)
+      softLanding =
+        touchingGround
+          && abs impactVy <= lunarLanderCrashSpeed
+          && abs newAngle <= lunarLanderUprightTolerance
+          && leftContact
+          && rightContact
+      done = offPad || hardLanding || softLanding
+      shaping =
+        ((-100.0) * sqrt (newX * newX + yClamped ^ (2 :: Int)))
+          - 100.0 * sqrt (newVx * newVx + vyAfterContact * vyAfterContact)
+          - 100.0 * abs newAngle
+          + 10.0 * boolToDouble leftContact
+          + 10.0 * boolToDouble rightContact
+      shapingReward =
+        maybe 0.0 (shaping -) (lunarLanderPrevShaping state)
+      enginePenalty = -(0.30 * thrust01)
+      terminalReward
+        | softLanding = 100.0
+        | hardLanding = -100.0
+        | offPad = -100.0
+        | otherwise = 0.0
+      reward = shapingReward + enginePenalty + terminalReward
+   in ContinuousSimStep next reward done
 
 -- | Pendulum-v1 state: pole angle @theta@ (radians, 0 = upright) and
 -- angular velocity @thetadot@ (rad/s). The canonical Gym observation is
@@ -520,6 +802,31 @@ pendulumEnvironment =
     , cEnvActionLow = -pendulumMaxTorque
     , cEnvActionHigh = pendulumMaxTorque
     , cEnvObservationSize = 3
+    , cEnvMaxEpisodeSteps = 200
+    }
+
+-- | Discrete action wrapper used by catalog-level simulator episodes. The
+-- product continuous-control surface is 'pendulumEnvironment'; this wrapper maps
+-- actions @0,1,2@ to minimum, zero, and maximum torque so generic discrete
+-- episode drivers can still exercise the real Pendulum dynamics.
+pendulumDiscreteEnvironment :: SimulatedEnvironment PendulumState
+pendulumDiscreteEnvironment =
+  SimulatedEnvironment
+    { envName = "pendulum"
+    , envInitial = pendulumInitial
+    , envStep = \state action ->
+        let torque =
+              case max 0 (min 2 action) of
+                0 -> -pendulumMaxTorque
+                1 -> 0.0
+                _ -> pendulumMaxTorque
+            step = pendulumStep state torque
+         in SimStep (cStepState step) (cStepReward step) (cStepDone step)
+    , envRenderFrame = pendulumRenderFrame
+    , envActionCount = 3
+    , envObservationSize = 3
+    , envMaxEpisodeSteps = 200
+    , envActionMask = Nothing
     }
 
 -- | Advance the pendulum one Gym timestep under a continuous torque.
@@ -563,6 +870,17 @@ pendulumObservation state =
   , pendThetaDot state
   ]
 
+pendulumRenderFrame :: PendulumState -> RenderFrame
+pendulumRenderFrame state =
+  RenderFrame
+    { renderObservation = pendulumObservation state
+    , renderCaption =
+        "pendulum theta="
+          <> showDouble (pendTheta state)
+          <> " dtheta="
+          <> showDouble (pendThetaDot state)
+    }
+
 pendulumGravity
   , pendulumMass
   , pendulumLength
@@ -582,6 +900,9 @@ angleNormalize :: Double -> Double
 angleNormalize x =
   let twoPi = 2.0 * pi
    in x - twoPi * fromIntegral (floor ((x + pi) / twoPi) :: Int)
+
+wrapAngle :: Double -> Double
+wrapAngle = angleNormalize
 
 -- * Helpers
 
@@ -642,6 +963,8 @@ keyDoorGridEnvironment =
     , envRenderFrame = keyDoorGridRenderFrame
     , envActionCount = keyDoorGridActionCount
     , envObservationSize = keyDoorGridObservationSize
+    , envMaxEpisodeSteps = keyDoorGridMaxSteps
+    , envActionMask = Just keyDoorGridLegalActionMask
     }
 
 keyDoorGridInitial :: Int -> KeyDoorGridState
@@ -825,3 +1148,122 @@ keyDoorGridMaxSteps = 64
 
 keyDoorGridObservationSize :: Int
 keyDoorGridObservationSize = keyDoorGridWidth * keyDoorGridHeight * 5 + 2
+
+-- * GridWorld-Deterministic-v0
+
+data GridWorldPosition = GridWorldPosition
+  { gridWorldRow :: Int
+  , gridWorldCol :: Int
+  }
+  deriving stock (Eq, Show)
+
+data GridWorldAction
+  = GridWorldNorth
+  | GridWorldSouth
+  | GridWorldWest
+  | GridWorldEast
+  deriving stock (Bounded, Enum, Eq, Show)
+
+data GridWorldState = GridWorldState
+  { gridWorldAgent :: GridWorldPosition
+  , gridWorldGoal :: GridWorldPosition
+  , gridWorldStepCount :: Int
+  }
+  deriving stock (Eq, Show)
+
+gridWorldEnvironment :: SimulatedEnvironment GridWorldState
+gridWorldEnvironment =
+  SimulatedEnvironment
+    { envName = "gridworld-deterministic"
+    , envInitial = gridWorldInitial
+    , envStep = gridWorldStep
+    , envRenderFrame = gridWorldRenderFrame
+    , envActionCount = gridWorldActionCount
+    , envObservationSize = gridWorldObservationSize
+    , envMaxEpisodeSteps = gridWorldMaxSteps
+    , envActionMask = Nothing
+    }
+
+gridWorldInitial :: GridWorldState
+gridWorldInitial =
+  GridWorldState
+    { gridWorldAgent = GridWorldPosition 0 0
+    , gridWorldGoal = GridWorldPosition (gridWorldHeight - 1) (gridWorldWidth - 1)
+    , gridWorldStepCount = 0
+    }
+
+gridWorldStep :: GridWorldState -> Int -> SimStep GridWorldState
+gridWorldStep state rawAction =
+  let action = toEnum (max 0 (min (gridWorldActionCount - 1) rawAction)) :: GridWorldAction
+      target = gridWorldMoveTarget action (gridWorldAgent state)
+      blocked = target `elem` gridWorldWalls || not (gridWorldInBounds target)
+      nextPos = if blocked then gridWorldAgent state else target
+      next =
+        state
+          { gridWorldAgent = nextPos
+          , gridWorldStepCount = gridWorldStepCount state + 1
+          }
+      reachedGoal = nextPos == gridWorldGoal state
+      done = reachedGoal || gridWorldStepCount next >= gridWorldMaxSteps
+      reward
+        | reachedGoal = 1.0
+        | blocked = -0.05
+        | otherwise = -0.01
+   in SimStep next reward done
+
+gridWorldObservation :: GridWorldState -> [Double]
+gridWorldObservation state =
+  [ boolToDouble (pos == gridWorldAgent state)
+  | pos <- gridWorldPositions
+  ]
+
+gridWorldRenderFrame :: GridWorldState -> RenderFrame
+gridWorldRenderFrame state =
+  RenderFrame
+    { renderObservation = gridWorldObservation state
+    , renderCaption =
+        Text.unlines
+          [ Text.pack [cellChar (GridWorldPosition row col) | col <- [0 .. gridWorldWidth - 1]]
+          | row <- [0 .. gridWorldHeight - 1]
+          ]
+    }
+ where
+  cellChar pos
+    | pos == gridWorldAgent state = '@'
+    | pos == gridWorldGoal state = 'G'
+    | pos `elem` gridWorldWalls = '#'
+    | otherwise = '.'
+
+gridWorldMoveTarget :: GridWorldAction -> GridWorldPosition -> GridWorldPosition
+gridWorldMoveTarget action (GridWorldPosition row col) =
+  case action of
+    GridWorldNorth -> GridWorldPosition (row - 1) col
+    GridWorldSouth -> GridWorldPosition (row + 1) col
+    GridWorldWest -> GridWorldPosition row (col - 1)
+    GridWorldEast -> GridWorldPosition row (col + 1)
+
+gridWorldInBounds :: GridWorldPosition -> Bool
+gridWorldInBounds (GridWorldPosition row col) =
+  row >= 0 && row < gridWorldHeight && col >= 0 && col < gridWorldWidth
+
+gridWorldPositions :: [GridWorldPosition]
+gridWorldPositions =
+  [ GridWorldPosition row col
+  | row <- [0 .. gridWorldHeight - 1]
+  , col <- [0 .. gridWorldWidth - 1]
+  ]
+
+gridWorldWalls :: [GridWorldPosition]
+gridWorldWalls =
+  [ GridWorldPosition 1 1
+  , GridWorldPosition 2 1
+  ]
+
+gridWorldWidth, gridWorldHeight, gridWorldActionCount, gridWorldMaxSteps :: Int
+gridWorldWidth = 4
+gridWorldHeight = 4
+gridWorldActionCount = 4
+gridWorldMaxSteps = 100
+
+gridWorldObservationSize :: Int
+gridWorldObservationSize = gridWorldWidth * gridWorldHeight

@@ -163,6 +163,18 @@ parameter-commit effects. `EngineEnvelope` is already the local
 reproducibility witness surface; see
 [determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
 
+## Product Scaffold Boundary
+
+Sprint `20.1` removes the legacy fake-RL helpers from `src/`: the dead
+`JitML.RL.VecEnv` module is gone, `runRLLoop` / `runOneEpisode` and the
+deterministic step helper live only under `test/rl-canonicals/Support/`, and the
+old simulator-loop runners are test-support only. Product RL dispatch reaches
+real trainers through `JitML.App.runTrainerEpisodes`; those trainers project
+their summaries into `JitML.RL.EpisodeEnvelope` for trajectory artifacts,
+animation frames, and `EpisodeDone` publications. No product cache-miss path,
+JIT source renderer, engine loader, or trainer device seam imports the relocated
+scaffolding modules.
+
 ## Per-Substrate Codegen Drivers
 
 ### `linux-cpu` — oneDNN
@@ -187,6 +199,17 @@ reproducibility witness surface; see
 - `src/JitML/Engines/HasEngine.hs` wraps the generated-family Linux CPU runner
   in the local `HasEngine` capability, preserving the family metadata check at
   the engine boundary.
+- Sprint `23.2` adds a generated layer-graph training shared object through the
+  same cache and loader path. `renderOneDnnLayerTrainingSource` emits
+  `jitml_layer_forward`, `jitml_layer_backward_data`, and
+  `jitml_layer_backward_weights` plus primitive-name evidence functions.
+  `JitML.Numerics.LayerGraphOneDnn` resolves those symbols with
+  `withKernelSymbol`, dispatches parameterized `LayerGraph` nodes to oneDNN, and
+  returns per-node evidence naming the backend, artifact, and primitive. Dense
+  and other affine graph nodes execute oneDNN matmul; `Conv2D` and `Conv3D`
+  execute oneDNN `convolution_forward` in `forward_training` mode plus
+  `convolution_backward_data` and `convolution_backward_weights` over the
+  graph's flat 1x1 channel projection.
 - `src/JitML/Service/Runtime.hs` exposes
   `daemonWorkloadDispatcherWithInference`; the `jitml service` entrypoint
   selects the Linux CPU generated-kernel checkpoint runner for

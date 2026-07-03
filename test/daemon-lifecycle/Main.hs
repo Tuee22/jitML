@@ -36,6 +36,8 @@ import Proto.Jitml.Inference_Fields ()
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
@@ -1041,11 +1043,26 @@ syntheticInferenceManifest :: Checkpoint.CheckpointManifest
 syntheticInferenceManifest =
   let step = 1
       manifestMetrics = [("validation_accuracy", 0.99)]
+      evidence =
+        either
+          (error . Text.unpack)
+          id
+          ( ProductEvidence.mkTrainingEvidence
+              "daemon-initial-weights"
+              "daemon-final-weights"
+              step
+              "daemon-dataset-sha"
+          )
+      observations =
+        either
+          (error . Text.unpack)
+          id
+          (convergenceObservationsFixture manifestMetrics)
       completed =
         either
           (error . Text.unpack)
           id
-          ( TrainingBudget.completedTrainingFromMetrics
+          ( TrainingBudget.completedTraining
               TrainingBudget.TrainingBudget
                 { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
                 , TrainingBudget.tbTargetUnits = step
@@ -1053,22 +1070,35 @@ syntheticInferenceManifest =
                 , TrainingBudget.tbSeed = Nothing
                 }
               step
-              manifestMetrics
+              evidence
+              observations
               TrainingBudget.TensorBoardRunMetadata
                 { TrainingBudget.tbrRunId = "inference-exp"
                 , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/inference-exp"
                 , TrainingBudget.tbrScalarTags = fmap fst manifestMetrics
                 }
           )
-   in ( Checkpoint.emptyManifest
-          "inference-exp"
-          "inference-exp"
-          [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
-      )
-        { Checkpoint.manifestStep = step
-        , Checkpoint.manifestMetrics = manifestMetrics
-        , Checkpoint.manifestCompletedTraining = Just completed
-        }
+      manifest =
+        ( Checkpoint.emptyManifest
+            "inference-exp"
+            "inference-exp"
+            [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
+        )
+          { Checkpoint.manifestStep = step
+          , Checkpoint.manifestMetrics = manifestMetrics
+          }
+   in Checkpoint.attachCompletedTraining completed manifest
+
+convergenceObservationsFixture
+  :: [(Text, Double)]
+  -> Either Text [TrainingBudget.ConvergenceObservation]
+convergenceObservationsFixture =
+  traverse
+    ( \metric@(name, value) ->
+        ProductConvergence.evaluateConvergence
+          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
+          (ProductConvergence.MeasuredMetrics [metric])
+    )
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")

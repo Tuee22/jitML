@@ -1,6 +1,6 @@
 # Phase 19: Product Truth Gates & Registry
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -12,13 +12,14 @@
 
 ## Phase State
 
-🔄 **Active**. The 2026-07-01 model-runtime audit reopened product closure and
+✅ **Done**. The 2026-07-01 model-runtime audit reopened product closure and
 chose to implement the documented surface for real — real deep architectures,
 real per-substrate conv/attention kernels, real cuBLAS/cuDNN invocation — rather
 than narrow the docs. Phases `0`–`18` remain historical evidence for their owned
 surfaces, but the no-caveat product claim is not restored until Phases `19`–`31`
-close in numerical order. This phase builds the enforcement spine every later
-product phase is validated against.
+close in numerical order. This phase has installed the enforcement spine every
+later product phase is validated against: the typed product matrix, the Phase
+`19`–`31` status registry, and the docs-check closure-claim guard.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -42,9 +43,9 @@ This phase establishes the matrix floor, the per-row convergence bars (closing
 gaps G3/G4 of the approved plan), and the status-truth gate that the rest of the
 chain depends on.
 
-## Sprint 19.1: Product Matrix Authority [🔄 Active]
+## Sprint 19.1: Product Matrix Authority [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/Product/Convergence.hs`, `src/JitML/Web/Contracts.hs`, `web/src/Generated/Contracts.purs`, `test/unit/Main.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/product_completion_contract.md`, `system-components.md`
 
@@ -88,24 +89,18 @@ registry rather than hand-maintained model-name lists.
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu  # passed, 241/241 tests
+docker compose run --rm jitml jitml docs check                  # passed
+docker compose run --rm jitml jitml check-code                  # passed
 ```
 
 ### Remaining Work
 
-- Implement the typed registry, `ConvergenceBar`, and `MatrixFloor`.
-- Invert the dependency so `modelMatrixLines`, `WorkflowMatrix.hs`, the README
-  tables, and the report card are generated from or parity-tested against the
-  registry.
-- Add the drift tests for duplicate, undocumented, unregistered, test-id-missing,
-  and floor-violation rows.
+- None.
 
-## Sprint 19.2: Phase Status Registry [⏸️ Blocked]
+## Sprint 19.2: Phase Status Registry [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `19.1`
+**Status**: Done
 **Implementation**: `src/JitML/Product/PhaseStatus.hs`, `test/unit/Main.hs`
 **Docs to update**: `development_plan_standards.md`, `00-overview.md`, `system-components.md`
 
@@ -127,20 +122,18 @@ headers declared in each `phase-*.md`.
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu  # passed, 244/244 tests
+docker compose run --rm jitml jitml docs check                  # passed
+docker compose run --rm jitml jitml check-code                  # passed
 ```
 
 ### Remaining Work
 
-- Implement the typed phase-status registry.
-- Add the parity test against the `phase-*.md` status headers.
+- None.
 
-## Sprint 19.3: Status Truth Enforcement [⏸️ Blocked]
+## Sprint 19.3: Status Truth Enforcement [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `19.2`
+**Status**: Done
 **Implementation**: `src/JitML/Lint/Docs.hs`, `src/JitML/Docs/Check.hs`, `test/unit/Main.hs`
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -164,16 +157,15 @@ unfinished. `src/JitML/Lint/Docs.hs` scans governed docs for closure language an
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml check-code
+docker compose build jitml                                      # passed, image built with embedded check-code: ok
+docker compose run --rm jitml jitml docs check                  # passed
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu # passed, 246/246 tests
+docker compose run --rm jitml jitml check-code                  # passed
 ```
 
 ### Remaining Work
 
-- Add the closure-claim scanner and the historical-evidence exemption.
-- Wire the docs-check predicate to the typed `PhaseStatus` registry.
-- Re-run the docs check after every later product phase changes status.
+- None.
 
 ## Documentation Requirements
 

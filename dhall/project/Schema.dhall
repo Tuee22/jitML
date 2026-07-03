@@ -39,6 +39,31 @@ let PodResources = { replicas : Natural, cpuLimit : Natural, memoryLimit : Natur
 
 let StoreRef = { refLogicalName : Text, refKind : StoreKind, refPhase : StorePhase }
 
+let ModelState = < Declared | TrainingStarted | TrainingCompleted | InferenceEligible >
+
+let DeclaredExperiment =
+      { experimentHash : Text
+      , resolvedConfigSha : Text
+      , state : ModelState
+      }
+
+let CompletedTrainingWitness =
+      { experimentHash : Text
+      , manifestSha : Text
+      , initialWeightHash : Text
+      , finalWeightHash : Text
+      , updateCount : Natural
+      , datasetShaAtRead : Text
+      , convergencePassed : Bool
+      }
+
+let InferenceSelector =
+      { experimentHash : Text
+      , manifestSha : Text
+      , completedTraining : CompletedTrainingWitness
+      , state : ModelState
+      }
+
 let ProjectConfig =
       { project : Text
       , budget : Budget
@@ -130,6 +155,10 @@ in  { StoreKind
     , Budget
     , PodResources
     , StoreRef
+    , ModelState
+    , DeclaredExperiment
+    , CompletedTrainingWitness
+    , InferenceSelector
     , ProjectConfig
     , fitsWithin
     , storageFitsWithin

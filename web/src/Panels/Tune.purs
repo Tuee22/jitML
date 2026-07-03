@@ -51,6 +51,9 @@ data Action
 panelName :: String
 panelName = "hyperparameter-sweep"
 
+defaultExperimentHash :: String
+defaultExperimentHash = "product-row-hyperparameter-tuning"
+
 renderTrialFrame :: Int -> Int -> Number -> Boolean -> String -> TuneTrialFrame
 renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
   Contracts.renderTuneTrialFrame
@@ -67,7 +70,7 @@ renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
 
 workflowStatus :: String -> String -> WorkflowStatus
 workflowStatus status detail =
-  Contracts.renderWorkflowStatus panelName "tune-demo" status detail
+  Contracts.renderWorkflowStatus panelName defaultExperimentHash status detail
 
 initialState :: State
 initialState =
@@ -124,7 +127,7 @@ component =
         )
     SendCommand command -> do
       H.modify_ (_ { commandStatus = Just (workflowStatus "queued" ("sending " <> command)), lastError = Nothing })
-      requestText "POST" "/api/runs/tune-demo/command" (commandPayload command) CommandText StreamFailed
+      requestText "POST" ("/api/runs/" <> defaultExperimentHash <> "/command") (commandPayload command) CommandText StreamFailed
     CommandText payload ->
       case Contracts.parseWorkflowCommandAck payload of
         Just ack ->
@@ -178,9 +181,9 @@ component =
   commandPayload command =
     case command of
       "start" ->
-        Contracts.renderStartTuneCommand "tune-demo" "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
+        Contracts.renderStartTuneCommand defaultExperimentHash "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
       _ ->
-        Contracts.renderStopTuneCommand "tune-demo"
+        Contracts.renderStopTuneCommand defaultExperimentHash
 
   renderFrontier trials =
     HH.div

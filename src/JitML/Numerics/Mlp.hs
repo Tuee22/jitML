@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Sprint 13.8 / 13.9 — pure-Haskell differentiable MLP that closes
 -- the "network forward/backward seam" the RL algorithm losses and the
@@ -12,12 +13,13 @@
 -- (Sprint 13.11 weighted bodies). Real automatic differentiation
 -- through nvcc/oneDNN-generated code is multi-week engineering. The
 -- determinism contract requires the network's reductions to be
--- bit-deterministic on the same substrate; manual reverse-mode
--- backprop in Haskell trivially satisfies that contract and produces
--- the same gradients on every run with the same seed.
+-- bit-deterministic on the same substrate; the pure LayerGraph autodiff oracle
+-- satisfies that contract and produces the same gradients on every run with the
+-- same seed.
 --
 -- Forward: @y = W2 (tanh (W1 x + b1)) + b2@
--- Backward: standard manual reverse-mode through the chain rule.
+-- Backward: the two-layer MLP is lowered to "JitML.Numerics.LayerGraph" and
+-- replayed through the shared Sprint 23.1 reverse-mode autodiff tape.
 -- Optimizer: Adam (Kingma & Ba 2015) with bias-corrected first and
 -- second moments.
 --
@@ -29,6 +31,7 @@ module JitML.Numerics.Mlp
     MlpShape (..)
   , MlpParams (..)
   , mlpInit
+  , mlpLayerGraph
   , mlpParamsToFlat
   , mlpParamsFromFlat
 
@@ -61,9 +64,13 @@ module JitML.Numerics.Mlp
   )
 where
 
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
+
+import JitML.Numerics.Autodiff qualified as Autodiff
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 
 -- | Network shape. The network has one hidden layer of @mlpHidden@ units;
 -- inputs are @mlpInputs@-wide; outputs are @mlpOutputs@-wide.
@@ -151,6 +158,48 @@ mlpParamsFromFlat shape flat
   (b1, afterB1) = splitAt nB1 afterW1
   (w2, b2) = splitAt nW2 afterB1
 
+mlpLayerGraph :: MlpParams -> Either String LayerGraph.LayerGraph
+mlpLayerGraph params = do
+  hidden <-
+    mapLeft Text.unpack $
+      LayerGraph.mkAffineLayer
+        "mlp-hidden"
+        LayerGraph.DenseLayer
+        (mlpInputs shape)
+        (mlpHidden shape)
+        LayerGraph.TanhActivation
+        LayerGraph.TrainingMode
+        LayerGraph.LayerParameters
+          { LayerGraph.layerWeights = paramW1 params
+          , LayerGraph.layerBias = paramB1 params
+          }
+  output <-
+    mapLeft Text.unpack $
+      LayerGraph.mkAffineLayer
+        "mlp-output"
+        LayerGraph.DenseLayer
+        (mlpHidden shape)
+        (mlpOutputs shape)
+        LayerGraph.LinearActivation
+        LayerGraph.TrainingMode
+        LayerGraph.LayerParameters
+          { LayerGraph.layerWeights = paramW2 params
+          , LayerGraph.layerBias = paramB2 params
+          }
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "mlp"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [mlpInputs shape]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [mlpOutputs shape]
+      , LayerGraph.layerGraphNodes = [hidden, output]
+      }
+ where
+  shape = paramShape params
+
+mapLeft :: (err -> err') -> Either err value -> Either err' value
+mapLeft f =
+  either (Left . f) Right
+
 drawUniform :: Int -> Double -> Random.StdGen -> (Vector Double, Random.StdGen)
 drawUniform n limit gen0 =
   let (values, genN) = go n gen0 []
@@ -205,37 +254,17 @@ mlpZeroGradient shape =
     }
 
 -- | Backward pass given a forward cache and the upstream gradient
--- @dL/dy@ (one entry per output unit). Returns gradients with respect
--- to every parameter. The input gradient is not returned (the input is
--- not differentiated for an RL policy).
+-- @dL/dy@ (one entry per output unit). The MLP is the two-layer special case of
+-- the Sprint 23.1 typed 'LayerGraph', so the parameter gradients are produced
+-- by the shared reverse-mode autodiff tape and then projected back into the
+-- historical 'MlpGradient' API.
 mlpBackward :: MlpParams -> MlpForward -> Vector Double -> MlpGradient
 mlpBackward params fwd dLdy =
-  let shape = paramShape params
-      -- dL/dz2 = dL/dy (output is linear)
-      gradB2vec = dLdy
-      -- dL/dW2 = outer(dLdy, hiddenAct)
-      gradW2vec = outerProduct dLdy (forwardHiddenAct fwd)
-      -- dL/dhAct = W2^T @ dLdy
-      dHiddenAct =
-        matVecTransposed
-          (paramW2 params)
-          (mlpOutputs shape)
-          (mlpHidden shape)
-          dLdy
-      -- dL/dhPre = dL/dhAct * (1 - tanh^2(hPre))
-      dHiddenPre =
-        VU.zipWith
-          (\dAct h -> dAct * (1.0 - h * h))
-          dHiddenAct
-          (forwardHiddenAct fwd)
-      gradB1vec = dHiddenPre
-      gradW1vec = outerProduct dHiddenPre (forwardInput fwd)
-   in MlpGradient
-        { gradW1 = gradW1vec
-        , gradB1 = gradB1vec
-        , gradW2 = gradW2vec
-        , gradB2 = gradB2vec
-        }
+  either (error . Text.unpack) id $ do
+    graph <- mapLeft Text.pack (mlpLayerGraph params)
+    tape <- mlpLayerGraphTape graph fwd
+    gradient <- Autodiff.runBackward graph tape dLdy
+    mlpGradientFromLayerGraph gradient
 
 -- | Gradient of the loss with respect to the network /input/ vector,
 -- @dL/dx = W1^T @ dL/dhPre@. Unlike 'mlpBackward' (which differentiates
@@ -245,23 +274,55 @@ mlpBackward params fwd dLdy =
 -- of the critic's input gradient.
 mlpInputGradient :: MlpParams -> MlpForward -> Vector Double -> Vector Double
 mlpInputGradient params fwd dLdy =
-  let shape = paramShape params
-      dHiddenAct =
-        matVecTransposed
-          (paramW2 params)
-          (mlpOutputs shape)
-          (mlpHidden shape)
-          dLdy
-      dHiddenPre =
-        VU.zipWith
-          (\dAct h -> dAct * (1.0 - h * h))
-          dHiddenAct
-          (forwardHiddenAct fwd)
-   in matVecTransposed
-        (paramW1 params)
-        (mlpHidden shape)
-        (mlpInputs shape)
-        dHiddenPre
+  either (error . Text.unpack) LayerGraph.layerGraphInputGradient $ do
+    graph <- mapLeft Text.pack (mlpLayerGraph params)
+    tape <- mlpLayerGraphTape graph fwd
+    Autodiff.runBackward graph tape dLdy
+
+mlpLayerGraphTape :: LayerGraph.LayerGraph -> MlpForward -> Either Text.Text Autodiff.ForwardTape
+mlpLayerGraphTape graph fwd =
+  case LayerGraph.layerGraphNodes graph of
+    [hiddenNode, outputNode] ->
+      Right
+        LayerGraph.LayerGraphTape
+          { LayerGraph.layerTapeInput = forwardInput fwd
+          , LayerGraph.layerTapeOutput = forwardOutput fwd
+          , LayerGraph.layerTapeLayers =
+              [ LayerGraph.LayerForward
+                  { LayerGraph.layerForwardNode = hiddenNode
+                  , LayerGraph.layerForwardInput = forwardInput fwd
+                  , LayerGraph.layerForwardPreActivation = forwardHiddenPre fwd
+                  , LayerGraph.layerForwardOutput = forwardHiddenAct fwd
+                  }
+              , LayerGraph.LayerForward
+                  { LayerGraph.layerForwardNode = outputNode
+                  , LayerGraph.layerForwardInput = forwardHiddenAct fwd
+                  , LayerGraph.layerForwardPreActivation = forwardOutput fwd
+                  , LayerGraph.layerForwardOutput = forwardOutput fwd
+                  }
+              ]
+          }
+    _ -> Left "mlpLayerGraphTape: expected two graph nodes"
+
+mlpGradientFromLayerGraph :: LayerGraph.LayerGraphGradient -> Either Text.Text MlpGradient
+mlpGradientFromLayerGraph gradient =
+  case LayerGraph.layerGraphLayerGradients gradient of
+    [hiddenGrad, outputGrad] -> do
+      hidden <- layerParametersFor "mlp-hidden" hiddenGrad
+      output <- layerParametersFor "mlp-output" outputGrad
+      Right
+        MlpGradient
+          { gradW1 = LayerGraph.layerGradWeights hidden
+          , gradB1 = LayerGraph.layerGradBias hidden
+          , gradW2 = LayerGraph.layerGradWeights output
+          , gradB2 = LayerGraph.layerGradBias output
+          }
+    _ -> Left "mlpGradientFromLayerGraph: expected two layer gradients"
+ where
+  layerParametersFor label grad =
+    case LayerGraph.layerGradientParameters grad of
+      Just params -> Right params
+      Nothing -> Left (label <> " did not produce a parameter gradient")
 
 -- | Adam optimizer hyperparameters.
 data AdamConfig = AdamConfig
@@ -452,24 +513,3 @@ matVec m rows cols x = VU.generate rows go
   go i =
     let !row = VU.slice (i * cols) cols m
      in VU.sum (VU.zipWith (*) row x)
-
--- | @y = M^T @ x@ where @M@ is @rows × cols@ row-major.
-matVecTransposed :: Vector Double -> Int -> Int -> Vector Double -> Vector Double
-matVecTransposed m rows cols x = VU.generate cols go
- where
-  go j =
-    VU.sum
-      ( VU.generate
-          rows
-          ( \i ->
-              (m VU.! (i * cols + j)) * (x VU.! i)
-          )
-      )
-
--- | Outer product: @M = u v^T@; returns @length u * length v@ row-major.
-outerProduct :: Vector Double -> Vector Double -> Vector Double
-outerProduct u v =
-  let lenV = VU.length v
-   in VU.generate (VU.length u * lenV) $ \k ->
-        let (i, j) = k `divMod` lenV
-         in u VU.! i * v VU.! j
