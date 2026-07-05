@@ -888,6 +888,7 @@ renderCheckpointListResultWithSelectors callId selectors summaries =
     [ "kind: CheckpointList"
     , "call-id: " <> callId
     , "panel: checkpoint-browse"
+    , "status: published"
     , "count: " <> Text.pack (show (length summaries))
     , "selector-state: " <> checkpointSelectorState summaries
     ]

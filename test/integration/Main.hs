@@ -286,11 +286,9 @@ productRowIntegrationEvidence row = do
   let completed = Checkpoint.eligibleCheckpointCompletedTraining eligible
       completedMetrics = TrainingBudget.completedTrainingMetrics completed
       rejectedBeforeCompletion =
-        case
-          Checkpoint.requireInferenceEligibleCheckpoint
-            (Checkpoint.manifestContentSha beforeCompletionManifest)
-            beforeCompletionManifest
-        of
+        case Checkpoint.requireInferenceEligibleCheckpoint
+          (Checkpoint.manifestContentSha beforeCompletionManifest)
+          beforeCompletionManifest of
           Left Checkpoint.MissingCompletedTraining -> True
           Left _ -> True
           Right _ -> False
@@ -332,11 +330,13 @@ coverageFixtureRowReportEvidence row =
     , TestReport.rieInitialParamHash = "coverage-fixture-initial:" <> ProductMatrix.rowId row
     , TestReport.rieFinalParamHash = "coverage-fixture-final:" <> ProductMatrix.rowId row
     , TestReport.rieUpdateCount = max 1 (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
-    , TestReport.rieObservedUnits = max 1 (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
+    , TestReport.rieObservedUnits =
+        max 1 (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
     , TestReport.rieCompletedMetricNames = ["coverage_fixture_metric"]
     , TestReport.rieCompletedTrainingPassed = True
     , TestReport.rieDatasetShaAtRead = "coverage-fixture-dataset:" <> ProductMatrix.rowId row
-    , TestReport.rieManifestSha = "coverage-fixture-manifest:" <> ProductMatrix.productRowExperimentHash row
+    , TestReport.rieManifestSha =
+        "coverage-fixture-manifest:" <> ProductMatrix.productRowExperimentHash row
     , TestReport.rieRejectedBeforeCompletion = True
     }
 
@@ -436,7 +436,7 @@ main =
                 , "prepare Helm dependencies with helm dependency build chart"
                 , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
                 , "raise Kind-node inotify caps for multi-cluster host readiness"
-                , "prepare substrate-specific Percona PV storage"
+                , "prepare substrate-specific stateful PV storage"
                 , "apply jitml-manual StorageClass and manual PVs"
                 , "install MinIO and Percona storage for Harbor"
                 , "install Harbor bootstrap phase"
@@ -532,6 +532,21 @@ main =
           assertBool
             "Envoy data-plane memory limit keeps archive uploads bounded"
             ("memory: 1Gi" `Text.isInfixOf` envoyProxy)
+          assertBool
+            "Envoy readiness tolerates saturated local Kind workers"
+            ( "readinessProbe:\n                        failureThreshold: 12\n                        periodSeconds: 5\n                        timeoutSeconds: 10"
+                `Text.isInfixOf` envoyProxy
+            )
+          assertBool
+            "Envoy startup tolerates slow xDS recovery"
+            ( "startupProbe:\n                        failureThreshold: 60\n                        periodSeconds: 10\n                        timeoutSeconds: 10"
+                `Text.isInfixOf` envoyProxy
+            )
+          assertBool
+            "shutdown-manager liveness tolerates loaded VM probes"
+            ( "livenessProbe:\n                        failureThreshold: 12\n                        periodSeconds: 10\n                        timeoutSeconds: 5"
+                `Text.isInfixOf` envoyProxy
+            )
       , testCase "route table matches golden fixture" $ do
           expected <- Text.IO.readFile "test/snapshots/cluster/route-table.md"
           renderRouteTable @?= expected
@@ -656,8 +671,18 @@ main =
             "MinIO PUT uses local demo credentials explicitly"
             ("--user minio:minioadmin" `Text.isInfixOf` renderSubprocess putCommand)
           assertBool
+            "MinIO PUT bounds connect and operation time"
+            ( "--connect-timeout 10 --max-time 300"
+                `Text.isInfixOf` renderSubprocess putCommand
+            )
+          assertBool
             "MinIO PUT enforces If-None-Match"
             ("--header 'If-None-Match: *'" `Text.isInfixOf` renderSubprocess putCommand)
+          assertBool
+            "MinIO list retries transient routed edge failures"
+            ( "--retry 5 --retry-delay 2 --retry-max-time 120 --retry-connrefused --retry-all-errors"
+                `Text.isInfixOf` renderSubprocess listCommand
+            )
           assertBool
             "MinIO PUT signs the canonical S3 object URL"
             ( "http://127.0.0.1:9091/jitml-checkpoints/pointers/latest"
@@ -2105,6 +2130,16 @@ main =
           assertBool "direct MinIO is distributed" ("mode: distributed" `Text.isInfixOf` minioValues)
           assertBool "direct MinIO has four replicas" ("replicas: 4" `Text.isInfixOf` minioValues)
           assertBool
+            "direct MinIO liveness is tolerant of local live-test load"
+            ( "livenessProbe:\n  enabled: true\n  initialDelaySeconds: 30\n  periodSeconds: 10\n  timeoutSeconds: 20\n  failureThreshold: 12"
+                `Text.isInfixOf` minioValues
+            )
+          assertBool
+            "direct MinIO readiness is tolerant of local live-test load"
+            ( "readinessProbe:\n  enabled: true\n  periodSeconds: 10\n  timeoutSeconds: 10\n  failureThreshold: 12"
+                `Text.isInfixOf` minioValues
+            )
+          assertBool
             "direct MinIO uses manual persistent storage"
             ("storageClass: jitml-manual" `Text.isInfixOf` minioValues)
           assertBool
@@ -2178,20 +2213,25 @@ main =
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "linux-cpu live rollout binds Postgres PVs to node-local storage before Harbor"
-              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; mountpoint -q /jitml/.data/platform/harbor-pg/pv_0/ || mount --bind /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; chown -R 26:26 /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/;"
+              "linux-cpu live rollout binds stateful PVs to node-local storage before Harbor"
+              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; mountpoint -q /jitml/.data/platform/minio/pv_0/ || mount --bind /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; chmod 0777 /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/;"
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "linux-cpu live rollout prepares worker-local Postgres PV storage"
-              ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/"
+              "linux-cpu live rollout preserves registered Postgres ownership"
+              ( "chown -R 26:26 /var/local/jitml-stateful-pv/jitml/.data/platform/harbor-pg/pv_0/"
                   `Text.isInfixOf` commandText
-                  && "docker exec jitml-linux-cpu-worker3 sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/"
+              )
+            assertBool
+              "linux-cpu live rollout prepares worker-local stateful PV storage"
+              ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
+                  `Text.isInfixOf` commandText
+                  && "docker exec jitml-linux-cpu-worker3 sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
                     `Text.isInfixOf` commandText
               )
             assertBool
-              "apple-silicon live rollout binds Postgres PVs to node-local storage before Harbor"
-              ( "docker exec jitml-apple-silicon-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; mountpoint -q /jitml/.data/platform/harbor-pg/pv_0/ || mount --bind /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; chown -R 26:26 /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/;"
+              "apple-silicon live rollout binds stateful PVs to node-local storage before Harbor"
+              ( "docker exec jitml-apple-silicon-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; mountpoint -q /jitml/.data/platform/minio/pv_0/ || mount --bind /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; chmod 0777 /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/;"
                   `Text.isInfixOf` appleCommandText
               )
             assertBool
@@ -2283,8 +2323,8 @@ main =
                     "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
                     commandText
             assertBool
-              "live rollout prepares node-local Percona PV storage before applying manual storage"
-              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/"
+              "live rollout prepares node-local stateful PV storage before applying manual storage"
+              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
                   `Text.isInfixOf` beforeManualStorage
               )
             -- Sprint 4.8: the Harbor-registry bucket existence probe moved

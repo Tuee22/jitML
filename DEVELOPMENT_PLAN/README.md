@@ -87,12 +87,22 @@ completion path is the new forward-only Phase `19`–`31` chain:
 - Phase `27` has completed train-and-publish product-row artifacts,
   artifact-backed selectors, row-specific renderers, and fail-closed browser
   states.
-- Phase `28` is active. The row-keyed coverage/report scaffolding is present
-  and `jitml-integration --linux-cpu` passed **137 / 137** on 2026-07-03, but
-  Sprint `28.1` must replace synthetic/local row evidence with real
-  product-row publisher evidence and stage the remaining non-MNIST supervised
-  datasets before every `ProductRow` can publish an inference-eligible manifest.
-- Phase `29` validates the row-complete product lane on `linux-cuda`.
+- Phase `28` is Done. Sprint `28.1` is Done after row-filtered live publisher
+  runs covered all **55** ProductRows with **0** unsupported rows and **0**
+  errors, the row-keyed integration matrix switched to real published
+  `CompletedTraining` manifests, `jitml-integration --linux-cpu` passed
+  **137 / 137**, and `jitml-unit --linux-cpu` passed **277 / 277** on
+  2026-07-03. Sprint `28.2` is Done after live Playwright passed **71 / 71**
+  row-complete browser tests and the wrapper `jitml-e2e` suite passed **24 / 24**
+  on 2026-07-04. Sprint `28.3` closed on 2026-07-05 after the node-local
+  stateful PV overlay, MinIO retry/probe hardening, and Envoy probe hardening
+  allowed `docker compose run --rm jitml jitml test all --live --linux-cpu` to
+  pass **8 / 8** stanzas with the report card showing
+  `browser_product_matrix` **55 / 55** at edge `:9091`.
+- Phase `29` is blocked in this session by external `linux-cuda` substrate
+  availability: the `jitml-cuda` service exists, but Docker cannot select a GPU
+  device driver and exposes no NVIDIA runtime on this host. The phase validates
+  the row-complete product lane on a real `linux-cuda` host.
 - Phase `30` validates the row-complete product lane on `apple-silicon`.
 - Phase `31` re-aggregates on `linux-cpu` only and restores the no-caveat claim
   only if every row and every lane artifact is current.
@@ -1313,8 +1323,8 @@ obligation exists.
 | 25 | Real RL Algorithms and Environments | ✅ Done (Sprints 25.1-25.3 complete; full RL-only publisher pass reported 39/39 eligible on linux-cpu) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (Sprints 26.1-26.2 complete; per-game self-play, arena evidence, and inference-eligible checkpoints validated on linux-cpu) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
 | 27 | Demo All-Model Rendering | ✅ Done (Sprints 27.1-27.3 complete; product-row artifacts, renderers, and fail-closed browser guards validated) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
-| 28 | Per-Model Integration and E2E | 🔄 Active (Sprint 28.1; replace synthetic row evidence with real product-row publisher evidence) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
-| 29 | Linux CUDA Product Lane | ⏸️ Blocked by Phase `28`; validates `linux-cpu` + `linux-cuda` only | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 28 | Per-Model Integration and E2E | ✅ Done (Sprint 28.3 — `jitml test all --live --linux-cpu` passed 8/8 stanzas on 2026-07-05 with row-complete report card coverage, `browser_product_matrix` 55/55, and all components ready at edge `:9091`) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
+| 29 | Linux CUDA Product Lane | ⏸️ Blocked by external `linux-cuda` host/GPU runtime availability in this session; validates `linux-cpu` + `linux-cuda` only | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
 | 30 | Apple Silicon Product Lane | ⏸️ Blocked by Phase `29`; validates `linux-cpu` + `apple-silicon` only | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
 | 31 | No-Caveat Product Aggregation | ⏸️ Blocked by Phase `30`; `linux-cpu` aggregation only | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
 
@@ -1927,10 +1937,12 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-07-03, Phases `0`–`18` are historical evidence, Phases `19`–`27` are
-`✅ Done`, and Phase `28` is `🔄 Active` on replacing synthetic row evidence with
-real product-row publisher evidence plus row-complete integration/e2e coverage.
-Phases `29`–`31` remain blocked in order behind Phase `28`. The fixed budget
+As of 2026-07-05, Phases `0`–`18` are historical evidence, Phases `19`–`28` are
+`✅ Done`, and Phase `28` closed after the live `linux-cpu` report card passed
+**8 / 8** stanzas with **55 / 55** checkpoint-backed product rows served at edge
+`:9091`. Phase `29` is the next open phase and is blocked in this session by the
+absence of a real `linux-cuda` Docker GPU runtime/host; Phases `30`–`31` remain
+blocked in order behind Phase `29`. The fixed budget
 `linux-cpu`, `linux-cuda`, and `apple-silicon` closure notes below remain dated
 evidence only; they do not satisfy the current product-completion contract until
 the Phase `19`–`31` row-complete gates close.

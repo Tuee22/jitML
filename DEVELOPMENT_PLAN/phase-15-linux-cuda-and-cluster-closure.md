@@ -1032,7 +1032,7 @@ NVIDIA container toolkit (`nvidia-container-runtime`, `libnvidia-ml.so.1`,
 The ephemeral-cluster e2e orchestration is the `jitml bootstrap` +
 `jitml cluster down` path validated above, recorded typed in
 `JitML.Test.LivePlan.liveE2EPlan` (`helm dependency build` →
-`jitml bootstrap` → `npx playwright test` → `jitml cluster down`). The
+`jitml bootstrap` → pinned Playwright browser-image run → `jitml cluster down`). The
 Kind renderer (`JitML.Cluster.Kind.kindConfigForEdgePort`) uses the
 substrate-default cluster name (`substrateClusterName`).
 
@@ -3804,7 +3804,7 @@ DOM stubs and closes Exit Definition item 8's Playwright slice plus item 9's
   using `page.setContent`.
 - The typed `JitML.Test.LivePlan.liveE2EPlan` sequence drives `helm
   dependency build chart` → `jitml bootstrap` (ephemeral Kind + phased
-  Helm rollout) → `npx playwright test` → `jitml cluster down` on
+  Helm rollout) → pinned Playwright browser-image run → `jitml cluster down` on
   Linux+Docker+NVIDIA.
 - Post-teardown the explicit live e2e path leaves no Kind cluster, no
   Harbor project, no MinIO bucket, and no Docker volume on the host.

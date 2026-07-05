@@ -7,6 +7,7 @@ module JitML.Service.MinIOSubprocess
   , minioSettingsForEndpoint
   , minioDeleteObjectSubprocess
   , minioGetObjectSubprocess
+  , minioObjectETag
   , minioListObjectsSubprocess
   , minioPutObjectSubprocess
   , minioSettingsForLocalEdge
@@ -115,6 +116,7 @@ minioGetObjectSubprocess settings ref bodyPath =
   subprocess
     (minioCurlBinary settings)
     ( baseCurlArgs settings
+        <> retryCurlArgs
         <> [ "--request"
            , "GET"
            , "--output"
@@ -126,11 +128,31 @@ minioGetObjectSubprocess settings ref bodyPath =
         <> [objectUrl settings ref]
     )
 
+minioGetObjectWithEtagSubprocess :: MinIOSettings -> ObjectRef -> FilePath -> FilePath -> Subprocess
+minioGetObjectWithEtagSubprocess settings ref bodyPath etagPath =
+  subprocess
+    (minioCurlBinary settings)
+    ( baseCurlArgs settings
+        <> retryCurlArgs
+        <> [ "--request"
+           , "GET"
+           , "--output"
+           , Text.pack bodyPath
+           , "--write-out"
+           , "%{http_code}"
+           , "--etag-save"
+           , Text.pack etagPath
+           ]
+        <> requestTargetArgs settings (objectPath ref)
+        <> [objectUrl settings ref]
+    )
+
 minioDeleteObjectSubprocess :: MinIOSettings -> ObjectRef -> FilePath -> Subprocess
 minioDeleteObjectSubprocess settings ref bodyPath =
   subprocess
     (minioCurlBinary settings)
     ( baseCurlArgs settings
+        <> retryCurlArgs
         <> [ "--request"
            , "DELETE"
            , "--output"
@@ -148,6 +170,7 @@ minioListObjectsSubprocess settings bucket prefix bodyPath =
    in subprocess
         (minioCurlBinary settings)
         ( baseCurlArgs settings
+            <> retryCurlArgs
             <> [ "--request"
                , "GET"
                , "--output"
@@ -242,6 +265,23 @@ instance HasMinIO MinIOSubprocess where
           bodyPath
       pure (void result)
 
+minioObjectETag :: ObjectRef -> MinIOSubprocess (Either ServiceError (Maybe ETag))
+minioObjectETag ref = do
+  settings <- ask
+  withResponseFile $ \bodyPath ->
+    withResponseFile $ \etagPath -> do
+      result <-
+        invokeCurl
+          "minioObjectETag"
+          ["200"]
+          MissingIsConflict
+          (minioGetObjectWithEtagSubprocess settings ref bodyPath etagPath)
+          bodyPath
+      case result of
+        Left (SEConflict _) -> pure (Right Nothing)
+        Left err -> pure (Left err)
+        Right _ -> fmap Just <$> readSavedEtag "minioObjectETag" etagPath
+
 data MissingObjectMode
   = MissingIsUnauthorized
   | MissingIsConflict
@@ -305,10 +345,26 @@ baseCurlArgs :: MinIOSettings -> [Text]
 baseCurlArgs settings =
   [ "--silent"
   , "--show-error"
+  , "--connect-timeout"
+  , "10"
+  , "--max-time"
+  , "300"
   , "--aws-sigv4"
   , "aws:amz:" <> minioRegion settings <> ":s3"
   , "--user"
   , minioAccessKey settings <> ":" <> minioSecretKey settings
+  ]
+
+retryCurlArgs :: [Text]
+retryCurlArgs =
+  [ "--retry"
+  , "5"
+  , "--retry-delay"
+  , "2"
+  , "--retry-max-time"
+  , "120"
+  , "--retry-connrefused"
+  , "--retry-all-errors"
   ]
 
 conditionalHeader :: Maybe ETag -> [Text]

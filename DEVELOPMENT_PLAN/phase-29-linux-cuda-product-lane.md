@@ -11,7 +11,12 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `28`.
+⏸️ **Blocked by** external `linux-cuda` substrate availability in this
+validation session. Phase `28` is Done; the next required gate needs a real
+NVIDIA GPU host with the Docker GPU runtime. On this Mac/Docker session,
+`docker compose run --rm jitml-cuda nvidia-smi` fails before container start with
+`could not select device driver "" with capabilities: [[gpu]]`, and
+`docker info` exposes only `runc`/containerd runtimes.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
@@ -34,7 +39,8 @@ front, and the report distinguishes unsupported rows from failed supported rows.
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
-**Blocked by**: Phase `28`
+**Blocked by**: External `linux-cuda` host with NVIDIA Container Runtime and a
+visible NVIDIA GPU.
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
 ### Objective

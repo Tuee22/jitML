@@ -91,18 +91,18 @@ Metal cannot be containerized.
 
 The current product baseline reopened on 2026-07-01 after a model-runtime audit
 found that the public no-caveat claim still outran the implementation. Phases
-`0`–`18` remain dated evidence for their owned surfaces. Phases `19`–`27` are
-complete after Phase `25` re-closed on 2026-07-03: production RL trainer
-dispatch now consumes the row-requested simulator catalog, and the full RL-only
-live publisher pass reported **39 / 39** eligible rows with **0** unsupported
-rows and **0** errors. Remaining product completion now resumes at Phase `28`:
-Sprint `28.1` must replace row-keyed integration scaffolding with real
-product-row publisher evidence and stage the remaining non-MNIST supervised
-datasets before the per-row e2e coverage, `linux-cuda` lane validation,
-`apple-silicon` lane validation, and final `linux-cpu` aggregation can close.
-The 2026-07-03 `linux-cpu` integration validation passed **137 / 137**, but the
-aggregate matrix still accepts local checkpoint fixtures instead of the real
-publisher manifests required by the product-completion contract.
+`0`–`18` remain dated evidence for their owned surfaces. Phases `19`–`28` are
+complete after Phase `28` closed on 2026-07-05: all **55** ProductRows published
+inference-eligible manifests with **0** unsupported rows and **0** errors, the
+row-keyed integration matrix switched to those real `CompletedTraining`
+manifests, row-complete live Playwright passed **71 / 71** browser tests, and
+the full `linux-cpu` report card passed **8 / 8** stanzas with
+`browser_product_matrix` **55 / 55** at edge `:9091`. Remaining product
+completion is now blocked in Phase `29` by external `linux-cuda` substrate
+availability for this session: the `jitml-cuda` service exists, but Docker
+cannot select a GPU device driver and exposes no NVIDIA runtime on this host.
+After a real `linux-cuda` lane validates, Phase `30` validates
+`apple-silicon`, and Phase `31` performs the final `linux-cpu` aggregation.
 
 The executable truth sources for the reopened product chain are
 `src/JitML/Product/Matrix.hs` for row identity/matrix-floor membership and
@@ -112,12 +112,10 @@ current product-closure claims in governed docs while that registry reports an
 unfinished product phase; explicitly dated historical-evidence blocks are
 allowed.
 
-The active gaps are concrete: the documented matrix, typed registry, generated
-browser constants, and executable configs are not yet proven equal; some
-documented rows are catalog or UI rows rather than literal implementations;
-product dataset reads are not all verified at read time; the demo can prove
-static model-name rendering rather than trained-artifact rendering; and the test
-matrix is representative instead of row-complete. The binding remediation rules live in
+The active gaps are concrete and now live in the accelerator and final
+aggregation phases: the row-complete product matrix must still validate on real
+`linux-cuda`, validate on real `apple-silicon`, and be aggregated into the final
+no-caveat handoff. The binding remediation rules live in
 [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
 
 Historical 2026-06-30 evidence remains useful but no longer closes the product:
@@ -604,7 +602,7 @@ and the deletion ledger has no pending rows.
   `JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
   phased Helm rollout per substrate; `JitML.Test.LivePlan.liveE2EPlan`
   is the typed ephemeral-Kind orchestration that runs `helm dependency
-  build chart` → `jitml bootstrap` → `npx playwright test` →
+  build chart` → `jitml bootstrap` → pinned Playwright browser-image run →
   `jitml cluster down`. Real-binary
   integration, live SL convergence, live RL trajectories, live
   hyperparameter reproducibility, and the explicit live Helm +
@@ -908,7 +906,7 @@ each constraint.
 34. Target e2e closure uses the typed `JitML.Test.LivePlan.liveE2EPlan` as
     the ephemeral-Kind orchestration that the `jitml-e2e` stanza drives through
     the typed `Subprocess` boundary: `helm dependency build chart` → `jitml
-    bootstrap` (ephemeral Kind + phased Helm rollout) → `npx playwright test`
+    bootstrap` (ephemeral Kind + phased Helm rollout) → pinned Playwright browser-image run
     → `jitml cluster down`. The current default `jitml-e2e` body validates that
     plan shape but does not invoke the live stack.
 35. Report-card knobs are pinned in `cabal.project` and surfaced through `jitml

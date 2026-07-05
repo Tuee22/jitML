@@ -99,7 +99,7 @@ data BrowserCommandPublishers = BrowserCommandPublishers
   -- ^ baseline hash, candidate hash, input
   , publishMoveCommand :: Text -> Text -> [Int] -> Int -> Int -> IO (Either Text Text)
   -- ^ game, experiment hash, moves, human-is-player, simulations
-  , publishListCheckpointsCommand :: IO (Either Text ())
+  , publishListCheckpointsCommand :: IO (Either Text Text)
   -- ^ Sprint 14.1 (Feature A) — publish a checkpoint-browse command; the Engine
   -- lists product-row experiment manifests and replies with a @CheckpointList@.
   , publishLoadTranscriptCommand :: Text -> IO (Either Text Text)
@@ -628,17 +628,18 @@ browserAdversarialResponse publishers runtimeHandler request =
                 (renderAdversarialMoveResultResponse moveRequest)
 
 -- | Sprint 14.1 / 27.1 (Feature A) — checkpoint browse: publish a
--- @ListCheckpointsCommand@ fire-and-forget; the Engine lists product-row
--- experiment manifests and replies
--- with a @CheckpointList@ frame on @/api/ws/inference@, which the panel renders.
+-- @ListCheckpointsCommand@ and return the correlated @CheckpointList@ frame.
+-- The Engine also publishes the same frame on @/api/ws/inference@ for the
+-- browser stream, but the POST body is deterministic so repeated panel mounts
+-- do not depend on websocket subscription timing.
 -- The request body is a trigger only (no fields required).
 browserListCheckpointsResponse
   :: Maybe BrowserCommandPublishers -> HttpRequest -> IO EndpointResponse
 browserListCheckpointsResponse publishers _request =
   case publishers of
     Just p -> do
-      published <- publishListCheckpointsCommand p
-      pure (publishedAckResponse "CheckpointList" published)
+      frame <- publishListCheckpointsCommand p
+      pure (frameResponse "CheckpointList" frame)
     Nothing ->
       pure (checkpointBackedDemoRequired "checkpoint-browse")
 
@@ -746,7 +747,8 @@ withTimedCheckpointCompare (Just runtimeHandler) request = do
 renderInferenceResultResponse
   :: BrowserInferenceRequest -> BrowserRuntimeResult -> Double -> EndpointResponse
 renderInferenceResultResponse request runtimeResult latencyMs =
-  let probabilities = probabilityVector (browserRuntimeOutput runtimeResult)
+  let classificationOutput = tenClassOutput (browserRuntimeOutput runtimeResult)
+      probabilities = probabilityVector classificationOutput
       topClass = topIndex probabilities
       confidence = valueAt topClass probabilities
    in EndpointResponse
@@ -760,7 +762,7 @@ renderInferenceResultResponse request runtimeResult latencyMs =
             , "confidence: " <> showText confidence
             , "latency-ms: " <> showText latencyMs
             , "probabilities: " <> renderDoubleList probabilities
-            , "output: " <> renderDoubleList (browserRuntimeOutput runtimeResult)
+            , "output: " <> renderDoubleList classificationOutput
             , "status: ok"
             ]
         )
@@ -768,18 +770,19 @@ renderInferenceResultResponse request runtimeResult latencyMs =
 renderGenericInferenceResultResponse
   :: BrowserGenericInferenceRequest -> BrowserRuntimeResult -> Double -> EndpointResponse
 renderGenericInferenceResultResponse request runtimeResult latencyMs =
-  EndpointResponse
-    200
-    ( Text.unlines
-        [ "kind: GenericInferenceResult"
-        , "panel: " <> bgirPanel request
-        , "experiment-hash: " <> bgirExperimentHash request
-        , "checkpoint-sha: " <> browserRuntimeCheckpointSha runtimeResult
-        , "latency-ms: " <> showText latencyMs
-        , "output: " <> renderDoubleList (browserRuntimeOutput runtimeResult)
-        , "status: ok"
-        ]
-    )
+  let panelOutput = threeValueOutput (browserRuntimeOutput runtimeResult)
+   in EndpointResponse
+        200
+        ( Text.unlines
+            [ "kind: GenericInferenceResult"
+            , "panel: " <> bgirPanel request
+            , "experiment-hash: " <> bgirExperimentHash request
+            , "checkpoint-sha: " <> browserRuntimeCheckpointSha runtimeResult
+            , "latency-ms: " <> showText latencyMs
+            , "output: " <> renderDoubleList panelOutput
+            , "status: ok"
+            ]
+        )
 
 renderImageInferenceResultResponse
   :: BrowserImageRequest -> BrowserRuntimeResult -> Double -> EndpointResponse
@@ -808,8 +811,8 @@ renderCheckpointCompareResultResponse
   -> Double
   -> EndpointResponse
 renderCheckpointCompareResultResponse request baseline candidate latencyMs =
-  let baselineOutput = browserRuntimeOutput baseline
-      candidateOutput = browserRuntimeOutput candidate
+  let baselineOutput = threeValueOutput (browserRuntimeOutput baseline)
+      candidateOutput = threeValueOutput (browserRuntimeOutput candidate)
       deltas = absoluteDeltas baselineOutput candidateOutput
    in EndpointResponse
         200
@@ -994,6 +997,14 @@ probabilityVector values =
   let shifted = fmap (\value -> exp (value - maximum values)) values
       total = sum shifted
    in if total <= 0 then replicate (length values) 0 else fmap (/ total) shifted
+
+tenClassOutput :: [Double] -> [Double]
+tenClassOutput values =
+  take 10 (values <> repeat 0.0)
+
+threeValueOutput :: [Double] -> [Double]
+threeValueOutput values =
+  take 3 (values <> repeat 0.0)
 
 topIndex :: [Double] -> Int
 topIndex [] = 0

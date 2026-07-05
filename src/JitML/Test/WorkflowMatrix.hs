@@ -93,6 +93,7 @@ data ModelCell = ModelCell
   { modelCellKind :: ModelKind
   , modelCellName :: Text
   , modelCellExperimentHash :: Text
+  , modelCellE2eTest :: Text
   , modelCellDemoPanel :: Text
   , modelCellBudget :: Text
   , modelCellCommand :: [Text]
@@ -109,6 +110,7 @@ productModelCell row =
     { modelCellKind = productModelKind row
     , modelCellName = Product.rowId row
     , modelCellExperimentHash = Product.productRowExperimentHash row
+    , modelCellE2eTest = Product.e2eTest row
     , modelCellDemoPanel = Product.demoPanel row
     , modelCellBudget = TrainingBudget.renderTrainingBudget (Product.trainingBudget row)
     , modelCellCommand = productModelCommand row

@@ -78,6 +78,8 @@ class (Monad m) => HasPulsar m where
   pulsarPublish :: TopicName -> Text -> m (Either ServiceError Text)
   pulsarAcknowledge :: TopicName -> Text -> m (Either ServiceError ())
   pulsarSubscribe :: TopicName -> Text -> m (Either ServiceError SubscriptionId)
+  pulsarSubscribeFromLatest :: TopicName -> Text -> m (Either ServiceError SubscriptionId)
+  pulsarSubscribeFromLatest = pulsarSubscribe
   pulsarConsume :: SubscriptionId -> m (Either ServiceError (Text, Text))
   pulsarSeek :: SubscriptionId -> Text -> m (Either ServiceError ())
 

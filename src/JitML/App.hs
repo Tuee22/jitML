@@ -198,14 +198,17 @@ import JitML.Service.WorkflowStatus qualified as WorkflowStatus
 import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (subprocess)
+import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
+import JitML.Test.LivePlan (LivePlanStep (..), liveE2EPlanFor)
 import JitML.Test.Report
-  ( ReportCard (..)
+  ( ProductRowReportEvidence (..)
+  , ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
   , emptyReportMeasurements
   , loadReportCardKnobs
+  , productRowReportCoverageFailures
   , renderReportCardForTargets
   , reportStanzas
   , substrateRuntimeStanzas
@@ -3768,7 +3771,17 @@ mirrorWeightCheckpointToLiveIfPublished manifest payloads = do
         liftIO
           ( MinIOSubprocess.runMinIOSubprocess
               minioSettings
-              (CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing)
+              ( do
+                  expectedPointer <-
+                    MinIOSubprocess.minioObjectETag
+                      ( CheckpointStore.checkpointObjectRef
+                          (Checkpoint.latestPointerKey (Checkpoint.manifestExperiment manifest))
+                      )
+                  case expectedPointer of
+                    Left err -> pure (Left err)
+                    Right expected ->
+                      CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads expected
+              )
           )
       case result of
         Right _ -> pure True
@@ -5081,7 +5094,7 @@ requestInferenceViaEngine settings substrate experimentHash input = do
   PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
     -- Subscribe to the reply topic BEFORE publishing so the Engine's result is
     -- never missed.
-    subscribed <- Capabilities.pulsarSubscribe replyTopicName subscriptionName
+    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
     case subscribed of
       Left err ->
         pure (Left ("inference request subscribe failed: " <> Text.pack (show err)))
@@ -5107,11 +5120,15 @@ consumeMatchingInferenceResult subscriptionId callId attempts
   | otherwise = do
       consumed <- Capabilities.pulsarConsume subscriptionId
       case consumed of
-        Right (_topic, payload)
-          | Just result <- Inference.parseInferenceResult payload
-          , Inference.iresCallId result == callId ->
-              pure (Right (Inference.iresOutput result))
-        _ -> consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
+        Right (topic, payload) -> do
+          void (Capabilities.pulsarAcknowledge (Capabilities.TopicName topic) payload)
+          case Inference.parseInferenceResult payload of
+            Just result
+              | Inference.iresCallId result == callId ->
+                  pure (Right (Inference.iresOutput result))
+            _ -> consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
+        _ ->
+          consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
 
 consumeMatchingKindPayload
   :: (Capabilities.HasPulsar m)
@@ -5126,11 +5143,14 @@ consumeMatchingKindPayload subscriptionId kind callId attempts
   | otherwise = do
       consumed <- Capabilities.pulsarConsume subscriptionId
       case consumed of
-        Right (_topic, payload)
-          | frameField "kind" payload == Just kind
-          , frameField "call-id" payload == Just callId ->
-              pure (Right payload)
-        _ -> consumeMatchingKindPayload subscriptionId kind callId (attempts - 1)
+        Right (topic, payload) -> do
+          void (Capabilities.pulsarAcknowledge (Capabilities.TopicName topic) payload)
+          if frameField "kind" payload == Just kind
+            && frameField "call-id" payload == Just callId
+            then pure (Right payload)
+            else consumeMatchingKindPayload subscriptionId kind callId (attempts - 1)
+        _ ->
+          consumeMatchingKindPayload subscriptionId kind callId (attempts - 1)
 
 frameField :: Text -> Text -> Maybe Text
 frameField key =
@@ -5206,7 +5226,7 @@ publishAdversarialMoveCommandOnly settings substrate game experimentHash moves h
           , Inference.amcInput = []
           }
   PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    subscribed <- Capabilities.pulsarSubscribe replyTopicName subscriptionName
+    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
     case subscribed of
       Left err ->
         pure (Left ("move command subscribe failed: " <> Text.pack (show err)))
@@ -5219,29 +5239,39 @@ publishAdversarialMoveCommandOnly settings substrate game experimentHash moves h
           Right _ ->
             consumeMatchingKindPayload subscriptionId "AdversarialMoveResult" callId inferenceReplyAttempts
 
--- | Sprint 14.1 / 27.1 (Feature A) — fire-and-forget publish of a checkpoint-browse
--- @WorkCommand@; the Engine lists product-row experiment manifests from MinIO
--- and the panel renders the streamed 'Inference.ListCheckpointsCommand' result
--- (a @CheckpointList@ frame).
+-- | Sprint 14.1 / 27.1 / 28.2 (Feature A) — publish a checkpoint-browse
+-- @WorkCommand@ after subscribing to the reply topic, then return the matching
+-- @CheckpointList@ frame. The Engine still publishes the frame on the shared
+-- browser stream; the POST body also carries it so browser e2e tests do not race
+-- websocket subscription readiness.
 publishListCheckpointsCommandOnly
   :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> Substrate
-  -> IO (Either Text ())
+  -> IO (Either Text Text)
 publishListCheckpointsCommandOnly settings substrate = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+  let replyTopic = Inference.inferenceResultTopic substrate
+      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      replyTopicName = Capabilities.TopicName replyTopic
+      subscriptionName = "jitml-checkpoints-" <> callId
       command =
         Inference.ListCheckpointsCommand
           { Inference.lccCallId = callId
-          , Inference.lccReplyTopic = Inference.inferenceResultTopic substrate
+          , Inference.lccReplyTopic = replyTopic
           }
   PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    published <-
-      Capabilities.pulsarPublish requestTopic (Inference.renderListCheckpointsCommand command)
-    pure $
-      case published of
-        Left err -> Left ("list-checkpoints command publish failed: " <> Text.pack (show err))
-        Right _ -> Right ()
+    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
+    case subscribed of
+      Left err ->
+        pure (Left ("list-checkpoints command subscribe failed: " <> Text.pack (show err)))
+      Right subscriptionId -> do
+        published <-
+          Capabilities.pulsarPublish requestTopic (Inference.renderListCheckpointsCommand command)
+        case published of
+          Left err ->
+            pure (Left ("list-checkpoints command publish failed: " <> Text.pack (show err)))
+          Right _ ->
+            consumeMatchingKindPayload subscriptionId "CheckpointList" callId inferenceReplyAttempts
 
 -- | Sprint 14.1 (Feature B) — publish a transcript-replay @WorkCommand@ after
 -- subscribing to its reply topic, then return the matching @TranscriptReplay@
@@ -5265,7 +5295,7 @@ publishLoadTranscriptCommandOnly settings substrate transcriptId = do
           , Inference.ltcReplyTopic = replyTopic
           }
   PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    subscribed <- Capabilities.pulsarSubscribe replyTopicName subscriptionName
+    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
     case subscribed of
       Left err ->
         pure (Left ("load-transcript command subscribe failed: " <> Text.pack (show err)))
@@ -5295,6 +5325,11 @@ classifyCheckpointLoadError experimentHash err
 runTest :: [Text] -> [ParsedOption] -> App ()
 runTest ["test", "all"] parsedOptions =
   runCabalTest parsedOptions reportStanzas
+runTest ["test", "jitml-e2e"] parsedOptions
+  | hasOption "live" parsedOptions = do
+      substrate <- liveE2ESubstrate parsedOptions
+      runLiveE2EPlaywright substrate
+      runCabalTest parsedOptions ["jitml-e2e"]
 runTest ["test", stanza] parsedOptions
   | stanza `elem` reportStanzas =
       runCabalTest parsedOptions [stanza]
@@ -5302,6 +5337,81 @@ runTest ["test", stanza] parsedOptions
       exitWithError (UnknownCommand ("unknown test stanza: " <> stanza))
 runTest path _ =
   exitWithError (UnknownCommand ("unknown test command: " <> commandPathText path))
+
+liveE2ESubstrate :: [ParsedOption] -> App Substrate
+liveE2ESubstrate parsedOptions =
+  case bootstrapSubstrates parsedOptions of
+    [substrateName] ->
+      case parseSubstrate substrateName of
+        Just substrate -> pure substrate
+        Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrateName))
+    [] -> exitWithError (InvalidConfig "jitml-e2e --live requires exactly one substrate flag")
+    _ -> exitWithError (InvalidConfig "jitml-e2e --live accepts exactly one substrate flag")
+
+runLiveE2EPlaywright :: Substrate -> App ()
+runLiveE2EPlaywright substrate = do
+  ensureLivePublicationFor substrate
+  case livePlaywrightStep substrate of
+    Nothing -> exitWithError (InvalidConfig "live e2e plan is missing the Playwright step")
+    Just step -> do
+      let command = livePlanStepCommand step
+      writeLine ("test jitml-e2e --live: " <> renderSubprocess command)
+      (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
+      case exitCode of
+        ExitSuccess -> writeText stdoutText
+        ExitFailure _ ->
+          exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
+
+livePlaywrightStep :: Substrate -> Maybe LivePlanStep
+livePlaywrightStep substrate =
+  listToMaybe [step | step <- liveE2EPlanFor substrate, livePlanStepName step == "playwright"]
+
+ensureLivePublicationFor :: Substrate -> App ()
+ensureLivePublicationFor substrate = do
+  existing <- liftIO (readExistingLivePublication ".")
+  case existing of
+    Just publication
+      | Publication.publicationSubstrate publication == substrate ->
+          writeLine
+            ( "test jitml-e2e --live: selected existing "
+                <> renderSubstrate substrate
+                <> " publication at edge :"
+                <> Text.pack (show (Publication.publicationEdgePort publication))
+            )
+      | otherwise ->
+          exitWithError
+            ( InvalidConfig
+                ( "jitml-e2e --live requested "
+                    <> renderSubstrate substrate
+                    <> " but cluster-publication.json is for "
+                    <> renderSubstrate (Publication.publicationSubstrate publication)
+                )
+            )
+    Nothing -> do
+      changed <- liftIO (materializeBootstrapFiles "." substrate)
+      writeLine
+        ( "test jitml-e2e --live: "
+            <> renderSubstrate substrate
+            <> if changed then " bootstrap files reconciled" else " bootstrap files already current"
+        )
+      result <- liftIO (liveExecutePhasedRollout substrate "chart")
+      writeLine
+        ( "test jitml-e2e --live: live phased rollout executed "
+            <> Text.pack (show (length (liveStepsExecuted result)))
+            <> " steps"
+        )
+      mapM_
+        ( \(step, stderrText) ->
+            writeLine ("test jitml-e2e --live: step failed: " <> step <> " stderr: " <> stderrText)
+        )
+        (liveStepsFailed result)
+      unless (null (liveStepsFailed result)) $
+        exitWithError
+          ( SubprocessFailed
+              "jitml-e2e live phased rollout"
+              (ExitFailure 1)
+              (renderLiveStepFailures (liveStepsFailed result))
+          )
 
 -- | Run the requested Cabal test stanzas, optionally restricted to one
 -- substrate's lane. Without a substrate flag this is a single
@@ -5375,14 +5485,15 @@ runCabalInvocations parsedOptions targets invocations = do
   case loadedKnobs of
     Left err -> exitWithError (InvalidConfig err)
     Right knobs -> do
+      let renderedTargets = targetStanzas targets
       measurements <-
         if hasOption "live" parsedOptions
-          then collectLiveReportMeasurements
+          then collectLiveReportMeasurements renderedTargets
           else pure emptyReportMeasurements
       writeText
         ( renderReportCardForTargets
             knobs
-            (targetStanzas targets)
+            renderedTargets
             (ReportCard (passedCount targets) 0 0 measurements)
         )
  where
@@ -5392,7 +5503,7 @@ runCabalInvocations parsedOptions targets invocations = do
       _ -> Nothing
 
   runOne substrateMaybe args = do
-    let command =
+    let rawCommand =
           case substrateMaybe of
             Nothing -> subprocess "cabal" args
             Just substrate ->
@@ -5402,14 +5513,30 @@ runCabalInvocations parsedOptions targets invocations = do
                     : "cabal"
                     : args
                 )
+        command = prioritizeLiveCabal (hasOption "live" parsedOptions) rawCommand
     (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
     case exitCode of
       ExitSuccess -> writeText stdoutText
       ExitFailure _ ->
         exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
-collectLiveReportMeasurements :: App ReportMeasurements
-collectLiveReportMeasurements = do
+  prioritizeLiveCabal live command
+    | not live = command
+    | otherwise =
+        ( subprocess
+            "nice"
+            ( "-n"
+                : "10"
+                : Text.pack (subprocessPath command)
+                : subprocessArguments command
+            )
+        )
+          { subprocessWorkingDirectory = subprocessWorkingDirectory command
+          , subprocessStdin = subprocessStdin command
+          }
+
+collectLiveReportMeasurements :: [Text] -> App ReportMeasurements
+collectLiveReportMeasurements targets = do
   slLoss <- measureSlFinalLoss
   rlReward <- measureRlFinalReward
   alphaZeroWinRate <- measureAlphaZeroArenaWinRate
@@ -5417,6 +5544,7 @@ collectLiveReportMeasurements = do
   cacheHitRate <- measureJitCacheHitRate
   daemonHealth <- measureDaemonHealthz
   browserMatrix <- measureBrowserProductMatrix
+  productRows <- productRowReportEvidenceForTargets targets
   pure
     ReportMeasurements
       { measuredSlFinalLoss = Just slLoss
@@ -5426,7 +5554,34 @@ collectLiveReportMeasurements = do
       , measuredJitCacheHitRate = Just cacheHitRate
       , measuredDaemonHealthz = Just daemonHealth
       , measuredBrowserProductMatrix = Just browserMatrix
+      , measuredProductRowEvidence = productRows
       }
+
+productRowReportEvidenceForTargets :: [Text] -> App [ProductRowReportEvidence]
+productRowReportEvidenceForTargets targets
+  | not (all (`elem` targets) ["jitml-integration", "jitml-e2e"]) = pure []
+  | otherwise = do
+      let evidence = fmap productRowReportEvidence ProductMatrix.allProductRows
+          failures =
+            productRowReportCoverageFailures
+              ProductMatrix.allProductRows
+              ProductMatrix.nonProductRows
+              evidence
+      unless (null failures) (exitWithError (InvalidConfig (Text.unlines failures)))
+      pure evidence
+
+productRowReportEvidence
+  :: ProductMatrix.ProductRow state
+  -> ProductRowReportEvidence
+productRowReportEvidence row =
+  ProductRowReportEvidence
+    { prreRowId = ProductMatrix.rowId row
+    , prreCatalog = "generated-matrix:" <> ProductMatrix.productRowExperimentHash row
+    , prreIntegration = ProductMatrix.integrationTest row
+    , prreE2E = ProductMatrix.e2eTest row
+    , prreNegative = "checkpoint-required-fail-closed"
+    , prreLane = "linux-cpu"
+    }
 
 measureSlFinalLoss :: App ReportMeasurement
 measureSlFinalLoss = do
@@ -5524,15 +5679,11 @@ measureDaemonHealthz = do
                   ("http://127.0.0.1:" <> Text.pack (show edgePort) <> "/healthz status=200")
           _ -> MeasurementUnavailable
 
--- | The no-caveat browser/product matrix (Sprint 15.20): probe every
--- checkpoint-backed product panel's REST endpoint at the live demo edge with
--- the panel's canonical default request and confirm each serves a real
--- checkpoint-backed result. Sprint 19.1 takes the denominator from the typed
--- product registry, so the report card stays unavailable until the browser
--- probes cover every product row instead of only the historical panel sample.
--- 'MeasurementUnavailable' only when no live cluster publication exists or a
--- panel endpoint does not serve its result kind (so the no-caveat handoff stays
--- honestly open until the live browser surface is real).
+-- | The no-caveat browser/product matrix: probe the live checkpoint-list
+-- selector surface that the row-complete Playwright matrix renders. The
+-- denominator is the typed ProductRow registry, so a missing selector row keeps
+-- the report card unavailable instead of silently counting the historical panel
+-- sample.
 measureBrowserProductMatrix :: App ReportMeasurement
 measureBrowserProductMatrix = do
   cluster <- liftIO (readExistingLivePublication ".")
@@ -5540,9 +5691,8 @@ measureBrowserProductMatrix = do
     Nothing -> pure MeasurementUnavailable
     Just publication -> do
       let edgePort = Publication.publicationEdgePort publication
-      results <- liftIO (traverse (probeBrowserProductPanel edgePort) browserProductPanelProbes)
-      let served = length (filter id results)
-          total = ProductMatrix.productRowCount
+      served <- liftIO (probeCheckpointListProductRows edgePort)
+      let total = ProductMatrix.productRowCount
       pure $
         if served == total && total > 0
           then
@@ -5556,53 +5706,37 @@ measureBrowserProductMatrix = do
               )
           else MeasurementUnavailable
 
--- | @(endpoint path, request body, expected result-kind marker)@ for each
--- checkpoint-backed browser product panel. Bodies use the panels' canonical
--- default requests (@web/src/Panels/*.purs@) so the probe exercises the same
--- contract the browser submits.
-browserProductPanelProbes :: [(Text, Text, Text)]
-browserProductPanelProbes =
-  [ ("/api/inference", mnistBody, "kind: InferenceResult")
-  , ("/api/inference/generic", genericBody, "kind: GenericInferenceResult")
-  , ("/api/images", cifarBody, "kind: ImageInferenceResult")
-  , ("/api/checkpoints/compare", compareBody, "kind: CheckpointCompareResult")
-  , ("/api/connect4/move", connect4Body, "kind: AdversarialMoveResult")
-  , ("/api/connect4/move", othelloBody, "kind: AdversarialMoveResult")
-  , ("/api/connect4/move", hexBody, "kind: AdversarialMoveResult")
-  , ("/api/connect4/move", gomokuBody, "kind: AdversarialMoveResult")
-  ]
- where
-  mnistBody =
-    "kind: BrowserInferenceRequest\npanel: mnist-live-inference\nmodel-id: mnist-deep-mlp\nexperiment-hash: product-row-mnist-deep-mlp\ninput: "
-      <> repeatedInput 784 "1.0"
-      <> "\n"
-  genericBody =
-    "kind: BrowserGenericInferenceRequest\npanel: generic-inference-lab\nexperiment-hash: product-row-california-housing-mlp\ninput: 0.25,-0.5,1.0,2.0,0.0,0.0,0.0,1.0\n"
-  cifarBody =
-    "kind: BrowserImageRequest\npanel: cifar-imagenet-upload\ndataset: CIFAR-10\nexperiment-hash: product-row-cifar10-resnet20\nimage-base64: \ninput: "
-      <> repeatedInput 3072 "1.0"
-      <> "\n"
-  compareBody =
-    "kind: BrowserCheckpointCompareRequest\npanel: checkpoint-compare-lab\nbaseline-experiment-hash: product-row-mnist-shallow-mlp\ncandidate-experiment-hash: product-row-mnist-deep-mlp\ninput: "
-      <> repeatedInput 784 "0.0"
-      <> "\n"
-  connect4Body =
-    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: connect4\nexperiment-hash: product-row-connect4\nmoves: \nhuman-is-player: 0\nsimulations-per-move: 8\n"
-  othelloBody =
-    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: othello\nexperiment-hash: product-row-othello\nmoves: 19\nhuman-is-player: 0\nsimulations-per-move: 8\n"
-  hexBody =
-    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: hex\nexperiment-hash: product-row-hex\nmoves: 0\nhuman-is-player: 0\nsimulations-per-move: 8\n"
-  gomokuBody =
-    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: gomoku\nexperiment-hash: product-row-gomoku\nmoves: 0\nhuman-is-player: 0\nsimulations-per-move: 8\n"
-  repeatedInput count value = Text.intercalate "," (replicate count value)
-
-probeBrowserProductPanel :: Int -> (Text, Text, Text) -> IO Bool
-probeBrowserProductPanel port (path, body, marker) = do
-  response <- httpPostLocal port path body
+probeCheckpointListProductRows :: Int -> IO Int
+probeCheckpointListProductRows port = do
+  response <- httpPostLocal port "/api/checkpoints" ""
   pure $
     case response >>= httpOkBody of
-      Right okBody -> marker `Text.isInfixOf` okBody
-      Left _ -> False
+      Left _ -> 0
+      Right body ->
+        length
+          [ ()
+          | row <- ProductMatrix.allProductRows
+          , checkpointListContainsRow body row
+          ]
+
+checkpointListContainsRow :: Text -> ProductMatrix.ProductRow state -> Bool
+checkpointListContainsRow body row =
+  Text.isInfixOf
+    ( "row-selector: "
+        <> ProductMatrix.rowId row
+        <> "\t"
+        <> ProductMatrix.productRowExperimentHash row
+        <> "\t"
+    )
+    body
+    && Text.isInfixOf
+      ( "checkpoint-summary: "
+          <> ProductMatrix.rowId row
+          <> "\t"
+          <> ProductMatrix.productRowExperimentHash row
+          <> "\t"
+      )
+      body
 
 measuredShow :: (Show a) => Text -> a -> ReportMeasurement
 measuredShow prefix value =

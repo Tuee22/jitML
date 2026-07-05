@@ -25,3 +25,32 @@ spec:
               memory: 512Mi
             limits:
               memory: 1Gi
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: envoy
+                      readinessProbe:
+                        failureThreshold: 12
+                        periodSeconds: 5
+                        timeoutSeconds: 10
+                      startupProbe:
+                        failureThreshold: 60
+                        periodSeconds: 10
+                        timeoutSeconds: 10
+                    - name: shutdown-manager
+                      livenessProbe:
+                        failureThreshold: 12
+                        periodSeconds: 10
+                        timeoutSeconds: 5
+                      readinessProbe:
+                        failureThreshold: 12
+                        periodSeconds: 10
+                        timeoutSeconds: 5
+                      startupProbe:
+                        failureThreshold: 60
+                        periodSeconds: 10
+                        timeoutSeconds: 5

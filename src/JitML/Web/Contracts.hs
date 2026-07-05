@@ -935,6 +935,7 @@ modelMatrixLines =
   , "  { kind :: String"
   , "  , name :: String"
   , "  , experimentHash :: String"
+  , "  , e2eTest :: String"
   , "  , demoPanel :: String"
   , "  , budget :: String"
   , "  , command :: Array String"
@@ -961,6 +962,8 @@ renderModelMatrixRow cell =
     <> psString (WorkflowMatrix.modelCellName cell)
     <> ", experimentHash: "
     <> psString (WorkflowMatrix.modelCellExperimentHash cell)
+    <> ", e2eTest: "
+    <> psString (WorkflowMatrix.modelCellE2eTest cell)
     <> ", demoPanel: "
     <> psString (WorkflowMatrix.modelCellDemoPanel cell)
     <> ", budget: "

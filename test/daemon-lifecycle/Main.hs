@@ -513,7 +513,7 @@ main =
                     , Inference.irReplyTopic = "inference.result.linux-cpu"
                     , Inference.irInput = [4.0, 5.0]
                     }
-              injectedRunner manifest input = do
+              injectedRunner _eligibleRef manifest input = do
                 recordClientCall ("engine:linux-cpu:" <> Checkpoint.manifestId manifest)
                 pure (Right (fmap (+ 10.0) input))
           result <-

@@ -111,7 +111,7 @@ defaultClusterResources =
     , prometheus = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , grafana = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
     , jitmlService = ComponentBudget 3 "500m" "2" "1Gi" "2Gi"
-    , jitmlDemo = ComponentBudget 1 "50m" "250m" "128Mi" "256Mi"
+    , jitmlDemo = ComponentBudget 1 "250m" "2" "512Mi" "3Gi"
     , tensorboard = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
     }
 

@@ -4,11 +4,13 @@ import { defineConfig, devices } from "@playwright/test";
 // The spec (`jitml-demo.spec.ts`) reads
 // `./.build/runtime/cluster-publication.json` to pick the live Envoy edge
 // URL and fails fast when no live publication is available.
-// Run from the repo root inside `jitml:local`:
-//   cd playwright && npx playwright test
+// Run from the repo root through `jitml test jitml-e2e --live --<substrate>`;
+// the typed plan uses the pinned `mcr.microsoft.com/playwright:v1.49.1-noble`
+// browser image.
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.ts",
+  outputDir: process.env.PLAYWRIGHT_TEST_RESULTS_DIR ?? "playwright/test-results",
   timeout: 120000,
   // Sprint 16.11 — the converged demo is the Webapp role: each checkpoint-backed
   // panel publishes an inference WorkCommand to the Engine and renders the result

@@ -19,9 +19,11 @@ browser guards for missing, invalid, partial, untrained, unsupported, and
 `*-demo-weights` artifacts. A static generated model list or seeded fixture
 checkpoint still does not prove that every documented product row has integration
 and e2e evidence. The binding browser contract lives in
-[product_completion_contract.md](product_completion_contract.md); Phase `28` is
-active on row-keyed integration/e2e coverage on `linux-cpu` before the accelerator
-lanes revalidate it.
+[product_completion_contract.md](product_completion_contract.md); Phase `28` has
+closed row-complete live Playwright coverage on `linux-cpu` through Sprint
+`28.2` and is active on the `linux-cpu` report card before the accelerator lanes
+revalidate it; Sprint `28.1` has already closed the publisher-manifest-backed
+integration evidence.
 
 ## Stack
 
@@ -40,7 +42,7 @@ lanes revalidate it.
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec currently covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, adversarial selectors, ProductRow artifact hashes, and checkpoint-required fail-closed rendering. Phase `28` expands this into row-complete trained-artifact/convergence-statistics proof for every product row. | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, adversarial selectors, ProductRow artifact hashes, checkpoint-required fail-closed rendering, and one generated trained-artifact/convergence-statistics proof for every product row. | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Webapp role | HTTP/WebSocket server selected by typed `BootConfig.activeRole = Webapp` | `src/JitML/App.hs`, `chart/local/jitml-demo` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -315,10 +317,12 @@ runtime/budget envelope, but CUDA execution belongs to the Engine role.
 ## Playwright E2E
 
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
-`JitML.Test.LivePlan` records the target `npx playwright test` step after the
-Helm dependency build and the `jitml bootstrap` ephemeral-cluster rollout. The
-default `jitml-e2e` Cabal body validates that typed Playwright command shape
-without starting the live stack. The checked-in spec is live-only: it reads
+`JitML.Test.LivePlan` records the target
+`docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=<substrate> mcr.microsoft.com/playwright:v1.49.1-noble ... playwright test --config playwright/playwright.config.ts`
+step after the Helm dependency build and the `jitml bootstrap` live-cluster
+rollout. The default `jitml-e2e` Cabal body validates that typed Playwright
+command shape without starting the live stack; `jitml test jitml-e2e --live
+--linux-cpu` selects or bootstraps the live cluster and runs it. The checked-in spec is live-only: it reads
 `.build/runtime/cluster-publication.json`, navigates to the published edge
 route, and fails fast when no live publication exists. The historical matrix
 covers the smoke shell plus the eight current panel hashes:

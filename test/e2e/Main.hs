@@ -29,6 +29,7 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.Cluster.Publication (defaultPublication, publicationEdgePort)
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Routes (routeRegistry, routeServiceName)
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Endpoints (EndpointResponse (..))
@@ -42,14 +43,17 @@ import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), allSubstrates)
-import JitML.Test.LivePlan (liveE2EPlan, renderLivePlan)
+import JitML.Test.LivePlan (liveE2EPlan, liveE2EPlanFor, renderLivePlan)
 import JitML.Test.Report
-  ( ReportCard (..)
+  ( ProductRowReportEvidence (..)
+  , ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
   , defaultReportCardKnobs
   , emptyReportMeasurements
   , parseReportCardKnobs
+  , productRowReportCoverageFailures
+  , renderProductRowReportEvidence
   , renderReportCard
   , reportStanzas
   )
@@ -244,16 +248,72 @@ main =
           assertBool
             "no-caveat browser product matrix row"
             ("browser_product_matrix: unavailable" `isInfixOf` Text.unpack rendered)
+      , testCase "linux-cpu report card renders per-row evidence and rejects missing cells (Sprint 28.3)" $ do
+          let rows = ProductMatrix.allProductRows
+              nonProducts = ProductMatrix.nonProductRows
+              evidence = fmap completeProductRowReportEvidence rows
+              rendered = renderProductRowReportEvidence rows nonProducts evidence
+          assertBool
+            "row report header"
+            ("row_id\tCatalog\tIntegration\tE2E\tNegative\tLane" `Text.isInfixOf` rendered)
+          assertBool
+            "row report includes ProductRow"
+            ("mnist-shallow-mlp\tgenerated-matrix" `Text.isInfixOf` rendered)
+          assertBool
+            "row report includes non-product classification"
+            ("tic-tac-toe\tnon-product:" `Text.isInfixOf` rendered)
+          productRowReportCoverageFailures rows nonProducts evidence @?= []
+          case (rows, evidence) of
+            ([], _) -> assertFailure "ProductRow registry is unexpectedly empty"
+            (_, []) -> assertFailure "ProductRow report evidence is unexpectedly empty"
+            (firstRow : _, first : rest) -> do
+              let missingRowFailures = productRowReportCoverageFailures rows nonProducts rest
+              assertBool
+                "missing product row is named"
+                ( ("missing product-row report evidence row: rowId=" <> ProductMatrix.rowId firstRow)
+                    `elem` missingRowFailures
+                )
+              let missingCell = first {prreE2E = ""}
+                  missingCellFailures = productRowReportCoverageFailures rows nonProducts (missingCell : rest)
+              assertBool
+                "missing E2E cell is named"
+                ( ("missing report evidence cell: rowId=" <> prreRowId first <> " column=E2E")
+                    `elem` missingCellFailures
+                )
+              let nonProductEvidence =
+                    ProductRowReportEvidence
+                      { prreRowId = "tic-tac-toe"
+                      , prreCatalog = "generated-matrix"
+                      , prreIntegration = "integration"
+                      , prreE2E = "e2e"
+                      , prreNegative = "fail-closed"
+                      , prreLane = "linux-cpu"
+                      }
+                  nonProductFailures = productRowReportCoverageFailures rows nonProducts (evidence <> [nonProductEvidence])
+              assertBool
+                "non-product row is not silently counted as complete"
+                ( any
+                    ("non-product row supplied as product evidence: rowId=tic-tac-toe" `Text.isPrefixOf`)
+                    nonProductFailures
+                )
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs
       , testCase "live Kind/Helm validation is an explicit typed plan" $ do
+          let livePlanText = renderLivePlan liveE2EPlan
           assertBool "live plan starts with helm dependency build" $
-            "helm-dependency-build:" `Text.isInfixOf` renderLivePlan liveE2EPlan
+            "helm-dependency-build:" `Text.isInfixOf` livePlanText
           assertBool "live plan invokes helm dependency build" $
-            "helm dependency build chart" `Text.isInfixOf` renderLivePlan liveE2EPlan
-          assertBool "live plan includes Playwright" $
-            "playwright: npx playwright test" `Text.isInfixOf` renderLivePlan liveE2EPlan
+            "helm dependency build chart" `Text.isInfixOf` livePlanText
+          assertBool "live plan includes pinned Playwright image" $
+            "playwright: docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=linux-cpu -e PLAYWRIGHT_TEST_RESULTS_DIR=/tmp/jitml-playwright-test-results mcr.microsoft.com/playwright:v1.49.1-noble"
+              `Text.isInfixOf` livePlanText
+          assertBool "live plan installs the pinned test package in the browser container" $
+            "@playwright/test@1.49.1" `Text.isInfixOf` livePlanText
+          assertBool "live plan points at the repo Playwright config" $
+            "playwright/playwright.config.ts" `Text.isInfixOf` livePlanText
+          assertBool "live plan is substrate parametrized" $
+            "jitml bootstrap --linux-cuda" `Text.isInfixOf` renderLivePlan (liveE2EPlanFor LinuxCUDA)
       , testCase "one-shot demo HTTP server serves the API index" $
           withHttpRoutesOnce (HttpListener "127.0.0.1" 0) demoHttpRoutes $ \port -> do
             response <- httpGet port "/api"
@@ -334,6 +394,7 @@ main =
               assertBool "typed inference result" ("kind: InferenceResult" `isInfixOf` inference)
               assertBool "checkpoint sha" ("checkpoint-sha: sha256:browser-runtime" `isInfixOf` inference)
               assertBool "top class from runtime output" ("top-class: 1" `isInfixOf` inference)
+              fieldItemCount "probabilities" inference @?= 10
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
               generic <- httpPost port "/api/inference/generic" productGenericBody
               assertBool "generic HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` generic)
@@ -341,6 +402,7 @@ main =
               assertBool
                 "generic checkpoint sha"
                 ("checkpoint-sha: sha256:product-row-california-housing-mlp" `isInfixOf` generic)
+              fieldItemCount "output" generic @?= 3
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
               image <- httpPost port "/api/images" productImageBody
               assertBool "image HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` image)
@@ -350,7 +412,9 @@ main =
               assertBool "compare HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` compareResp)
               assertBool "typed compare result" ("kind: CheckpointCompareResult" `isInfixOf` compareResp)
               assertBool "compare max delta" ("max-abs-delta: 0.5" `isInfixOf` compareResp)
-              assertBool "compare mean delta" ("mean-abs-delta: 0.25" `isInfixOf` compareResp)
+              fieldItemCount "baseline-output" compareResp @?= 3
+              fieldItemCount "candidate-output" compareResp @?= 3
+              assertBool "compare mean delta" ("mean-abs-delta: 0.16666666666666666" `isInfixOf` compareResp)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
               move <- httpPost port "/api/connect4/move" productConnect4Body
               assertBool "move HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` move)
@@ -483,6 +547,31 @@ assertFailClosed label reason response = do
   assertBool
     (label <> " selector state")
     ("selector-state: fail-closed:no-inference-eligible-artifact" `isInfixOf` response)
+
+fieldItemCount :: Text -> String -> Int
+fieldItemCount key payload =
+  let prefix = key <> ": "
+   in case [ Text.drop (Text.length prefix) line
+           | line <- Text.lines (Text.pack payload)
+           , prefix `Text.isPrefixOf` line
+           ] of
+        [raw]
+          | Text.null (Text.strip raw) -> 0
+          | otherwise -> length (Text.splitOn "," raw)
+        _ -> -1
+
+completeProductRowReportEvidence
+  :: ProductMatrix.ProductRow state
+  -> ProductRowReportEvidence
+completeProductRowReportEvidence row =
+  ProductRowReportEvidence
+    { prreRowId = ProductMatrix.rowId row
+    , prreCatalog = "generated-matrix"
+    , prreIntegration = ProductMatrix.integrationTest row
+    , prreE2E = ProductMatrix.e2eTest row
+    , prreNegative = "checkpoint-required-fail-closed"
+    , prreLane = "linux-cpu"
+    }
 
 failingBrowserRuntime :: Text -> BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)
 failingBrowserRuntime reason _request =

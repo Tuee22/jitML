@@ -709,10 +709,10 @@ Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda ad
 
 Run jitml-e2e.
 
-Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
+Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable. `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge.
 
 ```text
-jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
+jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--live] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
@@ -720,6 +720,7 @@ jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-opti
 | `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
 | `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
 | `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--live` | flag | no | Run the live Playwright matrix after selecting the live substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:

@@ -679,15 +679,16 @@ jitml test jitml-e2e
 
 Run jitml-e2e.
 
-Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
+Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable. `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge.
 
 Usage:
-  jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
+  jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--live] [--test-options <text>]
 
 Options:
   --apple-silicon        Select the Apple Silicon substrate.
   --linux-cpu            Select the Linux CPU substrate.
   --linux-cuda           Select the Linux CUDA substrate.
+  --live                 Run the live Playwright matrix after selecting the live substrate.
   --test-options <text>  Forward an opaque argument string to cabal test (e.g. -p linux-cuda).
 
 

@@ -406,6 +406,10 @@ main =
               , ParsedCommand ["test", "all"] [ParsedOption "live" []]
               )
             ,
+              ( ["test", "jitml-e2e", "--live", "--linux-cpu"]
+              , ParsedCommand ["test", "jitml-e2e"] [ParsedOption "linux-cpu" [], ParsedOption "live" []]
+              )
+            ,
               ( ["build", "--dry-run", "--substrate", "linux-cuda"]
               , ParsedCommand ["build"] [ParsedOption "substrate" ["linux-cuda"], ParsedOption "dry-run" []]
               )
@@ -3389,7 +3393,7 @@ main =
                   seededTensorNames = fmap sdcTensorName seededDemoCheckpoints
                   generatedHashes =
                     [ experimentHash
-                    | (_, _, experimentHash, _) <- generatedModelMatrixPairs generated
+                    | (_, _, experimentHash, _, _) <- generatedModelMatrixPairs generated
                     ]
               List.intersect productHashes seededHashes @?= []
               List.intersect generatedHashes seededHashes @?= []
@@ -4720,11 +4724,12 @@ productRowRlAlgorithms row =
     ProductMatrix.RlGoalConditioned _ -> ["HER"]
     _ -> []
 
-registryModelMatrixPairs :: [(Text, Text, Text, Text)]
+registryModelMatrixPairs :: [(Text, Text, Text, Text, Text)]
 registryModelMatrixPairs =
   [ ( generatedModelKind row
     , ProductMatrix.rowId row
     , ProductMatrix.productRowExperimentHash row
+    , ProductMatrix.e2eTest row
     , ProductMatrix.demoPanel row
     )
   | row <- ProductMatrix.allProductRows
@@ -4741,17 +4746,18 @@ generatedModelKind row =
     ProductMatrix.AlphaZero -> "alphazero"
     ProductMatrix.Tuning -> "tuning"
 
-generatedModelMatrixPairs :: Text -> [(Text, Text, Text, Text)]
+generatedModelMatrixPairs :: Text -> [(Text, Text, Text, Text, Text)]
 generatedModelMatrixPairs generated =
   mapMaybe generatedModelMatrixPair (Text.lines generated)
 
-generatedModelMatrixPair :: Text -> Maybe (Text, Text, Text, Text)
+generatedModelMatrixPair :: Text -> Maybe (Text, Text, Text, Text, Text)
 generatedModelMatrixPair line = do
   kind <- quotedField "kind" line
   name <- quotedField "name" line
   experimentHash <- quotedField "experimentHash" line
+  e2eTest <- quotedField "e2eTest" line
   demoPanel <- quotedField "demoPanel" line
-  pure (kind, name, experimentHash, demoPanel)
+  pure (kind, name, experimentHash, e2eTest, demoPanel)
 
 quotedField :: Text -> Text -> Maybe Text
 quotedField field line =

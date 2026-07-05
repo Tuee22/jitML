@@ -73,16 +73,17 @@ node at `/jitml/.data`; `.data` is strictly for these manual PV bind mounts.
 Kind metadata, runtime coordinates, kubeconfig, generated Dhall, and JIT
 artifacts live under `./.build/`.
 
-Apple Silicon and Docker Desktop `linux-cpu` use a node-local bind overlay for
-the registered Percona Postgres PVs before the `harbor-pg` cluster starts:
-bootstrap creates `/var/local/jitml-postgres-pv/...` inside the Kind node,
-bind-mounts those directories over the corresponding
-`/jitml/.data/.../harbor-pg*` paths, and normalizes the node-local directories
-to uid/gid `26:26`. The checked-in PV identity and chart paths remain the
-repo-local `.data` layout, but the live Postgres relation files are written to
-node-local storage on macOS/Docker Desktop to avoid host bind-mount ownership and
-relation-file permission drift. `linux-cuda` runs on a real Linux/NVIDIA host
-and uses the `.data` hostPath directly with ownership normalization.
+Apple Silicon and Docker-backed `linux-cpu` use a node-local bind overlay for
+every registered stateful PV before the manual PV manifests are applied:
+bootstrap creates `/var/local/jitml-stateful-pv/...` inside each Kind node and
+bind-mounts those directories over the corresponding `/jitml/.data/...` paths.
+Registered Percona Postgres PVs are normalized to uid/gid `26:26`; other
+stateful PV directories are made writable for their chart-managed containers.
+The checked-in PV identity and chart paths remain the repo-local `.data`
+layout, but the live MinIO, Pulsar, and Postgres write paths use node-local
+storage on macOS/Colima to avoid host bind-mount ownership and I/O stalls.
+`linux-cuda` runs on a real Linux/NVIDIA host and uses the `.data` hostPath
+directly with Postgres ownership normalization.
 
 Every PVC is created **only** by a StatefulSet's `volumeClaimTemplates`;
 freestanding PVCs are a chart-lint failure. StatefulSet PVs carry

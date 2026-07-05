@@ -193,8 +193,9 @@ mismatches, stale seeded hashes, `*-demo-weights`, missing artifacts, untrained 
 partial manifests, and unsupported substrate states return a `503
 checkpoint-required` fail-closed envelope instead of a fake result. The
 Playwright guard asserts the browser posts `product-row-*` hashes and does not
-render `*-demo-weights`; Phase `28` owns converting that browser proof into one
-integration/e2e evidence row per ProductRow.
+render `*-demo-weights`; Phase `28` converts that browser proof into one
+integration/e2e evidence row per ProductRow and keeps the active work on the
+per-row `linux-cpu` report card.
 
 ## Test Contract
 

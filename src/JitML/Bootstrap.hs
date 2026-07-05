@@ -128,7 +128,7 @@ bootstrapPlanSteps substrate =
   , "prepare Helm dependencies with " <> renderHelmDependencyBuildPlan "chart"
   , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
   , "raise Kind-node inotify caps for multi-cluster host readiness"
-  , "prepare substrate-specific Percona PV storage"
+  , "prepare substrate-specific stateful PV storage"
   , "apply jitml-manual StorageClass and manual PVs"
   , "install MinIO and Percona storage for Harbor"
   , "install Harbor bootstrap phase"
@@ -263,7 +263,7 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
        ]
     <> clusterNodeCapSubprocesses substrate resources
     <> [helmDependencyBuildSubprocess chartPath]
-    <> kindPreparePostgresPvSubprocesses substrate resources
+    <> kindPrepareStatefulPvSubprocesses substrate resources
     <> cachedThirdPartyImageLoadSteps substrate
     <> foundationManifestApplySubprocesses chartPath
     -- Sprint 2.14 — bind the host Docker Hub login to the platform namespace's
@@ -401,20 +401,20 @@ kindNormalizePostgresPvOwnershipSubprocess nodeName =
         <> fmap pvNodeDataPath postgresManualPVs
     )
 
-kindPreparePostgresPvSubprocesses :: Substrate -> ClusterResources -> [Subprocess]
-kindPreparePostgresPvSubprocesses substrate resources =
+kindPrepareStatefulPvSubprocesses :: Substrate -> ClusterResources -> [Subprocess]
+kindPrepareStatefulPvSubprocesses substrate resources =
   case substrate of
     AppleSilicon ->
-      fmap kindMountPostgresPvNodeLocalSubprocess nodeNames
+      fmap kindMountStatefulPvNodeLocalSubprocess nodeNames
     LinuxCPU ->
-      fmap kindMountPostgresPvNodeLocalSubprocess nodeNames
+      fmap kindMountStatefulPvNodeLocalSubprocess nodeNames
     LinuxCUDA ->
       fmap kindNormalizePostgresPvOwnershipSubprocess nodeNames
  where
   nodeNames = substrateKindNodeContainerNames substrate (workerCount resources)
 
-kindMountPostgresPvNodeLocalSubprocess :: Text -> Subprocess
-kindMountPostgresPvNodeLocalSubprocess nodeName =
+kindMountStatefulPvNodeLocalSubprocess :: Text -> Subprocess
+kindMountStatefulPvNodeLocalSubprocess nodeName =
   subprocess
     "docker"
     [ "exec"
@@ -423,13 +423,13 @@ kindMountPostgresPvNodeLocalSubprocess nodeName =
     , "-c"
     , Text.unwords
         ( ["set -e;"]
-            <> fmap mountOne postgresManualPVs
+            <> fmap mountOne manualPVs
         )
     ]
  where
   mountOne pv =
     let nodePath = pvNodeDataPath pv
-        localPath = "/var/local/jitml-postgres-pv" <> nodePath
+        localPath = "/var/local/jitml-stateful-pv" <> nodePath
      in Text.unwords
           [ "mkdir -p"
           , localPath
@@ -439,23 +439,29 @@ kindMountPostgresPvNodeLocalSubprocess nodeName =
           , "|| mount --bind"
           , localPath
           , nodePath <> ";"
-          , "chown -R 26:26"
+          , pvOwnershipCommand pv
           , localPath <> ";"
           ]
 
+pvOwnershipCommand :: ManualPV -> Text
+pvOwnershipCommand pv
+  | pvIsPostgres pv = "chown -R 26:26"
+  | otherwise = "chmod 0777"
+
 postgresManualPVs :: [ManualPV]
 postgresManualPVs =
-  filter isPostgresPV manualPVs
- where
-  isPostgresPV pv =
-    any
-      ( \cluster ->
-          pvNamespace pv == perconaNamespace cluster
-            && ( pvStatefulSet pv == perconaClusterName cluster
-                   || pvStatefulSet pv == perconaClusterName cluster <> "-repo1"
-               )
-      )
-      postgresRegistry
+  filter pvIsPostgres manualPVs
+
+pvIsPostgres :: ManualPV -> Bool
+pvIsPostgres pv =
+  any
+    ( \cluster ->
+        pvNamespace pv == perconaNamespace cluster
+          && ( pvStatefulSet pv == perconaClusterName cluster
+                 || pvStatefulSet pv == perconaClusterName cluster <> "-repo1"
+             )
+    )
+    postgresRegistry
 
 foundationManifestApplySubprocesses :: FilePath -> [Subprocess]
 foundationManifestApplySubprocesses chartPath =

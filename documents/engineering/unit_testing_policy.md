@@ -39,13 +39,16 @@ The eight Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
 exercise the local deterministic contracts for their owning surfaces, but the
 2026-07-01 product audit reopened all-model completion. Phase `28` owns
 row-complete integration/e2e coverage on `linux-cpu`; Phases `29` and `30` own
-accelerator row validation. A representative workflow, static browser matrix,
-or fake browser runtime does not satisfy product-row evidence.
+accelerator row validation. Sprint `28.2` has closed the generated live
+Playwright product-row matrix, and Sprint `28.3` is blocked on the per-row
+`linux-cpu` report-card validation by live-lane MinIO/Harbor/edge instability.
+A representative workflow, static browser matrix, or fake browser runtime does
+not satisfy product-row evidence.
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
 | `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, frontend bundle/panel/demo-route surfaces, the `CompletedTraining`/`InferenceEligibleCheckpoint` readiness gate, and pure all-model workflow-matrix enumeration | Pure Logic + Parser + Property + Snapshot | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table snapshot fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated oneDNN FFI kernel with decoded `.jmw1` weights, infer-before-complete rejection for partial manifests, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, single-node Kind rendering, required `jitml-service` anti-affinity plus single-node rollout strategy/RBAC rendering, Dhall numerics decode, linkable oneDNN runtime probing, typed service command shapes, and representative live workflow cases. Phase `28` owns expanding this to every `ProductRow`, failing on missing row/test evidence, and sourcing row evidence from real product-row publisher manifests rather than synthetic parameter/loss scaffolding. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 / Phase 28 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table snapshot fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated oneDNN FFI kernel with decoded `.jmw1` weights, infer-before-complete rejection for partial manifests, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, single-node Kind rendering, required `jitml-service` anti-affinity plus single-node rollout strategy/RBAC rendering, Dhall numerics decode, linkable oneDNN runtime probing, typed service command shapes, representative live workflow cases, and the Phase `28` row-keyed `ProductRow` matrix. That matrix fails on missing row/test evidence and sources each row's evidence from real product-row publisher manifests rather than synthetic parameter/loss scaffolding. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 / Phase 28 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix, dataset parsing, Training command/event envelope round-trips, selected live convergence, and checkpoint/inference helpers. Phase `24`/`28` make this row-complete: read-time SHA verification, literal architecture parity, fixed `TrainingBudget`, weight-update proof, completed-training witness, convergence-statistics recording, eligible-checkpoint writes, and infer-before-complete rejection for every SL row. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 12.3 / Phase 24 / Phase 28 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, canonical-game surface, RL command/event envelope round-trips, representative measured convergence, and AlphaZero metrics. Sprint `20.1` relocated the deterministic `runRLLoop`, simulator-loop runners, and `deterministicStep` into `test/rl-canonicals/Support/`; tests that exercise them carry a `scaffolding:` title prefix and are not product evidence. Phase `25`/`28` make this row-complete: every documented algorithm/env row dispatches to its named environment, updates learned state where applicable, writes completed artifacts, and has named integration/e2e evidence. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 / Sprint 20.1 / Phase 25 / Phase 28 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), checkpointable trained weights for measured trial objectives, fixed trial-budget completion, promoted-checkpoint eligibility, and Tune command/event envelope round-trips. Sampler trial values are checked as properties rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
@@ -242,10 +245,12 @@ binary is absent or Docker is unreachable, the local Docker-backed Kind query
 fails closed. The typed
 `JitML.Test.LivePlan.liveE2EPlan` records the live orchestration as `Subprocess`
 values: `helm dependency build chart` → `jitml bootstrap` (ephemeral Kind +
-phased Helm rollout) → `npx playwright test` → `jitml cluster down`. The live
-driver is an explicit command path, not a process-environment gate or part of
-default `cabal test all`, because it creates and destroys Kind, builds Helm
-dependencies, mutates image/runtime state, and polls live routes.
+phased Helm rollout) → substrate-bound
+`docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=<substrate> mcr.microsoft.com/playwright:v1.49.1-noble ... playwright test --config playwright/playwright.config.ts`
+→ `jitml cluster down`. The live driver is an explicit command path, not a
+process-environment gate or part of default `cabal test all`, because it selects
+or bootstraps Kind, builds Helm dependencies, mutates image/runtime state, and
+polls live routes.
 Live test driver:
 
 1. A typed `helm dependency build chart` step prepares subchart dependencies

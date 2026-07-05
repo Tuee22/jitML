@@ -5,13 +5,16 @@ module JitML.Test.Report
   , ReportMeasurement (..)
   , ReportMeasurements (..)
   , ReportCardKnobs (..)
+  , ProductRowReportEvidence (..)
   , RowIntegrationEvidence (..)
   , defaultReportCardKnobs
   , emptyReportMeasurements
   , loadReportCardKnobs
   , parseReportCardKnobs
+  , productRowReportCoverageFailures
   , renderReportCardForTargets
   , renderReportCardWithKnobs
+  , renderProductRowReportEvidence
   , renderRowIntegrationEvidence
   , reportStanzas
   , rowIntegrationCoverageFailures
@@ -58,6 +61,10 @@ data ReportMeasurements = ReportMeasurements
   -- 'MeasurementUnavailable' until Phase `17` exercises the matrix live, so a
   -- live report card that has not proven the browser product surface fails the
   -- no-caveat handoff rather than vacuously omitting the row.
+  , measuredProductRowEvidence :: [ProductRowReportEvidence]
+  -- ^ Sprint `28.3` per-ProductRow evidence table. Empty for non-live or
+  -- non-row-complete target sets; complete live report cards fail before
+  -- rendering if any required product-row cell is missing.
   }
   deriving stock (Eq, Show)
 
@@ -90,6 +97,16 @@ data RowIntegrationEvidence = RowIntegrationEvidence
   }
   deriving stock (Eq, Show)
 
+data ProductRowReportEvidence = ProductRowReportEvidence
+  { prreRowId :: !Text
+  , prreCatalog :: !Text
+  , prreIntegration :: !Text
+  , prreE2E :: !Text
+  , prreNegative :: !Text
+  , prreLane :: !Text
+  }
+  deriving stock (Eq, Show)
+
 defaultReportCardKnobs :: ReportCardKnobs
 defaultReportCardKnobs =
   ReportCardKnobs
@@ -114,6 +131,7 @@ emptyReportMeasurements =
     , measuredJitCacheHitRate = Nothing
     , measuredDaemonHealthz = Nothing
     , measuredBrowserProductMatrix = Nothing
+    , measuredProductRowEvidence = []
     }
 
 reportStanzas :: [Text]
@@ -252,6 +270,7 @@ renderReportCardForTargets knobs targets report =
       ]
         <> fmap renderTarget targets
         <> renderMeasurements (reportMeasurements report)
+        <> renderProductRowEvidenceTable (reportMeasurements report)
         <> [ "cabal_test:"
            , "  passed: " <> showText (reportPassed report)
            , "  failed: " <> showText (reportFailed report)
@@ -300,6 +319,125 @@ measurementLine label (Just measurement) =
 renderMeasurement :: ReportMeasurement -> Text
 renderMeasurement (MeasurementAvailable value) = value
 renderMeasurement MeasurementUnavailable = "unavailable"
+
+renderProductRowEvidenceTable :: ReportMeasurements -> [Text]
+renderProductRowEvidenceTable measurements
+  | null (measuredProductRowEvidence measurements) = []
+  | otherwise =
+      "product_rows:"
+        : fmap
+          ("  " <>)
+          ( Text.lines
+              ( renderProductRowReportEvidence
+                  ProductMatrix.allProductRows
+                  ProductMatrix.nonProductRows
+                  (measuredProductRowEvidence measurements)
+              )
+          )
+
+productRowReportCoverageFailures
+  :: [ProductMatrix.ProductRow state]
+  -> [ProductMatrix.NonProductRow]
+  -> [ProductRowReportEvidence]
+  -> [Text]
+productRowReportCoverageFailures rows nonProductRows observed =
+  missingFailures
+    <> duplicateFailures
+    <> orphanFailures
+    <> concatMap cellFailures observed
+ where
+  expectedRowIds = fmap ProductMatrix.rowId rows
+  nonProductReasons =
+    [ (ProductMatrix.nonProductRowId row, ProductMatrix.nonProductRowReason row)
+    | row <- nonProductRows
+    ]
+  observedRowIds = fmap prreRowId observed
+  missingFailures =
+    [ "missing product-row report evidence row: rowId=" <> rowId
+    | rowId <- expectedRowIds
+    , rowId `notElem` observedRowIds
+    ]
+  duplicateFailures =
+    [ "duplicate product-row report evidence row: rowId="
+        <> rowId
+        <> " count="
+        <> showText (length group)
+    | group@(rowId : _) <- List.group (List.sort observedRowIds)
+    , length group > 1
+    ]
+  orphanFailures =
+    [ case lookup rowId nonProductReasons of
+        Just reason ->
+          "non-product row supplied as product evidence: rowId="
+            <> rowId
+            <> " reason="
+            <> reason
+        Nothing -> "orphan product-row report evidence row: rowId=" <> rowId
+    | rowId <- observedRowIds
+    , rowId `notElem` expectedRowIds
+    ]
+  cellFailures evidence =
+    [ "missing report evidence cell: rowId="
+        <> prreRowId evidence
+        <> " column="
+        <> column
+    | prreRowId evidence `elem` expectedRowIds
+    , (column, value) <-
+        [ ("Catalog", prreCatalog evidence)
+        , ("Integration", prreIntegration evidence)
+        , ("E2E", prreE2E evidence)
+        , ("Negative", prreNegative evidence)
+        , ("Lane", prreLane evidence)
+        ]
+    , Text.null (Text.strip value)
+    ]
+
+renderProductRowReportEvidence
+  :: [ProductMatrix.ProductRow state]
+  -> [ProductMatrix.NonProductRow]
+  -> [ProductRowReportEvidence]
+  -> Text
+renderProductRowReportEvidence rows nonProductRows evidence =
+  Text.unlines
+    ( [ "row_id\tCatalog\tIntegration\tE2E\tNegative\tLane"
+      ]
+        <> fmap renderProductRow rows
+        <> fmap renderNonProductRow nonProductRows
+    )
+ where
+  evidenceByRowId = fmap (\row -> (prreRowId row, row)) evidence
+  renderProductRow row =
+    case lookup (ProductMatrix.rowId row) evidenceByRowId of
+      Nothing ->
+        Text.intercalate
+          "\t"
+          [ ProductMatrix.rowId row
+          , "MISSING"
+          , "MISSING"
+          , "MISSING"
+          , "MISSING"
+          , "MISSING"
+          ]
+      Just observed ->
+        Text.intercalate
+          "\t"
+          [ ProductMatrix.rowId row
+          , prreCatalog observed
+          , prreIntegration observed
+          , prreE2E observed
+          , prreNegative observed
+          , prreLane observed
+          ]
+  renderNonProductRow row =
+    Text.intercalate
+      "\t"
+      [ ProductMatrix.nonProductRowId row
+      , "non-product: " <> ProductMatrix.nonProductRowReason row
+      , "not-required"
+      , "not-required"
+      , "not-required"
+      , "not-required"
+      ]
 
 rowIntegrationCoverageFailures
   :: [ProductMatrix.ProductRow state]

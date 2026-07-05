@@ -20,6 +20,28 @@ resources:
     cpu: 500m
     memory: 1Gi
 
+# Local live validation can drive large routed object reads while the same
+# MinIO pods also serve Harbor and checkpoint traffic. Keep probes from killing
+# a healthy but saturated distributed MinIO member during those bursts.
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 20
+  failureThreshold: 12
+
+readinessProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 12
+
+startupProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 60
+
 auth:
   rootUser: minio
   rootPassword: minioadmin

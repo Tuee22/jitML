@@ -3,6 +3,7 @@
 module JitML.Test.LivePlan
   ( LivePlanStep (..)
   , liveE2EPlan
+  , liveE2EPlanFor
   , livePhasedClusterPlan
   , renderLivePlan
   )
@@ -17,7 +18,7 @@ import JitML.Cluster.Helm
   )
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
-import JitML.Substrate (Substrate)
+import JitML.Substrate (Substrate (..), renderSubstrate)
 
 data LivePlanStep = LivePlanStep
   { livePlanStepName :: Text
@@ -25,16 +26,58 @@ data LivePlanStep = LivePlanStep
   }
   deriving stock (Eq, Show)
 
--- | The single-command e2e plan for the ephemeral-cluster infrastructure
+-- | The substrate-parametrized e2e plan for the live-cluster infrastructure
 -- stanza. Sequences `helm dependency build chart` → `jitml bootstrap`
--- (ephemeral Kind cluster + phased Helm rollout) → `npx playwright test` →
--- `jitml cluster down` (always-teardown); local stanzas validate the typed
--- order while the explicit live driver executes the real stack.
+-- (ephemeral Kind cluster + phased Helm rollout) → substrate-bound Playwright
+-- in the pinned Playwright browser image from a read-only repo mount →
+-- `jitml cluster down`; local stanzas validate the typed order while the
+-- explicit live driver selects or bootstraps the live stack.
 liveE2EPlan :: [LivePlanStep]
 liveE2EPlan =
+  liveE2EPlanFor LinuxCPU
+
+liveE2EPlanFor :: Substrate -> [LivePlanStep]
+liveE2EPlanFor substrate =
   [ LivePlanStep "helm-dependency-build" (helmDependencyBuildSubprocess "chart")
-  , LivePlanStep "bootstrap" (subprocess "jitml" ["bootstrap", "--linux-cpu"])
-  , LivePlanStep "playwright" (subprocess "npx" ["playwright", "test"])
+  , LivePlanStep "bootstrap" (subprocess "jitml" ["bootstrap", "--" <> renderSubstrate substrate])
+  , LivePlanStep
+      "playwright"
+      ( subprocess
+          "docker"
+          [ "run"
+          , "--rm"
+          , "--network"
+          , "host"
+          , "-v"
+          , ".:/work:ro"
+          , "-w"
+          , "/work"
+          , "-e"
+          , "JITML_SUBSTRATE=" <> renderSubstrate substrate
+          , "-e"
+          , "PLAYWRIGHT_TEST_RESULTS_DIR=/tmp/jitml-playwright-test-results"
+          , "mcr.microsoft.com/playwright:v1.49.1-noble"
+          , "sh"
+          , "-lc"
+          , Text.unwords
+              [ "npm_config_update_notifier=false"
+              , "npm install"
+              , "--prefix /tmp/jitml-playwright"
+              , "--package-lock=false"
+              , "--no-audit"
+              , "--no-fund"
+              , "--loglevel=error"
+              , "@playwright/test@1.49.1"
+              , ">/tmp/jitml-playwright-install.log"
+              , "&&"
+              , "NODE_PATH=/tmp/jitml-playwright/node_modules"
+              , "/tmp/jitml-playwright/node_modules/.bin/playwright"
+              , "test"
+              , "--config"
+              , "playwright/playwright.config.ts"
+              ]
+          ]
+      )
   , LivePlanStep "cluster-down" (subprocess "jitml" ["cluster", "down"])
   ]
 

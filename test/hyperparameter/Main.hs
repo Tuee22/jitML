@@ -104,7 +104,7 @@ trainingEvidenceFixture experimentHash observedUnits =
     )
 
 convergenceObservationsFixture :: [(Text, Double)] -> [TrainingBudget.ConvergenceObservation]
-convergenceObservationsFixture =
+convergenceObservationsFixture metrics =
   either
     (error . Text.unpack)
     id
@@ -114,6 +114,7 @@ convergenceObservationsFixture =
               (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
               (ProductConvergence.MeasuredMetrics [metric])
         )
+        metrics
     )
 
 main :: IO ()

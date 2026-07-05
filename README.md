@@ -38,11 +38,15 @@ The result is:
 > incomplete documented SL/RL implementation coverage, and representative rather
 > than per-model integration/e2e evidence.
 > Phases `0`–`18` remain historical evidence for the surfaces they actually
-> validated; Phases `19`–`27` are complete after Phase `25` re-closed on
-> 2026-07-03 with production RL trainer/environment dispatch and full RL live
-> publisher evidence. Sprint `28.1` is active on replacing synthetic/local row
-> evidence with real product-row publisher evidence and staging the remaining
-> non-MNIST supervised datasets. The reopened completion path remains the
+> validated; Phases `19`–`28` are complete after Phase `28` closed on
+> 2026-07-05. Sprint `28.1` is Done after the row-keyed integration matrix
+> switched to real product-row publisher manifests, Sprint `28.2` is Done after
+> row-complete live Playwright passed on `linux-cpu`, and Sprint `28.3` is Done
+> after the full live `linux-cpu` report card passed **8 / 8** stanzas with
+> `browser_product_matrix` **55 / 55** at edge `:9091`. Phase `29` is the next
+> open phase and requires a real `linux-cuda` host; this session has no Docker
+> NVIDIA GPU runtime for the `jitml-cuda` service.
+> The reopened completion path remains the
 > forward-only
 > Phase `19`–`31` chain in
 > [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). Governed docs are
@@ -418,14 +422,15 @@ via the `extraMounts` block in `./kind/cluster-<substrate>.yaml`, which is what
 lets in-cluster Linux workloads see the same JIT artifacts the host built (see
 [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)).
 
-Apple Silicon has one additional Postgres storage implementation detail: the
-registered manual PV paths are still rendered under `./.data/`, but before the
-Percona Postgres cluster starts, bootstrap bind-mounts node-local directories
-under `/var/local/jitml-postgres-pv/...` over the corresponding paths inside
-the Kind node and normalizes those node-local directories to uid/gid `26:26`.
-This avoids macOS/Colima bind-mount ownership drift for Harbor's Percona
-Postgres relation files. Linux substrates use the `.data` hostPath directly
-with ownership normalization.
+Apple Silicon and Docker-backed `linux-cpu` use node-local stateful PV overlays:
+the registered manual PV paths are still rendered under `./.data/`, but before
+manual PV apply bootstrap bind-mounts `/var/local/jitml-stateful-pv/...`
+directories over the corresponding paths inside each Kind node. Registered
+Percona Postgres PVs are normalized to uid/gid `26:26`; MinIO and Pulsar PVs are
+made writable for their chart-managed containers. This avoids macOS/Colima
+bind-mount ownership drift and high-churn stateful-service I/O stalls while
+preserving the checked-in PV identities. `linux-cuda` runs on a real Linux host
+and uses the `.data` hostPath directly with Postgres ownership normalization.
 
 ---
 
@@ -1031,7 +1036,7 @@ mindmap
 | `jitml test jitml-hyperparameter` | Run jitml-hyperparameter. | `jitml test jitml-hyperparameter [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml test jitml-backends` | Run jitml-backends. | `jitml test jitml-backends [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
-| `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--live] [--test-options <text>]` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
 | `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
 | `jitml lint proto` | Run protobuf schema lint checks. | `jitml lint proto [--write]` |

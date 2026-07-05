@@ -11,7 +11,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Either (lefts)
+import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Maybe qualified
 import Data.Text (Text)
@@ -1019,6 +1019,28 @@ main =
           assertBool
             "rejects a measured median below the slack band"
             (not (passesSlConvergence threshold 0.80))
+      , testCase
+          "live all canonical SL rows materialize staged bytes and train through the substrate runtime (Sprint 8.12 Live)"
+          $ do
+            publication <- readExistingLivePublication "."
+            case publication of
+              Nothing ->
+                assertFailure "no live cluster publication; live all-row SL matrix cannot run"
+              Just pub -> do
+                env <- buildEnv defaultGlobalFlags
+                let substrate = publicationSubstrate pub
+                    device = mlpDeviceForSubstrate substrate env
+                requireMlpDevice substrate device
+                let settings = minioSettingsForLocalEdge (publicationEdgePort pub)
+                    run = runMinIOSubprocess settings
+                fetched <- traverse (fetchLiveSlProblemBytes run) canonicalProblems
+                case lefts fetched of
+                  [] -> do
+                    results <- traverse (trainLiveProblemBytes device) (rights fetched)
+                    case lefts results of
+                      [] -> pure ()
+                      errs -> assertFailure (unlines errs)
+                  errs -> assertFailure (unlines errs)
       , testCase "live MNIST SL training clears the convergence threshold (Sprint 13.4 Live)" $ do
           -- Sprint 8.12 live convergence assertion. With a live cluster
           -- publication present, fetch the real MNIST bytes from MinIO,
@@ -1058,12 +1080,12 @@ main =
                       let device = mlpDeviceForSubstrate (publicationSubstrate pub) env
                           config =
                             defaultClassifierConfig
-                              { clfEpochs = 60
+                              { clfEpochs = liveMnistConvergenceEpochs
                               , clfLearningRate = 1.0e-2
                               }
                       case decodeBoundedDataset
                         config
-                        (Just 10000)
+                        (Just liveMnistTrainLimit)
                         (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload ti))
                         (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload tl)) of
                         Left err -> assertFailure ("live MNIST training failed: " <> err)
@@ -1082,7 +1104,7 @@ main =
                                     Architecture.accuracyArchitectureWithDevice
                                       device
                                       trained
-                                      (take 5000 (zipImagesLabels images labels))
+                                      (take liveMnistTestLimit (zipImagesLabels images labels))
                                   _ -> pure (Right 0.0)
                               case testAccE of
                                 Left err ->
@@ -1098,67 +1120,6 @@ main =
                     _ ->
                       assertFailure "live MNIST bytes unavailable from MinIO; staged dataset is required"
                 _ -> assertFailure "missing MNIST dataset ref or convergence threshold"
-      , testCase
-          "live all canonical SL rows materialize staged bytes and train through the substrate runtime (Sprint 8.12 Live)"
-          $ do
-            publication <- readExistingLivePublication "."
-            case publication of
-              Nothing ->
-                assertFailure "no live cluster publication; live all-row SL matrix cannot run"
-              Just pub -> do
-                env <- buildEnv defaultGlobalFlags
-                let substrate = publicationSubstrate pub
-                    device = mlpDeviceForSubstrate substrate env
-                requireMlpDevice substrate device
-                let settings = minioSettingsForLocalEdge (publicationEdgePort pub)
-                    run = runMinIOSubprocess settings
-                    trainProblem problem =
-                      case Dataset.datasetForProblem problem of
-                        Nothing ->
-                          pure
-                            ( Left
-                                ( "missing dataset ref for "
-                                    <> Text.unpack (problemName problem)
-                                )
-                            )
-                        Just trainRef
-                          | SL.problemDataset problem == "California Housing" ->
-                              trainLiveCalifornia run device problem trainRef
-                          | SL.problemDataset problem == "MNIST"
-                              || SL.problemDataset problem == "Fashion-MNIST" ->
-                              trainLiveIdx run device problem trainRef
-                          | SL.problemDataset problem == "CIFAR-10" ->
-                              trainLiveArchiveClassifier
-                                run
-                                device
-                                problem
-                                trainRef
-                                decodeCifar10ArchiveBoundedDataset
-                          | SL.problemDataset problem == "CIFAR-100" ->
-                              trainLiveArchiveClassifier
-                                run
-                                device
-                                problem
-                                trainRef
-                                decodeCifar100ArchiveBoundedDataset
-                          | SL.problemDataset problem == "Tiny ImageNet" ->
-                              trainLiveArchiveClassifier
-                                run
-                                device
-                                problem
-                                trainRef
-                                TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
-                          | otherwise ->
-                              pure
-                                ( Left
-                                    ( "unhandled dataset for "
-                                        <> Text.unpack (problemName problem)
-                                    )
-                                )
-                results <- traverse trainProblem canonicalProblems
-                case lefts results of
-                  [] -> pure ()
-                  errs -> assertFailure (unlines errs)
       ]
 
 selectedTestSubstrate :: IO Substrate
@@ -1185,57 +1146,130 @@ requireMlpDevice substrate device = do
             )
         )
 
-trainLiveIdx
+data LiveSlProblemBytes
+  = LiveSlIdx SL.CanonicalProblem ByteString ByteString ByteString ByteString
+  | LiveSlArchive SL.CanonicalProblem ByteString
+
+fetchLiveSlProblemBytes
   :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
        -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
      )
-  -> MlpDevice
+  -> SL.CanonicalProblem
+  -> IO (Either String LiveSlProblemBytes)
+fetchLiveSlProblemBytes run problem =
+  case Dataset.datasetForProblem problem of
+    Nothing ->
+      pure (Left ("missing dataset ref for " <> problemLabel problem))
+    Just trainRef
+      | SL.problemDataset problem == "MNIST"
+          || SL.problemDataset problem == "Fashion-MNIST" -> do
+          let testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
+          trainImg <- fetchLivePayload run problem trainRef Dataset.ImagesArtifact "train images"
+          trainLbl <- fetchLivePayload run problem trainRef Dataset.LabelsArtifact "train labels"
+          testImg <- fetchLivePayload run problem testRef Dataset.ImagesArtifact "test images"
+          testLbl <- fetchLivePayload run problem testRef Dataset.LabelsArtifact "test labels"
+          pure (LiveSlIdx problem <$> trainImg <*> trainLbl <*> testImg <*> testLbl)
+      | SL.problemDataset problem == "California Housing"
+          || SL.problemDataset problem == "CIFAR-10"
+          || SL.problemDataset problem == "CIFAR-100"
+          || SL.problemDataset problem == "Tiny ImageNet" -> do
+          archive <- fetchLivePayload run problem trainRef Dataset.ArchiveArtifact "archive"
+          pure (LiveSlArchive problem <$> archive)
+      | otherwise ->
+          pure (Left ("unhandled dataset for " <> problemLabel problem))
+
+fetchLivePayload
+  :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
+       -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
+     )
   -> SL.CanonicalProblem
   -> Dataset.DatasetRef
-  -> IO (Either String ())
-trainLiveIdx run device problem trainRef = do
-  let (trainLimit, testLimit, epochs, minimumTrainAccuracy) = liveClassifierBudget problem
-      testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
-      config = defaultClassifierConfig {clfEpochs = epochs}
-  trainImg <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
-  trainLbl <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
-  testImg <- run (Dataset.fetchVerifiedDatasetArtifactBytes testRef Dataset.ImagesArtifact)
-  testLbl <- run (Dataset.fetchVerifiedDatasetArtifactBytes testRef Dataset.LabelsArtifact)
-  case (trainImg, trainLbl, testImg, testLbl) of
-    (Right ti, Right tl, Right vi, Right vl) ->
-      case ( decodeBoundedDataset
-               config
-               (Just trainLimit)
-               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload ti))
-               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload tl))
-           , decodeBoundedDataset
-               config
-               (Just testLimit)
-               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload vi))
-               (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload vl))
-           ) of
-        (Right (configForData, trainSet), Right (_, testSet)) ->
-          trainLiveClassifierDataset
+  -> Dataset.DatasetArtifact
+  -> String
+  -> IO (Either String ByteString)
+fetchLivePayload run problem ref artifact label = do
+  fetched <- run (Dataset.fetchVerifiedDatasetArtifactBytes ref artifact)
+  pure $
+    case fetched of
+      Left err ->
+        Left
+          ( problemLabel problem
+              <> " staged "
+              <> label
+              <> " bytes are missing: "
+              <> show err
+          )
+      Right bytes ->
+        Right (Dataset.fetchedArtifactPayload bytes)
+
+trainLiveProblemBytes :: MlpDevice -> LiveSlProblemBytes -> IO (Either String ())
+trainLiveProblemBytes device bytes =
+  case bytes of
+    LiveSlIdx problem trainImg trainLbl testImg testLbl ->
+      trainLiveIdxBytes device problem trainImg trainLbl testImg testLbl
+    LiveSlArchive problem archiveBytes
+      | SL.problemDataset problem == "California Housing" ->
+          trainLiveCaliforniaBytes device problem archiveBytes
+      | SL.problemDataset problem == "CIFAR-10" ->
+          trainLiveArchiveClassifierBytes
             device
             problem
-            configForData
-            minimumTrainAccuracy
-            trainSet
-            testSet
-        (Left err, _) ->
-          pure (Left (problemLabel problem <> " IDX train decode failed: " <> err))
-        (_, Left err) ->
-          pure (Left (problemLabel problem <> " IDX test decode failed: " <> err))
-    _ ->
-      pure (Left (problemLabel problem <> " staged IDX image/label bytes are missing"))
+            archiveBytes
+            decodeCifar10ArchiveBoundedDataset
+      | SL.problemDataset problem == "CIFAR-100" ->
+          trainLiveArchiveClassifierBytes
+            device
+            problem
+            archiveBytes
+            decodeCifar100ArchiveBoundedDataset
+      | SL.problemDataset problem == "Tiny ImageNet" ->
+          trainLiveArchiveClassifierBytes
+            device
+            problem
+            archiveBytes
+            TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
+      | otherwise ->
+          pure (Left ("unhandled dataset for " <> problemLabel problem))
 
-trainLiveArchiveClassifier
-  :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
-       -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
-     )
-  -> MlpDevice
+trainLiveIdxBytes
+  :: MlpDevice
   -> SL.CanonicalProblem
-  -> Dataset.DatasetRef
+  -> ByteString
+  -> ByteString
+  -> ByteString
+  -> ByteString
+  -> IO (Either String ())
+trainLiveIdxBytes device problem trainImg trainLbl testImg testLbl = do
+  let (trainLimit, testLimit, epochs, minimumTrainAccuracy) = liveClassifierBudget problem
+      config = defaultClassifierConfig {clfEpochs = epochs}
+  case ( decodeBoundedDataset
+           config
+           (Just trainLimit)
+           (Dataset.maybeGunzip trainImg)
+           (Dataset.maybeGunzip trainLbl)
+       , decodeBoundedDataset
+           config
+           (Just testLimit)
+           (Dataset.maybeGunzip testImg)
+           (Dataset.maybeGunzip testLbl)
+       ) of
+    (Right (configForData, trainSet), Right (_, testSet)) ->
+      trainLiveClassifierDataset
+        device
+        problem
+        configForData
+        minimumTrainAccuracy
+        trainSet
+        testSet
+    (Left err, _) ->
+      pure (Left (problemLabel problem <> " IDX train decode failed: " <> err))
+    (_, Left err) ->
+      pure (Left (problemLabel problem <> " IDX test decode failed: " <> err))
+
+trainLiveArchiveClassifierBytes
+  :: MlpDevice
+  -> SL.CanonicalProblem
+  -> ByteString
   -> ( ClassifierConfig
        -> Dataset.DatasetSplit
        -> Maybe Int
@@ -1243,30 +1277,24 @@ trainLiveArchiveClassifier
        -> Either String (ClassifierConfig, Dataset)
      )
   -> IO (Either String ())
-trainLiveArchiveClassifier run device problem trainRef decodeArchive = do
+trainLiveArchiveClassifierBytes device problem archiveBytes decodeArchive = do
   let (trainLimit, testLimit, epochs, minimumTrainAccuracy) = liveClassifierBudget problem
       config = defaultClassifierConfig {clfEpochs = epochs}
-  archiveE <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
-  case archiveE of
-    Left _ ->
-      pure (Left (problemLabel problem <> " staged archive bytes are missing"))
-    Right archiveArtifact ->
-      let archiveBytes = Dataset.fetchedArtifactPayload archiveArtifact
-       in case ( decodeArchive config Dataset.TrainSplit (Just trainLimit) archiveBytes
-               , decodeArchive config Dataset.TestSplit (Just testLimit) archiveBytes
-               ) of
-            (Right (configForData, trainSet), Right (_, testSet)) ->
-              trainLiveClassifierDataset
-                device
-                problem
-                configForData
-                minimumTrainAccuracy
-                trainSet
-                testSet
-            (Left err, _) ->
-              pure (Left (problemLabel problem <> " archive train decode failed: " <> err))
-            (_, Left err) ->
-              pure (Left (problemLabel problem <> " archive test decode failed: " <> err))
+  case ( decodeArchive config Dataset.TrainSplit (Just trainLimit) archiveBytes
+       , decodeArchive config Dataset.TestSplit (Just testLimit) archiveBytes
+       ) of
+    (Right (configForData, trainSet), Right (_, testSet)) ->
+      trainLiveClassifierDataset
+        device
+        problem
+        configForData
+        minimumTrainAccuracy
+        trainSet
+        testSet
+    (Left err, _) ->
+      pure (Left (problemLabel problem <> " archive train decode failed: " <> err))
+    (_, Left err) ->
+      pure (Left (problemLabel problem <> " archive test decode failed: " <> err))
 
 trainLiveClassifierDataset
   :: MlpDevice
@@ -1304,56 +1332,62 @@ trainLiveClassifierDataset device problem config minimumTrainAccuracy trainSet t
                 )
           | otherwise -> pure (Right ())
 
-trainLiveCalifornia
-  :: ( MinIOSubprocess (Either ServiceError Dataset.DatasetArtifactBytes)
-       -> IO (Either ServiceError Dataset.DatasetArtifactBytes)
-     )
-  -> MlpDevice
+trainLiveCaliforniaBytes
+  :: MlpDevice
   -> SL.CanonicalProblem
-  -> Dataset.DatasetRef
+  -> ByteString
   -> IO (Either String ())
-trainLiveCalifornia run device problem trainRef = do
-  archiveE <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
-  case archiveE of
-    Left _ ->
-      pure (Left (problemLabel problem <> " staged archive bytes are missing"))
-    Right archiveArtifact ->
-      let archiveBytes = Dataset.fetchedArtifactPayload archiveArtifact
-       in case Regression.decodeCaliforniaHousingArchiveBoundedData (Just 512) archiveBytes of
+trainLiveCaliforniaBytes device problem archiveBytes =
+  case Regression.decodeCaliforniaHousingArchiveBoundedData (Just liveCaliforniaTrainLimit) archiveBytes of
+    Left err ->
+      pure (Left (problemLabel problem <> " archive decode failed: " <> err))
+    Right dataset ->
+      case dataset of
+        [] -> pure (Left (problemLabel problem <> " archive produced no examples"))
+        firstExample : _ -> do
+          let normalizedDataset = Regression.standardizeRegressionExamples dataset
+              config =
+                Regression.defaultRegressionConfig
+                  { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
+                  , Regression.regHidden = 24
+                  , Regression.regEpochs = liveCaliforniaEpochs
+                  , Regression.regLearningRate = 5.0e-3
+                  }
+          trainedE <- Regression.trainRegressorWithDevice device config normalizedDataset
+          case trainedE of
             Left err ->
-              pure (Left (problemLabel problem <> " archive decode failed: " <> err))
-            Right dataset ->
-              case dataset of
-                [] -> pure (Left (problemLabel problem <> " archive produced no examples"))
-                firstExample : _ -> do
-                  let normalizedDataset = Regression.standardizeRegressionExamples dataset
-                      config =
-                        Regression.defaultRegressionConfig
-                          { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
-                          , Regression.regHidden = 24
-                          , Regression.regEpochs = 120
-                          , Regression.regLearningRate = 5.0e-3
-                          }
-                  trainedE <- Regression.trainRegressorWithDevice device config normalizedDataset
-                  case trainedE of
-                    Left err ->
-                      pure (Left (problemLabel problem <> " regression training failed: " <> Text.unpack err))
-                    Right (_, mse)
-                      | not (finiteDouble mse) ->
-                          pure (Left (problemLabel problem <> " regression MSE was not finite: " <> show mse))
-                      | mse >= 5.0 ->
-                          pure (Left (problemLabel problem <> " regression MSE too high: " <> show mse))
-                      | otherwise -> pure (Right ())
+              pure (Left (problemLabel problem <> " regression training failed: " <> Text.unpack err))
+            Right (_, mse)
+              | not (finiteDouble mse) ->
+                  pure (Left (problemLabel problem <> " regression MSE was not finite: " <> show mse))
+              | mse >= 5.0 ->
+                  pure (Left (problemLabel problem <> " regression MSE too high: " <> show mse))
+              | otherwise -> pure (Right ())
 
 liveClassifierBudget :: SL.CanonicalProblem -> (Int, Int, Int, Double)
 liveClassifierBudget problem =
   case SL.problemDataset problem of
-    "MNIST" -> (512, 256, 2, 0.0)
-    "Fashion-MNIST" -> (512, 256, 2, 0.0)
-    "CIFAR-10" -> (64, 64, 1, 0.0)
-    "CIFAR-100" -> (64, 64, 1, 0.0)
-    "Tiny ImageNet" -> (16, 16, 1, 0.0)
-    _ -> (64, 64, 1, 0.0)
+    "MNIST" -> (64, 64, 1, 0.0)
+    "Fashion-MNIST" -> (64, 64, 1, 0.0)
+    "CIFAR-10" -> (8, 8, 1, 0.0)
+    "CIFAR-100" -> (8, 8, 1, 0.0)
+    "Tiny ImageNet" -> (4, 4, 1, 0.0)
+    _ -> (16, 16, 1, 0.0)
+
+liveMnistTrainLimit :: Int
+liveMnistTrainLimit = 10000
+
+liveMnistTestLimit :: Int
+liveMnistTestLimit = 5000
+
+liveMnistConvergenceEpochs :: Int
+liveMnistConvergenceEpochs = 60
+
+liveCaliforniaTrainLimit :: Int
+liveCaliforniaTrainLimit = 64
+
+liveCaliforniaEpochs :: Int
+liveCaliforniaEpochs = 40
 
 problemLabel :: SL.CanonicalProblem -> String
 problemLabel problem =

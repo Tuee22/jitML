@@ -671,15 +671,26 @@ testStanzaCommand stanzaName =
   leaf
     stanzaName
     ("Run " <> stanzaName <> ".")
-    ( "Runs the "
-        <> stanzaName
-        <> " Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable."
-    )
-    (substrateFlags <> [testOptionsOption])
+    (baseDescription <> liveDescription)
+    (substrateFlags <> liveOptions <> [testOptionsOption])
     [ Example ("jitml test " <> stanzaName) ("Run " <> stanzaName <> ".")
     , Example
         ("jitml test " <> stanzaName <> " --linux-cuda")
         "Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda)."
+    ]
+ where
+  baseDescription =
+    "Runs the "
+      <> stanzaName
+      <> " Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable."
+  liveDescription =
+    if stanzaName == "jitml-e2e"
+      then
+        " `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge."
+      else ""
+  liveOptions =
+    [ flag "live" Nothing False "Run the live Playwright matrix after selecting the live substrate."
+    | stanzaName == "jitml-e2e"
     ]
 
 -- | Optional passthrough that forwards an opaque argument string to

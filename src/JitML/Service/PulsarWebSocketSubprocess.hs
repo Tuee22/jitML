@@ -208,6 +208,16 @@ instance HasPulsar PulsarWebSocketSubprocess where
           outputPath
       pure (renderSubscriptionId topic subscription <$ result)
 
+  pulsarSubscribeFromLatest topic subscription = do
+    settings <- ask
+    withResponseFile $ \outputPath -> do
+      result <-
+        invokeNode
+          "pulsarSubscribeFromLatest"
+          (pulsarSubscribeFromLatestSubprocess settings topic subscription outputPath)
+          outputPath
+      pure (renderSubscriptionId topic subscription <$ result)
+
   pulsarConsume subscription = do
     settings <- ask
     withResponseFile $ \outputPath -> do

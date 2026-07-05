@@ -116,9 +116,9 @@ allProductPhaseStatuses =
       28
       "Per-Model Integration and E2E"
       "DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md"
-      [ sprint "28.1" "Row-Keyed Integration Matrix" Active
-      , sprint "28.2" "Row-Complete Playwright" Blocked
-      , sprint "28.3" "linux-cpu Report Card" Blocked
+      [ sprint "28.1" "Row-Keyed Integration Matrix" Done
+      , sprint "28.2" "Row-Complete Playwright" Done
+      , sprint "28.3" "linux-cpu Report Card" Done
       ]
   , productPhase
       29

@@ -66,8 +66,10 @@ component =
         "kind: BrowserListCheckpointsRequest\n"
         ListAck
         ListFailed
-    ListAck _ ->
-      pure unit
+    ListAck payload ->
+      case Contracts.parseCheckpointList payload of
+        Just frame -> handleAction (ListReceived frame)
+        Nothing -> pure unit
     FrameText payload ->
       case Contracts.parseCheckpointList payload of
         Just frame -> handleAction (ListReceived frame)
@@ -183,6 +185,7 @@ component =
       [ HH.div_ [ HH.text ("model: " <> row.name) ]
       , HH.div_ [ HH.text ("kind: " <> row.kind) ]
       , HH.div_ [ HH.text ("experiment: " <> row.experimentHash) ]
+      , HH.div_ [ HH.text ("e2e: " <> row.e2eTest) ]
       , HH.div_ [ HH.text ("panel: " <> row.demoPanel) ]
       , HH.div_ [ HH.text ("budget: " <> row.budget) ]
       , HH.div_

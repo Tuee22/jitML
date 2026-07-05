@@ -150,7 +150,10 @@ actual Cabal stanza targets that were run instead of fixed placeholder
 workload PASS rows.
 `JitML.Test.LivePlan.liveE2EPlan` contains the typed ephemeral-Kind
 orchestration that runs `helm dependency build chart` → `jitml
-bootstrap` → `npx playwright test` → `jitml cluster down`.
+bootstrap` → substrate-bound
+the pinned `mcr.microsoft.com/playwright:v1.49.1-noble` browser-image run
+against `playwright/playwright.config.ts`
+→ `jitml cluster down`.
 `JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
 phased Helm rollout per substrate so the e2e body can verify the
 ordering before invoking the live path. 2026-05-21 local validation re-ran
@@ -676,7 +679,8 @@ external container/runtime state, and validates teardown.
 
 - `JitML.Test.LivePlan.liveE2EPlan` declares the typed live-plan
   sequence — `helm dependency build chart` → `jitml bootstrap`
-  (ephemeral Kind + phased Helm rollout) → `npx playwright test` →
+  (ephemeral Kind + phased Helm rollout) → substrate-bound
+  pinned `mcr.microsoft.com/playwright:v1.49.1-noble` browser-image Playwright run →
   `jitml cluster down` — through typed `Subprocess` values, and
   `livePhasedClusterPlan` records the bootstrap rollout's typed
   subprocess list for the explicit live driver.
@@ -704,8 +708,9 @@ external container/runtime state, and validates teardown.
 3. Transferred live validation: the explicit live e2e orchestration runs the full
    sequence: `helm dependency build chart`
    → `jitml bootstrap` (ephemeral Kind) → demo cohorts reach Ready behind the
-   real Envoy listener → `npx playwright test` against every canonical
-   panel → `jitml cluster down`. Teardown leaves no
+   real Envoy listener →
+   pinned `mcr.microsoft.com/playwright:v1.49.1-noble` browser-image Playwright run
+   against every canonical panel → `jitml cluster down`. Teardown leaves no
    orphan Kind clusters, Harbor projects, PVs, or Docker
    volumes.
 

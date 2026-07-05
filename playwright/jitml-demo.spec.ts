@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 import * as fs from "fs";
 
 // Canonical live panel matrix for the demo bundle. Each test reads the
@@ -10,11 +11,22 @@ import * as fs from "fs";
 // now requires the typed
 // `JitML.Test.LivePlan` orchestration that drives `helm dependency
 // build chart` + `jitml bootstrap` (ephemeral Kind + phased Helm
-// rollout) + `npx playwright test` + `jitml cluster down`.
+// rollout) + pinned `mcr.microsoft.com/playwright:v1.49.1-noble` browser run +
+// `jitml cluster down`.
 
 interface ClusterPublication {
   edge_port: number;
   substrate: string;
+}
+
+interface ProductRow {
+  kind: string;
+  name: string;
+  experimentHash: string;
+  e2eTest: string;
+  demoPanel: string;
+  budget: string;
+  requiresTrainedArtifact: boolean;
 }
 
 function loadLiveEdge(): string {
@@ -39,7 +51,7 @@ function loadLiveEdge(): string {
 
 const LIVE_DEMO_URL = loadLiveEdge();
 
-function loadExpectedModelNames(): string[] {
+function loadProductRows(): ProductRow[] {
   const path = "./web/src/Generated/Contracts.purs";
   if (!fs.existsSync(path)) {
     throw new Error("Generated.Contracts.purs is required for the browser model matrix");
@@ -51,18 +63,49 @@ function loadExpectedModelNames(): string[] {
   if (!matrixMatch) {
     throw new Error("Generated.Contracts.purs contains no allModelMatrixRows block");
   }
-  const rows = [...matrixMatch[0].matchAll(/name: "([^"]+)"/g)].map(
-    (match) => match[1],
-  );
+  const rows = matrixMatch[0]
+    .split("\n")
+    .filter((line) => line.includes("{ kind:") && line.includes("requiresTrainedArtifact"))
+    .map(parseProductRowLine);
   if (rows.length === 0) {
     throw new Error("Generated.Contracts.purs contains no allModelMatrixRows entries");
+  }
+  const e2eTests = new Set(rows.map((row) => row.e2eTest));
+  if (e2eTests.size !== rows.length) {
+    throw new Error("Generated.Contracts.purs contains duplicate e2eTest ids");
   }
   return rows;
 }
 
-const EXPECTED_MODEL_NAMES = loadExpectedModelNames();
+function parseProductRowLine(line: string): ProductRow {
+  const requires = line.match(/requiresTrainedArtifact: (true|false)/);
+  if (!requires) {
+    throw new Error(`model matrix row is missing requiresTrainedArtifact: ${line}`);
+  }
+  return {
+    kind: quotedField(line, "kind"),
+    name: quotedField(line, "name"),
+    experimentHash: quotedField(line, "experimentHash"),
+    e2eTest: quotedField(line, "e2eTest"),
+    demoPanel: quotedField(line, "demoPanel"),
+    budget: quotedField(line, "budget"),
+    requiresTrainedArtifact: requires[1] === "true",
+  };
+}
 
-async function loadShell(page: import("@playwright/test").Page): Promise<void> {
+function quotedField(line: string, field: string): string {
+  const match = line.match(new RegExp(`${field}: "([^"]+)"`));
+  if (!match) {
+    throw new Error(`model matrix row is missing ${field}: ${line}`);
+  }
+  return match[1];
+}
+
+const PRODUCT_ROWS = loadProductRows();
+const EXPECTED_MODEL_NAMES = PRODUCT_ROWS.map((row) => row.name);
+let cachedLiveCheckpointList: string | undefined;
+
+async function loadShell(page: Page): Promise<void> {
   await page.goto(LIVE_DEMO_URL);
   await page
     .locator("main#app")
@@ -70,7 +113,7 @@ async function loadShell(page: import("@playwright/test").Page): Promise<void> {
 }
 
 async function loadPanel(
-  page: import("@playwright/test").Page,
+  page: Page,
   panelId: string
 ): Promise<void> {
   // `Main.main` mounts the panel selected by `location.hash`; the bare
@@ -80,6 +123,198 @@ async function loadPanel(
   await page
     .locator(`#${panelId}`)
     .waitFor({ state: "attached", timeout: 10000 });
+}
+
+function artifactCard(page: Page, row: ProductRow): Locator {
+  return page.locator(`[id="checkpoint-browse-artifact-${row.experimentHash}"]`);
+}
+
+async function assertLiveProductRowArtifact(page: Page, row: ProductRow): Promise<void> {
+  const liveBody = await liveCheckpointListPayload(page);
+  await withCheckpointBrowseRoute(page, 200, liveBody, async () => {
+    const artifact = artifactCard(page, row);
+    await expect(artifact).toBeVisible();
+    await expect(artifact).toContainText(`row: ${row.name}`);
+    await expect(artifact).toContainText("state: eligible");
+    await expect(artifact).toContainText("manifest:");
+    await expect(artifact).toContainText("budget:");
+    await expect(artifact).toContainText("convergence:");
+    await expect(artifact).toContainText("tensorboard:");
+    await assertFamilyRenderer(row, artifact);
+  });
+}
+
+async function liveCheckpointListPayload(page: Page): Promise<string> {
+  if (cachedLiveCheckpointList !== undefined) {
+    return cachedLiveCheckpointList;
+  }
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const response = await page.request.post(`${LIVE_DEMO_URL}api/checkpoints`, {
+        timeout: 30000,
+      });
+      const body = await response.text();
+      if (!response.ok()) {
+        throw new Error(
+          `live checkpoint list returned ${response.status()}: ${body.slice(0, 500)}`,
+        );
+      }
+      assertLiveCheckpointRows(body);
+      cachedLiveCheckpointList = body;
+      return body;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      await page.waitForTimeout(1000);
+    }
+  }
+  throw lastError ?? new Error("live checkpoint list was not available");
+}
+
+function assertLiveCheckpointRows(body: string): void {
+  expect(body).toContain("kind: CheckpointList");
+  expect(body).toContain("selector-state: ready");
+  for (const row of PRODUCT_ROWS) {
+    expect(body).toContain(
+      `row-selector: ${row.name}\t${row.experimentHash}\t${selectorFamily(row)}\teligible`,
+    );
+    expect(body).toContain(`checkpoint-summary: ${row.name}\t${row.experimentHash}\t`);
+  }
+}
+
+async function assertFamilyRenderer(row: ProductRow, artifact: Locator): Promise<void> {
+  switch (row.kind) {
+    case "supervised":
+      await expect(artifact.locator(".artifact-supervised-renderer")).toBeVisible();
+      await expect(artifact).toContainText("input:");
+      await expect(artifact).toContainText(
+        row.name === "california-housing-mlp"
+          ? "output: regression value"
+          : "output: class probabilities",
+      );
+      break;
+    case "rl":
+    case "her":
+      await expect(artifact.locator(".artifact-rl-renderer")).toBeVisible();
+      await expect(artifact).toContainText(`policy row: ${row.name}`);
+      await expect(artifact).toContainText("action metadata:");
+      break;
+    case "alphazero":
+      await expect(artifact.locator(".artifact-alphazero-renderer")).toBeVisible();
+      await expect(artifact).toContainText("policy/value:");
+      await expect(artifact).toContainText(`replay panel: ${row.demoPanel}`);
+      break;
+    case "tuning":
+      await expect(artifact.locator(".artifact-tuning-renderer")).toBeVisible();
+      await expect(artifact).toContainText(`sweep: ${row.name}`);
+      await expect(artifact).toContainText("trial table:");
+      break;
+    default:
+      throw new Error(`unknown generated model kind: ${row.kind}`);
+  }
+}
+
+function selectorFamily(row: ProductRow): string {
+  return row.kind === "her" ? "rl" : row.kind;
+}
+
+function checkpointListForState(row: ProductRow, state: string): string {
+  return [
+    "kind: CheckpointList",
+    `call-id: playwright-negative-${row.e2eTest}`,
+    "panel: checkpoint-browse",
+    "count: 0",
+    "selector-state: fail-closed:no-inference-eligible-artifact",
+    `row-selector: ${row.name}\t${row.experimentHash}\t${selectorFamily(row)}\t${state}\t0\t${row.demoPanel}`,
+    "",
+  ].join("\n");
+}
+
+async function withCheckpointBrowseRoute(
+  page: Page,
+  status: number,
+  body: string,
+  assertion: () => Promise<void>,
+): Promise<void> {
+  const handler = async (route: Route): Promise<void> => {
+    await route.fulfill({
+      status,
+      contentType: "text/plain; charset=utf-8",
+      body,
+    });
+  };
+  const wsHandler = async (route: Route): Promise<void> => {
+    await route.abort();
+  };
+  await page.route("**/api/checkpoints", handler);
+  if (status === 200) {
+    await page.route("**/api/ws/inference", wsHandler);
+  }
+  try {
+    await page.goto(`${LIVE_DEMO_URL}#portals`);
+    await loadPanel(page, "checkpoint-browse");
+    await assertion();
+  } finally {
+    await page.unroute("**/api/checkpoints", handler);
+    if (status === 200) {
+      await page.unroute("**/api/ws/inference", wsHandler);
+    }
+  }
+}
+
+async function assertRowFailClosedState(
+  page: Page,
+  row: ProductRow,
+  state: string,
+): Promise<void> {
+  await withCheckpointBrowseRoute(
+    page,
+    200,
+    checkpointListForState(row, state),
+    async () => {
+      await expect(page.locator("#checkpoint-browse-fail-closed")).toBeVisible();
+      const artifact = artifactCard(page, row);
+      await expect(artifact).toBeVisible();
+      await expect(artifact).toContainText(`row: ${row.name}`);
+      await expect(artifact).toContainText(`state: ${state}`);
+      await expect(artifact).toContainText(`artifact: ${state}`);
+    },
+  );
+}
+
+async function assertMissingClusterFailClosed(page: Page, row: ProductRow): Promise<void> {
+  await withCheckpointBrowseRoute(
+    page,
+    503,
+    [
+      "checkpoint-required: checkpoint-browse",
+      `reason: missing cluster while loading ${row.e2eTest}`,
+      "selector-state: fail-closed:missing-cluster",
+      "status: failed",
+      "",
+    ].join("\n"),
+    async () => {
+      await expect(page.locator("#checkpoint-browse-error")).toContainText(
+        "checkpoint-required: checkpoint-browse",
+      );
+      await expect(page.locator("#checkpoint-browse-error")).toContainText(
+        "fail-closed:missing-cluster",
+      );
+    },
+  );
+}
+
+async function assertRowNegativeCases(page: Page, row: ProductRow): Promise<void> {
+  await assertMissingClusterFailClosed(page, row);
+  for (const state of [
+    "fail-closed:missing-artifact",
+    "fail-closed:untrained-checkpoint",
+    "fail-closed:partial-checkpoint",
+    "fail-closed:failed-provenance-checkpoint",
+    "unsupported",
+  ]) {
+    await assertRowFailClosedState(page, row, state);
+  }
 }
 
 test("demo shell responds and renders the portals home", async ({ page }) => {
@@ -366,7 +601,8 @@ test("checkpoint browse panel lists eligible checkpoints and every model row", a
   expect(response.ok()).toBeTruthy();
   const body = await response.text();
   expect(body).toContain("kind: CheckpointList");
-  expect(body).toContain("status: published");
+  expect(body).toContain("selector-state: ready");
+  expect(body).toContain("row-selector: mnist-shallow-mlp");
   await expect(page.locator("#checkpoint-browse-list")).toBeVisible();
   const firstCheckpoint = page.locator("#checkpoint-browse-list li").first();
   await expect(firstCheckpoint).toBeVisible();
@@ -465,4 +701,14 @@ test("training panel renders a loss curve", async ({ page }) => {
 test("tune panel renders the trial heatmap", async ({ page }) => {
   await loadPanel(page, "hyperparameter-sweep");
   await expect(page.locator("#hyperparameter-sweep")).toBeVisible();
+});
+
+test.describe("ProductRow artifact-backed e2e matrix", () => {
+  for (const row of PRODUCT_ROWS) {
+    test(row.e2eTest, async ({ page }) => {
+      expect(row.requiresTrainedArtifact).toBeTruthy();
+      await assertRowNegativeCases(page, row);
+      await assertLiveProductRowArtifact(page, row);
+    });
+  }
 });
