@@ -132,16 +132,16 @@ allProductPhaseStatuses =
       30
       "Apple Silicon Product Lane"
       "DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md"
-      [ sprint "30.1" "Real Metal Kernels" Blocked
-      , sprint "30.2" "Metal Row Device Evidence" Blocked
-      , sprint "30.3" "Apple Integration, E2E, and Attestation" Blocked
+      [ sprint "30.1" "Real Metal Kernels" Done
+      , sprint "30.2" "Metal Row Device Evidence" Done
+      , sprint "30.3" "Apple Integration, E2E, and Attestation" Done
       ]
   , productPhase
       31
       "No-Caveat Product Aggregation"
       "DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md"
-      [ sprint "31.1" "Attestation Join" Blocked
-      , sprint "31.2" "No-Caveat Closure" Blocked
+      [ sprint "31.1" "Attestation Join" Done
+      , sprint "31.2" "No-Caveat Closure" Done
       ]
   ]
 

@@ -337,6 +337,16 @@ markSprintDone :: ProductSprintStatus -> ProductSprintStatus
 markSprintDone sprint' =
   sprint' {sprintStatus = Done}
 
+demoteFirstProductSprint :: [ProductPhaseStatus] -> [ProductPhaseStatus]
+demoteFirstProductSprint [] = []
+demoteFirstProductSprint (phase : rest) =
+  phase {phaseSprints = demoteFirstSprint (phaseSprints phase)} : rest
+
+demoteFirstSprint :: [ProductSprintStatus] -> [ProductSprintStatus]
+demoteFirstSprint [] = []
+demoteFirstSprint (sprint' : rest) =
+  sprint' {sprintStatus = Active} : rest
+
 instance FromJSON CommandSchema where
   parseJSON =
     withObject "CommandSchema" $ \object ->
@@ -667,7 +677,7 @@ main =
           let claimDoc = "The no-caveat product complete status is current."
               activeDrifts =
                 DocsCheck.checkDocumentClosureClaimsText
-                  PhaseStatus.allProductPhasesDone
+                  False
                   "docs.md"
                   claimDoc
               allDone =
@@ -3736,12 +3746,19 @@ main =
           [ testCase "enumerates product phases 19 through 31" $ do
               PhaseStatus.productPhaseNumbers @?= [19 .. 31]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
-          , testCase "reports incomplete while any product sprint is not Done" $ do
-              PhaseStatus.allProductPhasesDone @?= False
+          , testCase "reports complete only when every product sprint is Done" $ do
+              PhaseStatus.allProductPhasesDone @?= True
               assertBool
                 "an all-Done registry satisfies the predicate"
                 ( PhaseStatus.productPhasesDone
                     (fmap markProductPhaseDone PhaseStatus.allProductPhaseStatuses)
+                )
+              assertBool
+                "a registry with any non-Done sprint remains incomplete"
+                ( not
+                    ( PhaseStatus.productPhasesDone
+                        (demoteFirstProductSprint PhaseStatus.allProductPhaseStatuses)
+                    )
                 )
           , testCase "matches the sprint Status headers in phase documents" $ do
               actual <- concat <$> traverse readPlanSprintStatuses PhaseStatus.allProductPhaseStatuses

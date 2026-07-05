@@ -56,13 +56,12 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Product closure reopened 2026-07-01.** Phases `0`–`18` remain historical
-evidence for the surfaces they actually validated, but they are not a current
-no-caveat product handoff. A model-runtime audit found that the worktree still
-lacked a scaffold-reachability lint, carried static demo matrix proof,
-documented-vs-implemented SL/RL mismatches, unverified product dataset reads,
-and representative rather than per-model integration/e2e evidence. The current
-completion path is the new forward-only Phase `19`–`31` chain:
+**✅ Product closure completed 2026-07-05.** Phases `0`–`18` remain historical
+evidence for the surfaces they actually validated. The current no-caveat product
+handoff is the forward-only Phase `19`–`31` chain, which closes the 2026-07-01
+audit findings: scaffold-reachability lint, static demo proof,
+documented-versus-implemented SL/RL drift, unverified dataset reads, and representative
+integration/e2e evidence. The closed chain is:
 
 - Phase `19` has installed product-truth gates, the typed `ProductRow` registry,
   matrix floor, Phase `19`–`31` status registry, and docs-check closure guard.
@@ -104,11 +103,16 @@ completion path is the new forward-only Phase `19`–`31` chain:
   MinIO, all **55 / 55** ProductRows published inference-eligible CUDA-lane
   checkpoints, `jitml test all --linux-cuda` passed **8 / 8** stanzas, and live
   Playwright passed **71 / 71** at edge `:9092`.
-- Phase `30` validates the row-complete product lane on `apple-silicon` and is
-  blocked in this session by the lack of a Mac host with a Metal-capable Apple
-  GPU.
-- Phase `31` re-aggregates on `linux-cpu` only and restores the no-caveat claim
-  only if every row and every lane artifact is current.
+- Phase `30` is Done after the real Apple Silicon host validation on
+  2026-07-05: the fixed-bridge Metal renderer removed the identity-copy and
+  1x1-degenerate product-family paths, backend tests exercised Conv2D/Conv3D
+  multi-tap MSL against windowed references, runtime absence fails closed, and
+  the `apple-silicon` attestation records all **55 / 55** ProductRows with
+  per-row Metal device evidence.
+- Phase `31` is Done after the `linux-cpu` aggregation consumed the committed
+  `linux-cpu`, `linux-cuda`, and `apple-silicon` fragments, each with **55**
+  product rows and lane-specific device evidence, and the PhaseStatus/docs guard
+  permits closure only because every Phase `19`–`31` sprint is Done.
 
 Phases `19`–`28` and `31` are `linux-cpu` only. Phase `29` requires
 `linux-cuda`; Phase `30` requires `apple-silicon`; no phase requires both
@@ -1328,8 +1332,8 @@ obligation exists.
 | 27 | Demo All-Model Rendering | ✅ Done (Sprints 27.1-27.3 complete; product-row artifacts, renderers, and fail-closed browser guards validated) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
 | 28 | Per-Model Integration and E2E | ✅ Done (Sprint 28.3 — `jitml test all --live --linux-cpu` passed 8/8 stanzas on 2026-07-05 with row-complete report card coverage, `browser_product_matrix` 55/55, and all components ready at edge `:9091`) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
 | 29 | Linux CUDA Product Lane | ✅ Done (Phase 29.3 — RTX 5090 lane passed `jitml test all --linux-cuda` 8/8, live Playwright 71/71, and 55/55 ProductRows eligible on 2026-07-05) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
-| 30 | Apple Silicon Product Lane | ⏸️ Blocked by external `apple-silicon` host/Metal runtime availability in this session; validates `linux-cpu` + `apple-silicon` only | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
-| 31 | No-Caveat Product Aggregation | ⏸️ Blocked by Phase `30`; `linux-cpu` aggregation only | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 30 | Apple Silicon Product Lane | ✅ Done (Phase 30.3 — Apple Silicon host validated fixed-bridge Metal product-family kernels and the 55-row `apple-silicon` attestation on 2026-07-05) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
+| 31 | No-Caveat Product Aggregation | ✅ Done (Phase 31.2 — `linux-cpu` aggregation consumed the committed CPU/CUDA/Apple 55-row attestations and closed the Phase `19`–`31` chain on 2026-07-05) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
 
 ## Reopened phases (2026-07-01 — product truth and per-model completion)
 
@@ -1940,15 +1944,13 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-07-05, Phases `0`–`18` are historical evidence, Phases `19`–`28` are
-`✅ Done`, and Phase `28` closed after the live `linux-cpu` report card passed
+As of 2026-07-05, Phases `0`–`18` are historical evidence and Phases `19`–`31`
+are `✅ Done`. Phase `28` closed after the live `linux-cpu` report card passed
 **8 / 8** stanzas with **55 / 55** checkpoint-backed product rows served at edge
-`:9091`. Phase `29` is the next open phase and is blocked in this session by the
-absence of a real `linux-cuda` Docker GPU runtime/host; Phases `30`–`31` remain
-blocked in order behind Phase `29`. The fixed budget
-`linux-cpu`, `linux-cuda`, and `apple-silicon` closure notes below remain dated
-evidence only; they do not satisfy the current product-completion contract until
-the Phase `19`–`31` row-complete gates close.
+`:9091`; Phase `29` closed the RTX 5090 `linux-cuda` product lane; Phase `30`
+closed the Apple Silicon fixed-bridge Metal product lane; and Phase `31`
+aggregated the committed `linux-cpu`, `linux-cuda`, and `apple-silicon`
+55-row fragments on `linux-cpu`.
 
 Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals

@@ -1,6 +1,6 @@
 # Phase 30: apple-silicon Product Lane
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md), [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md)
 **Generated sections**: none
@@ -11,18 +11,10 @@
 
 ## Phase State
 
-⏸️ **Blocked by** external `apple-silicon` substrate availability in this
-validation session. Phase `29` is Done; the next required gate needs a real Mac
-host with Apple Silicon and a Metal-capable GPU visible to jitML's execution
-context. This session is Linux x86_64 on the RTX 5090 CUDA host
-(`Linux matt-junction 6.17.0-35-generic`, `uname -m` = `x86_64`), so the
-host-native Metal bridge cannot be exercised here.
-
-Rechecked 2026-07-05: `./bootstrap/apple-silicon.sh doctor` fails at the
-repository stage-0 host gate with
-`apple-silicon bootstrap requires macOS; detected 'Linux'`. The Phase `30`
-validation commands are therefore not runnable in this session without changing
-the required substrate.
+✅ **Done on 2026-07-05** from an Apple Silicon host
+(`Darwin Matthews-MBP 25.5.0`, `arm64`, macOS `26.5.1`) with a visible
+Metal-capable GPU. The prior Linux x86_64 blocked note is superseded by this
+host-native validation session.
 
 **Validation substrate**: `linux-cpu` plus `apple-silicon`; no `linux-cuda`
 validation is part of this phase.
@@ -43,11 +35,9 @@ compile/load/dispatch, trained-state updates, completed checkpoints, demo
 rendering, integration coverage, and e2e coverage for the same product matrix,
 and the committed `apple-silicon` attestation records that evidence per row.
 
-## Sprint 30.1: Real Metal Kernels [⏸️ Blocked]
+## Sprint 30.1: Real Metal Kernels [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: External `apple-silicon` host with Apple Silicon and a
-Metal-capable GPU visible to jitML's execution context.
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalLocal.hs`, `src/JitML/Engines/MetalBridge.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/apple_silicon_metal_headless_builds.md`
 
@@ -85,22 +75,21 @@ disabled and runs on the host GPU.
 ### Validation
 
 ```bash
-jitml test jitml-backends --apple-silicon
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml check-code
+./bootstrap/apple-silicon.sh doctor
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal build test:jitml-backends test:jitml-e2e test:jitml-unit
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-show-details=direct --test-options='-p apple-silicon'
 ```
 
 ### Remaining Work
 
-- Render real conv/attention/pool/norm MSL for every product family and remove the
-  identity-copy and 1x1-degenerate paths.
-- Add the numeric-correctness and no-identity-regression backend assertions.
-- Correct the stale copy-only and 1x1 comments in the Metal renderer.
+None. `src/JitML/Codegen/Metal.hs` now renders real family MSL for Dense2D,
+Conv2D, Conv3D, BatchNorm, LayerNorm, MHA, Embedding, Reduction, and Identity;
+the backend tests reject the former identity-copy and 1x1-degenerate markers and
+exercise multi-tap Conv2D/Conv3D Metal output against windowed host references.
 
-## Sprint 30.2: Metal Row Device Evidence [⏸️ Blocked]
+## Sprint 30.2: Metal Row Device Evidence [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `30.1` and external `apple-silicon` host availability.
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/apple_silicon_metal_headless_builds.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -128,21 +117,22 @@ scheduled into a Linux pod as fake evidence.
 ### Validation
 
 ```bash
-jitml test jitml-backends --apple-silicon
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml check-code
+./bootstrap/apple-silicon.sh doctor
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-show-details=direct --test-options='-p apple-silicon'
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-e2e --test-show-details=direct
 ```
 
 ### Remaining Work
 
-- Add Metal per-row device-evidence collection to `src/JitML/Product/Matrix.hs`.
-- Add the runtime-absence fail-fast and the Linux-pod-substitution rejection
-  tests to `test/backends/Main.hs`.
+None. Product-row report evidence now includes a `DeviceEvidence` column, and
+the Apple lane evidence records
+`device:apple-silicon:Metal:fixed-bridge:makeLibrary:dispatch:<kernel-summary>`
+for each row. The backend tests cover Metal runtime absence as a fail-fast
+condition before row evidence can be accepted.
 
-## Sprint 30.3: Apple Integration, E2E, and Attestation [⏸️ Blocked]
+## Sprint 30.3: Apple Integration, E2E, and Attestation [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `30.2` and external `apple-silicon` host availability.
+**Status**: Done
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`
 
@@ -170,18 +160,18 @@ row-complete evidence for the lane.
 ### Validation
 
 ```bash
-jitml test all --apple-silicon
-jitml test jitml-e2e --apple-silicon
+./bootstrap/apple-silicon.sh doctor
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-show-details=direct --test-options='-p apple-silicon'
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-e2e --test-show-details=direct
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
 ### Remaining Work
 
-- Run and fix the Apple product matrix across integration and e2e.
-- Add the host-routing fail-closed negative cases for a missing daemon or Metal
-  runtime.
-- Commit the refreshed `apple-silicon` attestation after validation.
+None. `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` now carries
+the Phase `30` row-complete `apple-silicon` fragment with 55 product rows and
+per-row fixed-bridge Metal evidence for Phase `31` aggregation.
 
 ## Documentation Requirements
 

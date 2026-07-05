@@ -351,6 +351,13 @@ scaffolding modules.
   atomically writing that `.metal.json` file. There is no per-kernel Swift
   package, SwiftPM invocation, Tart VM build, copied dylib, stable symlink, or
   Apple per-kernel `dlopen` path.
+- Phase `30` makes the product-family Metal renderer real rather than
+  copy-shaped: Dense2D, Conv2D, Conv3D, BatchNorm, LayerNorm,
+  MultiHeadAttention, Embedding, Reduction, and Identity render explicit MSL
+  bodies. Conv2D and Conv3D weighted kernels use windowed multi-tap
+  neighbourhoods and the backend tests reject the old identity-copy and
+  1x1-degenerate source markers before executing Metal output checks against
+  host references.
 - `src/JitML/Engines/MetalBridge.hs` owns the fixed bridge dylib. The install
   command writes the bridge source under `./.build/host/apple-silicon/` and
   builds `libJitMLMetalBridge.dylib` with `/usr/bin/clang -dynamiclib -fobjc-arc
@@ -373,6 +380,9 @@ scaffolding modules.
   `swiftc`, `xcrun metal`, SwiftPM, full Xcode, Tart, or login-keychain state.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
+- Phase `30` product-lane validation on 2026-07-05 records per-row
+  `device:apple-silicon:Metal:fixed-bridge:makeLibrary:dispatch:<kernel-summary>`
+  evidence for all **55 / 55** ProductRows in the committed Apple attestation.
 
 The bridge is host-only process infrastructure. A Linux container cannot execute
 this path by mounting `./.build/host/apple-silicon/`, because the dylib targets

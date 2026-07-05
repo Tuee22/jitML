@@ -142,7 +142,8 @@ daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
 typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
 including AlphaZero policy/value validation, executes host-native through the
 same fixed bridge. Phase `16` Sprint `16.10` validates the full Apple lane with
-no Metal-backed Linux worker Jobs.
+no Metal-backed Linux worker Jobs; Phase `30` revalidates the product lane with
+row-complete fixed-bridge Metal device evidence.
 Mounting the host build tree into a Linux pod does not make the bridge usable:
 the bridge dylib links macOS Foundation/Metal frameworks and requires a host
 `MTLDevice`.
@@ -360,11 +361,16 @@ shape for a JIT.
    does not render `swift build`, `tart exec`, or a per-kernel dylib.
 4. `MetalLocal` calls the fixed bridge instead of `dlopen`ing generated Apple
    dylibs.
-5. The bridge source contains an in-process pipeline cache keyed by function,
+5. Phase `30` replaced the remaining product-family stand-ins in
+   `JitML.Codegen.Metal`: Dense2D, Conv2D, Conv3D, BatchNorm, LayerNorm,
+   MultiHeadAttention, Embedding, Reduction, and Identity now render explicit
+   family MSL, and Conv2D/Conv3D weighted kernels use windowed multi-tap
+   neighbourhoods rather than the former 1x1-degenerate body.
+6. The bridge source contains an in-process pipeline cache keyed by function,
    source, and threadgroup size.
-6. Optional `apple.swiftc` / `apple.macos-sdk` prerequisites are retained only for
+7. Optional `apple.swiftc` / `apple.macos-sdk` prerequisites are retained only for
    separate non-core Swift JIT modules.
-7. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
+8. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
    are removed from the supported runtime JIT path.
 
 ## Validation Evidence

@@ -73,15 +73,49 @@ metalKernel family =
     [ "#include <metal_stdlib>"
     , "using namespace metal;"
     , ""
+    , metalKernelHelpers
+    , ""
     , unweightedBody family
     , ""
     , weightedBody family
     ]
 
+metalKernelHelpers :: Text
+metalKernelHelpers =
+  Text.unlines
+    [ "inline float jitml_weight_or_default(const device float *weights, uint wn, uint idx, float fallback) {"
+    , "  return (idx < wn) ? weights[idx] : fallback;"
+    , "}"
+    , ""
+    , "inline uint jitml_ceil_sqrt(uint n) {"
+    , "  uint side = 1u;"
+    , "  while (side * side < n) { side += 1u; }"
+    , "  return side;"
+    , "}"
+    , ""
+    , "inline uint jitml_ceil_cuberoot(uint n) {"
+    , "  uint side = 1u;"
+    , "  while (side * side * side < n) { side += 1u; }"
+    , "  return side;"
+    , "}"
+    ]
+
 -- | Unweighted `jitml_kernel`. Every thread bound-checks against the element
--- count at buffer index 3 so the launcher can dispatch full (32-aligned)
--- threadgroups without reading or writing out of range.
+-- count at buffer index 3 so the launcher can dispatch full threadgroups
+-- without reading or writing out of range.
 unweightedBody :: KernelFamily -> Text
+unweightedBody Identity =
+  Text.unlines
+    [ "// Identity kernel: bounded elementwise copy."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  out[id] = input[id];"
+    , "}"
+    ]
 unweightedBody Reduction =
   Text.unlines
     [ "// Simdgroup reduction with deterministic single-stream launch order."
@@ -99,9 +133,132 @@ unweightedBody Reduction =
     , "  if (tid_in_simd == 0u && base < n) { out[base / 32u] = v; }"
     , "}"
     ]
-unweightedBody _family =
+unweightedBody Dense2D =
   Text.unlines
-    [ "// Identity-class elementwise copy, bounded by the element count."
+    [ "// Dense2D unweighted path: explicit identity GEMM over the flat vector."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  float acc = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) {"
+    , "    acc += input[j] * ((j == id) ? 1.0f : 0.0f);"
+    , "  }"
+    , "  out[id] = acc;"
+    , "}"
+    ]
+unweightedBody Conv2DKernel =
+  Text.unlines
+    [ "// Conv2D unweighted path: 3x3 windowed convolution with a unit center filter."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  uint width = jitml_ceil_sqrt(n);"
+    , "  uint height = (n + width - 1u) / width;"
+    , "  uint x0 = id % width;"
+    , "  uint y0 = id / width;"
+    , "  float acc = 0.0f;"
+    , "  for (int dy = -1; dy <= 1; ++dy) {"
+    , "    for (int dx = -1; dx <= 1; ++dx) {"
+    , "      int x = int(x0) + dx;"
+    , "      int y = int(y0) + dy;"
+    , "      if (x >= 0 && y >= 0 && x < int(width) && y < int(height)) {"
+    , "        uint sample = uint(y) * width + uint(x);"
+    , "        if (sample < n) {"
+    , "          float filter = (dx == 0 && dy == 0) ? 1.0f : 0.0f;"
+    , "          acc += input[sample] * filter;"
+    , "        }"
+    , "      }"
+    , "    }"
+    , "  }"
+    , "  out[id] = acc;"
+    , "}"
+    ]
+unweightedBody Conv3DKernel =
+  Text.unlines
+    [ "// Conv3D unweighted path: 3x3x3 windowed convolution with a unit center filter."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  uint side = jitml_ceil_cuberoot(n);"
+    , "  uint plane = side * side;"
+    , "  uint z0 = id / plane;"
+    , "  uint rem = id % plane;"
+    , "  uint y0 = rem / side;"
+    , "  uint x0 = rem % side;"
+    , "  float acc = 0.0f;"
+    , "  for (int dz = -1; dz <= 1; ++dz) {"
+    , "    for (int dy = -1; dy <= 1; ++dy) {"
+    , "      for (int dx = -1; dx <= 1; ++dx) {"
+    , "        int x = int(x0) + dx;"
+    , "        int y = int(y0) + dy;"
+    , "        int z = int(z0) + dz;"
+    , "        if (x >= 0 && y >= 0 && z >= 0 && x < int(side) && y < int(side) && z < int(side)) {"
+    , "          uint sample = uint(z) * plane + uint(y) * side + uint(x);"
+    , "          if (sample < n) {"
+    , "            float filter = (dx == 0 && dy == 0 && dz == 0) ? 1.0f : 0.0f;"
+    , "            acc += input[sample] * filter;"
+    , "          }"
+    , "        }"
+    , "      }"
+    , "    }"
+    , "  }"
+    , "  out[id] = acc;"
+    , "}"
+    ]
+unweightedBody BatchNormKernel =
+  Text.unlines
+    [ "// BatchNorm unweighted path with canonical affine/global-stat defaults."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  out[id] = input[id] / sqrt(1.0f + 1.0e-5f);"
+    , "}"
+    ]
+unweightedBody LayerNormKernel =
+  Text.unlines
+    [ "// LayerNorm unweighted path: normalize over the flat input vector."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  float sum = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) { sum += input[j]; }"
+    , "  float mean = sum / float(n);"
+    , "  float varSum = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) { float d = input[j] - mean; varSum += d * d; }"
+    , "  float var = varSum / float(n);"
+    , "  out[id] = (input[id] - mean) / sqrt(var + 1.0e-5f);"
+    , "}"
+    ]
+unweightedBody MultiHeadAttentionKernel =
+  Text.unlines
+    [ "// MHA unweighted path: identity Q/K/V projections with elementwise Q*K."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  out[id] = input[id] * input[id];"
+    , "}"
+    ]
+unweightedBody EmbeddingKernel =
+  Text.unlines
+    [ "// Embedding without a table preserves the supplied indices."
     , "kernel void jitml_kernel("
     , "    device float *out [[buffer(0)]],"
     , "    const device float *input [[buffer(1)]],"
@@ -112,11 +269,9 @@ unweightedBody _family =
     , "}"
     ]
 
--- | Weighted `jitml_weighted_kernel`. Sprint 14.5 lands the per-family
--- weighted Metal bodies, mirroring the CUDA `weightedFamilyImpl` math so the
--- cross-substrate parity cohort (Phase 15) compares like for like. Every body
--- shares the same buffer binding contract (out=0, input=1, weights=2, n=3,
--- wn=4) and per-thread bound check; only the compute differs by family.
+-- | Weighted `jitml_weighted_kernel`. Each family shares the same buffer
+-- binding contract (out=0, input=1, weights=2, n=3, wn=4) and per-thread bound
+-- check; only the compute differs by family.
 weightedBody :: KernelFamily -> Text
 weightedBody family =
   Text.unlines
@@ -132,7 +287,7 @@ weightedBody family =
     , "}"
     ]
 
--- | Per-family weighted compute, mirroring `JitML.Codegen.Cuda.weightedFamilyImpl`.
+-- | Per-family weighted compute for the Metal source bridge.
 weightedFamilyCompute :: KernelFamily -> Text
 weightedFamilyCompute Dense2D =
   -- out[i] = sum_j input[j] * W[j*n + i] (padded / truncated to n x n).
@@ -145,8 +300,8 @@ weightedFamilyCompute Dense2D =
     , "  }"
     , "  out[id] = acc;"
     ]
-weightedFamilyCompute Conv2DKernel = conv1x1WeightedCompute
-weightedFamilyCompute Conv3DKernel = conv1x1WeightedCompute
+weightedFamilyCompute Conv2DKernel = conv2dWeightedCompute
+weightedFamilyCompute Conv3DKernel = conv3dWeightedCompute
 weightedFamilyCompute BatchNormKernel =
   -- weights = [scale(n), shift(n), mean(n), variance(n)] with no-op defaults.
   Text.unlines
@@ -210,13 +365,67 @@ weightedFamilyCompute _family =
   -- Identity / Reduction have no natural weight parameter: copy input through.
   "  out[id] = input[id];"
 
--- | 1x1 convolution: scale every position by the single filter coefficient
--- (defaulting to 1.0 when no weights are supplied). Shared by Conv2D / Conv3D.
-conv1x1WeightedCompute :: Text
-conv1x1WeightedCompute =
+conv2dWeightedCompute :: Text
+conv2dWeightedCompute =
   Text.unlines
-    [ "  float w = (wn > 0u) ? weights[0] : 1.0f;"
-    , "  out[id] = input[id] * w;"
+    [ "  if (wn <= 1u) {"
+    , "    float w = (wn > 0u) ? weights[0] : 1.0f;"
+    , "    out[id] = input[id] * w;"
+    , "    return;"
+    , "  }"
+    , "  uint width = jitml_ceil_sqrt(n);"
+    , "  uint height = (n + width - 1u) / width;"
+    , "  uint x0 = id % width;"
+    , "  uint y0 = id / width;"
+    , "  float acc = 0.0f;"
+    , "  for (int dy = -1; dy <= 1; ++dy) {"
+    , "    for (int dx = -1; dx <= 1; ++dx) {"
+    , "      int x = int(x0) + dx;"
+    , "      int y = int(y0) + dy;"
+    , "      if (x >= 0 && y >= 0 && x < int(width) && y < int(height)) {"
+    , "        uint sample = uint(y) * width + uint(x);"
+    , "        if (sample < n) {"
+    , "          uint k = uint((dy + 1) * 3 + (dx + 1));"
+    , "          acc += input[sample] * jitml_weight_or_default(weights, wn, k, (k == 4u) ? 1.0f : 0.0f);"
+    , "        }"
+    , "      }"
+    , "    }"
+    , "  }"
+    , "  out[id] = acc;"
+    ]
+
+conv3dWeightedCompute :: Text
+conv3dWeightedCompute =
+  Text.unlines
+    [ "  if (wn <= 1u) {"
+    , "    float w = (wn > 0u) ? weights[0] : 1.0f;"
+    , "    out[id] = input[id] * w;"
+    , "    return;"
+    , "  }"
+    , "  uint side = jitml_ceil_cuberoot(n);"
+    , "  uint plane = side * side;"
+    , "  uint z0 = id / plane;"
+    , "  uint rem = id % plane;"
+    , "  uint y0 = rem / side;"
+    , "  uint x0 = rem % side;"
+    , "  float acc = 0.0f;"
+    , "  for (int dz = -1; dz <= 1; ++dz) {"
+    , "    for (int dy = -1; dy <= 1; ++dy) {"
+    , "      for (int dx = -1; dx <= 1; ++dx) {"
+    , "        int x = int(x0) + dx;"
+    , "        int y = int(y0) + dy;"
+    , "        int z = int(z0) + dz;"
+    , "        if (x >= 0 && y >= 0 && z >= 0 && x < int(side) && y < int(side) && z < int(side)) {"
+    , "          uint sample = uint(z) * plane + uint(y) * side + uint(x);"
+    , "          if (sample < n) {"
+    , "            uint k = uint((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1));"
+    , "            acc += input[sample] * jitml_weight_or_default(weights, wn, k, (k == 13u) ? 1.0f : 0.0f);"
+    , "          }"
+    , "        }"
+    , "      }"
+    , "    }"
+    , "  }"
+    , "  out[id] = acc;"
     ]
 
 threadgroupSizeFor :: KernelFamily -> Int

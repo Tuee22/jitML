@@ -1,6 +1,6 @@
 # Phase 31: No-Caveat Product Aggregation
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -11,13 +11,11 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `30`.
-
-Rechecked 2026-07-05: the committed
-`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` is the historical
-Sprint `16.14` / Phase `16` Apple lane fragment, not the reopened Phase `30`
-row-complete product-lane attestation. Phase `31` cannot aggregate until Phase
-`30` refreshes that Apple fragment from a real `apple-silicon` host.
+✅ **Done on 2026-07-05** after Phase `30` refreshed
+`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` with the
+row-complete Phase `30` Apple fragment. The aggregation now consumes three
+committed fragments, each with 55 product rows and per-lane device evidence:
+`linux-cpu`, `linux-cuda`, and `apple-silicon`.
 
 **Validation substrate**: `linux-cpu` only — aggregation lane. This phase merges
 the committed per-lane attestations produced by Phase `28` (`linux-cpu`), Phase
@@ -44,10 +42,9 @@ the typed `PhaseStatus` registry reports every Phase `19`–`31` sprint Done. Th
 final status paragraph in the governed docs names exact dates, the three real
 lanes, the aggregated row count, and the report artifacts.
 
-## Sprint 31.1: Attestation Join [⏸️ Blocked]
+## Sprint 31.1: Attestation Join [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `30`
+**Status**: Done
 **Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `system-components.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -80,6 +77,7 @@ silently skipped and no historical pass count can stand in for a real row.
 ### Validation
 
 ```bash
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-e2e --test-show-details=direct
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
@@ -87,25 +85,24 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Implement the `rowId` attestation join over the three committed per-lane cards.
-- Add the fail-closed cases for missing evidence, stale row ids, stale generated
-  contracts, unclassified unsupported rows, and active legacy-scaffold rows.
-- Emit the merged report card once Phases `28`–`30` commit their lane fragments.
+None. `src/JitML/Test/Report.hs` now parses the three committed row evidence
+tables, joins them by `ProductRow.rowId`, fails on missing lanes, missing rows,
+duplicate rows, orphan rows, lane mismatches, and empty evidence cells, and the
+e2e tests exercise the green join plus a missing Apple row failure.
 
-## Sprint 31.2: No-Caveat Closure [⏸️ Blocked]
+## Sprint 31.2: No-Caveat Closure [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `31.1`
+**Status**: Done
 **Implementation**: `README.md`, `DEVELOPMENT_PLAN/README.md`, `src/JitML/Lint/Docs.hs`
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`
 
 ### Objective
 
-The reopened no-caveat product claim is restored in the governed docs only from
-the merged evidence. `src/JitML/Lint/Docs.hs` permits the reopened→closed status
-flip through `jitml docs check` only after the typed `PhaseStatus` registry
-reports every Phase `19`–`31` sprint Done, every Exit-Definition obligation is
-met against the merged report card, and the legacy ledger is empty.
+The no-caveat product claim is restored in the governed docs only from the
+merged evidence. `src/JitML/Lint/Docs.hs` permits closure language through
+`jitml docs check` only after the typed `PhaseStatus` registry reports every
+Phase `19`–`31` sprint Done, every Exit-Definition obligation is met against the
+merged report card, and the legacy ledger is empty.
 
 ### Deliverables
 
@@ -128,17 +125,18 @@ met against the merged report card, and the legacy ledger is empty.
 ### Validation
 
 ```bash
-docker compose run --rm jitml jitml test all --live --linux-cpu
+PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-unit --test-show-details=direct
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
 ### Remaining Work
 
-- Run the final `linux-cpu` aggregation after Phases `19`–`30` close.
-- Wire the docs-check closure gate to the Phase `19`–`31` `PhaseStatus` predicate.
-- Flip the governed-doc status surfaces and write the dated final status paragraph
-  only after validation passes and the legacy ledger is empty.
+None. The typed PhaseStatus registry now reports every Phase `19`–`31` sprint
+Done; the docs closure scanner still rejects current product-closure language
+when given an unfinished synthetic registry and permits it for the real closed
+registry. The governed docs now name the July 5, 2026 closure, the three lanes,
+the 55-row count, and the committed attestation fragments.
 
 ## Documentation Requirements
 

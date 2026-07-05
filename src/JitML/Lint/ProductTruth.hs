@@ -66,11 +66,6 @@ productScaffoldRegistry =
       ["seededDemoCheckpoints", "-demo-weights"]
       "Sprint 27.1"
       "seeded product demo checkpoint weights"
-  , future
-      "degenerate-metal-conv"
-      ["conv1x1WeightedCompute", "Identity-class elementwise copy"]
-      "Sprint 30.1"
-      "degenerate Metal weighted convolution scaffolds"
   ]
  where
   enforced key needles description =

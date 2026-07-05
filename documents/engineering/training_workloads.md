@@ -11,23 +11,17 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Current audit status (2026-07-02).** Product training closure is reopened.
-Historical runs prove selected real paths, but they do not prove the complete
-documented SL/RL surface. The current worktree routes product dataset reads
-through read-time SHA verification before decode, and Phase `24` Sprint `24.1`
-records literal supervised architecture topology plus per-row feature parity.
-Remaining gaps include supervised convergence/evidence closure, remaining
-fake/deterministic scaffolds, and test/demo evidence that is representative
-rather than row-complete. The binding contract lives in
-[product_completion_contract.md](product_completion_contract.md) and the
-remediation phases are
-[Phase 22](../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md),
-[Phase 24](../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md), and
-[Phase 25](../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md).
+**Current audit status (2026-07-05).** Product training closure is complete for
+the Phase `19`–`31` product chain. Product dataset reads route through read-time
+SHA verification before decode, Phase `24` records literal supervised
+architecture topology plus per-row feature parity, Phase `25` records real RL
+algorithm/environment dispatch, and Phase `31` aggregates the committed
+CPU/CUDA/Apple row evidence. The binding contract lives in
+[product_completion_contract.md](product_completion_contract.md).
 
 The existing `TrainingBudget`, `CompletedTraining`, and
-`InferenceEligibleCheckpoint` vocabulary remains the intended boundary, but it
-does not close the product until every product row records verified data,
+`InferenceEligibleCheckpoint` vocabulary is the intended boundary: every product
+row records verified data,
 weight/policy update evidence, convergence metrics, completed checkpoint
 evidence, demo evidence, integration evidence, and e2e evidence.
 

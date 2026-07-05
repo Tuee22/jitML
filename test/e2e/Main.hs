@@ -49,9 +49,12 @@ import JitML.Test.Report
   , ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
+  , aggregateProductLaneAttestations
   , defaultReportCardKnobs
   , emptyReportMeasurements
+  , loadAggregatedProductLaneAttestations
   , parseReportCardKnobs
+  , productLaneAttestationFailures
   , productRowReportCoverageFailures
   , renderProductRowReportEvidence
   , renderReportCard
@@ -255,7 +258,7 @@ main =
               rendered = renderProductRowReportEvidence rows nonProducts evidence
           assertBool
             "row report header"
-            ("row_id\tCatalog\tIntegration\tE2E\tNegative\tLane" `Text.isInfixOf` rendered)
+            ("row_id\tCatalog\tIntegration\tE2E\tNegative\tDeviceEvidence\tLane" `Text.isInfixOf` rendered)
           assertBool
             "row report includes ProductRow"
             ("mnist-shallow-mlp\tgenerated-matrix" `Text.isInfixOf` rendered)
@@ -287,6 +290,7 @@ main =
                       , prreIntegration = "integration"
                       , prreE2E = "e2e"
                       , prreNegative = "fail-closed"
+                      , prreDeviceEvidence = "device:linux-cpu:oneDNN"
                       , prreLane = "linux-cpu"
                       }
                   nonProductFailures = productRowReportCoverageFailures rows nonProducts (evidence <> [nonProductEvidence])
@@ -296,6 +300,57 @@ main =
                     ("non-product row supplied as product evidence: rowId=tic-tac-toe" `Text.isPrefixOf`)
                     nonProductFailures
                 )
+      , testCase "product-lane attestation aggregation requires every row on every lane (Phase 31.1)" $ do
+          let rows = ProductMatrix.allProductRows
+              nonProducts = ProductMatrix.nonProductRows
+              lanes = ["linux-cpu", "linux-cuda", "apple-silicon"]
+              evidenceFor lane =
+                fmap
+                  ( \row ->
+                      (completeProductRowReportEvidence row)
+                        { prreLane = lane
+                        , prreDeviceEvidence =
+                            "device:" <> lane <> ":fixed-bridge-or-runtime:update-critical"
+                        }
+                  )
+                  rows
+              allEvidence = concatMap evidenceFor lanes
+              failures = productLaneAttestationFailures lanes rows nonProducts allEvidence
+          failures @?= []
+          case rows of
+            [] -> assertFailure "ProductRow registry is unexpectedly empty"
+            firstRow : _ -> do
+              let missingApple =
+                    filter
+                      ( \evidence ->
+                          not
+                            ( prreLane evidence == "apple-silicon"
+                                && prreRowId evidence == ProductMatrix.rowId firstRow
+                            )
+                      )
+                      allEvidence
+                  missingFailures =
+                    productLaneAttestationFailures lanes rows nonProducts missingApple
+              assertBool
+                "missing Apple row is named"
+                ( ("missing product-lane evidence row: lane=apple-silicon rowId=" <> ProductMatrix.rowId firstRow)
+                    `elem` missingFailures
+                )
+              let renderedInputs =
+                    [ (lane, renderProductRowReportEvidence rows nonProducts (evidenceFor lane))
+                    | lane <- lanes
+                    ]
+              case aggregateProductLaneAttestations renderedInputs of
+                Left err -> assertFailure (Text.unpack err)
+                Right parsed -> length parsed @?= length allEvidence
+      , testCase "committed product-lane attestations aggregate without drift (Phase 31.1)" $ do
+          aggregated <- loadAggregatedProductLaneAttestations
+          case aggregated of
+            Left err -> assertFailure (Text.unpack err)
+            Right parsed ->
+              length parsed
+                @?= length ProductMatrix.allProductRows
+                * length (["linux-cpu", "linux-cuda", "apple-silicon"] :: [Text])
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs
@@ -570,6 +625,7 @@ completeProductRowReportEvidence row =
     , prreIntegration = ProductMatrix.integrationTest row
     , prreE2E = ProductMatrix.e2eTest row
     , prreNegative = "checkpoint-required-fail-closed"
+    , prreDeviceEvidence = "device:linux-cpu:oneDNN:ffi:dispatch"
     , prreLane = "linux-cpu"
     }
 

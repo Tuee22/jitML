@@ -12,11 +12,12 @@
 
 ## Current Product State
 
-As of 2026-07-01 the no-caveat product claim is reopened. Historical green runs
-remain dated evidence for the surfaces they actually exercised, but they do not
-prove the stronger product contract below. The active remediation chain lives in
-[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md) and starts
-at Phase `19`.
+As of 2026-07-05 the no-caveat product claim is closed by the Phase `19`–`31`
+chain in [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md).
+Historical green runs remain dated evidence for the surfaces they actually
+exercised; the current proof is the 55-row product matrix plus the committed
+`linux-cpu`, `linux-cuda`, and `apple-silicon` lane attestations under
+`DEVELOPMENT_PLAN/attestations/`.
 
 The completion bar is intentionally stricter than "a command exists" or "a row
 appears in a generated matrix". A row is complete only when the same canonical
@@ -218,4 +219,7 @@ Phases `19` through `31` implement this contract in order. Phases `19` through
 `28` close on `linux-cpu` only. Phase `29` closes on `linux-cpu` plus
 `linux-cuda`. Phase `30` closes on `linux-cpu` plus `apple-silicon`. Phase `31`
 is a `linux-cpu`-only aggregation phase that consumes committed lane artifacts
-and does not rerun accelerator lanes.
+and does not rerun accelerator lanes. The Phase `31` join requires all three
+committed report-card fragments to carry every current `ProductRow.rowId`, the
+row's catalog/integration/e2e/negative evidence, and the lane-specific
+`DeviceEvidence` cell.

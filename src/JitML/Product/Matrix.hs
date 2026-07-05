@@ -16,6 +16,7 @@ module JitML.Product.Matrix
   , matrixFloorRowCount
   , nonProductRows
   , productRowCount
+  , productRowDeviceEvidenceForSubstrate
   , productRowExperimentHash
   , productRowIds
   , renderRowClass
@@ -40,6 +41,7 @@ import JitML.SL.Architecture (ArchitectureFeature)
 import JitML.SL.Architecture qualified as SLArchitecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.ConvergenceThresholds qualified as SLConvergence
+import JitML.Substrate (Substrate (..), renderSubstrate)
 import JitML.Training.Budget
   ( BudgetKind (..)
   , MetricGoal (..)
@@ -211,6 +213,33 @@ productRowIds = fmap rowId allProductRows
 productRowExperimentHash :: ProductRow state -> Text
 productRowExperimentHash row =
   "product-row-" <> sanitizeTestId (rowId row)
+
+productRowDeviceEvidenceForSubstrate :: Substrate -> ProductRow state -> Text
+productRowDeviceEvidenceForSubstrate substrate row =
+  Text.intercalate
+    ":"
+    [ "device"
+    , renderSubstrate substrate
+    , substrateDeviceRuntime substrate
+    , deviceClaimKernelSummary (deviceClaim row)
+    ]
+
+substrateDeviceRuntime :: Substrate -> Text
+substrateDeviceRuntime AppleSilicon = "Metal:fixed-bridge:makeLibrary:dispatch"
+substrateDeviceRuntime LinuxCPU = "oneDNN:ffi:dispatch"
+substrateDeviceRuntime LinuxCUDA = "cuBLAS-cuDNN:ffi:dispatch"
+
+deviceClaimKernelSummary :: DeviceClaim -> Text
+deviceClaimKernelSummary SubstrateBackedANN =
+  "dense-conv-norm-attention-update-critical"
+deviceClaimKernelSummary SubstrateBackedPolicy =
+  "policy-mlp-update-critical"
+deviceClaimKernelSummary GoalConditionedPolicy =
+  "goal-policy-mlp-update-critical"
+deviceClaimKernelSummary SelfPlayPolicyValueNetwork =
+  "policy-value-mlp-update-critical"
+deviceClaimKernelSummary TuningPromotedTraining =
+  "tuning-promoted-mlp-update-critical"
 
 supervisedRows :: [ProductRow 'Declared]
 supervisedRows = fmap supervisedRow SL.trainableCanonicalCohort

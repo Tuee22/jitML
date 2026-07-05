@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
@@ -11,19 +11,17 @@
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
-**Current audit status (2026-07-03).** Browser product closure is reopened.
-Phase `27` has replaced product-path seeded demo proof with ProductRow artifact
-selectors produced by `jitml internal train-and-publish-product-rows`, wired
-row-specific renderers to checkpoint-summary metadata, and added fail-closed
-browser guards for missing, invalid, partial, untrained, unsupported, and
-`*-demo-weights` artifacts. A static generated model list or seeded fixture
-checkpoint still does not prove that every documented product row has integration
-and e2e evidence. The binding browser contract lives in
-[product_completion_contract.md](product_completion_contract.md); Phase `28` has
-closed row-complete live Playwright coverage on `linux-cpu` through Sprint
-`28.2` and is active on the `linux-cpu` report card before the accelerator lanes
-revalidate it; Sprint `28.1` has already closed the publisher-manifest-backed
-integration evidence.
+**Current audit status (2026-07-05).** Browser product closure is complete for
+the Phase `19`–`31` product chain. Phase `27` replaced product-path seeded demo
+proof with ProductRow artifact selectors produced by
+`jitml internal train-and-publish-product-rows`, wired row-specific renderers to
+checkpoint-summary metadata, and added fail-closed browser guards for missing,
+invalid, partial, untrained, unsupported, and `*-demo-weights` artifacts. Phase
+`28` closed row-complete live Playwright coverage and the `linux-cpu` report
+card, Phase `30` refreshed the Apple lane fragment, and Phase `31` aggregates
+the committed CPU/CUDA/Apple row evidence. A static generated model list or
+seeded fixture checkpoint is not product evidence; the binding browser contract
+lives in [product_completion_contract.md](product_completion_contract.md).
 
 ## Stack
 

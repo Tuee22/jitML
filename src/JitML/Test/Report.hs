@@ -7,11 +7,15 @@ module JitML.Test.Report
   , ReportCardKnobs (..)
   , ProductRowReportEvidence (..)
   , RowIntegrationEvidence (..)
+  , aggregateProductLaneAttestations
   , defaultReportCardKnobs
   , emptyReportMeasurements
+  , loadAggregatedProductLaneAttestations
   , loadReportCardKnobs
   , parseReportCardKnobs
+  , parseProductRowReportEvidenceTable
   , productRowReportCoverageFailures
+  , productLaneAttestationFailures
   , renderReportCardForTargets
   , renderReportCardWithKnobs
   , renderProductRowReportEvidence
@@ -103,6 +107,7 @@ data ProductRowReportEvidence = ProductRowReportEvidence
   , prreIntegration :: !Text
   , prreE2E :: !Text
   , prreNegative :: !Text
+  , prreDeviceEvidence :: !Text
   , prreLane :: !Text
   }
   deriving stock (Eq, Show)
@@ -387,6 +392,7 @@ productRowReportCoverageFailures rows nonProductRows observed =
         , ("Integration", prreIntegration evidence)
         , ("E2E", prreE2E evidence)
         , ("Negative", prreNegative evidence)
+        , ("DeviceEvidence", prreDeviceEvidence evidence)
         , ("Lane", prreLane evidence)
         ]
     , Text.null (Text.strip value)
@@ -399,7 +405,7 @@ renderProductRowReportEvidence
   -> Text
 renderProductRowReportEvidence rows nonProductRows evidence =
   Text.unlines
-    ( [ "row_id\tCatalog\tIntegration\tE2E\tNegative\tLane"
+    ( [ "row_id\tCatalog\tIntegration\tE2E\tNegative\tDeviceEvidence\tLane"
       ]
         <> fmap renderProductRow rows
         <> fmap renderNonProductRow nonProductRows
@@ -417,6 +423,7 @@ renderProductRowReportEvidence rows nonProductRows evidence =
           , "MISSING"
           , "MISSING"
           , "MISSING"
+          , "MISSING"
           ]
       Just observed ->
         Text.intercalate
@@ -426,6 +433,7 @@ renderProductRowReportEvidence rows nonProductRows evidence =
           , prreIntegration observed
           , prreE2E observed
           , prreNegative observed
+          , prreDeviceEvidence observed
           , prreLane observed
           ]
   renderNonProductRow row =
@@ -437,7 +445,164 @@ renderProductRowReportEvidence rows nonProductRows evidence =
       , "not-required"
       , "not-required"
       , "not-required"
+      , "not-required"
       ]
+
+loadAggregatedProductLaneAttestations :: IO (Either Text [ProductRowReportEvidence])
+loadAggregatedProductLaneAttestations =
+  aggregateProductLaneAttestations
+    <$> traverse
+      ( \(lane, path) -> do
+          content <- Text.IO.readFile path
+          pure (lane, content)
+      )
+      productLaneAttestationInputs
+
+productLaneAttestationInputs :: [(Text, FilePath)]
+productLaneAttestationInputs =
+  [ ("linux-cpu", "DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md")
+  , ("linux-cuda", "DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md")
+  , ("apple-silicon", "DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md")
+  ]
+
+aggregateProductLaneAttestations
+  :: [(Text, Text)]
+  -> Either Text [ProductRowReportEvidence]
+aggregateProductLaneAttestations laneDocuments =
+  case failures of
+    [] -> Right evidence
+    _ -> Left (Text.unlines failures)
+ where
+  parsed =
+    [ (lane, parseProductRowReportEvidenceTable content)
+    | (lane, content) <- laneDocuments
+    ]
+  parseFailures =
+    [ "failed to parse product-row evidence table for lane " <> lane <> ": " <> err
+    | (lane, Left err) <- parsed
+    ]
+  evidence = concat [rows | (_lane, Right rows) <- parsed]
+  missingLaneFailures =
+    [ "missing product-lane attestation: lane=" <> lane
+    | (lane, _path) <- productLaneAttestationInputs
+    , lane `notElem` fmap fst laneDocuments
+    ]
+  failures =
+    parseFailures
+      <> missingLaneFailures
+      <> productLaneAttestationFailures
+        (fmap fst productLaneAttestationInputs)
+        ProductMatrix.allProductRows
+        ProductMatrix.nonProductRows
+        evidence
+
+parseProductRowReportEvidenceTable :: Text -> Either Text [ProductRowReportEvidence]
+parseProductRowReportEvidenceTable content =
+  traverse parseRow evidenceLines
+ where
+  evidenceLines =
+    [ line
+    | line <- Text.lines content
+    , let stripped = Text.strip line
+    , not (Text.null stripped)
+    , "\t" `Text.isInfixOf` stripped
+    , not ("row_id\t" `Text.isPrefixOf` stripped)
+    , not ("non-product:" `Text.isInfixOf` stripped)
+    , not ("not-required" `Text.isInfixOf` stripped)
+    ]
+  parseRow line =
+    case Text.splitOn "\t" (Text.strip line) of
+      [rowId', catalog', integration', e2e', negative', deviceEvidence', lane'] ->
+        Right
+          ProductRowReportEvidence
+            { prreRowId = rowId'
+            , prreCatalog = catalog'
+            , prreIntegration = integration'
+            , prreE2E = e2e'
+            , prreNegative = negative'
+            , prreDeviceEvidence = deviceEvidence'
+            , prreLane = lane'
+            }
+      cells ->
+        Left
+          ( "expected 7 tab-separated product evidence cells, got "
+              <> showText (length cells)
+              <> ": "
+              <> line
+          )
+
+productLaneAttestationFailures
+  :: [Text]
+  -> [ProductMatrix.ProductRow state]
+  -> [ProductMatrix.NonProductRow]
+  -> [ProductRowReportEvidence]
+  -> [Text]
+productLaneAttestationFailures lanes rows nonProductRows observed =
+  missingFailures
+    <> duplicateFailures
+    <> orphanFailures
+    <> laneMismatchFailures
+    <> concatMap cellFailures observed
+ where
+  expectedRowIds = fmap ProductMatrix.rowId rows
+  nonProductReasons =
+    [ (ProductMatrix.nonProductRowId row, ProductMatrix.nonProductRowReason row)
+    | row <- nonProductRows
+    ]
+  observedPairs = fmap (\evidence -> (prreLane evidence, prreRowId evidence)) observed
+  missingFailures =
+    [ "missing product-lane evidence row: lane=" <> lane <> " rowId=" <> rowId
+    | lane <- lanes
+    , rowId <- expectedRowIds
+    , (lane, rowId) `notElem` observedPairs
+    ]
+  duplicateFailures =
+    [ "duplicate product-lane evidence row: lane="
+        <> lane
+        <> " rowId="
+        <> rowId
+        <> " count="
+        <> showText (length group)
+    | group@((lane, rowId) : _) <- List.group (List.sort observedPairs)
+    , length group > 1
+    ]
+  orphanFailures =
+    [ case lookup rowId nonProductReasons of
+        Just reason ->
+          "non-product row supplied as lane evidence: lane="
+            <> lane
+            <> " rowId="
+            <> rowId
+            <> " reason="
+            <> reason
+        Nothing ->
+          "orphan product-lane evidence row: lane=" <> lane <> " rowId=" <> rowId
+    | (lane, rowId) <- observedPairs
+    , rowId `notElem` expectedRowIds
+    ]
+  laneMismatchFailures =
+    [ "unexpected product-lane evidence lane: lane=" <> lane <> " rowId=" <> prreRowId evidence
+    | evidence <- observed
+    , let lane = prreLane evidence
+    , lane `notElem` lanes
+    ]
+  cellFailures evidence =
+    [ "missing product-lane evidence cell: lane="
+        <> prreLane evidence
+        <> " rowId="
+        <> prreRowId evidence
+        <> " column="
+        <> column
+    | (column, value) <-
+        [ ("Catalog", prreCatalog evidence)
+        , ("Integration", prreIntegration evidence)
+        , ("E2E", prreE2E evidence)
+        , ("Negative", prreNegative evidence)
+        , ("DeviceEvidence", prreDeviceEvidence evidence)
+        , ("Lane", prreLane evidence)
+        ]
+    , Text.null (Text.strip value)
+    ]
 
 rowIntegrationCoverageFailures
   :: [ProductMatrix.ProductRow state]

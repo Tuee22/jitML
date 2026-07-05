@@ -2,13 +2,13 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../README.md, determinism_contract.md, training_workloads.md, product_completion_contract.md, jit_codegen_architecture.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-15-linux-cuda-and-cluster-closure.md, ../../DEVELOPMENT_PLAN/phase-17-cross-substrate-and-handoff.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../README.md, determinism_contract.md, training_workloads.md, product_completion_contract.md, jit_codegen_architecture.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-15-linux-cuda-and-cluster-closure.md, ../../DEVELOPMENT_PLAN/phase-17-cross-substrate-and-handoff.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
 > doctrine for the per-tier stanza model, the standard testing stack, the
 > seven test categories, and the test-organization invariants; names the
-> eight jitML test stanzas, the doctrine-category mapping, and the reopened
+> eight jitML test stanzas, the doctrine-category mapping, and the closed
 > row-complete integration/e2e product target.
 
 ## Doctrine Deferrals
@@ -36,14 +36,12 @@ This doc defers to [../../README.md](../../README.md) for:
 ## jitML Stanzas
 
 The eight Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
-exercise the local deterministic contracts for their owning surfaces, but the
-2026-07-01 product audit reopened all-model completion. Phase `28` owns
-row-complete integration/e2e coverage on `linux-cpu`; Phases `29` and `30` own
-accelerator row validation. Sprint `28.2` has closed the generated live
-Playwright product-row matrix, and Sprint `28.3` is blocked on the per-row
-`linux-cpu` report-card validation by live-lane MinIO/Harbor/edge instability.
-A representative workflow, static browser matrix, or fake browser runtime does
-not satisfy product-row evidence.
+exercise the deterministic contracts for their owning surfaces, and the
+2026-07-05 Phase `31` closure makes the all-model product target row-complete.
+Phase `28` owns row-complete integration/e2e coverage on `linux-cpu`; Phases
+`29` and `30` own accelerator row validation; Phase `31` owns the committed
+attestation join. A representative workflow, static browser matrix, or fake
+browser runtime does not satisfy product-row evidence.
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
@@ -191,8 +189,9 @@ Phase order, blockers, and closure status live in the development plan, not here
 The unit suite owns the executable product-truth guardrails for that plan:
 `test/unit/Main.hs` checks the `ProductRow` matrix floor, the Phase `19`–`31`
 typed status registry against the sprint `**Status**` headers, and the
-docs-check closure-claim scanner that rejects current product-closure language
-until the registry reports the product chain Done.
+docs-check closure-claim scanner. The real registry now reports the product
+chain Done; the unit suite demotes a synthetic sprint to prove the scanner still
+rejects current product-closure language for an unfinished registry.
 It also covers the Sprint `20.2` ProductTruth lint boundary: direct product
 source mentions of enforced fossils are rejected, product-reachable imports of
 relocated scaffold modules fail, and no `ProductRow` implementation names an
@@ -203,11 +202,13 @@ jitml-cuda jitml test all --linux-cuda` passing all 8 stanzas,
 `jitml-backends` passing 21/21 on the GPU, all 55 ProductRows published as
 eligible CUDA-lane checkpoints, and `jitml test jitml-e2e --live --linux-cuda`
 passing live Playwright 71/71 at the published CUDA edge.
-Current 2026-06-29 Apple state: the host-native source build succeeds with
-Homebrew `llvm@19` providing GHC-compatible `opt`/`llc`, the HA
-`apple-silicon` rollout completed 131 steps at edge `:9090`, the host Metal
-daemon acquired its command topics, `bootstrap/apple-silicon.sh test` passed
-8/8 stanzas, and live Playwright passed 15/15.
+Current 2026-07-05 Apple evidence: Phase `30` revalidated the row-complete
+`apple-silicon` product lane on the Apple M1 Max host. The backend tests assert
+the generated Metal source no longer carries identity-copy or 1x1-degenerate
+product-family stand-ins, execute multi-tap Conv2D/Conv3D against host
+references through the fixed bridge, fail closed on Metal runtime absence, and
+the committed Apple attestation carries 55/55 ProductRows with per-row
+`DeviceEvidence`.
 
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight

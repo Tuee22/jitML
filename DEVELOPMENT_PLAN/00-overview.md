@@ -89,34 +89,27 @@ Metal cannot be containerized.
 
 ## Current Baseline
 
-The current product baseline reopened on 2026-07-01 after a model-runtime audit
-found that the public no-caveat claim still outran the implementation. Phases
-`0`–`18` remain dated evidence for their owned surfaces. Phases `19`–`29` are
-complete after Phase `29` closed on 2026-07-05: all **55** ProductRows published
-inference-eligible manifests with **0** unsupported rows and **0** errors, the
-row-keyed integration matrix switched to those real `CompletedTraining`
-manifests, row-complete live Playwright passed **71 / 71** browser tests, and
-the full `linux-cpu` report card passed **8 / 8** stanzas with
-`browser_product_matrix` **55 / 55** at edge `:9091`. Phase `29` then validated
-the RTX 5090 `linux-cuda` lane with `jitml test all --linux-cuda` **8 / 8**,
-`jitml-backends` **21 / 21**, all **55 / 55** ProductRow checkpoints eligible,
-and live Playwright **71 / 71** at edge `:9092`. Remaining product completion is
-now blocked in Phase `30` by external `apple-silicon` substrate availability:
-this session is Linux x86_64, not a Mac host with a visible Metal-capable Apple
-GPU. Phase `31` performs the final `linux-cpu` aggregation after Phase `30`.
+The current product baseline closed on 2026-07-05 after the forward-only Phase
+`19`–`31` chain remediated the 2026-07-01 model-runtime audit. Phases `0`–`18`
+remain dated evidence for their owned surfaces. Phases `19`–`31` now provide the
+current row-complete handoff: all **55** ProductRows have real implementation,
+verified data, training evidence, inference-eligible checkpoints, demo
+rendering, integration and e2e coverage, and per-lane device evidence in the
+committed `linux-cpu`, `linux-cuda`, and `apple-silicon` report-card fragments.
+Phase `29` validated the RTX 5090 `linux-cuda` lane with `jitml test all
+--linux-cuda` **8 / 8**, `jitml-backends` **21 / 21**, all **55 / 55**
+ProductRow checkpoints eligible, and live Playwright **71 / 71** at edge
+`:9092`. Phase `30` validated the Apple M1 Max fixed-bridge Metal lane and
+refreshed the **55 / 55** `apple-silicon` row attestation. Phase `31` aggregated
+the three committed lane fragments on `linux-cpu`.
 
-The executable truth sources for the reopened product chain are
+The executable truth sources for the product chain are
 `src/JitML/Product/Matrix.hs` for row identity/matrix-floor membership and
 `src/JitML/Product/PhaseStatus.hs` for the Phase `19`–`31` sprint-status
 registry consumed by downstream closure gates. `jitml docs check` also rejects
-current product-closure claims in governed docs while that registry reports an
-unfinished product phase; explicitly dated historical-evidence blocks are
-allowed.
-
-The active gaps are concrete and now live in the remaining accelerator and final
-aggregation phases: the row-complete product matrix must still validate on real
-`apple-silicon` and be aggregated into the final no-caveat handoff. The binding
-remediation rules live in
+current product-closure claims in governed docs when that registry reports an
+unfinished product phase; the real registry now reports every Phase `19`–`31`
+sprint Done. The binding remediation rules live in
 [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
 
 Historical 2026-06-30 evidence remains useful but no longer closes the product:
@@ -972,12 +965,13 @@ for the governing rule.
 
 ## Current Baseline
 
-**Current status (2026-07-01): product closure is reopened.** Phases `0`–`18`
-remain historical evidence for their owned surfaces, but the current handoff is
-blocked on Phases `19`–`31`. The required closure path is row-complete: every
-documented product row must have real implementation, verified data, real
-training, trained-artifact inference eligibility, demo rendering, integration
-coverage, e2e coverage, and lane evidence.
+**Current status (2026-07-05): product closure is complete.** Phases `0`–`18`
+remain historical evidence for their owned surfaces, and Phases `19`–`31` are
+the current row-complete handoff. Every documented product row has real
+implementation, verified data, real training, trained-artifact inference
+eligibility, demo rendering, integration coverage, e2e coverage, and lane
+evidence across the committed `linux-cpu`, `linux-cuda`, and `apple-silicon`
+fragments.
 
 Historical status from 2026-06-30: the follow-up audit reopened that baseline
 for live cluster lifecycle truth, fail-closed mounted worker `RunConfig.dhall`

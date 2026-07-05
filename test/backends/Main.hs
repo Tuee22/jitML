@@ -14,6 +14,7 @@ import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.Cuda qualified as CudaCodegen
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
+import JitML.Codegen.Metal qualified as MetalCodegen
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal
@@ -38,6 +39,7 @@ import JitML.Engines.Local
   )
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.MetalLocal qualified as Metal
+import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
@@ -348,6 +350,94 @@ main =
                   assertBool
                     ("apple-silicon weighted " <> show family <> " run failed: " <> show message)
                     False
+      , testCase
+          "apple-silicon generated Metal source uses real family kernels and no copy/1x1 scaffold (Phase 30.1)"
+          $ do
+            let rendered = MetalCodegen.renderMetalFamilySource
+                assertHas family needle =
+                  assertBool
+                    (show family <> " Metal source should contain " <> Text.unpack needle)
+                    (needle `Text.isInfixOf` rendered family)
+                assertNotHas family needle =
+                  assertBool
+                    (show family <> " Metal source should not contain " <> Text.unpack needle)
+                    (not (needle `Text.isInfixOf` rendered family))
+            for_ kernelFamilies $ \family -> do
+              assertNotHas family "Identity-class elementwise copy"
+              assertNotHas family "conv1x1WeightedCompute"
+            assertHas Conv2DKernel "3x3 windowed convolution"
+            assertHas Conv2DKernel "jitml_ceil_sqrt"
+            assertHas Conv3DKernel "3x3x3 windowed convolution"
+            assertHas Conv3DKernel "jitml_ceil_cuberoot"
+            assertHas MultiHeadAttentionKernel "qsum * ksum * wv"
+            assertHas BatchNormKernel "sqrt(var + eps)"
+            assertHas LayerNormKernel "sqrt(var + eps)"
+      , testCase
+          "apple-silicon Metal Conv2D/Conv3D multi-tap kernels match windowed references (Phase 30.1)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let input2d = [1.0 .. 9.0]
+                weights2d = [0, 1, 0, 1, 2, 1, 0, 1, 0]
+                expected2d = metalWindowedConv2DReference input2d weights2d
+                degenerate2d = fmap (* (weights2d !! 4)) input2d
+            conv2d <- Metal.runMetalWeightedFamilyKernel env Conv2DKernel input2d weights2d
+            case conv2d of
+              Left message ->
+                assertBool ("apple-silicon Conv2D Metal run failed: " <> show message) False
+              Right run -> do
+                assertListClose
+                  "apple-silicon Conv2D windowed output"
+                  expected2d
+                  (Metal.metalWeightedKernelOutput run)
+                assertBool
+                  "Conv2D output must not collapse to the center-only 1x1 result"
+                  (not (approxEqualFloatList 1.0e-3 degenerate2d (Metal.metalWeightedKernelOutput run)))
+            let input3d = [1.0 .. 8.0]
+                weights3d =
+                  [ if i == 13 then 2.0 else 1.0
+                  | i <- [0 :: Int .. 26]
+                  ]
+                expected3d = metalWindowedConv3DReference input3d weights3d
+                degenerate3d = fmap (* (weights3d !! 13)) input3d
+            conv3d <- Metal.runMetalWeightedFamilyKernel env Conv3DKernel input3d weights3d
+            case conv3d of
+              Left message ->
+                assertBool ("apple-silicon Conv3D Metal run failed: " <> show message) False
+              Right run -> do
+                assertListClose
+                  "apple-silicon Conv3D windowed output"
+                  expected3d
+                  (Metal.metalWeightedKernelOutput run)
+                assertBool
+                  "Conv3D output must not collapse to the center-only 1x1 result"
+                  (not (approxEqualFloatList 1.0e-3 degenerate3d (Metal.metalWeightedKernelOutput run)))
+      , testCase
+          "apple-silicon Metal runtime absence fails before product-row evidence is accepted (Phase 30.2)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let unavailable =
+                  MetalRuntime.MetalRuntimeProbe
+                    { MetalRuntime.metalRuntimeSwiftVersion = Nothing
+                    , MetalRuntime.metalRuntimeMetalCompilerPath = Nothing
+                    , MetalRuntime.metalRuntimeSwiftCompilerPath = Nothing
+                    , MetalRuntime.metalRuntimeDeviceVisible = False
+                    , MetalRuntime.metalRuntimeProbeLog = ["unit-test unavailable runtime"]
+                    }
+            plain <-
+              Metal.runMetalFamilyKernelWithProbe
+                (pure unavailable)
+                env
+                Identity
+                [1.0]
+            plain @?= Left "apple-silicon Metal device not visible: device_visible=no"
+            weighted <-
+              Metal.runMetalWeightedFamilyKernelWithProbe
+                (pure unavailable)
+                env
+                Dense2D
+                [1.0]
+                [1.0]
+            weighted @?= Left "apple-silicon Metal device not visible: device_visible=no"
       , testCase
           "linux-cpu MLP forward kernel matches the pure-Haskell network (Phase 2 rebalance)"
           $ do
@@ -1942,6 +2032,101 @@ assertWeightedMatchesReference label family input weights actual =
     )
  where
   expected = familyReference family input weights
+
+assertListClose :: String -> [Float] -> [Float] -> IO ()
+assertListClose label expected actual =
+  assertBool
+    (label <> ": expected=" <> show expected <> " actual=" <> show actual)
+    (approxEqualFloatList 1.0e-3 expected actual)
+
+approxEqualFloatList :: Float -> [Float] -> [Float] -> Bool
+approxEqualFloatList tol expected actual =
+  length expected == length actual
+    && and (zipWith (\x y -> abs (x - y) <= tol) expected actual)
+
+metalWindowedConv2DReference :: [Float] -> [Float] -> [Float]
+metalWindowedConv2DReference input weights =
+  [ outputAt idx
+  | idx <- [0 .. n - 1]
+  ]
+ where
+  n = length input
+  width = ceilSqrt n
+  height = (n + width - 1) `div` width
+  valueAt idx = input !! idx
+  weightAt k
+    | k < length weights = weights !! k
+    | k == 4 = 1.0
+    | otherwise = 0.0
+  outputAt idx =
+    let x0 = idx `mod` width
+        y0 = idx `div` width
+     in sum
+          [ valueAt sample * weightAt ((dy + 1) * 3 + (dx + 1))
+          | dy <- [-1 .. 1]
+          , dx <- [-1 .. 1]
+          , let x = x0 + dx
+          , let y = y0 + dy
+          , x >= 0
+          , y >= 0
+          , x < width
+          , y < height
+          , let sample = y * width + x
+          , sample < n
+          ]
+
+metalWindowedConv3DReference :: [Float] -> [Float] -> [Float]
+metalWindowedConv3DReference input weights =
+  [ outputAt idx
+  | idx <- [0 .. n - 1]
+  ]
+ where
+  n = length input
+  side = ceilCubeRoot n
+  plane = side * side
+  valueAt idx = input !! idx
+  weightAt k
+    | k < length weights = weights !! k
+    | k == 13 = 1.0
+    | otherwise = 0.0
+  outputAt idx =
+    let z0 = idx `div` plane
+        rem0 = idx `mod` plane
+        y0 = rem0 `div` side
+        x0 = rem0 `mod` side
+     in sum
+          [ valueAt sample * weightAt ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1))
+          | dz <- [-1 .. 1]
+          , dy <- [-1 .. 1]
+          , dx <- [-1 .. 1]
+          , let x = x0 + dx
+          , let y = y0 + dy
+          , let z = z0 + dz
+          , x >= 0
+          , y >= 0
+          , z >= 0
+          , x < side
+          , y < side
+          , z < side
+          , let sample = z * plane + y * side + x
+          , sample < n
+          ]
+
+ceilSqrt :: Int -> Int
+ceilSqrt n =
+  go 1
+ where
+  go side
+    | side * side >= n = side
+    | otherwise = go (side + 1)
+
+ceilCubeRoot :: Int -> Int
+ceilCubeRoot n =
+  go 1
+ where
+  go side
+    | side * side * side >= n = side
+    | otherwise = go (side + 1)
 
 -- | Sprint 13.15 — unique per-run suffix so the first-cache-miss test
 -- starts from a guaranteed-cold cache key on every invocation.

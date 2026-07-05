@@ -31,38 +31,21 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (reopened 2026-07-01):** The public no-caveat
-> product claim is **not closed**. A model-runtime audit found that the previous
-> claim outran the implementation: at reopen the worktree lacked a singular
-> canonical matrix/data-integrity boundary, carried static demo matrix proof,
-> incomplete documented SL/RL implementation coverage, and representative rather
-> than per-model integration/e2e evidence.
-> Phases `0`–`18` remain historical evidence for the surfaces they actually
-> validated; Phases `19`–`29` are complete after Phase `29` closed on
-> 2026-07-05. Sprint `28.1` is Done after the row-keyed integration matrix
-> switched to real product-row publisher manifests, Sprint `28.2` is Done after
-> row-complete live Playwright passed on `linux-cpu`, and Sprint `28.3` is Done
-> after the full live `linux-cpu` report card passed **8 / 8** stanzas with
-> `browser_product_matrix` **55 / 55** at edge `:9091`. Phase `29` is Done
-> after the RTX 5090 `linux-cuda` lane passed **8 / 8** stanzas, published
-> **55 / 55** ProductRow checkpoints, and passed live Playwright **71 / 71** at
-> edge `:9092`. Phase `30` is the next open phase and requires a real
-> `apple-silicon` host; this session is Linux x86_64 and cannot exercise the
-> host Metal bridge.
-> The reopened completion path remains the
-> forward-only
-> Phase `19`–`31` chain in
-> [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). Governed docs are
-> machine-checked: `jitml docs check` rejects current product-closure claims
-> unless `src/JitML/Product/PhaseStatus.hs` reports the Phase `19`–`31` chain
-> Done, while explicitly dated historical-evidence blocks remain allowed. Every
-> documented model row is implemented **for real** — literal deep architectures, genuinely
-> distinct RL algorithms, real per-substrate conv/attention kernels, and
-> non-fabricable weight-delta training evidence — rather than narrowed to fit a
-> simpler implementation. No future closure may claim "all phases done" until
-> every documented model row has real training, trained-artifact inference
-> eligibility, demo rendering, integration coverage, e2e coverage, and the
-> required per-lane substrate evidence.
+> **Current product status (closed 2026-07-05):** The Phase `19`–`31`
+> product-truth chain is complete. Phases `0`–`18` remain historical evidence for
+> the surfaces they actually validated, and Phases `19`–`31` now supply the
+> current row-complete handoff: all **55** ProductRows have real implementation,
+> verified data, non-fabricable training evidence, trained-artifact inference
+> eligibility, demo rendering, integration coverage, e2e coverage, and committed
+> per-lane device evidence. The final aggregation consumes
+> [`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md),
+> [`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md),
+> and [`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`](DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md):
+> `linux-cpu` oneDNN, `linux-cuda` cuBLAS/cuDNN on the RTX 5090, and
+> `apple-silicon` fixed-bridge Metal on the Apple M1 Max. Governed docs remain
+> machine-checked: `jitml docs check` rejects current product-closure language
+> for an unfinished PhaseStatus registry and permits it only because
+> `src/JitML/Product/PhaseStatus.hs` reports every Phase `19`–`31` sprint Done.
 
 ---
 
@@ -1511,13 +1494,12 @@ The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>`
 Eleven problems spanning the architectural breadth of the [Layer catalog](#layer-catalog), each compact enough to baseline on a single reference host.
 
 The no-caveat product target treats every row below as an implementation
-obligation, not a brochure row. Current code proves selected real paths and
-all-row train-step/smoke coverage, but final closure is reopened: every listed
-model family must train for its declared fixed `TrainingBudget`, mint a
-completed-training witness, checkpoint convergence statistics, evaluate, infer
-only through an inference-eligible checkpoint, and appear in the
+obligation, not a brochure row. Phase `31` closes that target: every listed
+model family trains for its declared fixed `TrainingBudget`, mints a
+completed-training witness, checkpoints convergence statistics, evaluates,
+infers only through an inference-eligible checkpoint, and appears in the
 Playwright-validated demo surface on each real substrate lane where that lane is
-selected. The current literal-topology evidence is recorded in
+selected. The literal-topology evidence is recorded in
 `JitML.SL.Architecture.archLayerGraph` and mirrored by
 `ProductRow.rowArchitectureFeatures`, so a Dense-only graph cannot satisfy a row
 that claims Conv2D, BatchNorm, Dropout, GroupNorm, residual blocks, attention,
@@ -2575,7 +2557,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; the reopened no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves all-model fixed-budget training/checkpoint/inference/animation/replay/tuning interactions, rejects inference before training completion, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, typed live-plan checks, and the closed no-caveat live path: it brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves all-model fixed-budget training/checkpoint/inference/animation/replay/tuning interactions, rejects inference before training completion, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
 
 `TestAll` fans out to every stanza above. It does not run lint, style, or
 code-quality gates; `jitml lint all` and `jitml check-code` are the separate

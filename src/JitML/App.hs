@@ -5561,7 +5561,8 @@ productRowReportEvidenceForTargets :: [Text] -> App [ProductRowReportEvidence]
 productRowReportEvidenceForTargets targets
   | not (all (`elem` targets) ["jitml-integration", "jitml-e2e"]) = pure []
   | otherwise = do
-      let evidence = fmap productRowReportEvidence ProductMatrix.allProductRows
+      substrate <- workerSubstrateBase
+      let evidence = fmap (productRowReportEvidence substrate) ProductMatrix.allProductRows
           failures =
             productRowReportCoverageFailures
               ProductMatrix.allProductRows
@@ -5571,16 +5572,18 @@ productRowReportEvidenceForTargets targets
       pure evidence
 
 productRowReportEvidence
-  :: ProductMatrix.ProductRow state
+  :: Substrate
+  -> ProductMatrix.ProductRow state
   -> ProductRowReportEvidence
-productRowReportEvidence row =
+productRowReportEvidence substrate row =
   ProductRowReportEvidence
     { prreRowId = ProductMatrix.rowId row
     , prreCatalog = "generated-matrix:" <> ProductMatrix.productRowExperimentHash row
     , prreIntegration = ProductMatrix.integrationTest row
     , prreE2E = ProductMatrix.e2eTest row
     , prreNegative = "checkpoint-required-fail-closed"
-    , prreLane = "linux-cpu"
+    , prreDeviceEvidence = ProductMatrix.productRowDeviceEvidenceForSubstrate substrate row
+    , prreLane = renderSubstrate substrate
     }
 
 measureSlFinalLoss :: App ReportMeasurement
