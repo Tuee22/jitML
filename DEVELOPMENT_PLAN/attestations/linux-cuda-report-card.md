@@ -1,4 +1,4 @@
-# `linux-cuda` Per-Lane Attestation (Sprints 15.20 / 15.21 / 15.22)
+# `linux-cuda` Per-Lane Attestation (Phase 29 / Sprints 15.20-15.22)
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -8,21 +8,41 @@
 [../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
 **Generated sections**: none
 
-> **Purpose**: The committed `linux-cuda` per-lane report-card fragment. Sprint
-> `15.20` supplied the earlier no-caveat runtime/browser fragment, Sprint
-> `15.21` revalidated the expanded fixed-budget all-model lane on the same real
-> NVIDIA host, and Sprint `15.22` revalidated that lane against the HA topology.
-> Phase `17` and Phase `18` consume this fragment on `linux-cpu` and never
-> re-run the `linux-cuda` lane (standards rule M(b)/(d)).
+> **Purpose**: The committed `linux-cuda` per-lane report-card fragment. Phase
+> `29` supplies the current row-complete product-lane evidence for final
+> aggregation. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
+> evidence for the earlier product baseline. Aggregation phases consume this
+> fragment on `linux-cpu` and never re-run the `linux-cuda` lane (standards rule
+> M(b)/(d)).
 
 ## Host
 
 - NVIDIA GeForce RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`
 - CUDA 12.8, driver `570.211.01`, Ubuntu 24.04 (x86_64), Docker 29.x,
   NVIDIA Container Runtime
-- Revalidated 2026-06-28 for Sprint `15.22` HA topology.
+- Revalidated 2026-07-05 for Phase `29` product-lane closure.
 
-## Current Sprint 15.22 HA validation gate (all green)
+## Current Phase 29 Product-Lane Validation Gate (all green)
+
+| Command / evidence | Result |
+|---|---|
+| `docker info --format '{{json .Runtimes}}'` / `docker compose run --rm jitml-cuda nvidia-smi` | NVIDIA runtime present; in-container `nvidia-smi` saw NVIDIA GeForce RTX 5090, driver `570.211.01`, CUDA `12.8` |
+| `./bootstrap/linux-cuda.sh up` | Live CUDA rollout PASS: 132 steps, edge `9092`, platform/Pulsar/MinIO ready |
+| Canonical dataset staging | All 12 artifacts SHA-verified through `jitml internal upload-dataset`: MNIST x4, Fashion-MNIST x4, CIFAR-10, CIFAR-100, California Housing, Tiny ImageNet |
+| `jitml internal train-and-publish-product-rows --linux-cuda` | Product checkpoints complete: 44 non-supervised rows eligible in the first pass, 11 supervised rows eligible after dataset staging, **55 / 55** total, **0** unsupported, **0** errors |
+| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | 8/8 stanzas PASS; `jitml-unit` 277/277, `jitml-integration` 137/137 with live WorkflowMatrix 837.24s and PPO convergence 263.51s, `jitml-sl-canonicals` 31/31, `jitml-rl-canonicals` 37/37, `jitml-hyperparameter` 17/17, `jitml-daemon-lifecycle` 32/32, `jitml-e2e` 25/25, `jitml-backends` 21/21 |
+| `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` | 25/25 PASS |
+| `docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda` | Haskell e2e 25/25 PASS plus live Playwright **71 / 71** at `http://127.0.0.1:9092/`; `browser_product_matrix` **55 / 55** |
+| `docker compose run --rm jitml jitml docs check` | PASS (`docs check: ok`) |
+| `docker compose run --rm jitml jitml check-code` | PASS (`check-code: ok`) |
+
+`jitml-backends --linux-cuda` compiled and executed the real cuBLAS/cuDNN
+generated CUDA family surface (`-fcuda`) on the attached RTX 5090. The Phase
+`29.1` backend assertion verifies generated source contains `cublasSgemm`,
+`cudnnConvolutionForward`, cuDNN tensor descriptors, and cuDNN normalization
+entry points, and the lane then executes the generated kernels on the real GPU.
+
+## Historical Sprint 15.22 HA validation gate
 
 | Command | Result |
 |---|---|
@@ -42,7 +62,7 @@
 bindings (`-fcuda`) on the attached RTX 5090 — every within-substrate
 `linux-cuda` kernel case a real device PASS.
 
-## Sprint 15.22 defects closed in this fragment
+## Historical Sprint 15.22 defects closed in this fragment
 
 - Replaced invalid MinIO distributed-mode `defaultBuckets` with provisioning
   bucket declarations and `versioning: Unchanged`.
@@ -96,7 +116,7 @@ cabal_test:
 
 Every measurement row is populated — **no `unavailable` product row**.
 
-## Current browser product matrix — `15/15` via live Playwright
+## Historical Sprint 15 browser product matrix — `15/15` via live Playwright
 
 The authoritative browser proof is the live Playwright product matrix run against
 the `linux-cuda` Envoy edge (`http://127.0.0.1:9092/`) after

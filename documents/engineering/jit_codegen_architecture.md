@@ -267,6 +267,14 @@ scaffolding modules.
   host-callable wrapper owns CUDA device allocation, host-to-device input copy,
   deterministic device-kernel launch, `cudaDeviceSynchronize`, and
   device-to-host output copyback.
+- Phase `29` extends the generated CUDA family surface so Dense2D and MHA invoke
+  `cublasSgemm`, Conv2D/Conv3D invoke `cudnnConvolutionForward` through
+  deterministic tensor/filter/convolution descriptors, and BatchNorm/LayerNorm
+  invoke cuDNN normalization descriptors. The generated artifact owns the native
+  cuBLAS/cuDNN handles inside the compiled CUDA source; the Haskell binding
+  modules remain the typed compile/runtime probe surface. The 2026-07-05
+  `jitml-backends --linux-cuda` lane passed **21 / 21** on the RTX 5090 and
+  asserts those generated source entry points before executing the kernels.
 - `src/JitML/Engines/CudaLocal.hs` is the guarded CUDA local runner. It
   consumes a positive `probeCudaRuntime` before materializing and compiling the
   generated source, then loads the `.so` through the shared
@@ -308,6 +316,10 @@ scaffolding modules.
   code-quality runs, and exposes every host NVIDIA GPU only through the
   `jitml-cuda` companion service via the modern `gpus: all` shorthand for live
   in-container CUDA validation.
+- Phase `29` product-lane validation on 2026-07-05 staged all 12 canonical
+  datasets, published all **55 / 55** ProductRow checkpoints on `linux-cuda`,
+  passed `jitml test all --linux-cuda` **8 / 8**, and passed live Playwright
+  **71 / 71** at the CUDA edge `:9092`.
 - **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`

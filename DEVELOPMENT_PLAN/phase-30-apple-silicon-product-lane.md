@@ -11,7 +11,18 @@
 
 ## Phase State
 
-⏸️ **Blocked by** Phase `29`.
+⏸️ **Blocked by** external `apple-silicon` substrate availability in this
+validation session. Phase `29` is Done; the next required gate needs a real Mac
+host with Apple Silicon and a Metal-capable GPU visible to jitML's execution
+context. This session is Linux x86_64 on the RTX 5090 CUDA host
+(`Linux matt-junction 6.17.0-35-generic`, `uname -m` = `x86_64`), so the
+host-native Metal bridge cannot be exercised here.
+
+Rechecked 2026-07-05: `./bootstrap/apple-silicon.sh doctor` fails at the
+repository stage-0 host gate with
+`apple-silicon bootstrap requires macOS; detected 'Linux'`. The Phase `30`
+validation commands are therefore not runnable in this session without changing
+the required substrate.
 
 **Validation substrate**: `linux-cpu` plus `apple-silicon`; no `linux-cuda`
 validation is part of this phase.
@@ -35,7 +46,8 @@ and the committed `apple-silicon` attestation records that evidence per row.
 ## Sprint 30.1: Real Metal Kernels [⏸️ Blocked]
 
 **Status**: Blocked
-**Blocked by**: Phase `29`
+**Blocked by**: External `apple-silicon` host with Apple Silicon and a
+Metal-capable GPU visible to jitML's execution context.
 **Implementation**: `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalLocal.hs`, `src/JitML/Engines/MetalBridge.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/apple_silicon_metal_headless_builds.md`
 
@@ -88,7 +100,7 @@ docker compose run --rm jitml jitml check-code
 ## Sprint 30.2: Metal Row Device Evidence [⏸️ Blocked]
 
 **Status**: Blocked
-**Blocked by**: Sprint `30.1`
+**Blocked by**: Sprint `30.1` and external `apple-silicon` host availability.
 **Implementation**: `src/JitML/Product/Matrix.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/apple_silicon_metal_headless_builds.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -130,7 +142,7 @@ docker compose run --rm jitml jitml check-code
 ## Sprint 30.3: Apple Integration, E2E, and Attestation [⏸️ Blocked]
 
 **Status**: Blocked
-**Blocked by**: Sprint `30.2`
+**Blocked by**: Sprint `30.2` and external `apple-silicon` host availability.
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`
 

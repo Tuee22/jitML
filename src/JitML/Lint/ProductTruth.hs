@@ -67,16 +67,6 @@ productScaffoldRegistry =
       "Sprint 27.1"
       "seeded product demo checkpoint weights"
   , future
-      "identity-copy-cuda-kernels"
-      ["identityLikeFamilyImpl", "jitml_cuda_copy_and_launch", "cuBLAS-backed GEMM scaffold"]
-      "Sprint 29.1"
-      "identity-copy CUDA generic-family kernels"
-  , future
-      "degenerate-cuda-conv"
-      ["cuDNN-backed Conv2D scaffold", "cuDNN-backed Conv3D scaffold"]
-      "Sprint 29.1"
-      "degenerate CUDA convolution scaffolds"
-  , future
       "degenerate-metal-conv"
       ["conv1x1WeightedCompute", "Identity-class elementwise copy"]
       "Sprint 30.1"

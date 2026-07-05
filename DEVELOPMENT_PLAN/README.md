@@ -99,16 +99,19 @@ completion path is the new forward-only Phase `19`–`31` chain:
   allowed `docker compose run --rm jitml jitml test all --live --linux-cpu` to
   pass **8 / 8** stanzas with the report card showing
   `browser_product_matrix` **55 / 55** at edge `:9091`.
-- Phase `29` is blocked in this session by external `linux-cuda` substrate
-  availability: the `jitml-cuda` service exists, but Docker cannot select a GPU
-  device driver and exposes no NVIDIA runtime on this host. The phase validates
-  the row-complete product lane on a real `linux-cuda` host.
-- Phase `30` validates the row-complete product lane on `apple-silicon`.
+- Phase `29` is Done after the real RTX 5090 `linux-cuda` lane validated on
+  2026-07-05: all 12 canonical dataset artifacts were SHA-verified into live
+  MinIO, all **55 / 55** ProductRows published inference-eligible CUDA-lane
+  checkpoints, `jitml test all --linux-cuda` passed **8 / 8** stanzas, and live
+  Playwright passed **71 / 71** at edge `:9092`.
+- Phase `30` validates the row-complete product lane on `apple-silicon` and is
+  blocked in this session by the lack of a Mac host with a Metal-capable Apple
+  GPU.
 - Phase `31` re-aggregates on `linux-cpu` only and restores the no-caveat claim
   only if every row and every lane artifact is current.
 
-Phases `19`–`28` and `31` are `linux-cpu` only. Phase `29` may require
-`linux-cuda`; Phase `30` may require `apple-silicon`; no phase requires both
+Phases `19`–`28` and `31` are `linux-cpu` only. Phase `29` requires
+`linux-cuda`; Phase `30` requires `apple-silicon`; no phase requires both
 accelerators in one validation session.
 
 Historical 2026-06-30 evidence follows. A follow-up documentation/codebase audit
@@ -1324,8 +1327,8 @@ obligation exists.
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (Sprints 26.1-26.2 complete; per-game self-play, arena evidence, and inference-eligible checkpoints validated on linux-cpu) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
 | 27 | Demo All-Model Rendering | ✅ Done (Sprints 27.1-27.3 complete; product-row artifacts, renderers, and fail-closed browser guards validated) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
 | 28 | Per-Model Integration and E2E | ✅ Done (Sprint 28.3 — `jitml test all --live --linux-cpu` passed 8/8 stanzas on 2026-07-05 with row-complete report card coverage, `browser_product_matrix` 55/55, and all components ready at edge `:9091`) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
-| 29 | Linux CUDA Product Lane | ⏸️ Blocked by external `linux-cuda` host/GPU runtime availability in this session; validates `linux-cpu` + `linux-cuda` only | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
-| 30 | Apple Silicon Product Lane | ⏸️ Blocked by Phase `29`; validates `linux-cpu` + `apple-silicon` only | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
+| 29 | Linux CUDA Product Lane | ✅ Done (Phase 29.3 — RTX 5090 lane passed `jitml test all --linux-cuda` 8/8, live Playwright 71/71, and 55/55 ProductRows eligible on 2026-07-05) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 30 | Apple Silicon Product Lane | ⏸️ Blocked by external `apple-silicon` host/Metal runtime availability in this session; validates `linux-cpu` + `apple-silicon` only | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
 | 31 | No-Caveat Product Aggregation | ⏸️ Blocked by Phase `30`; `linux-cpu` aggregation only | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
 
 ## Reopened phases (2026-07-01 — product truth and per-model completion)

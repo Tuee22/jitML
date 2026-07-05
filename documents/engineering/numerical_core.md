@@ -25,6 +25,15 @@ all-family trained-artifact closure in
 and browser consumption in
 [DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
+**Current accelerator lane evidence.** Phase `29` closes the current
+`linux-cuda` product lane on the RTX 5090 host: generated CUDA family kernels
+call cuBLAS/cuDNN for Dense/MHA, Conv2D/Conv3D, BatchNorm, and LayerNorm;
+CUDA-backed MLP forward/backward/batched-gradient/input-gradient remains the
+device update path for product training; all 12 canonical dataset artifacts were
+SHA-verified into live MinIO; all **55 / 55** ProductRows published
+inference-eligible CUDA-lane checkpoints; and `jitml test all --linux-cuda`
+passed **8 / 8** stanzas.
+
 ## Catalog Shape
 
 The current numerical core is a local typed Haskell catalog. It enumerates the

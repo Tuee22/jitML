@@ -98,10 +98,9 @@ the test-support homes for those helpers.
 
 The same registry now enforces the removed `completedTrainingFromMetrics`
 fabrication helper and still lists future-owned scaffolds, including seeded demo
-weights, identity-copy CUDA kernels, and degenerate CUDA/Metal convolution
-scaffolds. Those future entries are exposed as `nonProductScaffolding` so the
-unit suite can prove no `ProductRow` implementation names them before their
-owning phases remove the source paths.
+weights and degenerate Metal convolution scaffolds. Those future entries are
+exposed as `nonProductScaffolding` so the unit suite can prove no `ProductRow`
+implementation names them before their owning phases remove the source paths.
 
 ### Chart-Shape Lint (`jitml lint chart`)
 

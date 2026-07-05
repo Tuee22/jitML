@@ -38,14 +38,17 @@ The result is:
 > incomplete documented SL/RL implementation coverage, and representative rather
 > than per-model integration/e2e evidence.
 > Phases `0`–`18` remain historical evidence for the surfaces they actually
-> validated; Phases `19`–`28` are complete after Phase `28` closed on
+> validated; Phases `19`–`29` are complete after Phase `29` closed on
 > 2026-07-05. Sprint `28.1` is Done after the row-keyed integration matrix
 > switched to real product-row publisher manifests, Sprint `28.2` is Done after
 > row-complete live Playwright passed on `linux-cpu`, and Sprint `28.3` is Done
 > after the full live `linux-cpu` report card passed **8 / 8** stanzas with
-> `browser_product_matrix` **55 / 55** at edge `:9091`. Phase `29` is the next
-> open phase and requires a real `linux-cuda` host; this session has no Docker
-> NVIDIA GPU runtime for the `jitml-cuda` service.
+> `browser_product_matrix` **55 / 55** at edge `:9091`. Phase `29` is Done
+> after the RTX 5090 `linux-cuda` lane passed **8 / 8** stanzas, published
+> **55 / 55** ProductRow checkpoints, and passed live Playwright **71 / 71** at
+> edge `:9092`. Phase `30` is the next open phase and requires a real
+> `apple-silicon` host; this session is Linux x86_64 and cannot exercise the
+> host Metal bridge.
 > The reopened completion path remains the
 > forward-only
 > Phase `19`–`31` chain in

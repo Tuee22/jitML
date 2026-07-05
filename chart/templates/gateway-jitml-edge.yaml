@@ -8,7 +8,7 @@ spec:
   listeners:
     - name: http
       protocol: HTTP
-      port: 9090
+      port: 9092
       allowedRoutes:
         namespaces:
           from: All

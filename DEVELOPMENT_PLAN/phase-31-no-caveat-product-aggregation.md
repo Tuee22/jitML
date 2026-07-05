@@ -13,6 +13,12 @@
 
 ⏸️ **Blocked by** Phase `30`.
 
+Rechecked 2026-07-05: the committed
+`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` is the historical
+Sprint `16.14` / Phase `16` Apple lane fragment, not the reopened Phase `30`
+row-complete product-lane attestation. Phase `31` cannot aggregate until Phase
+`30` refreshes that Apple fragment from a real `apple-silicon` host.
+
 **Validation substrate**: `linux-cpu` only — aggregation lane. This phase merges
 the committed per-lane attestations produced by Phase `28` (`linux-cpu`), Phase
 `29` (`linux-cuda`), and Phase `30` (`apple-silicon`); it does **not** re-run

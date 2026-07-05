@@ -332,13 +332,13 @@ cudaToolchainFingerprint =
         , "jitml_kernel_family_name(void)"
         , "jitml_kernel_output_count(size_t)"
         , -- Sprint 13.11: weighted CUDA ABI. Dense2D / Conv2D / Conv3D /
-          -- BatchNorm / LayerNorm / MHA / Embedding now drive real device
-          -- kernels (full set landed 2026-05-27). The "all-families" tag
-          -- bumps cache invalidation so the JIT cache picks up the real
-          -- weighted device kernels instead of the prior unweighted
-          -- fall-through.
+          -- BatchNorm / LayerNorm / MHA / Embedding now drive generated
+          -- device kernels. The Phase 29 tag below bumps cache invalidation
+          -- so the JIT cache picks up the cuBLAS/cuDNN-backed renderer
+          -- instead of the prior identity/custom placeholder bodies.
           "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
         , "weighted-bodies=all-families"
+        , "phase29-real-cublas-cudnn-v1"
         ]
     )
 

@@ -348,17 +348,20 @@ completed `InferenceEligibleCheckpoint` artifacts, visible convergence/
 completion state, negative infer-before-complete checks, RL animations from
 trained policies, adversarial-game boards from trained policy/value checkpoints,
 transcript replay, tuning controls, and TensorBoard/checkpoint links. Phase
-`15.21` then passed the same live Playwright product matrix 15/15 on the
-published `linux-cuda` edge.
+`29` then passed the row-complete live Playwright product matrix on the
+published `linux-cuda` edge: `jitml test jitml-e2e --live --linux-cuda`
+selected edge `:9092`, rendered every ProductRow artifact-backed selector as
+eligible, and passed **71 / 71** browser tests including **55 / 55**
+row-specific `e2e.product.*` cases.
 
 Playwright execution runs through the typed `Subprocess` boundary on the
 explicit live orchestration path; it belongs to the doctrine's
 Ephemeral-Cluster Infrastructure test category and does not have its own Cabal
 stanza. Static route/API scaffold checks stay in the local Haskell e2e and
 PureScript lint targets.
-The 2026-06-26 CUDA-machine run used
+The 2026-07-05 CUDA-machine run used
 `mcr.microsoft.com/playwright:v1.49.1-noble` with host networking against the
-published `linux-cuda` edge and passed **15 / 15**.
+published `linux-cuda` edge and passed **71 / 71**.
 The local PureScript smoke suite is `purescript-spec` executed through
 `spec-node` by `spago test`; Playwright remains live-only and separate from the
 default Cabal matrix.

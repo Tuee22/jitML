@@ -91,18 +91,19 @@ Metal cannot be containerized.
 
 The current product baseline reopened on 2026-07-01 after a model-runtime audit
 found that the public no-caveat claim still outran the implementation. Phases
-`0`–`18` remain dated evidence for their owned surfaces. Phases `19`–`28` are
-complete after Phase `28` closed on 2026-07-05: all **55** ProductRows published
+`0`–`18` remain dated evidence for their owned surfaces. Phases `19`–`29` are
+complete after Phase `29` closed on 2026-07-05: all **55** ProductRows published
 inference-eligible manifests with **0** unsupported rows and **0** errors, the
 row-keyed integration matrix switched to those real `CompletedTraining`
 manifests, row-complete live Playwright passed **71 / 71** browser tests, and
 the full `linux-cpu` report card passed **8 / 8** stanzas with
-`browser_product_matrix` **55 / 55** at edge `:9091`. Remaining product
-completion is now blocked in Phase `29` by external `linux-cuda` substrate
-availability for this session: the `jitml-cuda` service exists, but Docker
-cannot select a GPU device driver and exposes no NVIDIA runtime on this host.
-After a real `linux-cuda` lane validates, Phase `30` validates
-`apple-silicon`, and Phase `31` performs the final `linux-cpu` aggregation.
+`browser_product_matrix` **55 / 55** at edge `:9091`. Phase `29` then validated
+the RTX 5090 `linux-cuda` lane with `jitml test all --linux-cuda` **8 / 8**,
+`jitml-backends` **21 / 21**, all **55 / 55** ProductRow checkpoints eligible,
+and live Playwright **71 / 71** at edge `:9092`. Remaining product completion is
+now blocked in Phase `30` by external `apple-silicon` substrate availability:
+this session is Linux x86_64, not a Mac host with a visible Metal-capable Apple
+GPU. Phase `31` performs the final `linux-cpu` aggregation after Phase `30`.
 
 The executable truth sources for the reopened product chain are
 `src/JitML/Product/Matrix.hs` for row identity/matrix-floor membership and
@@ -112,10 +113,10 @@ current product-closure claims in governed docs while that registry reports an
 unfinished product phase; explicitly dated historical-evidence blocks are
 allowed.
 
-The active gaps are concrete and now live in the accelerator and final
+The active gaps are concrete and now live in the remaining accelerator and final
 aggregation phases: the row-complete product matrix must still validate on real
-`linux-cuda`, validate on real `apple-silicon`, and be aggregated into the final
-no-caveat handoff. The binding remediation rules live in
+`apple-silicon` and be aggregated into the final no-caveat handoff. The binding
+remediation rules live in
 [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
 
 Historical 2026-06-30 evidence remains useful but no longer closes the product:

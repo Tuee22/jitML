@@ -12,7 +12,9 @@ import Data.Either (isRight)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
+import JitML.Codegen.Cuda qualified as CudaCodegen
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
+import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal
   ( cudaKernelOutput
@@ -292,6 +294,42 @@ main =
                   assertBool
                     ("linux-cuda weighted " <> show family <> " run failed: " <> show message)
                     False
+      , testCase
+          "linux-cuda generated product-family CUDA source calls real cuBLAS/cuDNN entry points (Phase 29.1)"
+          $ do
+            let rendered family =
+                  Text.concat
+                    [ contents
+                    | SourceFile _ contents <-
+                        CudaCodegen.renderCudaFamilySource
+                          family
+                          (Cache.KernelSpec "phase-29:real-cuda-kernels")
+                          Cache.Training
+                          Cache.defaultTuningChoice
+                    ]
+                assertHas family needle =
+                  assertBool
+                    (show family <> " CUDA source should contain " <> Text.unpack needle)
+                    (needle `Text.isInfixOf` rendered family)
+                assertNoScaffold family =
+                  assertBool
+                    (show family <> " CUDA source should not contain scaffold language")
+                    (not ("scaffold" `Text.isInfixOf` Text.toLower (rendered family)))
+            for_
+              [Dense2D, Conv2DKernel, Conv3DKernel, BatchNormKernel, LayerNormKernel, MultiHeadAttentionKernel]
+              assertNoScaffold
+            assertHas Dense2D "jitml_cublas_sgemm_vector(out, input, n"
+            assertHas Dense2D "cublasSgemm("
+            assertHas MultiHeadAttentionKernel "jitml_cublas_sgemm_vector(q, input, n"
+            assertHas MultiHeadAttentionKernel "jitml_cublas_sgemm_vector(out, qk, n"
+            assertHas Conv2DKernel "jitml_cudnn_conv2d_forward(out, input, n"
+            assertHas Conv2DKernel "cudnnConvolutionForward("
+            assertHas Conv3DKernel "jitml_cudnn_conv3d_forward(out, input, n"
+            assertHas Conv3DKernel "cudnnSetTensorNdDescriptor"
+            assertHas BatchNormKernel "jitml_cudnn_batchnorm_forward(out, input, n"
+            assertHas BatchNormKernel "cudnnBatchNormalizationForwardInference"
+            assertHas LayerNormKernel "jitml_cudnn_layernorm_forward(out, input, n"
+            assertHas LayerNormKernel "CUDNN_BATCHNORM_PER_ACTIVATION"
       , testCase
           "apple-silicon weighted families match the pure reference within 1e-3 (Phase 1 rebalance)"
           $ do

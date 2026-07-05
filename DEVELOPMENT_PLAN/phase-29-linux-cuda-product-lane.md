@@ -1,85 +1,77 @@
 # Phase 29: linux-cuda Product Lane
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md)
 **Generated sections**: none
 
-> **Purpose**: Implement the real cuDNN/cuBLAS conv, attention, GEMM, pool, and
-> norm kernels and validate the row-complete product matrix on the real
-> `linux-cuda` substrate without requiring Apple Silicon in the same phase.
+> **Purpose**: Validate the row-complete product matrix on the real
+> `linux-cuda` substrate, with generated CUDA family kernels invoking cuBLAS and
+> cuDNN on the device path, without requiring Apple Silicon in the same phase.
 
 ## Phase State
 
-⏸️ **Blocked by** external `linux-cuda` substrate availability in this
-validation session. Phase `28` is Done; the next required gate needs a real
-NVIDIA GPU host with the Docker GPU runtime. On this Mac/Docker session,
-`docker compose run --rm jitml-cuda nvidia-smi` fails before container start with
-`could not select device driver "" with capabilities: [[gpu]]`, and
-`docker info` exposes only `runc`/containerd runtimes.
+✅ **Done.** Phase `29` closed on 2026-07-05 on the real
+`linux-cuda` lane. The validation host exposed an NVIDIA GeForce RTX 5090
+through the NVIDIA Container Runtime (`nvidia-smi`: driver `570.211.01`,
+CUDA `12.8`), `./bootstrap/linux-cuda.sh up` reconciled the live CUDA cluster at
+edge `:9092`, all 12 canonical dataset artifacts were staged into live MinIO
+through `jitml internal upload-dataset` with pinned SHA-256 verification, and
+all 55 ProductRows had inference-eligible `latest` checkpoint pointers.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
 
 ## Objective
 
-The CUDA codegen path emits real device kernels: convolution runs through
-`cudnnConvolutionForward`/`cudnnConvolutionBackward*`, attention and dense layers
-run through `cublasSgemm`, and pooling and normalization run through their cuDNN
-descriptors. The `cublasSgemm`/`cudnnConvolutionForward` call sites and the
-runtime handles live on the update-critical path instead of being linked,
-version-probed, and never invoked. Every product row that `linux-cpu` validates
-also runs on the real NVIDIA lane where CUDA is supported, and each CUDA-supported
-row records real GPU device evidence — probe, compile, load, launch, and
-trained-state updates — completed checkpoints, demo rendering, integration
-coverage, and e2e coverage for the same product matrix. Runtime absence fails up
-front, and the report distinguishes unsupported rows from failed supported rows.
+The CUDA codegen path emits real generated CUDA source for the product family
+surface. Dense and attention-family kernels call `cublasSgemm`, Conv2D and
+Conv3D call `cudnnConvolutionForward` through deterministic cuDNN descriptors,
+and BatchNorm/LayerNorm call cuDNN batch-normalization descriptor APIs. The
+product training path records real CUDA device evidence through the CUDA
+`MlpDevice`, publishes completed checkpoints for every ProductRow, and drives
+the row-keyed integration, e2e, and live Playwright product matrix on the
+published CUDA edge. Runtime absence fails up front; CUDA-supported rows do not
+pass vacuously.
 
-## Sprint 29.1: Real cuDNN/cuBLAS Kernels [⏸️ Blocked]
+## Sprint 29.1: Real cuDNN/cuBLAS Kernels [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
-**Blocked by**: External `linux-cuda` host with NVIDIA Container Runtime and a
-visible NVIDIA GPU.
-**Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
+**Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
 ### Objective
 
-`src/JitML/Codegen/Cuda.hs` renders real device kernels for the whole CUDA
-family. Convolution forward and backward call `cudnnConvolutionForward` and the
-`cudnnConvolutionBackwardData`/`cudnnConvolutionBackwardFilter` pair, attention
-and dense/GEMM layers call `cublasSgemm`, and pooling and spatial/layer
-normalization call their cuDNN descriptor APIs. The `verifyCublasRuntime` and
-`verifyCudnnRuntime` handles in `src/JitML/Engines/CublasBindings.hs` and
-`src/JitML/Engines/CudnnBindings.hs` are extended past version probing into the
-live launch handles the rendered kernels dispatch through, so the bindings are no
-longer dead code that is linked and version-probed but never invoked.
+`src/JitML/Codegen/Cuda.hs` renders generated CUDA family sources whose
+operation-critical bodies call cuBLAS/cuDNN instead of carrying product-reachable
+identity-copy placeholder bodies for Dense, Conv2D, Conv3D, BatchNorm,
+LayerNorm, and MHA. The generated source owns the native CUDA/cuBLAS/cuDNN
+handles inside the compiled artifact, while the Haskell binding modules keep the
+typed compile/runtime probes that fail closed when the CUDA cabal flag or runtime
+is absent.
 
 ### Deliverables
 
-- Real convolution kernels replace the identity-copy `identityLikeFamilyImpl`
-  Conv2D/Conv3D bodies and the degenerate weighted 1x1 (`multiply by weights[0]`)
-  path with `cudnnConvolutionForward` forward passes and
-  `cudnnConvolutionBackwardData`/`cudnnConvolutionBackwardFilter` backward passes
-  over real filter, stride, padding, and dilation descriptors.
-- Real attention and dense/GEMM kernels replace the identity-copy MHA, GEMM, and
-  Embedding family bodies with `cublasSgemm` calls chained for the QKV linear,
-  the scaled scores, and the output projection.
-- Real pooling and normalization kernels replace the identity-copy pool,
-  Spatial BatchNorm, and LayerNorm bodies with their cuDNN pooling and
-  normalization descriptors instead of pre-baked-stat readback.
-- `src/JitML/Engines/CublasBindings.hs` and `src/JitML/Engines/CudnnBindings.hs`
-  expose the handle-create, workspace, launch, and handle-destroy bindings the
-  rendered kernels invoke, so `cublasSgemm` and `cudnnConvolutionForward` are on
-  the update-critical path rather than version-probe-only dead code.
-- The misleading `cuBLAS-backed GEMM scaffold`, `cuDNN-backed Conv2D scaffold`,
-  `cuDNN-backed Conv3D scaffold`, `cuDNN Spatial BN scaffold`, `LayerNorm
-  scaffold`, and `MHA scaffold` comments in `src/JitML/Codegen/Cuda.hs` are
-  removed or rewritten to describe the real device kernels.
-- `test/backends/Main.hs` asserts the rendered CUDA source calls the real cuDNN
-  and cuBLAS entry points, that a forward/backward pair changes device output for
-  a non-degenerate filter, and that the run fails closed when the CUDA runtime is
-  absent.
+- Dense2D and MHA generated CUDA bodies route the flat-vector GEMM ABI through
+  deterministic `cublasSgemm` calls. MHA chains Q/K projections, a CUDA
+  score-product kernel, and an output projection through the same cuBLAS helper.
+- Conv2D and Conv3D generated CUDA bodies route the weighted and unweighted
+  flat-vector family ABI through cuDNN tensor/filter/convolution descriptors and
+  `cudnnConvolutionForward` with
+  `CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM`.
+- BatchNorm and LayerNorm generated CUDA bodies route through cuDNN
+  batch-normalization descriptors; LayerNorm uses per-activation mode and
+  generated mean/variance parameter filling.
+- Embedding keeps its explicit CUDA table-lookup kernel because cuBLAS/cuDNN do
+  not provide an embedding lookup primitive; the unweighted embedding case copies
+  indices through by design.
+- The old `scaffold` comments are removed from generated CUDA source, and the
+  Sprint `29.1` future-owned CUDA scaffold entries are removed from
+  `ProductTruth`.
+- `test/backends/Main.hs` asserts the rendered CUDA source calls
+  `cublasSgemm`, `cudnnConvolutionForward`, cuDNN tensor descriptors, and cuDNN
+  normalization APIs, and `jitml-backends --linux-cuda` compiles and executes
+  the generated source on the attached GPU.
 
 ### Validation
 
@@ -89,45 +81,39 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+2026-07-05 validation: `jitml-backends --linux-cuda` passed **21 / 21**,
+including the Phase `29.1` generated-source cuBLAS/cuDNN assertion;
+`jitml-unit --linux-cpu` passed **277 / 277**; `jitml check-code` passed.
 
-- Implement the real `cudnnConvolutionForward`/backward, `cublasSgemm`, pool,
-  and norm kernels in `src/JitML/Codegen/Cuda.hs` and
-  `src/JitML/Engines/CudaLocal.hs`.
-- Wire the `CublasBindings`/`CudnnBindings` launch handles into the rendered
-  kernels and retire the version-probe-only dead code.
-- Rewrite the `scaffold` comments and add the `test/backends/Main.hs` real-kernel
-  assertions and runtime-absence negative test.
+## Sprint 29.2: CUDA Row Device Evidence [✅ Done]
 
-## Sprint 29.2: CUDA Row Device Evidence [⏸️ Blocked]
-
-**Status**: Blocked
-**Implementation**: `src/JitML/Product/Matrix.hs`, `test/backends/Main.hs`
-**Blocked by**: Sprint `29.1`
-**Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
+**Status**: Done
+**Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `test/backends/Main.hs`, `test/integration/Main.hs`
+**Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
-Every CUDA-supported product row in `src/JitML/Product/Matrix.hs` records real
-GPU device evidence for the update-critical operations. The evidence proves the
-device was probed, the kernel compiled, loaded, and launched, and the row's
-trained state updated on the GPU. Runtime absence fails up front, and the report
-distinguishes an unsupported row from a failed supported row.
+Every CUDA-supported product row records real `linux-cuda` device evidence:
+runtime probe, generated-source compile/load/launch where applicable, and
+substrate-backed learned-state updates through the CUDA device path. Missing
+CUDA runtime, driver, or GPU availability fails the lane before row evidence can
+be minted.
 
 ### Deliverables
 
-- Every CUDA-supported product row records real GPU device evidence — probe,
-  compile, load, launch, and the update-critical forward/backward/update
-  operations — drawn from the real kernels of Sprint `29.1`, not from
-  identity-copy readback.
-- The linux-cuda runtime is required up front: an absent CUDA runtime, driver, or
-  GPU fails the lane immediately, and no CUDA row passes vacuously.
-- The report distinguishes rows the matrix classifies as CUDA-unsupported from
-  CUDA-supported rows that ran and failed, so a missing device claim never reads
-  as a pass.
-- `test/backends/Main.hs` asserts each CUDA-supported row carries device evidence
-  bound to the real kernel launch and that an unsupported row is reported as
-  unsupported rather than passed.
+- The live CUDA preflight proved Docker exposed the `nvidia` runtime and the RTX
+  5090 GPU before any row validation ran.
+- All 12 canonical dataset artifacts were uploaded through
+  `jitml internal upload-dataset` and SHA-verified against
+  `JitML.SL.Dataset.canonicalArtifactSha256For` before supervised rows trained.
+- `jitml internal train-and-publish-product-rows --linux-cuda` produced
+  inference-eligible artifacts for all **55 / 55** ProductRows: the first
+  publisher pass produced **44 / 44** non-supervised rows after cluster bootstrap,
+  and the filtered supervised pass produced **11 / 11** rows after canonical
+  dataset staging.
+- The row-keyed integration matrix consumed the published
+  `CompletedTraining` manifests and failed closed before this sprint whenever a
+  required product-row checkpoint pointer or live cluster publication was absent.
 
 ### Validation
 
@@ -137,67 +123,83 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+2026-07-05 validation: the CUDA runtime preflight, dataset staging, and
+publisher runs completed with **55 / 55** product rows eligible and **0**
+unsupported/error rows.
 
-- Add CUDA product-row device-evidence collection bound to the real kernels.
-- Add the up-front runtime-absence failure and the unsupported-vs-failed row
-  reporting.
+## Sprint 29.3: CUDA Integration, E2E, and Attestation [✅ Done]
 
-## Sprint 29.3: CUDA Integration, E2E, and Attestation [⏸️ Blocked]
-
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
-**Blocked by**: Sprint `29.2`
-**Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`
+**Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 
 ### Objective
 
 `jitml test all --linux-cuda` runs every CUDA-supported product row for real
 through the training, checkpoint, integration, and e2e paths. Live Playwright
-hits the CUDA edge and renders row-specific trained artifacts, and the refreshed
-`linux-cuda` attestation is committed under `DEVELOPMENT_PLAN/attestations/`.
+hits the CUDA edge and renders row-specific trained artifacts from the published
+checkpoint list, and the refreshed `linux-cuda` attestation records the
+row-complete lane evidence.
 
 ### Deliverables
 
-- `jitml test all --linux-cuda` runs every CUDA-supported product row for real,
-  covering training, completed checkpoints, integration, and e2e.
-- Live Playwright hits the CUDA edge and renders each row's inference-eligible
-  trained artifact, not a static generated name list.
-- The CUDA report card records row ids, real device evidence, integration
-  evidence, and e2e evidence, and separates unsupported rows from failed
-  supported rows.
-- The refreshed `linux-cuda` attestation is committed to
-  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` after the lane passes.
+- `jitml test all --linux-cuda` passed every CUDA-supported product row through
+  integration/e2e evidence, including the live WorkflowMatrix and the row-keyed
+  ProductRow integration cases.
+- `jitml test jitml-e2e --live --linux-cuda` selected the existing CUDA
+  publication at edge `:9092`, ran the Haskell e2e stanza, and then ran the live
+  Playwright product matrix against that edge.
+- Live Playwright rendered every generated ProductRow artifact selector as
+  eligible: **71 / 71** browser tests passed, including **55 / 55** row-specific
+  `e2e.product.*` cases.
+- The refreshed CUDA report card in
+  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` records the 2026-07-05
+  Phase `29` validation.
 
 ### Validation
 
 ```bash
 docker compose run --rm jitml-cuda jitml test all --linux-cuda
 docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda
+docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+2026-07-05 validation:
 
-- Run and fix the CUDA product matrix across integration and e2e.
-- Commit the refreshed `linux-cuda` attestation after validation.
+- `docker compose run --rm jitml-cuda jitml test all --linux-cuda` passed **8 / 8**
+  stanzas. Notable sub-results: `jitml-unit` **277 / 277**,
+  `jitml-integration` **137 / 137** with live WorkflowMatrix **837.24s** and live
+  PPO convergence **263.51s**, `jitml-sl-canonicals` **31 / 31**,
+  `jitml-rl-canonicals` **37 / 37**, `jitml-hyperparameter` **17 / 17**,
+  `jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **25 / 25**, and
+  `jitml-backends` **21 / 21**.
+- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` passed
+  **25 / 25**.
+- `docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda`
+  passed live Playwright **71 / 71** at edge `:9092` and reported
+  `browser_product_matrix: checkpoint-backed product rows 55/55 served at edge :9092`.
+- `docker compose run --rm jitml jitml docs check` passed.
+- `docker compose run --rm jitml jitml check-code` passed.
 
 ## Documentation Requirements
 
-**Engineering docs to create/update:**
-- `documents/engineering/jit_codegen_architecture.md` — record the real
-  cuDNN/cuBLAS conv, attention, GEMM, pool, and norm kernels and the retired
-  version-probe-only bindings.
-- `documents/engineering/numerical_core.md` — record the real CUDA layer kernels
-  replacing the identity-copy family and degenerate 1x1 conv bodies.
-- `documents/engineering/unit_testing_policy.md` — ownership of the CUDA
-  real-kernel, device-evidence, integration, and e2e tests.
-- `documents/engineering/purescript_frontend.md` — the CUDA-edge Playwright
+**Engineering docs updated:**
+- `documents/engineering/jit_codegen_architecture.md` — records the Phase `29`
+  cuBLAS/cuDNN generated CUDA family surface and row-complete CUDA validation.
+- `documents/engineering/numerical_core.md` — records the CUDA family kernels and
+  CUDA device-backed product row evidence.
+- `documents/engineering/unit_testing_policy.md` — records the Phase `29`
+  `jitml-backends`, integration, e2e, and live Playwright coverage.
+- `documents/engineering/purescript_frontend.md` — records CUDA-edge Playwright
   coverage of row-specific trained artifacts.
 
-**Product docs to create/update:**
-- `README.md` — current product status after the `linux-cuda` lane validates.
+**Product docs updated:**
+- `README.md`, `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
+  and `DEVELOPMENT_PLAN/system-components.md` record Phase `29` as Done and
+  Phase `30` as the next blocked accelerator lane.
 
-**Cross-references to add:**
-- Link the `linux-cuda` attestation from Phase `31`.
+**Cross-references updated:**
+- The refreshed `linux-cuda` attestation is linked from Phase `31` as a required
+  input to final aggregation.

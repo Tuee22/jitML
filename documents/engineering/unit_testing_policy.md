@@ -197,10 +197,12 @@ It also covers the Sprint `20.2` ProductTruth lint boundary: direct product
 source mentions of enforced fossils are rejected, product-reachable imports of
 relocated scaffold modules fail, and no `ProductRow` implementation names an
 entry from `nonProductScaffolding`.
-Current 2026-06-26 evidence: the `linux-cuda` all-model lane revalidated on the
-RTX 5090 host with `docker compose run --rm jitml-cuda jitml test all
---linux-cuda` passing all 8 stanzas, `jitml-backends` passing 20/20 on the GPU,
-and the live Playwright product matrix passing 15/15 at the published CUDA edge.
+Current 2026-07-05 CUDA evidence: Phase `29` revalidated the row-complete
+`linux-cuda` product lane on the RTX 5090 host with `docker compose run --rm
+jitml-cuda jitml test all --linux-cuda` passing all 8 stanzas,
+`jitml-backends` passing 21/21 on the GPU, all 55 ProductRows published as
+eligible CUDA-lane checkpoints, and `jitml test jitml-e2e --live --linux-cuda`
+passing live Playwright 71/71 at the published CUDA edge.
 Current 2026-06-29 Apple state: the host-native source build succeeds with
 Homebrew `llvm@19` providing GHC-compatible `opt`/`llc`, the HA
 `apple-silicon` rollout completed 131 steps at edge `:9090`, the host Metal

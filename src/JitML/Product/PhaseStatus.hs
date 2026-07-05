@@ -124,9 +124,9 @@ allProductPhaseStatuses =
       29
       "Linux CUDA Product Lane"
       "DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md"
-      [ sprint "29.1" "Real cuDNN/cuBLAS Kernels" Blocked
-      , sprint "29.2" "CUDA Row Device Evidence" Blocked
-      , sprint "29.3" "CUDA Integration, E2E, and Attestation" Blocked
+      [ sprint "29.1" "Real cuDNN/cuBLAS Kernels" Done
+      , sprint "29.2" "CUDA Row Device Evidence" Done
+      , sprint "29.3" "CUDA Integration, E2E, and Attestation" Done
       ]
   , productPhase
       30
