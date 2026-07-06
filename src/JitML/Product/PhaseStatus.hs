@@ -143,6 +143,28 @@ allProductPhaseStatuses =
       [ sprint "31.1" "Attestation Join" Done
       , sprint "31.2" "No-Caveat Closure" Done
       ]
+  , productPhase
+      32
+      "External-Truth Realness Harness & Negative-Control Gate"
+      "DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md"
+      [ sprint "32.1" "Negative-Control Suite" Done
+      , sprint "32.2" "External Bars, No-Self-Referential-Gate Lint, Provenance Binding" Done
+      , sprint "32.3" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
+      ]
+  , productPhase
+      33
+      "Per-Model Convergence & Inference-Performance Tests"
+      "DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md"
+      [ sprint "33.1" "Per-Model Measured Convergence" Done
+      , sprint "33.2" "Inference-Performance & Determinism" Done
+      ]
+  , productPhase
+      34
+      "Plan-Truth Governance"
+      "DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md"
+      [ sprint "34.1" "Evidence-Derived Closure Guard" Done
+      , sprint "34.2" "Standing Adversarial Audit & Thin Plan" Done
+      ]
   ]
 
 productPhaseNumbers :: [Int]
@@ -178,7 +200,7 @@ validateProductPhaseStatuses phases =
     <> concatMap validatePhase phases
  where
   phaseNumbers = fmap phaseNumber phases
-  expectedNumbers = [19 .. 31]
+  expectedNumbers = [19 .. 34]
   duplicatePhaseErrors =
     [ "duplicate product phase: " <> Text.pack (show number)
     | number <- duplicates phaseNumbers

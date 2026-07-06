@@ -149,6 +149,8 @@ reportStanzas =
   , "jitml-backends"
   , "jitml-daemon-lifecycle"
   , "jitml-e2e"
+  , "jitml-negative-controls"
+  , "jitml-model-convergence"
   ]
 
 -- | Stanzas whose cases are partitioned into per-substrate tasty lanes (named

@@ -34,6 +34,11 @@ Documents under this directory may explain architecture, doctrine, and
 verification boundaries, but they must link back to the development plan instead
 of maintaining competing status ledgers.
 
+Development-plan closure status is evidence-derived. The live `Closure Status`
+section stays thin: it records the current status and validation evidence, while
+historical reopen/audit narratives remain dated context rather than competing
+status ledgers.
+
 ### DRY + Link Liberally
 
 - Never copy-paste content between documents.

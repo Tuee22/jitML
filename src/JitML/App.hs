@@ -127,7 +127,7 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
-import JitML.Numerics.Mlp (MlpShape (..), mlpParamsToFlat, paramShape)
+import JitML.Numerics.Mlp (MlpShape (..), mlpInit, mlpParamsToFlat, paramShape)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
@@ -149,6 +149,7 @@ import JitML.Prerequisite.Registry
   )
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Project.Config qualified as ProjectConfig
@@ -998,7 +999,7 @@ runHostAppleTraining env start
               epochResult <- publishTrainingEpoch start metrics
               case epochResult of
                 Left err -> pure (Left err)
-                Right () -> publishTrainingCheckpoint start metrics
+                Right () -> publishTrainingCheckpoint problem start metrics
 
 publishTrainingEpoch
   :: ProtoTraining.StartTraining
@@ -1022,10 +1023,11 @@ publishTrainingEpoch start metrics = do
   publishUnit topic (ProtoTraining.renderTrainingEvent envelope)
 
 publishTrainingCheckpoint
-  :: ProtoTraining.StartTraining
+  :: SL.CanonicalProblem
+  -> ProtoTraining.StartTraining
   -> TrainingMetrics
   -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-publishTrainingCheckpoint start metrics =
+publishTrainingCheckpoint problem start metrics =
   case tmCheckpointWeights metrics of
     Nothing -> pure (Right ())
     Just weights -> do
@@ -1033,10 +1035,22 @@ publishTrainingCheckpoint start metrics =
           step = tmCompletedUnits metrics
           tensorName = "sl-trained-weights"
           metricRows = trainingCheckpointMetrics metrics
+          completedTraining =
+            eitherToMaybe
+              ( completedTrainingForSupervisedProblem
+                  problem
+                  metrics
+                  experimentHash
+                  tensorName
+                  step
+                  metricRows
+                  weights
+              )
           topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic AppleSilicon)
       checkpointResult <-
-        writeMinIOWeightCheckpointWithDatasetSha
+        writeMinIOWeightCheckpointWithDatasetShaAndCompleted
           (tmDatasetShaAtRead metrics)
+          completedTraining
           experimentHash
           tensorName
           step
@@ -1053,6 +1067,7 @@ publishTrainingCheckpoint start metrics =
                       step
                       metricRows
                       (tmDatasetShaAtRead metrics)
+                      completedTraining
                       weights
                       stored
                   )
@@ -1603,6 +1618,7 @@ data TrainingMetrics = TrainingMetrics
   , tmExamplesProcessed :: !Int
   , tmHeldOutMetric :: !(Maybe (Text, Double))
   , tmCompletedUnits :: !Word64
+  , tmInitialCheckpointWeights :: !(Maybe [Double])
   , tmCheckpointWeights :: !(Maybe [Double])
   , tmDatasetShaAtRead :: !(Maybe Text)
   }
@@ -1643,6 +1659,7 @@ trainingMetricsFor completedEpochs datasetShaAtRead checkpointWeights metrics he
     , tmExamplesProcessed = Architecture.slmExamplesProcessed metrics
     , tmHeldOutMetric = fmap (metricLabel,) heldOut
     , tmCompletedUnits = fromIntegral (max 1 completedEpochs)
+    , tmInitialCheckpointWeights = Architecture.slmInitialWeights metrics <$ checkpointWeights
     , tmCheckpointWeights = checkpointWeights
     , tmDatasetShaAtRead = datasetShaAtRead
     }
@@ -1769,7 +1786,16 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                             Left err -> pure (Left err)
                             Right testAcc -> do
                               writeText
-                                (renderTrainingMetricsLine substrate problem Nothing trainLimit epochs metrics testAcc "test_acc")
+                                ( renderTrainingMetricsLine
+                                    substrate
+                                    problem
+                                    Nothing
+                                    trainLimit
+                                    epochs
+                                    metrics
+                                    testAcc
+                                    "test_accuracy"
+                                )
                               pure
                                 ( Right
                                     ( trainingMetricsFor
@@ -1778,7 +1804,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                                         (Just (Architecture.trainedArchitectureWeights trained))
                                         metrics
                                         testAcc
-                                        "test_acc"
+                                        "test_accuracy"
                                     )
                                 )
                 _ ->
@@ -1896,7 +1922,7 @@ runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs 
                         epochs
                         metrics
                         testAcc
-                        "test_acc"
+                        "test_accuracy"
                     )
                   pure
                     ( Right
@@ -1906,7 +1932,7 @@ runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs 
                             (Just (Architecture.trainedArchitectureWeights trained))
                             metrics
                             testAcc
-                            "test_acc"
+                            "test_accuracy"
                         )
                     )
 
@@ -1975,6 +2001,14 @@ runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs 
                           pure trainMse
                       let epochsBudget = max 1 epochs
                           examplesProcessed = length trainSet * epochsBudget
+                          initialShape =
+                            MlpShape
+                              { mlpInputs = Regression.regInputs config
+                              , mlpHidden = Regression.regHidden config
+                              , mlpOutputs = 1
+                              }
+                          initialWeights =
+                            mlpParamsToFlat (mlpInit initialShape (Regression.regSeed config))
                       writeText
                         ( "train: "
                             <> SL.problemName problem
@@ -2002,8 +2036,9 @@ runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs 
                               { tmTrainLoss = trainMse
                               , tmValidationLoss = validationMse
                               , tmExamplesProcessed = examplesProcessed
-                              , tmHeldOutMetric = Nothing
+                              , tmHeldOutMetric = Just ("rmse", sqrt validationMse)
                               , tmCompletedUnits = fromIntegral epochsBudget
+                              , tmInitialCheckpointWeights = Just initialWeights
                               , tmCheckpointWeights =
                                   Just (mlpParamsToFlat (Regression.trainedRegressorParams trained))
                               , tmDatasetShaAtRead = Just datasetShaAtRead
@@ -2349,9 +2384,20 @@ publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics =
           tensorName = "sl-trained-weights"
           step = tmCompletedUnits metrics
           metricRows = trainingCheckpointMetrics metrics
+          completedTraining =
+            eitherToMaybe
+              ( completedTrainingForSupervisedProblem
+                  problem
+                  metrics
+                  experimentHash
+                  tensorName
+                  step
+                  metricRows
+                  weights
+              )
       stored <-
-        writeLocalWeightCheckpointWithDatasetSha
-          (tmDatasetShaAtRead metrics)
+        writeLocalWeightCheckpointWithCompleted
+          completedTraining
           experimentHash
           tensorName
           step
@@ -2362,6 +2408,7 @@ publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics =
         step
         metricRows
         (tmDatasetShaAtRead metrics)
+        completedTraining
         weights
         stored
 
@@ -2370,10 +2417,11 @@ publishWorkerTrainingCheckpointEvent
   -> Word64
   -> [(Text, Double)]
   -> Maybe Text
+  -> Maybe TrainingBudget.CompletedTraining
   -> [Double]
   -> CheckpointStore.StoredCheckpoint
   -> App ()
-publishWorkerTrainingCheckpointEvent tensorName step metricRows datasetShaAtRead weights stored = do
+publishWorkerTrainingCheckpointEvent tensorName step metricRows datasetShaAtRead completedTraining weights stored = do
   target <- workerBrokerTarget
   experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
@@ -2387,6 +2435,7 @@ publishWorkerTrainingCheckpointEvent tensorName step metricRows datasetShaAtRead
                   step
                   metricRows
                   datasetShaAtRead
+                  completedTraining
                   weights
                   stored
               )
@@ -2415,10 +2464,11 @@ trainingCheckpointDoneEnvelope
   -> Word64
   -> [(Text, Double)]
   -> Maybe Text
+  -> Maybe TrainingBudget.CompletedTraining
   -> [Double]
   -> CheckpointStore.StoredCheckpoint
   -> ProtoTraining.CheckpointDone
-trainingCheckpointDoneEnvelope experimentHash tensorName step metricRows datasetShaAtRead weights stored =
+trainingCheckpointDoneEnvelope experimentHash tensorName step metricRows datasetShaAtRead completedOverride weights stored =
   ProtoTraining.CheckpointDone
     { ProtoTraining.cdExperimentHash = experimentHash
     , ProtoTraining.cdManifestSha = CheckpointStore.storedManifestSha stored
@@ -2429,13 +2479,16 @@ trainingCheckpointDoneEnvelope experimentHash tensorName step metricRows dataset
     , ProtoTraining.cdRunUuid = "training-" <> experimentHash
     , ProtoTraining.cdMetricsAtStep = metricRows
     , ProtoTraining.cdCompletedTraining =
-        completedCheckpointWitnessWithDatasetSha
-          datasetShaAtRead
-          experimentHash
-          tensorName
-          step
-          metricRows
-          weights
+        case completedOverride of
+          Just completed -> Just completed
+          Nothing ->
+            completedCheckpointWitnessWithDatasetSha
+              datasetShaAtRead
+              experimentHash
+              tensorName
+              step
+              metricRows
+              weights
     }
 
 trainingCheckpointMetrics :: TrainingMetrics -> [(Text, Double)]
@@ -3338,6 +3391,28 @@ writeMinIOWeightCheckpointWithDatasetSha datasetShaAtRead experimentHash tensorN
           weights
    in CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing
 
+writeMinIOWeightCheckpointWithDatasetShaAndCompleted
+  :: (Capabilities.HasMinIO m)
+  => Maybe Text
+  -> Maybe TrainingBudget.CompletedTraining
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> m (Either ServiceError CheckpointStore.StoredCheckpoint)
+writeMinIOWeightCheckpointWithDatasetShaAndCompleted datasetShaAtRead completedOverride experimentHash tensorName step metrics weights =
+  let (manifest, payloads) =
+        buildWeightCheckpointSnapshotWithDatasetShaAndCompleted
+          datasetShaAtRead
+          completedOverride
+          experimentHash
+          tensorName
+          step
+          metrics
+          weights
+   in CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing
+
 buildWeightCheckpointSnapshot
   :: Text
   -> Text
@@ -3475,6 +3550,94 @@ completedCheckpointWitnessWithDatasetSha datasetShaAtRead experimentHash tensorN
         , TrainingBudget.tbrScalarTags = fmap fst metrics
         }
 
+completedTrainingForSupervisedProblem
+  :: SL.CanonicalProblem
+  -> TrainingMetrics
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> Either Text TrainingBudget.CompletedTraining
+completedTrainingForSupervisedProblem problem metrics experimentHash tensorName step metricRows finalWeights = do
+  row <-
+    maybe
+      (Left ("missing ProductRow for supervised problem " <> SL.problemName problem))
+      Right
+      (supervisedProductRowForProblem problem)
+  initialWeights <-
+    maybe
+      (Left ("missing initial checkpoint weights for " <> SL.problemName problem))
+      Right
+      (tmInitialCheckpointWeights metrics)
+  completedTrainingForProductRow
+    row
+    (tmDatasetShaAtRead metrics)
+    experimentHash
+    tensorName
+    step
+    metricRows
+    initialWeights
+    finalWeights
+
+supervisedProductRowForProblem
+  :: SL.CanonicalProblem
+  -> Maybe (ProductMatrix.ProductRow 'ProductMatrix.Declared)
+supervisedProductRowForProblem problem =
+  listToMaybe
+    [ row
+    | row <- ProductMatrix.allProductRows
+    , ProductMatrix.family row == ProductMatrix.Supervised
+    , ProductMatrix.rowId row == SL.problemName problem
+    ]
+
+completedTrainingForProductRow
+  :: ProductMatrix.ProductRow state
+  -> Maybe Text
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> [Double]
+  -> Either Text TrainingBudget.CompletedTraining
+completedTrainingForProductRow row datasetShaAtRead experimentHash tensorName step metrics initialWeights finalWeights = do
+  evidence <-
+    checkpointTrainingEvidenceWithInitialWeights
+      datasetShaAtRead
+      initialWeights
+      experimentHash
+      tensorName
+      step
+      metrics
+      finalWeights
+  observations <- convergenceObservationsForProductRow row metrics
+  TrainingBudget.completedTraining
+    (ProductMatrix.trainingBudget row)
+    step
+    evidence
+    observations
+    TrainingBudget.TensorBoardRunMetadata
+      { TrainingBudget.tbrRunId = experimentHash
+      , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+      , TrainingBudget.tbrScalarTags = fmap TrainingBudget.coMetricName observations
+      }
+
+convergenceObservationsForProductRow
+  :: ProductMatrix.ProductRow state
+  -> [(Text, Double)]
+  -> Either Text [TrainingBudget.ConvergenceObservation]
+convergenceObservationsForProductRow row metrics = do
+  observation <-
+    ProductConvergence.evaluateConvergence
+      (ProductMatrix.convergenceBar row)
+      (ProductConvergence.MeasuredMetrics metrics)
+  case ProductExternalBars.assertProductBarExternal
+    (ProductMatrix.convergenceBar row)
+    (TrainingBudget.coMetricValue observation) of
+    [] -> Right [observation]
+    failures -> Left (Text.intercalate "; " failures)
+
 tuneSweepCompletedTraining
   :: Text
   -> Word32
@@ -3574,8 +3737,27 @@ checkpointTrainingEvidenceWithDatasetSha
   -> [Double]
   -> Either Text ProductEvidence.TrainingEvidence
 checkpointTrainingEvidenceWithDatasetSha datasetShaAtRead experimentHash tensorName step metrics weights =
+  checkpointTrainingEvidenceWithInitialWeights
+    datasetShaAtRead
+    (replicate (length weights) 0)
+    experimentHash
+    tensorName
+    step
+    metrics
+    weights
+
+checkpointTrainingEvidenceWithInitialWeights
+  :: Maybe Text
+  -> [Double]
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> Either Text ProductEvidence.TrainingEvidence
+checkpointTrainingEvidenceWithInitialWeights datasetShaAtRead initialWeights experimentHash tensorName step metrics weights =
   ProductEvidence.mkTrainingEvidence
-    (hashBytes (LazyByteString.toStrict (Checkpoint.encodeJmw1 (replicate (length weights) 0))))
+    (hashWeightList initialWeights)
     (hashBytes (LazyByteString.toStrict (Checkpoint.encodeJmw1 weights)))
     (max 1 step)
     (fromMaybe (checkpointDatasetShaAtRead experimentHash tensorName metrics) datasetShaAtRead)
@@ -3596,11 +3778,43 @@ convergenceObservationsForMetrics
   -> Either Text [TrainingBudget.ConvergenceObservation]
 convergenceObservationsForMetrics =
   traverse
-    ( \metric@(name, value) ->
-        ProductConvergence.evaluateConvergence
-          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
-          (ProductConvergence.MeasuredMetrics [metric])
+    ( \metric@(name, _) ->
+        case convergenceBarForMetric name of
+          Nothing -> Left ("missing external convergence bar for metric: " <> name)
+          Just bar ->
+            ProductConvergence.evaluateConvergence
+              bar
+              (ProductConvergence.MeasuredMetrics [metric])
     )
+
+convergenceBarForMetric :: Text -> Maybe ProductConvergence.ConvergenceBar
+convergenceBarForMetric name =
+  case name of
+    "test_accuracy" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "test_acc" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "train_accuracy" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "rmse" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 0.90 0.10)
+    "best_objective" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
+    "objective" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
+    "arena_win_rate" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.60 0.10)
+    "legal_move_rate" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.01)
+    "goal_success_rate" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "achieved_goal_distance" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 0.04 0.01)
+    "train_loss" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 2.0 0.10)
+    "validation_loss" ->
+      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 2.0 0.10)
+    _ -> Nothing
 
 sha256Text :: Text -> Text
 sha256Text =
@@ -6067,14 +6281,6 @@ runInternalTrainAndPublishProductRows parsedOptions = do
   substrate <- case selectedSubstrateFlagWithDefault LinuxCPU parsedOptions of
     Left err -> exitWithError err
     Right value -> pure value
-  liveContext <- workerLiveContext
-  case liveContext of
-    Nothing ->
-      exitWithError
-        ( InvalidConfig
-            "train-and-publish-product-rows requires a live cluster; bring it up via `jitml bootstrap --linux-cpu` and stage datasets first"
-        )
-    Just _ -> pure ()
   rowFilterRaw <- liftIO (lookupEnv "JITML_PRODUCT_ROW_FILTER")
   let rowFilter =
         maybe
@@ -6095,7 +6301,13 @@ runInternalTrainAndPublishProductRows parsedOptions = do
               <> Text.intercalate ", " rowFilter
           )
       )
-  results <- traverse (trainAndPublishProductRow substrate) selectedRows
+  results <-
+    traverse
+      ( \row -> do
+          writeLine ("train-and-publish-product-rows: row=" <> ProductMatrix.rowId row)
+          trainAndPublishProductRow substrate row
+      )
+      selectedRows
   let eligibleCount = length [() | result <- results, productPublishStatus result == "eligible"]
       unsupportedCount = length [() | result <- results, productPublishStatus result == "unsupported"]
       errorRows = [productPublishRowId result | result <- results, productPublishStatus result == "error"]
@@ -6147,11 +6359,11 @@ trainAndPublishSupervisedProductRow substrate row = do
   case loaded of
     Left err -> pure (productPublishError row err)
     Right problem -> do
-      trainLimit <- productEnvInt "JITML_PRODUCT_SL_TRAIN_LIMIT" 2000
+      trainLimit <- productEnvInt "JITML_PRODUCT_SL_TRAIN_LIMIT" 7000
       epochs <-
         productEnvInt
           "JITML_PRODUCT_SL_EPOCHS"
-          (fromIntegral (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row)))
+          (max 10 (fromIntegral (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))))
       testLimit <- productEnvInt "JITML_PRODUCT_SL_TEST_LIMIT" 1000
       trained <- runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit
       case trained of
@@ -6164,15 +6376,36 @@ trainAndPublishSupervisedProductRow substrate row = do
               let experimentHash = ProductMatrix.productRowExperimentHash row
                   tensorName = experimentHash <> "-sl-weights"
                   metricRows = trainingCheckpointMetrics metrics
-              stored <-
-                writeLocalWeightCheckpointWithDatasetSha
-                  (tmDatasetShaAtRead metrics)
-                  experimentHash
-                  tensorName
-                  (tmCompletedUnits metrics)
-                  metricRows
-                  weights
-              pure (productPublishEligible row stored "supervised artifact published")
+                  completedTraining =
+                    case tmInitialCheckpointWeights metrics of
+                      Nothing -> Left "missing initial checkpoint weights"
+                      Just initialWeights ->
+                        completedTrainingForProductRow
+                          row
+                          (tmDatasetShaAtRead metrics)
+                          experimentHash
+                          tensorName
+                          (tmCompletedUnits metrics)
+                          metricRows
+                          initialWeights
+                          weights
+              case completedTraining of
+                Left err ->
+                  pure
+                    ( productPublishError
+                        row
+                        ("supervised row did not produce passing CompletedTraining evidence: " <> err)
+                    )
+                Right completed -> do
+                  stored <-
+                    writeLocalWeightCheckpointWithCompleted
+                      (Just completed)
+                      experimentHash
+                      tensorName
+                      (tmCompletedUnits metrics)
+                      metricRows
+                      weights
+                  pure (productPublishEligible row stored "supervised artifact published")
 
 trainAndPublishRlProductRow
   :: Substrate
@@ -6379,7 +6612,15 @@ trainAndPublishTuningProductRow substrate row = do
           trialCount <-
             productEnvInt
               "JITML_PRODUCT_TUNE_TRIALS"
-              (max 1 (min 4 (fromIntegral (Tune.tuningConfigTrials config))))
+              ( fromIntegral
+                  ( max
+                      1
+                      ( min
+                          (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
+                          (fromIntegral (Tune.tuningConfigTrials config))
+                      )
+                  )
+              )
           resultsE <-
             liftIO
               ( Tune.trialObjectiveResultsWithDevice
@@ -6396,17 +6637,24 @@ trainAndPublishTuningProductRow substrate row = do
                   pure (productPublishError row "tuning row produced no trial results")
                 Just best -> do
                   let experimentHash = ProductMatrix.productRowExperimentHash row
+                      trialsCompleted32 :: Word32
                       trialsCompleted32 = fromIntegral (length results)
                       trialsCompleted = fromIntegral trialsCompleted32
                       completedTraining =
-                        tuneSweepCompletedTraining
+                        completedTrainingForProductRow
+                          row
+                          Nothing
                           experimentHash
-                          trialsCompleted32
-                          (Tune.trialResultObjective best)
+                          "tune-trial-weights"
+                          trialsCompleted
+                          [("best_objective", Tune.trialResultObjective best)]
+                          (Tune.trialResultInitialWeights best)
+                          (Tune.trialResultWeights best)
                   case completedTraining of
-                    Nothing ->
-                      pure (productPublishError row "tuning row did not produce passing CompletedTraining evidence")
-                    Just completed -> do
+                    Left err ->
+                      pure
+                        (productPublishError row ("tuning row did not produce passing CompletedTraining evidence: " <> err))
+                    Right completed -> do
                       stored <-
                         writeLocalWeightCheckpointWithCompleted
                           (Just completed)

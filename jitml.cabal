@@ -532,7 +532,6 @@ test-suite jitml-negative-controls
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/negative-controls
-
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
@@ -551,7 +550,6 @@ test-suite jitml-model-convergence
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/model-convergence
-
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -O2 -fllvm -funbox-strict-fields

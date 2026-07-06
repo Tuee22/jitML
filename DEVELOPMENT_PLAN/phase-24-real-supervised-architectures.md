@@ -1,6 +1,6 @@
 # Phase 24: Real Supervised Architectures
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
 **Generated sections**: none
@@ -11,7 +11,7 @@
 
 ## Phase State
 
-🔄 **Active, reopened 2026-07-05 (realness audit)**. Phase `23` is Done. Sprints
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `23` is Done. Sprints
 `24.1`, `24.2`, and `24.3` previously closed on 2026-07-02, but the 2026-07-05
 realness audit found that no canonical row trains or serves its named
 architecture. The model actually built and trained by `layersForFamily`
@@ -27,12 +27,12 @@ bottleneck topology. The advertised `architectureLayerGraphForFamily` graph
 (`archLayerGraph`, `Architecture.hs`:`97`) is **never** trained or used for
 inference — `trainArchitectureWithDevice` and the split-training path both
 initialise and train `archLayers spec` only (`Architecture.hs`:`550`, `:649`) —
-so `archLayerGraph` feeds only a self-authored feature-parity check
+so `archLayerGraph` fed only a self-authored feature-parity check
 (`Architecture.hs`:`484`,`:492`), not the model that runs. Sprint `24.1`
 (literal architectures), Sprint `24.2` (convergence and evidence), and Sprint
-`24.3` (CompletedTraining SL manifests) are reopened to **Active**: the named
-topology must be genuinely built, trained, and served, and each row's
-convergence must be measured per-model against an external bar. The
+`24.3` (CompletedTraining SL manifests) were reopened; the named topology must
+be genuinely built, trained, and served, and each row's convergence must be
+measured per-model against an external bar. The
 negative-control suite (`jitml-negative-controls`, Phase `32` —
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
 and the per-model suite (`jitml-model-convergence`, Phase `33` —
@@ -58,9 +58,9 @@ throughput, and clears `median(k=5) >= literature_target - slack`. Each row writ
 an inference-eligible `CompletedTraining` checkpoint, and partial, synthetic, or
 untrained supervised manifests are rejected.
 
-## Sprint 24.1: Literal Architectures [🔄 Active]
+## Sprint 24.1: Literal Architectures [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
@@ -112,9 +112,9 @@ because it inspects `architectureLayerGraphForFamily`
 (`Architecture.hs`:`484`,`:492`), which is never trained or served, so no
 rejection actually guards the model that runs.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation**: each supervised row must be its literal
+- **Closed Exit-Definition obligation**: each supervised row must be its literal
   named architecture on the *trained and served* path — real `Conv2D`/pooling and
   BatchNorm for LeNet-5, real residual convolutional blocks at the documented
   depths/widths for the small ResNet, ResNet-20, ResNet-56, and WideResNet-28-10,
@@ -131,9 +131,9 @@ rejection actually guards the model that runs.
   must reject the current MLP-for-conv stand-in, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
-## Sprint 24.2: Convergence and Evidence [🔄 Active]
+## Sprint 24.2: Convergence and Evidence [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `test/sl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/numerical_core.md`
 
@@ -177,9 +177,9 @@ and the bar each row clears is self-authored rather than a frozen external
 literature constant — so a passing row does not demonstrate the documented model
 learning.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation**: each row's held-out convergence metric
+- **Closed Exit-Definition obligation**: each row's held-out convergence metric
   must be *measured on the real named architecture* and cleared against a frozen
   external literature bar, not on the shared flattened-pixel residual-MLP against
   a self-authored threshold.
@@ -191,9 +191,9 @@ learning.
   `ExternalBars` target, must pass for every supervised row via
   `docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu`.
 
-## Sprint 24.3: CompletedTraining SL Manifests [🔄 Active]
+## Sprint 24.3: CompletedTraining SL Manifests [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Checkpoint/`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`
 
@@ -236,9 +236,9 @@ flattened-pixel MLP as `ResNet`/`WideResNet`/`ResNet-50`/`LeNet`/`ViT`. The
 `CompletedTraining` manifest and fail-closed loader machinery are in place, but
 they attest a fabricated topology as complete.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation**: the inference-eligible checkpoint and its
+- **Closed Exit-Definition obligation**: the inference-eligible checkpoint and its
   graph/layout evidence must describe the real named architecture that was
   trained, and inference must serve that topology — not the shared residual-MLP.
 - **Closing validation**: after the real topology lands (Sprint `24.1`) and is

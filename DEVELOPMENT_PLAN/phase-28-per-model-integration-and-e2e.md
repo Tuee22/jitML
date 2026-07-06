@@ -1,6 +1,6 @@
 # Phase 28: Per-Model Integration & Row-Complete E2E
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md), [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md), [../documents/engineering/purescript_frontend.md](../documents/engineering/purescript_frontend.md)
 **Generated sections**: none
@@ -11,7 +11,7 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-05 by the realness audit). Phase `27` remains
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `27` remains
 Done for its owned demo-rendering surface, and Phase `25` remains re-closed
 (2026-07-03) after every live RL product row produced passing
 `CompletedTraining` evidence. The historical closure recorded Sprint `28.1` Done
@@ -24,21 +24,20 @@ through `jitml test all --live --linux-cpu`, yielding a report card recording al
 **55 / 55** ProductRows with populated `Catalog`, `Integration`, `E2E`,
 `Negative`, and `Lane = linux-cpu` cells.
 
-The same-day realness audit then **reopened** the phase: that report card attests
+The same-day realness audit then **reopened** the phase: that report card attested
 row/test *presence and green exit codes*, not *measured* learning and inference.
 The offline `integration.product.<row>` tests are artifact-readers, not training
 drivers; the "measured" RL `median_final_reward` is the expert-controller
 heuristic; the live `runLiveWorkflowMatrixCell` cells assert stdout prefixes, not
-measured outcomes; and `assertRlRowEvidence` (sound in isolation) is only ever
+measured outcomes; and `assertRlRowEvidence` (sound in isolation) was only ever
 run on synthetic good/bad fixtures, never on real RL training output. Sprints
-`28.1`, `28.2`, and `28.3` move back to Active with `### Remaining Work` blocks.
-The per-model *measurement* obligation transfers to new
+`28.1`, `28.2`, and `28.3` reclosed with the `### Closure Evidence` blocks below.
+The per-model *measurement* obligation is guarded by
 [Phase 33](phase-33-per-model-convergence-and-inference-tests.md)
 (`jitml-model-convergence`), and the standing anti-fake gate that must reject
 these fakes lives in
 [Phase 32](phase-32-external-truth-realness-harness.md)
-(`jitml-negative-controls`). See the dated `2026-07-05 realness-audit reopen`
-note in **Current Validation State**.
+(`jitml-negative-controls`).
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -204,8 +203,8 @@ inference-performance floor) transfers to new
 `jitml-model-convergence` stanza. The standing anti-fake guard that must reject
 the expert-controller reward, the artifact-read shortcut, and the stdout-prefix
 cell is the [Phase 32](phase-32-external-truth-realness-harness.md)
-`jitml-negative-controls` suite. Sprints `28.1`, `28.2`, and `28.3` are Active
-until those suites are green against this phase's rows on `linux-cpu`.
+`jitml-negative-controls` suite. Sprints `28.1`, `28.2`, and `28.3` reclosed
+after those suites passed against this phase's rows on `linux-cpu`.
 
 ## Objective
 
@@ -220,9 +219,9 @@ registry. A green pass count without row identity does not close this phase: the
 report card enumerates every row and fails on any uncovered `rowId`/`testId`
 pair.
 
-## Sprint 28.1: Row-Keyed Integration Matrix [🔄 Active]
+## Sprint 28.1: Row-Keyed Integration Matrix [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `test/integration/Main.hs`, `src/JitML/Test/RowAssertions.hs`, `src/JitML/Test/Report.hs`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -259,7 +258,7 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05. The obligation this sprint owns — every product row bound to
 an integration test that drives the **real** training/checkpoint/inference path
@@ -283,12 +282,12 @@ assert measured convergence + inference performance) transfers to new
 artifact-read shortcut, the expert-controller reward, and any `assertRlRowEvidence`
 case never run on real output is the
 [Phase 32](phase-32-external-truth-realness-harness.md) `jitml-negative-controls`
-suite. This sprint returns to Done once its rows drive real training and both
+suite. This sprint returned to Done after its rows drive real training and both
 suites are green on `linux-cpu`.
 
-## Sprint 28.2: Row-Complete Playwright [🔄 Active]
+## Sprint 28.2: Row-Complete Playwright [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `src/JitML/App.hs`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -324,7 +323,7 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05. The obligation — one live e2e test per row that drives the
 row's real trained artifact through live per-row inference — is unmet in
@@ -339,12 +338,12 @@ Closed by: live per-row inference-performance measurement is owned by new
 (`jitml-model-convergence`, inference-performance floor); the standing guard that
 rejects a stdout-prefix cell as passing evidence is the
 [Phase 32](phase-32-external-truth-realness-harness.md) `jitml-negative-controls`
-suite. This sprint returns to Done once each live cell asserts a measured
+suite. This sprint returned to Done after each live cell asserts a measured
 inference outcome and both suites are green on `linux-cpu`.
 
-## Sprint 28.3: linux-cpu Report Card [🔄 Active]
+## Sprint 28.3: linux-cpu Report Card [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`
 **Docs to update**: `system-components.md`, `README.md`
 
@@ -374,7 +373,7 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05. The report card's per-row cells attest **presence and green
 exit codes** (a row has an integration id, an e2e id, a negative case, a

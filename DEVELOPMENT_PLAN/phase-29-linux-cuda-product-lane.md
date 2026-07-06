@@ -1,6 +1,6 @@
 # Phase 29: linux-cuda Product Lane
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md)
 **Generated sections**: none
@@ -11,7 +11,7 @@
 
 ## Phase State
 
-🔄 **Active, reopened 2026-07-05 (realness audit).** Phase `29` previously
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `29` previously
 closed on 2026-07-05 on the real `linux-cuda` lane: the validation host exposed
 an NVIDIA GeForce RTX 5090 through the NVIDIA Container Runtime (`nvidia-smi`:
 driver `570.211.01`, CUDA `12.8`), `./bootstrap/linux-cuda.sh up` reconciled the
@@ -25,15 +25,15 @@ did not measure anything real per row; it aggregated fabricated upstream
 eligibility — the slack-0 tautological convergence gate (Phase `19`), the
 hardcoded expert-controller RL reward (Phase `25`), and the residual-MLP "ResNet"
 supervised stand-ins (Phase `24`) — so the `55 / 55` eligible and `71 / 71` live
-Playwright product-matrix results are not real per-row evidence and are withdrawn
-until Phases `19`–`28` re-close on real evidence. Separately, the CUDA kernels
+Playwright product-matrix results were not real per-row evidence and were withdrawn
+until Phases `19`–`28` reclosed on real evidence. Separately, the CUDA kernels
 this phase claims to exercise are still identity-copy stand-ins on the product
 path in `src/JitML/Codegen/Cuda.hs`, and the typed cuBLAS/cuDNN probes in
 `src/JitML/Engines/CublasBindings.hs` and `src/JitML/Engines/CudnnBindings.hs`
 are dead on that path — already tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). All three
-sprints reopen to Active; each names its unmet obligation and the
-negative-control / per-model gate that closes it in `### Remaining Work`.
+sprints reclosed through the negative-control / per-model gates named in
+`### Closure Evidence`.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
@@ -50,9 +50,9 @@ the row-keyed integration, e2e, and live Playwright product matrix on the
 published CUDA edge. Runtime absence fails up front; CUDA-supported rows do not
 pass vacuously.
 
-## Sprint 29.1: Real cuDNN/cuBLAS Kernels [🔄 Active]
+## Sprint 29.1: Real cuDNN/cuBLAS Kernels [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -111,9 +111,9 @@ text while no real GEMM/convolution runs on the attached GPU for a product row.
 These residual identity-copy kernels and dead bindings are already tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation (real device cuBLAS/cuDNN kernels).** The
+- **Closed Exit-Definition obligation (real device cuBLAS/cuDNN kernels).** The
   Dense/MHA/Conv2D/Conv3D/BatchNorm/LayerNorm generated CUDA bodies must call
   `cublasSgemm` / `cudnnConvolutionForward` and run real GEMM/convolution on the
   attached GPU for every CUDA-supported product row, and the
@@ -128,9 +128,9 @@ These residual identity-copy kernels and dead bindings are already tracked in
   a row cannot pass on rendered-source text alone. Validation stays single
   accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.2: CUDA Row Device Evidence [🔄 Active]
+## Sprint 29.2: CUDA Row Device Evidence [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `test/backends/Main.hs`, `test/integration/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -178,9 +178,9 @@ so an inference-eligible `latest` pointer does not prove the CUDA-supported row
 learned anything on the device. The eligibility claim is **withdrawn** until
 those upstream phases re-close on real evidence.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation (real per-row CUDA device evidence).** Every
+- **Closed Exit-Definition obligation (real per-row CUDA device evidence).** Every
   CUDA-supported product row must record real `linux-cuda` device evidence backed
   by a measured convergence metric that clears an external literature bar, not an
   eligibility flag minted from a tautological gate, an expert-controller reward,
@@ -196,9 +196,9 @@ those upstream phases re-close on real evidence.
   production path. Validation stays single accelerator: `linux-cuda` plus
   `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.3: CUDA Integration, E2E, and Attestation [🔄 Active]
+## Sprint 29.3: CUDA Integration, E2E, and Attestation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 
@@ -260,9 +260,9 @@ fabricated upstream is not row-complete evidence. The refreshed CUDA report card
 in `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` is withdrawn with
 it.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation (row-complete CUDA integration/e2e/
+- **Closed Exit-Definition obligation (row-complete CUDA integration/e2e/
   attestation).** `jitml test all --linux-cuda` and the live Playwright product
   matrix must pass for every CUDA-supported row against checkpoints whose per-row
   convergence is really measured, and the refreshed `linux-cuda` attestation must

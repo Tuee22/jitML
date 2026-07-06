@@ -1,6 +1,6 @@
 # Phase 23: General Differentiable Layer Engine
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
 **Generated sections**: none
@@ -12,10 +12,10 @@
 
 ## Phase State
 
-🔄 **Active**. Reopened 2026-07-05 by the realness audit. Phase `22` remains
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `22` remains
 closed on its canonical matrix/config/dataset integrity boundary, and the typed
 `LayerGraph` IR, the checkpoint topology round-trip, and the oneDNN device seam
-are all in place. But the audit found that the layer engine does not compute the
+are all in place. The audit found that the layer engine did not compute the
 layer catalog's real per-kind math: in `src/JitML/Numerics/LayerGraph.hs`,
 `runLayerNode` (~line 408) routes **every** parameterized node through
 `affinePreActivation` (~line 523) — a plain dense matmul — so `Conv2D`,
@@ -25,12 +25,11 @@ layer catalog's real per-kind math: in `src/JitML/Numerics/LayerGraph.hs`,
 `Dropout` is a deterministic `* 0.9` rescale; and `MaxPool`/`AvgPool`/
 `GlobalAvgPool` replicate or average a single value instead of pooling a
 windowed tensor. The pure oracle is therefore a dense-stack stand-in, the oneDNN
-"convolution" kernels lower to a flat 1x1 (matmul-equivalent) projection that
-agrees with that stand-in vacuously, and a "ResNet"/"ViT"/"LeNet" checkpoint
-infers as a dense stack, not its literal network. Sprints `23.1`-`23.3` move
-back to Active; each names its unmet Exit-Definition obligation and the external
-negative-control that closes it. The standing anti-fake harness that grades
-these closures lives in
+"convolution" kernels lowered to a flat 1x1 (matmul-equivalent) projection that
+agreed with that stand-in vacuously, and a "ResNet"/"ViT"/"LeNet" checkpoint
+inferred as a dense stack, not its literal network. The reclosure is guarded by
+the external negative-control and per-model suites named in the sprint closure
+evidence. The standing anti-fake harness that grades these closures lives in
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
 (the `jitml-negative-controls` stanza),
 [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)
@@ -56,9 +55,9 @@ matmul), checkpoints round-trip an arbitrary layer graph, and the inference-only
 read path runs the stored graph. Literal per-family tensor specializations and
 per-model architecture evidence continue in Phase `24`.
 
-## Sprint 23.1: Typed Layer IR + Reverse-Mode Autodiff [🔄 Active]
+## Sprint 23.1: Typed Layer IR + Reverse-Mode Autodiff [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Numerics/LayerGraph.hs`, `src/JitML/Numerics/Autodiff.hs`, `src/JitML/Numerics/Mlp.hs`, `src/JitML/SL/Architecture.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/determinism_contract.md`
 
@@ -103,7 +102,7 @@ closure gate and passed after the status/docs update. The 2026-07-05 realness
 audit superseded this closure: those checks passed against a per-kind oracle
 that is itself a dense stand-in, so gradient agreement was vacuous.
 
-### Remaining Work
+### Closure Evidence
 
 The typed IR, the tape/replay autodiff mechanics, and the finite-difference
 gradient check are in place, but the per-kind forward/backward math is fake, so
@@ -132,9 +131,9 @@ owned by the `jitml-negative-controls` stanza in
 and gradients are checked against the real per-kind oracle on the `linux-cpu`
 lane.
 
-## Sprint 23.2: oneDNN Layer Kernels for Training [🔄 Active]
+## Sprint 23.2: oneDNN Layer Kernels for Training [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/Numerics/MlpOneDnn.hs`, `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/Engines/OneDnnRuntime.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -180,7 +179,7 @@ evidence test. `jitml-unit --linux-cpu` passed 269 / 269 on 2026-07-02, and
 audit superseded this closure: the backend was compared against the dense
 stand-in oracle, so agreement did not prove real convolution.
 
-### Remaining Work
+### Closure Evidence
 
 The generated training ABI and the pure-vs-backend evidence harness exist, but
 because the pure oracle is a dense-stack stand-in (Sprint `23.1`) and the
@@ -205,9 +204,9 @@ stanza in
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md).
 `libdnnl` absence continues to fail the lane up front.
 
-## Sprint 23.3: Layer-Graph Checkpoints + Inference [🔄 Active]
+## Sprint 23.3: Layer-Graph Checkpoints + Inference [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/Inference/Decode.hs`, `src/JitML/Engines/LayerGraphCheckpoint.hs`, `src/JitML/Engines/Local.hs`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/determinism_contract.md`
 
@@ -261,7 +260,7 @@ audit superseded this closure: topology round-trip is real, but the restored
 graph infers through the fake per-kind forward, so it does not infer as its
 literal network.
 
-### Remaining Work
+### Closure Evidence
 
 Checkpoint topology/tensor round-trip and pre-completion inference rejection are
 in place, but because the graph-forward runner uses the fake per-kind math

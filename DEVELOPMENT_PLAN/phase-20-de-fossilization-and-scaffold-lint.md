@@ -1,6 +1,6 @@
 # Phase 20: De-Fossilization & Scaffold Lint
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md), [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md), [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md), [../documents/engineering/code_quality.md](../documents/engineering/code_quality.md)
 **Generated sections**: none
@@ -11,8 +11,8 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-05, realness audit). Phase `19` installed the typed
-product matrix, the Phase `19`–`31` status registry, and the docs-check closure
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `19`
+installed the typed product matrix, the Phase `19`–`34` status registry, and the docs-check closure
 guard. Sprint `20.1` removed the legacy fake-ML fossils from the product path, and
 Sprint `20.2` turned on the forbidden-scaffold registry and reachability lint over
 the de-fossilized tree.
@@ -24,12 +24,12 @@ previous iteration's fossils (`deterministicStep`, `runRLLoop`,
 seeded-`*-demo-weights` entries but never scans them — so it is structurally blind
 to a new fake introduced under a new name and does not meet the phase's
 Exit-Definition obligation that no product command path executes a fake. Sprint
-`20.2` therefore reopens to `Active`; Sprint `20.1` (fossil removal) stands, since
-those fossils are genuinely off the product path. The replacement behavioral
+`20.2` therefore reopened; Sprint `20.1` (fossil removal) stood, since
+those fossils were genuinely off the product path. The replacement behavioral
 detector and the deletion of the `FutureOwner` exemption are owned by
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
 Sprint `32.3` and validated by the `jitml-negative-controls` suite (Sprint `32.1`);
-see Sprint `20.2` → `### Remaining Work`.
+see Sprint `20.2` → `### Closure Evidence`.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -102,13 +102,13 @@ docker compose run --rm jitml jitml docs check                           # passe
 docker compose run --rm jitml jitml check-code                           # passed
 ```
 
-### Remaining Work
+### Closure Evidence
 
 - None.
 
-## Sprint 20.2: Scaffold Lint + Reachability [🔄 Active]
+## Sprint 20.2: Scaffold Lint + Reachability [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Lint/Stack.hs`, `src/JitML/Product/Matrix.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/code_quality.md`, `../documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -152,9 +152,9 @@ docker compose run --rm jitml jitml docs check                  # passed
 docker compose run --rm jitml jitml check-code                  # passed
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet obligation (Exit Definition: no product command path executes a fake).**
+- **Closed obligation (Exit Definition: no product command path executes a fake).**
   As landed, `src/JitML/Lint/ProductTruth.hs` is a *name denylist* of the previous
   iteration's fossil names (`deterministicStep`, `runRLLoop`,
   `runSimulatedEpisode*`, `VecEnv` / `JitML.RL.VecEnv`) with a `FutureOwner`
@@ -194,5 +194,3 @@ docker compose run --rm jitml jitml check-code                  # passed
 - `legacy-tracking-for-deletion.md` records Sprint `20.1` as the owning sprint
   for each fossil removal and relocation.
 - Add this phase to `README.md` and `00-overview.md`.
-</content>
-</invoke>

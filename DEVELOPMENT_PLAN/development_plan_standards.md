@@ -251,7 +251,7 @@ modifying the owned closure of Phases `0`–`18`, and the user elected to
 implement every row **for real** — the plan narrows nothing by documentation;
 each obligation is closed by real training, real inference, and real kernels.
 Phase `19` installs the typed product-truth gates, the single `ProductRow`
-registry, a matrix floor, per-row convergence bars, and the typed Phase `19`–`31`
+registry, a matrix floor, per-row convergence bars, and the typed Phase `19`–`34`
 sprint-status registry that downstream closure gates consume. Phase `20`
 removes the legacy fake-ML fossils and installs the forbidden-scaffold +
 import-edge lint. Phase `21` makes inference eligibility a type-state property
@@ -514,6 +514,22 @@ required):
 Any future automation (a `jitml docs check` lint or CI step) implements exactly
 these three predicates; until then they are run as the documented deterministic
 scan before closing a plan change.
+
+### N. Evidence-Derived Product Status and Thin Closure Narrative
+
+Product closure status is derived from executable evidence, not from narrative
+prose. A phase or sprint in the product chain may be marked `Done` only when its
+validation stanza(s), docs check, and code-quality gate have passed in the
+container lane named by that phase. The standing realness gate consists of
+`jitml-negative-controls`, `jitml-model-convergence`, the product phase-status
+guard in `jitml-unit`, `jitml docs check`, and `jitml check-code`.
+
+`README.md → Closure Status` stays thin: it names the current status, the
+validation commands and pass counts, and links to the historical audit narrative
+instead of accumulating a per-commit closure diary. If a recurring adversarial
+realness audit finds a contradiction between status and evidence, the audit
+finding defines status and the owning phase moves back to `Active` until its
+standing gate passes again.
 
 ## Related Documents
 

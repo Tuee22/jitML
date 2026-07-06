@@ -123,6 +123,10 @@ data SlRunMetrics = SlRunMetrics
   -- ^ Train-partition accuracy of the selected model.
   , slmExamplesProcessed :: !Int
   -- ^ Deterministic throughput metric: train examples × epochs.
+  , slmInitialWeights :: ![Double]
+  -- ^ Flat parameter vector from the real initialized layers before the first
+  --   optimizer step. Checkpoint witnesses use this to prove movement from the
+  --   actual random initialization rather than an all-zero placeholder.
   }
   deriving stock (Eq, Show)
 
@@ -246,6 +250,14 @@ architectureSpecForProblem config problem =
       (patchSide geometry)
       hidden
       outWidth
+  vitPatchStem name outWidth hidden =
+    PatchSpec
+      name
+      geometry
+      (vitPatchSide geometry)
+      (vitPatchSide geometry)
+      hidden
+      outWidth
   layersForFamily DenseFamily =
     [denseFinal "dense-classifier" inputs]
   layersForFamily DeepDenseFamily =
@@ -267,7 +279,7 @@ architectureSpecForProblem config problem =
       <> fmap (\i -> residualBlock i wideLatent (baseHidden * 2)) [1 .. depth]
       <> [denseFinal "wide-residual-classifier" wideLatent]
   layersForFamily VisionTransformerFamily =
-    [ patchStem "vit-patch-embedding" latent baseHidden
+    [ vitPatchStem "vit-patch-embedding" latent baseHidden
     , AttentionSpec "vit-self-attention" latent baseHidden
     , MeanPoolSpec "vit-token-mean-pool"
     , denseFinal "vit-classifier" latent
@@ -650,6 +662,7 @@ trainArchitectureWithDeviceSelected device spec config trainSet validationSet
       case statesE of
         Left err -> pure (Left err)
         Right states0 -> do
+          let initialWeights = architectureLayerWeights states0
           folded <-
             foldM
               ( \acc _epoch -> case acc of
@@ -688,6 +701,7 @@ trainArchitectureWithDeviceSelected device spec config trainSet validationSet
                       , slmValidationLoss = bestValLoss
                       , slmTrainAccuracy = trainAcc
                       , slmExamplesProcessed = length trainSet * epochs
+                      , slmInitialWeights = initialWeights
                       }
                   )
 
@@ -697,8 +711,12 @@ trainArchitectureWithDeviceSelected device spec config trainSet validationSet
 -- through the @.jmw1@ codec). Parameterless layers (mean-pool) contribute
 -- nothing.
 trainedArchitectureWeights :: TrainedArchitecture -> [Double]
-trainedArchitectureWeights trained =
-  concatMap layerWeights (trainedArchLayers trained)
+trainedArchitectureWeights =
+  architectureLayerWeights . trainedArchLayers
+
+architectureLayerWeights :: [LayerState] -> [Double]
+architectureLayerWeights =
+  concatMap layerWeights
  where
   layerWeights (DenseState _ params _) = mlpParamsToFlat params
   layerWeights (ResidualState _ _ params _) = mlpParamsToFlat params
@@ -714,7 +732,27 @@ trainEpoch
   -> [LayerState]
   -> BatchRep
   -> IO (Either Text [LayerState])
-trainEpoch device adamConfig numClasses labels states inputs = do
+trainEpoch device adamConfig numClasses labels states (FlatBatch inputs) =
+  foldM
+    ( \acc (batchInputs, batchLabels) -> case acc of
+        Left err -> pure (Left err)
+        Right current ->
+          trainBatch device adamConfig numClasses batchLabels current (FlatBatch batchInputs)
+    )
+    (Right states)
+    (miniBatches architectureTrainingBatchSize inputs labels)
+trainEpoch _ _ _ _ _ (TokenBatch _) =
+  pure (Left "trainArchitectureWithDevice: top-level epoch expected flat inputs")
+
+trainBatch
+  :: MlpDevice
+  -> AdamConfig
+  -> Int
+  -> [Int]
+  -> [LayerState]
+  -> BatchRep
+  -> IO (Either Text [LayerState])
+trainBatch device adamConfig numClasses labels states inputs = do
   fwdE <- forwardWithTapes device states inputs
   case fwdE of
     Left err -> pure (Left err)
@@ -724,6 +762,18 @@ trainEpoch device adamConfig numClasses labels states inputs = do
       pure (fmap fst backE)
     Right (TokenBatch _, _) ->
       pure (Left "trainArchitectureWithDevice: final layer produced token representation")
+
+architectureTrainingBatchSize :: Int
+architectureTrainingBatchSize = 128
+
+miniBatches :: Int -> [Vector Double] -> [Int] -> [([Vector Double], [Int])]
+miniBatches size inputs labels =
+  case splitAt (max 1 size) (zip inputs labels) of
+    ([], _) -> []
+    (chunk, rest) ->
+      let (chunkInputs, chunkLabels) = unzip chunk
+          (restInputs, restLabels) = unzip rest
+       in (chunkInputs, chunkLabels) : miniBatches size restInputs restLabels
 
 initialiseLayers :: Int -> [LayerSpec] -> IO (Either Text [LayerState])
 initialiseLayers seed specs =
@@ -848,35 +898,38 @@ backwardAll
   -> Int
   -> IO (Either Text ([LayerState], BatchRep))
 backwardAll device adamConfig states tapes upstream batchN = do
+  let reversed = zip (reverse states) (reverse tapes)
+      lastIndex = length reversed - 1
+      step acc (idx, (state, tape)) = case acc of
+        Left err -> pure (Left err)
+        Right (statesRev, grad) -> do
+          let needInputGradient = idx < lastIndex
+          back <- backwardLayer device adamConfig needInputGradient state tape grad batchN
+          pure (fmap (\(state', grad') -> (state' : statesRev, grad')) back)
   result <-
     foldM
       step
       (Right ([], upstream))
-      (zip (reverse states) (reverse tapes))
+      (zip [0 :: Int ..] reversed)
   pure $ fmap (\(statesRev, grad) -> (statesRev, grad)) result
- where
-  step acc (state, tape) = case acc of
-    Left err -> pure (Left err)
-    Right (statesRev, grad) -> do
-      back <- backwardLayer device adamConfig state tape grad batchN
-      pure (fmap (\(state', grad') -> (state' : statesRev, grad')) back)
 
 backwardLayer
   :: MlpDevice
   -> AdamConfig
+  -> Bool
   -> LayerState
   -> LayerTape
   -> BatchRep
   -> Int
   -> IO (Either Text (LayerState, BatchRep))
-backwardLayer device adamConfig state tape upstream batchN =
+backwardLayer device adamConfig needInputGradient state tape upstream batchN =
   case (state, tape, upstream) of
     (DenseState name params adam, DenseTape xs, FlatBatch dys) -> do
-      result <- deviceGradientStep device adamConfig params adam xs dys batchN
+      result <- deviceGradientStep device adamConfig needInputGradient params adam xs dys batchN
       pure (fmap (\(params', adam', dxs) -> (DenseState name params' adam', FlatBatch dxs)) result)
     (ResidualState name scale params adam, ResidualTape xs, FlatBatch dys) -> do
       let residualDys = fmap (VU.map (* scale)) dys
-      result <- deviceGradientStep device adamConfig params adam xs residualDys batchN
+      result <- deviceGradientStep device adamConfig needInputGradient params adam xs residualDys batchN
       pure $
         fmap
           ( \(params', adam', dxs) ->
@@ -888,7 +941,8 @@ backwardLayer device adamConfig state tape upstream batchN =
     (PatchState name runtime params adam, PatchTape patchesBySample, TokenBatch tokenDys) -> do
       let flatPatches = concat patchesBySample
           flatDys = concat tokenDys
-      result <- deviceGradientStep device adamConfig params adam flatPatches flatDys batchN
+      result <-
+        deviceGradientStep device adamConfig needInputGradient params adam flatPatches flatDys batchN
       pure $
         fmap
           ( \(params', adam', patchDxs) ->
@@ -905,7 +959,8 @@ backwardLayer device adamConfig state tape upstream batchN =
           tokenInputs = concatMap (fmap tokenInput) attended
           qkvDys = concatMap fst back
           tokenDxsFromAttention = fmap snd back
-      result <- deviceGradientStep device adamConfig params adam tokenInputs qkvDys batchN
+      result <-
+        deviceGradientStep device adamConfig needInputGradient params adam tokenInputs qkvDys batchN
       pure $
         fmap
           ( \(params', adam', tokenDxsFromQkv) ->
@@ -933,17 +988,21 @@ backwardLayer device adamConfig state tape upstream batchN =
 deviceGradientStep
   :: MlpDevice
   -> AdamConfig
+  -> Bool
   -> MlpParams
   -> AdamState
   -> [Vector Double]
   -> [Vector Double]
   -> Int
   -> IO (Either Text (MlpParams, AdamState, [Vector Double]))
-deviceGradientStep device adamConfig params adam xs dys batchN
+deviceGradientStep device adamConfig needInputGradient params adam xs dys batchN
   | length xs /= length dys =
       pure (Left "deviceGradientStep: input/gradient batch size mismatch")
   | otherwise = do
-      dxE <- mlpdInputGradientBatch device params (zip xs dys)
+      dxE <-
+        if needInputGradient
+          then mlpdInputGradientBatch device params (zip xs dys)
+          else pure (Right [])
       gradE <- mlpdBatchGradient device params (zip xs dys)
       pure $ do
         dxs <- dxE
@@ -1130,6 +1189,11 @@ patchSide geometry
   | geomWidth geometry <= 8 = 2
   | geomWidth geometry <= 32 = 4
   | otherwise = 8
+
+vitPatchSide :: ImageGeometry -> Int
+vitPatchSide geometry
+  | geomWidth geometry >= 32 = 16
+  | otherwise = patchSide geometry
 
 meanVector :: [Vector Double] -> Vector Double
 meanVector [] = VU.empty

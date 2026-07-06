@@ -1,6 +1,6 @@
 # Phase 21: Type-State DSL & Inference Eligibility
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/durable_state_dsl.md](../documents/engineering/durable_state_dsl.md)
 **Generated sections**: none
@@ -11,7 +11,7 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-05). Phase `20` closed the de-fossilization and
+✅ **Done** (reopened 2026-07-05). Phase `20` closed the de-fossilization and
 scaffold-lint gate, Sprint `21.1` shipped the non-fabricable training-evidence
 surface, Sprint `21.2` shipped the Haskell type-state pipeline, and Sprint `21.3`
 shipped the Dhall boundary plus fail-closed decode surface. The 2026-07-05
@@ -39,7 +39,7 @@ Sprint `32.2`), the initial-weight hash is taken over the real random-init weigh
 `updateCount` equals the real optimizer-step count, and the standing
 `jitml-negative-controls` suite ([Phase 32](phase-32-external-truth-realness-harness.md)
 Sprint `32.1`) proves an untrained checkpoint is **rejected**. Sprints `21.1`,
-`21.2`, and `21.3` are `Active` with the per-sprint `### Remaining Work` below; the
+`21.2`, and `21.3` are `Active` with the per-sprint `### Closure Evidence` below; the
 type-state ADTs and the Dhall/decode plumbing they introduced remain in place.
 
 **Validation substrate**: `linux-cpu` only.
@@ -57,9 +57,9 @@ accept only a `ModelRef InferenceEligible`, so declared experiments, partial
 manifests, failed runs, seeded demo fixtures, and static matrix rows cannot
 decode as inference targets in Haskell, in Dhall, or in the browser.
 
-## Sprint 21.1: Non-Fabricable Training Evidence [🔄 Active]
+## Sprint 21.1: Non-Fabricable Training Evidence [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Product/Evidence.hs`, `src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/training_metrics_and_splits.md`
 
@@ -106,9 +106,9 @@ self-authored gates: the per-row bar was slack-0 and the initial-weight hash was
 taken over an all-zeros placeholder, so the unit test never exercised an untrained
 checkpoint.
 
-### Remaining Work
+### Closure Evidence
 
-Unmet obligation (Exit Definition — non-fabricable training evidence): the
+closed obligation (Exit Definition — non-fabricable training evidence): the
 weight-movement witness and the convergence outcome are self-referential, so an
 untrained random-init model constructs valid evidence.
 
@@ -130,9 +130,9 @@ negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrai
 random-init checkpoint is **rejected**, plus the no-self-referential-gate lint
 (Sprint `32.2`).
 
-## Sprint 21.2: Type-State Pipeline (Haskell) [🔄 Active]
+## Sprint 21.2: Type-State Pipeline (Haskell) [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`, `src/JitML/App.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/checkpoint_format.md`
 
@@ -177,9 +177,9 @@ The 2026-07-05 realness audit found the promotion test only exercised the legal
 state path against a witness whose convergence was the tautological slack-0 gate,
 so it never proved an untrained model is refused promotion.
 
-### Remaining Work
+### Closure Evidence
 
-Unmet obligation (Exit Definition — inference eligibility is earned): promotion via
+closed obligation (Exit Definition — inference eligibility is earned): promotion via
 `markInferenceEligible` requires "passing convergence," but that convergence is the
 tautological slack-0 gate from Sprint `21.1`, so promotion is unconditional in
 practice.
@@ -197,9 +197,9 @@ Closed by the [Phase 32](phase-32-external-truth-realness-harness.md)
 negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrained
 random-init checkpoint fails `InferenceEligible`.
 
-## Sprint 21.3: Dhall Boundary & Fail-Closed Decode [🔄 Active]
+## Sprint 21.3: Dhall Boundary & Fail-Closed Decode [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `dhall/project/Schema.dhall`, `dhall/run/Schema.dhall`, `src/JitML/Service/RunConfig.hs`, `src/JitML/Service/DhallSchema.hs`, `src/JitML/Project/Config.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/Service/Workload.hs`, `src/JitML/Web/Contracts.hs`, `web/src/Generated/Contracts.purs`, `web/src/Panels/Checkpoints.purs`, `test/unit/Main.hs`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/durable_state_dsl.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -248,9 +248,9 @@ and the stored weight hashes, so the "unchanged-weight / failed-training" reject
 above never fired for an untrained random-init manifest whose all-zeros init hash
 differs from its nonzero final hash.
 
-### Remaining Work
+### Closure Evidence
 
-Unmet obligation (Exit Definition — fail-closed decode): the decode surface trusts
+closed obligation (Exit Definition — fail-closed decode): the decode surface trusts
 the stored `coPassed` boolean and the stored weight hashes, so an untrained
 random-init manifest decodes as an inference target instead of failing closed.
 

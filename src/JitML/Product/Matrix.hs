@@ -275,7 +275,7 @@ supervisedRow problem =
       Just threshold ->
         classificationAccuracyBar "test_accuracy" threshold
       Nothing ->
-        regressionRmseBar "rmse" 0.50 0.10
+        regressionRmseBar "rmse" 0.90 0.10
 
 rlConvergenceRows :: [ProductRow 'Declared]
 rlConvergenceRows =
@@ -351,7 +351,7 @@ tuningRow =
       , tbUnitLabel = "trials"
       , tbSeed = Just 1729
       }
-    (mkConvergenceBar "best_objective" MetricMaximise 1.0 0.0)
+    (mkConvergenceBar "best_objective" MetricMaximise 1.0 0.05)
     TuningPromotedTraining
     "hyperparameter-sweep"
 

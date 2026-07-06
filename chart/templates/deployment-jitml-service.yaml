@@ -17,13 +17,12 @@ spec:
     metadata:
       labels:
         app: jitml-service
-        jitml.substrate: linux-cuda
+        jitml.substrate: linux-cpu
         jitml.role: engine
         jitml.compute: "true"
         jitml.compute-scope: service
     spec:
       serviceAccountName: jitml-service
-      runtimeClassName: nvidia
       nodeSelector:
         jitml.node-role/compute: "true"
       affinity:
@@ -48,11 +47,6 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
-          env:
-            - name: NVIDIA_VISIBLE_DEVICES
-              value: all
-            - name: NVIDIA_DRIVER_CAPABILITIES
-              value: compute,utility
           volumeMounts:
             - name: jit-cache
               mountPath: /opt/build

@@ -135,6 +135,7 @@ data TrialTranscript = TrialTranscript
 data TrialObjectiveResult = TrialObjectiveResult
   { trialResultIndex :: !Int
   , trialResultObjective :: !Double
+  , trialResultInitialWeights :: ![Double]
   , trialResultWeights :: ![Double]
   }
   deriving stock (Eq, Show)
@@ -210,10 +211,11 @@ trialObjectiveResult :: Sampler -> Int -> TrialObjectiveResult
 trialObjectiveResult sampler trialIndex =
   let config = sampledClassifierConfig sampler trialIndex
    in case pureTuningObjective config of
-        Right (objective, weights) ->
+        Right (objective, initialWeights, weights) ->
           TrialObjectiveResult
             { trialResultIndex = trialIndex
             , trialResultObjective = objective
+            , trialResultInitialWeights = initialWeights
             , trialResultWeights = weights
             }
         Left err ->
@@ -226,10 +228,11 @@ trialObjectiveResultWithDevice device sampler trialIndex = do
   result <- trainTuningObjective device config
   pure $
     fmap
-      ( \(objective, weights) ->
+      ( \(objective, initialWeights, weights) ->
           TrialObjectiveResult
             { trialResultIndex = trialIndex
             , trialResultObjective = objective
+            , trialResultInitialWeights = initialWeights
             , trialResultWeights = weights
             }
       )
@@ -237,19 +240,33 @@ trialObjectiveResultWithDevice device sampler trialIndex = do
 
 -- | Train the fixed Dense tuning architecture for one sampled config on
 -- 'tuningObjectiveDataset' through @device@, returning
--- @(train-accuracy, flat-weights)@.
+-- @(train-accuracy, initial-flat-weights, final-flat-weights)@.
 trainTuningObjective
-  :: MlpDevice -> Classifier.ClassifierConfig -> IO (Either Text (Double, [Double]))
+  :: MlpDevice -> Classifier.ClassifierConfig -> IO (Either Text (Double, [Double], [Double]))
 trainTuningObjective device config = do
   let spec = Architecture.architectureSpecForProblem config tuningObjectiveProblem
-  result <- Architecture.trainArchitectureWithDevice device spec config tuningObjectiveDataset
-  pure (fmap (\(trained, acc) -> (acc, Architecture.trainedArchitectureWeights trained)) result)
+  result <-
+    Architecture.trainArchitectureWithDeviceSelected
+      device
+      spec
+      config
+      tuningObjectiveDataset
+      tuningObjectiveDataset
+  pure $
+    fmap
+      ( \(trained, metrics) ->
+          ( Architecture.slmTrainAccuracy metrics
+          , Architecture.slmInitialWeights metrics
+          , Architecture.trainedArchitectureWeights trained
+          )
+      )
+      result
 
 -- | The pure-reference-device evaluation of 'trainTuningObjective' — the
 -- toolchain-free objective used by the offline sweep ('deterministicTrials').
 -- The reference device performs no IO, so 'unsafePerformIO' here is
 -- referentially transparent (the result is a pure function of @config@).
-pureTuningObjective :: Classifier.ClassifierConfig -> Either Text (Double, [Double])
+pureTuningObjective :: Classifier.ClassifierConfig -> Either Text (Double, [Double], [Double])
 pureTuningObjective config =
   unsafePerformIO (trainTuningObjective pureReferenceMlpDevice config)
 {-# NOINLINE pureTuningObjective #-}

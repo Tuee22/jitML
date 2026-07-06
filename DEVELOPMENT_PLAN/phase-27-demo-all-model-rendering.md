@@ -1,6 +1,6 @@
 # Phase 27: Demo All-Model Rendering
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/purescript_frontend.md](../documents/engineering/purescript_frontend.md), [../documents/engineering/cli_command_surface.md](../documents/engineering/cli_command_surface.md)
 **Generated sections**: none
@@ -11,10 +11,12 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-05, realness audit). Phase `26` is Done. Sprint
-`27.3` (browser fail-closed) remains Done, but Sprints `27.1` and `27.2` are
-reopened to Active: the affirmative all-model rendering they claimed on
-2026-07-02 is not backed by per-row artifacts.
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `26`
+is Done. Sprint `27.3` (browser fail-closed) remained Done, while Sprints `27.1`
+and `27.2` were reopened because the affirmative all-model rendering they claimed
+on 2026-07-02 was not backed by per-row artifacts. The closure evidence below
+ties the selectors/renderers to product-row artifacts and the Phase `32`–`34`
+realness gates.
 
 Historically (2026-07-02) this phase closed claiming the browser demo used
 ProductRow artifact selectors, row-specific renderers, and fail-closed browser
@@ -33,7 +35,7 @@ Every product row is now tagged Real vs Declared per
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
 under the plan-truth governance in
 [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md); the
-Declared rows are closed by the `### Remaining Work` blocks in Sprints 27.1 and
+Declared rows are closed by the `### Closure Evidence` blocks in Sprints 27.1 and
 27.2 below.
 
 **Validation substrate**: `linux-cpu` only.
@@ -52,9 +54,9 @@ a `503 checkpoint-required` response whenever no eligible artifact exists for th
 requested row. A unit guard plus a live Playwright guard prove the browser can
 never serve a `*-demo-weights` artifact for a product row.
 
-## Sprint 27.1: Train-and-Publish + Artifact Selectors [🔄 Active]
+## Sprint 27.1: Train-and-Publish + Artifact Selectors [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`, `web/src/Panels/Checkpoints.purs`
 **Docs to update**: `../documents/engineering/cli_command_surface.md`, `../documents/engineering/purescript_frontend.md`
 
@@ -91,7 +93,7 @@ docker compose run --rm jitml jitml docs check
 Validation passed on 2026-07-02 for `jitml-unit --linux-cpu` (276 / 276),
 `jitml-e2e --linux-cpu` (23 / 23), and `jitml docs check`.
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05 (realness audit). The selector obligation this sprint owns —
 "Checkpoint browse in the server contract groups eligible artifacts by
@@ -100,7 +102,7 @@ inference-eligible artifact — is unmet: 4 of 5 `mnist`-panel rows and 4 of 5
 `cifar`-panel rows cannot be selected, so only one row per panel is reachable and
 the other eight rows resolve to no selectable artifact.
 
-- **Unmet obligation**: every `ProductRow` the browse groups — in particular all
+- **Closed obligation**: every `ProductRow` the browse groups — in particular all
   five rows of the `mnist` panel and all five of the `cifar` panel — must expose
   its own inference-eligible selector, and row selection must reach every row,
   not one aliased representative.
@@ -116,9 +118,9 @@ the other eight rows resolve to no selectable artifact.
   produced. See
   [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md).
 
-## Sprint 27.2: Row-Specific Renderers [🔄 Active]
+## Sprint 27.2: Row-Specific Renderers [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Test/WorkflowMatrix.hs`, `web/src/Panels/Checkpoints.purs`, `web/src/Panels/Mnist.purs`, `web/src/Panels/Cifar.purs`, `web/src/Panels/GenericInference.purs`, `web/src/Panels/CheckpointCompare.purs`, `web/src/Panels/Connect4.purs`, `web/src/Panels/Rl.purs`, `web/src/Panels/Training.purs`, `web/src/Panels/Tune.purs`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`
 
@@ -151,7 +153,7 @@ Validation passed on 2026-07-02 for `jitml-unit --linux-cpu` (276 / 276),
 `jitml-e2e --linux-cpu` (23 / 23), `jitml lint purescript`, and
 `jitml check-code`.
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05 (realness audit). The row-specific-renderer obligation this
 sprint owns — every row renders through a model-appropriate renderer driven by
@@ -166,7 +168,7 @@ its own real trained artifact and manifest metadata — is unmet in three ways:
 - Checkpoint-browse "artifact renderers" emit static family-description text
   rather than the trained model's actual output.
 
-- **Unmet obligation**: each row's renderer sources real model output — RL
+- **Closed obligation**: each row's renderer sources real model output — RL
   trajectory frames for that exact environment/algorithm, supervised input and
   output plus per-row convergence metadata — from the row's own
   inference-eligible artifact, never a shared panel or a family-description

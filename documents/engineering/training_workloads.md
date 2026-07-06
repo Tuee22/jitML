@@ -11,37 +11,22 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Current audit status (2026-07-05).** Product training closure is complete for
-the Phase `19`–`31` product chain. Product dataset reads route through read-time
-SHA verification before decode, Phase `24` records literal supervised
-architecture topology plus per-row feature parity, Phase `25` records real RL
-algorithm/environment dispatch, and Phase `31` aggregates the committed
-CPU/CUDA/Apple row evidence. The binding contract lives in
+**Current audit status (2026-07-06).** Product training closure is complete for
+the Phase `19`–`34` product chain. Product dataset reads route through read-time
+SHA verification before decode, Phase `24` records supervised architecture
+evidence, Phase `25` records trained-policy RL evidence, Phase `31` aggregates
+the product chain, and Phases `32`–`34` keep the claim tied to negative controls,
+per-model convergence, and plan-truth governance. The binding contract lives in
 [product_completion_contract.md](product_completion_contract.md).
 
-**Realness audit correction (2026-07-05).** A same-day realness audit reopened
-Phase `25` (now Active) and supersedes the "closure is complete" / "Phase `25`
-records real RL algorithm/environment dispatch" claims above for the RL reward
-path: the RL "convergence" reward that gates the catalog is currently measured
-from a **hardcoded expert controller, not from the trained policy**.
-`JitML.App.runTrainerEpisodes` builds each trainer's reported evaluation
-episodes as `fromMaybe <trained-policy-eval> (canonicalDiscreteEvaluation
-envName evalEpisodes)` (`src/JitML/App.hs:4097`, `:4149`, `:4195`, `:4289`;
-continuous path `:4242`). `canonicalDiscreteEvaluation` /
-`canonicalContinuousEvaluation` (`src/JitML/App.hs:4389`, `:4406`) return `Just`
-for every canonical environment by rolling out the hardcoded `*ExpertAction`
-controllers (`cartPoleExpertAction` and siblings, `src/JitML/App.hs:4456`+), so
-the `Just` branch wins and the trained-policy evaluation is discarded — the
-published `avg_reward` / `median_final_reward` reflect the expert controller,
-not learned behaviour. Reopened Phase `25` owns replacing this with a
-trained-policy rollout as its unmet Exit-Definition obligation. The
-negative-control suite (`jitml-negative-controls`,
+**Realness audit correction (2026-07-05, reclosed 2026-07-06).** A same-day
+realness audit reopened Phase `25` because the RL "convergence" reward had been
+reported from hardcoded expert-controller rollouts instead of the trained policy.
+The reclosure requires the negative-control suite (`jitml-negative-controls`,
 [phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md))
-is the negative-control validation that must fail while the expert stand-in
-remains wired in, and the per-model convergence suite
-(`jitml-model-convergence`,
+and the per-model convergence suite (`jitml-model-convergence`,
 [phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md))
-closes it per model, under the plan-truth governance in
+under the plan-truth governance in
 [phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
 
 The existing `TrainingBudget`, `CompletedTraining`, and

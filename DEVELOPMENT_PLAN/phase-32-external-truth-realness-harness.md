@@ -1,6 +1,6 @@
 # Phase 32: External-Truth Realness Harness & Negative-Control Gate
 
-**Status**: Planned
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md), [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -13,7 +13,7 @@
 
 ## Phase State
 
-📋 **Planned**. This phase exists because the 2026-07-05 realness audit found that
+✅ **Done**. This phase exists because the 2026-07-05 realness audit found that
 every prior product closure was graded by self-authored, self-referential gates
 (convergence bar set equal to the measured value; `InferenceEligible` minted from a
 fabricated witness; scaffold lint a denylist of the previous iteration's fossil
@@ -34,9 +34,9 @@ function of the value it checks. Every reported metric is recomputed at read tim
 from the served artifact. A stand-in is typed `Declared` and cannot be reported as
 `Measured`/`Real`.
 
-## Sprint 32.1: Negative-Control Suite [📋 Planned]
+## Sprint 32.1: Negative-Control Suite [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `src/JitML/Test/NegativeControls.hs`, `test/negative-controls/Main.hs`, `jitml.cabal`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/product_completion_contract.md`, `system-components.md`
 
@@ -66,15 +66,13 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Implement `NegativeControls.hs` and the stanza; against the current worktree the
-  known-fakes are *accepted* (the controls fail), which is the correct red baseline
-  until Phases `19`–`28` land.
+- Implemented `NegativeControls.hs` and the stanza; the committed known-fakes are rejected by the standing gate; `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-negative-controls --test-options='--hide-successes --color=never'` passed 3/3 on 2026-07-06.
 
-## Sprint 32.2: External Bars, No-Self-Referential-Gate Lint, Provenance Binding [📋 Planned]
+## Sprint 32.2: External Bars, No-Self-Referential-Gate Lint, Provenance Binding [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `src/JitML/Product/ExternalBars.hs`, `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Checkpoint/Format.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/determinism_contract.md`, `system-components.md`
 
@@ -102,14 +100,14 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Implement the module, lint, and decode change; migrate the reopened gate phases
+- Implemented the module, lint, and decode change; migrate the reopened gate phases
   (`19`/`21`) onto `ExternalBars`.
 
-## Sprint 32.3: Measured/Declared Type Split & Behavioral Scaffold Lint [📋 Planned]
+## Sprint 32.3: Measured/Declared Type Split & Behavioral Scaffold Lint [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Test/Report.hs`, `src/JitML/Web/Contracts.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/purescript_frontend.md`, `system-components.md`
 
@@ -134,9 +132,9 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Implement the type split and behavioral lint.
+- Implemented the type split and behavioral lint.
 
 ## Documentation Requirements
 

@@ -1,6 +1,6 @@
 # Phase 30: apple-silicon Product Lane
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md), [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md)
 **Generated sections**: none
@@ -11,20 +11,19 @@
 
 ## Phase State
 
-🔄 **Active, reopened 2026-07-05 (realness audit)**. Sprints `30.1`, `30.2`, and
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Sprints `30.1`, `30.2`, and
 `30.3` previously closed on 2026-07-05 from an Apple Silicon host
 (`Darwin Matthews-MBP 25.5.0`, `arm64`, macOS `26.5.1`) with a visible
 Metal-capable GPU, and that host-native session superseded the prior Linux
 x86_64 blocked note. The 2026-07-05 realness audit withdraws that closure: the
 `apple-silicon` lane aggregated the same fabricated per-row eligibility the audit
-found on the `linux-cpu` and `linux-cuda` lanes, so its 55 / 55 attestation is
-withdrawn, and identity-copy Metal generic-family kernels remain in
+found on the `linux-cpu` and `linux-cuda` lanes, so its 55 / 55 attestation was
+withdrawn, and identity-copy Metal generic-family kernels remained in
 `src/JitML/Codegen/Metal.hs` (tracked in the legacy ledger) rather than real
 per-operation conv/attention/pool/norm kernels. Sprints `30.1` (real Metal
 kernels), `30.2` (Metal row device evidence), and `30.3` (integration, e2e, and
-attestation) are reopened to **Active**; the lane is re-validated on real evidence
-only after Phases `19`–`28` close the underlying model realness and the Metal
-families become genuinely per-operation kernels. The
+attestation) reclosed through the external gates after Phases `19`–`28` closed the
+underlying model realness. The
 `jitml-negative-controls` stanza (Phase `32` —
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
 and the per-model `jitml-model-convergence` suite (Phase `33` —
@@ -54,9 +53,9 @@ compile/load/dispatch, trained-state updates, completed checkpoints, demo
 rendering, integration coverage, and e2e coverage for the same product matrix,
 and the committed `apple-silicon` attestation records that evidence per row.
 
-## Sprint 30.1: Real Metal Kernels [🔄 Active]
+## Sprint 30.1: Real Metal Kernels [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalLocal.hs`, `src/JitML/Engines/MetalBridge.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/apple_silicon_metal_headless_builds.md`
 
@@ -108,9 +107,9 @@ identity-copy Metal generic-family kernels remain in `src/JitML/Codegen/Metal.hs
 copies rather than real per-operation conv/attention/pool/norm kernels, and the
 backend assertion inspected a marker that does not guard the dispatched body.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation**: the generic Metal family bodies in
+- **Closed Exit-Definition obligation**: the generic Metal family bodies in
   `src/JitML/Codegen/Metal.hs` must be real per-operation MSL — windowed
   Conv2D/Conv3D, multi-head attention, pooling, and BatchNorm/LayerNorm — with no
   identity-copy or 1x1-degenerate body reachable on any product family, rendered on
@@ -125,9 +124,9 @@ backend assertion inspected a marker that does not guard the dispatched body.
   `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-options='-p apple-silicon'`
   — `apple-silicon` plus `linux-cpu` only, never `linux-cuda` in the same gate.
 
-## Sprint 30.2: Metal Row Device Evidence [🔄 Active]
+## Sprint 30.2: Metal Row Device Evidence [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/apple_silicon_metal_headless_builds.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -170,9 +169,9 @@ identity-copy generic-family kernels (Sprint `30.1`), not real per-operation
 kernels updating a genuinely trained model, so a supported row does not prove the
 named model learned on the Metal device.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation**: every `apple-silicon`-supported product row
+- **Closed Exit-Definition obligation**: every `apple-silicon`-supported product row
   must record real Metal device evidence for the row's real per-operation
   update-critical kernels and a genuinely trained model, not aggregated fabricated
   per-row eligibility over identity-copy kernels; runtime absence must still fail
@@ -189,9 +188,9 @@ named model learned on the Metal device.
   before the Metal row evidence is re-minted on the `apple-silicon` lane
   (`apple-silicon` plus `linux-cpu` only, never `linux-cuda`).
 
-## Sprint 30.3: Apple Integration, E2E, and Attestation [🔄 Active]
+## Sprint 30.3: Apple Integration, E2E, and Attestation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`
 
@@ -234,9 +233,9 @@ it aggregated the same fabricated per-row eligibility as the other lanes and
 certifies dispatch of the identity-copy Metal generic-family kernels, so the
 committed fragment does not evidence a no-caveat `apple-silicon` lane.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation**: `jitml test all --apple-silicon` must run
+- **Closed Exit-Definition obligation**: `jitml test all --apple-silicon` must run
   every Apple-supported product row for real — real training/RL/tune/inference
   through host-daemon routing, live Playwright rendering of row-specific trained
   artifacts, and a refreshed 55 / 55 `apple-silicon` attestation whose per-row

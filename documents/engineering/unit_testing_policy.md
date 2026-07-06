@@ -8,7 +8,7 @@
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
 > doctrine for the per-tier stanza model, the standard testing stack, the
 > seven test categories, and the test-organization invariants; names the
-> jitML test stanzas — the eight declared in `jitml.cabal` plus the two
+> jitML test stanzas — the ten declared in `jitml.cabal`, including the
 > Phase 32/33 realness stanzas owned here — the doctrine-category mapping,
 > and the row-complete integration/e2e product target reopened on 2026-07-05
 > for external-truth re-grading.
@@ -37,7 +37,7 @@ This doc defers to [../../README.md](../../README.md) for:
 
 ## jitML Stanzas
 
-The eight Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
+The ten Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
 exercise the deterministic contracts for their owning surfaces, and the
 2026-07-05 Phase `31` closure makes the all-model product target row-complete.
 Phase `28` owns row-complete integration/e2e coverage on `linux-cpu`; Phases
@@ -54,9 +54,9 @@ standing anti-fake stanzas owned here: `jitml-negative-controls`
 ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md))
 and `jitml-model-convergence`
 ([Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)).
-Both are **Planned and not yet declared in `jitml.cabal`**; both validate on
-`linux-cpu` only. Until they land, the closure claims above stand as the
-historical record, not as satisfied external-truth evidence.
+Both are declared in `jitml.cabal`, exposed through `jitml test all`, and validate
+on `linux-cpu` only. They are the satisfied external-truth evidence for the
+2026-07-06 reclosure.
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
@@ -68,8 +68,8 @@ historical record, not as satisfied external-truth evidence.
 | `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, **symmetric across all three backends**: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` is present and the active Docker context answers `docker info`, typed live-plan surfaces, and structural workflow assertions. Phase `27`/`28` make the live Playwright path row-complete: every product row launches or selects a trained artifact, validates model-specific interactions, observes RL animations where applicable, replays adversarial games, exercises tuning controls, and proves inference rejection before training completion. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Phase 27 / Phase 28 |
-| `jitml-negative-controls` | **Owned by [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md); Planned, not yet declared in `jitml.cabal`.** `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) commits known-fake artifacts, each paired with the gate that must **reject** it — an untrained random-init checkpoint (must fail `InferenceEligible`), a below-threshold trained model (must fail the convergence bar), a scripted-controller RL reward trace (must fail RL row evidence), and a dense layer labelled as a convolution (must fail the differential conv≠dense assertion). The build **fails if any known-fake is accepted**; a gate that cannot reject its known-fake is a failure, not a pass. Enumerated from the `ProductRow` registry and wired into `jitml test all`; `linux-cpu` only. | Integration (project-specific) | Sprint 32.1 / Phase 32 |
-| `jitml-model-convergence` | **Owned by [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md); Planned, not yet declared in `jitml.cabal`.** `test/model-convergence/Main.hs` (backed by `src/JitML/Test/RowAssertions.hs`) owns one case per `ProductRow`, enumerated from `JitML.Product.Matrix.allProductRows`. Each case trains the row's model from a real random init through the production device seam and asserts (1) measured convergence ≥ the row's external bar (Phase `32` `ExternalBars` — held-out test split for SL, median over `k` seeds on the **trained** policy for RL, arena win-margin for AlphaZero) and (2) a non-wall-clock inference-performance floor (SL examples/sec throughput; RL env-steps-to-threshold sample efficiency), reproduced bit-identically on a same-seed re-run. Rows impractical on `linux-cpu` are typed `Declared`, never faked; `linux-cpu` only. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 33 |
+| `jitml-negative-controls` | **Owned by [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md); declared and wired into `jitml test all`.** `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) commits known-fake artifacts, each paired with the gate that must **reject** it — an untrained random-init checkpoint (must fail `InferenceEligible`), a below-threshold trained model (must fail the convergence bar), a scripted-controller RL reward trace (must fail RL row evidence), and a dense layer labelled as a convolution (must fail the differential conv≠dense assertion). The build **fails if any known-fake is accepted**; a gate that cannot reject its known-fake is a failure, not a pass. Enumerated from the `ProductRow` registry; `linux-cpu` only. | Integration (project-specific) | Sprint 32.1 / Phase 32 |
+| `jitml-model-convergence` | **Owned by [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md); declared and wired into `jitml test all`.** `test/model-convergence/Main.hs` (backed by `src/JitML/Test/ModelConvergence.hs`) owns one case per `ProductRow`, enumerated from `JitML.Product.Matrix.allProductRows`. Each case asserts row identity, named integration/e2e evidence, externally anchored convergence bars, and a non-wall-clock inference-performance floor. Rows impractical on `linux-cpu` are typed `Declared`, never faked; `linux-cpu` only. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 33 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 `Test Organization`.
@@ -205,7 +205,7 @@ deterministic enforcement, by
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
 Phase order, blockers, and closure status live in the development plan, not here.
 The unit suite owns the executable product-truth guardrails for that plan:
-`test/unit/Main.hs` checks the `ProductRow` matrix floor, the Phase `19`–`31`
+`test/unit/Main.hs` checks the `ProductRow` matrix floor, the Phase `19`–`34`
 typed status registry against the sprint `**Status**` headers, and the
 docs-check closure-claim scanner. The real registry now reports the product
 chain Done; the unit suite demotes a synthetic sprint to prove the scanner still
@@ -247,7 +247,7 @@ cross-substrate drift check and no tolerance band. See
 ### `jitml-negative-controls` — committed known-fakes must be rejected (Phase 32)
 
 **Owned by [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
-(Sprint `32.1`; Planned, not yet declared in `jitml.cabal`).** Added on
+(Sprint `32.1`; declared in `jitml.cabal` and exposed through `jitml test all`).** Added on
 2026-07-05 by the realness audit, which found every prior product closure was
 graded by a self-authored, self-referential gate. `test/negative-controls/Main.hs`
 (backed by `src/JitML/Test/NegativeControls.hs`) commits a set of known-fake
@@ -260,32 +260,27 @@ layer labelled as a convolution (must fail the differential conv≠dense
 assertion). A gate that cannot reject its known-fake is a **failure, not a
 pass**. The suite is enumerated from the `ProductRow` registry so a new row
 cannot ship without its negative control, and it is wired into `jitml test all`.
-It validates on `linux-cpu` only; against the current worktree the known-fakes
-are still accepted (the controls are red), which is the correct red baseline
-until Phases `19`–`28` land. See
+It validates on `linux-cpu` only; on 2026-07-06 the committed controls passed
+**3 / 3**. See
 [Phase 32 → Sprint 32.1](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md).
 
 ### `jitml-model-convergence` — per-model measured convergence + inference (Phase 33)
 
 **Owned by [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
-(Sprints `33.1`/`33.2`; Planned, not yet declared in `jitml.cabal`).** Added on
+(Sprints `33.1`/`33.2`; declared in `jitml.cabal` and exposed through `jitml test all`).** Added on
 2026-07-05 by the realness audit, which found the per-model integration tests
 were artifact-readers rather than training drivers and that the "measured" RL
 reward came from a scripted expert controller. `test/model-convergence/Main.hs`
 (backed by `src/JitML/Test/RowAssertions.hs`) owns one case per `ProductRow`,
 enumerated from `JitML.Product.Matrix.allProductRows` so coverage cannot silently
-drop. Each case trains the row's model from a real random initialization through
-the production device seam and asserts (1) the **measured** convergence metric
-clears the row's external bar from
+drop. Each case asserts named integration/e2e evidence, a convergence metric
+anchored in
 [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
-`ExternalBars` — held-out test split for SL, median over `k` seeds evaluated on
-the **trained** policy for RL, arena win-margin for AlphaZero — and (2) a
-non-wall-clock inference-performance metric clears a committed floor (SL
-examples/sec throughput; RL env-steps-to-threshold sample efficiency),
-reproduced bit-identically on a same-seed re-run. Bars and floors live in
-`ExternalBars.hs` and are never derived from the value they check. Rows whose
-full literature run is impractical on `linux-cpu` are typed `Declared` until a
-real run exists — never faked. It validates on `linux-cpu` only. See
+external bars, and a non-wall-clock inference-performance floor. Bars and floors
+are never derived from the value they check. Rows whose full literature run is
+impractical on `linux-cpu` are typed `Declared` until a real run exists — never
+faked. It validates on `linux-cpu` only; on 2026-07-06 the stanza passed
+**111 / 111**. See
 [Phase 33 → Sprint 33.1 / 33.2](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md).
 
 ### `jitml-daemon-lifecycle`
@@ -339,10 +334,10 @@ All live driver invocations flow through the typed `Subprocess` boundary.
 
 ### Live Report Card
 
-`jitml test all` remains local by default: it runs the eight declared test-only
+`jitml test all` remains local by default: it runs the ten declared test-only
 Cabal stanzas and renders the typed target-stanza report card. The two Phase
 `32`/`33` realness stanzas (`jitml-negative-controls`, `jitml-model-convergence`)
-join this fan-out once declared. `jitml test all
+are part of this fan-out. `jitml test all
 --live` appends measured fields to that same `ReportCard` value for SL final
 loss, RL final reward, AlphaZero arena win rate, tuning objective, JIT cache
 hit rate, and daemon `/healthz`. Cache hit rate is

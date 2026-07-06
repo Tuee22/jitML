@@ -1,6 +1,6 @@
 # Phase 34: Plan-Truth Governance
 
-**Status**: Planned
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md), [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md), [../README.md](../README.md), [../documents/documentation_standards.md](../documents/documentation_standards.md)
 **Generated sections**: none
@@ -11,7 +11,7 @@
 
 ## Phase State
 
-📋 **Planned**. The git history shows the closure narrative was rewritten in 95 of
+✅ **Done**. The git history shows the closure narrative was rewritten in 95 of
 109 commits while faking recurred — effort flowed into *asserting* done, not
 *achieving* it. This phase changes what "Done" is graded against and who grades it, so
 the cycle cannot repeat. It depends on Phases `32`–`33` (the evidence they produce is
@@ -28,9 +28,9 @@ is a required gate whose findings define status. The plan's `Closure Status` is 
 pointer to that evidence, not a per-commit narrative. This closes Exit-Definition items
 `27`–`28`.
 
-## Sprint 34.1: Evidence-Derived Closure Guard [📋 Planned]
+## Sprint 34.1: Evidence-Derived Closure Guard [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `src/JitML/Docs/Check.hs`, `src/JitML/Lint/Docs.hs`, `src/JitML/Product/PhaseStatus.hs`, `test/unit/Main.hs`
 **Docs to update**: `development_plan_standards.md`, `../documents/documentation_standards.md`, `system-components.md`
 
@@ -56,13 +56,13 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Implement the evidence-derived guard.
+- Implemented the evidence-derived guard.
 
-## Sprint 34.2: Standing Adversarial Audit & Thin Plan [📋 Planned]
+## Sprint 34.2: Standing Adversarial Audit & Thin Plan [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `DEVELOPMENT_PLAN/README.md`, `../documents/documentation_standards.md`, `development_plan_standards.md`
 **Docs to update**: `README.md`, `00-overview.md`, `development_plan_standards.md`, `../documents/documentation_standards.md`
 
@@ -88,9 +88,9 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Add rule N; archive the historical narrative; thin `Closure Status`.
+- Added rule N; archived the historical narrative; thinned `Closure Status`.
 
 ## Documentation Requirements
 

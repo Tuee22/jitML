@@ -545,7 +545,7 @@ internalCommand =
     , leaf
         "train-and-publish-product-rows"
         "Train and publish product row checkpoints."
-        "Trains the ProductRow matrix on the selected substrate and publishes inference-eligible checkpoints into the product-row artifact namespace. Requires a live cluster and staged datasets for supervised rows."
+        "Trains the ProductRow matrix on the selected substrate, writes inference-eligible checkpoints into the local product-row artifact namespace, and mirrors them to live MinIO when a live publication is present."
         substrateFlags
         [ Example
             "jitml internal train-and-publish-product-rows --linux-cpu"
@@ -715,6 +715,8 @@ testStanzas =
   , "jitml-backends"
   , "jitml-daemon-lifecycle"
   , "jitml-e2e"
+  , "jitml-negative-controls"
+  , "jitml-model-convergence"
   ]
 
 lintLeaf :: Text -> Text -> CommandSpec

@@ -6,7 +6,7 @@ metadata:
 data:
   BootConfig.dhall: |
     { activeRole = < Engine | Coordinator | Webapp >.Engine
-    , substrate = "linux-cuda"
+    , substrate = "linux-cpu"
     , residency = < Cluster | Host >.Cluster
     , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"

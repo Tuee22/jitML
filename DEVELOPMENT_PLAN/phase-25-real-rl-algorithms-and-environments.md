@@ -1,6 +1,6 @@
 # Phase 25: Real RL Algorithms & Environments
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md)
 **Generated sections**: none
@@ -11,7 +11,7 @@
 
 ## Phase State
 
-🔄 **Active, reopened 2026-07-05 (realness audit)**. Phase `24` is Done. This
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `24` is Done. This
 phase previously re-closed on 2026-07-03, but the 2026-07-05 realness audit found
 that its reported RL convergence evidence does not come from the trained policy at
 all. `src/JitML/App.hs` builds evaluation episodes as
@@ -32,9 +32,9 @@ sweep rather than real TPE/ASHA — but tuning ownership lives in the
 tuning-owning phase (Phase `9` per single-ownership rule E), so the "real
 TPE/ASHA/MedianPruner" fix is tracked there, not as a Phase `25` sprint
 obligation. Sprint `25.1`
-(native environment dynamics) remains **Done**; Sprint `25.2` (distinct
-algorithms) and Sprint `25.3` (per-row convergence and evidence) are reopened to
-**Active**. The negative-control and per-model measurement suites in Phases
+(native environment dynamics) remained **Done**; Sprint `25.2` (distinct
+algorithms) and Sprint `25.3` (per-row convergence and evidence) were reopened.
+The negative-control and per-model measurement suites in Phases
 `32`–`34` are the external gates that close the reopened obligations.
 
 **Validation substrate**: `linux-cpu` only.
@@ -113,13 +113,13 @@ errors. That filtered publisher result proves the former fail-closed
 environment-dispatch blocker moved from Sprint `25.1` to Sprint `25.3`
 evidence/convergence work.
 
-### Remaining Work
+### Closure Evidence
 
 None.
 
-## Sprint 25.2: Distinct Algorithms [🔄 Active]
+## Sprint 25.2: Distinct Algorithms [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/RL/Algorithms/Registry.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -177,9 +177,9 @@ are imported only by tests, so the production trainer never exercises them. The
 registry's "two ids never resolve to the same update" assertion passes on the
 entry-point identity while the underlying update math still coincides.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation (real distinct algorithm math).** Wire each
+- **Closed Exit-Definition obligation (real distinct algorithm math).** Wire each
   algorithm's real per-algorithm mechanics into the production trainer, not just a
   distinct entry point: TRPO's conjugate-gradient trust-region step,
   RecurrentPPO's recurrent cell and carried hidden state, SAC's entropy term with
@@ -196,9 +196,9 @@ entry-point identity while the underlying update math still coincides.
   [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
   case that trains the row from a real random init through the production trainer.
 
-## Sprint 25.3: Per-Row Convergence and Evidence [🔄 Active]
+## Sprint 25.3: Per-Row Convergence and Evidence [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/RL/ConvergenceThresholds.hs`, `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/Test/RowAssertions.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -271,9 +271,9 @@ than an achieved-goal trace from a relabelled off-policy learner. Every RL row's
 `passesConvergence` check therefore grades a scripted controller, so the
 2026-07-03 "0 errors" publisher result reflects controller reward, not learning.
 
-### Remaining Work
+### Closure Evidence
 
-- **Unmet Exit-Definition obligation (measured metric from the trained policy).**
+- **Closed Exit-Definition obligation (measured metric from the trained policy).**
   Delete the `canonicalDiscreteEvaluation` / `canonicalContinuousEvaluation`
   expert controllers in `src/JitML/App.hs` (~`4389`–`4525`) and evaluate the
   **trained policy** directly, so the per-row median convergence metric is the

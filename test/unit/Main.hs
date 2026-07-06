@@ -3743,8 +3743,8 @@ main =
           ]
       , testGroup
           "Product phase status registry (Sprint 19.2)"
-          [ testCase "enumerates product phases 19 through 31" $ do
-              PhaseStatus.productPhaseNumbers @?= [19 .. 31]
+          [ testCase "enumerates product phases 19 through 34" $ do
+              PhaseStatus.productPhaseNumbers @?= [19 .. 34]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports complete only when every product sprint is Done" $ do
               PhaseStatus.allProductPhasesDone @?= True
@@ -5496,6 +5496,8 @@ canonicalLeafPaths =
   , ["test", "jitml-backends"]
   , ["test", "jitml-daemon-lifecycle"]
   , ["test", "jitml-e2e"]
+  , ["test", "jitml-negative-controls"]
+  , ["test", "jitml-model-convergence"]
   , ["lint", "files"]
   , ["lint", "docs"]
   , ["lint", "proto"]

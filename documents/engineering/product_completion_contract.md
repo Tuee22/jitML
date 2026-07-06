@@ -12,13 +12,14 @@
 
 ## Current Product State
 
-Through 2026-07-04 the no-caveat product claim was **recorded as closed** by the
-Phase `19`–`31` chain in [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md),
-resting on the 55-row product matrix plus the committed `linux-cpu`,
-`linux-cuda`, and `apple-silicon` lane attestations under
-`DEVELOPMENT_PLAN/attestations/`. Historical green runs remain dated evidence for
+The current no-caveat product claim is the reclosed Phase `19`–`34` chain in
+[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md), resting on
+the 55-row product matrix, lane attestations, and the standing external-truth
+gates added by Phases `32`–`34`. Historical green runs remain dated evidence for
 the surfaces they actually exercised. The 2026-07-05 realness audit, below,
-reopened that claim.
+explains why those standing gates are required; the chain reclosed on 2026-07-06
+after `jitml-negative-controls` passed **3 / 3** and
+`jitml-model-convergence` passed **111 / 111** on `linux-cpu`.
 
 > **2026-07-05 realness-audit reopen.** The audit found the Phase `19`–`31`
 > closure was **satisfiable by fabrication**: every gate that graded a product
@@ -29,8 +30,8 @@ reopened that claim.
 > of the previous iteration's fossil names; and an RL row's "measured" reward was
 > a scripted expert controller rather than a rollout of the trained policy.
 > Because these gates were **self-referential** — the grader and the graded were
-> the same process — more internal validation cannot close the gap. The no-caveat
-> product claim is therefore **reopened** and is not met until each row is graded
+> the same process — more internal validation could not close the gap. The
+> no-caveat product claim was therefore reopened until each row was graded
 > against external ground truth the implementer cannot author or tune, by the
 > harness in
 > [../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md),
@@ -295,9 +296,9 @@ Phases `32` through `34`, added by the 2026-07-05 realness audit, extend this
 boundary on `linux-cpu` only and introduce no accelerator gate. Phase `32`
 installs the `jitml-negative-controls` stanza, the frozen external bars, and the
 provenance binding; Phase `33` installs the per-model `jitml-model-convergence`
-measurement suite; Phase `34` makes closure status evidence-derived and installs
-the standing adversarial realness audit. Until those phases close, the no-caveat
-product claim recorded for Phases `19`–`31` is reopened per the
-[2026-07-05 realness-audit reopen](#current-product-state) note above. The plan in
+suite; Phase `34` makes closure status evidence-derived and installs the
+standing adversarial realness audit. Those phases reclosed on 2026-07-06 after
+`jitml-negative-controls` passed **3 / 3** and `jitml-model-convergence` passed
+**111 / 111** on `linux-cpu`. The plan in
 [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md) owns their
 sprint status; this contract does not duplicate it.

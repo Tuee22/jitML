@@ -1,6 +1,6 @@
 # Phase 33: Per-Model Convergence & Inference-Performance Tests
 
-**Status**: Planned
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md), [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md), [../README.md](../README.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -13,7 +13,7 @@
 
 ## Phase State
 
-📋 **Planned**. The reopened Phase `28` found that the per-model integration tests
+✅ **Done**. The reopened Phase `28` found that the per-model integration tests
 were artifact-readers, not training drivers, and that the "measured" reward was a
 scripted expert controller. This phase installs the standing per-model measurement
 suite that consumes the Phase `32` external bars and negative-control primitives. It
@@ -33,9 +33,9 @@ examples/sec throughput; RL sample-efficiency / env-steps-to-threshold), reprodu
 bit-identically on a same-seed re-run. Rows whose full literature run is impractical on
 `linux-cpu` are typed `Declared` (Phase `32`) until a real run exists — never faked.
 
-## Sprint 33.1: Per-Model Measured Convergence [📋 Planned]
+## Sprint 33.1: Per-Model Measured Convergence [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `src/JitML/Test/RowAssertions.hs`, `test/model-convergence/Main.hs`, `jitml.cabal`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -66,14 +66,13 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Implement the stanza; it is red until Phases `24`–`26` make the models real and
-  Phase `25` removes the expert-controller reward.
+- Implemented the row-complete model-convergence stanza; `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-model-convergence --test-options='--hide-successes --color=never'` passed 111/111 on 2026-07-06.
 
-## Sprint 33.2: Inference-Performance & Determinism [📋 Planned]
+## Sprint 33.2: Inference-Performance & Determinism [✅ Done]
 
-**Status**: Planned
+**Status**: Done
 **Implementation**: `src/JitML/Test/RowAssertions.hs`, `test/model-convergence/Main.hs`, `src/JitML/Product/ExternalBars.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `system-components.md`
 
@@ -98,9 +97,9 @@ docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Implement the inference-performance assertions and floors.
+- Implemented the inference-performance assertions and floors.
 
 ## Documentation Requirements
 

@@ -738,6 +738,70 @@ jitml test jitml-e2e --linux-cuda
 Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
+## `jitml test jitml-negative-controls`
+
+Run jitml-negative-controls.
+
+Runs the jitml-negative-controls Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
+
+```text
+jitml test jitml-negative-controls [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
+
+Examples:
+
+```text
+jitml test jitml-negative-controls
+```
+
+Run jitml-negative-controls.
+
+```text
+jitml test jitml-negative-controls --linux-cuda
+```
+
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
+
+
+## `jitml test jitml-model-convergence`
+
+Run jitml-model-convergence.
+
+Runs the jitml-model-convergence Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
+
+```text
+jitml test jitml-model-convergence [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
+
+Examples:
+
+```text
+jitml test jitml-model-convergence
+```
+
+Run jitml-model-convergence.
+
+```text
+jitml test jitml-model-convergence --linux-cuda
+```
+
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
+
+
 ## `jitml lint files`
 
 Run file hygiene checks.
@@ -1141,7 +1205,7 @@ Seed the legacy fixture checkpoints into live MinIO.
 
 Train and publish product row checkpoints.
 
-Trains the ProductRow matrix on the selected substrate and publishes inference-eligible checkpoints into the product-row artifact namespace. Requires a live cluster and staged datasets for supervised rows.
+Trains the ProductRow matrix on the selected substrate, writes inference-eligible checkpoints into the local product-row artifact namespace, and mirrors them to live MinIO when a live publication is present.
 
 ```text
 jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda]

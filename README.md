@@ -974,6 +974,8 @@ mindmap
       jitml-backends
       jitml-daemon-lifecycle
       jitml-e2e
+      jitml-negative-controls
+      jitml-model-convergence
     lint
       files
       docs
@@ -1035,6 +1037,8 @@ mindmap
 | `jitml test jitml-backends` | Run jitml-backends. | `jitml test jitml-backends [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--live] [--test-options <text>]` |
+| `jitml test jitml-negative-controls` | Run jitml-negative-controls. | `jitml test jitml-negative-controls [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-model-convergence` | Run jitml-model-convergence. | `jitml test jitml-model-convergence [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
 | `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
 | `jitml lint proto` | Run protobuf schema lint checks. | `jitml lint proto [--write]` |

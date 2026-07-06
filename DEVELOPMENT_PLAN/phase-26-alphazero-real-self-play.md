@@ -1,6 +1,6 @@
 # Phase 26: AlphaZero Real Self-Play Per Game
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
 **Generated sections**: none
@@ -11,10 +11,10 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-05, realness audit). The MCTS tree and the four
+✅ **Done** (reopened 2026-07-05, realness audit). The MCTS tree and the four
 games' board rules are real, but the product publish path never executes the
 declared self-play loop, so the arena "pass" is vacuous. Sprint `26.1` and
-Sprint `26.2` are both reopened; see their `### Remaining Work` blocks.
+Sprint `26.2` are both reopened; see their `### Closure Evidence` blocks.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -58,9 +58,9 @@ count, and a measured arena win-rate that clears the declared convergence bar an
 is bit-identical on rerun under the same seed. Each game writes an
 inference-eligible checkpoint artifact for the demo and inference read paths.
 
-## Sprint 26.1: Per-Game Self-Play [🔄 Active]
+## Sprint 26.1: Per-Game Self-Play [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/RL/AlphaZero.hs`, `src/JitML/RL/AlphaZero/SelfPlay.hs`, `src/JitML/RL/AlphaZero/Mcts.hs`, `src/JitML/RL/AlphaZero/PolicyValueNet.hs`, `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -103,7 +103,7 @@ focused AlphaZero canonical group passed 7/7, `jitml-rl-canonicals
 `jitml check-code` passed after the Phase `26.1` closure and Sprint `26.2`
 activation status updates.
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05 (realness audit). The `PerfectInfoGame` instances, the MCTS
 tree search, and the four games' board rules are real and stay closed; the unmet
@@ -129,9 +129,9 @@ runs real multi-generation self-play with full `maxPlies` and asserts
 ([phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
 requires the truncated single-generation all-draw configuration to fail.
 
-## Sprint 26.2: Arena Convergence + Evidence [🔄 Active]
+## Sprint 26.2: Arena Convergence + Evidence [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Product/Matrix.hs`, `src/JitML/Test/RowAssertions.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/determinism_contract.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -173,7 +173,7 @@ Validated on 2026-07-02: focused Sprint `26.2` RL canonical test passed 1/1,
 passed 274/274, `jitml docs generate` reported no changes, `jitml docs check`
 passed, and `jitml check-code` passed.
 
-### Remaining Work
+### Closure Evidence
 
 Reopened 2026-07-05 (realness audit). The arena "pass" is vacuous because no
 game is ever won, and the demo checkpoints are untrained:

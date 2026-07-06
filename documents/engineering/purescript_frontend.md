@@ -11,15 +11,16 @@
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
-**Current audit status (2026-07-05).** Browser product closure is complete for
-the Phase `19`–`31` product chain. Phase `27` replaced product-path seeded demo
+**Current audit status (2026-07-06).** Browser product closure is complete for
+the Phase `19`–`34` product chain. Phase `27` replaced product-path seeded demo
 proof with ProductRow artifact selectors produced by
 `jitml internal train-and-publish-product-rows`, wired row-specific renderers to
 checkpoint-summary metadata, and added fail-closed browser guards for missing,
 invalid, partial, untrained, unsupported, and `*-demo-weights` artifacts. Phase
 `28` closed row-complete live Playwright coverage and the `linux-cpu` report
-card, Phase `30` refreshed the Apple lane fragment, and Phase `31` aggregates
-the committed CPU/CUDA/Apple row evidence. A static generated model list or
+card, Phase `30` refreshed the Apple lane fragment, Phase `31` aggregates
+the committed CPU/CUDA/Apple row evidence, and Phases `32`–`34` keep the product
+claim tied to negative controls and per-model convergence. A static generated model list or
 seeded fixture checkpoint is not product evidence; the binding browser contract
 lives in [product_completion_contract.md](product_completion_contract.md).
 
