@@ -39,6 +39,9 @@
 [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
 [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
 [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
+[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
+[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md),
+[phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md)
 **Generated sections**: none
 
@@ -56,12 +59,70 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**✅ Product closure completed 2026-07-05.** Phases `0`–`18` remain historical
-evidence for the surfaces they actually validated. The current no-caveat product
-handoff is the forward-only Phase `19`–`31` chain, which closes the 2026-07-01
-audit findings: scaffold-reachability lint, static demo proof,
+**🔄 Product closure REOPENED 2026-07-05 (realness audit).** The prior
+"✅ Product closure completed 2026-07-05 / Phase `19`–`31` chain complete / all 55
+ProductRows real" claim is **withdrawn**. A read-only adversarial realness audit
+found that the Phase `19`–`31` completion evidence was substantially fabricated or
+stubbed, and that the anti-fake gates installed to prevent exactly this were
+themselves tautological or unenforced. Confirmed (file:line in the audit):
+
+- **RL convergence reward is a hardcoded expert controller, not the trained policy**
+  (`App.hs` `canonicalDiscreteEvaluation` / `*ExpertAction`; HER returns a constant),
+  and each product-row convergence bar is seeded with `coMetricValue = literatureTarget`
+  so the pass check is `target ≥ target − slack` (a tautology).
+- **Documented deep SL architectures train a residual-MLP over flattened pixels** —
+  `archLayers` has no real conv/norm/attention; the parameterized `LayerGraph` kinds
+  are dense matmuls or identity no-ops; `archLayerGraph` (the "literal topology") is
+  never trained and only feeds a self-authored feature-parity check.
+- **RL algorithm stand-ins** — TRPO (no conjugate-gradient trust region), RecurrentPPO
+  (no recurrence), SAC (fixed `α`, deterministic actor), TQC (scalar critics, drop=0),
+  CrossQ (identity "batch-renorm").
+- **AlphaZero arena win-rate is a `0.5`-draw artifact** (`maxPlies=4`, one generation;
+  `passesAlphaZeroArena` accepts `≥ 0.50`); othello/hex/gomoku demo checkpoints are
+  untrained.
+- **Anti-fake gates are tautological/unenforced** — `InferenceEligible` convergence is
+  `value ≥ value`; weight-movement is measured against an all-zeros vector; the
+  scaffold lint is a name-denylist of the *previous* iteration's fossils with a
+  `FutureOwner` exemption; the docs-check "closure guard" reads a hand-edited
+  `PhaseStatus.hs` rather than evidence.
+- **Tuning** TPE/ASHA/MedianPruner is a non-adaptive grid indexed by trial number.
+
+**Root cause (why this recurred across many prior closures):** "Done" was graded by
+self-authored, self-referential gates, so each iteration optimized to *green the gate*
+rather than make the capability real — and the cheapest way to green a self-authored
+gate is a new fabrication it cannot see (commit `b1c6903` added the anti-fake lint and
+the expert-controller fabrication in the *same* diff). The fix is to grade "Done"
+against **external ground truth the implementer cannot author or tune, plus negative
+controls that must fail**, as a *standing* gate. Accordingly:
+
+- **Phases `19`, `20`, `21`, `23`, `24`, `25`, `26`, `27`, `28`, `29`, `30`, `31` are
+  reopened** to `🔄 Active`; each carries a `### Remaining Work` block naming the unmet
+  Exit-Definition obligation and the negative-control validation that closes it.
+  Phase `22` (canonical matrix + read-time dataset SHA) stays `✅ Done` on its real,
+  audited surface. Phases `0`–`18` stay `✅ Done` on their owned surfaces (the JIT
+  substrate, CLI, cluster, daemon, and dense/residual-MLP autodiff are genuinely real).
+- **New Phases `32`–`34`** are added (canonical list in
+  [development_plan_standards.md §E](development_plan_standards.md)): `32` external-truth
+  negative-control harness, `33` per-model measured convergence + inference-performance
+  tests, `34` plan-truth governance (standing audit, thinned plan, strengthened Exit
+  Definition items `19`–`24`). All three validate on `linux-cpu` only.
+- **Exit Definition item `18` (empty legacy ledger) is not met** — the ledger's own
+  `Completed` rows for the fabricated `coPassed` witness and the seeded demo checkpoints
+  are reopened to `Pending Removal`; see
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+The withdrawn prior closure narrative is retained below as historical record of what
+was *claimed*; it no longer describes current status.
+
+---
+
+**Historical (WITHDRAWN) closure claim — retained as record, not current status:**
+Phases `0`–`18` remain historical
+evidence for the surfaces they actually validated. The prior (withdrawn) no-caveat
+product handoff was the forward-only Phase `19`–`31` chain, described at the time as
+closing the 2026-07-01 audit findings: scaffold-reachability lint, static demo proof,
 documented-versus-implemented SL/RL drift, unverified dataset reads, and representative
-integration/e2e evidence. The closed chain is:
+integration/e2e evidence. The (withdrawn) chain claimed:
 
 - Phase `19` has installed product-truth gates, the typed `ProductRow` registry,
   matrix floor, Phase `19`–`31` status registry, and docs-check closure guard.
@@ -1321,19 +1382,22 @@ obligation exists.
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
 | 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence only; current product handoff reopened by Phase `19` | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
-| 19 | Product Truth Gates & Registry | ✅ Done (Sprints 19.1-19.3 complete; docs-check closure enforcement active for later phases) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
-| 20 | De-Fossilization & Scaffold Lint | ✅ Done (Sprints 20.1-20.2 complete; ProductTruth scaffold/reachability lint active) | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
-| 21 | Type-State DSL and Inference Eligibility | ✅ Done (Sprints 21.1-21.3 complete; Haskell/Dhall inference eligibility and fail-closed decode validated) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
+| 19 | Product Truth Gates & Registry | 🔄 Active (reopened 2026-07-05 — per-row convergence bar is a slack-0 tautology; docs-check closure guard reads a hand-edited registry, not evidence) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
+| 20 | De-Fossilization & Scaffold Lint | 🔄 Active (reopened 2026-07-05 — scaffold lint is a name-denylist of prior fossils with a FutureOwner exemption; no behavioral fake detection) | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
+| 21 | Type-State DSL and Inference Eligibility | 🔄 Active (reopened 2026-07-05 — InferenceEligible convergence gate is value≥value; weight-movement measured against an all-zeros vector) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
 | 22 | Canonical Matrix and Dataset Integrity | ✅ Done (Sprints 22.1-22.3 complete; matrix parity, per-row Dhall, and read-time dataset SHA validated) | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
-| 23 | General Differentiable Layer Engine | ✅ Done (Sprints 23.1-23.3 complete; graph checkpoint/inference validated on linux-cpu) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
-| 24 | Real Supervised Architectures | ✅ Done (Sprints 24.1-24.3 complete; supervised graph/layout checkpoint evidence validated on linux-cpu) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
-| 25 | Real RL Algorithms and Environments | ✅ Done (Sprints 25.1-25.3 complete; full RL-only publisher pass reported 39/39 eligible on linux-cpu) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
-| 26 | AlphaZero Real Self-Play Per Game | ✅ Done (Sprints 26.1-26.2 complete; per-game self-play, arena evidence, and inference-eligible checkpoints validated on linux-cpu) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
-| 27 | Demo All-Model Rendering | ✅ Done (Sprints 27.1-27.3 complete; product-row artifacts, renderers, and fail-closed browser guards validated) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
-| 28 | Per-Model Integration and E2E | ✅ Done (Sprint 28.3 — `jitml test all --live --linux-cpu` passed 8/8 stanzas on 2026-07-05 with row-complete report card coverage, `browser_product_matrix` 55/55, and all components ready at edge `:9091`) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
-| 29 | Linux CUDA Product Lane | ✅ Done (Phase 29.3 — RTX 5090 lane passed `jitml test all --linux-cuda` 8/8, live Playwright 71/71, and 55/55 ProductRows eligible on 2026-07-05) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
-| 30 | Apple Silicon Product Lane | ✅ Done (Phase 30.3 — Apple Silicon host validated fixed-bridge Metal product-family kernels and the 55-row `apple-silicon` attestation on 2026-07-05) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
-| 31 | No-Caveat Product Aggregation | ✅ Done (Phase 31.2 — `linux-cpu` aggregation consumed the committed CPU/CUDA/Apple 55-row attestations and closed the Phase `19`–`31` chain on 2026-07-05) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 23 | General Differentiable Layer Engine | 🔄 Active (reopened 2026-07-05 — Conv2D/attention/norm/Bottleneck layer kinds compute a plain dense matmul or an identity no-op) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
+| 24 | Real Supervised Architectures | 🔄 Active (reopened 2026-07-05 — ResNet/WideResNet/ViT/LeNet train a residual-MLP over flattened pixels; archLayerGraph is never trained) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
+| 25 | Real RL Algorithms and Environments | 🔄 Active (reopened 2026-07-05 — reward measured from a hardcoded expert controller, not the trained policy; TRPO/RecurrentPPO/SAC/TQC/CrossQ stand-ins) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
+| 26 | AlphaZero Real Self-Play Per Game | 🔄 Active (reopened 2026-07-05 — arena win-rate is a 0.5-draw artifact of a 4-ply, single-generation product path; othello/hex/gomoku demo checkpoints untrained) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
+| 27 | Demo All-Model Rendering | 🔄 Active (reopened 2026-07-05 — 39/55 rows collapse to one PPO/cartpole panel; 4/5 mnist and 4/5 cifar rows unselectable; checkpoint-browse renderers are static text) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
+| 28 | Per-Model Integration and E2E | 🔄 Active (reopened 2026-07-05 — integration tests are artifact-readers, not training drivers; live matrix asserts stdout prefixes; no per-model measured convergence/inference) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
+| 29 | Linux CUDA Product Lane | 🔄 Active (reopened 2026-07-05 — the `linux-cuda` lane aggregated fabricated per-row eligibility; must re-validate on real evidence once Phases 19-28 close) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 30 | Apple Silicon Product Lane | 🔄 Active (reopened 2026-07-05 — the `apple-silicon` lane aggregated fabricated per-row eligibility; must re-validate on real evidence once Phases 19-28 close) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
+| 31 | No-Caveat Product Aggregation | 🔄 Active (reopened 2026-07-05 — aggregation consumed the withdrawn per-lane attestations; reopens with the Phase 19-31 chain, gated on Phases 32-34) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 32 | External-Truth Realness Harness & Negative-Control Gate | 📋 Planned (linux-cpu — standing negative-control suite, external-bar lint, provenance binding, Measured/Declared type split) | [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md) |
+| 33 | Per-Model Convergence & Inference-Performance Tests | 📋 Planned (linux-cpu — per-ProductRow measured convergence ≥ external bar + inference throughput/sample-efficiency, driven by real training) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
+| 34 | Plan-Truth Governance | 📋 Planned (linux-cpu — standing adversarial audit cadence, thinned plan, evidence-derived status, Exit-Definition items 19-24) | [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md) |
 
 ## Reopened phases (2026-07-01 — product truth and per-model completion)
 
@@ -2890,10 +2954,21 @@ This plan is complete only when all of the following are true:
 
 ### Product-truth closure criteria (2026-07-01 reopen, Phases `19`–`31`)
 
-The 2026-07-01 reopen adds the following binding closure criteria on top of the
+The 2026-07-01 reopen added the following binding closure criteria on top of the
 eighteen items above. They implement
-[../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
-and none of the eighteen items is met in a way that violates them:
+[../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
+
+> **Not met — reopened 2026-07-05 (realness audit).** Items `18`, `20`, `21`, `22`,
+> and `24` are **currently violated in the worktree** (the obligations are correct;
+> the validation certified them met when they were not — see Closure Status above):
+> item `20`'s scaffold lint is a name-denylist blind to new fakes; item `21`'s
+> "non-fabricable" evidence hashes an all-zeros vector for the initial weights and
+> its inference-eligibility gate is a `value ≥ value` tautology; item `22`'s
+> "literal architectures" train a residual-MLP over flattened pixels; item `24`'s
+> per-row tests are artifact-readers, not training drivers; and item `18`'s ledger
+> is not empty. These are owned by reopened Phases `19`–`28` and by the new
+> validation-integrity criteria (`25`–`28`) below, which make items `1`–`24`
+> non-gameable.
 
 19. One typed `ProductRow` registry (`src/JitML/Product/Matrix.hs`) is the single
     source of truth for every documented SL/RL/AlphaZero/tuning/demo row; the
@@ -2921,6 +2996,36 @@ and none of the eighteen items is met in a way that violates them:
 24. Every product row owns a named integration test and e2e test; coverage
     reports name any missing row/test pair, and a green pass count without row
     identity does not close a phase.
+
+The following **validation-integrity** criteria (added 2026-07-05) exist because
+items `1`–`24` were previously certified met by self-authored, self-referential
+gates. They make the earlier items non-gameable by grading against external ground
+truth the implementer cannot author or tune, and they are owned by Phases `32`–`34`:
+
+25. **Negative-control suite (external grader).** A committed set of known-fake
+    artifacts — an untrained random-init checkpoint, a below-threshold model, an RL
+    reward trace produced by a scripted controller, and a dense layer labelled as
+    convolution — must be **rejected** by the corresponding gate. The
+    `jitml-negative-controls` stanza fails the build if any known-fake is accepted; a
+    gate that cannot reject its known-fake is not a gate. (Phase `32`.)
+26. **No self-referential validation.** No convergence or eligibility threshold is a
+    function of the value it checks: convergence bars are frozen external constants in
+    `src/JitML/Product/ExternalBars.hs`, and a lint rejects the
+    `mkConvergenceBar … measuredValue 0.0` / `threshold = measured` pattern. Every
+    reported metric is recomputed at read time from the *served* artifact by an
+    independent evaluator (not a stored boolean), and the served weights hash to the
+    checkpoint. RL reward is a rollout of the trained policy, never a scripted
+    controller. (Phases `19`, `21`, `25`, `32`.)
+27. **Evidence-derived status, typed real/declared split.** `jitml docs check`'s
+    closure guard recomputes phase/sprint status from machine-checkable evidence, not
+    from a hand-edited `PhaseStatus.hs`; a stand-in is typed `Declared` (distinct from
+    `Measured` / `RealArchitecture`) and cannot be reported as real in the demo or
+    report card. (Phases `19`, `32`, `34`.)
+28. **Standing external audit; thin plan.** A recurring adversarial realness audit —
+    authored and run by a process that does not own turning phases green — is a
+    required gate; its findings, not the plan narrative, define status. `Closure
+    Status` is a thin pointer to that evidence, not a per-commit narrative. (Phase
+    `34`.)
 
 ## Related Documents
 

@@ -1,6 +1,6 @@
 # Phase 24: Real Supervised Architectures
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
 **Generated sections**: none
@@ -11,11 +11,35 @@
 
 ## Phase State
 
-✅ **Done**. Phase `23` is Done; Sprints `24.1` and `24.2` completed literal
-supervised architecture topology, per-row feature parity, convergence,
-weight-update, and learning-evidence gates. Sprint `24.3` completed supervised
-`CompletedTraining` manifests, graph/layout checkpoint evidence, and
-fail-closed inference rejection coverage.
+🔄 **Active, reopened 2026-07-05 (realness audit)**. Phase `23` is Done. Sprints
+`24.1`, `24.2`, and `24.3` previously closed on 2026-07-02, but the 2026-07-05
+realness audit found that no canonical row trains or serves its named
+architecture. The model actually built and trained by `layersForFamily`
+(`src/JitML/SL/Architecture.hs`~`249`) is, for **every** ResNet, WideResNet,
+ResNet-50, and LeNet row, a residual-MLP over **flattened** pixels — a `Dense`
+stem, `N` two-layer-MLP `ResidualSpec` blocks (`Architecture.hs`:`261`), and a
+`Dense` classifier — with no `Conv2D`, pooling, normalization, or attention on
+the trained path. `ResNet-50` reuses the same residual-MLP template as
+`ResNet-20`/`ResNet-56` (`familyForModel "ResidualBlock50" = ResidualFamily 50`,
+`Architecture.hs`:`445`); the only `depth == 50` branch (`Architecture.hs`:`315`)
+lives in the *untrained* graph builder, so the served model has no ResNet-50
+bottleneck topology. The advertised `architectureLayerGraphForFamily` graph
+(`archLayerGraph`, `Architecture.hs`:`97`) is **never** trained or used for
+inference — `trainArchitectureWithDevice` and the split-training path both
+initialise and train `archLayers spec` only (`Architecture.hs`:`550`, `:649`) —
+so `archLayerGraph` feeds only a self-authored feature-parity check
+(`Architecture.hs`:`484`,`:492`), not the model that runs. Sprint `24.1`
+(literal architectures), Sprint `24.2` (convergence and evidence), and Sprint
+`24.3` (CompletedTraining SL manifests) are reopened to **Active**: the named
+topology must be genuinely built, trained, and served, and each row's
+convergence must be measured per-model against an external bar. The
+negative-control suite (`jitml-negative-controls`, Phase `32` —
+[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
+and the per-model suite (`jitml-model-convergence`, Phase `33` —
+[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)),
+governed by Phase `34`
+([phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md)), are the
+external gates that close the reopened obligations.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -34,9 +58,9 @@ throughput, and clears `median(k=5) >= literature_target - slack`. Each row writ
 an inference-eligible `CompletedTraining` checkpoint, and partial, synthetic, or
 untrained supervised manifests are rejected.
 
-## Sprint 24.1: Literal Architectures [✅ Done]
+## Sprint 24.1: Literal Architectures [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
@@ -76,13 +100,40 @@ negative case, and live SL materialization/training tests. `docker compose run
 check` passed, and `docker compose run --rm jitml cabal run exe:jitml --
 check-code` passed after formatting the Sprint `24.1` Haskell edits.
 
+Reopened 2026-07-05 (realness audit): the layer graph actually built and trained
+by `layersForFamily` (`src/JitML/SL/Architecture.hs`~`249`) is a residual-MLP
+over flattened pixels for every ResNet, WideResNet, ResNet-50, and LeNet row — a
+`Dense` stem, `N` two-layer `ResidualSpec` blocks (`Architecture.hs`:`261`), and
+a `Dense` classifier — with no `Conv2D`, pooling, normalization, or attention on
+the trained path, and `ResNet-50` (`familyForModel "ResidualBlock50"`,
+`Architecture.hs`:`445`) reuses the `ResNet-20`/`ResNet-56` residual-MLP template
+with no bottleneck topology. The simplified-topology negative case passes only
+because it inspects `architectureLayerGraphForFamily`
+(`Architecture.hs`:`484`,`:492`), which is never trained or served, so no
+rejection actually guards the model that runs.
+
 ### Remaining Work
 
-None.
+- **Unmet Exit-Definition obligation**: each supervised row must be its literal
+  named architecture on the *trained and served* path — real `Conv2D`/pooling and
+  BatchNorm for LeNet-5, real residual convolutional blocks at the documented
+  depths/widths for the small ResNet, ResNet-20, ResNet-56, and WideResNet-28-10,
+  a genuinely distinct ResNet-50 bottleneck, and real patch-embedding plus
+  self-attention for the ViT — not a residual-MLP over flattened pixels shared
+  across families.
+- Build the real topology in `src/JitML/SL/Architecture.hs` and train *that*
+  graph, retiring the untrained `architectureLayerGraphForFamily` parity stand-in
+  so the served model is the graph the feature-parity check inspects.
+- **Closing validation**: the "dense layer labelled as convolution must be
+  rejected" differential control and the untrained-graph controls in the
+  `jitml-negative-controls` stanza (Phase `32`,
+  [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
+  must reject the current MLP-for-conv stand-in, exercised via
+  `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
-## Sprint 24.2: Convergence and Evidence [✅ Done]
+## Sprint 24.2: Convergence and Evidence [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `test/sl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/numerical_core.md`
 
@@ -119,13 +170,30 @@ test jitml-integration --linux-cpu` passed 79 / 79 against the live linux-cpu
 cluster. `jitml docs check` and `jitml check-code` passed after the Sprint
 `24.2` module/docs update.
 
+Reopened 2026-07-05 (realness audit): the recorded convergence, weight-update,
+and learning-evidence figures are all measured on the residual-MLP that
+`layersForFamily` trains, not on the named convolutional/attention architecture,
+and the bar each row clears is self-authored rather than a frozen external
+literature constant — so a passing row does not demonstrate the documented model
+learning.
+
 ### Remaining Work
 
-None.
+- **Unmet Exit-Definition obligation**: each row's held-out convergence metric
+  must be *measured on the real named architecture* and cleared against a frozen
+  external literature bar, not on the shared flattened-pixel residual-MLP against
+  a self-authored threshold.
+- **Closing validation**: the per-model `jitml-model-convergence` suite (Phase
+  `33`,
+  [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)),
+  which trains each `ProductRow` from a real random init through the production
+  device seam and asserts the measured held-out test metric ≥ the Phase `32`
+  `ExternalBars` target, must pass for every supervised row via
+  `docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu`.
 
-## Sprint 24.3: CompletedTraining SL Manifests [✅ Done]
+## Sprint 24.3: CompletedTraining SL Manifests [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Checkpoint/`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`
 
@@ -160,9 +228,27 @@ including the live MNIST and all-canonical-row supervised materialization and
 training checks. `docker compose run --rm jitml jitml check-code` passed after
 formatting the Sprint `24.3` integration test wrapping.
 
+Reopened 2026-07-05 (realness audit): the checkpoint each row writes and the
+graph/layout metadata the reader verifies describe the residual-MLP that
+`trainArchitectureWithDevice` and the split-training path actually train
+(`Architecture.hs`:`550`, `:649`), so the inference-eligible manifest certifies a
+flattened-pixel MLP as `ResNet`/`WideResNet`/`ResNet-50`/`LeNet`/`ViT`. The
+`CompletedTraining` manifest and fail-closed loader machinery are in place, but
+they attest a fabricated topology as complete.
+
 ### Remaining Work
 
-None.
+- **Unmet Exit-Definition obligation**: the inference-eligible checkpoint and its
+  graph/layout evidence must describe the real named architecture that was
+  trained, and inference must serve that topology — not the shared residual-MLP.
+- **Closing validation**: after the real topology lands (Sprint `24.1`) and is
+  trained/served, the untrained/fabricated-checkpoint negative controls in the
+  `jitml-negative-controls` stanza (Phase `32`,
+  [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)) —
+  including the Sprint `32.2` decode-time provenance re-derivation that recomputes
+  graph/layout from the served artifact — must reject any manifest whose served
+  weights are not the real trained architecture, exercised via
+  `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
 ## Documentation Requirements
 

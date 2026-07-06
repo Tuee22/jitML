@@ -1,6 +1,6 @@
 # Phase 21: Type-State DSL & Inference Eligibility
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/durable_state_dsl.md](../documents/engineering/durable_state_dsl.md)
 **Generated sections**: none
@@ -11,10 +11,36 @@
 
 ## Phase State
 
-✅ **Done**. Phase `20` has closed the de-fossilization and scaffold-lint gate,
-Sprint `21.1` has installed non-fabricable training evidence, Sprint `21.2` has
-installed the Haskell type-state pipeline, and Sprint `21.3` has closed the
-Dhall boundary plus fail-closed decode surface.
+🔄 **Active** (reopened 2026-07-05). Phase `20` closed the de-fossilization and
+scaffold-lint gate, Sprint `21.1` shipped the non-fabricable training-evidence
+surface, Sprint `21.2` shipped the Haskell type-state pipeline, and Sprint `21.3`
+shipped the Dhall boundary plus fail-closed decode surface. The 2026-07-05
+realness audit found that the inference-eligibility gate those sprints installed
+is self-referential and does not actually reject an untrained model, so this phase
+reopens.
+
+**Reopen note (2026-07-05, realness audit).** Two defects make the
+`InferenceEligible` gate tautological:
+
+- The convergence gate compares a value against itself. The per-row
+  `ConvergenceBar` in `src/JitML/SL/ConvergenceThresholds.hs` is a slack-0 bar
+  (`value >= value`), so `evaluateConvergence` sets `coPassed` from a threshold
+  that equals the measured value and every run "passes."
+- The "non-fabricable" weight-movement evidence hashes an **all-zeros** vector as
+  the initial weights (`src/JitML/App.hs` `checkpointTrainingEvidenceWithDatasetSha`,
+  ~line 3578), so any nonzero final weights satisfy `initialWeightHash /=
+  finalWeightHash`. An **untrained random-init model** therefore produces valid
+  movement evidence and decodes as `InferenceEligible`.
+
+Closure moves onto the external-truth harness: convergence bars become frozen
+external constants and `coPassed` is re-derived at decode against them
+([phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
+Sprint `32.2`), the initial-weight hash is taken over the real random-init weights,
+`updateCount` equals the real optimizer-step count, and the standing
+`jitml-negative-controls` suite ([Phase 32](phase-32-external-truth-realness-harness.md)
+Sprint `32.1`) proves an untrained checkpoint is **rejected**. Sprints `21.1`,
+`21.2`, and `21.3` are `Active` with the per-sprint `### Remaining Work` below; the
+type-state ADTs and the Dhall/decode plumbing they introduced remain in place.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -31,9 +57,9 @@ accept only a `ModelRef InferenceEligible`, so declared experiments, partial
 manifests, failed runs, seeded demo fixtures, and static matrix rows cannot
 decode as inference targets in Haskell, in Dhall, or in the browser.
 
-## Sprint 21.1: Non-Fabricable Training Evidence [✅ Done]
+## Sprint 21.1: Non-Fabricable Training Evidence [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Product/Evidence.hs`, `src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/training_metrics_and_splits.md`
 
@@ -75,13 +101,38 @@ docker compose run --rm jitml jitml docs check                  # passed
 docker compose run --rm jitml jitml check-code                  # passed
 ```
 
+The 2026-07-05 realness audit found this validation graded the surface against
+self-authored gates: the per-row bar was slack-0 and the initial-weight hash was
+taken over an all-zeros placeholder, so the unit test never exercised an untrained
+checkpoint.
+
 ### Remaining Work
 
-- None.
+Unmet obligation (Exit Definition — non-fabricable training evidence): the
+weight-movement witness and the convergence outcome are self-referential, so an
+untrained random-init model constructs valid evidence.
 
-## Sprint 21.2: Type-State Pipeline (Haskell) [✅ Done]
+- **Hash the real random-init weights.** `initialWeightHash` must be taken over the
+  actual randomly-initialized weight tensor, not the all-zeros placeholder in
+  `src/JitML/App.hs` `checkpointTrainingEvidenceWithDatasetSha` (~line 3578); until
+  then `initialWeightHash /= finalWeightHash` is satisfied by any nonzero final
+  weights.
+- **`updateCount` equals the real optimizer-step count.** The witness must carry the
+  number of optimizer steps actually applied, not a positive constant.
+- **Non-tautological convergence bar.** Replace the slack-0 per-row bar in
+  `src/JitML/SL/ConvergenceThresholds.hs` (which makes `evaluateConvergence` compare
+  a value against itself) with the frozen external constants from
+  [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
+  Sprint `32.2` (`src/JitML/Product/ExternalBars.hs`).
 
-**Status**: Done
+Closed by the [Phase 32](phase-32-external-truth-realness-harness.md)
+negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrained
+random-init checkpoint is **rejected**, plus the no-self-referential-gate lint
+(Sprint `32.2`).
+
+## Sprint 21.2: Type-State Pipeline (Haskell) [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`, `src/JitML/App.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/checkpoint_format.md`
 
@@ -122,13 +173,33 @@ docker compose run --rm jitml jitml check-code                        # passed
 docker compose run --rm jitml jitml docs check                        # passed
 ```
 
+The 2026-07-05 realness audit found the promotion test only exercised the legal
+state path against a witness whose convergence was the tautological slack-0 gate,
+so it never proved an untrained model is refused promotion.
+
 ### Remaining Work
 
-- None.
+Unmet obligation (Exit Definition — inference eligibility is earned): promotion via
+`markInferenceEligible` requires "passing convergence," but that convergence is the
+tautological slack-0 gate from Sprint `21.1`, so promotion is unconditional in
+practice.
 
-## Sprint 21.3: Dhall Boundary & Fail-Closed Decode [✅ Done]
+- **Promotion must consume a real convergence outcome.** `markInferenceEligible`
+  must reject a witness whose `coPassed` was derived from a value-equals-threshold
+  bar; the promotion path is re-pointed at the frozen external bars from
+  [Phase 32](phase-32-external-truth-realness-harness.md) Sprint `32.2`.
+- **Real weight-delta witness.** The `checkpointTrainingEvidenceWithDatasetSha`
+  construction in `src/JitML/App.hs` (~line 3578) that feeds the all-zeros
+  initial-weight hash into the promoted witness is corrected alongside Sprint
+  `21.1`.
 
-**Status**: Done
+Closed by the [Phase 32](phase-32-external-truth-realness-harness.md)
+negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrained
+random-init checkpoint fails `InferenceEligible`.
+
+## Sprint 21.3: Dhall Boundary & Fail-Closed Decode [🔄 Active]
+
+**Status**: Active
 **Implementation**: `dhall/project/Schema.dhall`, `dhall/run/Schema.dhall`, `src/JitML/Service/RunConfig.hs`, `src/JitML/Service/DhallSchema.hs`, `src/JitML/Project/Config.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/Service/Workload.hs`, `src/JitML/Web/Contracts.hs`, `web/src/Generated/Contracts.purs`, `web/src/Panels/Checkpoints.purs`, `test/unit/Main.hs`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/durable_state_dsl.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -172,9 +243,28 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu                 
 docker compose run --rm jitml jitml test jitml-integration --linux-cpu            # passed, 78/78 tests
 ```
 
+The 2026-07-05 realness audit found decode trusted the stored `coPassed` boolean
+and the stored weight hashes, so the "unchanged-weight / failed-training" rejections
+above never fired for an untrained random-init manifest whose all-zeros init hash
+differs from its nonzero final hash.
+
 ### Remaining Work
 
-- None.
+Unmet obligation (Exit Definition — fail-closed decode): the decode surface trusts
+the stored `coPassed` boolean and the stored weight hashes, so an untrained
+random-init manifest decodes as an inference target instead of failing closed.
+
+- **Re-derive `coPassed` at decode against the external bar.**
+  `decodeInferenceEligibleManifestCbor` (`src/JitML/Checkpoint/Format.hs`) and the
+  `src/JitML/Checkpoint/Store.hs` rejection path must recompute the convergence
+  verdict from the served metrics against the frozen external constants
+  ([Phase 32](phase-32-external-truth-realness-harness.md) Sprint `32.2` decode
+  change), not accept the boolean the manifest carries, and must assert the
+  served-weights hash equals the checkpoint hash.
+
+Closed by the [Phase 32](phase-32-external-truth-realness-harness.md)
+negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrained
+random-init checkpoint is rejected at decode.
 
 ## Documentation Requirements
 

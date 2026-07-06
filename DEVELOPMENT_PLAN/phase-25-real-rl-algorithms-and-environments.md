@@ -1,6 +1,6 @@
 # Phase 25: Real RL Algorithms & Environments
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md)
 **Generated sections**: none
@@ -11,12 +11,31 @@
 
 ## Phase State
 
-✅ **Done, re-closed 2026-07-03**. Phase `24` is Done. Sprint `25.1`
-re-closed on 2026-07-03 after the production RL trainers were wired to the
-row-requested simulator catalog and the publisher reached formerly unsupported
-rows without reporting `unsupported`. Sprint `25.2` remains Done for the
-distinct algorithm update contracts that already exist. Sprint `25.3` re-closed
-after every live RL product row produced passing `CompletedTraining` evidence.
+🔄 **Active, reopened 2026-07-05 (realness audit)**. Phase `24` is Done. This
+phase previously re-closed on 2026-07-03, but the 2026-07-05 realness audit found
+that its reported RL convergence evidence does not come from the trained policy at
+all. `src/JitML/App.hs` builds evaluation episodes as
+`fromMaybe (trained eval) (canonicalDiscreteEvaluation env)` /
+`canonicalContinuousEvaluation env`, and those hardcoded expert controllers
+return `Just` for **every** canonical environment (~`4389`–`4525`:
+`cartPoleExpertAction`, the Acrobot 6-step lookahead, etc.), so the trained
+policy is silently discarded and the "convergence reward" is the scripted
+controller's reward. HER reports a literal constant —
+`replicate evalEpisodes (1.0, herNumBits)` (~`4325`) — instead of a measured
+goal-success trace. The catalog's distinct-algorithm claim is also unmet: TRPO,
+RecurrentPPO, SAC, TQC, and CrossQ are stand-ins in `PpoTrainer.hs` /
+`ContinuousTrainer.hs`, and the real per-algorithm `*Loss` modules are imported
+only by tests. The audit also flagged non-adaptive tuning —
+`Tune/Catalog.hs` `sampledClassifierConfig` is a grid indexed by trial number and
+the pruner / ASHA / MedianPruner path is never applied, so the search is a static
+sweep rather than real TPE/ASHA — but tuning ownership lives in the
+tuning-owning phase (Phase `9` per single-ownership rule E), so the "real
+TPE/ASHA/MedianPruner" fix is tracked there, not as a Phase `25` sprint
+obligation. Sprint `25.1`
+(native environment dynamics) remains **Done**; Sprint `25.2` (distinct
+algorithms) and Sprint `25.3` (per-row convergence and evidence) are reopened to
+**Active**. The negative-control and per-model measurement suites in Phases
+`32`–`34` are the external gates that close the reopened obligations.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -98,9 +117,9 @@ evidence/convergence work.
 
 None.
 
-## Sprint 25.2: Distinct Algorithms [✅ Done]
+## Sprint 25.2: Distinct Algorithms [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/RL/Algorithms/Registry.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -145,13 +164,41 @@ passed, `jitml-rl-canonicals --linux-cpu` passed 33/33,
 image+label blobs were staged through `jitml internal upload-dataset`, and
 `jitml check-code` passed.
 
+Reopened on 2026-07-05 (realness audit): the distinct-algorithm registry test
+proves that algorithm ids resolve to *distinct trainer entry points*, but several
+of those entry points are stand-ins that do not apply their documented update
+math. In `PpoTrainer.hs`, TRPO has no conjugate-gradient trust-region step and
+RecurrentPPO has no recurrent cell or hidden state. In `ContinuousTrainer.hs`,
+SAC uses a fixed `alpha = 0.2` with a deterministic actor and no entropy term,
+TQC uses scalar critics with `drop = 0` (making it indistinguishable from SAC),
+and CrossQ hardcodes an identity batch-renorm instead of the real
+batch-renormalized critic. The genuine per-algorithm `*Loss` modules exist but
+are imported only by tests, so the production trainer never exercises them. The
+registry's "two ids never resolve to the same update" assertion passes on the
+entry-point identity while the underlying update math still coincides.
+
 ### Remaining Work
 
-None.
+- **Unmet Exit-Definition obligation (real distinct algorithm math).** Wire each
+  algorithm's real per-algorithm mechanics into the production trainer, not just a
+  distinct entry point: TRPO's conjugate-gradient trust-region step,
+  RecurrentPPO's recurrent cell and carried hidden state, SAC's entropy term with
+  a learned (non-fixed) `alpha`, TQC's truncated quantile critics with
+  `drop > 0`, and CrossQ's real batch-renormalized critic without a target
+  network. The production trainer must import and apply the real `*Loss` modules
+  currently reachable only from tests.
+- **Negative-control validation that closes it.** The
+  [`jitml-negative-controls`](phase-32-external-truth-realness-harness.md) suite
+  asserts a differential separation: `TQC(drop > 0)` must produce a different
+  update trajectory than `SAC`, and a deterministic-actor / fixed-`alpha` SAC
+  stand-in is rejected as SAC evidence. Closure requires each reopened algorithm
+  to pass its differential control and the
+  [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
+  case that trains the row from a real random init through the production trainer.
 
-## Sprint 25.3: Per-Row Convergence and Evidence [✅ Done]
+## Sprint 25.3: Per-Row Convergence and Evidence [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`, `src/JitML/RL/ConvergenceThresholds.hs`, `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/Test/RowAssertions.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -210,9 +257,41 @@ reported **39** rows, **39** eligible, **0** unsupported, and **0** errors;
 passed **277 / 277**; `jitml docs check` passed after regenerating tracked
 contracts; and `jitml check-code` passed.
 
+Reopened on 2026-07-05 (realness audit): the reported RL convergence reward is
+**not** produced by the trained policy. `src/JitML/App.hs` builds evaluation
+episodes as `fromMaybe (trained eval) (canonicalDiscreteEvaluation env)` and the
+continuous counterpart `canonicalContinuousEvaluation env`, and those functions
+return `Just` a hardcoded expert controller for every canonical environment
+(~`4389`–`4525`: `cartPoleExpertAction`, the Acrobot 6-step lookahead, and
+per-environment scripted controllers), so the `fromMaybe` fallback to the trained
+policy is never taken and the "measured median" the row asserts is the expert
+controller's reward, not the policy's. The HER goal-success observation is a
+literal constant — `replicate evalEpisodes (1.0, herNumBits)` (~`4325`) — rather
+than an achieved-goal trace from a relabelled off-policy learner. Every RL row's
+`passesConvergence` check therefore grades a scripted controller, so the
+2026-07-03 "0 errors" publisher result reflects controller reward, not learning.
+
 ### Remaining Work
 
-None.
+- **Unmet Exit-Definition obligation (measured metric from the trained policy).**
+  Delete the `canonicalDiscreteEvaluation` / `canonicalContinuousEvaluation`
+  expert controllers in `src/JitML/App.hs` (~`4389`–`4525`) and evaluate the
+  **trained policy** directly, so the per-row median convergence metric is the
+  policy's reward. Replace the constant HER goal-success (~`4325`,
+  `replicate evalEpisodes (1.0, herNumBits)`) with a real achieved-goal /
+  success-rate trace from the hindsight-relabelled learner. The initial/final
+  parameter hashes, update counts, and `linux-cpu` device evidence stay, but the
+  convergence value must be recomputed from the served policy at read time.
+- **Negative-control validation that closes it.** The
+  [`jitml-negative-controls`](phase-32-external-truth-realness-harness.md) suite
+  rejects an expert-controller (scripted) reward trace as RL row evidence, and the
+  per-model [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
+  case trains each RL row from a real random init through the production device
+  seam and asserts the **trained-policy** median over the seed cohort clears the
+  external bar (`rleSyntheticTransitionEvidence = False`). Closure requires both
+  suites green on `linux-cpu`; the plan-truth audit that keeps this row from being
+  re-closed on self-authored evidence is
+  [Phase `34`](phase-34-plan-truth-governance.md).
 
 ## Documentation Requirements
 

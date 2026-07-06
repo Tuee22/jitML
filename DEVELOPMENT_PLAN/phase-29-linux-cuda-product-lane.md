@@ -1,6 +1,6 @@
 # Phase 29: linux-cuda Product Lane
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md)
 **Generated sections**: none
@@ -11,13 +11,29 @@
 
 ## Phase State
 
-✅ **Done.** Phase `29` closed on 2026-07-05 on the real
-`linux-cuda` lane. The validation host exposed an NVIDIA GeForce RTX 5090
-through the NVIDIA Container Runtime (`nvidia-smi`: driver `570.211.01`,
-CUDA `12.8`), `./bootstrap/linux-cuda.sh up` reconciled the live CUDA cluster at
-edge `:9092`, all 12 canonical dataset artifacts were staged into live MinIO
-through `jitml internal upload-dataset` with pinned SHA-256 verification, and
-all 55 ProductRows had inference-eligible `latest` checkpoint pointers.
+🔄 **Active, reopened 2026-07-05 (realness audit).** Phase `29` previously
+closed on 2026-07-05 on the real `linux-cuda` lane: the validation host exposed
+an NVIDIA GeForce RTX 5090 through the NVIDIA Container Runtime (`nvidia-smi`:
+driver `570.211.01`, CUDA `12.8`), `./bootstrap/linux-cuda.sh up` reconciled the
+live CUDA cluster at edge `:9092`, all 12 canonical dataset artifacts were staged
+into live MinIO through `jitml internal upload-dataset` with pinned SHA-256
+verification, and all 55 ProductRows reported inference-eligible `latest`
+checkpoint pointers.
+
+**2026-07-05 reopen (realness audit).** That closure is **withdrawn**. The lane
+did not measure anything real per row; it aggregated fabricated upstream
+eligibility — the slack-0 tautological convergence gate (Phase `19`), the
+hardcoded expert-controller RL reward (Phase `25`), and the residual-MLP "ResNet"
+supervised stand-ins (Phase `24`) — so the `55 / 55` eligible and `71 / 71` live
+Playwright product-matrix results are not real per-row evidence and are withdrawn
+until Phases `19`–`28` re-close on real evidence. Separately, the CUDA kernels
+this phase claims to exercise are still identity-copy stand-ins on the product
+path in `src/JitML/Codegen/Cuda.hs`, and the typed cuBLAS/cuDNN probes in
+`src/JitML/Engines/CublasBindings.hs` and `src/JitML/Engines/CudnnBindings.hs`
+are dead on that path — already tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). All three
+sprints reopen to Active; each names its unmet obligation and the
+negative-control / per-model gate that closes it in `### Remaining Work`.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
@@ -34,9 +50,9 @@ the row-keyed integration, e2e, and live Playwright product matrix on the
 published CUDA edge. Runtime absence fails up front; CUDA-supported rows do not
 pass vacuously.
 
-## Sprint 29.1: Real cuDNN/cuBLAS Kernels [✅ Done]
+## Sprint 29.1: Real cuDNN/cuBLAS Kernels [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -85,9 +101,36 @@ docker compose run --rm jitml jitml check-code
 including the Phase `29.1` generated-source cuBLAS/cuDNN assertion;
 `jitml-unit --linux-cpu` passed **277 / 277**; `jitml check-code` passed.
 
-## Sprint 29.2: CUDA Row Device Evidence [✅ Done]
+Reopened on 2026-07-05 (realness audit): the generated CUDA family bodies in
+`src/JitML/Codegen/Cuda.hs` are still identity-copy stand-ins on the product
+path, and the typed cuBLAS/cuDNN probes in
+`src/JitML/Engines/CublasBindings.hs` and `src/JitML/Engines/CudnnBindings.hs`
+are dead — imported but never exercised by a product row. The backend assertions
+therefore match `cublasSgemm` / `cudnnConvolutionForward` in rendered-source
+text while no real GEMM/convolution runs on the attached GPU for a product row.
+These residual identity-copy kernels and dead bindings are already tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
-**Status**: Done
+### Remaining Work
+
+- **Unmet Exit-Definition obligation (real device cuBLAS/cuDNN kernels).** The
+  Dense/MHA/Conv2D/Conv3D/BatchNorm/LayerNorm generated CUDA bodies must call
+  `cublasSgemm` / `cudnnConvolutionForward` and run real GEMM/convolution on the
+  attached GPU for every CUDA-supported product row, and the
+  `CublasBindings.hs` / `CudnnBindings.hs` probes must be live on that path
+  instead of dead imports — a rendered-source text match must not stand in for
+  device execution.
+- **Negative-control validation that closes it.** Re-run
+  `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
+  gated by the
+  [`jitml-negative-controls`](phase-32-external-truth-realness-harness.md)
+  differential that rejects an identity-copy result as cuBLAS/cuDNN evidence, so
+  a row cannot pass on rendered-source text alone. Validation stays single
+  accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
+
+## Sprint 29.2: CUDA Row Device Evidence [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `test/backends/Main.hs`, `test/integration/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -127,9 +170,35 @@ docker compose run --rm jitml jitml check-code
 publisher runs completed with **55 / 55** product rows eligible and **0**
 unsupported/error rows.
 
-## Sprint 29.3: CUDA Integration, E2E, and Attestation [✅ Done]
+Reopened on 2026-07-05 (realness audit): the `55 / 55` eligible result was
+aggregated from upstream fabricated per-row evidence — the slack-0 tautological
+convergence gate (Phase `19`), the hardcoded expert-controller RL reward
+(Phase `25`), and the residual-MLP "ResNet" supervised stand-ins (Phase `24`) —
+so an inference-eligible `latest` pointer does not prove the CUDA-supported row
+learned anything on the device. The eligibility claim is **withdrawn** until
+those upstream phases re-close on real evidence.
 
-**Status**: Done
+### Remaining Work
+
+- **Unmet Exit-Definition obligation (real per-row CUDA device evidence).** Every
+  CUDA-supported product row must record real `linux-cuda` device evidence backed
+  by a measured convergence metric that clears an external literature bar, not an
+  eligibility flag minted from a tautological gate, an expert-controller reward,
+  or a residual-MLP stand-in.
+- **Negative-control validation that closes it.** After Phases `19`–`28`
+  re-close, re-run
+  `docker compose run --rm jitml-cuda jitml internal train-and-publish-product-rows --linux-cuda`
+  and gate each row on the
+  [`jitml-negative-controls`](phase-32-external-truth-realness-harness.md) suite
+  (which rejects an under-target run) and the
+  [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
+  case that trains the CUDA-supported row from a real random init through the
+  production path. Validation stays single accelerator: `linux-cuda` plus
+  `linux-cpu`, never `apple-silicon`.
+
+## Sprint 29.3: CUDA Integration, E2E, and Attestation [🔄 Active]
+
+**Status**: Active
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 
@@ -183,6 +252,32 @@ docker compose run --rm jitml jitml check-code
 - `docker compose run --rm jitml jitml docs check` passed.
 - `docker compose run --rm jitml jitml check-code` passed.
 
+Reopened on 2026-07-05 (realness audit): the row-complete integration/e2e claim
+inherited the withdrawn Sprint `29.2` eligibility, so the live Playwright
+`71 / 71` result and the `55 / 55` `e2e.product.*` row-specific pass are
+**withdrawn** — a green browser render of a checkpoint whose eligibility was
+fabricated upstream is not row-complete evidence. The refreshed CUDA report card
+in `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` is withdrawn with
+it.
+
+### Remaining Work
+
+- **Unmet Exit-Definition obligation (row-complete CUDA integration/e2e/
+  attestation).** `jitml test all --linux-cuda` and the live Playwright product
+  matrix must pass for every CUDA-supported row against checkpoints whose per-row
+  convergence is really measured, and the refreshed `linux-cuda` attestation must
+  record that real evidence rather than the withdrawn `55 / 55` / `71 / 71`
+  counts.
+- **Negative-control validation that closes it.** After Phases `19`–`28` re-close
+  and Sprint `29.2` re-validates, re-run
+  `docker compose run --rm jitml-cuda jitml test all --linux-cuda` and
+  `docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda`,
+  gated by the
+  [`jitml-negative-controls`](phase-32-external-truth-realness-harness.md) and
+  [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
+  suites, and re-commit the attestation only after they pass. Validation stays
+  single accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
+
 ## Documentation Requirements
 
 **Engineering docs updated:**
@@ -195,10 +290,12 @@ docker compose run --rm jitml jitml check-code
 - `documents/engineering/purescript_frontend.md` — records CUDA-edge Playwright
   coverage of row-specific trained artifacts.
 
-**Product docs updated:**
+**Product docs to update:**
 - `README.md`, `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
-  and `DEVELOPMENT_PLAN/system-components.md` record Phase `29` as Done and
-  Phase `30` as the next blocked accelerator lane.
+  and `DEVELOPMENT_PLAN/system-components.md` record the 2026-07-05 realness-audit
+  reopen: Phase `29` is Active and its withdrawn `55 / 55` eligible / `71 / 71`
+  live Playwright linux-cuda claim is not restored until Phases `19`–`28` re-close
+  on real evidence.
 
 **Cross-references updated:**
 - The refreshed `linux-cuda` attestation is linked from Phase `31` as a required

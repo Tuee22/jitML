@@ -1,6 +1,6 @@
 # Phase 19: Product Truth Gates & Registry
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -12,14 +12,40 @@
 
 ## Phase State
 
-✅ **Done**. The 2026-07-01 model-runtime audit reopened product closure and
-chose to implement the documented surface for real — real deep architectures,
-real per-substrate conv/attention kernels, real cuBLAS/cuDNN invocation — rather
-than narrow the docs. Phases `0`–`18` remain historical evidence for their owned
-surfaces, but the no-caveat product claim is not restored until Phases `19`–`31`
-close in numerical order. This phase has installed the enforcement spine every
-later product phase is validated against: the typed product matrix, the Phase
-`19`–`31` status registry, and the docs-check closure-claim guard.
+🔄 **Active** (reopened 2026-07-05 by the realness audit). The 2026-07-01
+model-runtime audit reopened product closure and chose to implement the
+documented surface for real — real deep architectures, real per-substrate
+conv/attention kernels, real cuBLAS/cuDNN invocation — rather than narrow the
+docs. Phases `0`–`18` remain historical evidence for their owned surfaces, but
+the no-caveat product claim is not restored until Phases `19`–`31` close in
+numerical order. This phase installed the enforcement spine every later product
+phase is validated against: the typed product matrix, the Phase `19`–`31` status
+registry, and the docs-check closure-claim guard.
+
+**2026-07-05 reopen (realness audit).** Two of the truth gates this phase
+installed are not falsifiable as built, so the phase returns to Active:
+
+1. **The per-row convergence bar is a slack-0 tautology.** The checkpoint writer
+   builds every bar with `mkConvergenceBar name Maximise value 0.0`
+   (`src/JitML/App.hs` `convergenceObservationsForMetrics` ~line 3597), so the
+   threshold is set equal to the measured value and `evaluateConvergence` then
+   tests `value >= value` (`src/JitML/Product/Convergence.hs:104`) — every row
+   passes regardless of what it learned. Phase `32`
+   (`src/JitML/Product/ExternalBars.hs`) closes this by freezing each bar to an
+   external literature constant that is never derived from the measured value,
+   and the `jitml-negative-controls` suite proves an under-target run is
+   rejected.
+2. **Sprint `19.3`'s docs-check closure guard is non-falsifiable.** It gates on
+   the hand-edited `src/JitML/Product/PhaseStatus.hs` registry, not on evidence,
+   so flipping a literal is enough to satisfy it. Phase `34` re-derives
+   `allProductPhasesDone` from the `jitml-negative-controls` and
+   `jitml-model-convergence` results plus the ledger state instead of trusting
+   the registry literal.
+
+Sprint `19.1`'s `ProductRow` ADT, single registry, and `MatrixFloor` remain real
+and stay Done, and Sprint `19.2`'s typed phase-status registry remains real and
+stays Done; the tautological convergence-bar value is tracked as Remaining Work
+under Sprint `19.1`. Sprint `19.3` reopens to Active.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -96,7 +122,19 @@ docker compose run --rm jitml jitml check-code                  # passed
 
 ### Remaining Work
 
-- None.
+- The `ProductRow` ADT, the single registry, and the `MatrixFloor` are real and
+  met; the caveat is confined to the per-row **convergence-bar deliverable**. The
+  bar is not derived from any external target at runtime: the checkpoint writer
+  constructs each bar with `mkConvergenceBar name Maximise value 0.0`
+  (`src/JitML/App.hs` `convergenceObservationsForMetrics` ~line 3597), so the
+  threshold equals the measured value and `evaluateConvergence` evaluates
+  `value >= value` (`src/JitML/Product/Convergence.hs:104`) — a slack-0 tautology
+  that passes every row. Closed by Phase `32`, which moves the literature target
+  into a frozen `src/JitML/Product/ExternalBars.hs` constant never derived from
+  the measured value; the negative-control validation that shuts this gap is the
+  `jitml-negative-controls` suite rejecting a bar set equal to its own measured
+  value, and the per-row check is exercised by the `jitml-model-convergence`
+  suite (Phase `33`).
 
 ## Sprint 19.2: Phase Status Registry [✅ Done]
 
@@ -131,9 +169,9 @@ docker compose run --rm jitml jitml check-code                  # passed
 
 - None.
 
-## Sprint 19.3: Status Truth Enforcement [✅ Done]
+## Sprint 19.3: Status Truth Enforcement [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Lint/Docs.hs`, `src/JitML/Docs/Check.hs`, `test/unit/Main.hs`
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -165,7 +203,21 @@ docker compose run --rm jitml jitml check-code                  # passed
 
 ### Remaining Work
 
-- None.
+- **Unmet obligation (reopened 2026-07-05):** the closure guard is
+  non-falsifiable. `src/JitML/Docs/Check.hs` rejects a closure claim only when
+  the hand-edited `src/JitML/Product/PhaseStatus.hs` registry reports an
+  unfinished phase, so status is trusted from a literal rather than proven from
+  evidence — an agent can flip the registry to satisfy the guard without any
+  model actually converging. The guard must instead derive
+  `allProductPhasesDone` from machine-checkable evidence.
+- **Closed by:** Phase `34` (`phase-34-plan-truth-governance.md`, Sprint `34.1`)
+  recomputes `allProductPhasesDone` from the `jitml-negative-controls` and
+  `jitml-model-convergence` results plus the ledger state, so a hand edit to the
+  registry that contradicts the evidence fails the build. The negative-control
+  validation that closes this obligation is the `jitml-negative-controls` suite
+  (Phase `32`): the guard stays red while a `Real`-tagged row's negative control
+  is not green, and a registry literal that claims closure over failing evidence
+  is rejected.
 
 ## Documentation Requirements
 

@@ -19,6 +19,31 @@ algorithm/environment dispatch, and Phase `31` aggregates the committed
 CPU/CUDA/Apple row evidence. The binding contract lives in
 [product_completion_contract.md](product_completion_contract.md).
 
+**Realness audit correction (2026-07-05).** A same-day realness audit reopened
+Phase `25` (now Active) and supersedes the "closure is complete" / "Phase `25`
+records real RL algorithm/environment dispatch" claims above for the RL reward
+path: the RL "convergence" reward that gates the catalog is currently measured
+from a **hardcoded expert controller, not from the trained policy**.
+`JitML.App.runTrainerEpisodes` builds each trainer's reported evaluation
+episodes as `fromMaybe <trained-policy-eval> (canonicalDiscreteEvaluation
+envName evalEpisodes)` (`src/JitML/App.hs:4097`, `:4149`, `:4195`, `:4289`;
+continuous path `:4242`). `canonicalDiscreteEvaluation` /
+`canonicalContinuousEvaluation` (`src/JitML/App.hs:4389`, `:4406`) return `Just`
+for every canonical environment by rolling out the hardcoded `*ExpertAction`
+controllers (`cartPoleExpertAction` and siblings, `src/JitML/App.hs:4456`+), so
+the `Just` branch wins and the trained-policy evaluation is discarded — the
+published `avg_reward` / `median_final_reward` reflect the expert controller,
+not learned behaviour. Reopened Phase `25` owns replacing this with a
+trained-policy rollout as its unmet Exit-Definition obligation. The
+negative-control suite (`jitml-negative-controls`,
+[phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md))
+is the negative-control validation that must fail while the expert stand-in
+remains wired in, and the per-model convergence suite
+(`jitml-model-convergence`,
+[phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md))
+closes it per model, under the plan-truth governance in
+[phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
+
 The existing `TrainingBudget`, `CompletedTraining`, and
 `InferenceEligibleCheckpoint` vocabulary is the intended boundary: every product
 row records verified data,
@@ -305,6 +330,15 @@ checkpoint/TensorBoard-ready completion metrics (`avg_reward`,
 `median_final_reward`, `env_steps`, `episode_count`, plus HER goal metrics when
 available), and publishes `CheckpointDoneRL` with `CompletedTraining` after
 the fixed run budget completes.
+Caveat (2026-07-05 realness audit): the published `avg_reward` /
+`median_final_reward` are currently computed from the hardcoded
+expert-controller evaluation in `JitML.App.canonicalDiscreteEvaluation` /
+`canonicalContinuousEvaluation`, **not from the trained policy** — see the
+realness audit correction near the top of this document. Reopened Phase `25`
+owns making this a trained-policy rollout, validated by `jitml-negative-controls`
+([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md))
+and `jitml-model-convergence`
+([Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)).
 `src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
 deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
 `encodeRlCommandProto` and `decodeRlCommandProto` round-trip the current
@@ -381,7 +415,24 @@ stack. The traditional algorithms have concrete modules under
 `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`
 aggregated by `Registry.algorithmModuleRegistry`; each module names the
 algorithm-specific update contract that product rows must resolve before
-training. PPO/CartPole determinism is asserted by `jitml-rl-canonicals` as
+training.
+Stand-in caveat (2026-07-05 realness audit): several of these are variant flags
+on two shared trainer bodies rather than independent algorithm implementations.
+`trpo` and `recurrentppo` route through the shared PPO on-policy trainer via
+`PpoTrainer.Variant{TRPO,RecurrentPPO}` (`JitML.App` `onPolicyEpisodes`,
+`src/JitML/App.hs:4023`, `:4025`), and `sac`, `crossq`, and `tqc` route through
+the shared continuous actor-critic trainer via
+`ContinuousTrainer.Variant{SAC,CrossQ,TQC}` (`JitML.App` `continuousEpisodes`,
+`src/JitML/App.hs:4030`–`:4032`). The variants carry only light distinguishing
+logic (TRPO KL early-stop, RecurrentPPO recurrent epoch, SAC entropy term,
+CrossQ target-net removal, TQC pooled-quantile critic), and the Sprint `25.2`
+collapse guard only checks that final parameters differ — it does not certify
+each as a distinct converged algorithm. Reopened Phase `25` owns promoting these
+stand-ins to independently validated algorithms; the per-model convergence suite
+(`jitml-model-convergence`,
+[Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md))
+gates each on its own trained-policy convergence.
+PPO/CartPole determinism is asserted by `jitml-rl-canonicals` as
 run-to-run equality on the same substrate and seed (two fresh runs compared
 against each other), and Sprint `25.2` adds a trained-parameter/update-path guard
 for the on-policy variants so A2C, TRPO, and RecurrentPPO cannot collapse to

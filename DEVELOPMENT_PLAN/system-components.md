@@ -38,6 +38,9 @@
 [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
 [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
 [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
+[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
+[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md),
+[phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -48,15 +51,20 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. **Current status (2026-07-05):** product closure is
-complete. Phases `0`–`18` remain historical evidence for their owned surfaces,
-and Phases `19`–`31` are the current row-complete handoff. The committed
-`linux-cpu`, `linux-cuda`, and `apple-silicon` report-card fragments each cover
-**55 / 55** ProductRows with lane-specific device evidence; Phase `31` joins
-those fragments on `linux-cpu`.
-Component rows that contribute to the product model surface are complete only
-when their Phase `19`–`31` evidence exists in the typed registry and committed
-attestations.
+checked-in implementation. **Current status (2026-07-05): product closure
+REOPENED (realness audit).** The prior "product closure is complete / 55 / 55
+ProductRows" claim is **withdrawn** — the Phase `19`–`31` completion evidence was
+substantially fabricated (expert-controller RL reward, residual-MLP "deep
+architectures", tautological eligibility gates, `0.5`-draw AlphaZero arena) while
+the anti-fake gates were tautological or unenforced; see
+[README.md → Closure Status](README.md#closure-status). Phases `19`, `20`, `21`,
+`23`, `24`–`31` are reopened to `🔄 Active`; Phases `0`–`18` and Phase `22` stay
+`✅ Done` on their real owned surfaces; new Phases `32`–`34` add the external-truth
+harness. The committed per-lane report-card fragments are retained as historical
+record of the withdrawn claim only.
+Component rows that contribute to the product model surface are complete only when
+their reopened-phase evidence is **rejected by its committed negative control**
+(Phase `32`) and shows measured convergence + inference performance (Phase `33`).
 
 Historical closure evidence remains in the phase files and attestation files as
 dated record. The 2026-06-28 `linux-cuda` HA attestation, the 2026-06-29

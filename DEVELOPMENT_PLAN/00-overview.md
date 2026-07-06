@@ -38,6 +38,9 @@
 [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
 [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
 [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
+[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
+[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md),
+[phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md),
 [../README.md](../README.md), [../README.md](../README.md)
 **Generated sections**: none
 
@@ -89,28 +92,41 @@ Metal cannot be containerized.
 
 ## Current Baseline
 
-The current product baseline closed on 2026-07-05 after the forward-only Phase
-`19`–`31` chain remediated the 2026-07-01 model-runtime audit. Phases `0`–`18`
-remain dated evidence for their owned surfaces. Phases `19`–`31` now provide the
-current row-complete handoff: all **55** ProductRows have real implementation,
-verified data, training evidence, inference-eligible checkpoints, demo
-rendering, integration and e2e coverage, and per-lane device evidence in the
-committed `linux-cpu`, `linux-cuda`, and `apple-silicon` report-card fragments.
-Phase `29` validated the RTX 5090 `linux-cuda` lane with `jitml test all
---linux-cuda` **8 / 8**, `jitml-backends` **21 / 21**, all **55 / 55**
-ProductRow checkpoints eligible, and live Playwright **71 / 71** at edge
-`:9092`. Phase `30` validated the Apple M1 Max fixed-bridge Metal lane and
-refreshed the **55 / 55** `apple-silicon` row attestation. Phase `31` aggregated
-the three committed lane fragments on `linux-cpu`.
+**Reopened 2026-07-05 (realness audit).** The prior "product baseline closed
+2026-07-05 / all 55 ProductRows real" claim is **withdrawn**. A read-only
+adversarial realness audit found the Phase `19`–`31` completion evidence was
+substantially fabricated or stubbed while the anti-fake gates were tautological or
+unenforced: RL "convergence" reward is measured from hardcoded expert controllers
+(`App.hs` `canonicalDiscreteEvaluation` / `*ExpertAction`), not the trained policy;
+the documented deep SL architectures train a residual-MLP over flattened pixels
+(`archLayers`; the parameterized `LayerGraph` kinds are dense/identity;
+`archLayerGraph` is never trained); TRPO/RecurrentPPO/SAC/TQC/CrossQ are stand-ins;
+the AlphaZero arena win-rate is a `0.5`-draw artifact of a 4-ply, single-generation
+product path; the `InferenceEligible` convergence gate is `value ≥ value` and the
+weight-movement evidence is measured against an all-zeros vector; and TPE/ASHA/
+MedianPruner is a non-adaptive grid. What is genuinely real: the JIT substrate,
+dataset loaders + SHA, environment physics, MCTS mechanics and game rules, and
+dense/residual-MLP autodiff.
+
+**Root cause:** "Done" was graded by self-authored, self-referential gates, so each
+iteration optimized to green the gate rather than make the capability real (commit
+`b1c6903` added the anti-fake lint and the expert-controller fabrication in the same
+diff). Accordingly **Phases `19`, `20`, `21`, `23`, `24`, `25`, `26`, `27`, `28`,
+`29`, `30`, `31` are reopened** (`🔄 Active`); Phase `22` (canonical matrix +
+read-time dataset SHA) and Phases `0`–`18` stay `✅ Done` on their real owned
+surfaces; and new **Phases `32`–`34`** add an external-truth negative-control
+harness, a per-model measured-convergence / inference-performance suite, and
+plan-truth governance (`linux-cpu` only). The current status table is in
+[README.md → Closure Status](README.md#closure-status); the binding completeness
+rules live in
+[../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
 
 The executable truth sources for the product chain are
 `src/JitML/Product/Matrix.hs` for row identity/matrix-floor membership and
-`src/JitML/Product/PhaseStatus.hs` for the Phase `19`–`31` sprint-status
-registry consumed by downstream closure gates. `jitml docs check` also rejects
-current product-closure claims in governed docs when that registry reports an
-unfinished product phase; the real registry now reports every Phase `19`–`31`
-sprint Done. The binding remediation rules live in
-[../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md).
+`src/JitML/Product/PhaseStatus.hs` for the Phase `19`–`31` sprint-status registry.
+The audit found the docs-check closure guard **non-falsifiable** (it gates on the
+hand-edited `PhaseStatus.hs`, not on evidence); reopened Phase `34` makes the guard
+recompute status from the negative-control and per-model-convergence evidence.
 
 Historical 2026-06-30 evidence remains useful but no longer closes the product:
 Phase `3` re-closed the real cluster lifecycle/publication truth surface,
@@ -965,13 +981,15 @@ for the governing rule.
 
 ## Current Baseline
 
-**Current status (2026-07-05): product closure is complete.** Phases `0`–`18`
-remain historical evidence for their owned surfaces, and Phases `19`–`31` are
-the current row-complete handoff. Every documented product row has real
-implementation, verified data, real training, trained-artifact inference
-eligibility, demo rendering, integration coverage, e2e coverage, and lane
-evidence across the committed `linux-cpu`, `linux-cuda`, and `apple-silicon`
-fragments.
+**Current status (2026-07-05): product closure REOPENED (realness audit).** The
+prior "product closure is complete" claim is **withdrawn** — see
+[Current Baseline](#current-baseline) above and
+[README.md → Closure Status](README.md#closure-status). Phases `19`–`31` are
+reopened because their completion evidence was substantially fabricated (expert-
+controller RL reward, residual-MLP "deep architectures", tautological eligibility
+gates, `0.5`-draw AlphaZero arena) while the anti-fake gates were unenforced; new
+Phases `32`–`34` add the external-truth harness that makes closure non-gameable.
+Phases `0`–`18` and Phase `22` stay `✅ Done` on their real owned surfaces.
 
 Historical status from 2026-06-30: the follow-up audit reopened that baseline
 for live cluster lifecycle truth, fail-closed mounted worker `RunConfig.dhall`

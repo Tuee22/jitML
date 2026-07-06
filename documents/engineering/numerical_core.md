@@ -50,6 +50,38 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 
 ## Typed Layer Graph and Autodiff
 
+> **2026-07-05 realness-audit caveat (reopened Phase `23`).** The typed
+> `LayerGraph` IR, the tape/replay autodiff mechanics, the checkpoint topology
+> round-trip, and the oneDNN device seam described below are all in place, **but
+> the per-kind layer math is not real yet.** In
+> `src/JitML/Numerics/LayerGraph.hs`, `runLayerNode` (~line 396) routes *every*
+> parameterized node through `affinePreActivation` (line 523) — a plain dense
+> matmul plus bias — so the parameterized "exotic" kinds `Conv2D`, `Conv3D`,
+> `MultiHeadAttention`, `GeGLU`, patch-embed, `BasicBlock`, and `BottleneckBlock`
+> are all the same dense GEMM with the `LayerKind` tag ignored (the tag is
+> consulted only for the residual add in `residualScale`, line 549, and for the
+> pooling/dropout stubs in `parameterlessForward`, ~line 489). Every parameterless
+> `BatchNorm`/`LayerNorm`/`GroupNorm` node falls through to the `resizeIdentity`
+> no-op (line 504); `Dropout` is a deterministic `* 0.9` rescale; and
+> `MaxPool`/`AvgPool`/`GlobalAvgPool` replicate or average a single value rather
+> than pooling a windowed tensor. The finite-difference and backend-vs-oracle
+> checks described in the rest of this section therefore pass **vacuously** — they
+> compare against a pure oracle that is itself a dense stand-in, so gradient
+> agreement did not prove real convolution, attention, normalization, or pooling,
+> and a "ResNet"/"ViT"/"LeNet" graph trains and infers as a dense stack, not its
+> literal network. Reopened Phase `23`
+> ([DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md](../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md))
+> owns making each kind compute its real forward/backward math. The closure is
+> graded externally on the `linux-cpu` lane by the `jitml-negative-controls`
+> differential suite in
+> [phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
+> (each kind's output must differ from the dense-GEMM output of the same shape on
+> structured input) and by the `jitml-model-convergence` per-model suite in
+> [phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md),
+> under the plan-truth governance of
+> [phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
+> The prose that follows is retained as the pre-audit narrative.
+
 Phase `23` adds the executable typed layer-graph surface in
 `src/JitML/Numerics/LayerGraph.hs` and the public pure reverse-mode API in
 `src/JitML/Numerics/Autodiff.hs`. A `LayerGraph` carries input/output tensor

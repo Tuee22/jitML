@@ -37,6 +37,9 @@
 [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
 [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
 [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
+[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
+[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md),
+[phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -205,7 +208,10 @@ DEVELOPMENT_PLAN/
 ├── phase-28-per-model-integration-and-e2e.md
 ├── phase-29-linux-cuda-product-lane.md
 ├── phase-30-apple-silicon-product-lane.md
-└── phase-31-no-caveat-product-aggregation.md
+├── phase-31-no-caveat-product-aggregation.md
+├── phase-32-external-truth-realness-harness.md
+├── phase-33-per-model-convergence-and-inference-tests.md
+└── phase-34-plan-truth-governance.md
 ```
 
 No phase may be skipped. No sprint may exist in two phases. CLI-surface ownership,

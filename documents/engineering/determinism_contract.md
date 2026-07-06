@@ -283,6 +283,43 @@ executes.
   measurements across machines, and that selected `TuningChoice` becomes an
   explicit cache-key input.
 
+## Metamorphic and Differential Test Discipline
+
+Bit-determinism proves a computation is *reproducible*, not that it is *real*: a
+fabricated kernel that returns a fixed buffer is perfectly bit-deterministic.
+Introduced by the 2026-07-05 realness audit, reproducibility is therefore paired
+with a metamorphic/differential discipline that a stub cannot satisfy, owned by
+the `jitml-negative-controls` stanza in
+[../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
+(validated on `linux-cpu`) and specified in
+[unit_testing_policy.md](unit_testing_policy.md). The discipline is not a second
+determinism check; it is the guard that a determinism proof is a proof of a real
+computation rather than a reproducible fake:
+
+- **Differential (conv ≠ dense).** On a structured input where a convolution and
+  a dense layer must disagree, the convolution engine's output must differ from
+  the dense engine's output. A dense layer mislabelled as a convolution — which
+  is bit-deterministic and passes shape checks — is *rejected* by this assertion,
+  not accepted.
+- **Metamorphic provenance (trained greedy == served).** A trained policy's
+  greedy rollout must equal the rollout produced from the *served checkpoint* of
+  that same policy. The reported RL number is recomputed from the served artifact
+  rather than read from a stored scalar, so served weights that do not reproduce
+  the trained rollout fail provenance binding.
+- **Metamorphic ordering (trained > random).** That same trained-policy greedy
+  rollout must out-score a random-policy rollout on the same seeded environment.
+  A policy whose rollout does not beat random has not learned, however
+  reproducibly it replays.
+- **Ablation sensitivity (delete the expert).** Deleting the expert controller
+  must *change* the reported RL number. If removing the controller leaves the
+  metric unchanged, the number was being produced by a scripted stand-in rather
+  than the learned policy, and the negative control fails.
+
+These are behavioral invariants, not stored fixtures: each compares two fresh
+computations (conv vs dense, trained-greedy vs served, trained vs random,
+with-expert vs without) in-run, consistent with the snapshot policy in
+[unit_testing_policy.md → Snapshot Tests and the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+
 ## Cross-References
 
 - [../../README.md → Substrates and runtime modes](../../README.md#substrates-and-runtime-modes)
@@ -291,3 +328,4 @@ executes.
 - [checkpoint_format.md](checkpoint_format.md)
 - [../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md](../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
+- [../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md) — `jitml-negative-controls` gate and the metamorphic/differential discipline

@@ -126,6 +126,7 @@ library
         JitML.Plan.Render
         JitML.Product.Convergence
         JitML.Product.Evidence
+        JitML.Product.ExternalBars
         JitML.Product.Matrix
         JitML.Product.PhaseStatus
         JitML.Product.Pipeline
@@ -238,6 +239,8 @@ library
         JitML.Sub.Subprocess
         JitML.Substrate
         JitML.Test.LivePlan
+        JitML.Test.ModelConvergence
+        JitML.Test.NegativeControls
         JitML.Test.Report
         JitML.Test.RowAssertions
         JitML.Test.WorkflowMatrix
@@ -521,6 +524,44 @@ test-suite jitml-e2e
         directory,
         jitml,
         network,
+        tasty,
+        tasty-hunit,
+        text
+
+test-suite jitml-negative-controls
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/negative-controls
+
+    default-language: GHC2024
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
+    build-depends:
+        base >=4.21 && <4.22,
+        jitml,
+        tasty,
+        tasty-hunit,
+        text
+
+test-suite jitml-model-convergence
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/model-convergence
+
+    default-language: GHC2024
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
+    build-depends:
+        base >=4.21 && <4.22,
+        jitml,
         tasty,
         tasty-hunit,
         text

@@ -1,6 +1,6 @@
 # Phase 26: AlphaZero Real Self-Play Per Game
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
 **Generated sections**: none
@@ -11,13 +11,39 @@
 
 ## Phase State
 
-✅ **Done**. Phase `25` is Done, Sprint `26.1` completed real per-game
-self-play generation, product-row registration, game-specific MCTS visit
-targets, and persistent cache evidence, and Sprint `26.2` completed arena
-convergence, same-seed evidence, row evidence, and inference-eligible
-checkpoint artifacts for every canonical AlphaZero game.
+🔄 **Active** (reopened 2026-07-05, realness audit). The MCTS tree and the four
+games' board rules are real, but the product publish path never executes the
+declared self-play loop, so the arena "pass" is vacuous. Sprint `26.1` and
+Sprint `26.2` are both reopened; see their `### Remaining Work` blocks.
 
 **Validation substrate**: `linux-cpu` only.
+
+### 2026-07-05 realness-audit reopen
+
+The realness audit found the AlphaZero product path passes its arena bar without
+ever winning a game:
+
+- `src/JitML/App.hs` `trainAndPublishAlphaZeroProductRow` (~line 6268) runs a
+  **single** generation with `maxPlies = 4`, so no game can reach a terminal win
+  and every self-play and arena game truncates to a draw. The declared 64–128
+  generation / 128–256 simulation budget is never executed.
+- With every arena game a draw, `arenaWinRateAgainstUniformFrom` returns exactly
+  `0.5` (`src/JitML/RL/AlphaZero/PolicyValueNet.hs:654,684`), and
+  `passesAlphaZeroArena` accepts `>= 0.50` **inclusive**
+  (`src/JitML/RL/ConvergenceThresholds.hs:266,270`), so a network that never wins
+  "passes".
+- The Othello, Hex, and Gomoku demo checkpoints from `policyValuePanelDemo`
+  (~line 6659) are untrained random-init networks, not trained per-game
+  checkpoints.
+
+What is real and stays closed: the MCTS tree search and the four games' board
+rules. What reopens: full `maxPlies` per game, the declared multi-generation /
+per-move simulation budget, a strict win-margin arena threshold that rejects the
+all-draw `0.5` pass, and trained per-game demo checkpoints. These obligations are
+validated by the negative-control suite (`jitml-negative-controls`,
+[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
+and the per-model convergence suite (`jitml-model-convergence`,
+[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)).
 
 ## Objective
 
@@ -32,9 +58,9 @@ count, and a measured arena win-rate that clears the declared convergence bar an
 is bit-identical on rerun under the same seed. Each game writes an
 inference-eligible checkpoint artifact for the demo and inference read paths.
 
-## Sprint 26.1: Per-Game Self-Play [✅ Done]
+## Sprint 26.1: Per-Game Self-Play [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/RL/AlphaZero.hs`, `src/JitML/RL/AlphaZero/SelfPlay.hs`, `src/JitML/RL/AlphaZero/Mcts.hs`, `src/JitML/RL/AlphaZero/PolicyValueNet.hs`, `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -79,11 +105,33 @@ activation status updates.
 
 ### Remaining Work
 
-None.
+Reopened 2026-07-05 (realness audit). The `PerfectInfoGame` instances, the MCTS
+tree search, and the four games' board rules are real and stay closed; the unmet
+Exit-Definition obligation is that the product publish path does not execute a
+real fixed-budget self-play generation:
 
-## Sprint 26.2: Arena Convergence + Evidence [✅ Done]
+- **Full `maxPlies` per game.** `src/JitML/App.hs`
+  `trainAndPublishAlphaZeroProductRow` (~line 6268) caps games at `maxPlies = 4`,
+  so no game reaches a terminal outcome and every self-play trajectory truncates
+  to a draw with a zero value target. Restore each game's full `maxPlies` so
+  self-play produces real win/loss value targets.
+- **The declared multi-generation / per-move simulation budget.** The path runs a
+  single generation instead of the declared 64–128 generations at 128–256
+  simulations per move; execute the declared budget so priors and leaf values
+  drive real learned self-play.
 
-**Status**: Done
+Negative-control validation that closes it: the per-model convergence suite
+`jitml-model-convergence`
+([phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md))
+runs real multi-generation self-play with full `maxPlies` and asserts
+`assertAlphaZeroRowEvidence`, and the negative-control suite
+`jitml-negative-controls`
+([phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
+requires the truncated single-generation all-draw configuration to fail.
+
+## Sprint 26.2: Arena Convergence + Evidence [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Product/Matrix.hs`, `src/JitML/Test/RowAssertions.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/determinism_contract.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -127,7 +175,29 @@ passed, and `jitml check-code` passed.
 
 ### Remaining Work
 
-None.
+Reopened 2026-07-05 (realness audit). The arena "pass" is vacuous because no
+game is ever won, and the demo checkpoints are untrained:
+
+- **Strict win-margin arena threshold (no 0.5-draw pass).** When every arena
+  game truncates to a draw, `arenaWinRateAgainstUniformFrom` returns exactly
+  `0.5` (`src/JitML/RL/AlphaZero/PolicyValueNet.hs:654,684`), and
+  `passesAlphaZeroArena` accepts `>= 0.50` **inclusive**
+  (`src/JitML/RL/ConvergenceThresholds.hs:266,270`), so a network that never wins
+  clears the bar. Replace the inclusive `0.5` threshold with a strict win-margin
+  bar that rejects an all-draw result.
+- **Trained per-game demo checkpoints.** The Othello, Hex, and Gomoku demo
+  checkpoints written by `policyValuePanelDemo` (~line 6659) are untrained
+  random-init networks. Write trained, inference-eligible per-game checkpoints
+  that the demo and inference read paths select.
+
+Negative-control validation that closes it: the negative-control suite
+`jitml-negative-controls`
+([phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
+must fail the all-draw / never-win network (a known fake) against the arena bar,
+and the per-model convergence suite `jitml-model-convergence`
+([phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md))
+asserts `assertAlphaZeroRowEvidence` with a strict win-margin over real
+multi-generation self-play.
 
 ## Documentation Requirements
 

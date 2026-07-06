@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [training_workloads.md](training_workloads.md), [numerical_core.md](numerical_core.md), [checkpoint_format.md](checkpoint_format.md), [purescript_frontend.md](purescript_frontend.md), [DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md), [DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md), [DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
+**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [training_workloads.md](training_workloads.md), [numerical_core.md](numerical_core.md), [checkpoint_format.md](checkpoint_format.md), [purescript_frontend.md](purescript_frontend.md), [DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md), [DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md), [DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md), [DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
 **Generated sections**: none
 
 > **Purpose**: The single source of truth for jitML's supervised-learning
@@ -20,8 +20,14 @@
 - **Real losses.** The published training loss is a real cross-entropy (classification) or
   MSE (regression) value computed from the model output — never `1 − accuracy`, and the
   validation loss is a real held-out measurement, not the final training loss.
-- **Real metrics.** Convergence and performance metrics are measured from real training runs,
-  not literature-target placeholders.
+- **Measured metrics, frozen external bars.** The convergence and performance
+  *metrics* are measured from real training runs, never literature-target
+  placeholders. The *bar* each metric is graded against is the opposite: a **frozen
+  external literature constant** held in `JitML.Product.ExternalBars`
+  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)) and
+  never derived from, or set equal to, the measured value. A row passes only when its
+  measured metric clears that independent external bar; keeping the two structurally
+  distinct is what forbids a self-referential `threshold = measured` gate.
 - **Fixed terminating budgets.** A model is not trained "until converged."
   Each canonical model has a pure, reproducible, finite training budget
   declared before execution. Training must perform exactly that budget unless a
@@ -108,18 +114,32 @@ as validation.)
 
 ## SL metrics (R3)
 
-- **Convergence** — `JitML.SL.ConvergenceThresholds` holds the in-code,
-  literature-derived thresholds; a cohort converges when the median test
-  accuracy over the fixed seed cohort clears `slLiteratureTarget − slSlack`.
-  Regression rows use the declared regression metric rather than accuracy.
-  Cross-entropy / MSE training loss and held-out validation loss are reported
-  per run.
+- **Convergence** — a cohort converges when the median held-out **test** accuracy
+  over the fixed seed cohort clears its `literatureTarget − slack` bar. That bar is a
+  **frozen external literature constant** — owned by `JitML.Product.ExternalBars`
+  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)) and
+  mirrored in the in-code `JitML.SL.ConvergenceThresholds` — and is **never derived
+  from, or set equal to, the measured accuracy**. Regression rows use the declared
+  regression metric rather than accuracy. Cross-entropy / MSE training loss and
+  held-out validation loss are reported per run. Each row's convergence is measured
+  end-to-end from a real random init by its per-model
+  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+  `jitml-model-convergence` case, not asserted from a declared constant or an
+  artifact read.
 - **Performance** — a **non-wall-clock** throughput metric (examples/sec). Wall-clock latency
   is excluded from the determinism contract (see [determinism_contract.md](determinism_contract.md)),
   so the performance metric is a distinct, deterministic, non-timing measure.
   Sprint `24.2` treats the deterministic examples-seen count emitted by
   `JitML.SL.Architecture.SlRunMetrics` as the row throughput evidence; it is
-  positive and reproducible for the same fixed budget and split.
+  positive and reproducible for the same fixed budget and split. The throughput
+  **floor** the metric is graded against is a committed constant in
+  `JitML.Product.ExternalBars`
+  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)),
+  never derived from the measured throughput; every row's non-wall-clock inference
+  performance is measured on the trained artifact — and reproduced bit-identically on
+  a same-seed re-run — by its per-model
+  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+  `jitml-model-convergence` case.
 
 | Canonical SL model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
@@ -137,9 +157,16 @@ as validation.)
 
 ## RL metrics (R3 / R5)
 
-- **Convergence** — `JitML.RL.ConvergenceThresholds` holds the per-cohort return thresholds;
-  a cohort converges when the **real measured-median** episode return over `k` seeds clears
-  its threshold (replacing any literature-target placeholder probe).
+- **Convergence** — a cohort converges when the **real measured-median** episode
+  return over `k` seeds clears its per-cohort return threshold. That threshold is a
+  **frozen external literature constant** (`JitML.Product.ExternalBars`,
+  [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md);
+  mirrored by `JitML.RL.ConvergenceThresholds`), never derived from the measured
+  return. The measured return is a **trained-policy rollout** — the learned policy
+  acting in the environment — not a scripted expert controller;
+  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+  removes the expert-controller probe and evaluates the trained policy in the
+  per-model `jitml-model-convergence` case.
 - **Row evidence** — neural and learned-policy RL rows record deterministic
   initial/final policy-or-Q hashes, a positive update count, the fixed-budget
   observation count, and `linux-cpu` device evidence before a
@@ -150,7 +177,13 @@ as validation.)
 - **AlphaZero** — convergence is measured by **arena win-rate** against the prior best
   network (a deliberate non-return metric), not an episode-return threshold.
 - **Performance** — a non-wall-clock RL performance metric (sample efficiency, i.e.
-  env-steps-to-threshold).
+  env-steps-to-threshold), graded against a committed **ceiling** in
+  `JitML.Product.ExternalBars`
+  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)) that
+  is never derived from the measured value and is exercised — and reproduced
+  bit-identically on a same-seed re-run — by the same per-model
+  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+  `jitml-model-convergence` case.
 
 | RL / self-play model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
@@ -175,3 +208,22 @@ loader eligibility gate are implemented, and the SL/RL/tuning completion
 payloads now carry the witness on their command paths. Live all-model
 convergence, infer-before-complete coverage for every surface, and browser
 proof remain open in the DEVELOPMENT_PLAN.
+
+As of the **2026-07-05 realness audit**, a deeper failure was found behind the
+2026-06-26 reopen: prior closures were graded by self-authored, self-referential
+gates — the convergence bar was in places set equal to the measured value,
+`InferenceEligible` could be minted from a fabricated witness, and the "measured" RL
+reward was a scripted expert-controller rollout rather than the trained policy. The
+anti-fake harness that closes this lives in Phases 32–34.
+[Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md) freezes
+the convergence/performance bars as external literature constants in
+`JitML.Product.ExternalBars` and stands up the `jitml-negative-controls` stanza —
+committed known-fake artifacts (untrained random-init checkpoint, below-bar model,
+scripted-controller RL trace) each gate must reject.
+[Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+gives every `ProductRow` a `jitml-model-convergence` case that trains from a real
+random init and asserts both a measured convergence metric ≥ its frozen external bar
+and a non-wall-clock inference-performance metric against a committed floor,
+reproduced bit-identically on a same-seed re-run. Both stanzas are `Planned` and
+validated on `linux-cpu` only; until they are green the metric contract above is the
+intended target, not closed evidence.

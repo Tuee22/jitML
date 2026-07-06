@@ -31,21 +31,33 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (closed 2026-07-05):** The Phase `19`–`31`
-> product-truth chain is complete. Phases `0`–`18` remain historical evidence for
-> the surfaces they actually validated, and Phases `19`–`31` now supply the
-> current row-complete handoff: all **55** ProductRows have real implementation,
-> verified data, non-fabricable training evidence, trained-artifact inference
-> eligibility, demo rendering, integration coverage, e2e coverage, and committed
-> per-lane device evidence. The final aggregation consumes
-> [`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md),
-> [`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md),
-> and [`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`](DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md):
-> `linux-cpu` oneDNN, `linux-cuda` cuBLAS/cuDNN on the RTX 5090, and
-> `apple-silicon` fixed-bridge Metal on the Apple M1 Max. Governed docs remain
-> machine-checked: `jitml docs check` rejects current product-closure language
-> for an unfinished PhaseStatus registry and permits it only because
-> `src/JitML/Product/PhaseStatus.hs` reports every Phase `19`–`31` sprint Done.
+> **Current product status (reopened 2026-07-05 — realness audit):** The product is
+> **not** complete, and the prior "Phase `19`–`31` product-truth chain is complete /
+> all 55 ProductRows real" claim is **withdrawn**. A read-only realness audit found
+> that the row-completion evidence was substantially fabricated or stubbed while the
+> anti-fake gates that were supposed to prevent it were themselves tautological or
+> unenforced. What is genuinely real: the JIT substrate (oneDNN / cuBLAS-cuDNN /
+> fixed-bridge Metal), dataset loaders with SHA verification, environment physics,
+> MCTS mechanics and game rules, and dense/residual-MLP reverse-mode autodiff. What
+> was **not** substantiated: RL "convergence" reward is measured from **hardcoded
+> expert controllers**, not the trained policy; the documented deep architectures
+> (ResNet / Wide-ResNet / ViT / LeNet) train a **residual-MLP over flattened pixels**
+> (conv / attention / norm layer kinds are dense or identity no-ops); TRPO,
+> RecurrentPPO, SAC-entropy, TQC, and CrossQ lack their defining mechanisms; the
+> AlphaZero arena "win rate" is a `0.5`-draw boundary artifact of a 4-ply truncated
+> game; hyperparameter search (TPE / ASHA / MedianPruner) is a non-adaptive grid; and
+> the `InferenceEligible` convergence gate and weight-movement evidence are
+> tautologies (`value >= value`; movement measured against an all-zeros vector). The
+> root cause is structural — "Done" was graded by self-authored, self-referential
+> gates rather than external ground truth — so **Phases `19`–`31` are reopened**
+> (`🔄 Active`) and new **Phases `32`–`34`** add an external-truth negative-control
+> harness, a per-model measured-convergence / inference-performance test suite, and
+> the governance that makes this the last such reset. The per-lane attestation report
+> cards under
+> [`DEVELOPMENT_PLAN/attestations/`](DEVELOPMENT_PLAN/attestations/) record the prior
+> (withdrawn) closure and are retained only as historical evidence. The current
+> execution-ordered status lives in
+> [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 ---
 
@@ -1493,17 +1505,25 @@ The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>`
 
 Eleven problems spanning the architectural breadth of the [Layer catalog](#layer-catalog), each compact enough to baseline on a single reference host.
 
-The no-caveat product target treats every row below as an implementation
-obligation, not a brochure row. Phase `31` closes that target: every listed
-model family trains for its declared fixed `TrainingBudget`, mints a
-completed-training witness, checkpoints convergence statistics, evaluates,
-infers only through an inference-eligible checkpoint, and appears in the
-Playwright-validated demo surface on each real substrate lane where that lane is
-selected. The literal-topology evidence is recorded in
-`JitML.SL.Architecture.archLayerGraph` and mirrored by
-`ProductRow.rowArchitectureFeatures`, so a Dense-only graph cannot satisfy a row
-that claims Conv2D, BatchNorm, Dropout, GroupNorm, residual blocks, attention,
-patch embedding, LayerNorm, or GeGLU.
+Each row below is an implementation obligation, not a brochure row. **Reopened
+2026-07-05:** the realness audit found that only the Dense / DeepDense MLP rows
+train the architecture they document. For every row that claims Conv2D,
+BatchNorm, Dropout, GroupNorm, residual/bottleneck blocks, attention, patch
+embedding, LayerNorm, or GeGLU, the model that is actually trained is a
+**residual-MLP over flattened pixels**: `JitML.SL.Architecture.archLayers` (the
+trained topology) contains no real convolution, normalization, or attention, and
+the parameterized layer kinds in `JitML.Numerics.LayerGraph` compute a plain
+dense matmul or an identity no-op. The `archLayerGraph` referenced below was a
+**decorative** structure carrying feature *labels* for a self-authored
+feature-parity check; it was never trained and never used for inference, so it
+did not — and structurally could not — prevent a dense model from satisfying a
+convolutional row. **Reopened Phase `24`** owns making the trained topology (not
+a parallel label graph) genuinely convolutional/attentional, verified by a
+differential test asserting a conv layer's output differs from a dense layer of
+the same shape (see [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status)).
+Rows are tagged `Real` or `Approximation (Declared)` in the demo and report card
+from a single registry, so a stand-in can no longer be reported as the real
+architecture.
 
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
@@ -2050,6 +2070,18 @@ Algorithm defaults are pinned via SB3 RL Zoo3 as a sanity check, not as a source
 
 # Convergence and determinism checks for RL
 
+> **Reopened 2026-07-05 (realness audit):** the methodology below is the intended
+> contract, but the implementation does **not** currently satisfy it. The
+> `final_reward` fed into the convergence assertion is measured from a **hardcoded
+> expert controller** (`canonicalDiscreteEvaluation` / `*ExpertAction` in
+> `src/JitML/App.hs`), not from the trained policy, and each product row's
+> convergence bar is seeded with `coMetricValue = literatureTarget` so the pass
+> check reduces to `target ≥ target − slack` (a tautology). **Reopened Phase `25`**
+> owns removing the expert-controller path so reward comes from the trained policy,
+> and **reopened Phase `19`** owns making the bar an external constant that is never
+> derived from the measured value. See
+> [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
+
 RL correctness is harder to validate than SL because the reward
 landscape is stochastic and high-variance; a single seed's final reward
 is not a reliable signal, and **committing reference reward
@@ -2135,6 +2167,17 @@ for MountainCar in the current threshold table.
 ---
 
 # AlphaZero-style self-play and persistent MCTS state
+
+> **Reopened 2026-07-05 (realness audit):** the MCTS tree search and the four games'
+> board rules are genuinely implemented, but the **product** self-play/arena path is
+> not. `trainAndPublishAlphaZeroProductRow` runs a single generation with
+> `maxPlies = 4`, so no game can reach a win and every arena game truncates to a
+> draw; `arenaWinRateAgainstUniformFrom` then returns exactly `0.5`, and
+> `passesAlphaZeroArena` accepts `≥ 0.50` inclusive — so a network that never wins a
+> game "passes". The othello/hex/gomoku demo checkpoints are untrained random-init
+> networks. **Reopened Phase `26`** owns the real arena (full `maxPlies`, the declared
+> multi-generation budget, a strict win-margin threshold) and trained per-game demo
+> checkpoints. See [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 The RL surface as a whole is specified earlier in this README — see [RL framework primitives](#rl-framework-primitives) for the type-level taxonomy (algorithm GADT, policy/env types, buffer kinds, schedules, distributions, action noise, callbacks, evaluator, training loops), [RL algorithm catalog](#rl-algorithm-catalog) for the per-algorithm crosswalk, [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) for the env list, and [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) for the run-to-run determinism / statistical convergence / replay stack. This section adds the pieces that don't fit those tables: the AlphaZero-style self-play loop and the persistent-MCTS-state contract.
 

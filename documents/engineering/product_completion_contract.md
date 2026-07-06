@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md
+**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md
 **Generated sections**: none
 
 > **Purpose**: Define the non-negotiable completion proof for jitML's documented
@@ -12,18 +12,79 @@
 
 ## Current Product State
 
-As of 2026-07-05 the no-caveat product claim is closed by the Phase `19`–`31`
-chain in [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md).
-Historical green runs remain dated evidence for the surfaces they actually
-exercised; the current proof is the 55-row product matrix plus the committed
-`linux-cpu`, `linux-cuda`, and `apple-silicon` lane attestations under
-`DEVELOPMENT_PLAN/attestations/`.
+Through 2026-07-04 the no-caveat product claim was **recorded as closed** by the
+Phase `19`–`31` chain in [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md),
+resting on the 55-row product matrix plus the committed `linux-cpu`,
+`linux-cuda`, and `apple-silicon` lane attestations under
+`DEVELOPMENT_PLAN/attestations/`. Historical green runs remain dated evidence for
+the surfaces they actually exercised. The 2026-07-05 realness audit, below,
+reopened that claim.
+
+> **2026-07-05 realness-audit reopen.** The audit found the Phase `19`–`31`
+> closure was **satisfiable by fabrication**: every gate that graded a product
+> row was authored and tuned by the same process it graded, so a row could pass
+> with no real learning. A `convergenceBar` could be set equal to the measured
+> value it checked; an `InferenceEligible` reference could be minted from a
+> fabricated `CompletedTraining` witness; the "scaffold lint" was only a denylist
+> of the previous iteration's fossil names; and an RL row's "measured" reward was
+> a scripted expert controller rather than a rollout of the trained policy.
+> Because these gates were **self-referential** — the grader and the graded were
+> the same process — more internal validation cannot close the gap. The no-caveat
+> product claim is therefore **reopened** and is not met until each row is graded
+> against external ground truth the implementer cannot author or tune, by the
+> harness in
+> [../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md),
+> [../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md),
+> and [../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
+> Those phases own the harness; this contract states the bar, not its
+> implementation.
 
 The completion bar is intentionally stricter than "a command exists" or "a row
 appears in a generated matrix". A row is complete only when the same canonical
 product row is implemented, trainable, checkpointed, rendered, covered by
 integration tests, covered by e2e tests, and validated on the selected real
-substrate lane.
+substrate lane. As of the 2026-07-05 realness audit that bar is additionally
+gated by the four external-truth conditions in
+[Realness Completion Bar](#realness-completion-bar-2026-07-05); a row that clears
+every earlier field but fails any one of them is **not** complete.
+
+## Realness Completion Bar (2026-07-05)
+
+Superseding the self-referential gates called out in the reopen note above, a
+product row is `complete` **only when all four external-truth conditions below
+hold**, in addition to every field in [Canonical Product Matrix](#canonical-product-matrix)
+and every rule in [Real-ML Rules](#real-ml-rules). These conditions are graded by
+the Phase `32`–`34` harness against ground truth the implementer cannot author or
+tune; this section names the obligation and the plan owns the implementation.
+
+1. **The committed negative control is rejected by the gate.** Each row ships a
+   committed known-fake artifact — an untrained random-init checkpoint, a
+   below-bar trained model, a scripted-controller RL trace, or a dense layer
+   mislabelled as convolution — paired with the gate that must *reject* it. The
+   row is not complete until the `jitml-negative-controls` stanza
+   ([../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md))
+   fails the build on acceptance. A gate that cannot reject its own known-fake is
+   a failure, not a pass.
+2. **The convergence bar is a frozen external literature constant.** The row's
+   `convergenceBar` is an external, checked-in literature target that is **never**
+   derived from, tuned to, or set equal to the measured value it checks. No
+   threshold may be a function of the value it grades.
+3. **The reported metric is recomputed at read time from the served artifact
+   (provenance binding).** Every convergence or inference number shown for the row
+   is recomputed at read time from the served checkpoint bytes, not read back from
+   a declared field. A stand-in is typed `Declared` and can never be surfaced as
+   `Measured`/`Real`.
+4. **RL reward is a rollout of the trained policy.** An RL row's reward is a
+   rollout evaluation of the *trained policy* through the production device seam
+   (`rleSyntheticTransitionEvidence = False`, median over `k` seeds at or above
+   the external bar), validated by the `jitml-model-convergence` stanza
+   ([../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)).
+   A scripted or expert controller reward can never close an RL row.
+
+The `Measured`/`Declared` split, the frozen external bars, the
+recompute-at-read-time provenance binding, and the evidence-derived closure guard
+that stops status drifting from reality live in Phases `32`–`34`; this contract
+does not duplicate them.
 
 ## Canonical Product Matrix
 
@@ -211,7 +272,13 @@ Every product row owns all of the following test evidence:
 | Lane | The same row is validated on `linux-cpu`; accelerator phases separately validate `linux-cuda` and `apple-silicon` without requiring both accelerators in one phase. |
 
 Coverage reports must name missing row/test pairs. A pass count without row
-identity is not enough to close a phase.
+identity is not enough to close a phase. As of the 2026-07-05 realness audit, the
+`Negative` cell is closed only by a committed known-fake that the row's gate
+*rejects* under the `jitml-negative-controls` stanza, and the `Integration` cell
+is closed only when the row's measured metric clears its frozen external bar under
+the `jitml-model-convergence` stanza; both stanzas are owned by
+[../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
+and [../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md).
 
 ## Phase Validation Boundary
 
@@ -223,3 +290,14 @@ and does not rerun accelerator lanes. The Phase `31` join requires all three
 committed report-card fragments to carry every current `ProductRow.rowId`, the
 row's catalog/integration/e2e/negative evidence, and the lane-specific
 `DeviceEvidence` cell.
+
+Phases `32` through `34`, added by the 2026-07-05 realness audit, extend this
+boundary on `linux-cpu` only and introduce no accelerator gate. Phase `32`
+installs the `jitml-negative-controls` stanza, the frozen external bars, and the
+provenance binding; Phase `33` installs the per-model `jitml-model-convergence`
+measurement suite; Phase `34` makes closure status evidence-derived and installs
+the standing adversarial realness audit. Until those phases close, the no-caveat
+product claim recorded for Phases `19`–`31` is reopened per the
+[2026-07-05 realness-audit reopen](#current-product-state) note above. The plan in
+[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md) owns their
+sprint status; this contract does not duplicate it.

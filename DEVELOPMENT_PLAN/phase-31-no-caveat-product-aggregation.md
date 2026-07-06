@@ -1,6 +1,6 @@
 # Phase 31: No-Caveat Product Aggregation
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -11,11 +11,25 @@
 
 ## Phase State
 
-✅ **Done on 2026-07-05** after Phase `30` refreshed
-`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` with the
-row-complete Phase `30` Apple fragment. The aggregation now consumes three
-committed fragments, each with 55 product rows and per-lane device evidence:
-`linux-cpu`, `linux-cuda`, and `apple-silicon`.
+🔄 **Reopened to Active on 2026-07-05 (realness audit).** This `linux-cpu`
+aggregation consumed the three **withdrawn** per-lane attestations
+(`linux-cpu`/`linux-cuda`/`apple-silicon`, 55 rows each) and closed the Phase
+`19`–`31` chain on fabricated evidence: the merged report card joined per-lane
+fragments whose row evidence was not backed by real training, real inference, or
+real kernel dispatch, so the no-caveat product claim it produced is withdrawn.
+The phase reopens **with the chain** — it can only re-close after Phases
+`19`–`30` recommit honest per-lane fragments and the anti-fake harness in Phases
+[`32`](phase-32-external-truth-realness-harness.md)–[`34`](phase-34-plan-truth-governance.md)
+lands. It remains a `linux-cpu`-only aggregation: it consumes committed real
+per-lane fragments and **never re-runs an accelerator** (rule M enforcement scan
+3 — no `-fcuda` / `--apple-silicon` re-runs).
+
+**Historical (withdrawn):** ✅ **Claimed Done on 2026-07-05** after Phase `30`
+refreshed `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` with the
+row-complete Phase `30` Apple fragment. The aggregation consumed three committed
+fragments, each with 55 product rows and per-lane device evidence: `linux-cpu`,
+`linux-cuda`, and `apple-silicon`. The 2026-07-05 realness audit withdrew those
+fragments as fabricated evidence, so this closure is void.
 
 **Validation substrate**: `linux-cpu` only — aggregation lane. This phase merges
 the committed per-lane attestations produced by Phase `28` (`linux-cpu`), Phase
@@ -42,9 +56,9 @@ the typed `PhaseStatus` registry reports every Phase `19`–`31` sprint Done. Th
 final status paragraph in the governed docs names exact dates, the three real
 lanes, the aggregated row count, and the report artifacts.
 
-## Sprint 31.1: Attestation Join [✅ Done]
+## Sprint 31.1: Attestation Join [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `system-components.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -85,14 +99,27 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-None. `src/JitML/Test/Report.hs` now parses the three committed row evidence
-tables, joins them by `ProductRow.rowId`, fails on missing lanes, missing rows,
-duplicate rows, orphan rows, lane mismatches, and empty evidence cells, and the
-e2e tests exercise the green join plus a missing Apple row failure.
+Reopened 2026-07-05. The join closed on the three **withdrawn** per-lane
+fragments (55 rows each) whose row evidence was fabricated, so the aggregator's
+fail-closed contract is unmet: `src/JitML/Test/Report.hs` accepted fragments that
+were not backed by real trained-state deltas, completed-training checkpoints,
+verified dataset bytes, or real kernel dispatch. This sprint reopens with the
+Phase `19`–`30` chain and re-closes only after those phases recommit honest
+per-lane fragments. The unmet Exit-Definition obligation is closed by the
+negative-control suite (`jitml-negative-controls`, Phase
+[`32`](phase-32-external-truth-realness-harness.md)): the join must reject a
+fabricated or evidence-empty fragment as a fail-closed error — proven against a
+planted fake fragment — rather than merging it into a passing card. Aggregation
+stays `linux-cpu`-only and re-runs no accelerator.
 
-## Sprint 31.2: No-Caveat Closure [✅ Done]
+```bash
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml docs check
+```
 
-**Status**: Done
+## Sprint 31.2: No-Caveat Closure [🔄 Active]
+
+**Status**: Active
 **Implementation**: `README.md`, `DEVELOPMENT_PLAN/README.md`, `src/JitML/Lint/Docs.hs`
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`
 
@@ -132,11 +159,31 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-None. The typed PhaseStatus registry now reports every Phase `19`–`31` sprint
-Done; the docs closure scanner still rejects current product-closure language
-when given an unfinished synthetic registry and permits it for the real closed
-registry. The governed docs now name the July 5, 2026 closure, the three lanes,
-the 55-row count, and the committed attestation fragments.
+Reopened 2026-07-05. The reopened→closed flip was permitted on a merged report
+card backed by fabricated evidence, and the typed `PhaseStatus` registry reported
+every Phase `19`–`31` sprint Done while the underlying rows were not real, so the
+no-caveat product claim is withdrawn and the governed-doc closure language is
+void. This sprint re-closes only after Phases `19`–`30` close honestly and the
+anti-fake harness in Phases
+[`32`](phase-32-external-truth-realness-harness.md)–[`34`](phase-34-plan-truth-governance.md)
+lands. The unmet obligations close when: the closure gate consumes the per-model
+convergence suite (`jitml-model-convergence`, Phase
+[`33`](phase-33-per-model-convergence-and-inference-tests.md)) so every product
+row proves real convergence and inference before the flip; the negative-control
+suite (`jitml-negative-controls`, Phase
+[`32`](phase-32-external-truth-realness-harness.md)) rejects a fabricated
+fragment; and the plan-truth governance gate (Phase
+[`34`](phase-34-plan-truth-governance.md)) refuses any status flip whose registry
+entry is not backed by a passing negative-control and per-model run. Aggregation
+stays `linux-cpu`-only — it consumes committed real per-lane fragments and never
+re-runs an accelerator.
+
+```bash
+docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
 
 ## Documentation Requirements
 
