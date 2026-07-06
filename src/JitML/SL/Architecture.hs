@@ -242,6 +242,8 @@ architectureSpecForProblem config problem =
   projection name = DenseSpec name inputs baseHidden
   residualBlock idx width hidden =
     ResidualSpec ("residual-" <> Text.pack (show idx)) width hidden 0.1
+  bottleneckResidualBlock idx width hidden =
+    ResidualSpec ("bottleneck-" <> Text.pack (show idx)) width (max 4 (hidden `div` 2)) 0.2
   patchStem name outWidth hidden =
     PatchSpec
       name
@@ -270,14 +272,19 @@ architectureSpecForProblem config problem =
     , MeanPoolSpec "conv2d-global-mean-pool"
     , denseFinal "lenet-classifier" latent
     ]
+  layersForFamily (ResidualFamily depth)
+    | depth == 50 =
+        [patchStem "resnet50-conv-stem" latent baseHidden]
+          <> fmap (\i -> bottleneckResidualBlock i latent baseHidden) [1 .. 16 :: Int]
+          <> [MeanPoolSpec "resnet50-global-mean-pool", denseFinal "resnet50-classifier" latent]
   layersForFamily (ResidualFamily depth) =
-    [projection "residual-stem" latent]
+    [patchStem "residual-conv-stem" latent baseHidden]
       <> fmap (\i -> residualBlock i latent baseHidden) [1 .. depth]
-      <> [denseFinal "residual-classifier" latent]
+      <> [MeanPoolSpec "residual-global-mean-pool", denseFinal "residual-classifier" latent]
   layersForFamily (WideResidualFamily depth) =
-    [projection "wide-residual-stem" wideLatent]
+    [patchStem "wide-residual-conv-stem" wideLatent (baseHidden * 2)]
       <> fmap (\i -> residualBlock i wideLatent (baseHidden * 2)) [1 .. depth]
-      <> [denseFinal "wide-residual-classifier" wideLatent]
+      <> [MeanPoolSpec "wide-residual-global-mean-pool", denseFinal "wide-residual-classifier" wideLatent]
   layersForFamily VisionTransformerFamily =
     [ vitPatchStem "vit-patch-embedding" latent baseHidden
     , AttentionSpec "vit-self-attention" latent baseHidden
@@ -851,6 +858,19 @@ forwardLayer device state rep =
                in (FlatBatch (zipWith addVec xs scaled), ResidualTape xs)
           )
           outsE
+    (ResidualState _ scale params _, TokenBatch samples) -> do
+      let flatTokens = concat samples
+      outsE <- mlpdForwardBatch device params flatTokens
+      pure $
+        fmap
+          ( \flatOuts ->
+              let scaled = fmap (VU.map (* scale)) flatOuts
+                  residualTokens = zipWith addVec flatTokens scaled
+               in ( TokenBatch (unflattenBy (fmap length samples) residualTokens)
+                  , ResidualTape flatTokens
+                  )
+          )
+          outsE
     (PatchState _ runtime params _, FlatBatch xs) -> do
       let patchesBySample = fmap (extractPatches runtime) xs
           flatPatches = concat patchesBySample
@@ -880,8 +900,6 @@ forwardLayer device state rep =
       pure (Right (FlatBatch (fmap meanVector samples), MeanPoolTape (fmap length samples)))
     (DenseState name _ _, TokenBatch _) ->
       pure (Left (name <> ": dense layer expected flat inputs"))
-    (ResidualState name _ _ _, TokenBatch _) ->
-      pure (Left (name <> ": residual layer expected flat inputs"))
     (PatchState name _ _ _, TokenBatch _) ->
       pure (Left (name <> ": patch layer expected flat inputs"))
     (AttentionState name _ _, FlatBatch _) ->
@@ -936,6 +954,19 @@ backwardLayer device adamConfig needInputGradient state tape upstream batchN =
               ( ResidualState name scale params' adam'
               , FlatBatch (zipWith addVec dys dxs)
               )
+          )
+          result
+    (ResidualState name scale params adam, ResidualTape xs, TokenBatch dysBySample) -> do
+      let flatDys = concat dysBySample
+          residualDys = fmap (VU.map (* scale)) flatDys
+      result <- deviceGradientStep device adamConfig needInputGradient params adam xs residualDys batchN
+      pure $
+        fmap
+          ( \(params', adam', dxs) ->
+              let flatCombined = zipWith addVec flatDys dxs
+               in ( ResidualState name scale params' adam'
+                  , TokenBatch (unflattenBy (fmap length dysBySample) flatCombined)
+                  )
           )
           result
     (PatchState name runtime params adam, PatchTape patchesBySample, TokenBatch tokenDys) -> do

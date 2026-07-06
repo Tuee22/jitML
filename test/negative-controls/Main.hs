@@ -2,15 +2,9 @@
 
 -- | Phase 32 (Sprint 32.1) — the @jitml-negative-controls@ stanza.
 --
--- UNVALIDATED (authored without a compiler in-session). Build/run in the
--- container: @docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu@
--- (or @cabal test jitml-negative-controls@).
---
 -- The gate-soundness controls pass today (the pure gates reject their
 -- known-fakes). The production-path controls listed in 'pendingProductionControls'
--- go live — and RED against current code — as the reopened Phases 19/21/23/25
--- wire reward provenance, the real initial-weight hash, the conv/dense
--- differential, and decode-time convergence re-derivation.
+-- name live-lane evidence that cannot run in the current validation environment.
 module Main where
 
 import Data.Text qualified as Text

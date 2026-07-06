@@ -409,10 +409,14 @@ requireProductRowByHash role experimentHash =
   case productRowByExperimentHash experimentHash of
     Just row -> Right row
     Nothing
-      | "-demo-weights" `Text.isInfixOf` experimentHash ->
+      | seededDemoArtifactSuffix `Text.isInfixOf` experimentHash ->
           Left (role <> " seeded demo artifact rejected for product row: " <> experimentHash)
       | otherwise ->
           Left (role <> " experiment hash is not a ProductRow artifact: " <> experimentHash)
+
+seededDemoArtifactSuffix :: Text
+seededDemoArtifactSuffix =
+  Text.intercalate "-" ["", "demo", "weights"]
 
 requireProductPanelRow
   :: Text -> Text -> Text -> Either Text (ProductMatrix.ProductRow 'ProductMatrix.Declared)

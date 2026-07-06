@@ -1,6 +1,6 @@
 # Phase 29: linux-cuda Product Lane
 
-**Status**: Done
+**Status**: Blocked
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md)
 **Generated sections**: none
@@ -11,29 +11,19 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `29` previously
-closed on 2026-07-05 on the real `linux-cuda` lane: the validation host exposed
-an NVIDIA GeForce RTX 5090 through the NVIDIA Container Runtime (`nvidia-smi`:
-driver `570.211.01`, CUDA `12.8`), `./bootstrap/linux-cuda.sh up` reconciled the
-live CUDA cluster at edge `:9092`, all 12 canonical dataset artifacts were staged
-into live MinIO through `jitml internal upload-dataset` with pinned SHA-256
-verification, and all 55 ProductRows reported inference-eligible `latest`
-checkpoint pointers.
+⏸️ **Blocked** (2026-07-06). Phase `29` has source-side CUDA progress but is not
+closed because the required real `linux-cuda` validation could not run on this
+host. The CUDA renderer now emits windowed cuDNN Conv2D/Conv3D source with
+padded/cropped spatial tensors, the shared family reference uses matching
+windowed semantics, and the generated-source/negative-control tests reject the
+old scalar 1x1 stand-ins. Host-local validation passed for the renderer and
+linux-cpu reference path, but the live CUDA command
+`docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
+failed before test execution with Docker reporting
+`could not select device driver "" with capabilities: [[gpu]]`.
 
-**2026-07-05 reopen (realness audit).** That closure is **withdrawn**. The lane
-did not measure anything real per row; it aggregated fabricated upstream
-eligibility — the slack-0 tautological convergence gate (Phase `19`), the
-hardcoded expert-controller RL reward (Phase `25`), and the residual-MLP "ResNet"
-supervised stand-ins (Phase `24`) — so the `55 / 55` eligible and `71 / 71` live
-Playwright product-matrix results were not real per-row evidence and were withdrawn
-until Phases `19`–`28` reclosed on real evidence. Separately, the CUDA kernels
-this phase claims to exercise are still identity-copy stand-ins on the product
-path in `src/JitML/Codegen/Cuda.hs`, and the typed cuBLAS/cuDNN probes in
-`src/JitML/Engines/CublasBindings.hs` and `src/JitML/Engines/CudnnBindings.hs`
-are dead on that path — already tracked in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). All three
-sprints reclosed through the negative-control / per-model gates named in
-`### Closure Evidence`.
+**Blocked by**: a host whose Docker daemon exposes the NVIDIA Container Runtime
+and an attached NVIDIA GPU to the `jitml-cuda` compose service.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
@@ -50,9 +40,10 @@ the row-keyed integration, e2e, and live Playwright product matrix on the
 published CUDA edge. Runtime absence fails up front; CUDA-supported rows do not
 pass vacuously.
 
-## Sprint 29.1: Real cuDNN/cuBLAS Kernels [✅ Done]
+## Sprint 29.1: Real cuDNN/cuBLAS Kernels [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: real `linux-cuda` backend execution on a Docker-visible NVIDIA GPU.
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -97,19 +88,13 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-05 validation: `jitml-backends --linux-cuda` passed **21 / 21**,
-including the Phase `29.1` generated-source cuBLAS/cuDNN assertion;
-`jitml-unit --linux-cpu` passed **277 / 277**; `jitml check-code` passed.
-
-Reopened on 2026-07-05 (realness audit): the generated CUDA family bodies in
-`src/JitML/Codegen/Cuda.hs` are still identity-copy stand-ins on the product
-path, and the typed cuBLAS/cuDNN probes in
-`src/JitML/Engines/CublasBindings.hs` and `src/JitML/Engines/CudnnBindings.hs`
-are dead — imported but never exercised by a product row. The backend assertions
-therefore match `cublasSgemm` / `cudnnConvolutionForward` in rendered-source
-text while no real GEMM/convolution runs on the attached GPU for a product row.
-These residual identity-copy kernels and dead bindings are already tracked in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+2026-07-06 source-side validation: `docker compose run --rm jitml cabal build
+test:jitml-backends test:jitml-negative-controls` passed; `docker compose run
+--rm jitml cabal test jitml-negative-controls --test-options='--color=never
+--hide-successes' --test-show-details=direct` passed **3 / 3**; focused
+`jitml-backends` generated CUDA source validation passed **1 / 1**. Live
+`linux-cuda` validation remains blocked because Docker did not expose a GPU
+runtime to the `jitml-cuda` service on this host.
 
 ### Closure Evidence
 
@@ -128,9 +113,11 @@ These residual identity-copy kernels and dead bindings are already tracked in
   a row cannot pass on rendered-source text alone. Validation stays single
   accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.2: CUDA Row Device Evidence [✅ Done]
+## Sprint 29.2: CUDA Row Device Evidence [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Sprint `29.1` live CUDA execution and a real `linux-cuda`
+train/publish run on a Docker-visible NVIDIA GPU.
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `test/backends/Main.hs`, `test/integration/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -166,17 +153,11 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-05 validation: the CUDA runtime preflight, dataset staging, and
-publisher runs completed with **55 / 55** product rows eligible and **0**
-unsupported/error rows.
-
-Reopened on 2026-07-05 (realness audit): the `55 / 55` eligible result was
-aggregated from upstream fabricated per-row evidence — the slack-0 tautological
-convergence gate (Phase `19`), the hardcoded expert-controller RL reward
-(Phase `25`), and the residual-MLP "ResNet" supervised stand-ins (Phase `24`) —
-so an inference-eligible `latest` pointer does not prove the CUDA-supported row
-learned anything on the device. The eligibility claim is **withdrawn** until
-those upstream phases re-close on real evidence.
+2026-07-06 status: upstream `linux-cpu` model-realness defects have been
+replaced and validated, but CUDA row device evidence still requires a real
+`linux-cuda` publisher/test run. The attempted live CUDA backend command failed
+before row evidence could be minted because the host Docker daemon exposed no
+NVIDIA GPU runtime to the `jitml-cuda` service.
 
 ### Closure Evidence
 
@@ -196,9 +177,11 @@ those upstream phases re-close on real evidence.
   production path. Validation stays single accelerator: `linux-cuda` plus
   `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.3: CUDA Integration, E2E, and Attestation [✅ Done]
+## Sprint 29.3: CUDA Integration, E2E, and Attestation [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Sprint `29.2` real CUDA row evidence and a successful
+`jitml-cuda` live integration/e2e run on a Docker-visible NVIDIA GPU.
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 
@@ -235,30 +218,10 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-05 validation:
-
-- `docker compose run --rm jitml-cuda jitml test all --linux-cuda` passed **8 / 8**
-  stanzas. Notable sub-results: `jitml-unit` **277 / 277**,
-  `jitml-integration` **137 / 137** with live WorkflowMatrix **837.24s** and live
-  PPO convergence **263.51s**, `jitml-sl-canonicals` **31 / 31**,
-  `jitml-rl-canonicals` **37 / 37**, `jitml-hyperparameter` **17 / 17**,
-  `jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **25 / 25**, and
-  `jitml-backends` **21 / 21**.
-- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` passed
-  **25 / 25**.
-- `docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda`
-  passed live Playwright **71 / 71** at edge `:9092` and reported
-  `browser_product_matrix: checkpoint-backed product rows 55/55 served at edge :9092`.
-- `docker compose run --rm jitml jitml docs check` passed.
-- `docker compose run --rm jitml jitml check-code` passed.
-
-Reopened on 2026-07-05 (realness audit): the row-complete integration/e2e claim
-inherited the withdrawn Sprint `29.2` eligibility, so the live Playwright
-`71 / 71` result and the `55 / 55` `e2e.product.*` row-specific pass are
-**withdrawn** — a green browser render of a checkpoint whose eligibility was
-fabricated upstream is not row-complete evidence. The refreshed CUDA report card
-in `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` is withdrawn with
-it.
+2026-07-06 status: no current CUDA integration/e2e attestation is closed. The
+source-side CUDA and negative-control work has landed, but this sprint remains
+blocked until the real `linux-cuda` lane runs successfully and produces a fresh
+attestation from device-backed row evidence.
 
 ### Closure Evidence
 
@@ -292,10 +255,9 @@ it.
 
 **Product docs to update:**
 - `README.md`, `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
-  and `DEVELOPMENT_PLAN/system-components.md` record the 2026-07-05 realness-audit
-  reopen: Phase `29` is Active and its withdrawn `55 / 55` eligible / `71 / 71`
-  live Playwright linux-cuda claim is not restored until Phases `19`–`28` re-close
-  on real evidence.
+  and `DEVELOPMENT_PLAN/system-components.md` record the 2026-07-06 state:
+  Phase `29` is Blocked on real `linux-cuda` validation because this host lacks a
+  Docker-visible NVIDIA GPU runtime.
 
 **Cross-references updated:**
 - The refreshed `linux-cuda` attestation is linked from Phase `31` as a required

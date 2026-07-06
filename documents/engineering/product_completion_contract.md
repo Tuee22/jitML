@@ -12,14 +12,14 @@
 
 ## Current Product State
 
-The current no-caveat product claim is the reclosed Phase `19`–`34` chain in
-[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md), resting on
-the 55-row product matrix, lane attestations, and the standing external-truth
-gates added by Phases `32`–`34`. Historical green runs remain dated evidence for
-the surfaces they actually exercised. The 2026-07-05 realness audit, below,
-explains why those standing gates are required; the chain reclosed on 2026-07-06
-after `jitml-negative-controls` passed **3 / 3** and
-`jitml-model-convergence` passed **111 / 111** on `linux-cpu`.
+The current product chain is blocked on Phase `29` in
+[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md). The
+55-row product matrix, standing external-truth gates added by Phases `32`–`34`,
+and refreshed `linux-cpu`/`apple-silicon` evidence remain required inputs, but
+the no-caveat claim is not restored until the real `linux-cuda` lane produces a
+fresh validated attestation and Phase `31` aggregates it. Historical green runs
+remain dated evidence for the surfaces they actually exercised. The 2026-07-05
+realness audit, below, explains why those standing gates are required.
 
 > **2026-07-05 realness-audit reopen.** The audit found the Phase `19`–`31`
 > closure was **satisfiable by fabrication**: every gate that graded a product

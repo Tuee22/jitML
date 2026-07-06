@@ -2,7 +2,6 @@
 
 module JitML.Lint.ProductTruth
   ( ProductScaffold (..)
-  , ScaffoldStatus (..)
   , SourceModule (..)
   , checkProductTruth
   , nonProductScaffolding
@@ -25,16 +24,10 @@ import System.FilePath qualified as FilePath
 
 import JitML.Lint.Stack.Types (LintFinding (..))
 
-data ScaffoldStatus
-  = EnforcedNow
-  | FutureOwner Text
-  deriving stock (Eq, Show)
-
 data ProductScaffold = ProductScaffold
   { scaffoldKey :: Text
   , scaffoldNeedles :: [Text]
   , scaffoldDescription :: Text
-  , scaffoldStatus :: ScaffoldStatus
   }
   deriving stock (Eq, Show)
 
@@ -61,17 +54,13 @@ productScaffoldRegistry =
       "completedTrainingFromMetrics"
       ["completedTrainingFromMetrics"]
       "fabricated completion witness helper"
-  , future
+  , enforced
       "seeded-demo-weights"
       ["seededDemoCheckpoints", "-demo-weights"]
-      "Sprint 27.1"
       "seeded product demo checkpoint weights"
   ]
  where
-  enforced key needles description =
-    ProductScaffold key needles description EnforcedNow
-  future key needles owner description =
-    ProductScaffold key needles description (FutureOwner owner)
+  enforced = ProductScaffold
 
 nonProductScaffolding :: [Text]
 nonProductScaffolding = fmap scaffoldKey productScaffoldRegistry
@@ -96,7 +85,6 @@ scanProductTruthSourceText path content
   | otherwise =
       [ scaffoldFinding path scaffold needle
       | scaffold <- productScaffoldRegistry
-      , scaffoldStatus scaffold == EnforcedNow
       , needle <- scaffoldNeedles scaffold
       , needle `Text.isInfixOf` content
       ]

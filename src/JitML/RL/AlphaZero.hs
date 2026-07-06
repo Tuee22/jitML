@@ -36,6 +36,7 @@ module JitML.RL.AlphaZero
   , initialOthello
   , initialStateFor
   , isLegalMove
+  , maxPliesFor
   , observationSizeFor
   , othelloActionCount
   , othelloApplyMove
@@ -168,6 +169,15 @@ actionCountFor raw =
     "hex" -> hexActionCount
     "gomoku" -> gomokuActionCount
     _ -> connect4ActionCount
+
+maxPliesFor :: Text -> Int
+maxPliesFor raw =
+  case normalizeGameName raw of
+    "connect4" -> 6 * 7
+    "othello" -> 8 * 8 - 4
+    "hex" -> 11 * 11
+    "gomoku" -> 15 * 15
+    _ -> 6 * 7
 
 observationSizeFor :: Text -> Int
 observationSizeFor raw =

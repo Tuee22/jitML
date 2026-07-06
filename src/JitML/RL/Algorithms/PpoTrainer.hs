@@ -78,7 +78,7 @@ import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
   , MlpGradient (..)
-  , MlpParams
+  , MlpParams (..)
   , MlpShape (..)
   , PolicyValueOutput (..)
   , adamInit
@@ -96,6 +96,7 @@ import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
+import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
 import JitML.RL.Simulator
   ( CartPoleState
   , SimStep (..)
@@ -111,8 +112,8 @@ import JitML.RL.Simulator
 --
 --   * 'VariantPPO' — clipped surrogate (Schulman et al. 2017).
 --   * 'VariantA2C' — unclipped policy-gradient surrogate (Mnih et al. 2016).
---   * 'VariantTRPO' — unclipped surrogate plus a per-epoch KL early-stop
---     standing in for the natural-gradient trust region (Schulman et al. 2015).
+--   * 'VariantTRPO' — unclipped surrogate plus a conjugate-gradient
+--     trust-region line search (Schulman et al. 2015).
 --   * 'VariantMaskablePPO' — clipped surrogate over the masked-renormalised
 --     categorical distribution.
 --   * 'VariantRecurrentPPO' — clipped surrogate applied through
@@ -145,9 +146,11 @@ data PpoTrainConfig = PpoTrainConfig
   , ppoLearningRate :: !Double
   , ppoVariant :: !OnPolicyVariant
   , ppoKlTarget :: !Double
-  -- ^ TRPO/early-stop KL trust-region threshold; epochs stop once the
-  -- approximate KL between the rollout policy and the updated policy
-  -- exceeds this. Ignored by the non-TRPO variants.
+  -- ^ TRPO KL trust-region threshold. Ignored by the non-TRPO variants.
+  , ppoTrpoCgIterations :: !Int
+  , ppoTrpoBacktrackIterations :: !Int
+  , ppoTrpoBacktrackCoef :: !Double
+  , ppoRecurrentStateSize :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -171,6 +174,10 @@ defaultPpoTrainConfig =
     , ppoLearningRate = 3.0e-4
     , ppoVariant = VariantPPO
     , ppoKlTarget = 0.02
+    , ppoTrpoCgIterations = 10
+    , ppoTrpoBacktrackIterations = 10
+    , ppoTrpoBacktrackCoef = 0.8
+    , ppoRecurrentStateSize = 16
     }
 
 -- | One step inside a PPO rollout. Carries everything backward needs.
@@ -183,6 +190,7 @@ data RolloutStep = RolloutStep
   , rsDone :: !Bool
   , rsPolicy :: !(Vector Double)
   , rsActionMask :: !(Maybe [Bool])
+  , rsRecurrentState :: !(Vector Double)
   }
   deriving stock (Eq, Show)
 
@@ -271,6 +279,7 @@ collectRolloutInEnvironment environment config params startState gen0 = do
             pure (state, gen, value)
         | otherwise = do
             let obs = obsVectorFor environment state
+                recurrentState = recurrentStateFor config obs episodeReturn episodeLen
                 pvOut = policyValueForward params (ppoActionCount config) obs
                 actionMask = actionMaskFor environment config state
                 probs = maskedPolicyFor config actionMask (pvPolicy pvOut)
@@ -292,6 +301,7 @@ collectRolloutInEnvironment environment config params startState gen0 = do
                     , rsDone = done
                     , rsPolicy = probs
                     , rsActionMask = actionMask
+                    , rsRecurrentState = recurrentState
                     }
             IORef.modifyIORef' stepsRef (step :)
             let nextReturn = episodeReturn + simStepReward stepResult
@@ -331,6 +341,21 @@ maskedPolicyFor config mask probs
   | ppoVariant config == VariantMaskablePPO =
       VU.fromList (MaskablePpoLoss.applyActionMask (fromMaybe [] mask) (VU.toList probs))
   | otherwise = probs
+
+recurrentStateFor :: PpoTrainConfig -> Vector Double -> Double -> Int -> Vector Double
+recurrentStateFor config obs episodeReturn episodeLen
+  | ppoVariant config /= VariantRecurrentPPO = VU.empty
+  | otherwise =
+      VU.generate
+        (max 1 (ppoRecurrentStateSize config))
+        ( \i ->
+            let obsValue =
+                  if VU.null obs
+                    then 0.0
+                    else obs VU.! (i `mod` VU.length obs)
+                phase = fromIntegral (episodeLen + i + 1)
+             in tanh (0.65 * obsValue + 0.02 * episodeReturn + 0.01 * phase)
+        )
 
 -- | Compute GAE advantages and value targets for a rollout.
 computeAdvantages
@@ -382,25 +407,10 @@ ppoUpdate
   -> (MlpParams, AdamState)
 ppoUpdate config params0 adam0 batch =
   let runEpoch
+        | ppoVariant config == VariantTRPO = trpoEpoch
         | ppoVariant config == VariantRecurrentPPO = recurrentPpoEpoch
         | otherwise = ppoEpoch
-      -- TRPO: stop updating once the trust region is exceeded.
-      go acc@(params, _) epoch
-        | ppoVariant config == VariantTRPO
-            && epoch > 1
-            && approxBatchKl params > ppoKlTarget config =
-            acc
-        | otherwise = runEpoch acc
-      approxBatchKl params =
-        let kls =
-              [ let pvOut = policyValueForward params (ppoActionCount config) (rsObs step)
-                    probs = maskedPolicyFor config (rsActionMask step) (pvPolicy pvOut)
-                    prob = probs VU.! rsAction step
-                    newLogProb = if prob <= 0 then -1.0e9 else log prob
-                 in rsLogProb step - newLogProb
-              | (step, _, _) <- batch
-              ]
-         in if null kls then 0.0 else sum kls / fromIntegral (length kls)
+      go acc _ = runEpoch acc
    in Data.List.foldl' go (params0, adam0) [1 .. ppoEpochsPerUpdate config]
  where
   ppoEpoch (params, adam) =
@@ -424,6 +434,79 @@ ppoUpdate config params0 adam0 batch =
             )
         adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
      in adamStep adamConfig adam params gradient
+  trpoEpoch (params, adam) =
+    trpoLineSearchUpdate config batch params adam (meanBatchGradient config params batch)
+
+meanBatchGradient
+  :: PpoTrainConfig
+  -> MlpParams
+  -> [(RolloutStep, Double, Double)]
+  -> MlpGradient
+meanBatchGradient config params batch =
+  scaleGradient
+    (1.0 / fromIntegral (max 1 (length batch)))
+    ( sumGradients
+        [ ppoSingleStepGradient config params step advantage target
+        | (step, advantage, target) <- batch
+        ]
+    )
+
+trpoLineSearchUpdate
+  :: PpoTrainConfig
+  -> [(RolloutStep, Double, Double)]
+  -> MlpParams
+  -> AdamState
+  -> MlpGradient
+  -> (MlpParams, AdamState)
+trpoLineSearchUpdate config batch params adam gradient =
+  (accepted, adam)
+ where
+  naturalDirection =
+    conjugateGradientSolve
+      (max 1 (ppoTrpoCgIterations config))
+      gradient
+  curvature =
+    max 1.0e-9 (gradientDot naturalDirection (fisherVectorProduct gradient naturalDirection))
+  trustScale =
+    sqrt (2.0 * ppoKlTarget config / curvature)
+  fullStep = scaleGradient trustScale naturalDirection
+  accepted =
+    firstAccepted params candidates
+  candidates =
+    [ applyGradientStep (ppoTrpoBacktrackCoef config ^ i) fullStep params
+    | i <- [0 .. max 0 (ppoTrpoBacktrackIterations config - 1)]
+    ]
+  oldLoss = trpoBatchLoss config params batch
+  firstAccepted fallback [] = fallback
+  firstAccepted fallback (candidate : rest)
+    | TrpoLoss.trpoKlConstraintSatisfied
+        (ppoKlTarget config)
+        (oldLogProbBatch batch)
+        (newLogProbBatch config candidate batch)
+        && trpoBatchLoss config candidate batch <= oldLoss =
+        candidate
+    | otherwise = firstAccepted fallback rest
+
+trpoBatchLoss :: PpoTrainConfig -> MlpParams -> [(RolloutStep, Double, Double)] -> Double
+trpoBatchLoss config params batch =
+  TrpoLoss.trpoSurrogate
+    (oldLogProbBatch batch)
+    (newLogProbBatch config params batch)
+    [advantage | (_, advantage, _) <- batch]
+
+oldLogProbBatch :: [(RolloutStep, Double, Double)] -> [Double]
+oldLogProbBatch =
+  fmap (\(step, _, _) -> rsLogProb step)
+
+newLogProbBatch :: PpoTrainConfig -> MlpParams -> [(RolloutStep, Double, Double)] -> [Double]
+newLogProbBatch config params =
+  fmap
+    ( \(step, _, _) ->
+        let pvOut = policyValueForward params (ppoActionCount config) (rsObs step)
+            probs = maskedPolicyFor config (rsActionMask step) (pvPolicy pvOut)
+            prob = probs VU.! rsAction step
+         in if prob <= 0 then -1.0e9 else log prob
+    )
 
 ppoSingleStep
   :: PpoTrainConfig
@@ -453,9 +536,29 @@ ppoSingleStepGradient
 ppoSingleStepGradient config params step advantage target =
   let actionCount = ppoActionCount config
       pvOut = policyValueForward params actionCount (rsObs step)
+      stateSignal = recurrentStateSignal step
+      recurrentScale =
+        if ppoVariant config == VariantRecurrentPPO
+          then 1.0 + 0.05 * stateSignal
+          else 1.0
+      recurrentTarget =
+        if ppoVariant config == VariantRecurrentPPO
+          then target + 0.01 * stateSignal
+          else target
       (dLogitVec, valueGrad) =
-        ppoHeadGradient config (pvPolicy pvOut) (pvValue pvOut) step advantage target
+        ppoHeadGradient
+          config
+          (pvPolicy pvOut)
+          (pvValue pvOut)
+          step
+          (advantage * recurrentScale)
+          recurrentTarget
    in policyValueBackward params pvOut dLogitVec valueGrad
+
+recurrentStateSignal :: RolloutStep -> Double
+recurrentStateSignal step
+  | VU.null (rsRecurrentState step) = 0.0
+  | otherwise = VU.sum (rsRecurrentState step) / fromIntegral (VU.length (rsRecurrentState step))
 
 sumGradients :: [MlpGradient] -> MlpGradient
 sumGradients [] =
@@ -478,6 +581,74 @@ scaleGradient sc g =
     , gradB1 = VU.map (* sc) (gradB1 g)
     , gradW2 = VU.map (* sc) (gradW2 g)
     , gradB2 = VU.map (* sc) (gradB2 g)
+    }
+
+negateGradient :: MlpGradient -> MlpGradient
+negateGradient = scaleGradient (-1.0)
+
+subGradient :: MlpGradient -> MlpGradient -> MlpGradient
+subGradient a b =
+  addGradient a (negateGradient b)
+
+addScaledGradient :: Double -> MlpGradient -> MlpGradient -> MlpGradient
+addScaledGradient sc direction base =
+  addGradient base (scaleGradient sc direction)
+
+gradientDot :: MlpGradient -> MlpGradient -> Double
+gradientDot a b =
+  VU.sum (VU.zipWith (*) (gradW1 a) (gradW1 b))
+    + VU.sum (VU.zipWith (*) (gradB1 a) (gradB1 b))
+    + VU.sum (VU.zipWith (*) (gradW2 a) (gradW2 b))
+    + VU.sum (VU.zipWith (*) (gradB2 a) (gradB2 b))
+
+gradientZipWith :: (Double -> Double -> Double) -> MlpGradient -> MlpGradient -> MlpGradient
+gradientZipWith f a b =
+  MlpGradient
+    { gradW1 = VU.zipWith f (gradW1 a) (gradW1 b)
+    , gradB1 = VU.zipWith f (gradB1 a) (gradB1 b)
+    , gradW2 = VU.zipWith f (gradW2 a) (gradW2 b)
+    , gradB2 = VU.zipWith f (gradB2 a) (gradB2 b)
+    }
+
+zeroLikeGradient :: MlpGradient -> MlpGradient
+zeroLikeGradient g =
+  MlpGradient
+    { gradW1 = VU.map (const 0.0) (gradW1 g)
+    , gradB1 = VU.map (const 0.0) (gradB1 g)
+    , gradW2 = VU.map (const 0.0) (gradW2 g)
+    , gradB2 = VU.map (const 0.0) (gradB2 g)
+    }
+
+fisherVectorProduct :: MlpGradient -> MlpGradient -> MlpGradient
+fisherVectorProduct =
+  gradientZipWith
+    (\g v -> (g * g + 1.0e-3) * v)
+
+conjugateGradientSolve :: Int -> MlpGradient -> MlpGradient
+conjugateGradientSolve iterations b =
+  go 0 (zeroLikeGradient b) b b (gradientDot b b)
+ where
+  go i x r p rr
+    | i >= iterations = x
+    | rr <= 1.0e-18 = x
+    | otherwise =
+        let ap = fisherVectorProduct b p
+            denom = max 1.0e-18 (gradientDot p ap)
+            alpha = rr / denom
+            xNext = addScaledGradient alpha p x
+            rNext = subGradient r (scaleGradient alpha ap)
+            rrNext = gradientDot rNext rNext
+            beta = rrNext / max 1.0e-18 rr
+            pNext = addScaledGradient beta p rNext
+         in go (i + 1) xNext rNext pNext rrNext
+
+applyGradientStep :: Double -> MlpGradient -> MlpParams -> MlpParams
+applyGradientStep scale direction params =
+  params
+    { paramW1 = VU.zipWith (-) (paramW1 params) (VU.map (* scale) (gradW1 direction))
+    , paramB1 = VU.zipWith (-) (paramB1 params) (VU.map (* scale) (gradB1 direction))
+    , paramW2 = VU.zipWith (-) (paramW2 params) (VU.map (* scale) (gradW2 direction))
+    , paramB2 = VU.zipWith (-) (paramB2 params) (VU.map (* scale) (gradB2 direction))
     }
 
 chunked :: Int -> [a] -> [[a]]
@@ -725,7 +896,11 @@ ppoUpdateDevice
   -> [(RolloutStep, Double, Double)]
   -> IO (Either Text (MlpParams, AdamState))
 ppoUpdateDevice device config params0 adam0 batch =
-  foldM runEpoch (Right (params0, adam0)) [1 .. ppoEpochsPerUpdate config]
+  if ppoVariant config == VariantTRPO
+    then do
+      gradientResult <- deviceMeanBatchGradient params0 batch
+      pure (trpoLineSearchUpdate config batch params0 adam0 <$> gradientResult)
+    else foldM runEpoch (Right (params0, adam0)) [1 .. ppoEpochsPerUpdate config]
  where
   adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
   actionCount = ppoActionCount config
@@ -734,12 +909,7 @@ ppoUpdateDevice device config params0 adam0 batch =
         RecurrentPpoLoss.bpttWindows 16 batch
     | otherwise = chunked (max 1 (ppoMiniBatchSize config)) batch
   runEpoch (Left e) _ = pure (Left e)
-  runEpoch acc@(Right (params, _)) epoch
-    | ppoVariant config == VariantTRPO
-        && epoch > 1
-        && approxBatchKl params > ppoKlTarget config =
-        pure acc
-    | otherwise = foldM runMinibatch acc minibatches
+  runEpoch acc _ = foldM runMinibatch acc minibatches
   runMinibatch (Left e) _ = pure (Left e)
   runMinibatch (Right (params, adam)) [] = pure (Right (params, adam))
   runMinibatch (Right (params, adam)) mb = do
@@ -759,21 +929,34 @@ ppoUpdateDevice device config params0 adam0 batch =
                 meanGradient = scaleGradient scale summed
                 (paramsAfter, adamAfter) = adamStep adamConfig adam params meanGradient
              in pure (Right (paramsAfter, adamAfter))
+  deviceMeanBatchGradient params mb = do
+    forwardResult <- mlpdForwardBatch device params [rsObs s | (s, _, _) <- mb]
+    case forwardResult of
+      Left e -> pure (Left e)
+      Right outs -> do
+        let pairs =
+              [ (rsObs s, fullOutputGradient out s adv target)
+              | ((s, adv, target), out) <- zip mb outs
+              ]
+        gradResult <- mlpdBatchGradient device params pairs
+        pure $
+          fmap
+            (scaleGradient (1.0 / fromIntegral (max 1 (length mb))))
+            gradResult
   fullOutputGradient out step advantage target =
     let policy = softmax (VU.take actionCount out)
         value = tanh (out VU.! actionCount)
-        (dLogitVec, valueGrad) = ppoHeadGradient config policy value step advantage target
+        stateSignal = recurrentStateSignal step
+        recurrentScale =
+          if ppoVariant config == VariantRecurrentPPO
+            then 1.0 + 0.05 * stateSignal
+            else 1.0
+        recurrentTarget =
+          if ppoVariant config == VariantRecurrentPPO
+            then target + 0.01 * stateSignal
+            else target
+        (dLogitVec, valueGrad) = ppoHeadGradient config policy value step (advantage * recurrentScale) recurrentTarget
      in dLogitVec VU.++ VU.singleton (valueGrad * (1.0 - value * value))
-  approxBatchKl params =
-    let kls =
-          [ let pvOut = policyValueForward params actionCount (rsObs step)
-                probs = maskedPolicyFor config (rsActionMask step) (pvPolicy pvOut)
-                prob = probs VU.! rsAction step
-                newLogProb = if prob <= 0 then -1.0e9 else log prob
-             in rsLogProb step - newLogProb
-          | (step, _, _) <- batch
-          ]
-     in if null kls then 0.0 else sum kls / fromIntegral (length kls)
 
 rolloutSummary :: Int -> [Double] -> PpoIterationStat
 rolloutSummary iteration [] =

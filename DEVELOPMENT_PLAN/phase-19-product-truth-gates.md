@@ -15,13 +15,13 @@
 ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
 2026-07-01 model-runtime audit reopened product closure and chose to implement
 the documented surface for real rather than narrow the docs. Phases `0`–`18`
-remain historical evidence for their owned surfaces; the current no-caveat
-product claim is the reclosed Phase `19`–`34` chain. This phase owns the
-enforcement spine every later product phase is validated against: the typed
-product matrix, the Phase `19`–`34` status registry, the external convergence-bar
-boundary, and the docs-check closure-claim guard. The 2026-07-05 audit findings
-that reopened this phase are now covered by Phase `32` (`jitml-negative-controls`
-passed 3 / 3) and Phase `34` plan-truth governance.
+remain historical evidence for their owned surfaces; the current product chain is
+blocked downstream on Phase `29` and Phase `31`. This phase owns the enforcement
+spine every later product phase is validated against: the typed product matrix,
+the Phase `19`–`34` status registry, the external convergence-bar boundary, and
+the docs-check closure-claim guard. The 2026-07-05 audit findings that reopened
+this phase are now covered by Phase `32` (`jitml-negative-controls` passed 3 / 3)
+and Phase `34` plan-truth governance.
 
 **Validation substrate**: `linux-cpu` only.
 

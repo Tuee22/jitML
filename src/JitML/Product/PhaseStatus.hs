@@ -124,9 +124,9 @@ allProductPhaseStatuses =
       29
       "Linux CUDA Product Lane"
       "DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md"
-      [ sprint "29.1" "Real cuDNN/cuBLAS Kernels" Done
-      , sprint "29.2" "CUDA Row Device Evidence" Done
-      , sprint "29.3" "CUDA Integration, E2E, and Attestation" Done
+      [ sprint "29.1" "Real cuDNN/cuBLAS Kernels" Blocked
+      , sprint "29.2" "CUDA Row Device Evidence" Blocked
+      , sprint "29.3" "CUDA Integration, E2E, and Attestation" Blocked
       ]
   , productPhase
       30
@@ -140,8 +140,8 @@ allProductPhaseStatuses =
       31
       "No-Caveat Product Aggregation"
       "DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md"
-      [ sprint "31.1" "Attestation Join" Done
-      , sprint "31.2" "No-Caveat Closure" Done
+      [ sprint "31.1" "Attestation Join" Blocked
+      , sprint "31.2" "No-Caveat Closure" Blocked
       ]
   , productPhase
       32

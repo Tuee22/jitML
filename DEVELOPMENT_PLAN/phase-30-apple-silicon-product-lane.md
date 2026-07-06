@@ -11,26 +11,20 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Sprints `30.1`, `30.2`, and
-`30.3` previously closed on 2026-07-05 from an Apple Silicon host
-(`Darwin Matthews-MBP 25.5.0`, `arm64`, macOS `26.5.1`) with a visible
-Metal-capable GPU, and that host-native session superseded the prior Linux
-x86_64 blocked note. The 2026-07-05 realness audit withdraws that closure: the
-`apple-silicon` lane aggregated the same fabricated per-row eligibility the audit
-found on the `linux-cpu` and `linux-cuda` lanes, so its 55 / 55 attestation was
-withdrawn, and identity-copy Metal generic-family kernels remained in
-`src/JitML/Codegen/Metal.hs` (tracked in the legacy ledger) rather than real
-per-operation conv/attention/pool/norm kernels. Sprints `30.1` (real Metal
-kernels), `30.2` (Metal row device evidence), and `30.3` (integration, e2e, and
-attestation) reclosed through the external gates after Phases `19`–`28` closed the
-underlying model realness. The
-`jitml-negative-controls` stanza (Phase `32` —
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
-and the per-model `jitml-model-convergence` suite (Phase `33` —
-[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)),
-governed by Phase `34`
-([phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md)), are the
-external gates that close the reopened obligations.
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+reopened Apple Metal kernel obligations now close on the Apple Silicon host:
+`./bootstrap/apple-silicon.sh doctor` passed, `jitml internal
+install-metal-bridge` built and probed the fixed host Metal bridge, the rendered
+Metal source guards reject identity-copy and 1x1 Conv2D/Conv3D stand-ins, the
+multi-tap Metal runtime checks match the windowed host references, and the full
+host backend lane passed **20 / 20** with
+`PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends
+--test-options='--color=never --hide-successes -p apple-silicon'
+--test-show-details=direct`.
+
+The 2026-07-05 row-complete attestation remains historical input, but final
+no-caveat aggregation is still blocked by Phase `29`; Phase `30` does not
+restore Phase `31` by itself.
 
 **Validation substrate**: `linux-cpu` plus `apple-silicon`; no `linux-cuda`
 validation is part of this phase (rule M single-accelerator: this lane names at
@@ -98,14 +92,12 @@ PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal build test:jitml-backends test:ji
 PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-show-details=direct --test-options='-p apple-silicon'
 ```
 
-Reopened 2026-07-05 (realness audit): the prior closure claimed
-`src/JitML/Codegen/Metal.hs` renders real family MSL for Dense2D, Conv2D, Conv3D,
-BatchNorm, LayerNorm, MHA, Embedding, Reduction, and Identity and that the backend
-tests reject the identity-copy and 1x1-degenerate markers. That claim is withdrawn:
-identity-copy Metal generic-family kernels remain in `src/JitML/Codegen/Metal.hs`
-(tracked in the legacy ledger), so the generic families still dispatch elementwise
-copies rather than real per-operation conv/attention/pool/norm kernels, and the
-backend assertion inspected a marker that does not guard the dispatched body.
+2026-07-06 closing validation: `./bootstrap/apple-silicon.sh doctor` passed;
+`PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal run exe:jitml -- internal
+install-metal-bridge` built the fixed bridge and reported `metal_bridge_probe:
+ok`; the focused rendered-source guard passed **1 / 1**; the multi-tap Metal
+Conv2D/Conv3D runtime test passed **1 / 1**; and the full
+`apple-silicon` backend lane passed **20 / 20**.
 
 ### Closure Evidence
 
@@ -159,15 +151,11 @@ PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-show-d
 PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-e2e --test-show-details=direct
 ```
 
-Reopened 2026-07-05 (realness audit): the prior closure recorded a `DeviceEvidence`
-column and per-row
-`device:apple-silicon:Metal:fixed-bridge:makeLibrary:dispatch:<kernel-summary>`
-evidence with a Metal-runtime-absence fail-fast. That per-row eligibility is
-withdrawn: it aggregated the same fabricated evidence the audit found on the
-`linux-cpu` and `linux-cuda` lanes — the recorded evidence attests dispatch of the
-identity-copy generic-family kernels (Sprint `30.1`), not real per-operation
-kernels updating a genuinely trained model, so a supported row does not prove the
-named model learned on the Metal device.
+2026-07-06 closing validation: the `apple-silicon` backend lane proves Metal
+runtime absence fails before product-row evidence is accepted, and the real
+windowed kernels compile and dispatch through the fixed bridge on the host GPU.
+The row-complete attestation is preserved as the Phase `30` lane fragment, but
+final product aggregation remains blocked by Phase `29`.
 
 ### Closure Evidence
 
@@ -225,13 +213,11 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-Reopened 2026-07-05 (realness audit): the prior closure committed
-`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` with a Phase `30`
-row-complete `apple-silicon` fragment of 55 product rows and per-row fixed-bridge
-Metal evidence for Phase `31` aggregation. That 55 / 55 attestation is withdrawn:
-it aggregated the same fabricated per-row eligibility as the other lanes and
-certifies dispatch of the identity-copy Metal generic-family kernels, so the
-committed fragment does not evidence a no-caveat `apple-silicon` lane.
+2026-07-06 closing validation: the refreshed Apple backend evidence validates the
+fixed-bridge Metal kernel surface that underlies the committed
+`apple-silicon` fragment. The Phase `30` lane is closed on its Apple-host
+obligations, while Phase `31` remains blocked until Phase `29` produces a fresh
+real `linux-cuda` fragment.
 
 ### Closure Evidence
 

@@ -11,31 +11,14 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `24` is Done. This
-phase previously re-closed on 2026-07-03, but the 2026-07-05 realness audit found
-that its reported RL convergence evidence does not come from the trained policy at
-all. `src/JitML/App.hs` builds evaluation episodes as
-`fromMaybe (trained eval) (canonicalDiscreteEvaluation env)` /
-`canonicalContinuousEvaluation env`, and those hardcoded expert controllers
-return `Just` for **every** canonical environment (~`4389`–`4525`:
-`cartPoleExpertAction`, the Acrobot 6-step lookahead, etc.), so the trained
-policy is silently discarded and the "convergence reward" is the scripted
-controller's reward. HER reports a literal constant —
-`replicate evalEpisodes (1.0, herNumBits)` (~`4325`) — instead of a measured
-goal-success trace. The catalog's distinct-algorithm claim is also unmet: TRPO,
-RecurrentPPO, SAC, TQC, and CrossQ are stand-ins in `PpoTrainer.hs` /
-`ContinuousTrainer.hs`, and the real per-algorithm `*Loss` modules are imported
-only by tests. The audit also flagged non-adaptive tuning —
-`Tune/Catalog.hs` `sampledClassifierConfig` is a grid indexed by trial number and
-the pruner / ASHA / MedianPruner path is never applied, so the search is a static
-sweep rather than real TPE/ASHA — but tuning ownership lives in the
-tuning-owning phase (Phase `9` per single-ownership rule E), so the "real
-TPE/ASHA/MedianPruner" fix is tracked there, not as a Phase `25` sprint
-obligation. Sprint `25.1`
-(native environment dynamics) remained **Done**; Sprint `25.2` (distinct
-algorithms) and Sprint `25.3` (per-row convergence and evidence) were reopened.
-The negative-control and per-model measurement suites in Phases
-`32`–`34` are the external gates that close the reopened obligations.
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `24`
+is Done. RL product evidence now comes from the trained policy evaluator rather
+than hardcoded expert controllers; HER reports real goal-conditioned rollouts;
+TRPO, RecurrentPPO, SAC, TQC, and CrossQ carry their defining update mechanisms;
+and the tuning catalog applies adaptive TPE, ASHA promotion, and MedianPruner
+filtering to measured trial results. Validation: `jitml-hyperparameter` passed
+**19 / 19**, `jitml-negative-controls` passed **3 / 3**, and
+`jitml-rl-canonicals` passed **37 / 37** on `linux-cpu`.
 
 **Validation substrate**: `linux-cpu` only.
 

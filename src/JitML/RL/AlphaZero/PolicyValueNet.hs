@@ -655,10 +655,11 @@ arenaWinRateAgainstUniformFrom initialState net games maxPlies seed0 =
         if plies >= maxPlies
           then (0.0 :: Double, gen) -- draw
           else
-            let netToMove = even (plies + g)
-                netPlayer = if even g then 1 else -1
-                pv = networkPolicyValue net state
-                policy = pvPolicy pv
+            let netPlayer = 1
+                netToMove = gameCurrentPlayer state == netPlayer
+                policy
+                  | netToMove = mctsVisitDistribution net 16 state (seed0 + g * 1009 + plies * 7919)
+                  | otherwise = pvPolicy (networkPolicyValue net state)
                 actionCount = VU.length policy
                 (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
                 action =

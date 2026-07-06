@@ -1184,9 +1184,9 @@ Upload the canonical CIFAR-10 binary archive for later train/test materializatio
 
 ## `jitml internal seed-demo-checkpoints`
 
-Seed legacy fixture checkpoints into MinIO.
+Retired legacy fixture checkpoint seeder.
 
-Writes self-describing development fixture checkpoints (manifest + .jmw1 + latest-pointer) at the historical demo browser-panel experiment hashes through the routed MinIOSubprocess. This is not a product-row artifact producer; product rows are published by `jitml internal train-and-publish-product-rows`. Requires a live cluster.
+Fails closed. Product-row demo artifacts are produced by `jitml internal train-and-publish-product-rows`; the historical fixture seeder no longer writes inference-eligible artifacts.
 
 ```text
 jitml internal seed-demo-checkpoints
@@ -1198,7 +1198,7 @@ Examples:
 jitml internal seed-demo-checkpoints
 ```
 
-Seed the legacy fixture checkpoints into live MinIO.
+Return a typed error explaining that product-row publishing is the supported path.
 
 
 ## `jitml internal train-and-publish-product-rows`

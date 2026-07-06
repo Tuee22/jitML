@@ -92,18 +92,23 @@ Metal cannot be containerized.
 
 ## Current Baseline
 
-**Reclosed 2026-07-06 (realness gate validation).** The 2026-07-05 read-only
-realness audit withdrew the prior "all 55 ProductRows real" claim and reopened
-Phases `19`–`31` because several gates were self-authored or self-referential.
-That reopen added Phases `32`–`34`: committed negative controls,
-externally-anchored bars, row-complete model-convergence/performance cases, and
-plan-truth governance. The product chain is now reclosed: Phases `19`–`34` are
-`✅ Done`; the live `linux-cpu` stack was reconciled; all 12 canonical dataset
-artifacts were SHA-verified into MinIO; row-filtered product publishers produced
-**55 / 55** local `CompletedTraining` checkpoint manifests; non-Live
-`jitml-integration` passed **117 / 117**; `jitml-unit` passed **277 / 277**;
-`jitml-negative-controls` passed **3 / 3**; `jitml-model-convergence` passed
-**111 / 111**; and `jitml check-code` passed on `linux-cpu` on 2026-07-06.
+**Current status (2026-07-06): product chain blocked on Phase `29`.** The
+2026-07-05 read-only realness audit withdrew the prior "all 55 ProductRows
+real" claim and reopened Phases `19`–`31` because several gates were
+self-authored or self-referential. Current source and test work has revalidated
+Phases `20`, `21`, `23`, `24`, `25`, `26`, and `30`, but Phase `29`
+(`linux-cuda`) remains blocked because this host's Docker daemon does not expose
+an NVIDIA GPU runtime to the `jitml-cuda` compose service. Phase `31` remains
+blocked downstream until a fresh real `linux-cuda` fragment exists.
+
+The 2026-07-06 validation evidence includes `jitml-unit` **277 / 277**,
+`jitml-sl-canonicals` **31 / 31**, `jitml-rl-canonicals` **37 / 37**,
+`jitml-hyperparameter` **19 / 19**, `jitml-negative-controls` **3 / 3**,
+focused backend source/reference guards, and the Apple Silicon backend lane
+**20 / 20**. The attempted real CUDA lane,
+`docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`,
+failed before test execution with `could not select device driver "" with
+capabilities: [[gpu]]`.
 
 The historical audit finding remains the reason the standing gates exist: RL
 "convergence" must not come from scripted controllers, architecture claims must
@@ -976,12 +981,13 @@ for the governing rule.
 
 ## Current Baseline
 
-**Current status (2026-07-06): product closure reclosed.** The 2026-07-05
-realness audit remains the historical reason Phases `32`–`34` exist, but the
-current status is the evidence recorded in [README.md → Closure Status](README.md#closure-status):
-Phases `19`–`34` are `✅ Done`, with negative controls, row-complete
-model-convergence, product phase-status parity, docs check, and `check-code`
-validated on `linux-cpu`.
+**Current status (2026-07-06): product chain blocked on Phase `29`.** The
+2026-07-05 realness audit remains the historical reason Phases `32`–`34` exist.
+The current status is the evidence recorded in
+[README.md → Closure Status](README.md#closure-status): Phases `20`, `21`, `23`,
+`24`, `25`, `26`, and `30` have refreshed validation, while Phase `29` is
+blocked on a Docker-visible NVIDIA GPU runtime and Phase `31` is blocked on the
+missing real `linux-cuda` fragment.
 
 Historical status from 2026-06-30: the follow-up audit reopened that baseline
 for live cluster lifecycle truth, fail-closed mounted worker `RunConfig.dhall`

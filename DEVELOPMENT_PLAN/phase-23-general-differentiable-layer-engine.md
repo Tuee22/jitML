@@ -12,24 +12,16 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `22` remains
-closed on its canonical matrix/config/dataset integrity boundary, and the typed
-`LayerGraph` IR, the checkpoint topology round-trip, and the oneDNN device seam
-are all in place. The audit found that the layer engine did not compute the
-layer catalog's real per-kind math: in `src/JitML/Numerics/LayerGraph.hs`,
-`runLayerNode` (~line 408) routes **every** parameterized node through
-`affinePreActivation` (~line 523) — a plain dense matmul — so `Conv2D`,
-`Conv3D`, `MultiHeadAttention`, `GeGLU`, patch-embed, `BasicBlock`, and
-`BottleneckBlock` are all the same dense GEMM with the kind tag ignored; every
-`BatchNorm`/`LayerNorm`/`GroupNorm` node falls to the `resizeIdentity` no-op;
-`Dropout` is a deterministic `* 0.9` rescale; and `MaxPool`/`AvgPool`/
-`GlobalAvgPool` replicate or average a single value instead of pooling a
-windowed tensor. The pure oracle is therefore a dense-stack stand-in, the oneDNN
-"convolution" kernels lowered to a flat 1x1 (matmul-equivalent) projection that
-agreed with that stand-in vacuously, and a "ResNet"/"ViT"/"LeNet" checkpoint
-inferred as a dense stack, not its literal network. The reclosure is guarded by
-the external negative-control and per-model suites named in the sprint closure
-evidence. The standing anti-fake harness that grades these closures lives in
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `22`
+remains closed on its canonical matrix/config/dataset integrity boundary, and the
+typed `LayerGraph` IR, checkpoint topology round-trip, and oneDNN device seam are
+in place. The layer engine no longer treats Conv2D, Conv3D, attention, gated,
+residual, patch-embed, and norm nodes as dense/identity stand-ins: per-kind
+forward and backward paths now transform inputs before the affine projection, and
+normalization layers compute normalized outputs. Validation: `docker compose run
+--rm jitml cabal build lib:jitml` passed, `jitml-unit` passed **277 / 277**, and
+`jitml-sl-canonicals` passed **31 / 31** on `linux-cpu`. The standing anti-fake
+harness that grades these closures lives in
 [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
 (the `jitml-negative-controls` stanza),
 [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)

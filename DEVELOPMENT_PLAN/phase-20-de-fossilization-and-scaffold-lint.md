@@ -17,19 +17,12 @@ guard. Sprint `20.1` removed the legacy fake-ML fossils from the product path, a
 Sprint `20.2` turned on the forbidden-scaffold registry and reachability lint over
 the de-fossilized tree.
 
-**Reopened 2026-07-05 (realness audit).** The audit found that the Sprint `20.2`
-scaffold lint (`src/JitML/Lint/ProductTruth.hs`) is a *name denylist* of the
-previous iteration's fossils (`deterministicStep`, `runRLLoop`,
-`runSimulatedEpisode*`, `VecEnv`) plus a `FutureOwner` exemption that *registers*
-seeded-`*-demo-weights` entries but never scans them — so it is structurally blind
-to a new fake introduced under a new name and does not meet the phase's
-Exit-Definition obligation that no product command path executes a fake. Sprint
-`20.2` therefore reopened; Sprint `20.1` (fossil removal) stood, since
-those fossils were genuinely off the product path. The replacement behavioral
-detector and the deletion of the `FutureOwner` exemption are owned by
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
-Sprint `32.3` and validated by the `jitml-negative-controls` suite (Sprint `32.1`);
-see Sprint `20.2` → `### Closure Evidence`.
+**2026-07-05 audit finding, closed 2026-07-06.** The audit found that the Sprint
+`20.2` scaffold lint still carried a `FutureOwner` exemption for
+seeded-`*-demo-weights`. That exemption is deleted; all registry entries are
+active, and the unit product-truth guard rejects a reintroduced
+`mnist-demo-weights` scaffold. Validation: `jitml-unit` passed **277 / 277** and
+`jitml-negative-controls` passed **3 / 3** on `linux-cpu`.
 
 **Validation substrate**: `linux-cpu` only.
 

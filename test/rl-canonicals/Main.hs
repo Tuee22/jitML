@@ -23,7 +23,7 @@ import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
-import JitML.Numerics.Mlp (forwardOutput, mlpForward, mlpParamsToFlat)
+import JitML.Numerics.Mlp (AdamState, forwardOutput, mlpForward, mlpParamsToFlat)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Product.Convergence qualified as ProductConvergence
@@ -84,6 +84,7 @@ import JitML.RL.AlphaZero
   , initialHex
   , initialOthello
   , initialStateFor
+  , maxPliesFor
   , observationSizeFor
   , selfPlayTranscript
   , selfPlayTranscriptFor
@@ -1623,12 +1624,12 @@ assertAlphaZeroPerGameSelfPlay =
             { SelfPlay.selfPlayGame = game
             , SelfPlay.selfPlayGamesPerGeneration = 1
             , SelfPlay.selfPlaySimulationsPerMove = 8
-            , SelfPlay.selfPlayMaxPlies = 4
+            , SelfPlay.selfPlayMaxPlies = maxPliesFor game
             , SelfPlay.selfPlayActionSpace = actionCount
             }
         bufferA = PVN.runNetworkSelfPlay net config
         bufferB = PVN.runNetworkSelfPlay net config
-        samples = PVN.generatePolicyValueSamplesFrom initialState net 83 8 4
+        samples = PVN.generatePolicyValueSamplesFrom initialState net 83 8 (maxPliesFor game)
     SelfPlay.bufferTranscriptHash bufferA @?= SelfPlay.bufferTranscriptHash bufferB
     case SelfPlay.unBuffer bufferA of
       [selfPlayGame] -> do
@@ -1746,19 +1747,23 @@ runAlphaZeroCheckpointGame game seed = do
       initialState = initialStateFor game
       net0 = PVN.initPolicyValueNet observationSize actionCount 16 seed
       adam0 = PVN.initAdamFor net0
-      generationCount = 1
-      selfPlayGames = 2
-      sims = 8
-      maxPlies = 4
-      gradientUpdates = 8
-      arenaGames = 8
-      samples =
-        concat
-          [ PVN.generatePolicyValueSamplesFrom initialState net0 (seed + gameIndex) sims maxPlies
-          | gameIndex <- [0 .. selfPlayGames - 1]
-          ]
-      (trainedNet, _trainedAdam) =
-        PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-3 gradientUpdates samples
+      generationCount = 3
+      selfPlayGames = 8
+      sims = 16
+      maxPlies = maxPliesFor game
+      gradientUpdates = 30
+      arenaGames = 16
+      (trainedNet, _trainedAdam, samples) =
+        runPureAlphaZeroGenerations
+          initialState
+          net0
+          adam0
+          generationCount
+          selfPlayGames
+          sims
+          maxPlies
+          gradientUpdates
+          seed
       arenaWinRate =
         PVN.arenaWinRateAgainstUniformFrom initialState trainedNet arenaGames maxPlies (seed + 7919)
       initialWeights = PVN.policyValueNetToFlat net0
@@ -1775,7 +1780,17 @@ runAlphaZeroCheckpointGame game seed = do
       initialHash
       finalHash
       arenaWinRate of
-      Left err -> assertFailure (Text.unpack err)
+      Left err ->
+        assertFailure
+          ( Text.unpack err
+              <> " for "
+              <> Text.unpack game
+              <> " (arena_win_rate="
+              <> show arenaWinRate
+              <> ", maxPlies="
+              <> show maxPlies
+              <> ")"
+          )
       Right value -> pure value
   let (manifest, payloads) =
         alphaZeroCheckpointSnapshot
@@ -1800,6 +1815,37 @@ runAlphaZeroCheckpointGame game seed = do
       , azRunManifest = manifest
       , azRunPayloads = payloads
       }
+
+runPureAlphaZeroGenerations
+  :: GameState
+  -> PVN.PolicyValueNet
+  -> AdamState
+  -> Word64
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> (PVN.PolicyValueNet, AdamState, [PVN.PolicyValueTrainingSample])
+runPureAlphaZeroGenerations initialState net0 adam0 generationTarget selfPlayGames sims maxPlies gradientUpdates seed =
+  go 0 net0 adam0 []
+ where
+  go generation net adam allSamples
+    | generation >= generationTarget = (net, adam, allSamples)
+    | otherwise =
+        let generationSamples =
+              concat
+                [ PVN.generatePolicyValueSamplesFrom
+                    initialState
+                    net
+                    (seed + fromIntegral generation * 7919 + gameIndex)
+                    sims
+                    maxPlies
+                | gameIndex <- [0 .. selfPlayGames - 1]
+                ]
+            (trainedNet, trainedAdam) =
+              PVN.trainPolicyValueNetOnSamples net adam 1.0e-3 gradientUpdates generationSamples
+         in go (generation + 1) trainedNet trainedAdam (allSamples <> generationSamples)
 
 azRunSampleSignature :: AlphaZeroCheckpointRun -> [([Int], [Double], Double)]
 azRunSampleSignature run =

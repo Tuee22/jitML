@@ -52,9 +52,10 @@ familyReferenceVec family input weights =
     Dense2D ->
       VU.generate n $ \i ->
         sum [input VU.! j * wAt 0 (j * n + i) | j <- [0 .. n - 1]]
-    -- 1x1 conv: out[i] = input[i] * W[0]   (empty weights -> filter 1.0)
-    Conv2DKernel -> VU.map (* conv1x1) input
-    Conv3DKernel -> VU.map (* conv1x1) input
+    -- Flat-window Conv2D/Conv3D. Missing weights default to a unit center
+    -- filter, so an empty weight buffer is the identity convolution.
+    Conv2DKernel -> conv2dWindow input weights
+    Conv3DKernel -> conv3dWindow input weights
     -- weights = [scale(n), shift(n), mean(n), var(n)]; defaults 1/0/0/1.
     BatchNormKernel ->
       VU.generate n $ \i ->
@@ -95,6 +96,83 @@ familyReferenceVec family input weights =
   n = VU.length input
   eps = 1.0e-5 :: Double
   wAt def i = if i >= 0 && i < VU.length weights then weights VU.! i else def
-  conv1x1 = if VU.null weights then 1 else VU.head weights
   lnMean = VU.sum input / fromIntegral n
   lnVar = VU.sum (VU.map (\x -> (x - lnMean) * (x - lnMean)) input) / fromIntegral n
+
+conv2dWindow :: VU.Vector Double -> VU.Vector Double -> VU.Vector Double
+conv2dWindow input weights =
+  VU.generate n outputAt
+ where
+  n = VU.length input
+  width = ceilSqrtInt n
+  height = (n + width - 1) `div` width
+  weightAt k
+    | k >= 0 && k < VU.length weights = weights VU.! k
+    | k == 4 = 1.0
+    | otherwise = 0.0
+  outputAt idx =
+    let x0 = idx `mod` width
+        y0 = idx `div` width
+     in sum
+          [ (input VU.! sample) * weightAt ((dy + 1) * 3 + (dx + 1))
+          | dy <- [-1 .. 1]
+          , dx <- [-1 .. 1]
+          , let x = x0 + dx
+          , let y = y0 + dy
+          , x >= 0
+          , y >= 0
+          , x < width
+          , y < height
+          , let sample = y * width + x
+          , sample < n
+          ]
+
+conv3dWindow :: VU.Vector Double -> VU.Vector Double -> VU.Vector Double
+conv3dWindow input weights =
+  VU.generate n outputAt
+ where
+  n = VU.length input
+  side = ceilCubeRootInt n
+  plane = side * side
+  weightAt k
+    | k >= 0 && k < VU.length weights = weights VU.! k
+    | k == 13 = 1.0
+    | otherwise = 0.0
+  outputAt idx =
+    let z0 = idx `div` plane
+        rem0 = idx `mod` plane
+        y0 = rem0 `div` side
+        x0 = rem0 `mod` side
+     in sum
+          [ (input VU.! sample) * weightAt ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1))
+          | dz <- [-1 .. 1]
+          , dy <- [-1 .. 1]
+          , dx <- [-1 .. 1]
+          , let x = x0 + dx
+          , let y = y0 + dy
+          , let z = z0 + dz
+          , x >= 0
+          , y >= 0
+          , z >= 0
+          , x < side
+          , y < side
+          , z < side
+          , let sample = z * plane + y * side + x
+          , sample < n
+          ]
+
+ceilSqrtInt :: Int -> Int
+ceilSqrtInt n =
+  go 1
+ where
+  go side
+    | side * side >= max 1 n = side
+    | otherwise = go (side + 1)
+
+ceilCubeRootInt :: Int -> Int
+ceilCubeRootInt n =
+  go 1
+ where
+  go side
+    | side * side * side >= max 1 n = side
+    | otherwise = go (side + 1)

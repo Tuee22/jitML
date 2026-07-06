@@ -20,6 +20,10 @@
 module JitML.Product.ExternalBars
   ( barIsSelfReferential
   , assertProductBarExternal
+  , assertConvergenceObservationsExternal
+  , convergenceBarForMetric
+  , convergenceObservationForMetric
+  , convergenceObservationsForMetrics
   )
 where
 
@@ -28,9 +32,14 @@ import Data.Text qualified as Text
 
 import JitML.Product.Convergence
   ( ConvergenceBar
+  , MeasuredMetrics (..)
   , convergenceMetricName
   , convergenceSlack
+  , evaluateConvergence
+  , mkConvergenceBar
   )
+import JitML.RL.ConvergenceThresholds qualified as RLConvergence
+import JitML.Training.Budget qualified as TrainingBudget
 
 -- | A convergence bar is self-referential (tautological) when its slack is
 -- non-positive — so @threshold == literatureTarget@ and the boundary
@@ -56,3 +65,81 @@ assertProductBarExternal bar _measuredValue =
 
 showDouble :: Double -> Text
 showDouble = Text.pack . show
+
+convergenceBarForMetric :: Text -> Maybe ConvergenceBar
+convergenceBarForMetric name =
+  case name of
+    "test_accuracy" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "test_acc" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "train_accuracy" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "validation_accuracy" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "rmse" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMinimise 0.90 0.10)
+    "best_objective" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
+    "objective" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
+    "arena_win_rate" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.45 0.05)
+    "legal_move_rate" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.01)
+    "goal_success_rate" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+    "achieved_goal_distance" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMinimise 0.04 0.01)
+    "train_loss" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMinimise 2.0 0.10)
+    "validation_loss" ->
+      Just (mkConvergenceBar name TrainingBudget.MetricMinimise 2.0 0.10)
+    _ -> Nothing
+
+convergenceObservationForMetric
+  :: (Text, Double)
+  -> Either Text TrainingBudget.ConvergenceObservation
+convergenceObservationForMetric metric@(name, _) =
+  case convergenceBarForMetric name of
+    Nothing -> Left ("missing external convergence bar for metric: " <> name)
+    Just bar -> do
+      observation <- evaluateConvergence bar (MeasuredMetrics [metric])
+      let observationWithMetricSpecificGate =
+            if name == "arena_win_rate"
+              then
+                observation
+                  { TrainingBudget.coPassed =
+                      RLConvergence.passesAlphaZeroArena
+                        RLConvergence.alphaZeroArenaThreshold
+                        (TrainingBudget.coMetricValue observation)
+                  }
+              else observation
+      case assertProductBarExternal bar (TrainingBudget.coMetricValue observationWithMetricSpecificGate) of
+        [] -> Right observationWithMetricSpecificGate
+        failures -> Left (Text.intercalate "; " failures)
+
+convergenceObservationsForMetrics
+  :: [(Text, Double)]
+  -> Either Text [TrainingBudget.ConvergenceObservation]
+convergenceObservationsForMetrics =
+  traverse convergenceObservationForMetric
+
+assertConvergenceObservationsExternal
+  :: [TrainingBudget.ConvergenceObservation]
+  -> [Text]
+assertConvergenceObservationsExternal =
+  concatMap validateObservation
+ where
+  validateObservation observation =
+    case convergenceObservationForMetric
+      (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation) of
+      Left err -> [err]
+      Right expected ->
+        [ "stored convergence observation for "
+            <> TrainingBudget.coMetricName observation
+            <> " does not match the external bar"
+        | TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
+            || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
+            || TrainingBudget.coPassed observation /= TrainingBudget.coPassed expected
+        ]

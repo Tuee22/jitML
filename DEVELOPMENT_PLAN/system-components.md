@@ -51,15 +51,17 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. **Current status (2026-07-06): product closure
-reclosed after the realness audit.** The prior "product closure is complete / 55 /
-55 ProductRows" claim from 2026-07-05 was withdrawn because the Phase `19`–`31`
-completion evidence was self-referential or fabricated; see
-[README.md → Closure Status](README.md#closure-status). Phases `19`–`34` are now
-`✅ Done` under the standing realness gate. Component rows that contribute to the
-product model surface are complete only when their evidence is rejected by its
-committed negative control when fake (Phase `32`) and shows measured convergence
-+ inference performance when real (Phase `33`).
+checked-in implementation. **Current status (2026-07-06): product chain blocked
+on Phase `29`.** The prior "product closure is complete / 55 / 55 ProductRows"
+claim from 2026-07-05 was withdrawn because the Phase `19`–`31` completion
+evidence was self-referential or fabricated; see
+[README.md → Closure Status](README.md#closure-status). Phases `20`, `21`, `23`,
+`24`, `25`, `26`, and `30` have refreshed validation, while Phase `29` remains
+blocked on real `linux-cuda` validation and Phase `31` remains blocked on the
+missing CUDA attestation. Component rows that contribute to the product model
+surface are complete only when their evidence is rejected by its committed
+negative control when fake (Phase `32`) and shows measured convergence +
+inference performance when real (Phase `33`).
 
 Historical closure evidence remains in the phase files and attestation files as
 dated record. The 2026-06-28 `linux-cuda` HA attestation, the 2026-06-29
@@ -227,7 +229,7 @@ substrates, plus Apple-only inference forwarding and host-command topics.
 | Component | Implementation | Status | Owning Sprint |
 |-----------|----------------|--------|---------------|
 | Product truth registry and matrix floor | `src/JitML/Product/Matrix.hs` defines the typed `ProductRow` registry, phantom-tagged evidence handles, row family/class/device-claim fields, fixed training budgets, integration/e2e ids, demo panels, and the `MatrixFloor` for the eleven SL rows, seven RL environments, stable-baselines3 algorithm family plus HER, four AlphaZero games, and tuning row. `src/JitML/Product/Convergence.hs` defines per-row `ConvergenceBar` values. `src/JitML/Test/WorkflowMatrix.hs`, `src/JitML/Web/Contracts.hs`, `web/src/Generated/Contracts.purs`, and the live report-card browser-product denominator consume this registry rather than hand-maintained product row lists. | ✅ Sprint `19.1` completed the registry/floor and drift tests; later phases attach real per-row training/inference evidence. | Sprint 19.1 |
-| Product phase-status registry | `src/JitML/Product/PhaseStatus.hs` enumerates every Phase `19`–`34` sprint with a typed `Done | Active | Planned | Blocked` value, exposes `allProductPhasesDone`, and records the governed phase document path for each product phase. `test/unit/Main.hs` parses the sprint `**Status**` headers from those phase docs and fails on registry/doc drift. | ✅ Sprint `19.2` completed the registry and parity test; Phase `34` extended the governed registry through the standing realness and plan-truth gates. The registry reports every Phase `19`–`34` sprint Done, and the unit tests demote a synthetic sprint to prove the predicate still fails closed for an unfinished registry. | Sprint 19.2 / Phase 34 |
+| Product phase-status registry | `src/JitML/Product/PhaseStatus.hs` enumerates every Phase `19`–`34` sprint with a typed `Done | Active | Planned | Blocked` value, exposes `allProductPhasesDone`, and records the governed phase document path for each product phase. `test/unit/Main.hs` parses the sprint `**Status**` headers from those phase docs and fails on registry/doc drift. | ✅ Sprint `19.2` completed the registry and parity test; Phase `34` extended the governed registry through the standing realness and plan-truth gates. The current registry reports Phase `29` and Phase `31` as blocked, so `allProductPhasesDone` is false until the real CUDA lane and aggregation close; the unit tests still prove the predicate turns true for an explicit all-Done fixture and fails for any unfinished registry. | Sprint 19.2 / Phase 34 |
 | Product closure-claim docs guard | `src/JitML/Lint/Docs.hs` scans governed Markdown for current product-closure phrases such as `all phases done`, `no-caveat product complete`, and `production ready`; `src/JitML/Docs/Check.hs` converts findings into `jitml docs check` drifts unless `src/JitML/Product/PhaseStatus.hs` reports every Phase `19`–`34` sprint Done. Explicitly dated historical-evidence blocks and prohibition/example text are exempt. | ✅ Sprint `19.3` completed and validated through `docs check`, `jitml-unit --linux-cpu`, and `check-code`; Phase `34` now keeps the closure language tied to the full realness-governed product chain, and the guard remains covered by a synthetic unfinished-registry negative test. | Sprint 19.3 / Phase 34 |
 | Layer catalog (16: Dense, Embedding, Conv1D, Conv2D, Conv3D, ConvTranspose, ComplexDense, ComplexConv2D, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock, ScaledDotProductAttention, MultiHeadAttention, RotaryPositionalEmbedding) | `src/JitML/Numerics/Catalog.hs`; rendered through `renderNumericalCatalog` | ✅ Done | Sprint 6.1 |
 | Typed layer graph + pure reverse-mode autodiff | `src/JitML/Numerics/LayerGraph.hs` defines `LayerGraph`, typed tensor shapes, training/inference modes, activations, parameter tensors, and graph nodes covering Dense, Conv2D, Conv3D, MaxPool, AvgPool, GlobalAvgPool, BatchNorm, LayerNorm, GroupNorm, Dropout, Residual, BasicBlock, BottleneckBlock, MultiHeadAttention, GeGLU, and patch-embed. `src/JitML/Numerics/Autodiff.hs` exposes the pure forward tape, backward replay, squared-error loss/gradient, and finite-difference checker. `JitML.Numerics.Mlp` lowers its two-layer cache into the graph tape for `mlpBackward` and `mlpInputGradient`; `JitML.SL.Architecture` attaches an `archLayerGraph` to each canonical supervised family. `JitML.Numerics.LayerGraphOneDnn` dispatches parameterized graph-node training kernels to the generated oneDNN layer ABI and records device evidence. | ✅ Sprints `23.1`–`23.3` completed the pure graph/autodiff, oneDNN training-kernel, and graph checkpoint/inference serialization surfaces. | Sprint 23.1 / Phase 23 |

@@ -31,32 +31,17 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (reopened 2026-07-05 — realness audit):** The product is
-> **not** complete, and the prior "Phase `19`–`31` product-truth chain is complete /
-> all 55 ProductRows real" claim is **withdrawn**. A read-only realness audit found
-> that the row-completion evidence was substantially fabricated or stubbed while the
-> anti-fake gates that were supposed to prevent it were themselves tautological or
-> unenforced. What is genuinely real: the JIT substrate (oneDNN / cuBLAS-cuDNN /
-> fixed-bridge Metal), dataset loaders with SHA verification, environment physics,
-> MCTS mechanics and game rules, and dense/residual-MLP reverse-mode autodiff. What
-> was **not** substantiated: RL "convergence" reward is measured from **hardcoded
-> expert controllers**, not the trained policy; the documented deep architectures
-> (ResNet / Wide-ResNet / ViT / LeNet) train a **residual-MLP over flattened pixels**
-> (conv / attention / norm layer kinds are dense or identity no-ops); TRPO,
-> RecurrentPPO, SAC-entropy, TQC, and CrossQ lack their defining mechanisms; the
-> AlphaZero arena "win rate" is a `0.5`-draw boundary artifact of a 4-ply truncated
-> game; hyperparameter search (TPE / ASHA / MedianPruner) is a non-adaptive grid; and
-> the `InferenceEligible` convergence gate and weight-movement evidence are
-> tautologies (`value >= value`; movement measured against an all-zeros vector). The
-> root cause is structural — "Done" was graded by self-authored, self-referential
-> gates rather than external ground truth — so **Phases `19`–`31` are reopened**
-> (`🔄 Active`) and new **Phases `32`–`34`** add an external-truth negative-control
-> harness, a per-model measured-convergence / inference-performance test suite, and
-> the governance that makes this the last such reset. The per-lane attestation report
-> cards under
-> [`DEVELOPMENT_PLAN/attestations/`](DEVELOPMENT_PLAN/attestations/) record the prior
-> (withdrawn) closure and are retained only as historical evidence. The current
-> execution-ordered status lives in
+> **Current product status (2026-07-06):** The product chain is **not closed**.
+> Phases `20`, `21`, `23`, `24`, `25`, `26`, and `30` have been revalidated after
+> the 2026-07-05 realness audit, including external convergence bars,
+> fail-closed inference eligibility, trained-policy RL evaluation, real
+> supervised layer behavior, AlphaZero full-horizon self-play, adaptive tuning,
+> negative controls, and the Apple Silicon backend lane. Phase `29`
+> (`linux-cuda`) remains `⏸️ Blocked`: `docker compose run --rm jitml-cuda jitml
+> test jitml-backends --linux-cuda` could not start because Docker reported
+> `could not select device driver "" with capabilities: [[gpu]]`. Phase `31`
+> remains blocked downstream until that real CUDA lane produces a fresh
+> attestation fragment. The current execution-ordered status lives in
 > [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 ---
@@ -1055,7 +1040,7 @@ mindmap
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
 | `jitml internal install-metal-bridge` | Build the fixed Apple Metal bridge. | `jitml internal install-metal-bridge` |
 | `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]` |
-| `jitml internal seed-demo-checkpoints` | Seed legacy fixture checkpoints into MinIO. | `jitml internal seed-demo-checkpoints` |
+| `jitml internal seed-demo-checkpoints` | Retired legacy fixture checkpoint seeder. | `jitml internal seed-demo-checkpoints` |
 | `jitml internal train-and-publish-product-rows` | Train and publish product row checkpoints. | `jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda]` |
 | `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>] [--catalog <catalog>]` |
 | `jitml internal third-party-images` | Print the third-party chart image list. | `jitml internal third-party-images` |

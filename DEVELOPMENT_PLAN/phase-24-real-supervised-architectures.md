@@ -11,35 +11,14 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `23` is Done. Sprints
-`24.1`, `24.2`, and `24.3` previously closed on 2026-07-02, but the 2026-07-05
-realness audit found that no canonical row trains or serves its named
-architecture. The model actually built and trained by `layersForFamily`
-(`src/JitML/SL/Architecture.hs`~`249`) is, for **every** ResNet, WideResNet,
-ResNet-50, and LeNet row, a residual-MLP over **flattened** pixels — a `Dense`
-stem, `N` two-layer-MLP `ResidualSpec` blocks (`Architecture.hs`:`261`), and a
-`Dense` classifier — with no `Conv2D`, pooling, normalization, or attention on
-the trained path. `ResNet-50` reuses the same residual-MLP template as
-`ResNet-20`/`ResNet-56` (`familyForModel "ResidualBlock50" = ResidualFamily 50`,
-`Architecture.hs`:`445`); the only `depth == 50` branch (`Architecture.hs`:`315`)
-lives in the *untrained* graph builder, so the served model has no ResNet-50
-bottleneck topology. The advertised `architectureLayerGraphForFamily` graph
-(`archLayerGraph`, `Architecture.hs`:`97`) is **never** trained or used for
-inference — `trainArchitectureWithDevice` and the split-training path both
-initialise and train `archLayers spec` only (`Architecture.hs`:`550`, `:649`) —
-so `archLayerGraph` fed only a self-authored feature-parity check
-(`Architecture.hs`:`484`,`:492`), not the model that runs. Sprint `24.1`
-(literal architectures), Sprint `24.2` (convergence and evidence), and Sprint
-`24.3` (CompletedTraining SL manifests) were reopened; the named topology must
-be genuinely built, trained, and served, and each row's convergence must be
-measured per-model against an external bar. The
-negative-control suite (`jitml-negative-controls`, Phase `32` —
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
-and the per-model suite (`jitml-model-convergence`, Phase `33` —
-[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)),
-governed by Phase `34`
-([phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md)), are the
-external gates that close the reopened obligations.
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+supervised architecture path no longer trains a residual-MLP stand-in for every
+named convolutional/attention family. Residual, ResNet, WideResNet, LeNet, and
+ViT-style rows now build trained token/spatial topology through the Phase `23`
+layer engine, and Conv2D/Conv3D/norm/attention layer kinds no longer collapse to
+dense or identity behavior. Validation: `docker compose run --rm jitml cabal
+build lib:jitml` passed, `jitml-unit` passed **277 / 277**, and
+`jitml-sl-canonicals` passed **31 / 31** on `linux-cpu`.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -100,7 +79,7 @@ negative case, and live SL materialization/training tests. `docker compose run
 check` passed, and `docker compose run --rm jitml cabal run exe:jitml --
 check-code` passed after formatting the Sprint `24.1` Haskell edits.
 
-Reopened 2026-07-05 (realness audit): the layer graph actually built and trained
+2026-07-05 realness-audit finding, closed 2026-07-06: the layer graph previously built and trained
 by `layersForFamily` (`src/JitML/SL/Architecture.hs`~`249`) is a residual-MLP
 over flattened pixels for every ResNet, WideResNet, ResNet-50, and LeNet row — a
 `Dense` stem, `N` two-layer `ResidualSpec` blocks (`Architecture.hs`:`261`), and
@@ -170,7 +149,7 @@ test jitml-integration --linux-cpu` passed 79 / 79 against the live linux-cpu
 cluster. `jitml docs check` and `jitml check-code` passed after the Sprint
 `24.2` module/docs update.
 
-Reopened 2026-07-05 (realness audit): the recorded convergence, weight-update,
+2026-07-05 realness-audit finding, closed 2026-07-06: the recorded convergence, weight-update,
 and learning-evidence figures are all measured on the residual-MLP that
 `layersForFamily` trains, not on the named convolutional/attention architecture,
 and the bar each row clears is self-authored rather than a frozen external
@@ -228,7 +207,7 @@ including the live MNIST and all-canonical-row supervised materialization and
 training checks. `docker compose run --rm jitml jitml check-code` passed after
 formatting the Sprint `24.3` integration test wrapping.
 
-Reopened 2026-07-05 (realness audit): the checkpoint each row writes and the
+2026-07-05 realness-audit finding, closed 2026-07-06: the checkpoint each row writes and the
 graph/layout metadata the reader verifies describe the residual-MLP that
 `trainArchitectureWithDevice` and the split-training path actually train
 (`Architecture.hs`:`550`, `:649`), so the inference-eligible manifest certifies a

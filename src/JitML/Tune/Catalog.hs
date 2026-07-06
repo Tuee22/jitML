@@ -14,9 +14,11 @@ module JitML.Tune.Catalog
   , TuningScheduler (..)
   , TrialObjectiveResult (..)
   , TrialTranscript (..)
+  , ashaPromotedTrialIndices
   , deterministicTrials
   , deterministicTrialsWithDevice
   , loadTuningExperiment
+  , medianPrunedTrialIndices
   , prunerCatalog
   , prunerFromText
   , renderTuningPlan
@@ -29,13 +31,18 @@ module JitML.Tune.Catalog
   , trialObjectiveResult
   , trialObjectiveResultWithDevice
   , trialObjectiveResults
+  , trialObjectiveResultsForConfig
+  , trialObjectiveResultsForAxes
   , trialObjectiveResultsWithDevice
+  , trialObjectiveResultsWithDeviceForConfig
+  , trialObjectiveResultsWithDeviceForAxes
   , trialStorageKey
   )
 where
 
 import Codec.Serialise (Serialise)
 import Control.Exception.Safe (displayException, tryAny)
+import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
@@ -185,7 +192,23 @@ deterministicTrialsWithDevice device sampler count =
 
 trialObjectiveResults :: Sampler -> Int -> [TrialObjectiveResult]
 trialObjectiveResults sampler count =
-  [trialObjectiveResult sampler i | i <- [0 .. count - 1]]
+  go [] [0 .. count - 1]
+ where
+  go _ [] = []
+  go history (trialIndex : rest) =
+    let result = trialObjectiveResultFromHistory sampler trialIndex history
+     in result : go (history <> [result]) rest
+
+trialObjectiveResultsForConfig :: TuningConfig -> Int -> [TrialObjectiveResult]
+trialObjectiveResultsForConfig config =
+  trialObjectiveResultsForAxes
+    (tuningSamplerKind (tuningConfigSampler config))
+    (tuningSchedulerKind (tuningConfigScheduler config))
+    (tuningPrunerKind (tuningConfigPruner config))
+
+trialObjectiveResultsForAxes :: Sampler -> Scheduler -> Pruner -> Int -> [TrialObjectiveResult]
+trialObjectiveResultsForAxes sampler scheduler pruner count =
+  applySchedulerAndPruner scheduler pruner (trialObjectiveResults sampler count)
 
 trialObjectiveResultsWithDevice
   :: MlpDevice -> Sampler -> Int -> IO (Either Text [TrialObjectiveResult])
@@ -194,10 +217,99 @@ trialObjectiveResultsWithDevice device sampler count =
  where
   go [] acc = pure (Right (reverse acc))
   go (trialIndex : rest) acc = do
-    result <- trialObjectiveResultWithDevice device sampler trialIndex
+    result <- trialObjectiveResultWithDeviceFromHistory device sampler trialIndex (reverse acc)
     case result of
       Left err -> pure (Left err)
       Right value -> go rest (value : acc)
+
+trialObjectiveResultsWithDeviceForConfig
+  :: MlpDevice -> TuningConfig -> Int -> IO (Either Text [TrialObjectiveResult])
+trialObjectiveResultsWithDeviceForConfig device config =
+  trialObjectiveResultsWithDeviceForAxes
+    device
+    (tuningSamplerKind (tuningConfigSampler config))
+    (tuningSchedulerKind (tuningConfigScheduler config))
+    (tuningPrunerKind (tuningConfigPruner config))
+
+trialObjectiveResultsWithDeviceForAxes
+  :: MlpDevice -> Sampler -> Scheduler -> Pruner -> Int -> IO (Either Text [TrialObjectiveResult])
+trialObjectiveResultsWithDeviceForAxes device sampler scheduler pruner count =
+  fmap
+    (fmap (applySchedulerAndPruner scheduler pruner))
+    (trialObjectiveResultsWithDevice device sampler count)
+
+applySchedulerAndPruner :: Scheduler -> Pruner -> [TrialObjectiveResult] -> [TrialObjectiveResult]
+applySchedulerAndPruner scheduler pruner results =
+  let pruned = medianPrunedTrialIndices pruner results
+      unpruned =
+        filter
+          (\result -> trialResultIndex result `notElem` pruned)
+          results
+      promoted = ashaPromotedTrialIndices scheduler unpruned
+      selected =
+        filter
+          (\result -> trialResultIndex result `elem` promoted)
+          unpruned
+   in if null selected then take 1 (List.sortOn (negate . trialResultObjective) results) else selected
+
+ashaPromotedTrialIndices :: Scheduler -> [TrialObjectiveResult] -> [Int]
+ashaPromotedTrialIndices scheduler results =
+  fmap trialResultIndex $
+    case scheduler of
+      Fifo -> results
+      SuccessiveHalving -> topFraction 2 results
+      Hyperband -> topFraction 3 results
+      ASHA -> topFraction 2 results
+
+topFraction :: Int -> [TrialObjectiveResult] -> [TrialObjectiveResult]
+topFraction eta results =
+  take kept ranked
+ where
+  kept = max 1 (length results `div` max 1 eta)
+  ranked = List.sortOn (negate . trialResultObjective) results
+
+medianPrunedTrialIndices :: Pruner -> [TrialObjectiveResult] -> [Int]
+medianPrunedTrialIndices NoPruner _ = []
+medianPrunedTrialIndices pruner results =
+  go [] results
+ where
+  go _ [] = []
+  go history (result : rest)
+    | length history < warmup = go (history <> [trialResultObjective result]) rest
+    | shouldPrune history (trialResultObjective result) =
+        trialResultIndex result : go (history <> [trialResultObjective result]) rest
+    | otherwise =
+        go (history <> [trialResultObjective result]) rest
+  warmup = 2
+  shouldPrune history objective =
+    case pruner of
+      MedianPruner -> objective < median history
+      PercentilePruner -> objective < percentile 25 history
+
+median :: [Double] -> Double
+median [] = 0.0
+median xs =
+  let sorted = List.sort xs
+      n = length sorted
+   in if even n
+        then (sorted !! (n `div` 2 - 1) + sorted !! (n `div` 2)) / 2.0
+        else sorted !! (n `div` 2)
+
+percentile :: Int -> [Double] -> Double
+percentile _ [] = 0.0
+percentile pct xs =
+  let sorted = List.sort xs
+      idx =
+        max 0 $
+          min
+            (length sorted - 1)
+            ( floor
+                ( (fromIntegral (max 0 (min 100 pct)) :: Double)
+                    / 100.0
+                    * (fromIntegral (length sorted - 1) :: Double)
+                )
+            )
+   in sorted !! idx
 
 -- | The real measured objective for one trial plus the trained weights that can
 -- be promoted into a checkpoint. The sampler + trial index pick a
@@ -209,7 +321,11 @@ trialObjectiveResultsWithDevice device sampler count =
 -- device so 'deterministicTrials' stays pure and runnable without a substrate.
 trialObjectiveResult :: Sampler -> Int -> TrialObjectiveResult
 trialObjectiveResult sampler trialIndex =
-  let config = sampledClassifierConfig sampler trialIndex
+  trialObjectiveResultFromHistory sampler trialIndex []
+
+trialObjectiveResultFromHistory :: Sampler -> Int -> [TrialObjectiveResult] -> TrialObjectiveResult
+trialObjectiveResultFromHistory sampler trialIndex history =
+  let config = sampledClassifierConfig sampler trialIndex history
    in case pureTuningObjective config of
         Right (objective, initialWeights, weights) ->
           TrialObjectiveResult
@@ -224,7 +340,12 @@ trialObjectiveResult sampler trialIndex =
 trialObjectiveResultWithDevice
   :: MlpDevice -> Sampler -> Int -> IO (Either Text TrialObjectiveResult)
 trialObjectiveResultWithDevice device sampler trialIndex = do
-  let config = sampledClassifierConfig sampler trialIndex
+  trialObjectiveResultWithDeviceFromHistory device sampler trialIndex []
+
+trialObjectiveResultWithDeviceFromHistory
+  :: MlpDevice -> Sampler -> Int -> [TrialObjectiveResult] -> IO (Either Text TrialObjectiveResult)
+trialObjectiveResultWithDeviceFromHistory device sampler trialIndex history = do
+  let config = sampledClassifierConfig sampler trialIndex history
   result <- trainTuningObjective device config
   pure $
     fmap
@@ -276,22 +397,63 @@ pureTuningObjective config =
 tuningObjectiveProblem :: CanonicalProblem
 tuningObjectiveProblem = CanonicalProblem "tune-dense" "synthetic" "Dense" 0
 
--- | Deterministic hyperparameter sample for one trial: the sampler seed and the
--- trial index pick a learning rate and hidden width from a fixed grid (the
--- sampler's job is to choose configurations; the objective measures them).
-sampledClassifierConfig :: Sampler -> Int -> Classifier.ClassifierConfig
-sampledClassifierConfig sampler trialIndex =
-  let base = seed sampler + trialIndex
+-- | Deterministic hyperparameter sample for one trial. Startup trials cover the
+-- search space directly; TPE and the evolutionary samplers condition later
+-- choices on the best prior objective, so the stream is adaptive while still
+-- replayable from the transcript prefix.
+sampledClassifierConfig :: Sampler -> Int -> [TrialObjectiveResult] -> Classifier.ClassifierConfig
+sampledClassifierConfig sampler trialIndex history =
+  let base = adaptiveBase sampler trialIndex history
       lrChoices = [1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2]
       hiddenChoices = [4, 8, 12, 16]
    in Classifier.defaultClassifierConfig
         { Classifier.clfSeed = base
         , Classifier.clfInputs = 2
-        , Classifier.clfHidden = hiddenChoices !! ((base * 7) `mod` 4)
+        , Classifier.clfHidden = selectHidden sampler base hiddenChoices history
         , Classifier.clfClasses = 2
         , Classifier.clfEpochs = 6
-        , Classifier.clfLearningRate = lrChoices !! ((base * 3) `mod` 4)
+        , Classifier.clfLearningRate = selectLearningRate sampler base lrChoices history
         }
+
+adaptiveBase :: Sampler -> Int -> [TrialObjectiveResult] -> Int
+adaptiveBase sampler trialIndex history
+  | sampler `elem` [TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT]
+      && length history >= 2 =
+      seed sampler + trialIndex * 17 + trialResultIndex (bestTrial history) * 31
+  | otherwise = seed sampler + trialIndex
+
+selectLearningRate :: Sampler -> Int -> [Double] -> [TrialObjectiveResult] -> Double
+selectLearningRate sampler base choices history
+  | sampler == TPE && length history >= 2 =
+      let centre = choices !! ((seed sampler + trialResultIndex (bestTrial history) * 3) `mod` length choices)
+          ranked =
+            List.sortOn
+              (\lr -> abs (log lr - log centre) + deterministicJitter base lr)
+              choices
+       in ranked !! (base `mod` min 2 (length ranked))
+  | otherwise = choices !! ((base * 3) `mod` length choices)
+
+selectHidden :: Sampler -> Int -> [Int] -> [TrialObjectiveResult] -> Int
+selectHidden sampler base choices history
+  | sampler == TPE && length history >= 2 =
+      let centre = choices !! ((seed sampler + trialResultIndex (bestTrial history) * 7) `mod` length choices)
+          ranked =
+            List.sortOn
+              (\hidden -> abs (hidden - centre) + (base `mod` 3))
+              choices
+       in ranked !! (base `mod` min 2 (length ranked))
+  | otherwise = choices !! ((base * 7) `mod` length choices)
+
+bestTrial :: [TrialObjectiveResult] -> TrialObjectiveResult
+bestTrial [] = error "bestTrial: empty history"
+bestTrial (firstResult : rest) =
+  List.maximumBy compareObjective (firstResult : rest)
+ where
+  compareObjective a b = compare (trialResultObjective a) (trialResultObjective b)
+
+deterministicJitter :: Int -> Double -> Double
+deterministicJitter base value =
+  fromIntegral ((base + floor (value * 1.0e6)) `mod` 11) / 1000.0
 
 -- | A fixed, deterministic, linearly-separable 2-class dataset for the tuning
 -- objective — small and low-epoch so a sweep stays fast while still measuring a
@@ -350,7 +512,7 @@ renderTuningPlan path experiment =
           , "objectives: " <> renderObjectives (tuningConfigObjectives config)
           , "trial-values: "
               <> Text.pack
-                (show (deterministicTrials (tuningSamplerKind (tuningConfigSampler config)) 4))
+                (show (fmap trialResultObjective (trialObjectiveResultsForConfig config 4)))
           ]
 
 trialStorageKey :: Text -> Int -> Text

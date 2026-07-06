@@ -1,4 +1,4 @@
-# `linux-cuda` Per-Lane Attestation (Phase 29 / Sprints 15.20-15.22)
+# Historical `linux-cuda` Per-Lane Attestation (Phase 29 / Sprints 15.20-15.22)
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -8,21 +8,25 @@
 [../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
 **Generated sections**: none
 
-> **Purpose**: The committed `linux-cuda` per-lane report-card fragment. Phase
-> `29` supplies the current row-complete product-lane evidence for final
-> aggregation. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
-> evidence for the earlier product baseline. Aggregation phases consume this
-> fragment on `linux-cpu` and never re-run the `linux-cuda` lane (standards rule
-> M(b)/(d)).
+> **Purpose**: The historical `linux-cuda` per-lane report-card fragment. The
+> 2026-07-05 Phase `29` product-lane evidence is withdrawn for current product
+> aggregation; Phase `29` is blocked until a fresh real `linux-cuda` validation
+> runs on a host whose Docker daemon exposes the NVIDIA Container Runtime and an
+> attached GPU. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
+> evidence for the earlier product baseline.
 
 ## Host
 
 - NVIDIA GeForce RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`
 - CUDA 12.8, driver `570.211.01`, Ubuntu 24.04 (x86_64), Docker 29.x,
   NVIDIA Container Runtime
-- Revalidated 2026-07-05 for Phase `29` product-lane closure.
+- Historical 2026-07-05 Phase `29` product-lane run, withdrawn for current
+  aggregation. The 2026-07-06 retry on the current host failed before test
+  execution: `docker compose run --rm jitml-cuda jitml test jitml-backends
+  --linux-cuda` reported `could not select device driver "" with capabilities:
+  [[gpu]]`.
 
-## Current Phase 29 Product-Lane Validation Gate (all green)
+## Historical Phase 29 Product-Lane Validation Gate (withdrawn)
 
 | Command / evidence | Result |
 |---|---|
@@ -45,9 +49,10 @@ entry points, and the lane then executes the generated kernels on the real GPU.
 
 ## Phase 29 Row-Complete Evidence Table (2026-07-05)
 
-The table below is the committed `linux-cuda` fragment consumed by Phase `31`.
-It uses the current product-row evidence schema and pins every row to the real
-cuBLAS/cuDNN lane evidence from the Phase `29` RTX 5090 validation.
+The table below is the historical `linux-cuda` fragment from 2026-07-05. It is
+not consumed by the current Phase `31` aggregation until Phase `29` produces a
+fresh real `linux-cuda` fragment after the Docker-visible GPU runtime blocker is
+removed.
 
 ```
 row_id	Catalog	Integration	E2E	Negative	DeviceEvidence	Lane

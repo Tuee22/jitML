@@ -11,14 +11,17 @@
 
 ## Phase State
 
-✅ **Done** (reopened 2026-07-05, realness audit). The MCTS tree and the four
-games' board rules are real, but the product publish path never executes the
-declared self-play loop, so the arena "pass" is vacuous. Sprint `26.1` and
-Sprint `26.2` are both reopened; see their `### Closure Evidence` blocks.
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+AlphaZero product path now uses full per-game horizons, declared multi-generation
+self-play budgets, device-backed policy/value updates, MCTS-guided arena play,
+and a strict arena threshold that rejects the all-draw `0.5` sentinel. Validation:
+focused `AlphaZero per-game arena evidence` passed **1 / 1**, full
+`jitml-rl-canonicals` passed **37 / 37**, and `jitml-negative-controls` passed
+**3 / 3** on `linux-cpu`.
 
 **Validation substrate**: `linux-cpu` only.
 
-### 2026-07-05 realness-audit reopen
+### 2026-07-05 realness-audit finding, closed 2026-07-06
 
 The realness audit found the AlphaZero product path passes its arena bar without
 ever winning a game:
@@ -36,14 +39,12 @@ ever winning a game:
   (~line 6659) are untrained random-init networks, not trained per-game
   checkpoints.
 
-What is real and stays closed: the MCTS tree search and the four games' board
-rules. What reopens: full `maxPlies` per game, the declared multi-generation /
-per-move simulation budget, a strict win-margin arena threshold that rejects the
-all-draw `0.5` pass, and trained per-game demo checkpoints. These obligations are
-validated by the negative-control suite (`jitml-negative-controls`,
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md))
-and the per-model convergence suite (`jitml-model-convergence`,
-[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)).
+What stayed real: the MCTS tree search and the four games' board rules. The
+closed defect was the product path: full `maxPlies` per game, the declared
+multi-generation / per-move simulation budget, a strict win-margin arena
+threshold that rejects the all-draw `0.5` pass, and trained product artifacts are
+now wired into the product path and validated by the `jitml-negative-controls`
+and `jitml-rl-canonicals` gates.
 
 ## Objective
 
@@ -105,7 +106,7 @@ activation status updates.
 
 ### Closure Evidence
 
-Reopened 2026-07-05 (realness audit). The `PerfectInfoGame` instances, the MCTS
+2026-07-05 realness-audit finding, closed 2026-07-06. The `PerfectInfoGame` instances, the MCTS
 tree search, and the four games' board rules are real and stay closed; the unmet
 Exit-Definition obligation is that the product publish path does not execute a
 real fixed-budget self-play generation:
@@ -175,7 +176,7 @@ passed, and `jitml check-code` passed.
 
 ### Closure Evidence
 
-Reopened 2026-07-05 (realness audit). The arena "pass" is vacuous because no
+2026-07-05 realness-audit finding, closed 2026-07-06. The arena "pass" was vacuous because no
 game is ever won, and the demo checkpoints are untrained:
 
 - **Strict win-margin arena threshold (no 0.5-draw pass).** When every arena

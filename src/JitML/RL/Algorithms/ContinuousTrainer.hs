@@ -40,6 +40,7 @@ module JitML.RL.Algorithms.ContinuousTrainer
   , ContinuousIterationStat (..)
   , ContTransition (..)
   , initialContinuousActor
+  , sacTemperatureUpdate
   , trainContinuousOnPendulum
   , trainContinuousOnPendulumCuda
   , trainContinuousOnPendulumOneDnn
@@ -52,6 +53,7 @@ where
 
 import Control.Monad.Except (ExceptT (..), runExceptT)
 import Data.List qualified
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
@@ -80,7 +82,7 @@ import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.CrossQLoss (crossQNormalise, crossQTarget)
 import JitML.RL.Algorithms.DdpgLoss (ddpgCriticTarget)
-import JitML.RL.Algorithms.SacLoss (sacCriticTarget)
+import JitML.RL.Algorithms.SacLoss (sacCriticTarget, sacTemperatureLoss)
 import JitML.RL.Algorithms.Td3Loss (td3ClippedDoubleTarget, td3SmoothTargetActions)
 import JitML.RL.Algorithms.TqcLoss (tqcTarget)
 import JitML.RL.Simulator
@@ -115,6 +117,8 @@ data ContinuousTrainConfig = ContinuousTrainConfig
   , ctTargetNoise :: !Double
   , ctNoiseClip :: !Double
   , ctSacAlpha :: !Double
+  , ctAlphaLr :: !Double
+  , ctTargetEntropy :: !Double
   , ctPolicyStd :: !Double
   , ctTqcDropPerCritic :: !Int
   , ctStartSteps :: !Int
@@ -145,8 +149,10 @@ defaultContinuousTrainConfig variant =
     , ctTargetNoise = 0.2
     , ctNoiseClip = 0.5
     , ctSacAlpha = 0.2
+    , ctAlphaLr = 5.0e-4
+    , ctTargetEntropy = -1.0
     , ctPolicyStd = 0.3
-    , ctTqcDropPerCritic = 0
+    , ctTqcDropPerCritic = if variant == VariantTQC then 1 else 0
     , ctStartSteps = 500
     , ctTrainStart = 500
     , ctMaxEpisodeSteps = 200
@@ -188,6 +194,7 @@ data ACNets = ACNets
   , acTargetActor :: !MlpParams
   , acTargetCriticA :: !MlpParams
   , acTargetCriticB :: !MlpParams
+  , acLogAlpha :: !Double
   }
 
 data ACOpt = ACOpt
@@ -224,6 +231,7 @@ trainContinuousInEnvironment environment config = do
           , acTargetActor = actor0
           , acTargetCriticA = criticA0
           , acTargetCriticB = criticB0
+          , acLogAlpha = log (max 1.0e-6 (ctSacAlpha config))
           }
       opt0 =
         ACOpt
@@ -391,19 +399,19 @@ updateStep
   -> (ACNets, ACOpt)
 updateStep config nets opt batch doActor =
   let variant = ctVariant config
-      -- Per-transition Bellman target (shared with the CUDA path).
-      targetFor = bellmanTarget config nets
+      -- Per-transition Bellman targets (shared with the CUDA path).
+      targets = bellmanTargets config nets batch
       -- Critic gradient step for one critic param block.
       updateCritic params adam =
         let adamCfg = defaultAdamConfig {adamLearningRate = ctCriticLr config}
-            stepC (p, a) trans =
+            stepC (p, a) (trans, target) =
               let inp = criticInput (contObs trans) (contAction trans)
                   fwd = mlpForward p inp
                   q = VU.head (forwardOutput fwd)
-                  residual = q - targetFor trans
+                  residual = q - target
                   grad = mlpBackward p fwd (VU.singleton residual)
                in adamStep adamCfg a p grad
-         in Data.List.foldl' stepC (params, adam) batch
+         in Data.List.foldl' stepC (params, adam) (zip batch targets)
       (criticANext, criticAAdamNext) = updateCritic (acCriticA nets) (acCriticAAdam opt)
       (criticBNext, criticBAdamNext) =
         if variant == VariantDDPG
@@ -427,12 +435,28 @@ updateStep config nets opt batch doActor =
                       -- action = high * tanh(raw); da/draw = high * (1 - tanh^2).
                       dActionDRaw =
                         ctActionHigh config * (1.0 - tanhRaw raw * tanhRaw raw)
-                      -- Maximise Q => minimise -Q: dL/draw = -(dQ/da)(da/draw).
-                      dLdRaw = negate (dQdAction * dActionDRaw)
+                      -- Maximise Q => minimise -Q. SAC-family rows add the
+                      -- entropy-temperature actor term.
+                      dLdRaw =
+                        negate (dQdAction * dActionDRaw)
+                          + entropyActorGradient config (acLogAlpha nets) raw
                       grad = mlpBackward p fwd (VU.singleton dLdRaw)
                    in adamStep adamCfg a p grad
              in Data.List.foldl' stepA (acActor nets, acActorAdam opt) batch
           else (acActor nets, acActorAdam opt)
+      logAlphaNext =
+        if variantUsesEntropy variant
+          then
+            sacTemperatureUpdate
+              config
+              (acLogAlpha nets)
+              [ gaussianLogProb
+                  (ctPolicyStd config)
+                  (actorAction config actorNext (contObs trans))
+                  (contAction trans)
+              | trans <- batch
+              ]
+          else acLogAlpha nets
       -- Soft target updates (skipped for CrossQ).
       tau = ctTau config
       (tActor, tCriticA, tCriticB)
@@ -454,6 +478,7 @@ updateStep config nets opt batch doActor =
           , acTargetActor = tActor
           , acTargetCriticA = tCriticA
           , acTargetCriticB = tCriticB
+          , acLogAlpha = logAlphaNext
           }
       , ACOpt
           { acActorAdam = actorAdamNext
@@ -467,8 +492,23 @@ updateStep config nets opt batch doActor =
 -- formula (DDPG / TD3 / SAC / CrossQ / TQC). Factored out of 'updateStep'
 -- so the pure CPU path and the batched device path ('updateStepDevice') share
 -- the identical target math.
-bellmanTarget :: ContinuousTrainConfig -> ACNets -> ContTransition -> Double
-bellmanTarget config nets trans =
+bellmanTargets :: ContinuousTrainConfig -> ACNets -> [ContTransition] -> [Double]
+bellmanTargets config nets batch
+  | ctVariant config == VariantCrossQ =
+      let qMins =
+            [ let nObs = contNextObs trans
+                  action = actorAction config (acActor nets) nObs
+               in min (criticQ (acCriticA nets) nObs action) (criticQ (acCriticB nets) nObs action)
+            | trans <- batch
+            ]
+          (meanQ, varQ) = batchMeanVariance qMins
+       in fmap (bellmanTargetWithCrossQStats config nets (Just (meanQ, varQ))) batch
+  | otherwise =
+      fmap (bellmanTargetWithCrossQStats config nets Nothing) batch
+
+bellmanTargetWithCrossQStats
+  :: ContinuousTrainConfig -> ACNets -> Maybe (Double, Double) -> ContTransition -> Double
+bellmanTargetWithCrossQStats config nets crossQStats trans =
   let variant = ctVariant config
       gamma = ctGamma config
       nObs = contNextObs trans
@@ -497,7 +537,7 @@ bellmanTarget config nets trans =
       q1' = criticQ tcA nObs smoothedAction
       q2' = criticQ tcB nObs smoothedAction
       logProb' = gaussianLogProb (ctPolicyStd config) smoothedAction rawTargetAction
-      alpha = ctSacAlpha config
+      alpha = exp (acLogAlpha nets)
    in case variant of
         VariantDDPG ->
           firstOr r (ddpgCriticTarget gamma [r] [d] [q1'])
@@ -507,7 +547,8 @@ bellmanTarget config nets trans =
           firstOr r (sacCriticTarget gamma alpha [r] [d] [q1'] [q2'] [logProb'])
         VariantCrossQ ->
           let qMin = min q1' q2'
-              qNorm = firstOr qMin (crossQNormalise 0.0 1.0 1.0e-6 [qMin])
+              (meanQ, varQ) = fromMaybe (qMin, 1.0) crossQStats
+              qNorm = firstOr qMin (crossQNormalise meanQ varQ 1.0e-6 [qMin])
            in firstOr r (crossQTarget gamma alpha [r] [d] [qNorm] [logProb'])
         VariantTQC ->
           let atoms =
@@ -516,9 +557,46 @@ bellmanTarget config nets trans =
                   (ctTqcDropPerCritic config)
                   r
                   d
-                  [[q1'], [q2']]
+                  (tqcCriticAtoms config logProb' q1' q2')
                   (alpha * logProb')
            in if null atoms then r else sum atoms / fromIntegral (length atoms)
+
+batchMeanVariance :: [Double] -> (Double, Double)
+batchMeanVariance [] = (0.0, 1.0)
+batchMeanVariance xs =
+  let n = fromIntegral (length xs)
+      meanX = sum xs / n
+      variance = sum (fmap (\x -> (x - meanX) * (x - meanX)) xs) / n
+   in (meanX, max 1.0e-6 variance)
+
+tqcCriticAtoms :: ContinuousTrainConfig -> Double -> Double -> Double -> [[Double]]
+tqcCriticAtoms config logProb q1 q2 =
+  let spread = max 1.0e-3 (ctPolicyStd config * (1.0 + abs logProb))
+   in [[q1 - spread, q1, q1 + spread], [q2 - spread, q2, q2 + spread]]
+
+variantUsesEntropy :: ContinuousVariant -> Bool
+variantUsesEntropy v =
+  v `elem` [VariantSAC, VariantCrossQ, VariantTQC]
+
+entropyActorGradient :: ContinuousTrainConfig -> Double -> Double -> Double
+entropyActorGradient config logAlpha raw
+  | not (variantUsesEntropy (ctVariant config)) = 0.0
+  | otherwise =
+      let alpha = exp logAlpha
+          std = max 1.0e-6 (ctPolicyStd config)
+       in alpha * raw / (std * std)
+
+sacTemperatureUpdate :: ContinuousTrainConfig -> Double -> [Double] -> Double
+sacTemperatureUpdate config logAlpha logProbs
+  | null logProbs = logAlpha
+  | otherwise =
+      let alpha = exp logAlpha
+          _loss = sacTemperatureLoss alpha (ctTargetEntropy config) logProbs
+          meanConstraint =
+            sum (fmap (+ ctTargetEntropy config) logProbs)
+              / fromIntegral (length logProbs)
+          gradLogAlpha = negate alpha * meanConstraint
+       in log (max 1.0e-6 (alpha - ctAlphaLr config * gradLogAlpha))
 
 -- | Deterministic per-transition smoothing noise (no extra RNG state):
 -- a bounded pseudo-Gaussian from the transition's own observation hash,
@@ -653,6 +731,7 @@ trainContinuousOnDeviceWithContinuousEnvironment device environment config = do
           , acTargetActor = actor0
           , acTargetCriticA = criticA0
           , acTargetCriticB = criticB0
+          , acLogAlpha = log (max 1.0e-6 (ctSacAlpha config))
           }
       opt0 =
         ACOpt
@@ -715,7 +794,7 @@ evaluateEpisode environment config actor = go (cEnvInitial environment) 0 0.0
 -- gradient, the actor's @dQ/da@ (the critic's input gradient), and the
 -- actor param gradient all run on the device through the batched primitives
 -- (`mlpdForwardBatch` / `mlpdBatchGradient` / `mlpdInputGradientBatch`); the
--- Bellman target ('bellmanTarget'), the squash/chain-rule scalars, and the
+-- Bellman targets ('bellmanTargets'), the squash/chain-rule scalars, and the
 -- soft target updates are the shared pure helpers. Minibatch GD (one Adam
 -- step per batch) vs. the pure path's per-sample SGD — standard for a
 -- batched actor-critic. Fails closed on a device `Left` (Sprint 8.11); the
@@ -730,7 +809,7 @@ updateStepDevice
   -> IO (Either Text (ACNets, ACOpt))
 updateStepDevice device config nets opt batch doActor =
   let variant = ctVariant config
-      targets = map (bellmanTarget config nets) batch
+      targets = bellmanTargets config nets batch
       criticInputs = [criticInput (contObs t) (contAction t) | t <- batch]
       obsList = [contObs t | t <- batch]
       n = fromIntegral (max 1 (length batch)) :: Double
@@ -789,6 +868,7 @@ updateStepDevice device config nets opt batch doActor =
                     zipWith
                       ( \dQda raw ->
                           negate (dQda * (ctActionHigh config * (1.0 - tanhRaw raw * tanhRaw raw)))
+                            + entropyActorGradient config (acLogAlpha nets) raw
                       )
                       dQdActions
                       raws
@@ -797,7 +877,20 @@ updateStepDevice device config nets opt batch doActor =
                   "batch-gradient kernel (actor)"
                   (mlpdBatchGradient device (acActor nets) (zip obsList (map VU.singleton dLdRaws)))
               pure (adamStep actorAdamCfg (acActorAdam opt) (acActor nets) (scaleGradient (1.0 / n) summed))
-        let tau = ctTau config
+        let logAlphaNext =
+              if variantUsesEntropy variant
+                then
+                  sacTemperatureUpdate
+                    config
+                    (acLogAlpha nets)
+                    [ gaussianLogProb
+                        (ctPolicyStd config)
+                        (actorAction config actorNext (contObs trans))
+                        (contAction trans)
+                    | trans <- batch
+                    ]
+                else acLogAlpha nets
+            tau = ctTau config
             (tActor, tCriticA, tCriticB)
               | usesTargetNets variant && doActor =
                   ( softUpdate tau actorNext (acTargetActor nets)
@@ -818,6 +911,7 @@ updateStepDevice device config nets opt batch doActor =
               , acTargetActor = tActor
               , acTargetCriticA = tCriticA
               , acTargetCriticB = tCriticB
+              , acLogAlpha = logAlphaNext
               }
           , ACOpt
               { acActorAdam = actorAdamNext

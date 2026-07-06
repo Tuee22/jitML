@@ -32,9 +32,20 @@ module JitML.Test.NegativeControls
 where
 
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Vector.Unboxed qualified as VU
 
+import JitML.Cache.Key qualified as Cache
+import JitML.Codegen.Cuda qualified as CudaCodegen
+import JitML.Codegen.KernelFamily (KernelFamily (..))
+import JitML.Codegen.Metal qualified as MetalCodegen
+import JitML.Codegen.SourceFile (SourceFile (..))
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Product.Convergence qualified as Convergence
 import JitML.Product.ExternalBars qualified as ExternalBars
+import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
+import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
+import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.Test.RowAssertions qualified as RowAssertions
 import JitML.Training.Budget (MetricGoal (..))
 
@@ -98,6 +109,34 @@ gateSoundnessControls =
       "untrained-supervised-weights"
       "an SL init == final weight hash (no weight movement) must be rejected"
       (outcomeOf (RowAssertions.assertSupervisedRowEvidence untrainedSl))
+  , NegativeControl
+      "conv2d-not-dense"
+      "a Conv2D node must not collapse to a Dense node with the same parameters"
+      (outcomeOf conv2dNotDenseFailures)
+  , NegativeControl
+      "sac-alpha-adaptive"
+      "SAC evidence must reject a fixed-temperature actor-critic update"
+      (outcomeOf sacAlphaAdaptiveFailures)
+  , NegativeControl
+      "tqc-drop-enabled"
+      "TQC evidence must reject the drop=0 scalar-critic stand-in"
+      (outcomeOf tqcDropEnabledFailures)
+  , NegativeControl
+      "crossq-renorm-not-identity"
+      "CrossQ evidence must reject identity batch-renormalization"
+      (outcomeOf crossQRenormFailures)
+  , NegativeControl
+      "alphazero-all-draw-rejected"
+      "AlphaZero arena evidence must reject an all-draw 0.5 win-rate artifact"
+      (outcomeOf alphaZeroAllDrawFailures)
+  , NegativeControl
+      "cuda-windowed-conv-rendered"
+      "CUDA Conv2D/Conv3D evidence must reject scalar 1x1 cuDNN source"
+      (outcomeOf cudaWindowedConvFailures)
+  , NegativeControl
+      "metal-windowed-conv-rendered"
+      "Metal Conv2D/Conv3D evidence must reject scalar 1x1 weighted source"
+      (outcomeOf metalWindowedConvFailures)
   ]
 
 -- Known-fake fixtures -------------------------------------------------------
@@ -175,13 +214,132 @@ untrainedSl =
         RowAssertions.sreInitialWeightHash validSupervisedBase
     }
 
--- | Controls that require production hooks not yet present. Each becomes a live
--- gate-soundness control once its owning reopened sprint lands; until then it is
--- documented here so the suite's coverage gap is explicit rather than silent.
+-- | Controls that require external production evidence not available in this
+-- session. The suite keeps this explicit so a blocked live lane is not mistaken
+-- for a green negative-control surface.
 pendingProductionControls :: [Text]
 pendingProductionControls =
-  [ "rl-reward-provenance: RlRowEvidence must carry a reward-source tag and reject a scripted-controller source (owned by reopened Phase 25 — delete canonicalDiscreteEvaluation / *ExpertAction in JitML.App)."
-  , "real-initial-weight-hash: the training-evidence initial hash must be the real random-init weights, not an all-zeros vector, so an untrained checkpoint fails the movement check end-to-end (owned by reopened Phase 21 — checkpointTrainingEvidenceWithDatasetSha in JitML.App)."
-  , "conv-not-dense differential: a Conv2D layer's output must differ from a dense layer of the same shape on a structured input (owned by reopened Phase 23 — JitML.Numerics.LayerGraph runLayerNode)."
-  , "inference-eligible-rejects-untrained: decoding an untrained random-init checkpoint must fail InferenceEligible after coPassed is re-derived at decode against the external bar (owned by reopened Phase 21 — JitML.Checkpoint.Format)."
+  [ "linux-cuda-real-device-validation: Phase 29 remains blocked until docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda runs on a host whose Docker daemon exposes an NVIDIA GPU runtime."
   ]
+
+conv2dNotDenseFailures :: [Text]
+conv2dNotDenseFailures =
+  case (denseOutput, convOutput) of
+    (Right dense, Right conv)
+      | maxAbsDiff dense conv > 1.0e-9 ->
+          ["Conv2D output differs from Dense with the same parameters"]
+      | otherwise -> []
+    _ -> []
+ where
+  input = VU.fromList [1.0, 2.0, -1.0, 0.5]
+  params = LayerGraph.deterministicParameters 99 4 4
+  denseOutput = runOne LayerGraph.DenseLayer params input
+  convOutput = runOne LayerGraph.Conv2DLayer params input
+
+runOne
+  :: LayerGraph.LayerKind
+  -> LayerGraph.LayerParameters
+  -> VU.Vector Double
+  -> Either Text (VU.Vector Double)
+runOne kind params input = do
+  node <-
+    LayerGraph.mkAffineLayer
+      "negative-control"
+      kind
+      (VU.length input)
+      (VU.length input)
+      LayerGraph.LinearActivation
+      LayerGraph.InferenceMode
+      params
+  tape <-
+    LayerGraph.runLayerGraph
+      LayerGraph.LayerGraph
+        { LayerGraph.layerGraphName = "negative-control"
+        , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [VU.length input]
+        , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [VU.length input]
+        , LayerGraph.layerGraphNodes = [node]
+        }
+      input
+  Right (LayerGraph.layerTapeOutput tape)
+
+maxAbsDiff :: VU.Vector Double -> VU.Vector Double -> Double
+maxAbsDiff a b =
+  maximum (0.0 : VU.toList (VU.zipWith (\x y -> abs (x - y)) a b))
+
+sacAlphaAdaptiveFailures :: [Text]
+sacAlphaAdaptiveFailures =
+  [ "SAC temperature changed from the fixed initial alpha"
+  | let config = ContinuousTrainer.defaultContinuousTrainConfig ContinuousTrainer.VariantSAC
+        initialLogAlpha = log (ContinuousTrainer.ctSacAlpha config)
+        updatedLogAlpha =
+          ContinuousTrainer.sacTemperatureUpdate
+            config
+            initialLogAlpha
+            [-1.8, -1.5, -1.2]
+  , abs (updatedLogAlpha - initialLogAlpha) > 1.0e-12
+  ]
+
+tqcDropEnabledFailures :: [Text]
+tqcDropEnabledFailures =
+  [ "TQC default drops top quantile atoms"
+  | ContinuousTrainer.ctTqcDropPerCritic
+      (ContinuousTrainer.defaultContinuousTrainConfig ContinuousTrainer.VariantTQC)
+      > 0
+  ]
+
+crossQRenormFailures :: [Text]
+crossQRenormFailures =
+  [ "CrossQ batch renormalization changes non-normalized Q values"
+  | CrossQLoss.crossQNormalise 2.0 4.0 1.0e-6 [6.0] /= [6.0]
+  ]
+
+alphaZeroAllDrawFailures :: [Text]
+alphaZeroAllDrawFailures =
+  [ "AlphaZero all-draw arena result is below the strict win-margin bar"
+  | not (RLConvergence.passesAlphaZeroArena RLConvergence.alphaZeroArenaThreshold 0.5)
+  ]
+
+cudaWindowedConvFailures :: [Text]
+cudaWindowedConvFailures =
+  [ "CUDA Conv2D uses a 3x3 cuDNN filter and padded/cropped spatial tensors"
+  | let source = renderedCudaSource Conv2DKernel
+  , "cudnnSetFilter4dDescriptor(filterDesc, CUDNN_DATA_FLOAT, CUDNN_TENSOR_NCHW, 1, 1, 3, 3)"
+      `Text.isInfixOf` source
+  , "jitml_fill_filter_2d" `Text.isInfixOf` source
+  , "cudaMemcpy(conv2d-crop-output)" `Text.isInfixOf` source
+  , not ("jitml_fill_single_filter" `Text.isInfixOf` source)
+  ]
+    <> [ "CUDA Conv3D uses a 3x3x3 cuDNN filter and padded/cropped spatial tensors"
+       | let source = renderedCudaSource Conv3DKernel
+       , "int filterDims[5] = {1, 1, 3, 3, 3};" `Text.isInfixOf` source
+       , "jitml_fill_filter_3d" `Text.isInfixOf` source
+       , "cudaMemcpy(conv3d-crop-output)" `Text.isInfixOf` source
+       , not ("jitml_fill_single_filter" `Text.isInfixOf` source)
+       ]
+
+renderedCudaSource :: KernelFamily -> Text
+renderedCudaSource family =
+  Text.concat
+    [ contents
+    | SourceFile _ contents <-
+        CudaCodegen.renderCudaFamilySource
+          family
+          (Cache.KernelSpec "negative-control:cuda-windowed-conv")
+          Cache.Training
+          Cache.defaultTuningChoice
+    ]
+
+metalWindowedConvFailures :: [Text]
+metalWindowedConvFailures =
+  [ "Metal Conv2D weighted source has only windowed 3x3 convolution"
+  | let source = MetalCodegen.renderMetalFamilySource Conv2DKernel
+  , "3x3 windowed convolution" `Text.isInfixOf` source
+  , "jitml_ceil_sqrt" `Text.isInfixOf` source
+  , not ("wn <= 1u" `Text.isInfixOf` source)
+  ]
+    <> [ "Metal Conv3D weighted source has only windowed 3x3x3 convolution"
+       | let source = MetalCodegen.renderMetalFamilySource Conv3DKernel
+       , "3x3x3 windowed convolution" `Text.isInfixOf` source
+       , "jitml_ceil_cuberoot" `Text.isInfixOf` source
+       , not ("wn <= 1u" `Text.isInfixOf` source)
+       ]

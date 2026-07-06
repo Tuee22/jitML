@@ -43,16 +43,21 @@ import JitML.Tune.Catalog
   ( Pruner (..)
   , Sampler (..)
   , Scheduler (..)
+  , ashaPromotedTrialIndices
   , deterministicTrials
   , deterministicTrialsWithDevice
   , loadTuningExperiment
+  , medianPrunedTrialIndices
   , prunerCatalog
   , renderTrialResumeSummary
   , resumeMatchesFullRun
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
+  , trialObjectiveResult
   , trialObjectiveResults
+  , trialObjectiveResultsForAxes
+  , trialResultIndex
   , trialResultObjective
   , trialResultWeights
   , tuningConfigPruner
@@ -176,6 +181,29 @@ main =
                 Checkpoint.decodeJmw1 (Checkpoint.encodeJmw1 weights) @?= Right weights
             )
             results
+      , testCase "TPE adapts later trials to prior measured objectives" $ do
+          let adaptive = trialObjectiveResults TPE 6
+              restartedEveryTrial = [trialObjectiveResult TPE i | i <- [0 .. 5]]
+          assertBool
+            "adaptive TPE stream differs from independently restarted trial-index samples"
+            (fmap trialResultObjective adaptive /= fmap trialResultObjective restartedEveryTrial)
+      , testCase "ASHA scheduler and MedianPruner filter measured trial results" $ do
+          let raw = trialObjectiveResults TPE 8
+              pruned = medianPrunedTrialIndices MedianPruner raw
+              promoted = ashaPromotedTrialIndices ASHA raw
+              filtered = trialObjectiveResultsForAxes TPE ASHA MedianPruner 8
+          assertBool "MedianPruner prunes at least one under-median trial" (not (null pruned))
+          assertBool "ASHA promotes a strict subset of the completed trials" (length promoted < length raw)
+          assertBool "config-aware results are a strict subset of raw results" (length filtered < length raw)
+          assertBool
+            "filtered results come from promoted, non-pruned trials"
+            ( all
+                ( \result ->
+                    trialResultIndex result `elem` promoted
+                      && trialResultIndex result `notElem` pruned
+                )
+                filtered
+            )
       , testCase "resume decode failures keep ResumeOutcome Eq/Show total (Sprint 9.15)" $ do
           let outcome =
                 TuneResume.ResumeOutcome

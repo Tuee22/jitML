@@ -11,9 +11,9 @@
 **Generated sections**: none
 
 > **Purpose**: The committed `apple-silicon` per-lane report-card fragment for
-> Phase `30`. Phase `31` consumes this fragment on `linux-cpu` and never re-runs
-> the Apple lane, so this file carries the row-complete Metal evidence needed for
-> aggregation.
+> Phase `30`. The Apple backend evidence was refreshed on 2026-07-06 after the
+> realness audit; Phase `31` remains blocked on the missing fresh `linux-cuda`
+> fragment and consumes this file only after Phase `29` closes.
 
 ## Host
 
@@ -23,15 +23,17 @@
   `MTLDevice.makeLibrary(source:options:)` with fast math disabled; the core path
   does not use Tart, SwiftPM-generated kernels, full Xcode, offline `metal`, or
   login-keychain state.
-- Validated 2026-07-05 for Phase `30`.
+- Validated 2026-07-05 for the original Phase `30` fragment; refreshed
+  2026-07-06 for the fixed-bridge Metal backend kernel surface.
 
 ## Phase 30 Product-Lane Validation Gate
 
 | Command / evidence | Result |
 |---|---|
 | `./bootstrap/apple-silicon.sh doctor` | PASS (`apple-silicon stage-0 doctor: ok`) |
+| `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal run exe:jitml -- internal install-metal-bridge` | PASS (`metal_bridge_probe: ok`) |
 | `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal build test:jitml-backends test:jitml-e2e test:jitml-unit` | PASS on arm64 host with GHC-compatible LLVM 19 tools |
-| `jitml-backends --apple-silicon` Metal source and runtime tests | PASS: generated MSL rejects identity-copy/1x1 scaffold markers, Conv2D/Conv3D multi-tap kernels match windowed references, and Metal runtime absence fails before row evidence is accepted |
+| `jitml-backends --apple-silicon` Metal source and runtime tests | PASS: generated MSL rejects identity-copy/1x1 scaffold markers, Conv2D/Conv3D multi-tap kernels match windowed references, Metal runtime absence fails before row evidence is accepted, and the full `apple-silicon` backend lane passed **20 / 20** on 2026-07-06 |
 | Product row report schema | PASS: every ProductRow carries `DeviceEvidence` for the `apple-silicon` lane |
 
 The table below is the committed `apple-silicon` fragment consumed by Phase `31`.

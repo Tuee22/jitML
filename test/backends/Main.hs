@@ -234,8 +234,11 @@ main =
             env <- buildEnv defaultGlobalFlags
             let input = [0.5, 1.5, 2.5, 3.5]
             let families =
-                  [ (Conv2DKernel, [2.0 :: Float])
-                  , (Conv3DKernel, [3.0 :: Float])
+                  [ (Conv2DKernel, [0, 1, 0, 1, 2, 1, 0, 1, 0 :: Float])
+                  ,
+                    ( Conv3DKernel
+                    , [if i == 13 then 2.0 else 1.0 | i <- [0 :: Int .. 26]]
+                    )
                   , (BatchNormKernel, [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
                   , (LayerNormKernel, [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
                   , (EmbeddingKernel, [10.0, 11.0, 12.0, 13.0, 20.0, 21.0, 22.0, 23.0])
@@ -313,6 +316,10 @@ main =
                   assertBool
                     (show family <> " CUDA source should contain " <> Text.unpack needle)
                     (needle `Text.isInfixOf` rendered family)
+                assertNotHas family needle =
+                  assertBool
+                    (show family <> " CUDA source should not contain " <> Text.unpack needle)
+                    (not (needle `Text.isInfixOf` rendered family))
                 assertNoScaffold family =
                   assertBool
                     (show family <> " CUDA source should not contain scaffold language")
@@ -326,8 +333,18 @@ main =
             assertHas MultiHeadAttentionKernel "jitml_cublas_sgemm_vector(out, qk, n"
             assertHas Conv2DKernel "jitml_cudnn_conv2d_forward(out, input, n"
             assertHas Conv2DKernel "cudnnConvolutionForward("
+            assertHas
+              Conv2DKernel
+              "cudnnSetFilter4dDescriptor(filterDesc, CUDNN_DATA_FLOAT, CUDNN_TENSOR_NCHW, 1, 1, 3, 3)"
+            assertHas Conv2DKernel "jitml_fill_filter_2d"
+            assertHas Conv2DKernel "cudaMemcpy(conv2d-crop-output)"
+            assertNotHas Conv2DKernel "jitml_fill_single_filter"
             assertHas Conv3DKernel "jitml_cudnn_conv3d_forward(out, input, n"
             assertHas Conv3DKernel "cudnnSetTensorNdDescriptor"
+            assertHas Conv3DKernel "int filterDims[5] = {1, 1, 3, 3, 3};"
+            assertHas Conv3DKernel "jitml_fill_filter_3d"
+            assertHas Conv3DKernel "cudaMemcpy(conv3d-crop-output)"
+            assertNotHas Conv3DKernel "jitml_fill_single_filter"
             assertHas BatchNormKernel "jitml_cudnn_batchnorm_forward(out, input, n"
             assertHas BatchNormKernel "cudnnBatchNormalizationForwardInference"
             assertHas LayerNormKernel "jitml_cudnn_layernorm_forward(out, input, n"
@@ -367,8 +384,10 @@ main =
               assertNotHas family "conv1x1WeightedCompute"
             assertHas Conv2DKernel "3x3 windowed convolution"
             assertHas Conv2DKernel "jitml_ceil_sqrt"
+            assertNotHas Conv2DKernel "wn <= 1u"
             assertHas Conv3DKernel "3x3x3 windowed convolution"
             assertHas Conv3DKernel "jitml_ceil_cuberoot"
+            assertNotHas Conv3DKernel "wn <= 1u"
             assertHas MultiHeadAttentionKernel "qsum * ksum * wv"
             assertHas BatchNormKernel "sqrt(var + eps)"
             assertHas LayerNormKernel "sqrt(var + eps)"
@@ -1985,13 +2004,14 @@ assertOneDnnOutput env family input expected = do
 -- non-trivial values per family. Shared across every substrate lane so all
 -- three backends are checked for the same numeric correctness, not merely
 -- run-to-run determinism. Weight buffers follow each family's ABI:
--- Dense2D row-major n*n; Conv 1x1 scalar; BatchNorm [scale,shift,mean,var];
+-- Dense2D row-major n*n; Conv2D 3x3; Conv3D 3x3x3;
+-- BatchNorm [scale,shift,mean,var];
 -- LayerNorm [scale,shift]; Embedding row-major rows*n table; MHA [Wq,Wk,Wv].
 weightedFamilyFixtures :: [(KernelFamily, [Float], [Float])]
 weightedFamilyFixtures =
   [ (Dense2D, [1.0, 2.0, 3.0], [1, 0, 0, 0, 2, 0, 0, 0, 3])
-  , (Conv2DKernel, [0.5, 1.5, 2.5, 3.5], [2.0])
-  , (Conv3DKernel, [0.5, 1.5, 2.5, 3.5], [3.0])
+  , (Conv2DKernel, [1.0 .. 9.0], [0, 1, 0, 1, 2, 1, 0, 1, 0])
+  , (Conv3DKernel, [1.0 .. 8.0], [if i == 13 then 2.0 else 1.0 | i <- [0 :: Int .. 26]])
   ,
     ( BatchNormKernel
     , [0.5, 1.5, 2.5, 3.5]

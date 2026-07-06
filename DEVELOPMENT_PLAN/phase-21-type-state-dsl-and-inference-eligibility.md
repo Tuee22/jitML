@@ -11,36 +11,13 @@
 
 ## Phase State
 
-✅ **Done** (reopened 2026-07-05). Phase `20` closed the de-fossilization and
-scaffold-lint gate, Sprint `21.1` shipped the non-fabricable training-evidence
-surface, Sprint `21.2` shipped the Haskell type-state pipeline, and Sprint `21.3`
-shipped the Dhall boundary plus fail-closed decode surface. The 2026-07-05
-realness audit found that the inference-eligibility gate those sprints installed
-is self-referential and does not actually reject an untrained model, so this phase
-reopens.
-
-**Reopen note (2026-07-05, realness audit).** Two defects make the
-`InferenceEligible` gate tautological:
-
-- The convergence gate compares a value against itself. The per-row
-  `ConvergenceBar` in `src/JitML/SL/ConvergenceThresholds.hs` is a slack-0 bar
-  (`value >= value`), so `evaluateConvergence` sets `coPassed` from a threshold
-  that equals the measured value and every run "passes."
-- The "non-fabricable" weight-movement evidence hashes an **all-zeros** vector as
-  the initial weights (`src/JitML/App.hs` `checkpointTrainingEvidenceWithDatasetSha`,
-  ~line 3578), so any nonzero final weights satisfy `initialWeightHash /=
-  finalWeightHash`. An **untrained random-init model** therefore produces valid
-  movement evidence and decodes as `InferenceEligible`.
-
-Closure moves onto the external-truth harness: convergence bars become frozen
-external constants and `coPassed` is re-derived at decode against them
-([phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
-Sprint `32.2`), the initial-weight hash is taken over the real random-init weights,
-`updateCount` equals the real optimizer-step count, and the standing
-`jitml-negative-controls` suite ([Phase 32](phase-32-external-truth-realness-harness.md)
-Sprint `32.1`) proves an untrained checkpoint is **rejected**. Sprints `21.1`,
-`21.2`, and `21.3` are `Active` with the per-sprint `### Closure Evidence` below; the
-type-state ADTs and the Dhall/decode plumbing they introduced remain in place.
+✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+self-referential inference-eligibility defects are removed: product convergence
+bars now come from frozen external constants in `JitML.Product.ExternalBars`,
+`InferenceEligible` decode re-checks completed metrics against those bars, the
+all-zero initial-weight fallback is deleted, and the internal seed-demo
+checkpoint writer is retired. Validation: `jitml-unit` passed **277 / 277** and
+`jitml-negative-controls` passed **3 / 3** on `linux-cpu`.
 
 **Validation substrate**: `linux-cpu` only.
 

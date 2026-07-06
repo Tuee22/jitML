@@ -59,40 +59,46 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**✅ Product closure reclosed 2026-07-06 (`linux-cpu` validation).** Phases
-`19`–`34` are now `Done` in the plan and in the product phase-status guard. The
-standing realness gates are executable through the normal test surface:
-`jitml-negative-controls` rejects committed known-fakes, and
-`jitml-model-convergence` owns row-complete convergence/performance cases for all
-55 `ProductRow` entries.
+**⏸️ Current status (2026-07-06): product chain blocked on Phase `29`.** Phases
+`20`, `21`, `23`, `24`, `25`, `26`, and `30` have been revalidated after the
+realness audit, but the product chain is not closed because Phase `29`
+(`linux-cuda`) could not run its required real device lane on this host. Phase
+`31` is blocked downstream until a fresh real `linux-cuda` fragment exists.
 
-Validation evidence for the reclosure:
+Current validation evidence:
 
-- `./bootstrap/linux-cpu.sh up` reconciled the live `linux-cpu` stack on
-  2026-07-06; all 12 canonical dataset artifacts were SHA-verified and uploaded
-  to the live MinIO route.
-- Row-filtered live product publishers produced local `CompletedTraining`
-  checkpoint manifests for all **55 / 55** `ProductRow` entries. The supervised
-  publisher now uses deterministic mini-batch device training, compact-runtime
-  convergence bars, and row progress output; the local checkpoint store contains
-  **55** `product-row-*` directories.
-- `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-integration --test-options='--hide-successes --color=never -p !/Live/'`
-  passed **117 / 117** on 2026-07-06 against those checkpoint manifests.
-- `docker compose run --rm jitml cabal test jitml-unit --test-options='--hide-successes --color=never'`
-  passed **277 / 277** on 2026-07-06 after the mini-batch trainer and compact-bar
-  changes.
-- `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-negative-controls --test-options='--hide-successes --color=never'`
-  passed **3 / 3** on 2026-07-06.
-- `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-model-convergence --test-options='--hide-successes --color=never'`
-  passed **111 / 111** on 2026-07-06.
-- `docker compose run --rm jitml cabal run exe:jitml -- check-code` passed
-  `check-code: ok` on 2026-07-06. `docker compose build --progress plain jitml`
-  remains the aggregate container-only code-quality gate; it embeds
-  `jitml check-code`.
+- `docker compose run --rm jitml cabal build lib:jitml` passed after the
+  supervised layer/architecture and RL trainer changes.
+- `docker compose run --rm jitml cabal test jitml-unit --test-options='--color=never --hide-successes' --test-show-details=direct`
+  passed **277 / 277**.
+- `docker compose run --rm jitml cabal test jitml-sl-canonicals --test-options='--color=never --hide-successes' --test-show-details=direct`
+  passed **31 / 31**.
+- `docker compose run --rm jitml cabal test jitml-hyperparameter --test-options='--color=never --hide-successes' --test-show-details=direct`
+  passed **19 / 19**.
+- `docker compose run --rm jitml cabal test jitml-rl-canonicals --test-options='--color=never --hide-successes' --test-show-details=direct`
+  passed **37 / 37**; the focused `AlphaZero per-game arena evidence` case also
+  passed **1 / 1** after the full-horizon/self-play changes.
+- `docker compose run --rm jitml cabal build test:jitml-backends test:jitml-negative-controls`
+  passed after the CUDA/Metal windowed-convolution source changes.
+- `docker compose run --rm jitml cabal test jitml-negative-controls --test-options='--color=never --hide-successes' --test-show-details=direct`
+  passed **3 / 3**.
+- Focused backend guards passed: `linux-cpu weighted families match` **1 / 1**,
+  `linux-cuda generated product-family CUDA source` **1 / 1**, and
+  `apple-silicon generated Metal source` **1 / 1**.
+- Apple Silicon host validation passed: `./bootstrap/apple-silicon.sh doctor`,
+  `jitml internal install-metal-bridge`, the focused Metal multi-tap runtime
+  test **1 / 1**, and the full `apple-silicon` backend lane **20 / 20**.
+
+Current blocker:
+
+- `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
+  failed before test execution because Docker reported `could not select device
+  driver "" with capabilities: [[gpu]]`. Phase `29` remains `Blocked` until the
+  same lane runs on a host with a Docker-visible NVIDIA GPU runtime.
 
 The 2026-07-05 realness-audit reopen narrative is retained below as historical
-context for why Phases `32`–`34` were added; it no longer describes current
-status.
+context for why Phases `32`–`34` were added and why Phase `29`/`31` remain
+blocked today.
 
 ---
 
@@ -1361,7 +1367,7 @@ obligation exists.
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence; current product handoff is the reclosed Phase `19`–`34` chain | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence; current product handoff is blocked on Phase `29` and Phase `31` | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 | 19 | Product Truth Gates & Registry | ✅ Done (reclosed 2026-07-06 — external-bar and status-truth gates validated) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
 | 20 | De-Fossilization & Scaffold Lint | ✅ Done (reclosed 2026-07-06 — product-scaffold lint and reachability gates validated) | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
 | 21 | Type-State DSL and Inference Eligibility | ✅ Done (reclosed 2026-07-06 — completed-training evidence uses real initial/final weights) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
@@ -1372,9 +1378,9 @@ obligation exists.
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (reclosed 2026-07-06) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
 | 27 | Demo All-Model Rendering | ✅ Done (reclosed 2026-07-06) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
 | 28 | Per-Model Integration and E2E | ✅ Done (reclosed 2026-07-06) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
-| 29 | Linux CUDA Product Lane | ✅ Done (reclosed 2026-07-06) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 29 | Linux CUDA Product Lane | ⏸️ Blocked (2026-07-06 — Docker did not expose an NVIDIA GPU runtime to `jitml-cuda`) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
 | 30 | Apple Silicon Product Lane | ✅ Done (reclosed 2026-07-06) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
-| 31 | No-Caveat Product Aggregation | ✅ Done (reclosed 2026-07-06) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (2026-07-06 — waiting on fresh real `linux-cuda` attestation from Phase `29`) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
 | 32 | External-Truth Realness Harness & Negative-Control Gate | ✅ Done (`jitml-negative-controls` passed 3 / 3 on 2026-07-06) | [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md) |
 | 33 | Per-Model Convergence & Inference-Performance Tests | ✅ Done (`jitml-model-convergence` passed 111 / 111 on 2026-07-06) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
 | 34 | Plan-Truth Governance | ✅ Done (closure status thinned to validation evidence on 2026-07-06) | [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md) |
@@ -1988,15 +1994,13 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-07-06, Phases `0`–`18` are historical evidence and Phases `19`–`34`
-are `✅ Done`. Phase `28` closed after the live `linux-cpu` report card passed
-**8 / 8** stanzas with **55 / 55** checkpoint-backed product rows served at edge
-`:9091`; Phase `29` closed the RTX 5090 `linux-cuda` product lane; Phase `30`
-closed the Apple Silicon fixed-bridge Metal product lane; and Phase `31`
-aggregated the committed `linux-cpu`, `linux-cuda`, and `apple-silicon`
-55-row fragments on `linux-cpu`. Phases `32`–`34` add the standing
-negative-control, per-model convergence, and plan-truth governance gates that
-reclosed the product chain on 2026-07-06.
+As of 2026-07-06, Phases `0`–`18` are historical evidence. Phases `20`, `21`,
+`23`, `24`, `25`, `26`, and `30` have refreshed validation after the realness
+audit, but Phase `29` is blocked because this host's Docker daemon does not
+expose an NVIDIA GPU runtime to `jitml-cuda`. Phase `31` is blocked downstream
+until Phase `29` produces a fresh real `linux-cuda` attestation. Phases
+`32`–`34` remain the standing negative-control, per-model convergence, and
+plan-truth governance gates for the final product handoff.
 
 Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals

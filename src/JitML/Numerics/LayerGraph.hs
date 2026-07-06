@@ -408,7 +408,8 @@ runLayerNode node input = do
   (preActivation, output) <-
     case layerParameters node of
       Just params -> do
-        pre <- affinePreActivation params input outputWidth
+        let transformedInput = parameterizedInputForward (layerNodeKind node) input
+        pre <- affinePreActivation params transformedInput outputWidth
         let activated = applyActivation (layerActivation node) pre
             out =
               case residualScale (layerNodeKind node) of
@@ -447,17 +448,24 @@ backwardLayerNode forward upstream =
                     VU.map (* residual) upstream
               _ -> upstream
           dPre = activationBackward (layerActivation node) activated residualUpstream
+          transformedInput =
+            parameterizedInputForward (layerNodeKind node) (layerForwardInput forward)
           paramGrad =
             LayerParameterGradient
-              { layerGradWeights = outerProduct dPre (layerForwardInput forward)
+              { layerGradWeights = outerProduct dPre transformedInput
               , layerGradBias = dPre
               }
-          inputGradFromLayer =
+          transformedInputGrad =
             matVecTransposed
               (layerWeights params)
               (VU.length dPre)
-              (VU.length (layerForwardInput forward))
+              (VU.length transformedInput)
               dPre
+          inputGradFromLayer =
+            parameterizedInputBackward
+              (layerNodeKind node)
+              (layerForwardInput forward)
+              transformedInputGrad
           inputGrad =
             case scale of
               Just _
@@ -501,6 +509,8 @@ parameterlessForward node input outputWidth =
       resizeByAveraging input outputWidth
     PoolLayer MaxPool ->
       VU.replicate outputWidth (if VU.null input then 0.0 else VU.maximum input)
+    NormLayer normKind ->
+      resizeIdentity (normalizeVector normKind input) outputWidth
     _ -> resizeIdentity input outputWidth
 
 parameterlessBackward :: LayerNode -> Int -> Vector Double -> Vector Double
@@ -518,7 +528,141 @@ parameterlessBackward node inputWidth upstream =
       distributeAverage upstream inputWidth
     PoolLayer MaxPool ->
       distributeAverage upstream inputWidth
+    NormLayer _ ->
+      distributeAverage upstream inputWidth
     _ -> resizeIdentity upstream inputWidth
+
+parameterizedInputForward :: LayerKind -> Vector Double -> Vector Double
+parameterizedInputForward kind input =
+  case kind of
+    Conv2DLayer -> stencilTransform [(0, 0.50), (-1, 0.25), (1, 0.25)] input
+    Conv3DLayer -> stencilTransform [(0, 0.40), (-1, 0.20), (1, 0.20), (-2, 0.10), (2, 0.10)] input
+    PatchEmbedLayer -> patchMaskTransform input
+    MultiHeadAttentionLayer heads -> attentionContextTransform heads input
+    GeGLULayer -> VU.map gegluInput input
+    BasicBlockLayer scale ->
+      VU.zipWith (+) input (VU.map (* scale) (stencilTransform [(0, 0.50), (-1, 0.25), (1, 0.25)] input))
+    BottleneckBlockLayer scale ->
+      VU.zipWith
+        (+)
+        input
+        (VU.map (* scale) (stencilTransform [(0, 0.40), (-1, 0.20), (1, 0.20), (-2, 0.10), (2, 0.10)] input))
+    _ -> input
+
+parameterizedInputBackward :: LayerKind -> Vector Double -> Vector Double -> Vector Double
+parameterizedInputBackward kind input upstream =
+  case kind of
+    Conv2DLayer -> stencilBackward [(0, 0.50), (-1, 0.25), (1, 0.25)] (VU.length input) upstream
+    Conv3DLayer ->
+      stencilBackward [(0, 0.40), (-1, 0.20), (1, 0.20), (-2, 0.10), (2, 0.10)] (VU.length input) upstream
+    PatchEmbedLayer -> patchMaskBackward input upstream
+    MultiHeadAttentionLayer heads -> attentionContextBackward heads input upstream
+    GeGLULayer -> VU.zipWith (*) (VU.map gegluInputDerivative input) upstream
+    BasicBlockLayer scale ->
+      VU.zipWith
+        (+)
+        upstream
+        (VU.map (* scale) (stencilBackward [(0, 0.50), (-1, 0.25), (1, 0.25)] (VU.length input) upstream))
+    BottleneckBlockLayer scale ->
+      VU.zipWith
+        (+)
+        upstream
+        ( VU.map
+            (* scale)
+            (stencilBackward [(0, 0.40), (-1, 0.20), (1, 0.20), (-2, 0.10), (2, 0.10)] (VU.length input) upstream)
+        )
+    _ -> upstream
+
+stencilTransform :: [(Int, Double)] -> Vector Double -> Vector Double
+stencilTransform taps input =
+  let n = VU.length input
+   in VU.generate n $ \idx ->
+        sum
+          [ weight * (input VU.! clampIndex n (idx + offset))
+          | (offset, weight) <- taps
+          ]
+
+stencilBackward :: [(Int, Double)] -> Int -> Vector Double -> Vector Double
+stencilBackward taps inputWidth upstream =
+  VU.generate inputWidth $ \inputIdx ->
+    sum
+      [ weight * (upstream VU.! outputIdx)
+      | outputIdx <- [0 .. VU.length upstream - 1]
+      , (offset, weight) <- taps
+      , clampIndex inputWidth (outputIdx + offset) == inputIdx
+      ]
+
+clampIndex :: Int -> Int -> Int
+clampIndex n idx
+  | n <= 1 = 0
+  | idx < 0 = 0
+  | idx >= n = n - 1
+  | otherwise = idx
+
+patchMaskTransform :: Vector Double -> Vector Double
+patchMaskTransform =
+  VU.imap (\idx value -> value * patchMask idx)
+
+patchMaskBackward :: Vector Double -> Vector Double -> Vector Double
+patchMaskBackward input upstream =
+  VU.imap (\idx _ -> (upstream VU.! idx) * patchMask idx) input
+
+patchMask :: Int -> Double
+patchMask idx =
+  0.75 + 0.05 * fromIntegral (idx `mod` 5)
+
+attentionContextTransform :: Int -> Vector Double -> Vector Double
+attentionContextTransform heads input =
+  let n = max 1 (VU.length input)
+      mean = VU.sum input / fromIntegral n
+      contextWeight = 1.0 / fromIntegral (max 1 heads + 1)
+   in VU.map (\value -> (1.0 - contextWeight) * value + contextWeight * mean) input
+
+attentionContextBackward :: Int -> Vector Double -> Vector Double -> Vector Double
+attentionContextBackward heads input upstream =
+  let n = max 1 (VU.length input)
+      contextWeight = 1.0 / fromIntegral (max 1 heads + 1)
+      shared = contextWeight * VU.sum upstream / fromIntegral n
+   in VU.map (\value -> (1.0 - contextWeight) * value + shared) upstream
+
+gegluInput :: Double -> Double
+gegluInput value =
+  value * sigmoid value
+
+gegluInputDerivative :: Double -> Double
+gegluInputDerivative value =
+  let s = sigmoid value
+   in s + value * s * (1.0 - s)
+
+sigmoid :: Double -> Double
+sigmoid value =
+  1.0 / (1.0 + exp (negate value))
+
+normalizeVector :: NormKind -> Vector Double -> Vector Double
+normalizeVector normKind input =
+  case normKind of
+    GroupNorm groups -> normalizeGroups (max 1 groups) input
+    BatchNorm -> normalizeOne input
+    LayerNorm -> normalizeOne input
+
+normalizeGroups :: Int -> Vector Double -> Vector Double
+normalizeGroups groups input =
+  let n = VU.length input
+      groupSize = max 1 ((n + groups - 1) `div` groups)
+   in VU.concat
+        [ normalizeOne (VU.slice start (min groupSize (n - start)) input)
+        | start <- [0, groupSize .. n - 1]
+        ]
+
+normalizeOne :: Vector Double -> Vector Double
+normalizeOne values
+  | VU.null values = VU.empty
+  | otherwise =
+      let mean = meanVector values
+          centered = VU.map (subtract mean) values
+          variance = VU.sum (VU.map (\x -> x * x) centered) / fromIntegral (VU.length values)
+          invStd = 1.0 / sqrt (variance + 1.0e-6)
+       in VU.map (* invStd) centered
 
 affinePreActivation :: LayerParameters -> Vector Double -> Int -> Either Text (Vector Double)
 affinePreActivation params input outputWidth = do

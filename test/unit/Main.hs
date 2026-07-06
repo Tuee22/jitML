@@ -43,10 +43,8 @@ import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.App
-  ( SeededDemoCheckpoint (..)
-  , parseUserIntOptionAtLeast
+  ( parseUserIntOptionAtLeast
   , rlTrainerEnvironmentCompatibilityError
-  , seededDemoCheckpoints
   )
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
@@ -144,6 +142,7 @@ import JitML.Prerequisite.Registry
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix (ModelState (..), ProductRow (..))
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.PhaseStatus
@@ -276,12 +275,7 @@ convergenceObservationsFixture
   :: [(Text, Double)]
   -> Either Text [TrainingBudget.ConvergenceObservation]
 convergenceObservationsFixture =
-  traverse
-    ( \metric@(name, value) ->
-        ProductConvergence.evaluateConvergence
-          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
-          (ProductConvergence.MeasuredMetrics [metric])
-    )
+  ProductExternalBars.convergenceObservationsForMetrics
 
 readPlanSprintStatuses :: ProductPhaseStatus -> IO [(Text, SprintStatus)]
 readPlanSprintStatuses phase = do
@@ -3128,57 +3122,6 @@ main =
           assertBool
             "admin portal renderer emits the generated module"
             ("module Generated.AdminPortals where" `Text.isInfixOf` WebAdminPortals.renderPureScriptAdminPortals)
-      , -- Sprint 10.9 / 14.3 — the seeded demo checkpoints are distinct and
-        -- self-describing (per-layer shapes), so Phase 14.3 can reshape them.
-        testGroup
-          "demo checkpoints (Sprint 10.9 + 14.3)"
-          [ -- One case so the generated checkpoints are forced once, not duplicated
-            -- across tasty's parallel cases.
-            testCase "are distinct and self-describing (per-layer shapes)" $ do
-              -- exactly the demo families, in order
-              fmap sdcExperimentHash seededDemoCheckpoints
-                @?= [ "mnist-deep-mlp"
-                    , "generic-tensor-demo"
-                    , "generic-tensor-demo-candidate"
-                    , "cifar-imagenet"
-                    , "connect4-alphazero"
-                    , "othello-alphazero"
-                    , "hex-alphazero"
-                    , "gomoku-alphazero"
-                    ]
-              -- every family's weights are pairwise distinct (no shared ramp)
-              length (nub (fmap sdcWeights seededDemoCheckpoints)) @?= 8
-              -- non-constant in O(n) (NOT `nub`, which is O(n²) on the 74k-element
-              -- CIFAR weight vector): some element differs from the first.
-              let nonConstant ws = case ws of
-                    (w : rest) -> any (/= w) rest
-                    [] -> False
-              mapM_
-                ( \spec -> do
-                    -- non-empty and non-constant (not a synthetic ramp)
-                    assertBool
-                      (Text.unpack (sdcExperimentHash spec) <> " has weights")
-                      (not (null (sdcWeights spec)))
-                    assertBool
-                      (Text.unpack (sdcExperimentHash spec) <> " is non-constant (not a ramp)")
-                      (nonConstant (sdcWeights spec))
-                    -- self-describing: the per-layer tensor shapes sum to the flat length
-                    sum [product (Checkpoint.tensorSpecShape ts) | ts <- sdcLayerSpecs spec]
-                      @?= length (sdcWeights spec)
-                )
-                seededDemoCheckpoints
-              -- Phase 14.3 contract: the output spec records the model's class/output count
-              let outputWidth h =
-                    [ Checkpoint.tensorSpecShape (sdcOutputSpec s) | s <- seededDemoCheckpoints, sdcExperimentHash s == h
-                    ]
-              outputWidth "mnist-deep-mlp" @?= [[10]]
-              outputWidth "cifar-imagenet" @?= [[10]]
-              outputWidth "generic-tensor-demo" @?= [[3]]
-              outputWidth "connect4-alphazero" @?= [[8]]
-              outputWidth "othello-alphazero" @?= [[65]]
-              outputWidth "hex-alphazero" @?= [[122]]
-              outputWidth "gomoku-alphazero" @?= [[226]]
-          ]
       , testGroup
           "MLP checkpoint inference plan (Sprint 14.3)"
           [ testCase "detects named W1/b1/W2/b2 tensors, fits input, and trims semantic output width" $ do
@@ -3399,17 +3342,18 @@ main =
           , testCase "ProductRow browser artifacts never use seeded demo weights" $ do
               generated <- Text.IO.readFile "web/src/Generated/Contracts.purs"
               let productHashes = fmap ProductMatrix.productRowExperimentHash ProductMatrix.allProductRows
-                  seededHashes = fmap sdcExperimentHash seededDemoCheckpoints
-                  seededTensorNames = fmap sdcTensorName seededDemoCheckpoints
                   generatedHashes =
                     [ experimentHash
                     | (_, _, experimentHash, _, _) <- generatedModelMatrixPairs generated
                     ]
-              List.intersect productHashes seededHashes @?= []
-              List.intersect generatedHashes seededHashes @?= []
+              assertBool
+                "product-row hashes all use the product-row namespace"
+                (all ("product-row-" `Text.isPrefixOf`) productHashes)
+              assertBool
+                "generated hashes all use the product-row namespace"
+                (all ("product-row-" `Text.isPrefixOf`) generatedHashes)
               filter ("demo-weights" `Text.isInfixOf`) productHashes @?= []
               filter ("demo-weights" `Text.isInfixOf`) generatedHashes @?= []
-              filter (`Text.isInfixOf` generated) seededTensorNames @?= []
           , testCase "ProductRow experiment configs resolve or reflect for every row" $ do
               loaded <-
                 traverse
@@ -3713,6 +3657,17 @@ main =
                     ((== "product-truth.scaffold.deterministicStep") . findingKey)
                     findings
                 )
+          , testCase "ProductTruth scanner rejects seeded demo artifact literals" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/Product/ReintroducedSeed.hs"
+                      "module JitML.Product.ReintroducedSeed where\nx = \"mnist-demo-weights\"\n"
+              assertBool
+                "seeded demo artifact literal is rejected"
+                ( any
+                    ((== "product-truth.scaffold.seeded-demo-weights") . findingKey)
+                    findings
+                )
           , testCase "ProductTruth reachability rejects product-reachable scaffold imports" $ do
               let modules =
                     [ ProductTruth.SourceModule
@@ -3747,7 +3702,7 @@ main =
               PhaseStatus.productPhaseNumbers @?= [19 .. 34]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports complete only when every product sprint is Done" $ do
-              PhaseStatus.allProductPhasesDone @?= True
+              PhaseStatus.allProductPhasesDone @?= False
               assertBool
                 "an all-Done registry satisfies the predicate"
                 ( PhaseStatus.productPhasesDone

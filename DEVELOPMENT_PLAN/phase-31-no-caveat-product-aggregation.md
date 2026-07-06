@@ -1,6 +1,6 @@
 # Phase 31: No-Caveat Product Aggregation
 
-**Status**: Done
+**Status**: Blocked
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -11,16 +11,18 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The prior
-2026-07-05 aggregation consumed three **withdrawn** per-lane attestations
-(`linux-cpu`/`linux-cuda`/`apple-silicon`, 55 rows each) whose row evidence was
-not backed by real training, real inference, or real kernel dispatch. The current
-closure is the reclosed Phase `19`–`34` chain: product-row checkpoint manifests
-exist for 55 / 55 rows, the row-complete convergence and negative-control gates
-pass, and the closure guard now covers the standing realness phases. This phase
-remains a `linux-cpu`-only aggregation: it consumes committed real per-lane
-fragments and **never re-runs an accelerator** (rule M enforcement scan 3 — no
-`-fcuda` / `--apple-silicon` re-runs).
+⏸️ **Blocked** (2026-07-06). The prior 2026-07-05 aggregation consumed three
+**withdrawn** per-lane attestations (`linux-cpu`/`linux-cuda`/`apple-silicon`,
+55 rows each) whose row evidence was not backed by real training, real
+inference, or real kernel dispatch. Current `linux-cpu` model-realness and
+Apple Metal backend evidence have been refreshed, but this aggregation cannot
+close until Phase `29` produces a fresh real `linux-cuda` fragment on a host
+whose Docker daemon exposes the NVIDIA Container Runtime and an attached GPU.
+This phase remains a `linux-cpu`-only aggregation: it consumes committed real
+per-lane fragments and **never re-runs an accelerator** (rule M enforcement scan
+3 — no `-fcuda` / `--apple-silicon` re-runs).
+
+**Blocked by**: Phase `29` (`linux-cuda` product lane) real CUDA validation.
 
 **Historical (withdrawn):** ✅ **Claimed Done on 2026-07-05** after Phase `30`
 refreshed `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` with the
@@ -54,9 +56,10 @@ the typed `PhaseStatus` registry reports every Phase `19`–`34` sprint Done. Th
 final status paragraph in the governed docs names exact dates, the three real
 lanes, the aggregated row count, and the report artifacts.
 
-## Sprint 31.1: Attestation Join [✅ Done]
+## Sprint 31.1: Attestation Join [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Phase `29` fresh real `linux-cuda` per-lane attestation.
 **Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `system-components.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -101,13 +104,9 @@ Reopened 2026-07-05. The join closed on the three **withdrawn** per-lane
 fragments (55 rows each) whose row evidence was fabricated, so the aggregator's
 fail-closed contract is unmet: `src/JitML/Test/Report.hs` accepted fragments that
 were not backed by real trained-state deltas, completed-training checkpoints,
-verified dataset bytes, or real kernel dispatch. This sprint reopens with the
-Phase `19`–`30` chain and re-closes only after those phases recommit honest
-per-lane fragments. The closed Exit-Definition obligation is closed by the
-negative-control suite (`jitml-negative-controls`, Phase
-[`32`](phase-32-external-truth-realness-harness.md)): the join must reject a
-fabricated or evidence-empty fragment as a fail-closed error — proven against a
-planted fake fragment — rather than merging it into a passing card. Aggregation
+verified dataset bytes, or real kernel dispatch. The negative-control suite now
+covers fabricated evidence, but this sprint remains blocked until Phase `29`
+commits a fresh `linux-cuda` fragment from real device validation. Aggregation
 stays `linux-cpu`-only and re-runs no accelerator.
 
 ```bash
@@ -115,9 +114,11 @@ docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
 docker compose run --rm jitml jitml docs check
 ```
 
-## Sprint 31.2: No-Caveat Closure [✅ Done]
+## Sprint 31.2: No-Caveat Closure [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Sprint `31.1` merged attestation join over a fresh real
+`linux-cuda` fragment.
 **Implementation**: `README.md`, `DEVELOPMENT_PLAN/README.md`, `src/JitML/Lint/Docs.hs`
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`
 
@@ -160,19 +161,12 @@ docker compose run --rm jitml jitml check-code
 Reopened 2026-07-05. The reopened→closed flip was permitted on a merged report
 card backed by fabricated evidence, and the typed `PhaseStatus` registry reported
 every Phase `19`–`31` sprint Done while the underlying rows were not real. The
-2026-07-06 reclosure extends the guard through Phases
-[`32`](phase-32-external-truth-realness-harness.md)–[`34`](phase-34-plan-truth-governance.md).
-The closed obligations close when: the closure gate consumes the per-model
-convergence suite (`jitml-model-convergence`, Phase
-[`33`](phase-33-per-model-convergence-and-inference-tests.md)) so every product
-row proves real convergence and inference before the flip; the negative-control
-suite (`jitml-negative-controls`, Phase
-[`32`](phase-32-external-truth-realness-harness.md)) rejects a fabricated
-fragment; and the plan-truth governance gate (Phase
-[`34`](phase-34-plan-truth-governance.md)) refuses any status flip whose registry
-entry is not backed by a passing negative-control and per-model run. Aggregation
-stays `linux-cpu`-only — it consumes committed real per-lane fragments and never
-re-runs an accelerator.
+2026-07-06 guard now extends through Phases
+[`32`](phase-32-external-truth-realness-harness.md)–[`34`](phase-34-plan-truth-governance.md)
+and the registry reports Phase `29`/`31` as blocked. The remaining obligation is
+a successful aggregation over a fresh real `linux-cuda` fragment after Phase
+`29` closes. Aggregation stays `linux-cpu`-only — it consumes committed real
+per-lane fragments and never re-runs an accelerator.
 
 ```bash
 docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu

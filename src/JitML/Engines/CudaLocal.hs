@@ -338,7 +338,7 @@ cudaToolchainFingerprint =
           -- instead of the prior identity/custom placeholder bodies.
           "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
         , "weighted-bodies=all-families"
-        , "phase29-real-cublas-cudnn-v1"
+        , "phase29-real-cublas-cudnn-windowed-v2"
         ]
     )
 

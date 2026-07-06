@@ -368,12 +368,7 @@ weightedFamilyCompute _family =
 conv2dWeightedCompute :: Text
 conv2dWeightedCompute =
   Text.unlines
-    [ "  if (wn <= 1u) {"
-    , "    float w = (wn > 0u) ? weights[0] : 1.0f;"
-    , "    out[id] = input[id] * w;"
-    , "    return;"
-    , "  }"
-    , "  uint width = jitml_ceil_sqrt(n);"
+    [ "  uint width = jitml_ceil_sqrt(n);"
     , "  uint height = (n + width - 1u) / width;"
     , "  uint x0 = id % width;"
     , "  uint y0 = id / width;"
@@ -397,12 +392,7 @@ conv2dWeightedCompute =
 conv3dWeightedCompute :: Text
 conv3dWeightedCompute =
   Text.unlines
-    [ "  if (wn <= 1u) {"
-    , "    float w = (wn > 0u) ? weights[0] : 1.0f;"
-    , "    out[id] = input[id] * w;"
-    , "    return;"
-    , "  }"
-    , "  uint side = jitml_ceil_cuberoot(n);"
+    [ "  uint side = jitml_ceil_cuberoot(n);"
     , "  uint plane = side * side;"
     , "  uint z0 = id / plane;"
     , "  uint rem = id % plane;"

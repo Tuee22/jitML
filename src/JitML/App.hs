@@ -3,12 +3,8 @@
 
 module JitML.App
   ( main
-
-    -- * Sprint 10.9 — exposed for the host-native demo-checkpoint distinctness test
-  , SeededDemoCheckpoint (..)
   , parseUserIntOptionAtLeast
   , rlTrainerEnvironmentCompatibilityError
-  , seededDemoCheckpoints
   )
 where
 
@@ -127,7 +123,7 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
-import JitML.Numerics.Mlp (MlpShape (..), mlpInit, mlpParamsToFlat, paramShape)
+import JitML.Numerics.Mlp (AdamState, MlpShape (..), mlpInit, mlpParamsToFlat)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
@@ -1085,10 +1081,12 @@ runHostAppleTune env start
            , Tune.schedulerFromText (ProtoTune.ssScheduler start)
            , Tune.prunerFromText (ProtoTune.ssPruner start)
            ) of
-        (Just sampler, Just _scheduler, Just _pruner) -> do
+        (Just sampler, Just scheduler, Just pruner) -> do
           let trialCount = max 1 (fromIntegral (ProtoTune.ssTrialBudget start))
               device = mlpDeviceForSubstrate AppleSilicon env
-          trialResultsE <- liftIO (Tune.trialObjectiveResultsWithDevice device sampler trialCount)
+          trialResultsE <-
+            liftIO
+              (Tune.trialObjectiveResultsWithDeviceForAxes device sampler scheduler pruner trialCount)
           case trialResultsE of
             Left err -> pure (Left (SETransient ("host Apple tune failed: " <> err)))
             Right trialResults -> publishHostTuneEvents start trialResults
@@ -2468,7 +2466,7 @@ trainingCheckpointDoneEnvelope
   -> [Double]
   -> CheckpointStore.StoredCheckpoint
   -> ProtoTraining.CheckpointDone
-trainingCheckpointDoneEnvelope experimentHash tensorName step metricRows datasetShaAtRead completedOverride weights stored =
+trainingCheckpointDoneEnvelope experimentHash _tensorName step metricRows _datasetShaAtRead completedOverride _weights stored =
   ProtoTraining.CheckpointDone
     { ProtoTraining.cdExperimentHash = experimentHash
     , ProtoTraining.cdManifestSha = CheckpointStore.storedManifestSha stored
@@ -2478,17 +2476,7 @@ trainingCheckpointDoneEnvelope experimentHash tensorName step metricRows dataset
     , ProtoTraining.cdTrialSha = Nothing
     , ProtoTraining.cdRunUuid = "training-" <> experimentHash
     , ProtoTraining.cdMetricsAtStep = metricRows
-    , ProtoTraining.cdCompletedTraining =
-        case completedOverride of
-          Just completed -> Just completed
-          Nothing ->
-            completedCheckpointWitnessWithDatasetSha
-              datasetShaAtRead
-              experimentHash
-              tensorName
-              step
-              metricRows
-              weights
+    , ProtoTraining.cdCompletedTraining = completedOverride
     }
 
 trainingCheckpointMetrics :: TrainingMetrics -> [(Text, Double)]
@@ -2586,8 +2574,10 @@ writeLocalTuneArtifacts tunePath experiment =
     Nothing -> pure []
     Just config -> do
       let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
+          scheduler = Tune.tuningSchedulerKind (Tune.tuningConfigScheduler config)
+          pruner = Tune.tuningPrunerKind (Tune.tuningConfigPruner config)
           trialCount = max 1 (min 4 (fromIntegral (Tune.tuningConfigTrials config)))
-          results = Tune.trialObjectiveResults sampler trialCount
+          results = Tune.trialObjectiveResultsForAxes sampler scheduler pruner trialCount
       case selectBestTrialResult results of
         Nothing -> pure []
         Just best -> do
@@ -3413,16 +3403,6 @@ writeMinIOWeightCheckpointWithDatasetShaAndCompleted datasetShaAtRead completedO
           weights
    in CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing
 
-buildWeightCheckpointSnapshot
-  :: Text
-  -> Text
-  -> Word64
-  -> [(Text, Double)]
-  -> [Double]
-  -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
-buildWeightCheckpointSnapshot =
-  buildWeightCheckpointSnapshotWithDatasetSha Nothing
-
 buildWeightCheckpointSnapshotWithDatasetSha
   :: Maybe Text
   -> Text
@@ -3470,7 +3450,7 @@ buildWeightCheckpointSnapshotWithDatasetShaAndCompletion
   -> [(Text, Double)]
   -> [Double]
   -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
-buildWeightCheckpointSnapshotWithDatasetShaAndCompletion datasetShaAtRead completedOverride markCompleted experimentHash tensorName step metrics weights =
+buildWeightCheckpointSnapshotWithDatasetShaAndCompletion _datasetShaAtRead completedOverride markCompleted experimentHash tensorName step metrics weights =
   let payload = Checkpoint.encodeJmw1 weights
       blobSha = hexEncodeBytes (Crypto.Hash.SHA256.hash (LazyByteString.toStrict payload))
       blobObjectKey = Checkpoint.blobKey experimentHash blobSha
@@ -3478,16 +3458,7 @@ buildWeightCheckpointSnapshotWithDatasetShaAndCompletion datasetShaAtRead comple
       modelFamily = checkpointModelFamilyForTensor tensorName
       completed =
         if markCompleted
-          then case completedOverride of
-            Just completedTraining -> Just completedTraining
-            Nothing ->
-              completedCheckpointWitnessWithDatasetSha
-                datasetShaAtRead
-                experimentHash
-                tensorName
-                step
-                metrics
-                weights
+          then completedOverride
           else Nothing
       baseManifest =
         ( Checkpoint.emptyManifest
@@ -3516,39 +3487,6 @@ buildWeightCheckpointSnapshotWithDatasetShaAndCompletion datasetShaAtRead comple
           (`Checkpoint.attachCompletedTraining` baseManifest)
           completed
    in (manifest, [(blobObjectKey, payload)])
-
-completedCheckpointWitnessWithDatasetSha
-  :: Maybe Text
-  -> Text
-  -> Text
-  -> Word64
-  -> [(Text, Double)]
-  -> [Double]
-  -> Maybe TrainingBudget.CompletedTraining
-completedCheckpointWitnessWithDatasetSha datasetShaAtRead experimentHash tensorName step metrics weights = do
-  evidence <-
-    eitherToMaybe
-      ( checkpointTrainingEvidenceWithDatasetSha
-          datasetShaAtRead
-          experimentHash
-          tensorName
-          step
-          metrics
-          weights
-      )
-  observations <-
-    eitherToMaybe (convergenceObservationsForMetrics metrics)
-  eitherToMaybe $
-    TrainingBudget.completedTraining
-      (checkpointTrainingBudgetForTensor tensorName step)
-      step
-      evidence
-      observations
-      TrainingBudget.TensorBoardRunMetadata
-        { TrainingBudget.tbrRunId = experimentHash
-        , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
-        , TrainingBudget.tbrScalarTags = fmap fst metrics
-        }
 
 completedTrainingForSupervisedProblem
   :: SL.CanonicalProblem
@@ -3728,24 +3666,6 @@ alphaZeroConvergenceObservations metrics = do
         }
     ]
 
-checkpointTrainingEvidenceWithDatasetSha
-  :: Maybe Text
-  -> Text
-  -> Text
-  -> Word64
-  -> [(Text, Double)]
-  -> [Double]
-  -> Either Text ProductEvidence.TrainingEvidence
-checkpointTrainingEvidenceWithDatasetSha datasetShaAtRead experimentHash tensorName step metrics weights =
-  checkpointTrainingEvidenceWithInitialWeights
-    datasetShaAtRead
-    (replicate (length weights) 0)
-    experimentHash
-    tensorName
-    step
-    metrics
-    weights
-
 checkpointTrainingEvidenceWithInitialWeights
   :: Maybe Text
   -> [Double]
@@ -3777,44 +3697,7 @@ convergenceObservationsForMetrics
   :: [(Text, Double)]
   -> Either Text [TrainingBudget.ConvergenceObservation]
 convergenceObservationsForMetrics =
-  traverse
-    ( \metric@(name, _) ->
-        case convergenceBarForMetric name of
-          Nothing -> Left ("missing external convergence bar for metric: " <> name)
-          Just bar ->
-            ProductConvergence.evaluateConvergence
-              bar
-              (ProductConvergence.MeasuredMetrics [metric])
-    )
-
-convergenceBarForMetric :: Text -> Maybe ProductConvergence.ConvergenceBar
-convergenceBarForMetric name =
-  case name of
-    "test_accuracy" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
-    "test_acc" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
-    "train_accuracy" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
-    "rmse" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 0.90 0.10)
-    "best_objective" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
-    "objective" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
-    "arena_win_rate" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.60 0.10)
-    "legal_move_rate" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.01)
-    "goal_success_rate" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
-    "achieved_goal_distance" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 0.04 0.01)
-    "train_loss" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 2.0 0.10)
-    "validation_loss" ->
-      Just (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMinimise 2.0 0.10)
-    _ -> Nothing
+  ProductExternalBars.convergenceObservationsForMetrics
 
 sha256Text :: Text -> Text
 sha256Text =
@@ -3863,65 +3746,6 @@ checkpointTrainingBudgetForTensor tensorName step =
             , TrainingBudget.tbUnitLabel = "steps"
             , TrainingBudget.tbSeed = Nothing
             }
-
--- | Sprint 10.9 (review hardening) — like 'writeMinIOWeightCheckpoint' but writes a
--- __self-describing__ manifest: it records the model's input/output 'Checkpoint.TensorSpec'
--- and its per-layer weight layout (the @W1/b1/W2/b2@ tensors in flatten order) instead of a
--- single flat blob. This makes the checkpoint carry correct per-tensor shapes (the Sprint
--- 10.9 Exit Definition) and lets a downstream multi-layer-forward consumer (Phase 14.3,
--- output width = class count) reshape the flat weight blob unambiguously.
-writeMinIOWeightCheckpointShaped
-  :: (Capabilities.HasMinIO m)
-  => Text
-  -> Text
-  -> Word64
-  -> [(Text, Double)]
-  -> [Double]
-  -> Checkpoint.TensorSpec
-  -> Checkpoint.TensorSpec
-  -> [Checkpoint.TensorSpec]
-  -> m (Either ServiceError CheckpointStore.StoredCheckpoint)
-writeMinIOWeightCheckpointShaped experimentHash tensorName step metrics weights inputSpec outputSpec layerSpecs =
-  let (manifest, payloads) =
-        buildShapedWeightCheckpointSnapshot
-          experimentHash
-          tensorName
-          step
-          metrics
-          weights
-          inputSpec
-          outputSpec
-          layerSpecs
-   in CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing
-
--- | Sprint 10.9 (review hardening) — augment 'buildWeightCheckpointSnapshot' with the
--- model's input/output specs and per-layer weight layout. Reuses the flat builder for the
--- blob + model-family + metric population and overrides only the architecture inputs/outputs
--- and the weight layout, so the flat @.jmw1@ blob is unchanged while the manifest now
--- describes how to split it per layer.
-buildShapedWeightCheckpointSnapshot
-  :: Text
-  -> Text
-  -> Word64
-  -> [(Text, Double)]
-  -> [Double]
-  -> Checkpoint.TensorSpec
-  -> Checkpoint.TensorSpec
-  -> [Checkpoint.TensorSpec]
-  -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
-buildShapedWeightCheckpointSnapshot experimentHash tensorName step metrics weights inputSpec outputSpec layerSpecs =
-  let (manifest, payloads) =
-        buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights
-      manifest' =
-        manifest
-          { Checkpoint.manifestArchitecture =
-              (Checkpoint.manifestArchitecture manifest)
-                { Checkpoint.architectureInputs = [inputSpec]
-                , Checkpoint.architectureOutputs = [outputSpec]
-                }
-          , Checkpoint.manifestWeightLayout = Checkpoint.NamedTensorWeightLayout layerSpecs
-          }
-   in (manifest', payloads)
 
 checkpointModelFamilyForTensor :: Text -> Checkpoint.ModelFamily
 checkpointModelFamilyForTensor tensorName
@@ -4301,14 +4125,11 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             >>= \result ->
               let episodes =
                     evaluatedEpisodes $
-                      fromMaybe
-                        ( PpoTrainer.evaluateOnPolicyWithEnvironment
-                            simEnv
-                            config
-                            (PpoTrainer.resultFinalParams result)
-                            evalEpisodes
-                        )
-                        (canonicalDiscreteEvaluation envName evalEpisodes)
+                      PpoTrainer.evaluateOnPolicyWithEnvironment
+                        simEnv
+                        config
+                        (PpoTrainer.resultFinalParams result)
+                        evalEpisodes
                   initialWeights = mlpParamsToFlat (PpoTrainer.initialPpoParams config)
                   finalWeights = mlpParamsToFlat (PpoTrainer.resultFinalParams result)
                   updateCount =
@@ -4353,14 +4174,11 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             >>= \result ->
               let episodes =
                     evaluatedEpisodes $
-                      fromMaybe
-                        ( DqnTrainer.evaluateDqnPolicyWithEnvironment
-                            simEnv
-                            config
-                            (DqnTrainer.dqnResultFinalParams result)
-                            evalEpisodes
-                        )
-                        (canonicalDiscreteEvaluation envName evalEpisodes)
+                      DqnTrainer.evaluateDqnPolicyWithEnvironment
+                        simEnv
+                        config
+                        (DqnTrainer.dqnResultFinalParams result)
+                        evalEpisodes
                   initialWeights = mlpParamsToFlat (DqnTrainer.initialDqnParams config)
                   finalWeights = mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result)
                   updateCount =
@@ -4399,14 +4217,11 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             >>= \result ->
               let episodes =
                     evaluatedEpisodes $
-                      fromMaybe
-                        ( QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
-                            simEnv
-                            config
-                            (QrDqnTrainer.qrResultFinalParams result)
-                            evalEpisodes
-                        )
-                        (canonicalDiscreteEvaluation envName evalEpisodes)
+                      QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
+                        simEnv
+                        config
+                        (QrDqnTrainer.qrResultFinalParams result)
+                        evalEpisodes
                   initialWeights = mlpParamsToFlat (QrDqnTrainer.initialQrDqnParams config)
                   finalWeights = mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result)
                   updateCount =
@@ -4446,14 +4261,11 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             >>= \result ->
               let episodes =
                     evaluatedEpisodes $
-                      fromMaybe
-                        ( ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
-                            contEnv
-                            config
-                            (ContinuousTrainer.contResultFinalActor result)
-                            evalEpisodes
-                        )
-                        (canonicalContinuousEvaluation envName evalEpisodes)
+                      ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
+                        contEnv
+                        config
+                        (ContinuousTrainer.contResultFinalActor result)
+                        evalEpisodes
                   initialWeights = mlpParamsToFlat (ContinuousTrainer.initialContinuousActor config)
                   finalWeights = mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result)
                   updateCount =
@@ -4493,14 +4305,11 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
         result <- ArsTrainer.trainArsOnEnvironment simEnv config
         let episodes =
               evaluatedEpisodes $
-                fromMaybe
-                  ( ArsTrainer.evaluateArsPolicyWithEnvironment
-                      simEnv
-                      config
-                      (ArsTrainer.arsResultFinalParams result)
-                      evalEpisodes
-                  )
-                  (canonicalDiscreteEvaluation envName evalEpisodes)
+                ArsTrainer.evaluateArsPolicyWithEnvironment
+                  simEnv
+                  config
+                  (ArsTrainer.arsResultFinalParams result)
+                  evalEpisodes
             initialWeights = VU.toList (ArsTrainer.initialArsParams config)
             finalWeights = VU.toList (ArsTrainer.arsResultFinalParams result)
             updateCount = positiveWordFromInt (ArsTrainer.arsIterations config)
@@ -4538,7 +4347,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
         >>= \result ->
           let episodes =
                 evaluatedEpisodes
-                  (replicate (max 1 evalEpisodes) (1.0, HerTrainer.herNumBits config))
+                  (herEvaluationEpisodes config result evalEpisodes)
               initialWeights = mlpParamsToFlat (HerTrainer.initialHerParams config)
               finalWeights = mlpParamsToFlat (HerTrainer.herResultFinalParams result)
               updateCount = positiveWordFromInt (HerTrainer.herEpisodes config)
@@ -4555,6 +4364,15 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                 finalWeights
                 observedUnits
                 episodes
+
+herEvaluationEpisodes
+  :: HerTrainer.HerTrainConfig -> HerTrainer.HerTrainResult -> Int -> [(Double, Int)]
+herEvaluationEpisodes config result evalEpisodes =
+  take (max 1 evalEpisodes) $
+    fmap
+      (\stat -> (HerTrainer.herIterSuccessRate stat, HerTrainer.herNumBits config))
+      (reverse (HerTrainer.herResultStats result))
+      <> repeat (0.0, HerTrainer.herNumBits config)
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
 rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
@@ -4599,251 +4417,6 @@ rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
 rlObservedBudgetUnits :: [EpisodeEnvelope.SimulatedEpisode] -> Word64
 rlObservedBudgetUnits episodes =
   max 1 (fromIntegral (sum (fmap EpisodeEnvelope.simEpisodeSteps episodes) :: Int))
-
-canonicalDiscreteEvaluation :: Text -> Int -> Maybe [(Double, Int)]
-canonicalDiscreteEvaluation envName episodeCount =
-  case Text.toLower envName of
-    "cartpole" ->
-      Just (rolloutSimulated RLSim.cartPoleEnvironment cartPoleExpertAction episodeCount)
-    "mountain-car" ->
-      Just (rolloutSimulated RLSim.mountainCarEnvironment mountainCarExpertAction episodeCount)
-    "acrobot" ->
-      Just (rolloutSimulated RLSim.acrobotEnvironment acrobotExpertAction episodeCount)
-    "lunar-lander" ->
-      Just (rolloutSimulated RLSim.lunarLanderEnvironment lunarLanderDiscreteExpertAction episodeCount)
-    "key-door-grid" ->
-      Just (rolloutSimulated RLSim.keyDoorGridEnvironment keyDoorGridExpertAction episodeCount)
-    "gridworld-deterministic" ->
-      Just (rolloutSimulated RLSim.gridWorldEnvironment gridWorldExpertAction episodeCount)
-    _ -> Nothing
-
-canonicalContinuousEvaluation :: Text -> Int -> Maybe [(Double, Int)]
-canonicalContinuousEvaluation envName episodeCount =
-  case Text.toLower envName of
-    "pendulum" ->
-      Just (rolloutContinuous RLSim.pendulumEnvironment pendulumExpertAction episodeCount)
-    "lunar-lander" ->
-      Just
-        ( rolloutContinuous
-            RLSim.lunarLanderContinuousEnvironment
-            lunarLanderContinuousExpertAction
-            episodeCount
-        )
-    _ -> Nothing
-
-rolloutSimulated
-  :: RLSim.SimulatedEnvironment state
-  -> (state -> Int)
-  -> Int
-  -> [(Double, Int)]
-rolloutSimulated environment actionFor episodeCount =
-  replicate (max 1 episodeCount) (go (RLSim.envInitial environment) 0 0.0)
- where
-  go state episodeLen episodeReturn
-    | episodeLen >= RLSim.envMaxEpisodeSteps environment = (episodeReturn, episodeLen)
-    | otherwise =
-        let stepResult = RLSim.envStep environment state (actionFor state)
-            nextReturn = episodeReturn + RLSim.simStepReward stepResult
-            nextLen = episodeLen + 1
-         in if RLSim.simStepDone stepResult
-              then (nextReturn, nextLen)
-              else go (RLSim.simStepState stepResult) nextLen nextReturn
-
-rolloutContinuous
-  :: RLSim.ContinuousEnvironment state
-  -> (state -> Double)
-  -> Int
-  -> [(Double, Int)]
-rolloutContinuous environment actionFor episodeCount =
-  replicate (max 1 episodeCount) (go (RLSim.cEnvInitial environment) 0 0.0)
- where
-  go state episodeLen episodeReturn
-    | episodeLen >= RLSim.cEnvMaxEpisodeSteps environment = (episodeReturn, episodeLen)
-    | otherwise =
-        let stepResult = RLSim.cEnvStep environment state (actionFor state)
-            nextReturn = episodeReturn + RLSim.cStepReward stepResult
-            nextLen = episodeLen + 1
-         in if RLSim.cStepDone stepResult
-              then (nextReturn, nextLen)
-              else go (RLSim.cStepState stepResult) nextLen nextReturn
-
-cartPoleExpertAction :: RLSim.CartPoleState -> Int
-cartPoleExpertAction state =
-  if score >= 0.0 then 1 else 0
- where
-  score =
-    RLSim.poleAngle state
-      + 0.75 * RLSim.poleAngularVelocity state
-      + 0.10 * RLSim.cartVelocity state
-      + 0.01 * RLSim.cartPosition state
-
-mountainCarExpertAction :: RLSim.MountainCarState -> Int
-mountainCarExpertAction state =
-  if RLSim.mountainCarVelocity state >= 0.0 then 2 else 0
-
-acrobotExpertAction :: RLSim.AcrobotState -> Int
-acrobotExpertAction state =
-  argmaxBy
-    ( \action ->
-        let stepResult = RLSim.acrobotStep state action
-         in acrobotLookahead 6 stepResult
-    )
-    [0, 1, 2]
-
-acrobotLookahead :: Int -> RLSim.SimStep RLSim.AcrobotState -> Double
-acrobotLookahead depth stepResult
-  | RLSim.simStepDone stepResult = 1000.0
-  | depth <= 0 = acrobotScore (RLSim.simStepState stepResult)
-  | otherwise =
-      RLSim.simStepReward stepResult
-        + 0.99
-          * maximum
-            [ acrobotLookahead (depth - 1) (RLSim.acrobotStep (RLSim.simStepState stepResult) action)
-            | action <- [0, 1, 2]
-            ]
-
-acrobotScore :: RLSim.AcrobotState -> Double
-acrobotScore state =
-  (-cos (RLSim.acrobotTheta1 state) - cos (RLSim.acrobotTheta1 state + RLSim.acrobotTheta2 state))
-    + 0.05 * abs (RLSim.acrobotDTheta1 state + RLSim.acrobotDTheta2 state)
-
-lunarLanderDiscreteExpertAction :: RLSim.LunarLanderState -> Int
-lunarLanderDiscreteExpertAction state =
-  if RLSim.lunarLanderVy state < desiredVy then 2 else 0
- where
-  desiredVy = max (-0.65) (min (-0.15) (-(0.55 * RLSim.lunarLanderY state)))
-
-lunarLanderContinuousExpertAction :: RLSim.LunarLanderState -> Double
-lunarLanderContinuousExpertAction state =
-  2.0 * thrust01 - 1.0
- where
-  desiredVy = max (-0.65) (min (-0.12) (-(0.50 * RLSim.lunarLanderY state)))
-  desiredAcc =
-    1.62
-      + 2.0 * (desiredVy - RLSim.lunarLanderVy state)
-      - 0.30 * RLSim.lunarLanderY state
-  thrust01 = clampDouble (desiredAcc / 13.0) 0.0 1.0
-
-pendulumExpertAction :: RLSim.PendulumState -> Double
-pendulumExpertAction state
-  | abs theta < 0.30 =
-      clampDouble (negate (15.0 * theta + 4.0 * thetaDot)) (-2.0) 2.0
-  | swingSignal >= 0.0 = -2.0
-  | otherwise = 2.0
- where
-  theta = atan2 (sin (RLSim.pendTheta state)) (cos (RLSim.pendTheta state))
-  thetaDot = RLSim.pendThetaDot state
-  swingSignal =
-    if abs thetaDot > 1.0e-9
-      then thetaDot * cos (RLSim.pendTheta state)
-      else (-1.0)
-
-keyDoorGridExpertAction :: RLSim.KeyDoorGridState -> Int
-keyDoorGridExpertAction state
-  | RLSim.keyDoorGridAgent state == RLSim.keyDoorGridKey state
-      && not (RLSim.keyDoorGridHasKey state) =
-      fromEnum RLSim.KeyDoorGridPickUpKey
-  | RLSim.keyDoorGridHasKey state
-      && not (RLSim.keyDoorGridDoorOpen state)
-      && keyDoorGridAdjacent (RLSim.keyDoorGridAgent state) (RLSim.keyDoorGridDoor state) =
-      fromEnum RLSim.KeyDoorGridOpenDoor
-  | otherwise =
-      maybe (fromEnum RLSim.KeyDoorGridSouth) fromEnum (keyDoorGridFirstAction state)
-
-keyDoorGridFirstAction :: RLSim.KeyDoorGridState -> Maybe RLSim.KeyDoorGridAction
-keyDoorGridFirstAction state =
-  bfs [] initialQueue
- where
-  start = RLSim.keyDoorGridAgent state
-  targets
-    | not (RLSim.keyDoorGridHasKey state) = [RLSim.keyDoorGridKey state]
-    | not (RLSim.keyDoorGridDoorOpen state) =
-        filter (keyDoorGridCanEnter state) (keyDoorGridAdjacentPositions (RLSim.keyDoorGridDoor state))
-    | otherwise = [RLSim.keyDoorGridGoal state]
-  initialQueue =
-    [ (nextPos, action)
-    | (action, nextPos) <- keyDoorGridNeighbors state start
-    ]
-  bfs _ [] = Nothing
-  bfs visited ((pos, firstAction) : rest)
-    | pos `elem` targets = Just firstAction
-    | pos `elem` visited = bfs visited rest
-    | otherwise =
-        bfs
-          (pos : visited)
-          ( rest
-              <> [ (nextPos, firstAction)
-                 | (_, nextPos) <- keyDoorGridNeighbors state pos
-                 , nextPos `notElem` visited
-                 ]
-          )
-
-keyDoorGridNeighbors
-  :: RLSim.KeyDoorGridState
-  -> RLSim.KeyDoorGridPosition
-  -> [(RLSim.KeyDoorGridAction, RLSim.KeyDoorGridPosition)]
-keyDoorGridNeighbors state pos =
-  [ (action, nextPos)
-  | (action, nextPos) <-
-      [ (RLSim.KeyDoorGridNorth, keyDoorGridMove (-1) 0 pos)
-      , (RLSim.KeyDoorGridSouth, keyDoorGridMove 1 0 pos)
-      , (RLSim.KeyDoorGridWest, keyDoorGridMove 0 (-1) pos)
-      , (RLSim.KeyDoorGridEast, keyDoorGridMove 0 1 pos)
-      ]
-  , keyDoorGridCanEnter state nextPos
-  ]
-
-keyDoorGridMove :: Int -> Int -> RLSim.KeyDoorGridPosition -> RLSim.KeyDoorGridPosition
-keyDoorGridMove dRow dCol pos =
-  RLSim.KeyDoorGridPosition
-    (RLSim.keyDoorGridRow pos + dRow)
-    (RLSim.keyDoorGridCol pos + dCol)
-
-keyDoorGridAdjacentPositions :: RLSim.KeyDoorGridPosition -> [RLSim.KeyDoorGridPosition]
-keyDoorGridAdjacentPositions pos =
-  [ keyDoorGridMove (-1) 0 pos
-  , keyDoorGridMove 1 0 pos
-  , keyDoorGridMove 0 (-1) pos
-  , keyDoorGridMove 0 1 pos
-  ]
-
-keyDoorGridAdjacent :: RLSim.KeyDoorGridPosition -> RLSim.KeyDoorGridPosition -> Bool
-keyDoorGridAdjacent a b =
-  abs (RLSim.keyDoorGridRow a - RLSim.keyDoorGridRow b)
-    + abs (RLSim.keyDoorGridCol a - RLSim.keyDoorGridCol b)
-    == 1
-
-keyDoorGridCanEnter :: RLSim.KeyDoorGridState -> RLSim.KeyDoorGridPosition -> Bool
-keyDoorGridCanEnter state pos =
-  RLSim.keyDoorGridRow pos >= 0
-    && RLSim.keyDoorGridRow pos < 5
-    && RLSim.keyDoorGridCol pos >= 0
-    && RLSim.keyDoorGridCol pos < 5
-    && pos `notElem` RLSim.keyDoorGridWalls state
-    && (pos /= RLSim.keyDoorGridDoor state || RLSim.keyDoorGridDoorOpen state)
-
-gridWorldExpertAction :: RLSim.GridWorldState -> Int
-gridWorldExpertAction state
-  | RLSim.gridWorldCol agent < 3 = fromEnum RLSim.GridWorldEast
-  | RLSim.gridWorldRow agent < RLSim.gridWorldRow (RLSim.gridWorldGoal state) =
-      fromEnum RLSim.GridWorldSouth
-  | otherwise = fromEnum RLSim.GridWorldEast
- where
-  agent = RLSim.gridWorldAgent state
-
-argmaxBy :: (Ord score) => (a -> score) -> [a] -> a
-argmaxBy _ [] = error "argmaxBy: empty list"
-argmaxBy score (x : xs) = snd (foldl step (score x, x) xs)
- where
-  step best@(bestScore, _) candidate
-    | candidateScore > bestScore = (candidateScore, candidate)
-    | otherwise = best
-   where
-    candidateScore = score candidate
-
-clampDouble :: Double -> Double -> Double -> Double
-clampDouble value lower upper =
-  max lower (min upper value)
 
 rlCompletionMetrics :: Text -> Word64 -> [EpisodeEnvelope.SimulatedEpisode] -> [(Text, Double)]
 rlCompletionMetrics trainerKind observedUnits episodes =
@@ -5847,7 +5420,16 @@ measureAlphaZeroArenaWinRate :: App ReportMeasurement
 measureAlphaZeroArenaWinRate =
   let net = PolicyValueNet.initPolicyValueNet 43 7 16 31
       adam = PolicyValueNet.initAdamFor net
-      result = PolicyValueNet.runOneGenerationOfSelfPlay net adam 2 16 8 4 4 99
+      result =
+        PolicyValueNet.runOneGenerationOfSelfPlay
+          net
+          adam
+          2
+          (AlphaZero.maxPliesFor "connect4")
+          8
+          4
+          4
+          99
    in pure (measuredShow "connect4/gen0=" (PolicyValueNet.genArenaWinRate result))
 
 measureTuneBestObjective :: App ReportMeasurement
@@ -5858,9 +5440,16 @@ measureTuneBestObjective = do
   case (cluster, loaded >>= maybe (Left "missing tuning block") Right . Tune.tuningExperimentConfig) of
     (Just publication, Right config) -> do
       let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
+          scheduler = Tune.tuningSchedulerKind (Tune.tuningConfigScheduler config)
+          pruner = Tune.tuningPrunerKind (Tune.tuningConfigPruner config)
           trialCount = fromIntegral (Tune.tuningConfigTrials config)
           device = mlpDeviceForSubstrate (Publication.publicationSubstrate publication) env
-      valuesE <- liftIO (Tune.deterministicTrialsWithDevice device sampler trialCount)
+      valuesE <-
+        liftIO
+          ( fmap
+              (fmap (fmap Tune.trialResultObjective))
+              (Tune.trialObjectiveResultsWithDeviceForAxes device sampler scheduler pruner trialCount)
+          )
       pure $
         case valuesE of
           Left _ -> MeasurementUnavailable
@@ -6497,10 +6086,17 @@ trainAndPublishAlphaZeroProductRow
 trainAndPublishAlphaZeroProductRow substrate row game = do
   env <- ask
   games <- productEnvInt "JITML_PRODUCT_AZ_GAMES" 2
-  sims <- productEnvInt "JITML_PRODUCT_AZ_SIMS" 8
-  maxPlies <- productEnvInt "JITML_PRODUCT_AZ_MAX_PLIES" 4
+  sims <-
+    productEnvInt
+      "JITML_PRODUCT_AZ_SIMS"
+      (fromIntegral (RLConvergence.alphaZeroSimulationBudget game))
+  maxPlies <- productEnvInt "JITML_PRODUCT_AZ_MAX_PLIES" (AlphaZero.maxPliesFor game)
   updates <- productEnvInt "JITML_PRODUCT_AZ_UPDATES" 8
   arenaGames <- productEnvInt "JITML_PRODUCT_AZ_ARENA_GAMES" 8
+  generationTarget <-
+    productEnvInt
+      "JITML_PRODUCT_AZ_GENERATIONS"
+      (fromIntegral (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row)))
   let seed = productRowSeed row 101
       device = rlDeviceForSubstrate substrate env
       initialState = AlphaZero.initialStateFor game
@@ -6513,86 +6109,119 @@ trainAndPublishAlphaZeroProductRow substrate row game = do
     Left err ->
       pure (productPublishError row ("AlphaZero substrate device unavailable: " <> err))
     Right () -> do
-      sampleResults <-
+      generationResult <-
         liftIO $
+          trainAlphaZeroGenerationsWithDevice
+            device
+            initialState
+            net0
+            adam0
+            generationTarget
+            games
+            sims
+            maxPlies
+            updates
+            seed
+      case generationResult of
+        Left err ->
+          pure (productPublishError row ("AlphaZero self-play failed: " <> err))
+        Right (trainedNet, samples, generationCount) -> do
+          if null samples
+            then pure (productPublishError row "AlphaZero self-play produced no samples")
+            else do
+              let winRate =
+                    PolicyValueNet.arenaWinRateAgainstUniformFrom
+                      initialState
+                      trainedNet
+                      arenaGames
+                      maxPlies
+                      (seed + 7919)
+                  experimentHash = ProductMatrix.productRowExperimentHash row
+                  checkpointStep = fromIntegral (length samples)
+                  metrics =
+                    [ ("arena_win_rate", winRate)
+                    , ("legal_move_rate", 1.0)
+                    , ("mcts_simulations_per_move", fromIntegral sims)
+                    , ("self_play_games", fromIntegral games)
+                    , ("self_play_generations", fromIntegral generationCount)
+                    , ("self_play_samples", fromIntegral (length samples))
+                    ]
+                  initialWeights = PolicyValueNet.policyValueNetToFlat net0
+                  finalWeights = PolicyValueNet.policyValueNetToFlat trainedNet
+                  completedTraining =
+                    alphaZeroCompletedTraining
+                      experimentHash
+                      game
+                      (fromIntegral generationCount)
+                      metrics
+                      initialWeights
+                      finalWeights
+              case completedTraining of
+                Nothing ->
+                  pure (productPublishError row "AlphaZero row did not produce passing CompletedTraining evidence")
+                Just completed -> do
+                  stored <-
+                    writeLocalWeightCheckpointWithCompleted
+                      (Just completed)
+                      experimentHash
+                      ("alphazero-" <> game <> "-policy-value-weights")
+                      checkpointStep
+                      metrics
+                      finalWeights
+                  _ <-
+                    writeTextArtifact
+                      experimentHash
+                      "alphazero-transcript"
+                      (renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples)
+                  pure (productPublishEligible row stored "AlphaZero policy-value artifact published")
+
+trainAlphaZeroGenerationsWithDevice
+  :: MlpDevice
+  -> AlphaZero.GameState
+  -> PolicyValueNet.PolicyValueNet
+  -> AdamState
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> IO (Either Text (PolicyValueNet.PolicyValueNet, [PolicyValueNet.PolicyValueTrainingSample], Int))
+trainAlphaZeroGenerationsWithDevice device initialState net0 adam0 generationTarget games sims maxPlies updates seed =
+  go 0 net0 adam0 []
+ where
+  go generation net adam allSamples
+    | generation >= max 1 generationTarget =
+        pure (Right (net, allSamples, generation))
+    | otherwise = do
+        sampleResults <-
           traverse
             ( \gameIndex ->
                 PolicyValueNet.generatePolicyValueSamplesWithDeviceFrom
                   initialState
                   device
-                  net0
-                  (seed + gameIndex)
+                  net
+                  (seed + generation * 7919 + gameIndex)
                   sims
                   maxPlies
             )
-            [0 .. games - 1]
-      case sequence sampleResults of
-        Left err ->
-          pure (productPublishError row ("AlphaZero self-play failed: " <> err))
-        Right batches -> do
-          let samples = concat batches
-          if null samples
-            then pure (productPublishError row "AlphaZero self-play produced no samples")
-            else do
-              trainedE <-
-                liftIO $
-                  PolicyValueNet.trainPolicyValueNetOnSamplesWithDevice
-                    device
-                    net0
-                    adam0
-                    1.0e-3
-                    updates
-                    samples
-              case trainedE of
-                Left err ->
-                  pure (productPublishError row ("AlphaZero device training failed: " <> err))
-                Right (trainedNet, _trainedAdam) -> do
-                  let winRate =
-                        PolicyValueNet.arenaWinRateAgainstUniformFrom
-                          initialState
-                          trainedNet
-                          arenaGames
-                          maxPlies
-                          (seed + 7919)
-                      experimentHash = ProductMatrix.productRowExperimentHash row
-                      checkpointStep = fromIntegral (length samples)
-                      generationCount = 1
-                      metrics =
-                        [ ("arena_win_rate", winRate)
-                        , ("legal_move_rate", 1.0)
-                        , ("mcts_simulations_per_move", fromIntegral sims)
-                        , ("self_play_games", fromIntegral games)
-                        , ("self_play_generations", fromIntegral generationCount)
-                        , ("self_play_samples", fromIntegral (length samples))
-                        ]
-                      initialWeights = PolicyValueNet.policyValueNetToFlat net0
-                      finalWeights = PolicyValueNet.policyValueNetToFlat trainedNet
-                      completedTraining =
-                        alphaZeroCompletedTraining
-                          experimentHash
-                          game
-                          generationCount
-                          metrics
-                          initialWeights
-                          finalWeights
-                  case completedTraining of
-                    Nothing ->
-                      pure (productPublishError row "AlphaZero row did not produce passing CompletedTraining evidence")
-                    Just completed -> do
-                      stored <-
-                        writeLocalWeightCheckpointWithCompleted
-                          (Just completed)
-                          experimentHash
-                          ("alphazero-" <> game <> "-policy-value-weights")
-                          checkpointStep
-                          metrics
-                          finalWeights
-                      _ <-
-                        writeTextArtifact
-                          experimentHash
-                          "alphazero-transcript"
-                          (renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples)
-                      pure (productPublishEligible row stored "AlphaZero policy-value artifact published")
+            [0 .. max 1 games - 1]
+        case sequence sampleResults of
+          Left err -> pure (Left err)
+          Right batches -> do
+            let generationSamples = concat batches
+            trainedE <-
+              PolicyValueNet.trainPolicyValueNetOnSamplesWithDevice
+                device
+                net
+                adam
+                1.0e-3
+                updates
+                generationSamples
+            case trainedE of
+              Left err -> pure (Left err)
+              Right (trainedNet, trainedAdam) ->
+                go (generation + 1) trainedNet trainedAdam (allSamples <> generationSamples)
 
 trainAndPublishTuningProductRow
   :: Substrate
@@ -6623,9 +6252,9 @@ trainAndPublishTuningProductRow substrate row = do
               )
           resultsE <-
             liftIO
-              ( Tune.trialObjectiveResultsWithDevice
+              ( Tune.trialObjectiveResultsWithDeviceForConfig
                   (mlpDeviceForSubstrate substrate env)
-                  (Tune.tuningSamplerKind (Tune.tuningConfigSampler config))
+                  config
                   trialCount
               )
           case resultsE of
@@ -6737,211 +6366,12 @@ stableTextSeed :: Text -> Int
 stableTextSeed =
   Text.foldl' (\acc ch -> acc * 33 + fromEnum ch) 17
 
--- | Seed the demo browser-panel inference checkpoints into live MinIO so the
--- checkpoint-backed panels serve real full-width inference results. The original
--- MNIST / generic / CIFAR / Connect 4 rows are trained demo networks; Sprint
--- 14.3 also seeds the Othello / Hex / Gomoku selector hashes with deterministic,
--- self-describing policy/value MLPs. The demo inference path that consumes them
--- at full multi-layer width is Sprint 14.3.
 runInternalSeedDemoCheckpoints :: App ()
-runInternalSeedDemoCheckpoints = do
-  livePublication <- liftIO (readExistingLivePublication ".")
-  case livePublication of
-    Nothing ->
-      exitWithError
-        ( InvalidConfig
-            "seed-demo-checkpoints requires a live cluster; bring it up via `jitml bootstrap`"
-        )
-    Just publication -> do
-      let edgePort = Publication.publicationEdgePort publication
-          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-          seedOne spec = do
-            result <-
-              liftIO
-                ( MinIOSubprocess.runMinIOSubprocess
-                    minioSettings
-                    ( writeMinIOWeightCheckpointShaped
-                        (sdcExperimentHash spec)
-                        (sdcTensorName spec)
-                        (1 :: Word64)
-                        (sdcProvenance spec)
-                        (sdcWeights spec)
-                        (sdcInputSpec spec)
-                        (sdcOutputSpec spec)
-                        (sdcLayerSpecs spec)
-                    )
-                )
-            case result of
-              Right _ ->
-                writeText
-                  ( "seed-demo-checkpoints: "
-                      <> sdcExperimentHash spec
-                      <> " seeded ("
-                      <> Text.pack (show (length (sdcWeights spec)))
-                      <> " trained weights, "
-                      <> Text.pack (show (length (sdcLayerSpecs spec)))
-                      <> " typed tensors)\n"
-                  )
-              Left err ->
-                exitWithError
-                  ( InvalidConfig
-                      ( "seed-demo-checkpoints: "
-                          <> sdcExperimentHash spec
-                          <> " failed: "
-                          <> Text.pack (show err)
-                      )
-                  )
-      mapM_ seedOne seededDemoCheckpoints
-
--- | Sprint 10.9 (review hardening) — a self-describing demo checkpoint spec: the trained
--- flat weights plus the per-layer tensor shapes and input/output specs the manifest records.
--- Carrying the shapes makes the checkpoint satisfy the "correct per-tensor shapes" Exit
--- Definition and lets a downstream multi-layer-forward consumer (Phase 14.3) reshape the flat
--- @.jmw1@ blob into its layers without a hardcoded per-family lookup.
-data SeededDemoCheckpoint = SeededDemoCheckpoint
-  { sdcExperimentHash :: !Text
-  , sdcTensorName :: !Text
-  , sdcWeights :: ![Double]
-  , sdcProvenance :: ![(Text, Double)]
-  , sdcInputSpec :: !Checkpoint.TensorSpec
-  , sdcOutputSpec :: !Checkpoint.TensorSpec
-  , sdcLayerSpecs :: ![Checkpoint.TensorSpec]
-  }
-  deriving stock (Eq, Show)
-
--- | Per-layer tensor specs for a single-hidden-layer MLP, in the 'mlpParamsToFlat' order
--- (@W1 ++ b1 ++ W2 ++ b2@). The product of the shapes sums to the flat weight length.
-mlpLayerTensorSpecs :: MlpShape -> [Checkpoint.TensorSpec]
-mlpLayerTensorSpecs shape =
-  [ Checkpoint.TensorSpec "W1" [mlpHidden shape, mlpInputs shape] "F64"
-  , Checkpoint.TensorSpec "b1" [mlpHidden shape] "F64"
-  , Checkpoint.TensorSpec "W2" [mlpOutputs shape, mlpHidden shape] "F64"
-  , Checkpoint.TensorSpec "b2" [mlpOutputs shape] "F64"
-  ]
-
-seededDemoCheckpoints :: [SeededDemoCheckpoint]
-seededDemoCheckpoints =
-  [ classifierDemo "mnist-deep-mlp" "mnist-demo-weights" 2001 784 24 10
-  , classifierDemo "generic-tensor-demo" "generic-demo-weights" 2003 4 8 3
-  , classifierDemo "generic-tensor-demo-candidate" "generic-candidate-demo-weights" 2004 4 8 3
-  , classifierDemo "cifar-imagenet" "cifar-demo-weights" 2002 3072 24 10
-  , trainedConnect4Demo
-      "connect4-alphazero"
-      "connect4-alphazero-demo-weights"
-      2005
-  , policyValuePanelDemo
-      "othello-alphazero"
-      "othello-alphazero-demo-weights"
-      "othello"
-      2006
-      (8 * 8 + 1)
-      32
-  , policyValuePanelDemo
-      "hex-alphazero"
-      "hex-alphazero-demo-weights"
-      "hex"
-      2007
-      (11 * 11 + 1)
-      32
-  , policyValuePanelDemo
-      "gomoku-alphazero"
-      "gomoku-alphazero-demo-weights"
-      "gomoku"
-      2008
-      (15 * 15 + 1)
-      32
-  ]
- where
-  classifierDemo experimentHash tensorName seed inputs hidden classes =
-    let config =
-          Classifier.defaultClassifierConfig
-            { Classifier.clfSeed = seed
-            , Classifier.clfInputs = inputs
-            , Classifier.clfHidden = hidden
-            , Classifier.clfClasses = classes
-            , Classifier.clfEpochs = 15
-            , Classifier.clfLearningRate = 5.0e-3
-            }
-        dataset = demoClassifierDataset seed inputs classes
-        trained = Classifier.trainClassifier config dataset
-        params = Classifier.trainedParams trained
-        shape = paramShape params
-     in SeededDemoCheckpoint
-          { sdcExperimentHash = experimentHash
-          , sdcTensorName = tensorName
-          , sdcWeights = mlpParamsToFlat params
-          , sdcProvenance =
-              [ ("train_loss", Classifier.crossEntropyLoss trained dataset)
-              , ("train_accuracy", Classifier.accuracy trained dataset)
-              , ("seed", fromIntegral seed)
-              ]
-          , sdcInputSpec = Checkpoint.TensorSpec "input" [mlpInputs shape] "F64"
-          , -- the classifier MLP carries @classes + 1@ raw output units (the class
-            -- logits plus one value head from the shared policy/value structure); the
-            -- semantic output width a demo forward renders is the class count, so the
-            -- output spec records @classes@ while the layer specs keep the raw tensors.
-            sdcOutputSpec = Checkpoint.TensorSpec "logits" [classes] "F64"
-          , sdcLayerSpecs = mlpLayerTensorSpecs shape
-          }
-  trainedConnect4Demo experimentHash tensorName seed =
-    let net0 = PolicyValueNet.initPolicyValueNet 43 7 32 seed
-        adam0 = PolicyValueNet.initAdamFor net0
-        generation = PolicyValueNet.runOneGenerationOfSelfPlay net0 adam0 12 42 16 40 16 seed
-        net = PolicyValueNet.genNet generation
-        params = PolicyValueNet.pvnParams net
-        shape = paramShape params
-     in SeededDemoCheckpoint
-          { sdcExperimentHash = experimentHash
-          , sdcTensorName = tensorName
-          , sdcWeights = mlpParamsToFlat params
-          , sdcProvenance =
-              [ ("arena_win_rate", PolicyValueNet.genArenaWinRate generation)
-              , ("self_play_samples", fromIntegral (PolicyValueNet.genSamplesCount generation))
-              , ("seed", fromIntegral seed)
-              ]
-          , -- the AlphaZero net outputs @actionCount@ policy logits + 1 value head.
-            sdcInputSpec = Checkpoint.TensorSpec "board" [mlpInputs shape] "F64"
-          , sdcOutputSpec = Checkpoint.TensorSpec "policy_value" [mlpOutputs shape] "F64"
-          , sdcLayerSpecs = mlpLayerTensorSpecs shape
-          }
-  policyValuePanelDemo experimentHash tensorName game seed observationSize hidden =
-    let actionCount = AlphaZero.policyHeadSize (AlphaZero.twoHeadedNetworkFor game)
-        net = PolicyValueNet.initPolicyValueNet observationSize actionCount hidden seed
-        params = PolicyValueNet.pvnParams net
-        shape = paramShape params
-     in SeededDemoCheckpoint
-          { sdcExperimentHash = experimentHash
-          , sdcTensorName = tensorName
-          , sdcWeights = mlpParamsToFlat params
-          , sdcProvenance =
-              [ ("panel_seeded_policy_value", 1.0)
-              , ("action_count", fromIntegral actionCount)
-              , ("seed", fromIntegral seed)
-              ]
-          , sdcInputSpec = Checkpoint.TensorSpec "board" [mlpInputs shape] "F64"
-          , sdcOutputSpec = Checkpoint.TensorSpec "policy_value" [mlpOutputs shape] "F64"
-          , sdcLayerSpecs = mlpLayerTensorSpecs shape
-          }
-
--- | Sprint 10.9 — a small, deterministic, linearly-separable classification task
--- for the real-trained demo checkpoints. Class @c@ carries high signal at the
--- feature positions congruent to @c@ modulo the class count, with a tiny
--- seed-derived jitter, so a softmax MLP learns a real (non-trivial) decision
--- boundary. Generated in-code per the numerical-fixture prohibition.
-demoClassifierDataset :: Int -> Int -> Int -> Classifier.Dataset
-demoClassifierDataset seed inputs classes =
-  [ Classifier.LabeledExample (VU.fromList (feature c i)) c
-  | c <- [0 .. max 1 classes - 1]
-  , i <- [0 .. 3 :: Int]
-  ]
- where
-  feature c i =
-    [ signal j + jitter j
-    | j <- [0 .. max 1 inputs - 1]
-    ]
-   where
-    signal j = if j `mod` max 1 classes == c then 1.0 else 0.0
-    jitter j = fromIntegral ((seed + c * 31 + i * 7 + j * 13) `mod` 5) / 100.0
+runInternalSeedDemoCheckpoints =
+  exitWithError
+    ( InvalidConfig
+        "internal seed-demo-checkpoints is retired; use `jitml internal train-and-publish-product-rows --substrate <substrate>` to produce inference-eligible product-row artifacts"
+    )
 
 parseDatasetSplit :: Text -> Maybe Dataset.DatasetSplit
 parseDatasetSplit "train" = Just Dataset.TrainSplit

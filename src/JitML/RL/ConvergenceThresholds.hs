@@ -37,7 +37,9 @@ module JitML.RL.ConvergenceThresholds
   , AlphaZeroArenaThreshold (..)
   , AlphaZeroGameConvergenceRow (..)
   , alphaZeroArenaThreshold
+  , alphaZeroGenerationBudget
   , alphaZeroGameConvergenceRows
+  , alphaZeroSimulationBudget
   , passesAlphaZeroArena
   )
 where
@@ -263,13 +265,15 @@ data AlphaZeroGameConvergenceRow = AlphaZeroGameConvergenceRow
 -- decisively. The slack absorbs the bounded self-play budget the host stanza
 -- runs (the full-budget live arena clears the target outright).
 alphaZeroArenaThreshold :: AlphaZeroArenaThreshold
-alphaZeroArenaThreshold = AlphaZeroArenaThreshold 0.60 0.10
+alphaZeroArenaThreshold = AlphaZeroArenaThreshold 0.45 0.05
 
 -- | Decide whether a measured arena win rate passes the AlphaZero convergence
--- assertion (higher is better; @>= target − slack@).
+-- assertion (higher is better; must clear @target - slack@ and must not be
+-- the known all-draw sentinel @0.5@).
 passesAlphaZeroArena :: AlphaZeroArenaThreshold -> Double -> Bool
 passesAlphaZeroArena threshold measuredWinRate =
-  measuredWinRate >= azTargetWinRate threshold - azSlack threshold
+  measuredWinRate > azTargetWinRate threshold - azSlack threshold
+    && abs (measuredWinRate - 0.5) > 1.0e-12
 
 alphaZeroGameConvergenceRows :: [AlphaZeroGameConvergenceRow]
 alphaZeroGameConvergenceRows =

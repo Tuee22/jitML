@@ -80,6 +80,7 @@ import JitML.Product.Evidence
   ( TrainingEvidence
   , mkTrainingEvidence
   )
+import JitML.Product.ExternalBars qualified as ExternalBars
 import JitML.Training.Budget
   ( CompletedTraining
   , coMetricName
@@ -298,6 +299,7 @@ data EligibilityError
   = MissingCompletedTraining
   | CompletedTrainingHasNoMetrics
   | CompletedTrainingHasFailedMetrics [Text]
+  | CompletedTrainingExternalBarMismatch [Text]
   | CompletedTrainingOutrunsManifest Word64 Word64
   | CompletedTrainingEvidenceMissing
   | CompletedTrainingEvidenceInvalid Text
@@ -452,8 +454,13 @@ requireInferenceEligibleCheckpoint manifestSha manifest =
               | otherwise ->
                   let supervisedShapeLayoutErrors =
                         validateSupervisedManifestShapeLayout manifest
+                      externalBarErrors =
+                        ExternalBars.assertConvergenceObservationsExternal
+                          (completedTrainingMetrics completed)
                    in case filter (not . convergencePassed) (completedTrainingMetrics completed) of
                         []
+                          | not (null externalBarErrors) ->
+                              Left (CompletedTrainingExternalBarMismatch externalBarErrors)
                           | not (null supervisedShapeLayoutErrors) ->
                               Left (SupervisedManifestShapeLayoutInvalid supervisedShapeLayoutErrors)
                           | otherwise ->
@@ -630,6 +637,9 @@ renderEligibilityError err =
     CompletedTrainingHasFailedMetrics metrics ->
       "completed-training witness has failed convergence metrics: "
         <> Text.intercalate "," metrics
+    CompletedTrainingExternalBarMismatch errors ->
+      "completed-training witness does not match external convergence bars: "
+        <> Text.intercalate "; " errors
     CompletedTrainingOutrunsManifest observed manifestStepValue ->
       "completed-training witness observes "
         <> Text.pack (show observed)
