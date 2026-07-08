@@ -81,7 +81,12 @@ deterministicFlags engine =
   case engineSubstrate engine of
     AppleSilicon -> ["single-stream-launch-order", "fixed-metal-bridge", "source-metadata-cache"]
     LinuxCPU -> ["onednn-fixed-block-reduction", "avx2-baseline"]
-    LinuxCUDA -> ["--use_fast_math=false", "cudnn-explicit-algorithm-id", "warp-shuffle-deterministic"]
+    LinuxCUDA ->
+      [ "--use_fast_math=false"
+      , "--fmad=false"
+      , "cudnn-explicit-algorithm-id"
+      , "warp-shuffle-deterministic"
+      ]
 
 renderEnginePlan :: Engine -> Text
 renderEnginePlan engine =
@@ -183,6 +188,16 @@ compileSubprocess engine source hash =
           -- `tf32=disabled` + `--use_fast_math=false` as the human-readable
           -- intent.
           "-arch=sm_70"
+        , -- Disable FMA contraction so the device multiply-adds round the same
+          -- way the CPU (oneDNN) build does with its separate multiply-then-add
+          -- and fixed reduction order. With `--fmad=true` (the nvcc default) the
+          -- MLP kernels contract `acc += w*x` into a fused op that rounds once
+          -- instead of twice; in the chaotic RL training loop that sub-ULP skew
+          -- amplifies into materially different convergence (e.g. PPO/cartpole
+          -- 450 on oneDNN vs 286 on CUDA at the same seed/config). Matching the
+          -- rounding makes the substrates track and keeps the determinism
+          -- contract's cross-substrate intent honest.
+          "--fmad=false"
         , "-DJITML_USE_CUBLAS=1"
         , "-DJITML_USE_CUDNN=1"
         , "-o"

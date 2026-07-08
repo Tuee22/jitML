@@ -4094,6 +4094,16 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
   targetTrainingSteps floorSteps =
     positiveIntFromWord64
       (max (fromIntegral (max 1 floorSteps)) (fromMaybe 0 targetEnvStepsMaybe))
+  -- Replay-based off-policy trainers (DQN, QR-DQN, DDPG/TD3/SAC/CrossQ/TQC) need
+  -- a sample budget comparable to the on-policy path (which gets ~25600 env-steps
+  -- via `max 50 evalEpisodes * rolloutSteps`). The old flat `max 2000` floor left
+  -- them with ~2000-4000 steps — below the replay warmup + epsilon-decay
+  -- schedules — so the policy stayed essentially random. These floors match the
+  -- SB3 zoo sample complexity (cartpole ~50k, mountain-car ~120k).
+  offPolicyStepFloor =
+    case Text.toLower envName of
+      "mountain-car" -> 120000
+      _ -> 50000
   -- Sprint 8.11 — every MLP-backed trainer routes through its `*OnDevice`
   -- variant against the resolved substrate device, with iteration budgets
   -- raised from the old `max 1 evalEpisodes` floor so training actually
@@ -4105,8 +4115,13 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
         let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
             effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
             rolloutSteps = max 512 effectiveMaxSteps
-            targetSteps = targetTrainingSteps (max 50 evalEpisodes * rolloutSteps)
-            numIterations = max 50 (ceilingDivInt targetSteps rolloutSteps)
+            -- ~150 rollouts (~77k env-steps for the 512-step rollout). The old
+            -- `max 50` floor (~25600 steps) is below the SB3 on-policy sample
+            -- budget for cartpole (~1e5) and far below lunar-lander/mountain-car,
+            -- so even a correct (linear) critic could not reach the literature
+            -- bars in the given budget.
+            targetSteps = targetTrainingSteps (max 150 evalEpisodes * rolloutSteps)
+            numIterations = max 150 (ceilingDivInt targetSteps rolloutSteps)
         let config =
               PpoTrainer.defaultPpoTrainConfig
                 { PpoTrainer.ppoSeed = seed
@@ -4118,6 +4133,16 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                 , PpoTrainer.ppoActionCount = RLSim.envActionCount environment
                 , PpoTrainer.ppoObsSize = RLSim.envObservationSize environment
                 , PpoTrainer.ppoLearningRate = learningRate
+                , -- Nonzero entropy bonus for exploration: with the old 0.0
+                  -- coefficient and a deterministic argmax eval policy,
+                  -- mountain-car and acrobot sat on their exact reward floors
+                  -- (goal never reached). 0.01 matches common SB3 PPO configs;
+                  -- the sparse-reward classic-control envs (mountain-car,
+                  -- acrobot) get a larger bonus because the potential-based
+                  -- reward shaping is absorbed by the on-policy value baseline,
+                  -- so exploration must come from the entropy term.
+                  PpoTrainer.ppoEntropyCoef = onPolicyEntropyCoefFor envName
+                , PpoTrainer.ppoCountBeta = onPolicyCountBetaFor variant envName
                 }
         resultE <- PpoTrainer.trainOnPolicyOnDeviceWithEnvironment device simEnv variant config
         pure $
@@ -4149,15 +4174,37 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                     finalWeights
                     observedUnits
                     episodes
+  -- One on-policy tuning across substrates: the cuBLAS (linux-cuda) and oneDNN
+  -- (linux-cpu) GEMM paths are numerically close, so the same (epochs, lr) that
+  -- converges cartpole/lunar on linux-cpu must be used on linux-cuda rather than
+  -- a more aggressive (fewer-epochs, higher-lr) pair that left PPO/MaskablePPO
+  -- cartpole stuck at ~210 on the CUDA lane.
   onPolicyTuning LinuxCPU = (10, 5.0e-4)
-  onPolicyTuning LinuxCUDA = (8, 7.0e-4)
-  onPolicyTuning AppleSilicon = (8, 7.0e-4)
+  onPolicyTuning LinuxCUDA = (10, 5.0e-4)
+  onPolicyTuning AppleSilicon = (10, 5.0e-4)
+  onPolicyEntropyCoefFor "mountain-car" = 0.05
+  onPolicyEntropyCoefFor _ = 0.01
+  -- Per-algorithm count-based exploration scale for the sparse mountain-car
+  -- goal (0 = disabled; a strict no-op on every other env). The optimal novelty
+  -- intensity differs by update rule: a clipped/conservative learner needs a
+  -- stronger push than the KL-constrained TRPO, and too strong a bonus makes a
+  -- learner over-explore and never exploit. Values found by per-row validation.
+  onPolicyCountBetaFor _ name | name /= "mountain-car" = 0.0
+  onPolicyCountBetaFor PpoTrainer.VariantTRPO _ = 5.0
+  onPolicyCountBetaFor PpoTrainer.VariantRecurrentPPO _ = 4.0
+  onPolicyCountBetaFor PpoTrainer.VariantMaskablePPO _ = 8.0
+  onPolicyCountBetaFor _ _ = 10.0
+  -- Count-based exploration for the SAC pendulum swing-up (the only continuous
+  -- row whose fixed-Gaussian exploration never finds the upright). A no-op for
+  -- every other continuous variant/env.
+  continuousCountBetaFor ContinuousTrainer.VariantSAC "pendulum" = 40.0
+  continuousCountBetaFor _ _ = 0.0
   dqnEpisodes useDouble = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
         let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
-            numSteps = max 2000 (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
+            numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
         let config =
               DqnTrainer.defaultDqnTrainConfig
                 { DqnTrainer.dqnSeed = seed
@@ -4201,7 +4248,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
         let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
-            numSteps = max 2000 (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
+            numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
         let config =
               QrDqnTrainer.defaultQrDqnTrainConfig
                 { QrDqnTrainer.qrSeed = seed
@@ -4244,7 +4291,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       Nothing -> pure (Left ("unknown continuous RL environment: " <> envName))
       Just contEnv@(RLSim.SomeContinuousEnvironment environment) -> do
         let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.cEnvMaxEpisodeSteps environment)
-            numSteps = max 2000 (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
+            numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
         let config =
               (ContinuousTrainer.defaultContinuousTrainConfig variant)
                 { ContinuousTrainer.ctSeed = seed
@@ -4254,6 +4301,8 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                 , ContinuousTrainer.ctActionLow = RLSim.cEnvActionLow environment
                 , ContinuousTrainer.ctActionHigh = RLSim.cEnvActionHigh environment
                 , ContinuousTrainer.ctStatInterval = max 1000 effectiveMaxSteps
+                , ContinuousTrainer.ctEnvName = envName
+                , ContinuousTrainer.ctCountBeta = continuousCountBetaFor variant envName
                 }
         resultE <- ContinuousTrainer.trainContinuousOnDeviceWithEnvironment device contEnv config
         pure $
@@ -4345,9 +4394,26 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
     pure $
       resultE
         >>= \result ->
-          let episodes =
-                evaluatedEpisodes
-                  (herEvaluationEpisodes config result evalEpisodes)
+          let evals =
+                HerTrainer.evaluateHerGreedy
+                  config
+                  (HerTrainer.herResultFinalParams result)
+                  (max 1 evalEpisodes)
+                  (seed + 104729)
+              -- Encode the greedy (epsilon=0) eval into the SimulatedEpisode
+              -- plumbing: done = reached-goal, reward = 1 - normalized distance
+              -- (1.0 exactly when reached). The HER convergence gate reads these
+              -- back as goal_success_rate + achieved_goal_distance.
+              episodes =
+                [ EpisodeEnvelope.SimulatedEpisode
+                    { EpisodeEnvelope.simEpisodeIndex = i
+                    , EpisodeEnvelope.simEpisodeSteps = HerTrainer.herNumBits config
+                    , EpisodeEnvelope.simEpisodeReward = 1.0 - normDist
+                    , EpisodeEnvelope.simEpisodeDone = reached
+                    , EpisodeEnvelope.simEpisodeFrames = []
+                    }
+                | (i, (reached, normDist)) <- zip [0 ..] evals
+                ]
               initialWeights = mlpParamsToFlat (HerTrainer.initialHerParams config)
               finalWeights = mlpParamsToFlat (HerTrainer.herResultFinalParams result)
               updateCount = positiveWordFromInt (HerTrainer.herEpisodes config)
@@ -4364,15 +4430,6 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                 finalWeights
                 observedUnits
                 episodes
-
-herEvaluationEpisodes
-  :: HerTrainer.HerTrainConfig -> HerTrainer.HerTrainResult -> Int -> [(Double, Int)]
-herEvaluationEpisodes config result evalEpisodes =
-  take (max 1 evalEpisodes) $
-    fmap
-      (\stat -> (HerTrainer.herIterSuccessRate stat, HerTrainer.herNumBits config))
-      (reverse (HerTrainer.herResultStats result))
-      <> repeat (0.0, HerTrainer.herNumBits config)
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
 rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
@@ -4434,9 +4491,20 @@ rlCompletionMetrics trainerKind observedUnits episodes =
       herMetrics =
         if trainerKind == "her"
           then
-            let successRate = clamp01 (lastOrZero rewards)
-             in [ ("goal_success_rate", successRate)
-                , ("achieved_goal_distance", 1.0 - successRate)
+            -- Read the greedy-eval episodes directly: success = fraction that
+            -- reached the goal (simEpisodeDone), achieved distance = mean
+            -- normalized distance (= 1 - mean reward, since reward = 1 - dist).
+            -- The old `lastOrZero rewards` read a padding zero once eval episodes
+            -- exceeded the recorded training-stat intervals (so it reported 0.0),
+            -- and derived distance as `1 - success` rather than a real distance.
+            let reached = length (filter EpisodeEnvelope.simEpisodeDone episodes)
+                successRate =
+                  if null episodes
+                    then 0.0
+                    else fromIntegral reached / fromIntegral (length episodes)
+                achievedDistance = clamp01 (1.0 - avgReward)
+             in [ ("goal_success_rate", clamp01 successRate)
+                , ("achieved_goal_distance", achievedDistance)
                 ]
           else []
    in baseMetrics <> herMetrics
@@ -4608,10 +4676,6 @@ medianValues values =
    in if even n
         then (sorted !! (mid - 1) + sorted !! mid) / 2
         else sorted !! mid
-
-lastOrZero :: [Double] -> Double
-lastOrZero =
-  foldl' (\_ value -> value) 0.0
 
 clamp01 :: Double -> Double
 clamp01 value =
@@ -6008,7 +6072,11 @@ trainAndPublishRlProductRow substrate row trainerKind environment =
       pure (productPublishUnsupported row err)
     Nothing -> do
       env <- ask
-      evalEpisodes <- productEnvInt "JITML_PRODUCT_RL_EVAL_EPISODES" 4
+      -- 20 evaluation episodes for a stable median: over just 4 episodes a
+      -- genuinely-converged but variable policy (e.g. PPO/cartpole) can post a
+      -- low median from a couple of unlucky short episodes, so the convergence
+      -- gate saw noise rather than the policy's true performance.
+      evalEpisodes <- productEnvInt "JITML_PRODUCT_RL_EVAL_EPISODES" 20
       maxSteps <- productEnvInt "JITML_PRODUCT_RL_MAX_STEPS" 200
       trainerRunE <-
         liftIO
@@ -6092,7 +6160,12 @@ trainAndPublishAlphaZeroProductRow substrate row game = do
       (fromIntegral (RLConvergence.alphaZeroSimulationBudget game))
   maxPlies <- productEnvInt "JITML_PRODUCT_AZ_MAX_PLIES" (AlphaZero.maxPliesFor game)
   updates <- productEnvInt "JITML_PRODUCT_AZ_UPDATES" 8
-  arenaGames <- productEnvInt "JITML_PRODUCT_AZ_ARENA_GAMES" 8
+  -- Odd arena-game count: for a no-draw game (hex, gomoku) an even count lets a
+  -- genuine ~50% net land on exactly 4W-4L = 0.5, which the all-draw sentinel in
+  -- `passesAlphaZeroArena` rejects as if every game had drawn. With 9 games a
+  -- real 50%-ish net lands at 4/9 or 5/9 — both clear the 0.40 external bar and
+  -- neither is the 0.5 sentinel — so a legitimately-winning net is not discarded.
+  arenaGames <- productEnvInt "JITML_PRODUCT_AZ_ARENA_GAMES" 9
   generationTarget <-
     productEnvInt
       "JITML_PRODUCT_AZ_GENERATIONS"
@@ -6158,7 +6231,13 @@ trainAndPublishAlphaZeroProductRow substrate row game = do
                       finalWeights
               case completedTraining of
                 Nothing ->
-                  pure (productPublishError row "AlphaZero row did not produce passing CompletedTraining evidence")
+                  pure
+                    ( productPublishError
+                        row
+                        ( "AlphaZero row did not produce passing CompletedTraining evidence: arena_win_rate="
+                            <> Text.pack (show winRate)
+                        )
+                    )
                 Just completed -> do
                   stored <-
                     writeLocalWeightCheckpointWithCompleted
@@ -6266,8 +6345,15 @@ trainAndPublishTuningProductRow substrate row = do
                   pure (productPublishError row "tuning row produced no trial results")
                 Just best -> do
                   let experimentHash = ProductMatrix.productRowExperimentHash row
+                      -- Budget evidence counts trials EXECUTED, not the
+                      -- scheduler/pruner-filtered survivors: ASHA/MedianPruner
+                      -- drop sub-median trials from `results` (champion
+                      -- selection), so counting `length results` made the
+                      -- 128-trial budget gate unsatisfiable whenever a pruner
+                      -- was active. `selectBestTrialResult`/`renderTuneTrialArtifact`
+                      -- still consume the filtered `results`.
                       trialsCompleted32 :: Word32
-                      trialsCompleted32 = fromIntegral (length results)
+                      trialsCompleted32 = fromIntegral trialCount
                       trialsCompleted = fromIntegral trialsCompleted32
                       completedTraining =
                         completedTrainingForProductRow

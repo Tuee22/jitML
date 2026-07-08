@@ -11,19 +11,57 @@
 
 ## Phase State
 
-⏸️ **Blocked** (2026-07-06). Phase `29` has source-side CUDA progress but is not
-closed because the required real `linux-cuda` validation could not run on this
-host. The CUDA renderer now emits windowed cuDNN Conv2D/Conv3D source with
-padded/cropped spatial tensors, the shared family reference uses matching
-windowed semantics, and the generated-source/negative-control tests reject the
-old scalar 1x1 stand-ins. Host-local validation passed for the renderer and
-linux-cpu reference path, but the live CUDA command
-`docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
-failed before test execution with Docker reporting
-`could not select device driver "" with capabilities: [[gpu]]`.
+⏸️ **Blocked** (2026-07-07). The prior Docker-GPU blocker is **resolved**: on the
+current RTX 5090 host the `nvidia` container runtime is registered and the
+`jitml-cuda` compose service sees the GPU, so **Sprint `29.1` validated for
+real** — `jitml test jitml-backends --linux-cuda` passed **21 / 21** on the
+attached GPU (real `cublasSgemm`/`cudnnConvolutionForward`, bit-deterministic
+device GEMM, nvcc + FFI compile/run), with `jitml-unit --linux-cpu` **277 / 277**
+and `check-code` **ok**. The live CUDA cluster came up (edge `:9092`) and all 12
+canonical datasets were SHA-verified into MinIO.
 
-**Blocked by**: a host whose Docker daemon exposes the NVIDIA Container Runtime
-and an attached NVIDIA GPU to the `jitml-cuda` compose service.
+Running the real `jitml internal train-and-publish-product-rows --linux-cuda`
+exposed the true blocker: **the product-row models did not converge to their
+literature-anchored bars** — the first honest run reported **eligible 23,
+errors 32**; a prior remediation reached **30 / 55**. This contradicts the
+"converged" status of Phases `25` (real RL) and `33` (per-model convergence),
+which remain `Active` (standards rule N).
+
+**2026-07-07 remediation (this session).** A numerical audit root-caused the
+largest gap: the generated CUDA MLP kernels left nvcc **FMA contraction**
+(`--fmad`) enabled while the oneDNN/CPU build uses separate multiply-then-add with
+fixed reduction order, so identical code and seed converged materially worse on
+`linux-cuda` (PPO/cartpole **450** on CPU vs **286** on CUDA). Adding
+`--fmad=false` to the CUDA nvcc command plus the three JIT-cache fingerprints
+(`Engine.hs` / `CudaLocal.hs` / `MlpCuda.hs`, so the kernels recompile) makes the
+substrates track; verified live on the RTX 5090: PPO/cartpole and
+PPO/lunar-lander went error → **eligible**. Additional real fixes landed and were
+validated: potential-based reward shaping (`JitML.RL.RewardShaping`,
+training-only, scoped to mountain-car/acrobot) fixing PPO/acrobot; a QR-DQN
+retune fixing QR-DQN/cartpole; unified cross-substrate on-policy tuning;
+mountain-car exploring starts + observation normalization; a deep-SL
+residual-scale increase that passed `cifar10-resnet20` on the GPU; and a
+board-scaled AlphaZero arena search with an odd arena-game count that resolves a
+hex all-draw-sentinel false positive. `jitml-model-convergence` and
+`jitml-negative-controls` pass and `cabal build all` is clean.
+
+**Remaining unconverged rows** (genuinely hard, owned by Phases `25` / `33`): the
+on-policy mountain-car cohort (PPO / A2C / TRPO / MaskablePPO / RecurrentPPO — a
+sparse-reward exploration wall that potential shaping provably cannot address
+on-policy, δ_shaped ≡ δ_true once the value baseline converges); DQN / QR-DQN
+mountain-car (−159 / −153, marginal); TRPO/lunar-lander (the crude diagonal-Fisher
+natural gradient diverges); SAC/pendulum (swing-up needs temporally-correlated
+exploration); and the deep-SL `cifar100-wide-resnet` / `fashion-mnist-resnet`
+rows (the executed residual stack is an un-normalized bag-of-patches with no
+cross-patch mixing — fashion caps at ~0.60 vs a 0.85 bar). A full `linux-cuda`
+`train-and-publish` on this session's fixes is a multi-hour job (per-row GPU RL
+cost is dominated by tiny-MLP kernel-launch overhead plus the single-threaded env
+simulator) and was in progress at this checkpoint with the SL / on-policy /
+off-policy / continuous families recovered. **55 / 55 is not yet reached.**
+
+**Blocked by**: Phases `25` / `33` producing genuinely-converging product rows
+(real RL/deep-SL/AlphaZero implementations), then a fresh full real `linux-cuda`
+`train-and-publish` + `test all` pass. The GPU/runtime prerequisite is met.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.

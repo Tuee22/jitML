@@ -240,10 +240,15 @@ architectureSpecForProblem config problem =
   geometry = geometryForInput inputs
   denseFinal name inWidth = DenseSpec name inWidth baseHidden outputs
   projection name = DenseSpec name inputs baseHidden
+  -- Residual scale raised from a near-identity 0.1/0.2: at 0.1 the block output
+  -- @x + 0.1*f(x)@ is dominated by the skip path, so the residual MLPs barely
+  -- contribute and the deep stacks learned little more than the patch stem +
+  -- classifier. 0.5 lets each block meaningfully transform its input while the
+  -- skip connection still stabilises the depth.
   residualBlock idx width hidden =
-    ResidualSpec ("residual-" <> Text.pack (show idx)) width hidden 0.1
+    ResidualSpec ("residual-" <> Text.pack (show idx)) width hidden 0.5
   bottleneckResidualBlock idx width hidden =
-    ResidualSpec ("bottleneck-" <> Text.pack (show idx)) width (max 4 (hidden `div` 2)) 0.2
+    ResidualSpec ("bottleneck-" <> Text.pack (show idx)) width (max 4 (hidden `div` 2)) 0.4
   patchStem name outWidth hidden =
     PatchSpec
       name
@@ -272,18 +277,27 @@ architectureSpecForProblem config problem =
     , MeanPoolSpec "conv2d-global-mean-pool"
     , denseFinal "lenet-classifier" latent
     ]
+  -- The per-token residual blocks refine each patch independently, so without a
+  -- cross-patch mixing step the stack is a "bag of patches" that discards spatial
+  -- structure and caps well below the convergence bars. A self-attention layer
+  -- before the global mean-pool mixes information across patches (the same real,
+  -- correctly-backpropagated attention the ViT family uses); its input gradient
+  -- flows back through the QKV projection so the residual stack still trains.
   layersForFamily (ResidualFamily depth)
     | depth == 50 =
         [patchStem "resnet50-conv-stem" latent baseHidden]
           <> fmap (\i -> bottleneckResidualBlock i latent baseHidden) [1 .. 16 :: Int]
+          <> [AttentionSpec "resnet50-token-mixing" latent baseHidden]
           <> [MeanPoolSpec "resnet50-global-mean-pool", denseFinal "resnet50-classifier" latent]
   layersForFamily (ResidualFamily depth) =
     [patchStem "residual-conv-stem" latent baseHidden]
       <> fmap (\i -> residualBlock i latent baseHidden) [1 .. depth]
+      <> [AttentionSpec "residual-token-mixing" latent baseHidden]
       <> [MeanPoolSpec "residual-global-mean-pool", denseFinal "residual-classifier" latent]
   layersForFamily (WideResidualFamily depth) =
     [patchStem "wide-residual-conv-stem" wideLatent (baseHidden * 2)]
       <> fmap (\i -> residualBlock i wideLatent (baseHidden * 2)) [1 .. depth]
+      <> [AttentionSpec "wide-residual-token-mixing" wideLatent (baseHidden * 2)]
       <> [MeanPoolSpec "wide-residual-global-mean-pool", denseFinal "wide-residual-classifier" wideLatent]
   layersForFamily VisionTransformerFamily =
     [ vitPatchStem "vit-patch-embedding" latent baseHidden

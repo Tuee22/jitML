@@ -110,6 +110,12 @@ data SimulatedEnvironment state = SimulatedEnvironment
   , envObservationSize :: Int
   , envMaxEpisodeSteps :: Int
   , envActionMask :: Maybe (state -> [Bool])
+  , envTrainingStart :: Maybe (Double -> Double -> state)
+  -- ^ Training-only exploring-start distribution: given two uniforms in @[0,1)@,
+  -- produce a randomized initial state. Used by the on-policy rollout reset to
+  -- break a hard-exploration wall (mountain-car never reaches its goal under
+  -- undirected exploration from the fixed valley-bottom start). Evaluation
+  -- always resets to 'envInitial'; @Nothing@ means "reset to 'envInitial'".
   }
 
 data SomeSimulatedEnvironment
@@ -183,6 +189,7 @@ cartPoleEnvironment =
     , envObservationSize = 4
     , envMaxEpisodeSteps = 500
     , envActionMask = Nothing
+    , envTrainingStart = Nothing
     }
 
 cartPoleStep :: CartPoleState -> Int -> SimStep CartPoleState
@@ -284,7 +291,33 @@ mountainCarEnvironment =
     , envObservationSize = 2
     , envMaxEpisodeSteps = 200
     , envActionMask = Nothing
+    , -- Valley-only exploring starts (position in [-1.2, -0.35], full velocity
+      -- range): training episodes begin scattered across the valley floor and
+      -- lower slopes with random momentum, so the policy learns energy
+      -- management (which way to pump given the current velocity) rather than a
+      -- degenerate "always drive right" that near-goal starts would teach and
+      -- that fails from the true valley-bottom start. Evaluation always resets
+      -- to 'envInitial'.
+      envTrainingStart =
+        Just
+          ( \u1 u2 ->
+              MountainCarState
+                (mountainCarMinPosition + u1 * (mountainCarValleyExploreHigh - mountainCarMinPosition))
+                ((u2 - 0.5) * 2.0 * mountainCarMaxSpeed)
+          )
     }
+
+-- | Upper position bound for mountain-car exploring starts: below the goal so
+-- exploring starts never begin in the trivially-solved near-goal region.
+mountainCarValleyExploreHigh :: Double
+mountainCarValleyExploreHigh = -0.35
+
+-- | Observation rescale for mountain-car velocity (raw range +/-0.07). Chosen so
+-- @maxSpeed * scale ~= 1@, matching the position scale in the network input.
+-- The reward-shaping potential in "JitML.RL.RewardShaping" reads the rescaled
+-- velocity, so its kinetic term normalises by @maxSpeed * scale@.
+mountainCarVelocityObsScale :: Double
+mountainCarVelocityObsScale = 15.0
 
 mountainCarStep :: MountainCarState -> Int -> SimStep MountainCarState
 mountainCarStep state action =
@@ -314,7 +347,13 @@ mountainCarRenderFrame state =
   RenderFrame
     { renderObservation =
         [ mountainCarPosition state
-        , mountainCarVelocity state
+        , -- Rescale velocity into ~[-1, 1] so it is not dwarfed by position in
+          -- the network input. Raw velocity is bounded by +/-0.07 while position
+          -- spans [-1.2, 0.6]; a standard-init MLP then under-weights velocity —
+          -- yet velocity direction is exactly what drives the pump-to-escape
+          -- policy. Applied in both training and evaluation (a fixed input
+          -- reparameterisation), so the reported metric is unaffected.
+          mountainCarVelocity state * mountainCarVelocityObsScale
         ]
     , renderCaption =
         "mountain-car p="
@@ -364,6 +403,7 @@ acrobotEnvironment =
     , envObservationSize = 6
     , envMaxEpisodeSteps = 500
     , envActionMask = Nothing
+    , envTrainingStart = Nothing
     }
 
 -- | Advance Acrobot one Gym-style timestep. Actions @0,1,2@ map to torques
@@ -529,6 +569,7 @@ lunarLanderEnvironment =
     , envObservationSize = 8
     , envMaxEpisodeSteps = 1000
     , envActionMask = Nothing
+    , envTrainingStart = Nothing
     }
 
 -- | Advance the lander one Gym timestep under the documented discrete
@@ -827,6 +868,7 @@ pendulumDiscreteEnvironment =
     , envObservationSize = 3
     , envMaxEpisodeSteps = 200
     , envActionMask = Nothing
+    , envTrainingStart = Nothing
     }
 
 -- | Advance the pendulum one Gym timestep under a continuous torque.
@@ -965,6 +1007,7 @@ keyDoorGridEnvironment =
     , envObservationSize = keyDoorGridObservationSize
     , envMaxEpisodeSteps = keyDoorGridMaxSteps
     , envActionMask = Just keyDoorGridLegalActionMask
+    , envTrainingStart = Nothing
     }
 
 keyDoorGridInitial :: Int -> KeyDoorGridState
@@ -1182,6 +1225,7 @@ gridWorldEnvironment =
     , envObservationSize = gridWorldObservationSize
     , envMaxEpisodeSteps = gridWorldMaxSteps
     , envActionMask = Nothing
+    , envTrainingStart = Nothing
     }
 
 gridWorldInitial :: GridWorldState

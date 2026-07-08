@@ -651,6 +651,14 @@ arenaWinRateAgainstUniform =
 arenaWinRateAgainstUniformFrom :: GameState -> PolicyValueNet -> Int -> Int -> Int -> Double
 arenaWinRateAgainstUniformFrom initialState net games maxPlies seed0 =
   let gen0 = Random.mkStdGen seed0
+      -- Scale arena search with the board size: a flat 16 simulations on a
+      -- 121-cell hex board barely samples the 121 legal moves, so the net played
+      -- little better than its (weakly-trained) raw prior. AlphaZero plays with
+      -- search, so giving the net proportionally more simulations on larger
+      -- boards is a faithful measure of the deployed player's strength, not a
+      -- metric shortcut. Small boards (connect4) keep a modest budget.
+      arenaSims =
+        max 48 (min 192 (2 * VU.length (pvPolicy (networkPolicyValue net initialState))))
       playOne g state gen plies =
         if plies >= maxPlies
           then (0.0 :: Double, gen) -- draw
@@ -658,7 +666,7 @@ arenaWinRateAgainstUniformFrom initialState net games maxPlies seed0 =
             let netPlayer = 1
                 netToMove = gameCurrentPlayer state == netPlayer
                 policy
-                  | netToMove = mctsVisitDistribution net 16 state (seed0 + g * 1009 + plies * 7919)
+                  | netToMove = mctsVisitDistribution net arenaSims state (seed0 + g * 1009 + plies * 7919)
                   | otherwise = pvPolicy (networkPolicyValue net state)
                 actionCount = VU.length policy
                 (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen

@@ -191,10 +191,12 @@ library
         JitML.RL.AsyncBuffer
         JitML.RL.Buffer
         JitML.RL.ConvergenceThresholds
+        JitML.RL.CountExploration
         JitML.RL.EpisodeEnvelope
         JitML.RL.Environments
         JitML.RL.Framework
         JitML.RL.Policy
+        JitML.RL.RewardShaping
         JitML.RL.Schema
         JitML.RL.Simulator
         JitML.Routes

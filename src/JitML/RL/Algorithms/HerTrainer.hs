@@ -31,12 +31,14 @@ module JitML.RL.Algorithms.HerTrainer
   , trainHerOnBitFlipOneDnn
   , trainHerOnBitFlipMetal
   , trainHerOnDevice
+  , evaluateHerGreedy
   )
 where
 
 import Data.List qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector qualified as VB
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -82,6 +84,7 @@ data HerTrainConfig = HerTrainConfig
   , herUseHindsight :: !Bool
   , herStrategy :: !HerStrategy
   , herStatInterval :: !Int
+  , herUpdatesPerEpisode :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -101,6 +104,10 @@ defaultHerTrainConfig =
     , herUseHindsight = True
     , herStrategy = HerFuture
     , herStatInterval = 50
+    , -- ~40 gradient updates per episode: one update/episode (the old behaviour)
+      -- is far below HER's sample efficiency and left the Q-net well short of the
+      -- 0.85 bar. The target net is held fixed across the inner loop.
+      herUpdatesPerEpisode = 40
     }
 
 -- | A replay transition over the goal-augmented input @(state ++ goal)@.
@@ -209,11 +216,16 @@ episodeLoopEither config update online target adam gen buffer episode successes 
             take
               (herReplayCapacity config)
               (relabeled <> episodeTransitions <> buffer)
+      let runUpdates 0 o a g = pure (Right (o, a, g))
+          runUpdates i o a g = do
+            let (batch, g') = sampleBatch (herBatchSize config) newBuffer g
+            stepE <- update o target a batch
+            case stepE of
+              Left err -> pure (Left err)
+              Right (o', a') -> runUpdates (i - 1 :: Int) o' a' g'
       updateResult <-
         if length newBuffer >= herBatchSize config
-          then do
-            let (batch, genB) = sampleBatch (herBatchSize config) newBuffer gen2
-            fmap (\(o, a) -> (o, a, genB)) <$> update online target adam batch
+          then runUpdates (max 1 (herUpdatesPerEpisode config)) online adam gen2
           else pure (Right (online, adam, gen2))
       case updateResult of
         Left err -> pure (Left err)
@@ -276,6 +288,28 @@ rolloutEpisode config online goal gen0 =
                     }
              in step nextState (len + 1) g2 (trans : acc)
    in step start 0 gen0 []
+
+-- | Greedy (epsilon = 0) evaluation of the trained policy. Runs @numEpisodes@
+-- episodes with fresh random goals and no exploration, returning per-episode
+-- @(reachedGoal, normalizedHammingDistance)@. The training success stats are
+-- measured under the 0.2 exploration epsilon and understate the converged
+-- policy, so the convergence metric must read this greedy pass instead.
+evaluateHerGreedy :: HerTrainConfig -> MlpParams -> Int -> Int -> [(Bool, Double)]
+evaluateHerGreedy config params numEpisodes evalSeed =
+  go (max 0 numEpisodes) (Random.mkStdGen evalSeed)
+ where
+  n = herNumBits config
+  greedyConfig = config {herEpsilon = 0.0}
+  start = VU.replicate n 0.0
+  go 0 _ = []
+  go k gen =
+    let (goal, gen1) = randomBits n gen
+        (transitions, reached, gen2) = rolloutEpisode greedyConfig params goal gen1
+        finalState = case reverse transitions of
+          (t : _) -> stateOfInput n (transNextInput t)
+          [] -> start
+        normDist = bitDistance finalState goal / fromIntegral (max 1 n)
+     in (reached, normDist) : go (k - 1) gen2
 
 -- | HER @future@ relabeling: for each transition at index @i@, relabel
 -- the goal to the next-state of a later transition in the same episode
@@ -343,7 +377,11 @@ herResidualDLdy config qVec nextQ trans =
  where
   actionIx = transAction trans
   qSa = if actionIx >= 0 && actionIx < length qVec then qVec !! actionIx else 0.0
-  maxNextQ = maximum (0 : nextQ)
+  -- max_a' Q_target(s', a'). Bit-flip rewards are 0/-1 so all true Q-values are
+  -- negative; the old `maximum (0 : nextQ)` pinned the bootstrap to 0, collapsing
+  -- the target to the immediate reward and preventing any multi-step goal-value
+  -- propagation. `nextQ` has herNumBits (>= 1) entries, so guard empty explicitly.
+  maxNextQ = if null nextQ then 0.0 else maximum nextQ
   tdTarget = dqnBellmanTarget (herGamma config) (transReward trans) (transDone trans) maxNextQ
   residual = qSa - tdTarget
 
@@ -365,12 +403,14 @@ randomBits n gen0 = goBits n gen0 []
 
 sampleBatch :: Int -> [Transition] -> Random.StdGen -> ([Transition], Random.StdGen)
 sampleBatch n buffer gen =
-  let bufLen = length buffer
+  -- O(1) replay indexing via a boxed-Vector snapshot (see DqnTrainer.sampleBatch).
+  let bufArr = VB.fromList buffer
+      bufLen = VB.length bufArr
       pickN k g acc
-        | k <= 0 = (acc, g)
+        | k <= 0 || bufLen <= 0 = (acc, g)
         | otherwise =
             let (idx, g') = Random.uniformR (0 :: Int, bufLen - 1) g
-             in pickN (k - 1) g' (buffer !! idx : acc)
+             in pickN (k - 1) g' (bufArr VB.! idx : acc)
    in pickN n gen []
 
 -- | Sprint 13.8 — train HER on the bit-flip env with the Q-network's

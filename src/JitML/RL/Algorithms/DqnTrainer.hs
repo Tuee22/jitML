@@ -42,6 +42,7 @@ where
 import Data.List qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector qualified as VB
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -66,6 +67,7 @@ import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
+import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
   ( SimStep (..)
   , SimulatedEnvironment (..)
@@ -258,7 +260,9 @@ loopEither environment config update online target adam gen buffer step state ep
             Transition
               { transObs = obs
               , transAction = action
-              , transReward = simStepReward stepResult
+              , transReward =
+                  simStepReward stepResult
+                    + RewardShaping.shapingBonus (envName environment) (dqnGamma config) obs nextObs
               , transNextObs = nextObs
               , transDone = envDone
               }
@@ -292,6 +296,13 @@ loopEither environment config update online target adam gen buffer step state ep
       case updateResult of
         Left err -> pure (Left err)
         Right (onlineNext, adamNext, gen3) -> do
+          -- On episode reset use the env's exploring-start distribution when it
+          -- has one (mountain-car) so the value net sees the high-return region
+          -- and bootstraps outward; otherwise reset to the fixed initial state.
+          let (resetState, gen4) =
+                if terminal
+                  then trainingResetState environment gen3
+                  else (nextState, gen3)
           -- Periodic target-net hard copy.
           let targetNext =
                 if (step + 1) `mod` dqnTargetUpdateInterval config == 0
@@ -324,14 +335,26 @@ loopEither environment config update online target adam gen buffer step state ep
             onlineNext
             targetNext
             adamNext
-            gen3
+            gen4
             newBuffer
             (step + 1)
-            nextState
+            resetState
             nextEpisodeLen
             finalReturn
             newEpisodes
             statsNext
+
+-- | Reset for a fresh training episode, drawing from the env's exploring-start
+-- distribution ('envTrainingStart', currently only mountain-car) when present,
+-- else the fixed 'envInitial'. Evaluation always uses 'envInitial'.
+trainingResetState :: SimulatedEnvironment state -> Random.StdGen -> (state, Random.StdGen)
+trainingResetState environment gen =
+  case envTrainingStart environment of
+    Nothing -> (envInitial environment, gen)
+    Just f ->
+      let (u1, gen1) = Random.uniformR (0.0 :: Double, 1.0) gen
+          (u2, gen2) = Random.uniformR (0.0 :: Double, 1.0) gen1
+       in (f u1 u2, gen2)
 
 currentEpsilon :: DqnTrainConfig -> Int -> Double
 currentEpsilon config step =
@@ -345,13 +368,16 @@ currentEpsilon config step =
 
 sampleBatch :: Int -> [Transition] -> Random.StdGen -> ([Transition], Random.StdGen)
 sampleBatch n buffer gen =
-  let bufLen = length buffer
-      bufArr = buffer
+  -- Snapshot to a boxed Vector for O(1) random access. The old `buffer !! idx`
+  -- list indexing was O(capacity) per draw, making the SB3-scale step budgets
+  -- (50k-120k) impractically slow.
+  let bufArr = VB.fromList buffer
+      bufLen = VB.length bufArr
       pickN k g acc
-        | k <= 0 = (acc, g)
+        | k <= 0 || bufLen <= 0 = (acc, g)
         | otherwise =
             let (idx, g') = Random.uniformR (0 :: Int, bufLen - 1) g
-             in pickN (k - 1) g' (bufArr !! idx : acc)
+             in pickN (k - 1) g' (bufArr VB.! idx : acc)
    in pickN n gen []
 
 argmax :: (Ord a) => [a] -> Int
@@ -431,7 +457,13 @@ dqnResidualDLdy config qVec nextQ onlineNextQ trans =
          in if onlineArgmax >= 0 && onlineArgmax < length nextQ
               then nextQ !! onlineArgmax
               else 0.0
-    | otherwise = maximum (0 : nextQ)
+    -- max_a' Q_target(s', a'). `nextQ` always has `actionCount` (>= 1) entries,
+    -- so guard the empty case explicitly instead of seeding the fold with 0 —
+    -- the old `maximum (0 : nextQ)` floored the bootstrap at 0, which on
+    -- negative-reward envs (mountain-car: reward -1/step, true Q ~ -100..-200)
+    -- collapsed every Bellman target to the immediate reward and erased all
+    -- state-value differences.
+    | otherwise = if null nextQ then 0.0 else maximum nextQ
   tdTarget =
     ( if dqnUseDouble config
         then DqnLoss.dqnDoubleBellmanTarget

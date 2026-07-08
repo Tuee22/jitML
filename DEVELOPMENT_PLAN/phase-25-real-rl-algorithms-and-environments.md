@@ -11,6 +11,35 @@
 
 ## Phase State
 
+🔄 **Reopened (2026-07-07) by the real-device convergence audit.** The first
+honest `jitml internal train-and-publish-product-rows --linux-cuda` run on the RTX
+5090 (Phase `29`) found that many RL rows do **not** reach their literature-anchored
+convergence bars — 23 / 55 product rows converged initially — which contradicts the
+"real RL convergence" claim below. Per standards rule N the audit finding defines
+status, so this phase is in remediation. Genuine implementation bugs were
+root-caused and fixed (device-validated, moving the count to 30 / 55 and higher):
+the actor-critic value head was tanh-clamped to [-1,1] (linearized); off-policy
+trainers were budget-starved at 2000-4000 env-steps (raised to SB3 scale with O(1)
+replay); the entropy term had the wrong sign (an entropy penalty, now a bonus);
+DQN/HER floored the Bellman bootstrap at 0 on negative-reward envs; QR-DQN/continuous
+stored time-limit truncation as a terminal; TRPO diverged on hard envs; CrossQ
+z-scored / target-net-less; and the continuous actor had a spurious zero-torque
+gradient. The **2026-07-07 session** then root-caused the dominant CUDA-vs-CPU gap
+to nvcc **FMA contraction** (fixed with `--fmad=false`, making the substrates
+track — PPO/cartpole and PPO/lunar-lander went error → eligible on the RTX 5090),
+and landed real reward shaping (`JitML.RL.RewardShaping`, fixing PPO/acrobot), a
+QR-DQN retune (fixing QR-DQN/cartpole), unified on-policy tuning, mountain-car
+exploring starts + observation normalization, and AlphaZero arena-search fixes.
+Remaining unconverged rows: the on-policy `mountain-car` cohort (a sparse-reward
+exploration wall potential shaping provably cannot address on-policy), `DQN` /
+`QR-DQN` mountain-car (−159 / −153, marginal), `TRPO/lunar-lander` (diagonal-Fisher
+divergence), and `SAC/pendulum` (swing-up); the deep-SL and hex rows are owned by
+Phases `33`/`26`/`29`. `jitml-model-convergence` and `jitml-negative-controls`
+pass. A fresh full real `linux-cuda` `train-and-publish` on these fixes (a
+multi-hour job) plus closing the residual rows is required before the per-sprint
+status flips. The prior closure narrative is retained below as the historical
+(now-contradicted) record.
+
 ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `24`
 is Done. RL product evidence now comes from the trained policy evaluator rather
 than hardcoded expert controllers; HER reports real goal-conditioned rollouts;

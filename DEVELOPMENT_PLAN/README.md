@@ -59,45 +59,103 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**⏸️ Current status (2026-07-06): product chain blocked on Phase `29`.** Phases
-`20`, `21`, `23`, `24`, `25`, `26`, and `30` have been revalidated after the
-realness audit, but the product chain is not closed because Phase `29`
-(`linux-cuda`) could not run its required real device lane on this host. Phase
-`31` is blocked downstream until a fresh real `linux-cuda` fragment exists.
+**⏸️ Current status (2026-07-07): product chain blocked on Phase `29`; Phases
+`25` and `33` `Active` on the residual convergence gap.** The prior recorded
+blocker — Docker not exposing an NVIDIA GPU — is **resolved**: on the current RTX
+5090 host (`GPU-e764ef97-32d7-4981-c348-029983c64073`, driver `570.211.01`, CUDA
+`12.8`) the `nvidia` container runtime is registered and the `jitml-cuda` compose
+service sees the GPU. Running the real `linux-cuda` lane then exposed a genuine
+**product realness gap** in the model implementations, which per standards rule N
+now defines status. The 2026-07-07 session root-caused and fixed the largest
+gap — a CUDA-vs-CPU numerical divergence from nvcc FMA contraction — and landed
+further real RL/deep-SL/AlphaZero fixes (below), but the genuinely-hard rows
+(on-policy mountain-car, TRPO/lunar, SAC/pendulum, deep-SL bag-of-patches ResNet)
+are not yet converged, so 55 / 55 is not reached and Phases `29`/`31` stay
+`Blocked`.
 
-Current validation evidence:
+Real `linux-cuda` evidence gathered on 2026-07-06:
 
-- `docker compose run --rm jitml cabal build lib:jitml` passed after the
-  supervised layer/architecture and RL trainer changes.
-- `docker compose run --rm jitml cabal test jitml-unit --test-options='--color=never --hide-successes' --test-show-details=direct`
-  passed **277 / 277**.
-- `docker compose run --rm jitml cabal test jitml-sl-canonicals --test-options='--color=never --hide-successes' --test-show-details=direct`
-  passed **31 / 31**.
-- `docker compose run --rm jitml cabal test jitml-hyperparameter --test-options='--color=never --hide-successes' --test-show-details=direct`
-  passed **19 / 19**.
-- `docker compose run --rm jitml cabal test jitml-rl-canonicals --test-options='--color=never --hide-successes' --test-show-details=direct`
-  passed **37 / 37**; the focused `AlphaZero per-game arena evidence` case also
-  passed **1 / 1** after the full-horizon/self-play changes.
-- `docker compose run --rm jitml cabal build test:jitml-backends test:jitml-negative-controls`
-  passed after the CUDA/Metal windowed-convolution source changes.
-- `docker compose run --rm jitml cabal test jitml-negative-controls --test-options='--color=never --hide-successes' --test-show-details=direct`
-  passed **3 / 3**.
-- Focused backend guards passed: `linux-cpu weighted families match` **1 / 1**,
-  `linux-cuda generated product-family CUDA source` **1 / 1**, and
-  `apple-silicon generated Metal source` **1 / 1**.
-- Apple Silicon host validation passed: `./bootstrap/apple-silicon.sh doctor`,
-  `jitml internal install-metal-bridge`, the focused Metal multi-tap runtime
-  test **1 / 1**, and the full `apple-silicon` backend lane **20 / 20**.
+- **Phase `29.1` device kernels — real and passing.**
+  `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
+  passed **21 / 21** on the attached RTX 5090, including the Phase `29.1` gate
+  "generated product-family CUDA source calls real cuBLAS/cuDNN entry points",
+  live `cublasSgemm`/`cudnnConvolutionForward` bindings, a bit-deterministic
+  device GEMM, and the nvcc + FFI compile/run path.
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` **277 / 277**
+  and `jitml check-code` **ok**.
+- All 12 canonical dataset artifacts were downloaded, SHA-verified against
+  `JitML.SL.Dataset`, and staged into live MinIO via `jitml internal
+  upload-dataset` on a live `linux-cuda` cluster (edge `:9092`, all 7 components
+  ready).
+- **Phase `29.2` per-row training — 23 / 55 converged, 32 failed their
+  literature-anchored bars.** A real
+  `jitml internal train-and-publish-product-rows --linux-cuda` run trained every
+  row on the GPU and honestly reported **eligible 23, errors 32**: the on-policy
+  RL critic was tanh-clamped to `[-1, 1]` (unrepresentable returns), off-policy
+  DQN/QR-DQN/continuous were budget-starved at 2000–4000 env-steps, TRPO never
+  moved its weights, CrossQ z-scored its scalar TD target, HER/DQN Bellman
+  bootstraps were floored at 0 on negative-reward envs, the tuning row counted
+  pruner survivors instead of executed trials, the deep-SL ResNet/Wide-ResNet
+  rows are an un-normalized bag-of-patches, and AlphaZero hex searched too
+  shallow. These contradict the "converged" claims that Phases `25` (real RL) and
+  `33` (per-model convergence) previously recorded, so **Phases `25` and `33`
+  reopen to `Active`** and Phases `29`/`31` stay `Blocked`.
 
-Current blocker:
+Convergence remediation is **in progress** (owned by the reopened Phases `25` /
+`33`). Two diagnostic passes root-caused each failure family and the
+high-confidence fixes landed and were validated on the GPU, moving the real
+converged count from **23 / 55 → 30 / 55** on a full `train-and-publish` run and
+higher on subsequent per-row validation. Landed, compiled, and device-validated:
+linear (unbounded) actor-critic value head with AlphaZero's tanh head preserved
+(`JitML.Numerics.Mlp.ValueHeadActivation`); unclamped `max_a' Q` bootstrap
+(DQN/HER); time-limit truncation no longer stored as a terminal `done`
+(QR-DQN/continuous/PPO); SB3-scale off-policy and on-policy step budgets with
+O(1) replay sampling; corrected entropy-**bonus** sign (was an entropy penalty
+collapsing the policy); a KL-safe TRPO line search; CrossQ given a target network
+(its BatchRenorm stabilizer is not yet in the MLP seam); the continuous
+zero-torque pseudo-entropy actor gradient removed and gamma raised to 0.99; a
+per-executed-trials tuning-budget count; and a HER greedy (epsilon = 0) evaluation
+with per-episode success/distance metrics and ~40 updates/episode. Per-row GPU
+validation confirms `DQN/cartpole` (8 → pass), `SAC/lunar-lander` (72.9 → pass),
+`A2C/cartpole`, `TRPO/cartpole`, `RecurrentPPO/cartpole`, `CrossQ/lunar-lander`
+(-0.14 → pass), the tuning row, and `HER/goal-reaching` (0.0 → pass) all now
+converge.
 
-- `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
-  failed before test execution because Docker reported `could not select device
-  driver "" with capabilities: [[gpu]]`. Phase `29` remains `Blocked` until the
-  same lane runs on a host with a Docker-visible NVIDIA GPU runtime.
+**2026-07-07 remediation.** A numerical audit root-caused the largest remaining
+gap: the generated CUDA MLP kernels left nvcc **FMA contraction** (`--fmad`)
+enabled while the oneDNN/CPU build uses separate multiply-then-add with a fixed
+reduction order, so identical code and seed converged materially worse on
+`linux-cuda` (PPO/cartpole **450** on CPU vs **286** on CUDA). Adding
+`--fmad=false` to the CUDA nvcc command plus the three JIT-cache fingerprints
+(`Engine.hs` / `CudaLocal.hs` / `MlpCuda.hs`, forcing recompile) makes the
+substrates track — verified live: PPO/cartpole and PPO/lunar-lander went
+error → **eligible on the RTX 5090**. Further real fixes landed and were
+validated: potential-based reward shaping (`JitML.RL.RewardShaping`,
+training-only, scoped to mountain-car/acrobot) fixing PPO/acrobot; a QR-DQN
+retune fixing QR-DQN/cartpole; unified cross-substrate on-policy tuning;
+mountain-car exploring starts + observation normalization; a deep-SL
+residual-scale increase that passed `cifar10-resnet20` on the GPU; and a
+board-scaled AlphaZero arena search with an odd arena-game count resolving a hex
+all-draw-sentinel false positive. `jitml-model-convergence` /
+`jitml-negative-controls` pass and `cabal build all` is clean.
+
+The remaining unconverged rows are the genuinely-hard cases owned by the reopened
+phases: the on-policy `mountain-car` cohort
+(PPO / A2C / TRPO / MaskablePPO / RecurrentPPO — a sparse-reward exploration wall
+potential shaping provably cannot address on-policy); `DQN` / `QR-DQN`
+mountain-car (−159 / −153, marginal); `TRPO/lunar-lander` (the crude
+diagonal-Fisher natural gradient diverges); `SAC/pendulum` (needs
+temporally-correlated swing-up exploration); and the deep-SL
+`cifar100-wide-resnet` / `fashion-mnist-resnet` rows (the residual stack is an
+un-normalized bag-of-patches with no cross-patch mixing — fashion caps at ~0.60
+vs a 0.85 bar; needs an executed normalization + mixing engine). Reaching the
+full 55 / 55 required for Phase `29` closure is therefore a substantial further
+effort plus a fresh full real `linux-cuda` `train-and-publish` + `test all` run;
+the single-threaded CPU-bound environment simulator plus the per-row GPU
+tiny-MLP kernel-launch overhead make the 55-row run a multi-hour job.
 
 The 2026-07-05 realness-audit reopen narrative is retained below as historical
-context for why Phases `32`–`34` were added and why Phase `29`/`31` remain
+context for why Phases `32`–`34` were added and why Phases `29`/`31` remain
 blocked today.
 
 ---

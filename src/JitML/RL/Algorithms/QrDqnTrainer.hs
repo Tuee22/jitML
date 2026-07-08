@@ -33,6 +33,7 @@ where
 import Data.List qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector qualified as VB
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -57,6 +58,7 @@ import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.QrDqnLoss (quantileMidpoints)
+import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
   ( SimStep (..)
   , SimulatedEnvironment (..)
@@ -96,16 +98,21 @@ defaultQrDqnTrainConfig =
     , qrNumQuantiles = 8
     , qrNumSteps = 20000
     , qrReplayCapacity = 10000
-    , qrBatchSize = 32
+    , qrBatchSize = 64
     , qrLearningRate = 1.0e-3
     , qrGamma = 0.99
     , qrKappa = 1.0
-    , qrTargetUpdateInterval = 500
+    , -- Keep the slower target sync and the 0.05 exploration floor of the
+      -- original config: dropping them (with the update-frequency bump below)
+      -- rescued cartpole/mountain-car but collapsed the sparse-reward
+      -- key-door-grid policy. Only the per-step update frequency and the larger
+      -- batch are changed from the pre-tuning defaults.
+      qrTargetUpdateInterval = 500
     , qrEpsilonStart = 1.0
     , qrEpsilonEnd = 0.05
     , qrEpsilonDecaySteps = 5000
     , qrTrainStart = 1000
-    , qrUpdateFrequency = 4
+    , qrUpdateFrequency = 1
     , qrMaxEpisodeSteps = 500
     , qrActionCount = 2
     , qrObsSize = 4
@@ -224,10 +231,23 @@ loopEither environment config update online target adam gen buffer step state ep
           greedyAction = greedyActionFor config online obs
           action = if u < epsilon then actionU else greedyAction
           stepResult = envStep environment state action
-          terminal = simStepDone stepResult || episodeLen + 1 >= qrMaxEpisodeSteps config
+          -- True environment termination only stops Bellman bootstrapping; a
+          -- time-limit truncation resets the episode but is NOT terminal, so the
+          -- net keeps bootstrapping through the horizon cap and can learn values
+          -- that reach the 500-step cap (matches DqnTrainer's transDone).
+          envDone = simStepDone stepResult
+          timeLimit = episodeLen + 1 >= qrMaxEpisodeSteps config
+          terminal = envDone || timeLimit
           nextObs = obsVector environment (simStepState stepResult)
           transition =
-            Transition obs action (simStepReward stepResult) nextObs terminal
+            Transition
+              obs
+              action
+              ( simStepReward stepResult
+                  + RewardShaping.shapingBonus (envName environment) (qrGamma config) obs nextObs
+              )
+              nextObs
+              envDone
           newBuffer = take (qrReplayCapacity config) (transition : buffer)
           nextReturn = episodeReturn + simStepReward stepResult
           (nextState, nextLen, finalReturn, newEpisodes) =
@@ -377,12 +397,14 @@ qrResidualDLdy config output targetOutput trans =
 
 sampleBatch :: Int -> [Transition] -> Random.StdGen -> ([Transition], Random.StdGen)
 sampleBatch n buffer gen =
-  let bufLen = length buffer
+  -- O(1) replay indexing via a boxed-Vector snapshot (see DqnTrainer.sampleBatch).
+  let bufArr = VB.fromList buffer
+      bufLen = VB.length bufArr
       pickN k g acc
-        | k <= 0 = (acc, g)
+        | k <= 0 || bufLen <= 0 = (acc, g)
         | otherwise =
             let (idx, g') = Random.uniformR (0 :: Int, bufLen - 1) g
-             in pickN (k - 1) g' (buffer !! idx : acc)
+             in pickN (k - 1) g' (bufArr VB.! idx : acc)
    in pickN n gen []
 
 obsVector :: SimulatedEnvironment state -> state -> Vector Double

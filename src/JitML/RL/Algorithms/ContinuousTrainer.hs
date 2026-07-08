@@ -53,9 +53,9 @@ where
 
 import Control.Monad.Except (ExceptT (..), runExceptT)
 import Data.List qualified
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector qualified as VB
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -80,11 +80,12 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
-import JitML.RL.Algorithms.CrossQLoss (crossQNormalise, crossQTarget)
+import JitML.RL.Algorithms.CrossQLoss (crossQTarget)
 import JitML.RL.Algorithms.DdpgLoss (ddpgCriticTarget)
 import JitML.RL.Algorithms.SacLoss (sacCriticTarget, sacTemperatureLoss)
 import JitML.RL.Algorithms.Td3Loss (td3ClippedDoubleTarget, td3SmoothTargetActions)
 import JitML.RL.Algorithms.TqcLoss (tqcTarget)
+import JitML.RL.CountExploration qualified as CountExploration
 import JitML.RL.Simulator
   ( ContinuousEnvironment (..)
   , ContinuousSimStep (..)
@@ -128,6 +129,11 @@ data ContinuousTrainConfig = ContinuousTrainConfig
   , ctActionLow :: !Double
   , ctActionHigh :: !Double
   , ctStatInterval :: !Int
+  , ctEnvName :: !Text
+  -- ^ Environment name, used to key the count-based exploration binning.
+  , ctCountBeta :: !Double
+  -- ^ Count-based intrinsic-exploration scale (@0@ disables). Only pendulum has
+  --   a defined binning, so it is a no-op elsewhere regardless.
   }
   deriving stock (Eq, Show)
 
@@ -142,7 +148,7 @@ defaultContinuousTrainConfig variant =
     , ctBatchSize = 64
     , ctActorLr = 1.0e-3
     , ctCriticLr = 1.0e-3
-    , ctGamma = 0.98
+    , ctGamma = 0.99 -- ~100-step effective horizon (was 0.98/~50) so the delayed lunar landing bonus and pendulum swing-up investment are credited
     , ctTau = 0.01
     , ctPolicyDelay = if variant `elem` [VariantTD3, VariantTQC] then 2 else 1
     , ctExplNoise = 0.3
@@ -160,6 +166,8 @@ defaultContinuousTrainConfig variant =
     , ctActionLow = -2.0
     , ctActionHigh = 2.0
     , ctStatInterval = 1000
+    , ctEnvName = ""
+    , ctCountBeta = 0.0
     }
 
 data ContTransition = ContTransition
@@ -204,7 +212,11 @@ data ACOpt = ACOpt
   }
 
 usesTargetNets :: ContinuousVariant -> Bool
-usesTargetNets VariantCrossQ = False
+-- CrossQ's real stabilizer is BatchRenorm on the critic activations, which the
+-- MLP seam does not implement; without it, target-network-free TD bootstraps off
+-- a moving online target and diverges (CrossQ/lunar = -0.14). Until BatchRenorm
+-- lands, give CrossQ a target network as a pragmatic stabilizer (makes it
+-- SAC-like). See NOTE in the module contract.
 usesTargetNets _ = True
 
 usesTargetSmoothing :: ContinuousVariant -> Bool
@@ -239,9 +251,12 @@ trainContinuousInEnvironment environment config = do
           , acCriticAAdam = adamInit criticShape
           , acCriticBAdam = adamInit criticShape
           }
+  -- One visitation table for the whole run, mutated across steps.
+  countTable <- CountExploration.newCountTable
   loop
     environment
     config
+    countTable
     (\nets opt batch doActor -> pure (updateStep config nets opt batch doActor))
     nets0
     opt0
@@ -257,6 +272,7 @@ trainContinuousInEnvironment environment config = do
 loop
   :: ContinuousEnvironment state
   -> ContinuousTrainConfig
+  -> CountExploration.CountTable
   -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (ACNets, ACOpt))
   -- ^ minibatch update: nets → opt → batch → doActor → (nets', opt')
   -> ACNets
@@ -270,11 +286,12 @@ loop
   -> [Double]
   -> [ContinuousIterationStat]
   -> IO ContinuousTrainResult
-loop environment config update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
+loop environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
       environment
       config
+      countTable
       (\ns op batch doActor -> Right <$> update ns op batch doActor)
       nets
       opt
@@ -291,6 +308,7 @@ loop environment config update nets opt gen buffer step state episodeLen episode
 loopEither
   :: ContinuousEnvironment state
   -> ContinuousTrainConfig
+  -> CountExploration.CountTable
   -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (Either Text (ACNets, ACOpt)))
   -- ^ minibatch update: nets → opt → batch → doActor → either fault or (nets', opt')
   -> ACNets
@@ -304,7 +322,7 @@ loopEither
   -> [Double]
   -> [ContinuousIterationStat]
   -> IO (Either Text ContinuousTrainResult)
-loopEither environment config update nets opt gen buffer step state episodeLen episodeReturn episodes stats
+loopEither environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats
   | step >= ctNumSteps config =
       pure
         ( Right
@@ -327,16 +345,28 @@ loopEither environment config update nets opt gen buffer step state episodeLen e
               then rawUniform
               else noisy
           stepResult = cEnvStep environment state action
-          terminal =
-            cStepDone stepResult || episodeLen + 1 >= ctMaxEpisodeSteps config
+          -- True environment termination only stops Bellman bootstrapping. A
+          -- time-limit truncation resets the episode but is NOT a terminal
+          -- state; storing it as `contDone` (as before) zeroed the gamma*Q
+          -- bootstrap on every horizon-capped step — and Pendulum never
+          -- self-terminates, so every 200-step episode was wrongly terminal,
+          -- biasing the critic. Store true termination; reset on `terminal`.
+          envDone = cStepDone stepResult
+          timeLimit = episodeLen + 1 >= ctMaxEpisodeSteps config
+          terminal = envDone || timeLimit
           nextObs = obsVector environment (cStepState stepResult)
-          transition =
+      -- Count-based novelty bonus for the successor state (stored in the replay
+      -- reward only; the episode return below uses the raw reward). No-op unless
+      -- ctCountBeta > 0 and the env has a binning (pendulum).
+      countBonus <-
+        CountExploration.countExplorationBonus countTable (ctCountBeta config) (ctEnvName config) nextObs
+      let transition =
             ContTransition
               { contObs = obs
               , contAction = action
-              , contReward = cStepReward stepResult
+              , contReward = cStepReward stepResult + countBonus
               , contNextObs = nextObs
-              , contDone = terminal
+              , contDone = envDone
               }
           newBuffer = take (ctReplayCapacity config) (transition : buffer)
           nextReturn = episodeReturn + cStepReward stepResult
@@ -376,6 +406,7 @@ loopEither environment config update nets opt gen buffer step state episodeLen e
           loopEither
             environment
             config
+            countTable
             update
             netsNext
             optNext
@@ -493,22 +524,11 @@ updateStep config nets opt batch doActor =
 -- so the pure CPU path and the batched device path ('updateStepDevice') share
 -- the identical target math.
 bellmanTargets :: ContinuousTrainConfig -> ACNets -> [ContTransition] -> [Double]
-bellmanTargets config nets batch
-  | ctVariant config == VariantCrossQ =
-      let qMins =
-            [ let nObs = contNextObs trans
-                  action = actorAction config (acActor nets) nObs
-               in min (criticQ (acCriticA nets) nObs action) (criticQ (acCriticB nets) nObs action)
-            | trans <- batch
-            ]
-          (meanQ, varQ) = batchMeanVariance qMins
-       in fmap (bellmanTargetWithCrossQStats config nets (Just (meanQ, varQ))) batch
-  | otherwise =
-      fmap (bellmanTargetWithCrossQStats config nets Nothing) batch
+bellmanTargets config nets = fmap (bellmanTarget config nets)
 
-bellmanTargetWithCrossQStats
-  :: ContinuousTrainConfig -> ACNets -> Maybe (Double, Double) -> ContTransition -> Double
-bellmanTargetWithCrossQStats config nets crossQStats trans =
+bellmanTarget
+  :: ContinuousTrainConfig -> ACNets -> ContTransition -> Double
+bellmanTarget config nets trans =
   let variant = ctVariant config
       gamma = ctGamma config
       nObs = contNextObs trans
@@ -546,10 +566,12 @@ bellmanTargetWithCrossQStats config nets crossQStats trans =
         VariantSAC ->
           firstOr r (sacCriticTarget gamma alpha [r] [d] [q1'] [q2'] [logProb'])
         VariantCrossQ ->
-          let qMin = min q1' q2'
-              (meanQ, varQ) = fromMaybe (qMin, 1.0) crossQStats
-              qNorm = firstOr qMin (crossQNormalise meanQ varQ 1.0e-6 [qMin])
-           in firstOr r (crossQTarget gamma alpha [r] [d] [qNorm] [logProb'])
+          -- CrossQ's contribution is BatchNorm on the critic's internal
+          -- activations, NOT standardizing the scalar TD target — z-scoring the
+          -- bootstrap (as before) stripped all value scale so the critic
+          -- regressed to ~r and the actor gradient was noise. Use the raw min of
+          -- the online critics (CrossQ uses no target nets), like SAC.
+          firstOr r (crossQTarget gamma alpha [r] [d] [min q1' q2'] [logProb'])
         VariantTQC ->
           let atoms =
                 tqcTarget
@@ -561,14 +583,6 @@ bellmanTargetWithCrossQStats config nets crossQStats trans =
                   (alpha * logProb')
            in if null atoms then r else sum atoms / fromIntegral (length atoms)
 
-batchMeanVariance :: [Double] -> (Double, Double)
-batchMeanVariance [] = (0.0, 1.0)
-batchMeanVariance xs =
-  let n = fromIntegral (length xs)
-      meanX = sum xs / n
-      variance = sum (fmap (\x -> (x - meanX) * (x - meanX)) xs) / n
-   in (meanX, max 1.0e-6 variance)
-
 tqcCriticAtoms :: ContinuousTrainConfig -> Double -> Double -> Double -> [[Double]]
 tqcCriticAtoms config logProb q1 q2 =
   let spread = max 1.0e-3 (ctPolicyStd config * (1.0 + abs logProb))
@@ -579,12 +593,14 @@ variantUsesEntropy v =
   v `elem` [VariantSAC, VariantCrossQ, VariantTQC]
 
 entropyActorGradient :: ContinuousTrainConfig -> Double -> Double -> Double
-entropyActorGradient config logAlpha raw
-  | not (variantUsesEntropy (ctVariant config)) = 0.0
-  | otherwise =
-      let alpha = exp logAlpha
-          std = max 1.0e-6 (ctPolicyStd config)
-       in alpha * raw / (std * std)
+entropyActorGradient _config _logAlpha _raw =
+  -- The differential entropy of a fixed-std Gaussian, 0.5*log(2*pi*e*std^2), is
+  -- independent of its mean, so the correct actor-side entropy gradient is 0.
+  -- The old `alpha*raw/std^2` was actually the gradient of an L2 regularizer
+  -- 0.5*alpha*(raw/std)^2 that dragged the action mean toward zero-torque —
+  -- benign on lunar (a=0 is half-thrust) but fatal on pendulum (a=0 leaves it
+  -- hanging, trapping SAC/CrossQ/TQC near the random return).
+  0.0
 
 sacTemperatureUpdate :: ContinuousTrainConfig -> Double -> [Double] -> Double
 sacTemperatureUpdate config logAlpha logProbs
@@ -596,7 +612,11 @@ sacTemperatureUpdate config logAlpha logProbs
             sum (fmap (+ ctTargetEntropy config) logProbs)
               / fromIntegral (length logProbs)
           gradLogAlpha = negate alpha * meanConstraint
-       in log (max 1.0e-6 (alpha - ctAlphaLr config * gradLogAlpha))
+       in -- Floor alpha at 0.05 (was 1e-6): with a fixed policy std the target-
+          -- entropy constraint is trivially satisfied every batch, so autotuning
+          -- otherwise collapses alpha to ~0 and degrades SAC/CrossQ/TQC to plain
+          -- DPG, removing the entropy-shaped target that makes SAC sample-efficient.
+          log (max 0.05 (alpha - ctAlphaLr config * gradLogAlpha))
 
 -- | Deterministic per-transition smoothing noise (no extra RNG state):
 -- a bounded pseudo-Gaussian from the transition's own observation hash,
@@ -666,12 +686,14 @@ gaussian g0 =
 
 sampleBatch :: Int -> [ContTransition] -> Random.StdGen -> ([ContTransition], Random.StdGen)
 sampleBatch n buffer gen =
-  let bufLen = length buffer
+  -- O(1) replay indexing via a boxed-Vector snapshot (see DqnTrainer.sampleBatch).
+  let bufArr = VB.fromList buffer
+      bufLen = VB.length bufArr
       pickN k g acc
-        | k <= 0 = (acc, g)
+        | k <= 0 || bufLen <= 0 = (acc, g)
         | otherwise =
             let (idx, g') = Random.uniformR (0 :: Int, bufLen - 1) g
-             in pickN (k - 1) g' (buffer !! idx : acc)
+             in pickN (k - 1) g' (bufArr VB.! idx : acc)
    in pickN n gen []
 
 -- | Sprint 13.8 — train any continuous actor-critic variant
@@ -739,9 +761,12 @@ trainContinuousOnDeviceWithContinuousEnvironment device environment config = do
           , acCriticAAdam = adamInit criticShape
           , acCriticBAdam = adamInit criticShape
           }
+  -- One visitation table for the whole run, mutated across steps.
+  countTable <- CountExploration.newCountTable
   loopEither
     environment
     config
+    countTable
     (updateStepDevice device config)
     nets0
     opt0

@@ -13,6 +13,28 @@
 
 ## Phase State
 
+🔄 **Reopened (2026-07-07) by the real-device convergence audit.** The standing
+per-model measurement suite is sound, but running it against **real** trained
+artifacts on the RTX 5090 (Phase `29`) showed the models do not actually clear
+their measured convergence bars: a full real `train-and-publish --linux-cuda`
+converged 23 / 55 rows initially. Per standards rule N the audit finding defines
+status. Real convergence bugs were fixed and device-validated (count now 30 / 55
+and higher; see [phase-25](phase-25-real-rl-algorithms-and-environments.md) for the
+RL fixes and [README](README.md) `Closure Status` for the full list and the
+remaining hard rows). The **2026-07-07 session** additionally root-caused the
+dominant CUDA-vs-CPU convergence gap to nvcc **FMA contraction** (fixed with
+`--fmad=false`, verified live: PPO/cartpole and PPO/lunar-lander error → eligible
+on the RTX 5090) and passed `cifar10-resnet20` on the GPU via a deep-SL
+residual-scale increase; the standing `jitml-model-convergence` /
+`jitml-negative-controls` guards still pass and `cabal build all` is clean. This
+phase stays in remediation until every product row measurably clears its bar in a
+fresh full real `linux-cuda` run — the residual rows (on-policy mountain-car,
+`TRPO/lunar-lander`, `SAC/pendulum`, the deep-SL `cifar100-wide-resnet` /
+`fashion-mnist-resnet` bag-of-patches rows) are genuinely hard and not yet
+converged, so the formal per-sprint status flip is pending that revalidation. The
+prior closure narrative is retained below as the historical (now-contradicted)
+record.
+
 ✅ **Done**. The reopened Phase `28` found that the per-model integration tests
 were artifact-readers, not training drivers, and that the "measured" reward was a
 scripted expert controller. This phase installs the standing per-model measurement

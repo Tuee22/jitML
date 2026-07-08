@@ -75,6 +75,7 @@ mlpCudaToolchainFingerprint =
         , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
         , "sm=70"
         , "--use_fast_math=false"
+        , "--fmad=false"
         , "tf32=disabled"
         , "abi=extern-c-host-wrapper"
         , "reductions=per-thread-sequential"

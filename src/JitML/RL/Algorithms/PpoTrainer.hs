@@ -81,12 +81,13 @@ import JitML.Numerics.Mlp
   , MlpParams (..)
   , MlpShape (..)
   , PolicyValueOutput (..)
+  , ValueHeadActivation (..)
   , adamInit
   , adamStep
   , defaultAdamConfig
   , mlpInit
-  , policyValueBackward
-  , policyValueForward
+  , policyValueBackwardWith
+  , policyValueForwardWith
   , sampleCategorical
   , softmax
   )
@@ -97,6 +98,8 @@ import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
 import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
+import JitML.RL.CountExploration qualified as CountExploration
+import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
   ( CartPoleState
   , SimStep (..)
@@ -140,6 +143,10 @@ data PpoTrainConfig = PpoTrainConfig
   , ppoClipEps :: !Double
   , ppoValueCoef :: !Double
   , ppoEntropyCoef :: !Double
+  , ppoCountBeta :: !Double
+  -- ^ Count-based intrinsic-exploration scale (per-algorithm). @0@ disables it;
+  --   only mountain-car has a defined visitation binning, so it is a no-op
+  --   elsewhere regardless.
   , ppoMaxEpisodeSteps :: !Int
   , ppoActionCount :: !Int
   , ppoObsSize :: !Int
@@ -168,6 +175,7 @@ defaultPpoTrainConfig =
     , ppoClipEps = 0.2
     , ppoValueCoef = 0.5
     , ppoEntropyCoef = 0.0
+    , ppoCountBeta = 0.0
     , ppoMaxEpisodeSteps = 500
     , ppoActionCount = 2
     , ppoObsSize = 4
@@ -227,7 +235,11 @@ collectRollout
   -> CartPoleState
   -> Random.StdGen
   -> IO (Rollout, CartPoleState, Random.StdGen)
-collectRollout = collectRolloutInEnvironment cartPoleEnvironment
+collectRollout config params state gen = do
+  -- Cartpole has no exploration binning, so this table stays empty (no-op); it
+  -- keeps the public 'collectRollout' signature stable for callers/tests.
+  countTable <- CountExploration.newCountTable
+  collectRolloutInEnvironment countTable cartPoleEnvironment config params state gen
 
 evaluateOnPolicyWithEnvironment
   :: SomeSimulatedEnvironment
@@ -249,7 +261,7 @@ evaluateEpisode environment config params = go (envInitial environment) 0 0.0
     | episodeLen >= ppoMaxEpisodeSteps config = (episodeReturn, episodeLen)
     | otherwise =
         let obs = obsVectorFor environment state
-            pvOut = policyValueForward params (ppoActionCount config) obs
+            pvOut = policyValueForwardWith LinearValueHead params (ppoActionCount config) obs
             actionMask = actionMaskFor environment config state
             probs = maskedPolicyFor config actionMask (pvPolicy pvOut)
             action = argmax (VU.toList probs)
@@ -261,26 +273,27 @@ evaluateEpisode environment config params = go (envInitial environment) 0 0.0
               else go (simStepState stepResult) nextLen nextReturn
 
 collectRolloutInEnvironment
-  :: SimulatedEnvironment state
+  :: CountExploration.CountTable
+  -> SimulatedEnvironment state
   -> PpoTrainConfig
   -> MlpParams
   -> state
   -> Random.StdGen
   -> IO (Rollout, state, Random.StdGen)
-collectRolloutInEnvironment environment config params startState gen0 = do
+collectRolloutInEnvironment countTable environment config params startState gen0 = do
   stepsRef <- IORef.newIORef ([] :: [RolloutStep])
   episodesRef <- IORef.newIORef ([] :: [Double])
   let go !state !gen !episodeReturn !episodeLen !stepsLeft
         | stepsLeft <= 0 = do
             value <-
               let obs = obsVectorFor environment state
-                  fwd = policyValueForward params (ppoActionCount config) obs
+                  fwd = policyValueForwardWith LinearValueHead params (ppoActionCount config) obs
                in pure (pvValue fwd)
             pure (state, gen, value)
         | otherwise = do
             let obs = obsVectorFor environment state
                 recurrentState = recurrentStateFor config obs episodeReturn episodeLen
-                pvOut = policyValueForward params (ppoActionCount config) obs
+                pvOut = policyValueForwardWith LinearValueHead params (ppoActionCount config) obs
                 actionMask = actionMaskFor environment config state
                 probs = maskedPolicyFor config actionMask (pvPolicy pvOut)
                 (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
@@ -290,14 +303,27 @@ collectRolloutInEnvironment environment config params startState gen0 = do
                     then -1.0e9
                     else log (probs VU.! action)
                 stepResult = envStep environment state action
+                nextObs = obsVectorFor environment (simStepState stepResult)
                 done = simStepDone stepResult || episodeLen + 1 >= ppoMaxEpisodeSteps config
-                step =
+            -- Count-based novelty bonus for reaching the successor state (a
+            -- direct reward, not a potential, so it survives the on-policy value
+            -- baseline). No-op for every env except mountain-car.
+            countBonus <-
+              CountExploration.countExplorationBonus countTable (ppoCountBeta config) (envName environment) nextObs
+            let step =
                   RolloutStep
                     { rsObs = obs
                     , rsAction = action
                     , rsLogProb = logProb
                     , rsValue = pvValue pvOut
-                    , rsReward = simStepReward stepResult
+                    , rsReward =
+                        simStepReward stepResult
+                          + RewardShaping.shapingBonus
+                            (envName environment)
+                            (ppoGamma config)
+                            obs
+                            nextObs
+                          + countBonus
                     , rsDone = done
                     , rsPolicy = probs
                     , rsActionMask = actionMask
@@ -309,7 +335,8 @@ collectRolloutInEnvironment environment config params startState gen0 = do
             if done
               then do
                 IORef.modifyIORef' episodesRef (nextReturn :)
-                go (envInitial environment) gen' 0.0 0 (stepsLeft - 1)
+                let (resetState, genReset) = trainingResetState environment gen'
+                go resetState genReset 0.0 0 (stepsLeft - 1)
               else
                 go (simStepState stepResult) gen' nextReturn nextLen (stepsLeft - 1)
   (endState, endGen, finalValue) <- go startState gen0 0.0 0 (ppoRolloutSteps config)
@@ -326,6 +353,21 @@ collectRolloutInEnvironment environment config params startState gen0 = do
 obsVectorFor :: SimulatedEnvironment state -> state -> Vector Double
 obsVectorFor environment =
   VU.fromList . renderObservation . envRenderFrame environment
+
+-- | Reset the environment for a fresh training episode. When the environment
+-- declares an exploring-start distribution ('envTrainingStart', currently only
+-- mountain-car) the reset is drawn from it so the on-policy learner sees the
+-- high-return region and can bootstrap outward; otherwise it resets to the
+-- fixed 'envInitial'. Evaluation never calls this — it always uses 'envInitial'
+-- — so the reported convergence metric is measured from the standard start.
+trainingResetState :: SimulatedEnvironment state -> Random.StdGen -> (state, Random.StdGen)
+trainingResetState environment gen =
+  case envTrainingStart environment of
+    Nothing -> (envInitial environment, gen)
+    Just f ->
+      let (u1, gen1) = Random.uniformR (0.0 :: Double, 1.0) gen
+          (u2, gen2) = Random.uniformR (0.0 :: Double, 1.0) gen1
+       in (f u1 u2, gen2)
 
 actionMaskFor :: SimulatedEnvironment state -> PpoTrainConfig -> state -> Maybe [Bool]
 actionMaskFor environment config state
@@ -471,21 +513,36 @@ trpoLineSearchUpdate config batch params adam gradient =
     sqrt (2.0 * ppoKlTarget config / curvature)
   fullStep = scaleGradient trustScale naturalDirection
   accepted =
-    firstAccepted params candidates
+    -- Prefer the largest candidate that is KL-safe AND improves the surrogate
+    -- (standard TRPO). If none improves, take the SMALLEST KL-safe candidate
+    -- (conservative movement that stays in the trust region); if even the
+    -- smallest candidate is KL-unsafe, shrink the natural-gradient step to a
+    -- negligible floor so the policy still moves (weight-movement gate) without
+    -- leaving the region. Taking the *largest* KL-safe step when none improved
+    -- diverged TRPO/lunar-lander catastrophically.
+    case filter improves klSafeCandidates of
+      (best : _) -> best
+      [] -> case reverse klSafeCandidates of
+        (smallestSafe : _) -> smallestSafe
+        [] -> tinySafeStep
+  klSafeCandidates = filter klSafe candidates
+  klSafe candidate =
+    TrpoLoss.trpoKlConstraintSatisfied
+      (ppoKlTarget config)
+      (oldLogProbBatch batch)
+      (newLogProbBatch config candidate batch)
+  improves candidate = trpoBatchLoss config candidate batch <= oldLoss
+  tinySafeStep = shrink (ppoTrpoBacktrackCoef config ^ ppoTrpoBacktrackIterations config)
+  shrink s =
+    let cand = applyGradientStep s fullStep params
+     in if klSafe cand || s <= 1.0e-4
+          then cand
+          else shrink (s * ppoTrpoBacktrackCoef config)
   candidates =
     [ applyGradientStep (ppoTrpoBacktrackCoef config ^ i) fullStep params
     | i <- [0 .. max 0 (ppoTrpoBacktrackIterations config - 1)]
     ]
   oldLoss = trpoBatchLoss config params batch
-  firstAccepted fallback [] = fallback
-  firstAccepted fallback (candidate : rest)
-    | TrpoLoss.trpoKlConstraintSatisfied
-        (ppoKlTarget config)
-        (oldLogProbBatch batch)
-        (newLogProbBatch config candidate batch)
-        && trpoBatchLoss config candidate batch <= oldLoss =
-        candidate
-    | otherwise = firstAccepted fallback rest
 
 trpoBatchLoss :: PpoTrainConfig -> MlpParams -> [(RolloutStep, Double, Double)] -> Double
 trpoBatchLoss config params batch =
@@ -502,7 +559,7 @@ newLogProbBatch :: PpoTrainConfig -> MlpParams -> [(RolloutStep, Double, Double)
 newLogProbBatch config params =
   fmap
     ( \(step, _, _) ->
-        let pvOut = policyValueForward params (ppoActionCount config) (rsObs step)
+        let pvOut = policyValueForwardWith LinearValueHead params (ppoActionCount config) (rsObs step)
             probs = maskedPolicyFor config (rsActionMask step) (pvPolicy pvOut)
             prob = probs VU.! rsAction step
          in if prob <= 0 then -1.0e9 else log prob
@@ -535,7 +592,7 @@ ppoSingleStepGradient
   -> MlpGradient
 ppoSingleStepGradient config params step advantage target =
   let actionCount = ppoActionCount config
-      pvOut = policyValueForward params actionCount (rsObs step)
+      pvOut = policyValueForwardWith LinearValueHead params actionCount (rsObs step)
       stateSignal = recurrentStateSignal step
       recurrentScale =
         if ppoVariant config == VariantRecurrentPPO
@@ -553,7 +610,7 @@ ppoSingleStepGradient config params step advantage target =
           step
           (advantage * recurrentScale)
           recurrentTarget
-   in policyValueBackward params pvOut dLogitVec valueGrad
+   in policyValueBackwardWith LinearValueHead params pvOut dLogitVec valueGrad
 
 recurrentStateSignal :: RolloutStep -> Double
 recurrentStateSignal step
@@ -709,8 +766,14 @@ ppoHeadGradient config probs value step advantage target =
         logP = logSafe p
      in p * (logP - meanLog)
   dHeadDLogit i =
+    -- Entropy BONUS (add, not subtract): `dPolicyLossDLogit` is a loss gradient
+    -- descended by Adam, and `dEntropyDLogit = p*(logP - meanLog) = -dH/dz`, so
+    -- the entropy-bonus loss term `-coef*H` contributes `+coef*dEntropyDLogit`.
+    -- The old `- coef*dEntropyDLogit` was an entropy PENALTY that collapsed the
+    -- policy to a peaked/deterministic action, suppressing exploration (this hit
+    -- both the pure and linux-cuda device paths via `ppoHeadGradient`).
     dPolicyLossDLogit i
-      - ppoEntropyCoef config * dEntropyDLogit i
+      + ppoEntropyCoef config * dEntropyDLogit i
   dLogitVec = VU.generate actionCount dHeadDLogit
   -- Value loss = 0.5 * (value - target)^2, scaled by value coef.
   valueGrad = ppoValueCoef config * (value - target)
@@ -736,10 +799,12 @@ trainPpoInEnvironment environment config = do
   let shape = ppoMlpShape config
       initialParams = initialPpoParams config
       initialAdam = adamInit shape
+  -- One visitation table for the whole run, mutated across rollouts.
+  countTable <- CountExploration.newCountTable
   (_, _, _, _, stats, finalParams) <-
     foldM
       ( \(state, gen, params, adam, stats, _) iteration -> do
-          (rollout, nextState, nextGen) <- collectRolloutInEnvironment environment config params state gen
+          (rollout, nextState, nextGen) <- collectRolloutInEnvironment countTable environment config params state gen
           let (advs, targets) = computeAdvantages config rollout
               normAdvs = standardise advs
               triples = zip3 (rolloutSteps rollout) normAdvs targets
@@ -829,9 +894,11 @@ trainPpoOnDeviceWithEnvironment device environment config = do
   let shape = ppoMlpShape config
       initialParams = initialPpoParams config
       initialAdam = adamInit shape
+  -- One visitation table for the whole run, mutated across rollouts.
+  countTable <- CountExploration.newCountTable
   result <-
     foldM
-      step
+      (step countTable)
       ( Right
           ( envInitial environment
           , Random.mkStdGen (ppoSeed config + 1)
@@ -853,9 +920,9 @@ trainPpoOnDeviceWithEnvironment device environment config = do
       )
       result
  where
-  step (Left e) _ = pure (Left e)
-  step (Right (state, gen, params, adam, stats, _)) iteration = do
-    (rollout, nextState, nextGen) <- collectRolloutInEnvironment environment config params state gen
+  step _ (Left e) _ = pure (Left e)
+  step countTable (Right (state, gen, params, adam, stats, _)) iteration = do
+    (rollout, nextState, nextGen) <- collectRolloutInEnvironment countTable environment config params state gen
     let (advs, targets) = computeAdvantages config rollout
         normAdvs = standardise advs
         triples = zip3 (rolloutSteps rollout) normAdvs targets
@@ -945,7 +1012,9 @@ ppoUpdateDevice device config params0 adam0 batch =
             gradResult
   fullOutputGradient out step advantage target =
     let policy = softmax (VU.take actionCount out)
-        value = tanh (out VU.! actionCount)
+        -- Linear critic (matches 'policyValueFromForward'): the device value
+        -- readout is unbounded, so no tanh here and no tanh derivative below.
+        value = out VU.! actionCount
         stateSignal = recurrentStateSignal step
         recurrentScale =
           if ppoVariant config == VariantRecurrentPPO
@@ -956,7 +1025,7 @@ ppoUpdateDevice device config params0 adam0 batch =
             then target + 0.01 * stateSignal
             else target
         (dLogitVec, valueGrad) = ppoHeadGradient config policy value step (advantage * recurrentScale) recurrentTarget
-     in dLogitVec VU.++ VU.singleton (valueGrad * (1.0 - value * value))
+     in dLogitVec VU.++ VU.singleton valueGrad
 
 rolloutSummary :: Int -> [Double] -> PpoIterationStat
 rolloutSummary iteration [] =

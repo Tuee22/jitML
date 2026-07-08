@@ -52,10 +52,15 @@ module JitML.Numerics.Mlp
 
     -- * Policy/value heads (AlphaZero)
   , PolicyValueOutput (..)
+  , ValueHeadActivation (..)
   , policyValueForward
+  , policyValueForwardWith
   , policyValueFromForward
+  , policyValueFromForwardWith
   , policyValueOutputGradient
+  , policyValueOutputGradientWith
   , policyValueBackward
+  , policyValueBackwardWith
 
     -- * Utility
   , softmax
@@ -440,13 +445,38 @@ sampleCategorical probs u = go 0 0.0
 data PolicyValueOutput = PolicyValueOutput
   { pvForward :: !MlpForward
   , pvPolicy :: !(Vector Double) -- softmax(probs)
-  , pvValue :: !Double -- tanh-bounded scalar
+  , pvValue :: !Double -- value scalar (see 'ValueHeadActivation')
   }
   deriving stock (Eq, Show)
 
+-- | How the scalar value head is activated. AlphaZero regresses toward a
+-- bounded game outcome in [-1, 1] and wants 'TanhValueHead'; an actor-critic
+-- (PPO/A2C/TRPO/...) critic must represent unbounded discounted returns (e.g.
+-- cartpole ~50-500) and wants 'LinearValueHead' — a tanh-bounded critic clamps
+-- V(s) to [-1, 1] and vanishes its own gradient once saturated, collapsing the
+-- advantage signal. The forward that produces a 'PolicyValueOutput' and the
+-- gradient that consumes it must use the SAME activation.
+data ValueHeadActivation = LinearValueHead | TanhValueHead
+  deriving stock (Eq, Show)
+
+activateValueHead :: ValueHeadActivation -> Double -> Double
+activateValueHead LinearValueHead v = v
+activateValueHead TanhValueHead v = tanh v
+
+-- | d(activated value)/d(raw value), expressed in terms of the ALREADY-activated
+-- value stored in 'pvValue'.
+valueHeadDeriv :: ValueHeadActivation -> Double -> Double
+valueHeadDeriv LinearValueHead _ = 1.0
+valueHeadDeriv TanhValueHead activated = 1.0 - activated * activated
+
 policyValueForward :: MlpParams -> Int -> Vector Double -> PolicyValueOutput
-policyValueForward params actionCount input =
-  policyValueFromForward actionCount (mlpForward params input)
+policyValueForward = policyValueForwardWith TanhValueHead
+
+-- | 'policyValueForward' with an explicit value-head activation.
+policyValueForwardWith
+  :: ValueHeadActivation -> MlpParams -> Int -> Vector Double -> PolicyValueOutput
+policyValueForwardWith act params actionCount input =
+  policyValueFromForwardWith act actionCount (mlpForward params input)
 
 -- | Build the policy/value heads from a precomputed forward cache. The
 -- policy head softmaxes the first @actionCount@ outputs; the value head
@@ -454,7 +484,12 @@ policyValueForward params actionCount input =
 -- device-backed forward (e.g. "JitML.Numerics.MlpCuda") can produce the
 -- same 'PolicyValueOutput' the pure 'policyValueForward' does.
 policyValueFromForward :: Int -> MlpForward -> PolicyValueOutput
-policyValueFromForward actionCount fwd =
+policyValueFromForward = policyValueFromForwardWith TanhValueHead
+
+-- | 'policyValueFromForward' with an explicit value-head activation.
+policyValueFromForwardWith
+  :: ValueHeadActivation -> Int -> MlpForward -> PolicyValueOutput
+policyValueFromForwardWith act actionCount fwd =
   let output = forwardOutput fwd
       logits = VU.take actionCount output
       valueRaw =
@@ -464,7 +499,7 @@ policyValueFromForward actionCount fwd =
    in PolicyValueOutput
         { pvForward = fwd
         , pvPolicy = softmax logits
-        , pvValue = tanh valueRaw
+        , pvValue = activateValueHead act valueRaw
         }
 
 -- | Assemble the network's full output gradient @dL/dy@ from the policy
@@ -478,11 +513,22 @@ policyValueOutputGradient
   -> Vector Double -- dL/dlogits (length actionCount)
   -> Double -- dL/dvalue (scalar)
   -> Vector Double
-policyValueOutputGradient outputs output dLdLogits dLdValue =
+policyValueOutputGradient = policyValueOutputGradientWith TanhValueHead
+
+-- | 'policyValueOutputGradient' with an explicit value-head activation. Must
+-- match the activation used by the forward that produced @output@.
+policyValueOutputGradientWith
+  :: ValueHeadActivation
+  -> Int
+  -> PolicyValueOutput
+  -> Vector Double
+  -> Double
+  -> Vector Double
+policyValueOutputGradientWith act outputs output dLdLogits dLdValue =
   let actionCount = VU.length dLdLogits
       valueGradPre =
         if outputs > actionCount
-          then dLdValue * (1.0 - pvValue output * pvValue output)
+          then dLdValue * valueHeadDeriv act (pvValue output)
           else 0.0
       tailGrads =
         if outputs > actionCount
@@ -500,11 +546,22 @@ policyValueBackward
   -> Vector Double -- dL/dlogits (length actionCount)
   -> Double -- dL/dvalue (scalar)
   -> MlpGradient
-policyValueBackward params output dLdLogits dLdValue =
+policyValueBackward = policyValueBackwardWith TanhValueHead
+
+-- | 'policyValueBackward' with an explicit value-head activation. Must match the
+-- activation used by the forward that produced @output@.
+policyValueBackwardWith
+  :: ValueHeadActivation
+  -> MlpParams
+  -> PolicyValueOutput
+  -> Vector Double
+  -> Double
+  -> MlpGradient
+policyValueBackwardWith act params output dLdLogits dLdValue =
   mlpBackward
     params
     (pvForward output)
-    (policyValueOutputGradient (mlpOutputs (paramShape params)) output dLdLogits dLdValue)
+    (policyValueOutputGradientWith act (mlpOutputs (paramShape params)) output dLdLogits dLdValue)
 
 -- | @y = M @ x@ where @M@ is @rows × cols@ row-major.
 matVec :: Vector Double -> Int -> Int -> Vector Double -> Vector Double
