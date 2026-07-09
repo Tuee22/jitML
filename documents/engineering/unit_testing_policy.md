@@ -214,12 +214,16 @@ It also covers the Sprint `20.2` ProductTruth lint boundary: direct product
 source mentions of enforced fossils are rejected, product-reachable imports of
 relocated scaffold modules fail, and no `ProductRow` implementation names an
 entry from `nonProductScaffolding`.
-Current 2026-07-05 CUDA evidence: Phase `29` revalidated the row-complete
-`linux-cuda` product lane on the RTX 5090 host with `docker compose run --rm
-jitml-cuda jitml test all --linux-cuda` passing all 8 stanzas,
-`jitml-backends` passing 21/21 on the GPU, all 55 ProductRows published as
-eligible CUDA-lane checkpoints, and `jitml test jitml-e2e --live --linux-cuda`
-passing live Playwright 71/71 at the published CUDA edge.
+Dated historical CUDA evidence (2026-07-05, since WITHDRAWN): a run on the
+RTX 5090 host once reported the row-complete `linux-cuda` product lane via
+`docker compose run --rm jitml-cuda jitml test all --linux-cuda` passing all 8
+stanzas, `jitml-backends` passing 21/21 on the GPU, all 55 ProductRows
+published as eligible CUDA-lane checkpoints, and `jitml test jitml-e2e --live
+--linux-cuda` passing live Playwright 71/71 at the published CUDA edge. That
+2026-07-05 evidence is withdrawn and is retained here only as dated history,
+never as current closure: Phase `29` — including the added Sprint `29.4` GPU
+performance and persistent device-buffer work — is Blocked/reopened, so the
+`linux-cuda` lane is currently pending a fresh real run.
 Current 2026-07-05 Apple evidence: Phase `30` revalidated the row-complete
 `apple-silicon` product lane on the Apple M1 Max host. The backend tests assert
 the generated Metal source no longer carries identity-copy or 1x1-degenerate

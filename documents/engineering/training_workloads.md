@@ -42,7 +42,12 @@ the canonical problem catalog and all-row trainable product cohort in
 `src/JitML/SL/Canonicals.hs`, typed dataset references in
 `src/JitML/SL/Dataset.hs`, the single-hidden-layer softmax primitive in
 `src/JitML/SL/Classifier.hs`, and the all-row substrate-backed architecture
-runtime in `src/JitML/SL/Architecture.hs`.
+runtime in `src/JitML/SL/Architecture.hs`. Phase `24` is moving the executed
+supervised architecture beyond that single-hidden-layer softmax primitive to a
+real MLP-Mixer — a token-mixing MLP plus an executed LayerNorm — at raised
+widths (the SL feature clamps for the latent/wide rows are raised toward
+`~256`), so the trained topology matches the richer graph a product row
+documents rather than an un-normalized dense stand-in.
 
 - Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket
   `jitml-datasets`, exposes `fetchDatasetRef` and
@@ -59,7 +64,11 @@ The catalog names the intended no-caveat architecture set. Phase `24` Sprint
 `ProductRow.rowArchitectureFeatures` and rejects any row whose literal
 `archLayerGraph` lacks those features. A simplified trainable topology is still
 useful implementation evidence, but it cannot close a row that documents a
-richer architecture.
+richer architecture. Reopened Phase `24` remediates the earlier dense-stand-in
+gap: the deep and ViT rows now train a real token-mixing MLP with an executed
+LayerNorm (an MLP-Mixer block) at raised widths, so the executed model matches
+the documented architecture instead of an un-normalized bag-of-patches dense
+stand-in.
 
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
@@ -71,7 +80,7 @@ richer architecture.
 | `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal graph has Conv2D, BatchNorm, global pooling, and 20 BasicBlock residual nodes; archive parser evidence remains separate |
 | `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal graph has Conv2D, BatchNorm, global pooling, and 56 BasicBlock residual nodes; archive parser evidence remains separate |
 | `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal WideResNet-28-10 graph has Conv2D, GroupNorm, global pooling, and 12 wide BasicBlock residual nodes; archive parser evidence remains separate |
-| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal small ViT graph has patch embedding, two LayerNorm nodes, MultiHeadAttention, GeGLU, token pooling, and a classifier head |
+| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal small ViT graph has patch embedding, two LayerNorm nodes, MultiHeadAttention, GeGLU, token pooling, and a classifier head; reopened Phase `24` trains this row through a real token-mixing MLP + executed LayerNorm Mixer at raised widths rather than an un-normalized dense stand-in |
 | `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | Literal ResNet-50 graph has Conv2D, BatchNorm, global pooling, and 16 BottleneckBlock residual nodes; archive SHA pin and Zip64/JPEG evidence remain separate |
 | `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense regression topology; parser, device-MSE trainer, fixed-budget RMSE/MSE convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
 
@@ -434,6 +443,13 @@ A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ,
 TQC, ARS, HER, and AlphaZero each require their own fixed budget, completed
 training witness, convergence-statistics record, checkpoint, and UI/e2e
 evidence. Family-level smoke tests do not close a model row.
+
+Reopened Phase `25` runs these RL rollouts vectorized: roughly `16` parallel
+environment instances are batched through the network in one device call per
+step (reintroducing a real, product-reachable `JitML.RL.VecEnv`), and the RL
+network hidden widths are raised (from `64`/`128` toward `~256`), so the
+model-owned convergence bars above are re-cleared under the new vectorized
+regime at the raised widths.
 
 Phase `22` also registers the environment-floor parity rows `PPO/acrobot`,
 `SAC/pendulum`, and `PPO/gridworld-deterministic` so every documented canonical

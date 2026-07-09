@@ -92,11 +92,37 @@ Metal cannot be containerized.
 
 ## Current Baseline
 
-**Current status (2026-07-06): product chain blocked on Phase `29`.** The
+**Reopened (2026-07-08 — expanded product end-state).** On 2026-07-08 Phases `24`
+(Real Supervised Architectures), `25` (Real RL Algorithms & Environments), and `33`
+(Per-Model Convergence & Inference Tests) reopened to **Active** because the product
+Exit Definition expanded. The executed supervised architecture moves from an
+un-normalized bag-of-patches dense stand-in to a real **MLP-Mixer** (token-mixing MLP
+plus executed LayerNorm) at right-sized widths (SL feature clamps raised toward ~256);
+the RL environments become **vectorized** (~16 parallel env instances batched through
+the network in one device call per step, reintroducing a real, product-reachable
+`JitML.RL.VecEnv`) with the RL residual algorithms fixed and RL hidden widths raised
+toward ~256; and every per-model convergence and inference-performance bar must be
+re-cleared at the new sizes and the vectorized regime. Phase `29` (`linux-cuda`)
+**stays Blocked** and gains a new **Sprint `29.4` — GPU Performance and Persistent
+Device Buffers** (persistent CUDA device weight buffers that hoist the per-call
+`cudaMalloc` + host-to-device weight copy out of the per-batch kernel path in
+`src/JitML/Codegen/MlpCuda.hs`, plus vectorized-env throughput), whose Exit obligation
+is Exit-Definition item `#29` (STRICT, every-row): every one of the 55 product rows'
+`linux-cuda` wall-clock is strictly less than its `linux-cpu` wall-clock, recorded in a
+committed per-row timing table in the `linux-cuda` attestation. Phase `31`
+(aggregation) **stays Blocked**. No new phase is added — Rule M(a) (forward-only)
+forbids Phase `31` depending on a higher-numbered phase, so the GPU-performance work
+expands Phase `29` instead. The handoff remains **incomplete**: these Active phases
+must re-close and Phase `29` must produce a fresh converged **and** performant
+`linux-cuda` attestation before the product chain can close.
+
+**Status (2026-07-06): product chain blocked on Phase `29`.** The
 2026-07-05 read-only realness audit withdrew the prior "all 55 ProductRows
 real" claim and reopened Phases `19`–`31` because several gates were
-self-authored or self-referential. Current source and test work has revalidated
-Phases `20`, `21`, `23`, `24`, `25`, `26`, and `30`, but Phase `29`
+self-authored or self-referential. Source and test work as of that date had
+revalidated Phases `20`, `21`, `23`, `24`, `25`, `26`, and `30` (Phases `24`,
+`25`, and `33` have since reopened to Active on 2026-07-08 per the callout above),
+but Phase `29`
 (`linux-cuda`) remains blocked because this host's Docker daemon does not expose
 an NVIDIA GPU runtime to the `jitml-cuda` compose service. Phase `31` remains
 blocked downstream until a fresh real `linux-cuda` fragment exists.
@@ -960,7 +986,7 @@ each constraint.
 | 26 | Phase 25 | AlphaZero real self-play per game: real MCTS-driven self-play training and inference-eligible checkpoints per supported game. `linux-cpu` only. |
 | 27 | Phase 26 | Demo all-model rendering: every product row renders from a real inference-eligible artifact. `linux-cpu` only. |
 | 28 | Phase 27 | Per-model integration and e2e: every product row has named integration and e2e evidence. `linux-cpu` only. |
-| 29 | Phase 28 | Linux CUDA product lane: row-complete validation on `linux-cuda` plus `linux-cpu`; no Apple validation. |
+| 29 | Phase 28 | Linux CUDA product lane: row-complete validation on `linux-cuda` plus `linux-cpu`; no Apple validation. Blocked; now carries four sprints (`29.1`–`29.4`), with Sprint `29.4` adding GPU performance / persistent CUDA device weight buffers under Exit item #29 (every row's `linux-cuda` wall-clock strictly < its `linux-cpu` wall-clock). |
 | 30 | Phase 29 | Apple Silicon product lane: row-complete validation on `apple-silicon` plus `linux-cpu`; no CUDA validation. |
 | 31 | Phase 30 | No-caveat product aggregation: `linux-cpu`-only aggregation over committed CPU/CUDA/Apple row evidence. |
 | 32 | Phase 31 | External-truth realness harness and negative-control gate: non-gameable bars, provenance binding, and known-fake rejection. |
@@ -981,12 +1007,18 @@ for the governing rule.
 
 ## Current Baseline
 
-**Current status (2026-07-06): product chain blocked on Phase `29`.** The
+**Current status (2026-07-08): product chain blocked on Phase `29`; Phases `24`,
+`25`, and `33` reopened to Active.** On 2026-07-08 Phases `24`, `25`, and `33`
+reopened to Active for the expanded end-state (executed MLP-Mixer, right-sized
+models, and vectorized RL environments — see the [Current Baseline
+callout](#current-baseline)); Phase `29` stays Blocked and now carries Sprints
+`29.1`–`29.4`, and Phase `31` stays Blocked. The
 2026-07-05 realness audit remains the historical reason Phases `32`–`34` exist.
-The current status is the evidence recorded in
-[README.md → Closure Status](README.md#closure-status): Phases `20`, `21`, `23`,
-`24`, `25`, `26`, and `30` have refreshed validation, while Phase `29` is
-blocked on a Docker-visible NVIDIA GPU runtime and Phase `31` is blocked on the
+The prior status recorded in
+[README.md → Closure Status](README.md#closure-status) — Phases `20`, `21`, `23`,
+`24`, `25`, `26`, and `30` with refreshed validation — is superseded for `24`,
+`25`, and `33` by the 2026-07-08 reopen, while Phase `29` remains
+blocked on a Docker-visible NVIDIA GPU runtime and Phase `31` remains blocked on the
 missing real `linux-cuda` fragment.
 
 Historical status from 2026-06-30: the follow-up audit reopened that baseline

@@ -309,7 +309,11 @@ collectRolloutInEnvironment countTable environment config params startState gen0
             -- direct reward, not a potential, so it survives the on-policy value
             -- baseline). No-op for every env except mountain-car.
             countBonus <-
-              CountExploration.countExplorationBonus countTable (ppoCountBeta config) (envName environment) nextObs
+              CountExploration.countExplorationBonus
+                countTable
+                (ppoCountBeta config)
+                (envName environment)
+                nextObs
             let step =
                   RolloutStep
                     { rsObs = obs
@@ -804,7 +808,8 @@ trainPpoInEnvironment environment config = do
   (_, _, _, _, stats, finalParams) <-
     foldM
       ( \(state, gen, params, adam, stats, _) iteration -> do
-          (rollout, nextState, nextGen) <- collectRolloutInEnvironment countTable environment config params state gen
+          (rollout, nextState, nextGen) <-
+            collectRolloutInEnvironment countTable environment config params state gen
           let (advs, targets) = computeAdvantages config rollout
               normAdvs = standardise advs
               triples = zip3 (rolloutSteps rollout) normAdvs targets
@@ -922,7 +927,8 @@ trainPpoOnDeviceWithEnvironment device environment config = do
  where
   step _ (Left e) _ = pure (Left e)
   step countTable (Right (state, gen, params, adam, stats, _)) iteration = do
-    (rollout, nextState, nextGen) <- collectRolloutInEnvironment countTable environment config params state gen
+    (rollout, nextState, nextGen) <-
+      collectRolloutInEnvironment countTable environment config params state gen
     let (advs, targets) = computeAdvantages config rollout
         normAdvs = standardise advs
         triples = zip3 (rolloutSteps rollout) normAdvs targets

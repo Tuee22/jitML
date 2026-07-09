@@ -45,6 +45,16 @@ self-describing shape contract subordinate to the stronger trained-artifact
 contract: the manifest shape is necessary but not sufficient for inference. See
 [training_metrics_and_splits.md](training_metrics_and_splits.md).
 
+**Note — right-sized and MLP-Mixer weight layouts.** The `W1/b1/W2/b2` two-layer
+shape above is illustrative, not a fixed schema. Model right-sizing raises the
+hidden widths, and the supervised MLP-Mixer introduces additional token-mixing
+MLP and executed `LayerNorm` layers, so the `WeightLayout` records more (and
+larger) per-layer `TensorSpec`s than the two-layer case. The flatten/reshape
+format itself is unchanged: `mlpParamsToFlat` remains a data-driven, ordered
+tensor list, so the consumer reshapes whatever tensor count the layout declares.
+The RL-policy checkpoint family survives the width change — only its per-layer
+shapes grow, not its self-describing contract.
+
 **Layer-graph checkpoints (Sprint 23.3).** `ArchitectureMetadata` also carries
 an optional `LayerGraphMetadata` block. It serializes the graph name,
 input/output shapes, and ordered node list; every node records its layer kind,

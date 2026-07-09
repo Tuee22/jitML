@@ -165,10 +165,18 @@ reproducibility witness surface; see
 
 ## Product Scaffold Boundary
 
-Sprint `20.1` removes the legacy fake-RL helpers from `src/`: the dead
-`JitML.RL.VecEnv` module is gone, `runRLLoop` / `runOneEpisode` and the
-deterministic step helper live only under `test/rl-canonicals/Support/`, and the
-old simulator-loop runners are test-support only. Product RL dispatch reaches
+Sprint `20.1` removes the legacy fake-RL helpers from `src/`: the deleted
+`JitML.RL.VecEnv` was a dead, zero-caller fake with no product reach, so it was
+removed rather than the vectorized-env capability as such. A real,
+product-reachable, learning `JitML.RL.VecEnv` is being reintroduced (Phase `25`)
+to batch ~16 parallel environment instances through the network in a single
+device call per step; this module is exercised on the trainer device seam and is
+categorically distinct from the removed fossil. The scaffold-lint now
+distinguishes the real vectorized-env module (a genuine caller-backed
+device-batched env) from that dead zero-caller fake, so reintroducing the real
+`VecEnv` does not re-trip the fake-scaffold gate. `runRLLoop` / `runOneEpisode`
+and the deterministic step helper live only under `test/rl-canonicals/Support/`,
+and the old simulator-loop runners are test-support only. Product RL dispatch reaches
 real trainers through `JitML.App.runTrainerEpisodes`; those trainers project
 their summaries into `JitML.RL.EpisodeEnvelope` for trajectory artifacts,
 animation frames, and `EpisodeDone` publications. No product cache-miss path,
@@ -266,15 +274,32 @@ scaffolding modules.
   `jitml_kernel_family_name`, and `jitml_kernel_output_count`. The
   host-callable wrapper owns CUDA device allocation, host-to-device input copy,
   deterministic device-kernel launch, `cudaDeviceSynchronize`, and
-  device-to-host output copyback.
+  device-to-host output copyback. Sprint `29.4` hoists the weight upload out of
+  this per-batch path with persistent CUDA device weight buffers: within a
+  fixed-parameter phase the weights are uploaded to the device once and reused
+  across batches, so the per-call `cudaMalloc` + host-to-device weight copy no
+  longer sit on the per-batch kernel path (see
+  `src/JitML/Codegen/MlpCuda.hs`).
 - Phase `29` extends the generated CUDA family surface so Dense2D and MHA invoke
   `cublasSgemm`, Conv2D/Conv3D invoke `cudnnConvolutionForward` through
   deterministic tensor/filter/convolution descriptors, and BatchNorm/LayerNorm
   invoke cuDNN normalization descriptors. The generated artifact owns the native
   cuBLAS/cuDNN handles inside the compiled CUDA source; the Haskell binding
-  modules remain the typed compile/runtime probe surface. The 2026-07-05
-  `jitml-backends --linux-cuda` lane passed **21 / 21** on the RTX 5090 and
-  asserts those generated source entry points before executing the kernels.
+  modules remain the typed compile/runtime probe surface. This cuBLAS/cuDNN
+  routing applies **only** to the generated family-kernel surface
+  (Conv2D/Conv3D/MHA/BatchNorm/LayerNorm/Dense2D); it is a separate seam from the
+  executed RL/SL trainer MLP device path, which uses the hand-written elementwise
+  kernels in `src/JitML/Codegen/MlpCuda.hs` (`jitml_mlp_forward` /
+  `jitml_mlp_forward_batch` / `jitml_mlp_grad`) and does **not** call
+  `cublasSgemm` (see "MLP forward/backward network kernels" below). The two
+  surfaces therefore do not overlap and are not in conflict.
+- *(Dated historical, 2026-07-05 — since WITHDRAWN.)* On 2026-07-05 the
+  `jitml-backends --linux-cuda` lane was recorded as passing **21 / 21** on the
+  RTX 5090, asserting those generated source entry points before executing the
+  kernels. That evidence is withdrawn and must be cited only as dated historical
+  record; the `linux-cuda` product lane is **Blocked** pending a fresh real run.
+  The lane's assertion structure (checking the generated source entry points
+  before kernel execution) is unchanged.
 - `src/JitML/Engines/CudaLocal.hs` is the guarded CUDA local runner. It
   consumes a positive `probeCudaRuntime` before materializing and compiling the
   generated source, then loads the `.so` through the shared
@@ -316,10 +341,13 @@ scaffolding modules.
   code-quality runs, and exposes every host NVIDIA GPU only through the
   `jitml-cuda` companion service via the modern `gpus: all` shorthand for live
   in-container CUDA validation.
-- Phase `29` product-lane validation on 2026-07-05 staged all 12 canonical
-  datasets, published all **55 / 55** ProductRow checkpoints on `linux-cuda`,
-  passed `jitml test all --linux-cuda` **8 / 8**, and passed live Playwright
-  **71 / 71** at the CUDA edge `:9092`.
+- *(Dated historical, 2026-07-05 — since WITHDRAWN.)* A Phase `29` product-lane
+  validation recorded on 2026-07-05 staged all 12 canonical datasets, published
+  all **55 / 55** ProductRow checkpoints on `linux-cuda`, passed
+  `jitml test all --linux-cuda` **8 / 8**, and passed live Playwright **71 / 71**
+  at the CUDA edge `:9092`. This evidence is withdrawn and must be presented only
+  as dated historical record, never as current closure; the `linux-cuda` product
+  lane is **Blocked** pending a fresh real run.
 - **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`
@@ -328,12 +356,18 @@ scaffolding modules.
   gB2` from `dL/dy`, the forward `hidden_act`, the input, and `W2`). Each
   device thread accumulates its own reduction sequentially (no atomics, no
   warp-shuffle) so the result is bit-deterministic run-to-run on the same
-  device. `src/JitML/Numerics/MlpCuda.hs` is the host runner — it compiles
+  device. These `jitml_mlp_forward` / `jitml_mlp_forward_batch` / `jitml_mlp_grad`
+  entry points are **hand-written elementwise CUDA kernels**, not `cublasSgemm`
+  calls; the cuBLAS/cuDNN routing described above applies to the separate
+  generated family-kernel surface, not to this trainer MLP device seam.
+  `src/JitML/Numerics/MlpCuda.hs` is the host runner — it compiles
   the kernel through the same `ensureKernelArtifact` JIT-cache path,
   `dlopen`s the `.so`, marshals the flat row-major parameter buffers across
   the FFI, and returns the same `MlpForward` / `MlpGradient` the pure
   network produces (CUDA `float` vs host `Double`, so agreement is within a
-  single-precision tolerance). `jitml-backends` validates this on the
+  single-precision tolerance). Under Sprint `29.4` the flat weight buffers are
+  uploaded once per fixed-parameter phase into persistent device buffers and
+  reused across batches, rather than re-marshalled on every per-batch launch. `jitml-backends` validates this on the
   RTX 3090: forward + backward match the pure network within `1e-3` and are
   bit-equal across repeated runs. Routing the RL trainers and the AlphaZero
   `PolicyValueNet` through these device kernels (batched) plus the cuDNN

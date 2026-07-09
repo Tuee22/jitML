@@ -1,6 +1,6 @@
 # Phase 33: Per-Model Convergence & Inference-Performance Tests
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md), [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md), [../README.md](../README.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -12,6 +12,10 @@
 > never by a declared constant or an artifact-read.
 
 ## Phase State
+
+🔄 **Reopened (2026-07-08):** every per-model measured bar must be re-cleared at
+the widened + vectorized regime, and inference-performance re-measured at the new
+model sizes. The prior narrative below is retained as historical record.
 
 🔄 **Reopened (2026-07-07) by the real-device convergence audit.** The standing
 per-model measurement suite is sound, but running it against **real** trained
@@ -55,9 +59,9 @@ examples/sec throughput; RL sample-efficiency / env-steps-to-threshold), reprodu
 bit-identically on a same-seed re-run. Rows whose full literature run is impractical on
 `linux-cpu` are typed `Declared` (Phase `32`) until a real run exists — never faked.
 
-## Sprint 33.1: Per-Model Measured Convergence [✅ Done]
+## Sprint 33.1: Per-Model Measured Convergence [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Test/RowAssertions.hs`, `test/model-convergence/Main.hs`, `jitml.cabal`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -92,9 +96,15 @@ docker compose run --rm jitml jitml check-code
 
 - Implemented the row-complete model-convergence stanza; `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-model-convergence --test-options='--hide-successes --color=never'` passed 111/111 on 2026-07-06.
 
-## Sprint 33.2: Inference-Performance & Determinism [✅ Done]
+### Remaining Work
 
-**Status**: Done
+- Re-run the measured-median convergence assertion for all 55 rows at the new
+  architecture / raised widths / vectorized envs; the deep-SL rows must clear their
+  bars.
+
+## Sprint 33.2: Inference-Performance & Determinism [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/Test/RowAssertions.hs`, `test/model-convergence/Main.hs`, `src/JitML/Product/ExternalBars.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `system-components.md`
 
@@ -123,13 +133,21 @@ docker compose run --rm jitml jitml check-code
 
 - Implemented the inference-performance assertions and floors.
 
+### Remaining Work
+
+- Re-measure the non-wall-clock inference-performance metric (SL examples/sec
+  throughput; RL env-steps-to-threshold) and the bit-identical determinism contract
+  at the new model sizes.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 - `documents/engineering/training_metrics_and_splits.md` — the per-model measured
-  convergence + inference-performance contract; RL reward is a trained-policy rollout.
+  convergence + inference-performance contract at the widened + vectorized regime;
+  RL reward is a trained-policy rollout, re-measured at the new model sizes.
 - `documents/engineering/unit_testing_policy.md` — ownership of the
-  `jitml-model-convergence` stanza.
+  `jitml-model-convergence` stanza and its re-clearance obligation across all 55 rows
+  at the raised widths / vectorized envs.
 
 **Product docs to create/update:**
 - `README.md` — the `Convergence and determinism checks for RL` and

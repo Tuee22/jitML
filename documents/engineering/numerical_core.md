@@ -25,14 +25,21 @@ all-family trained-artifact closure in
 and browser consumption in
 [DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
-**Current accelerator lane evidence.** Phase `29` closes the current
-`linux-cuda` product lane on the RTX 5090 host: generated CUDA family kernels
-call cuBLAS/cuDNN for Dense/MHA, Conv2D/Conv3D, BatchNorm, and LayerNorm;
-CUDA-backed MLP forward/backward/batched-gradient/input-gradient remains the
-device update path for product training; all 12 canonical dataset artifacts were
-SHA-verified into live MinIO; all **55 / 55** ProductRows published
-inference-eligible CUDA-lane checkpoints; and `jitml test all --linux-cuda`
-passed **8 / 8** stanzas.
+**Current accelerator lane evidence.** The `linux-cuda` product lane is
+currently **Blocked** (reopened): Phase `29` has been reopened with a new
+Sprint `29.4` ("GPU Performance and Persistent Device Buffers"), so the lane
+awaits a fresh real run and is not closed. The executed trainer MLP device path
+on CUDA runs through **hand-written elementwise kernels** in
+`src/JitML/Codegen/MlpCuda.hs` (`jitml_mlp_forward` / `jitml_mlp_forward_batch` /
+`jitml_mlp_grad`) — forward, batched, and gradient — **not** cuBLAS
+`cublasSgemm`. cuBLAS/cuDNN apply only to the separate generated family-kernel
+surface (Conv2D, MHA, and the other Dense/Conv3D/BatchNorm/LayerNorm family
+kernels), not the trainer's MLP seam. The earlier **2026-07-05** figures —
+generated CUDA family kernels calling cuBLAS/cuDNN, 12 SHA-verified dataset
+artifacts in live MinIO, all **55 / 55** ProductRows publishing
+inference-eligible CUDA-lane checkpoints, and `jitml test all --linux-cuda`
+passing **8 / 8** stanzas — are retained only as **dated historical /
+withdrawn** evidence and must not be read as current closure.
 
 ## Catalog Shape
 
@@ -80,6 +87,13 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 > [phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md),
 > under the plan-truth governance of
 > [phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
+> This "everything is a dense GEMM stand-in" description is being remediated on
+> the executed supervised path by Phase `24`
+> ([phase-24-real-supervised-architectures.md](../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md)):
+> the executed SL architecture is moving from the un-normalized "bag-of-patches"
+> dense stand-in to a real **MLP-Mixer** — a token-mixing MLP plus **executed
+> LayerNorm** at raised widths — so the ViT and deeper rows train real
+> token-mixing and normalization, not a bare dense stack.
 > The prose that follows is retained as the pre-audit narrative.
 
 Phase `23` adds the executable typed layer-graph surface in
@@ -133,7 +147,10 @@ checks the named topology counts: LeNet has two Conv2D nodes, ResNet-20 and
 ResNet-56 have 20 and 56 BasicBlock nodes, WideResNet-28-10 has 12
 GroupNorm-backed BasicBlock nodes, the small ViT has patch embedding,
 MultiHeadAttention, two LayerNorm nodes, and GeGLU, and ResNet-50 has 16
-BottleneckBlock nodes.
+BottleneckBlock nodes. Under Phase `24`'s remediation, the executed supervised
+path for these rows is moving to a real MLP-Mixer with a token-mixing MLP and
+executed LayerNorm, so the ViT and deep rows train real token-mixing and
+normalization rather than the dense-GEMM stand-in.
 
 Sprint `24.2` adds the supervised learning-evidence assertion layer in
 `JitML.Test.RowAssertions`. The assertion consumes measured row evidence from

@@ -59,12 +59,18 @@ cost is dominated by tiny-MLP kernel-launch overhead plus the single-threaded en
 simulator) and was in progress at this checkpoint with the SL / on-policy /
 off-policy / continuous families recovered. **55 / 55 is not yet reached.**
 
-**Blocked by**: Phases `25` / `33` producing genuinely-converging product rows
-(real RL/deep-SL/AlphaZero implementations), then a fresh full real `linux-cuda`
+**Blocked by**: Phases `24` / `25` / `26` producing genuinely-converging product
+rows (real deep-SL / RL / AlphaZero implementations, measured by the standing
+`jitml-model-convergence` gate), then a fresh full real `linux-cuda`
 `train-and-publish` + `test all` pass. The GPU/runtime prerequisite is met.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
+
+New Sprint `29.4` (added in this expansion) now extends this phase's Exit
+Definition beyond correctness to **GPU performance**: the `linux-cuda` lane must
+outperform `linux-cpu` on every product row (Exit-Definition item #29), not
+merely converge.
 
 ## Objective
 
@@ -278,6 +284,59 @@ attestation from device-backed row evidence.
   [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
   suites, and re-commit the attestation only after they pass. Validation stays
   single accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
+
+## Sprint 29.4: GPU Performance and Persistent Device Buffers [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprints `29.1`/`29.2`/`29.3` (a correct, converged linux-cuda
+lane) and Phases `24`/`25` (vectorized envs + right-sized models)
+**Docs to update**: `../documents/engineering/jit_codegen_architecture.md`,
+`../documents/engineering/numerical_core.md`
+
+### Objective
+
+The `linux-cuda` lane is not merely correct but **performant**: on the
+persistent-buffer, vectorized-env regime it outperforms `linux-cpu` on every
+product row, so the accelerator lane is a real speedup rather than a
+slower-but-correct alternative.
+
+### Deliverables
+
+- Persistent CUDA device weight buffers in `src/JitML/Codegen/MlpCuda.hs` hoist
+  the per-call `cudaMalloc` plus host-to-device weight copy out of the per-batch
+  kernel path: weights upload once per fixed-parameter phase and are reused
+  across every batch and vectorized-env step, so the `jitml_mlp_forward` /
+  `_batch` / `_grad` hand-written elementwise kernels launch against resident
+  device buffers instead of re-staging weights on each call.
+- Vectorized-env CUDA throughput batches the ~16 parallel env instances through
+  the network in a single device call per step, amortizing kernel-launch
+  overhead across the batch.
+- A committed per-row `linux-cuda`-vs-`linux-cpu` wall-clock timing table in the
+  `linux-cuda` report card (`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`),
+  one entry per product row, recording both substrates' measured wall-clock.
+
+### Validation
+
+Exit-Definition item #29 (**STRICT, every-row**): every one of the 55 product
+rows' `linux-cuda` wall-clock is strictly less than its `linux-cpu` wall-clock,
+recorded in the committed per-row timing table in the `linux-cuda` attestation.
+Validation stays single accelerator — the CPU baseline is `linux-cpu`, not an
+accelerator, so there is no dual-accelerator gate: `linux-cuda` plus `linux-cpu`,
+never `apple-silicon`.
+
+### Remaining Work
+
+- The persistent device weight buffers will be implemented in
+  `src/JitML/Codegen/MlpCuda.hs`, lifting the per-batch `cudaMalloc` +
+  host-to-device weight copy out of the kernel path so weights upload once per
+  fixed-parameter phase.
+- Vectorized-env CUDA throughput will be brought up on the real GPU once Phases
+  `25` / `24` land the vectorized envs and right-sized models.
+- The per-row `linux-cuda`-vs-`linux-cpu` wall-clock timing table will be
+  measured on the attached GPU and committed to the `linux-cuda` report card.
+- Exit-Definition item #29 will be cleared only when all 55 rows show
+  `linux-cuda` strictly faster than `linux-cpu`; until then this sprint stays
+  Blocked.
 
 ## Documentation Requirements
 

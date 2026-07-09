@@ -136,6 +136,14 @@ cannot reach a fossil module.
 - The `code_quality.md` lint matrix and `system-components.md` lint inventory
   list the scaffold boundary and its reachability predicate.
 
+The forbidden-module list is scoped to *dead* fakes: `JitML.RL.VecEnv` is
+forbidden by name here only because the original module was a dead, zero-caller
+fossil. When Phase `25` reintroduces a real, product-reachable, learning
+`JitML.RL.VecEnv` (vectorized environments), the lint's forbidden-module entry
+for that name is refined to permit the real module while the reachability walk
+still fails any dead fossil. That refinement is owned by Phase `25`'s Remaining
+Work and does not reopen Phase `20`.
+
 ### Validation
 
 ```bash

@@ -1,6 +1,6 @@
 # Phase 25: Real RL Algorithms & Environments
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md)
 **Generated sections**: none
@@ -35,10 +35,17 @@ exploration wall potential shaping provably cannot address on-policy), `DQN` /
 `QR-DQN` mountain-car (−159 / −153, marginal), `TRPO/lunar-lander` (diagonal-Fisher
 divergence), and `SAC/pendulum` (swing-up); the deep-SL and hex rows are owned by
 Phases `33`/`26`/`29`. `jitml-model-convergence` and `jitml-negative-controls`
-pass. A fresh full real `linux-cuda` `train-and-publish` on these fixes (a
-multi-hour job) plus closing the residual rows is required before the per-sprint
-status flips. The prior closure narrative is retained below as the historical
-(now-contradicted) record.
+pass. **The per-sprint status flips landed 2026-07-08**: sprints 25.1/25.2/25.3
+are now Active. The remediation scope has also **expanded** on top of the residual
+convergence fixes above — this reopening now additionally covers environment
+**vectorization** (~16 parallel env instances batched through the network in one
+device call per step, reintroducing a real, product-reachable `JitML.RL.VecEnv`)
+and **RL network right-sizing** (hidden widths raised 64/128 → ~256), alongside the
+banded RecurrentPPO / policy-only-Fisher TRPO / value-clipped A2C / directed-SAC
+residual fixes. Each sprint below carries a `### Remaining Work` block enumerating
+its unmet obligations, and a fresh full real `linux-cpu` device run under the new
+vectorized + widened regime is required to re-clear the per-row bars. The prior
+closure narrative is retained below as the historical (now-contradicted) record.
 
 ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `24`
 is Done. RL product evidence now comes from the trained policy evaluator rather
@@ -65,9 +72,9 @@ named algorithms onto three trainer templates plus ARS, and it no longer trains
 only CartPole and Pendulum while claiming MountainCar, Acrobot, LunarLander,
 KeyDoorGrid, GridWorld, or a goal-conditioned environment.
 
-## Sprint 25.1: Real Environments [✅ Done]
+## Sprint 25.1: Real Environments [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/RL/Simulator.hs`, `src/JitML/RL/Environments.hs`, `src/JitML/RL/EpisodeEnvelope.hs`, `src/JitML/RL/Algorithms/Common.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -129,9 +136,21 @@ evidence/convergence work.
 
 None.
 
-## Sprint 25.2: Distinct Algorithms [✅ Done]
+### Remaining Work
 
-**Status**: Done
+- Vectorize the RL environments so that ~16 parallel env instances are batched
+  through the network in one device call per step, reintroducing a real,
+  product-reachable `JitML.RL.VecEnv` seam that the production trainer loops step.
+- **Dependency (Phase `20`-owned lint refinement):** the reintroduced real
+  `JitML.RL.VecEnv` module must be admitted by the scaffold-lint forbidden-module
+  list in `documents/engineering/code_quality.md`'s lint, which presently forbids
+  such a module as a dead fake. Refine that forbidden-module list to permit the
+  reintroduced REAL module while still catching dead fakes — a small
+  Phase-`20`-owned lint refinement tracked here as a cross-phase dependency.
+
+## Sprint 25.2: Distinct Algorithms [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/RL/Algorithms/Registry.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -208,9 +227,19 @@ entry-point identity while the underlying update math still coincides.
   [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
   case that trains the row from a real random init through the production trainer.
 
-## Sprint 25.3: Per-Row Convergence and Evidence [✅ Done]
+### Remaining Work
 
-**Status**: Done
+- Land the RL residual algorithm fixes: raise RecurrentPPO's exploration-beta into
+  the 8-10 band and drop the recurrent advantage/target perturbation; give TRPO a
+  policy-only Fisher with a separate value-head Adam optimizer; add A2C
+  value-gradient clipping plus a k3-estimator KL early-stop (~`0.02`); and give
+  SAC/pendulum directed exploration.
+- Raise the RL network hidden widths from 64/128 to ~256 across the affected
+  trainers.
+
+## Sprint 25.3: Per-Row Convergence and Evidence [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`, `src/JitML/RL/ConvergenceThresholds.hs`, `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/Test/RowAssertions.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -305,20 +334,35 @@ than an achieved-goal trace from a relabelled off-policy learner. Every RL row's
   re-closed on self-authored evidence is
   [Phase `34`](phase-34-plan-truth-governance.md).
 
+### Remaining Work
+
+- Re-clear every RL product row's literature-anchored convergence bar under the new
+  vectorized (~16 parallel env instances batched per device step) and widened (~256
+  hidden) regime, recording fresh `linux-cpu` device evidence for each re-cleared
+  metric.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
-- `documents/engineering/training_workloads.md` — RL environment catalog and the
-  distinct-algorithm update-math ownership.
+- `documents/engineering/training_workloads.md` — RL environment catalog, the
+  distinct-algorithm update-math ownership, and the vectorized environment
+  execution model (~16 parallel env instances batched through the network per
+  device step via the reintroduced `JitML.RL.VecEnv`) with the raised ~256 hidden
+  widths.
 - `documents/engineering/training_metrics_and_splits.md` — per-row convergence
-  metric, cohort threshold, and RL evidence fields.
+  metric, cohort threshold, and RL evidence fields re-cleared under the vectorized
+  and widened regime.
 - `documents/engineering/product_completion_contract.md` — RL product-row
   convergence and evidence bar.
+- `documents/engineering/code_quality.md` — Phase-`20`-owned scaffold-lint
+  forbidden-module list refined to permit the reintroduced real `JitML.RL.VecEnv`
+  module while still catching dead fakes.
 
 **Product docs to create/update:**
 - `README.md` — RL environments table and convergence/determinism checks aligned
   with the implemented catalog.
 
 **Cross-references to add:**
-- Link the RL environment and control docs from `training_workloads.md`, and link
-  RL product rows from `product_completion_contract.md`.
+- Link the RL environment and control docs from `training_workloads.md`, link
+  RL product rows from `product_completion_contract.md`, and link the reintroduced
+  `JitML.RL.VecEnv` module from the `code_quality.md` scaffold-lint list.

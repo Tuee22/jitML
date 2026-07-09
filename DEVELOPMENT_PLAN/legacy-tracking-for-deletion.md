@@ -315,6 +315,7 @@ reporting `could not select device driver "" with capabilities: [[gpu]]`.
 |------|---------------|-------------------|
 | Identity-copy CUDA generic-family kernels and degenerate 1×1 weighted Conv2D/Conv3D plus misleading "cuBLAS/cuDNN scaffold" comments in `src/JitML/Codegen/Cuda.hs` | Sprint `29.1` | Replaced by real cuDNN/cuBLAS convolution/attention/pool/norm kernels and validated by `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` on real `linux-cuda` hardware. |
 | Dead cuBLAS/cuDNN bindings (`src/JitML/Engines/CublasBindings.hs`, `CudnnBindings.hs`) — linked and version-probed but never invoked | Sprint `29.1` | Wired into the real CUDA kernels or removed with their link flags, then validated by `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` on real `linux-cuda` hardware. |
+| Per-call cudaMalloc + host-to-device weight copy + cudaFree in the executed MLP CUDA kernel path (`src/JitML/Codegen/MlpCuda.hs` `jitml_mlp_*`), which re-uploads all weights on every batch call | Sprint `29.4` | Replaced by persistent device weight buffers (weights uploaded once per fixed-param phase and reused) and validated on real `linux-cuda` by a committed per-row linux-cuda-vs-linux-cpu wall-clock table showing all 55 rows GPU < CPU. |
 
 New rows are enqueued here only when a sprint introduces or discovers a
 doctrine deviation or temporary stand-in (per standards rule I / L).

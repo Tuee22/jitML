@@ -1,6 +1,6 @@
 # Phase 24: Real Supervised Architectures
 
-**Status**: Done
+**Status**: Active
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
 **Generated sections**: none
@@ -10,6 +10,12 @@
 > literature-anchored convergence bar on `linux-cpu`.
 
 ## Phase State
+
+🔄 Reopened (2026-07-08): the product Exit Definition expanded — the executed
+supervised architecture moves from the un-normalized bag-of-patches dense
+stand-in to a real MLP-Mixer (token-mixing MLP + executed LayerNorm) at raised
+feature widths, so the literal-architecture, convergence, and manifest
+obligations are back open.
 
 ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
 supervised architecture path no longer trains a residual-MLP stand-in for every
@@ -37,9 +43,9 @@ throughput, and clears `median(k=5) >= literature_target - slack`. Each row writ
 an inference-eligible `CompletedTraining` checkpoint, and partial, synthetic, or
 untrained supervised manifests are rejected.
 
-## Sprint 24.1: Literal Architectures [✅ Done]
+## Sprint 24.1: Literal Architectures [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
@@ -110,9 +116,18 @@ rejection actually guards the model that runs.
   must reject the current MLP-for-conv stand-in, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
-## Sprint 24.2: Convergence and Evidence [✅ Done]
+### Remaining Work
 
-**Status**: Done
+- The MLP-Mixer executed layer set — a token-mixing MLP plus an executed
+  LayerNorm — will be implemented in `src/JitML/SL/Architecture.hs` for the deep
+  residual/ViT rows, replacing the un-normalized bag-of-patches dense stand-in on
+  the trained and served path.
+- The latent/wide clamp ceilings will be raised toward `~256` so the executed
+  Mixer runs at the widened feature widths the expanded Exit Definition requires.
+
+## Sprint 24.2: Convergence and Evidence [🔄 Active]
+
+**Status**: Active
 **Implementation**: `test/sl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/numerical_core.md`
 
@@ -170,9 +185,16 @@ learning.
   `ExternalBars` target, must pass for every supervised row via
   `docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu`.
 
-## Sprint 24.3: CompletedTraining SL Manifests [✅ Done]
+### Remaining Work
 
-**Status**: Done
+- The deep-SL rows (`cifar10-resnet56`, `cifar100-wide-resnet`,
+  `fashion-mnist-resnet`) will re-clear their literature-anchored convergence bars
+  measured on the widened MLP-Mixer architecture, not on the retired
+  bag-of-patches stand-in.
+
+## Sprint 24.3: CompletedTraining SL Manifests [🔄 Active]
+
+**Status**: Active
 **Implementation**: `src/JitML/Checkpoint/`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`
 
@@ -229,17 +251,29 @@ they attest a fabricated topology as complete.
   weights are not the real trained architecture, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
+### Remaining Work
+
+- The supervised `CompletedTraining` manifests will regenerate at the new
+  MLP-Mixer architecture and its retrained weights, so the inference-eligible
+  checkpoint and its graph/layout evidence describe the widened Mixer topology
+  that is actually trained and served.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
-- `documents/engineering/training_workloads.md` — literal supervised
-  architectures assembled over the Phase `23` layer engine.
+- `documents/engineering/training_workloads.md` — the literal supervised
+  architectures assembled over the Phase `23` layer engine, updated for the
+  MLP-Mixer executed layer set (token-mixing MLP + executed LayerNorm) at the
+  raised latent/wide feature widths that replace the bag-of-patches stand-in.
 - `documents/engineering/training_metrics_and_splits.md` — three-way splits, real
-  cross-entropy / MSE-RMSE losses, and literature-anchored convergence bars.
+  cross-entropy / MSE-RMSE losses, and literature-anchored convergence bars
+  re-cleared at the widened Mixer architecture.
 - `documents/engineering/numerical_core.md` — the layer and kernel primitives the
-  literal architectures compose.
+  literal architectures compose, including the executed LayerNorm and token-mixing
+  MLP primitives the MLP-Mixer surface depends on.
 - `documents/engineering/checkpoint_format.md` — supervised `CompletedTraining`
-  manifest fields and inference-eligibility gates.
+  manifest fields and inference-eligibility gates for the regenerated Mixer
+  weights.
 
 **Product docs to create/update:**
 - `README.md` — canonical supervised learning problems reflect the literal

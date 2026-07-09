@@ -59,19 +59,27 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**⏸️ Current status (2026-07-07): product chain blocked on Phase `29`; Phases
-`25` and `33` `Active` on the residual convergence gap.** The prior recorded
-blocker — Docker not exposing an NVIDIA GPU — is **resolved**: on the current RTX
-5090 host (`GPU-e764ef97-32d7-4981-c348-029983c64073`, driver `570.211.01`, CUDA
-`12.8`) the `nvidia` container runtime is registered and the `jitml-cuda` compose
-service sees the GPU. Running the real `linux-cuda` lane then exposed a genuine
-**product realness gap** in the model implementations, which per standards rule N
-now defines status. The 2026-07-07 session root-caused and fixed the largest
-gap — a CUDA-vs-CPU numerical divergence from nvcc FMA contraction — and landed
-further real RL/deep-SL/AlphaZero fixes (below), but the genuinely-hard rows
-(on-policy mountain-car, TRPO/lunar, SAC/pendulum, deep-SL bag-of-patches ResNet)
-are not yet converged, so 55 / 55 is not reached and Phases `29`/`31` stay
-`Blocked`.
+**⏸️ Current status (2026-07-09): product chain blocked on Phase `29`; Phases
+`24`, `25`, and `33` `Active`.** The prior recorded blocker — Docker not exposing
+an NVIDIA GPU — is **resolved** (RTX 5090 host
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, driver `570.211.01`, CUDA `12.8`; the
+`nvidia` container runtime is registered and `jitml-cuda` sees the GPU). Running
+the real `linux-cuda` lane exposed a genuine **product realness gap** — many rows
+do not clear their literature-anchored bars — which per standards rule N defines
+status. Remediation root-caused and fixed the dominant CUDA-vs-CPU divergence
+(nvcc FMA contraction, `--fmad=false`) plus real RL/deep-SL/AlphaZero fixes
+(below), but the genuinely-hard rows (on-policy mountain-car, `TRPO/lunar-lander`,
+`SAC/pendulum`, the deep-SL bag-of-patches ResNet rows) remain unconverged. On
+**2026-07-08 the scope expanded** by an explicit product decision: beyond
+finishing convergence, the executed supervised architecture becomes a real
+**MLP-Mixer** (token-mixing MLP + executed LayerNorm) at raised widths (Phase
+`24`, reopened), the RL environments are **vectorized** (~16 parallel envs) and
+networks right-sized (Phase `25`), every per-model bar is re-cleared at that
+regime (Phase `33`), and Phase `29` gains **Sprint `29.4`** (persistent CUDA
+device weight buffers + vectorized-env throughput) carrying new **Exit-Definition
+item 29**: every one of the 55 rows' `linux-cuda` wall-clock is strictly less than
+its `linux-cpu` wall-clock. 55 / 55 convergence and item 29 are not yet met, so
+Phases `29`/`31` stay `Blocked`.
 
 Real `linux-cuda` evidence gathered on 2026-07-06:
 
@@ -1431,16 +1439,16 @@ obligation exists.
 | 21 | Type-State DSL and Inference Eligibility | ✅ Done (reclosed 2026-07-06 — completed-training evidence uses real initial/final weights) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
 | 22 | Canonical Matrix and Dataset Integrity | ✅ Done (Sprints 22.1-22.3 complete; matrix parity, per-row Dhall, and read-time dataset SHA validated) | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
 | 23 | General Differentiable Layer Engine | ✅ Done (reclosed 2026-07-06) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
-| 24 | Real Supervised Architectures | ✅ Done (reclosed 2026-07-06) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
-| 25 | Real RL Algorithms and Environments | ✅ Done (reclosed 2026-07-06) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
+| 24 | Real Supervised Architectures | 🔄 Active (reopened 2026-07-08 — the executed architecture moves to a real MLP-Mixer at raised widths) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
+| 25 | Real RL Algorithms and Environments | 🔄 Active (reopened 2026-07-08 — vectorized environments + RL residual fixes + net right-sizing) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (reclosed 2026-07-06) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
 | 27 | Demo All-Model Rendering | ✅ Done (reclosed 2026-07-06) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
 | 28 | Per-Model Integration and E2E | ✅ Done (reclosed 2026-07-06) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
-| 29 | Linux CUDA Product Lane | ⏸️ Blocked (2026-07-06 — Docker did not expose an NVIDIA GPU runtime to `jitml-cuda`) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 29 | Linux CUDA Product Lane | ⏸️ Blocked (blocked on Phases `24`/`25`/`26` convergence + a fresh real `linux-cuda` `train-and-publish` + `test all`; the GPU runtime is available. Now carries **Sprint `29.4`** — GPU performance / persistent device weight buffers, Exit-Definition item 29) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
 | 30 | Apple Silicon Product Lane | ✅ Done (reclosed 2026-07-06) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
-| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (2026-07-06 — waiting on fresh real `linux-cuda` attestation from Phase `29`) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (waiting on a fresh real `linux-cuda` attestation from Phase `29`, including Sprint `29.4` performance evidence) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
 | 32 | External-Truth Realness Harness & Negative-Control Gate | ✅ Done (`jitml-negative-controls` passed 3 / 3 on 2026-07-06) | [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md) |
-| 33 | Per-Model Convergence & Inference-Performance Tests | ✅ Done (`jitml-model-convergence` passed 111 / 111 on 2026-07-06) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
+| 33 | Per-Model Convergence & Inference-Performance Tests | 🔄 Active (reopened 2026-07-08 — re-clear every per-model bar at the widened + vectorized regime) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
 | 34 | Plan-Truth Governance | ✅ Done (closure status thinned to validation evidence on 2026-07-06) | [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md) |
 
 ## Reopened phases (2026-07-01 — product truth and per-model completion)
@@ -3071,6 +3079,21 @@ truth the implementer cannot author or tune, and they are owned by Phases `32`�
     required gate; its findings, not the plan narrative, define status. `Closure
     Status` is a thin pointer to that evidence, not a per-commit narrative. (Phase
     `34`.)
+
+The following **GPU-performance** criterion (added 2026-07-08) is the formal Exit
+obligation for the GPU-relevance rework that reopened Phases `24` / `25` / `33` and
+added Phase `29` Sprint `29.4`. It is owned by Phase `29`:
+
+29. On `linux-cuda`, **every one of the 55 product rows' wall-clock is strictly
+    less than its `linux-cpu` wall-clock** — the GPU lane outperforms CPU on every
+    row, with no per-row exemptions — delivered by persistent CUDA device weight
+    buffers (weights uploaded once per fixed-parameter phase, not re-copied per
+    batch) plus vectorized environments, owned by Phase `29` Sprint `29.4`, and
+    evidenced by a committed per-row `linux-cuda`-vs-`linux-cpu` wall-clock table in
+    the `linux-cuda` report card. This is a **wall-clock performance bar, distinct
+    from the determinism contract** (item 6's non-wall-clock per-model metric, which
+    excludes wall-clock): it asserts only relative timing, never cross-substrate
+    numeric equivalence, and introduces no tolerance band. (Phase `29`.)
 
 ## Related Documents
 

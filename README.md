@@ -31,17 +31,21 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (2026-07-06):** The product chain is **not closed**.
-> Phases `20`, `21`, `23`, `24`, `25`, `26`, and `30` have been revalidated after
-> the 2026-07-05 realness audit, including external convergence bars,
-> fail-closed inference eligibility, trained-policy RL evaluation, real
-> supervised layer behavior, AlphaZero full-horizon self-play, adaptive tuning,
-> negative controls, and the Apple Silicon backend lane. Phase `29`
-> (`linux-cuda`) remains `⏸️ Blocked`: `docker compose run --rm jitml-cuda jitml
-> test jitml-backends --linux-cuda` could not start because Docker reported
-> `could not select device driver "" with capabilities: [[gpu]]`. Phase `31`
-> remains blocked downstream until that real CUDA lane produces a fresh
-> attestation fragment. The current execution-ordered status lives in
+> **Current product status (2026-07-08):** The product chain is **not closed**.
+> Phases `24` (Real Supervised Architectures), `25` (Real RL Algorithms &
+> Environments), and `33` (Per-Model Convergence & Inference Tests) were
+> **reopened 2026-07-08** and are now `🔄 Active`: the expanded end-state moves
+> the executed supervised path to a real MLP-Mixer (token-mixing MLP + executed
+> LayerNorm) at raised widths, vectorizes the RL environments (~16 parallel env
+> instances batched through the network in one device call per step) with
+> right-sized hidden widths (~256), and re-clears every per-model convergence and
+> inference-performance bar at those new sizes. Phase `29` (`linux-cuda`) remains
+> `⏸️ Blocked` and gains a new sprint `29.4` (GPU performance / persistent CUDA
+> device weight buffers); the GPU runtime is available, so the remaining blockers
+> are real convergence, a fresh real `linux-cuda` run, and the new every-row
+> performance obligation (Exit Definition #29) — not a missing device driver.
+> Phase `31` remains `⏸️ Blocked` downstream until that real CUDA lane produces a
+> fresh attestation fragment. The current execution-ordered status lives in
 > [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 ---
@@ -118,6 +122,17 @@ The remediation phases follow the single-accelerator rule. Phases `19`–`28` ar
 committed per-lane evidence. No phase requires switching between Apple and CUDA
 hardware during validation.
 
+**Exit Definition obligation #29 (STRICT, every-row), owned by Phase `29`.**
+Every one of the 55 product rows' `linux-cuda` wall-clock is strictly less than
+its `linux-cpu` wall-clock, with no per-row exemptions — enforced by persistent
+CUDA device weight buffers (weights upload once per fixed-parameter phase and are
+reused across every batch and vectorized-env step, hoisting the per-call
+`cudaMalloc` + host-to-device weight copy out of the per-batch kernel path) plus
+vectorized environments — and recorded in a committed per-row timing table in the
+`linux-cuda` attestation. This is a cross-substrate *performance* obligation only;
+it asserts no cross-substrate numeric equivalence (see [Substrates and runtime
+modes](#substrates-and-runtime-modes)).
+
 ---
 
 # Toolchain pinning
@@ -180,9 +195,9 @@ Each substrate carries its own determinism contract:
 
 - **`apple-silicon`** — Metal compute kernels execute on the host GPU; float-accumulation order is fixed by the kernel's reduction tree (no fast-math); RNG state lives in the host daemon; kernel-launch ordering is single-stream by default. *Tradeoff: single-stream launch forfeits the multi-stream concurrency that hides launch latency at small batch sizes — the throughput cost is real and is the price of the bit-determinism contract.*
 - **`linux-cpu`** — oneDNN dispatches to a per-host vector ISA detected at JIT time; reductions are blocked with a fixed block size so the accumulation tree is host-independent; RNG state lives in the clustered service pod.
-- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns device-buffer allocation, deterministic launch, synchronization, and output copyback; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
+- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns deterministic launch, synchronization, and output copyback over **persistent device weight buffers** reused across a fixed-parameter phase rather than re-allocated per call — for the trainer's MLP seam the hand-written `jitml_mlp_forward` / `_batch` / `_grad` kernels in `src/JitML/Codegen/MlpCuda.hs` launch against resident weight buffers uploaded once per fixed-parameter phase, hoisting the per-call `cudaMalloc` + host-to-device weight copy out of the per-batch path; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
-*Within a substrate, equality is guaranteed bit-for-bit* (see [Bit-determinism contract](#bit-determinism-contract)). **Across substrates, equivalence is not guaranteed and is not asserted — there is no tolerance band.** RNG draws and float reduction order differ between vendor BLAS/DNN libraries: float reductions reassociate and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so cross-substrate numeric equivalence is explicitly out of contract.
+*Within a substrate, equality is guaranteed bit-for-bit* (see [Bit-determinism contract](#bit-determinism-contract)). **Across substrates, equivalence is not guaranteed and is not asserted — there is no tolerance band.** RNG draws and float reduction order differ between vendor BLAS/DNN libraries: float reductions reassociate and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so cross-substrate numeric equivalence is explicitly out of contract. *Performance*, by contrast, is held to a strict cross-substrate bar: with the persistent device weight buffers above plus vectorized environments, the `linux-cuda` lane is targeted to outperform `linux-cpu` on every product row (Exit Definition obligation #29). That is a wall-clock target only — it asserts nothing about numeric equivalence and does not reintroduce a tolerance band.
 
 ---
 
@@ -1514,6 +1529,14 @@ Rows are tagged `Real` or `Approximation (Declared)` in the demo and report card
 from a single registry, so a stand-in can no longer be reported as the real
 architecture.
 
+**Expanded 2026-07-08:** reopened Phase `24`'s executed architecture is a real
+**MLP-Mixer** — a token-mixing MLP plus an **executed LayerNorm** — not
+multi-head attention and not the earlier un-normalized "bag-of-patches" dense
+stand-in, and it runs at raised widths (the SL latent/wide feature clamps rise
+toward ~256). The small ViT row above is served by this executed MLP-Mixer: its
+patch tokens are mixed by a real token-mixing MLP under an executed LayerNorm
+rather than by real attention over an un-normalized patch bag.
+
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
 | MNIST | shallow MLP (1×128 hidden) | Dense + ReLU + Softmax | ~98.0% test acc | LeCun et al. 1998 [^lecun1998] |
@@ -1987,8 +2010,8 @@ in
     }
 , policy =
     { features =
-        [ { kind = "Dense", in_ = 4,  out = 64, activation = Activation.Tanh }
-        , { kind = "Dense", in_ = 64, out = 64, activation = Activation.Tanh }
+        [ { kind = "Dense", in_ = 4,   out = 256, activation = Activation.Tanh }
+        , { kind = "Dense", in_ = 256, out = 256, activation = Activation.Tanh }
         ]
     , actionHead = "CategoricalLogits"
     , valueHead  = Some "Scalar"
@@ -2001,7 +2024,7 @@ in
     , optimiserStep  = OnPolicyOptimiserStep.MinibatchSGD            -- PPO uses minibatch SGD; for TRPO this would be NaturalGradientTrustRegion { … }
     }
 , env       = "CartPole-v1"
-, vecEnv    = { kind = "Sync", numEnvs = 8 }
+, vecEnv    = { kind = "Sync", numEnvs = 16 }
 , callbacks = [ "checkpointEveryN", "evaluateEveryN" ]
 , logger    = { sinks = [ "stdout", "tensorboard", "pulsar" ] }
 , seed      = 42

@@ -90,11 +90,15 @@ by Haskell into the build/cache tree or supplied outside the repository.
 
 Owned by `src/JitML/Lint/ProductTruth.hs` (Sprint `20.2`). The file lint scans
 `src/` for scaffold names that are enforced now: the relocated deterministic
-environment step, the non-learned RL loop, the fake simulated episode runners,
-and the deleted vectorized-environment module. It separately walks the product
-module graph from `JitML.App` and fails if that graph imports a forbidden fossil
-module such as `JitML.RL.Loop`, `JitML.RL.SimulatorLoop`, `JitML.RL.VecEnv`, or
-the test-support homes for those helpers.
+environment step, the non-learned RL loop, and the fake simulated episode
+runners. It separately walks the product module graph from `JitML.App` and
+fails if that graph imports a forbidden fossil module such as `JitML.RL.Loop`,
+`JitML.RL.SimulatorLoop`, or the test-support homes for those helpers.
+`JitML.RL.VecEnv` is no longer forbidden by name: it is reintroduced as a real,
+product-reachable learning vectorized-environment module, so the reachability
+walk governs it like any other product module — the walk still fails any
+dead/unreachable fake, and only the genuinely-dead fossils (`JitML.RL.Loop`,
+`JitML.RL.SimulatorLoop`) remain forbidden by name.
 
 The same registry now enforces the removed `completedTrainingFromMetrics`
 fabrication helper and still lists future-owned scaffolds, including seeded demo

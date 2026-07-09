@@ -92,6 +92,12 @@ own floating-point determinism contract.
 - cuBLAS and cuDNN are pinned to deterministic algorithm selections via
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning. The
   cuDNN algorithm-id selection is restricted to the deterministic-only set.
+  This pinning governs the generated **family** kernels (Conv2D / MHA / pool /
+  norm), which are the only surface that dispatches through cuBLAS/cuDNN. The
+  executed RL/SL trainer MLP device path does **not** use cuBLAS: it is the
+  hand-written `JitML.Codegen.MlpCuda` kernel, whose determinism comes from a
+  sequential per-thread reduction with no device-side atomics, so it is
+  bit-deterministic without any library algorithm-id pinning.
 - RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's
   curand. Generated CUDA source records the `host-splitmix64-no-curand` policy
   in the rendered source payload.
