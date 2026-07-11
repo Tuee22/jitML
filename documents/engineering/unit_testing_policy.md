@@ -220,10 +220,15 @@ RTX 5090 host once reported the row-complete `linux-cuda` product lane via
 stanzas, `jitml-backends` passing 21/21 on the GPU, all 55 ProductRows
 published as eligible CUDA-lane checkpoints, and `jitml test jitml-e2e --live
 --linux-cuda` passing live Playwright 71/71 at the published CUDA edge. That
-2026-07-05 evidence is withdrawn and is retained here only as dated history,
-never as current closure: Phase `29` — including the added Sprint `29.4` GPU
-performance and persistent device-buffer work — is Blocked/reopened, so the
-`linux-cuda` lane is currently pending a fresh real run.
+2026-07-05 evidence is withdrawn and is retained here only as dated history.
+Current 2026-07-10 CUDA evidence closes Phase `29`: the current-source publisher
+produced **55 / 55** eligible rows, ProductRow integration passed **56 / 56**,
+`jitml test all --linux-cuda` passed **10 / 10** stanzas, standalone CUDA e2e
+passed **27 / 27**, live CUDA e2e passed Playwright **71 / 71** plus Haskell
+e2e **27 / 27**, and the Phase `29.4` timing table records **55 / 55** rows
+faster on `linux-cuda` than `linux-cpu`. `jitml-backends --linux-cuda` passes
+**22 / 22**, including the persistent CUDA MLP buffer/per-weight-gradient source
+guard.
 Current 2026-07-05 Apple evidence: Phase `30` revalidated the row-complete
 `apple-silicon` product lane on the Apple M1 Max host. The backend tests assert
 the generated Metal source no longer carries identity-copy or 1x1-degenerate

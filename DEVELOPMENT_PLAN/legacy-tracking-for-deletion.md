@@ -303,19 +303,14 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-07-06): Pending Removal remains blocked only by the real
-CUDA lane.** The Phase `20`/`21`/`23`/`24`/`25`/`26`/`30` fabrication and
-stand-in rows have moved to `Completed` after source replacement and validation.
-The remaining Phase `29` CUDA rows stay open because the required live device
-validation could not run on this host: `docker compose run --rm jitml-cuda jitml
-test jitml-backends --linux-cuda` failed before test execution with Docker
-reporting `could not select device driver "" with capabilities: [[gpu]]`.
+**Current state (2026-07-11): Pending Removal is empty.** The remaining Phase
+`29` CUDA rows moved to `Completed` after the RTX 5090 `linux-cuda` validation
+landed: backend execution passed **22 / 22**, `jitml test all --linux-cuda`
+passed **10 / 10** stanzas, live CUDA e2e passed Playwright **71 / 71** plus
+Haskell e2e **27 / 27**, and the Phase `29.4` timing table showed **55 / 55**
+ProductRows with `linux-cuda` wall-clock strictly below `linux-cpu`.
 
-| Item | Owning Sprint | Removal Condition |
-|------|---------------|-------------------|
-| Identity-copy CUDA generic-family kernels and degenerate 1×1 weighted Conv2D/Conv3D plus misleading "cuBLAS/cuDNN scaffold" comments in `src/JitML/Codegen/Cuda.hs` | Sprint `29.1` | Replaced by real cuDNN/cuBLAS convolution/attention/pool/norm kernels and validated by `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` on real `linux-cuda` hardware. |
-| Dead cuBLAS/cuDNN bindings (`src/JitML/Engines/CublasBindings.hs`, `CudnnBindings.hs`) — linked and version-probed but never invoked | Sprint `29.1` | Wired into the real CUDA kernels or removed with their link flags, then validated by `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` on real `linux-cuda` hardware. |
-| Per-call cudaMalloc + host-to-device weight copy + cudaFree in the executed MLP CUDA kernel path (`src/JitML/Codegen/MlpCuda.hs` `jitml_mlp_*`), which re-uploads all weights on every batch call | Sprint `29.4` | Replaced by persistent device weight buffers (weights uploaded once per fixed-param phase and reused) and validated on real `linux-cuda` by a committed per-row linux-cuda-vs-linux-cpu wall-clock table showing all 55 rows GPU < CPU. |
+No pending-removal rows are open.
 
 New rows are enqueued here only when a sprint introduces or discovers a
 doctrine deviation or temporary stand-in (per standards rule I / L).
@@ -410,6 +405,9 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Identity-copy CUDA generic-family kernels and degenerate 1×1 weighted Conv2D/Conv3D plus misleading "cuBLAS/cuDNN scaffold" comments in `src/JitML/Codegen/Cuda.hs` | Sprint `29.1` (2026-07-10) | Replaced by generated cuBLAS/cuDNN Dense/MHA/Conv2D/Conv3D/BatchNorm/LayerNorm family paths and source/runtime guards. Validation: `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` passed **22 / 22** on the RTX 5090; the broader Phase `29` lane passed `jitml test all --linux-cuda` **10 / 10** stanzas. |
+| Dead cuBLAS/cuDNN bindings (`src/JitML/Engines/CublasBindings.hs`, `CudnnBindings.hs`) linked and version-probed but never invoked | Sprint `29.1` (2026-07-10) | The bindings are exercised by the real CUDA generated-family kernels instead of sitting as an unused link/probe surface. Validation: `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` passed **22 / 22**, including cuBLAS/cuDNN execution coverage. |
+| Per-call cudaMalloc + host-to-device weight copy + cudaFree in the executed MLP CUDA kernel path (`src/JitML/Codegen/MlpCuda.hs` `jitml_mlp_*`) | Sprint `29.4` (2026-07-10) | Replaced by persistent device weight buffers reused across fixed-parameter phases plus per-weight batch-gradient kernels. Validation: `docker compose run --rm jitml-cuda sh -lc 'cabal run -fcuda exe:jitml -- internal benchmark-product-row-wall-clock'` passed with **55 / 55** ProductRows faster on `linux-cuda` than `linux-cpu`. |
 | Identity-copy Metal generic-family kernels and degenerate 1×1 weighted conv in `src/JitML/Codegen/Metal.hs` | Sprint `30.1` (2026-07-06) | Replaced with windowed Conv2D/Conv3D Metal source and source/runtime guards. Validation: `./bootstrap/apple-silicon.sh doctor` passed; `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal run exe:jitml -- internal install-metal-bridge` built and probed the fixed bridge; focused Apple backend source and multi-tap tests passed; full `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-options='--color=never --hide-successes -p apple-silicon' --test-show-details=direct` passed **20 / 20**. |
 | **Expert-controller RL reward** and **HER constant reward** in `src/JitML/App.hs` | Sprint `25.x` (2026-07-06) | Removed hardcoded expert-controller reward reporting and constant HER reward artifacts; evaluation now comes from the trained policy paths. Validation: `docker compose run --rm jitml cabal test jitml-hyperparameter --test-options='--color=never --hide-successes' --test-show-details=direct` passed **19 / 19**, `docker compose run --rm jitml cabal test jitml-negative-controls --test-options='--color=never --hide-successes' --test-show-details=direct` passed **3 / 3**, and `docker compose run --rm jitml cabal test jitml-rl-canonicals --test-options='--color=never --hide-successes' --test-show-details=direct` passed **37 / 37**. |
 | **Decorative `archLayerGraph` + identity/dense exotic layer kinds** in `src/JitML/SL/Architecture.hs` and `src/JitML/Numerics/LayerGraph.hs` | Sprints `23.x` / `24.x` (2026-07-06) | Conv, residual, attention, gated, and norm families now change the trained computation instead of collapsing to a dense/identity label graph. Validation: `docker compose run --rm jitml cabal build lib:jitml` passed; `jitml-unit` passed **277 / 277**; `jitml-sl-canonicals` passed **31 / 31**. |

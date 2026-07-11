@@ -43,6 +43,7 @@ complete -c jitml -a 'internal install-metal-bridge' -d 'Build the fixed Apple M
 complete -c jitml -a 'internal upload-dataset' -d 'Upload a real dataset blob to MinIO.'
 complete -c jitml -a 'internal seed-demo-checkpoints' -d 'Retired legacy fixture checkpoint seeder.'
 complete -c jitml -a 'internal train-and-publish-product-rows' -d 'Train and publish product row checkpoints.'
+complete -c jitml -a 'internal benchmark-product-row-wall-clock' -d 'Benchmark ProductRow CPU/CUDA wall-clock.'
 complete -c jitml -a 'internal dhall-schema' -d 'Print the reflected Dhall config schema.'
 complete -c jitml -a 'internal third-party-images' -d 'Print the third-party chart image list.'
 complete -c jitml -a 'internal gc' -d 'Apply checkpoint retention.'

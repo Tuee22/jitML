@@ -224,10 +224,10 @@ main =
             "explicit service config arg"
             ("args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]" `Text.isInfixOf` deployment)
       , testCase "report card renders aggregate suite summary" $ do
-          length reportStanzas @?= 8
-          let rendered = renderReportCard (ReportCard 8 0 0 emptyReportMeasurements)
+          let passed = length reportStanzas
+              rendered = renderReportCard (ReportCard passed 0 0 emptyReportMeasurements)
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
-          assertBool "report card passed count" ("passed: 8" `isInfixOf` Text.unpack rendered)
+          assertBool "report card passed count" (("passed: " <> show passed) `isInfixOf` Text.unpack rendered)
           assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
           assertBool "report card lists actual stanzas" ("jitml-unit: PASS" `isInfixOf` Text.unpack rendered)
           assertBool
@@ -240,7 +240,7 @@ main =
                   , measuredDaemonHealthz = Just MeasurementUnavailable
                   , measuredBrowserProductMatrix = Just MeasurementUnavailable
                   }
-              rendered = renderReportCard (ReportCard 8 0 0 measurements)
+              rendered = renderReportCard (ReportCard (length reportStanzas) 0 0 measurements)
           assertBool "measurements block" ("measurements:" `isInfixOf` Text.unpack rendered)
           assertBool
             "available measurement"

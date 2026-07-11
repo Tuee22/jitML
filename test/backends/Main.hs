@@ -15,6 +15,7 @@ import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.Cuda qualified as CudaCodegen
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
 import JitML.Codegen.Metal qualified as MetalCodegen
+import JitML.Codegen.MlpCuda qualified as MlpCudaCodegen
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal
@@ -349,6 +350,38 @@ main =
             assertHas BatchNormKernel "cudnnBatchNormalizationForwardInference"
             assertHas LayerNormKernel "jitml_cudnn_layernorm_forward(out, input, n"
             assertHas LayerNormKernel "CUDNN_BATCHNORM_PER_ACTIVATION"
+      , testCase
+          "linux-cuda MLP source keeps persistent device weight buffers (Phase 29.4)"
+          $ do
+            let rendered =
+                  Text.concat
+                    [ contents
+                    | SourceFile _ contents <- MlpCudaCodegen.renderMlpCudaSource
+                    ]
+                assertHas needle =
+                  assertBool
+                    ("MLP CUDA source should contain " <> Text.unpack needle)
+                    (needle `Text.isInfixOf` rendered)
+                assertNotHas needle =
+                  assertBool
+                    ("MLP CUDA source should not contain " <> Text.unpack needle)
+                    (not (needle `Text.isInfixOf` rendered))
+            assertHas "jitml_mlp_weight_cache[4]"
+            assertHas "jitml_mlp_clear_weight_cache()"
+            assertHas "jitml_mlp_check(status, \"cudaMalloc out\")"
+            assertHas "jitml_mlp_weight_to_device(0, w1"
+            assertHas "jitml_mlp_weight_to_device(1, b1"
+            assertHas "jitml_mlp_weight_to_device(2, w2"
+            assertHas "jitml_mlp_weight_to_device(3, b2"
+            assertHas "jitml_mlp_batch_grad_w1_kernel"
+            assertHas "jitml_mlp_batch_grad_w2_kernel"
+            assertHas "std::size_t total = static_cast<std::size_t>(hidden) * static_cast<std::size_t>(inputs);"
+            assertHas
+              "std::size_t total = static_cast<std::size_t>(outputs) * static_cast<std::size_t>(hidden);"
+            assertNotHas "jitml_mlp_free(d_w1)"
+            assertNotHas "jitml_mlp_free(d_b1)"
+            assertNotHas "jitml_mlp_free(d_w2)"
+            assertNotHas "jitml_mlp_free(d_b2)"
       , testCase
           "apple-silicon weighted families match the pure reference within 1e-3 (Phase 1 rebalance)"
           $ do

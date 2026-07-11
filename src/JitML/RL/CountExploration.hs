@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Count-based intrinsic exploration (MBIE-EB style) for the on-policy
--- learners on the sparse-reward mountain-car environment.
+-- learners on sparse-reward environments.
 --
 -- Potential-based reward shaping ('JitML.RL.RewardShaping') provably gives an
 -- on-policy advantage learner /zero/ benefit once its value baseline converges
@@ -44,8 +44,7 @@ newCountTable = CountTable <$> newIORef Map.empty
 -- increment that cell's count. @beta@ is supplied by the caller because the
 -- optimal exploration intensity is per-algorithm (a clipped conservative learner
 -- needs a stronger push than a KL-constrained one). Returns @0@ (and touches
--- nothing) when @beta <= 0@ or the environment has no defined binning — a strict
--- no-op for every env except mountain-car.
+-- nothing) when @beta <= 0@ or the environment has no defined binning.
 countExplorationBonus :: CountTable -> Double -> Text -> Vector Double -> IO Double
 countExplorationBonus (CountTable ref) beta env obs
   | beta <= 0.0 = pure 0.0
@@ -84,7 +83,53 @@ binFor env obs =
               tBin = clampBin 29 (floor ((theta + pi) / (2.0 * pi) * 30.0))
               wBin = clampBin 19 (floor ((thetaDot + 8.0) / 16.0 * 20.0))
            in Just (tBin, wBin)
+    "key-door-grid"
+      | VU.length obs >= keyDoorGridObservationSize -> do
+          (row, col) <- keyDoorGridAgentCell obs
+          let hasKey = if flagAt keyDoorGridHasKeyIndex obs then 1 else 0
+              doorOpen = if flagAt keyDoorGridDoorOpenIndex obs then 1 else 0
+              phase = hasKey + 2 * doorOpen
+          Just (row * keyDoorGridWidth + col, phase)
     _ -> Nothing
 
 clampBin :: Int -> Int -> Int
 clampBin hi = max 0 . min hi
+
+keyDoorGridWidth :: Int
+keyDoorGridWidth = 5
+
+keyDoorGridHeight :: Int
+keyDoorGridHeight = 5
+
+keyDoorGridChannels :: Int
+keyDoorGridChannels = 5
+
+keyDoorGridObservationSize :: Int
+keyDoorGridObservationSize = keyDoorGridWidth * keyDoorGridHeight * keyDoorGridChannels + 2
+
+keyDoorGridHasKeyIndex :: Int
+keyDoorGridHasKeyIndex = keyDoorGridWidth * keyDoorGridHeight * keyDoorGridChannels
+
+keyDoorGridDoorOpenIndex :: Int
+keyDoorGridDoorOpenIndex = keyDoorGridHasKeyIndex + 1
+
+keyDoorGridAgentChannel :: Int
+keyDoorGridAgentChannel = 4
+
+keyDoorGridAgentCell :: Vector Double -> Maybe (Int, Int)
+keyDoorGridAgentCell obs =
+  go 0 0
+ where
+  go row col
+    | row >= keyDoorGridHeight = Nothing
+    | col >= keyDoorGridWidth = go (row + 1) 0
+    | flagAt (gridOffset row col keyDoorGridAgentChannel) obs = Just (row, col)
+    | otherwise = go row (col + 1)
+
+gridOffset :: Int -> Int -> Int -> Int
+gridOffset row col channel =
+  (row * keyDoorGridWidth + col) * keyDoorGridChannels + channel
+
+flagAt :: Int -> Vector Double -> Bool
+flagAt index obs =
+  index >= 0 && index < VU.length obs && obs VU.! index >= 0.5

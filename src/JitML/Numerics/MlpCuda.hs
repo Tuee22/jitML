@@ -79,6 +79,7 @@ mlpCudaToolchainFingerprint =
         , "tf32=disabled"
         , "abi=extern-c-host-wrapper"
         , "reductions=per-thread-sequential"
+        , "persistent-weight-cache=fnv64-evict-on-oom-v3-parallel-weight-gradient"
         , "jitml_mlp_forward(float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int)"
         , "jitml_mlp_backward(float*,float*,float*,float*,const float*,const float*,const float*,const float*,int,int,int)"
         , "jitml_mlp_batch_gradient(float*,float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"

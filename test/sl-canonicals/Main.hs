@@ -279,14 +279,26 @@ main =
           assertCount "mnist-lenet" "Conv2D" isConv2D 2
           assertAtLeast "mnist-lenet" "pooling" isPool 2
           assertCount "fashion-mnist-resnet" "BasicBlock" isBasicBlock 2
+          assertAtLeast "fashion-mnist-resnet" "LayerNorm" isLayerNorm 2
+          assertAtLeast "fashion-mnist-resnet" "token-mixing MLP" isGeGLU 1
+          assertAtLeast "fashion-mnist-resnet" "attention" isAttention 1
           assertCount "cifar10-resnet20" "BasicBlock" isBasicBlock 20
+          assertAtLeast "cifar10-resnet20" "LayerNorm" isLayerNorm 2
+          assertAtLeast "cifar10-resnet20" "token-mixing MLP" isGeGLU 1
           assertCount "cifar10-resnet56" "BasicBlock" isBasicBlock 56
+          assertAtLeast "cifar10-resnet56" "LayerNorm" isLayerNorm 2
+          assertAtLeast "cifar10-resnet56" "token-mixing MLP" isGeGLU 1
           assertCount "cifar100-wide-resnet" "BasicBlock" isBasicBlock 12
           assertAtLeast "cifar100-wide-resnet" "GroupNorm" isGroupNorm 1
+          assertAtLeast "cifar100-wide-resnet" "LayerNorm" isLayerNorm 2
+          assertAtLeast "cifar100-wide-resnet" "token-mixing MLP" isGeGLU 1
           assertCount "cifar10-vit" "MultiHeadAttention" isAttention 1
-          assertCount "cifar10-vit" "LayerNorm" isLayerNorm 2
-          assertCount "cifar10-vit" "GeGLU" isGeGLU 1
+          assertCount "cifar10-vit" "LayerNorm" isLayerNorm 3
+          assertCount "cifar10-vit" "GeGLU" isGeGLU 2
           assertCount "tiny-imagenet-resnet50" "BottleneckBlock" isBottleneckBlock 16
+          assertAtLeast "tiny-imagenet-resnet50" "LayerNorm" isLayerNorm 2
+          assertAtLeast "tiny-imagenet-resnet50" "token-mixing MLP" isGeGLU 1
+          assertAtLeast "tiny-imagenet-resnet50" "attention" isAttention 1
       , testCase "feature parity rejects a simplified graph for a richer row (Sprint 24.1)" $ do
           let config =
                 defaultClassifierConfig

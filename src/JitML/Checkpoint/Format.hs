@@ -81,6 +81,7 @@ import JitML.Product.Evidence
   , mkTrainingEvidence
   )
 import JitML.Product.ExternalBars qualified as ExternalBars
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Training.Budget
   ( CompletedTraining
   , coMetricName
@@ -455,8 +456,14 @@ requireInferenceEligibleCheckpoint manifestSha manifest =
                   let supervisedShapeLayoutErrors =
                         validateSupervisedManifestShapeLayout manifest
                       externalBarErrors =
-                        ExternalBars.assertConvergenceObservationsExternal
-                          (completedTrainingMetrics completed)
+                        case ProductMatrix.productRowForExperimentHash (manifestExperiment manifest) of
+                          Just row ->
+                            ExternalBars.assertConvergenceObservationsAgainstBar
+                              (ProductMatrix.convergenceBar row)
+                              (completedTrainingMetrics completed)
+                          Nothing ->
+                            ExternalBars.assertConvergenceObservationsExternal
+                              (completedTrainingMetrics completed)
                    in case filter (not . convergencePassed) (completedTrainingMetrics completed) of
                         []
                           | not (null externalBarErrors) ->

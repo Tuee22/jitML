@@ -143,6 +143,14 @@ data LayerSpec
       , layerHidden :: !Int
       , layerResidualScale :: !Double
       }
+  | LayerNormSpec
+      { layerName :: !Text
+      }
+  | TokenMixingSpec
+      { layerName :: !Text
+      , tokenMixingTokens :: !Int
+      , tokenMixingHidden :: !Int
+      }
   | PatchSpec
       { layerName :: !Text
       , patchGeometry :: !ImageGeometry
@@ -164,6 +172,8 @@ data LayerSpec
 data LayerState
   = DenseState !Text !MlpParams !AdamState
   | ResidualState !Text !Double !MlpParams !AdamState
+  | LayerNormState !Text
+  | TokenMixingState !Text !Int !MlpParams !AdamState
   | PatchState !Text !PatchRuntime !MlpParams !AdamState
   | AttentionState !Text !MlpParams !AdamState
   | MeanPoolState !Text
@@ -191,9 +201,17 @@ data BatchRep
 data LayerTape
   = DenseTape ![Vector Double]
   | ResidualTape ![Vector Double]
+  | LayerNormTape ![[LayerNormToken]]
+  | TokenMixingTape !Int ![[Vector Double]]
   | PatchTape ![[Vector Double]]
   | AttentionTape ![[AttentionToken]]
   | MeanPoolTape ![Int]
+  deriving stock (Eq, Show)
+
+data LayerNormToken = LayerNormToken
+  { layerNormInvStd :: !Double
+  , layerNormOutput :: !(Vector Double)
+  }
   deriving stock (Eq, Show)
 
 data AttentionToken = AttentionToken
@@ -235,11 +253,18 @@ architectureSpecForProblem config problem =
   inputs = clfInputs config
   outputs = clfClasses config + 1
   baseHidden = max 4 (clfHidden config)
-  latent = clamp 4 32 (baseHidden `div` 2)
-  wideLatent = clamp 8 48 baseHidden
+  latent = clamp 4 256 baseHidden
+  wideLatent = clamp 8 256 baseHidden
   geometry = geometryForInput inputs
   denseFinal name inWidth = DenseSpec name inWidth baseHidden outputs
   projection name = DenseSpec name inputs baseHidden
+  tokenCapacity =
+    max 1 (length (patchPositions geometry (residualPatchSide geometry) (residualPatchSide geometry)))
+  vitTokenCapacity =
+    max 1 (length (patchPositions geometry (vitPatchSide geometry) (vitPatchSide geometry)))
+  mixerLayerNorm = LayerNormSpec
+  tokenMixer name tokens hidden =
+    TokenMixingSpec name tokens (max 4 hidden)
   -- Residual scale raised from a near-identity 0.1/0.2: at 0.1 the block output
   -- @x + 0.1*f(x)@ is dominated by the skip path, so the residual MLPs barely
   -- contribute and the deep stacks learned little more than the patch stem +
@@ -255,6 +280,14 @@ architectureSpecForProblem config problem =
       geometry
       (patchSide geometry)
       (patchSide geometry)
+      hidden
+      outWidth
+  residualPatchStem name outWidth hidden =
+    PatchSpec
+      name
+      geometry
+      (residualPatchSide geometry)
+      (residualPatchSide geometry)
       hidden
       outWidth
   vitPatchStem name outWidth hidden =
@@ -279,28 +312,42 @@ architectureSpecForProblem config problem =
     ]
   -- The per-token residual blocks refine each patch independently, so without a
   -- cross-patch mixing step the stack is a "bag of patches" that discards spatial
-  -- structure and caps well below the convergence bars. A self-attention layer
-  -- before the global mean-pool mixes information across patches (the same real,
-  -- correctly-backpropagated attention the ViT family uses); its input gradient
-  -- flows back through the QKV projection so the residual stack still trains.
+  -- structure and caps well below the convergence bars. The trained path now uses
+  -- a compact MLP-Mixer block: LayerNorm over each token, a device-backed MLP over
+  -- the token axis, another LayerNorm, then self-attention before the global pool.
   layersForFamily (ResidualFamily depth)
     | depth == 50 =
-        [patchStem "resnet50-conv-stem" latent baseHidden]
+        [residualPatchStem "resnet50-conv-stem" latent baseHidden]
           <> fmap (\i -> bottleneckResidualBlock i latent baseHidden) [1 .. 16 :: Int]
+          <> [ mixerLayerNorm "resnet50-pre-mixer-layernorm"
+             , tokenMixer "resnet50-token-mixing-mlp" tokenCapacity baseHidden
+             , mixerLayerNorm "resnet50-post-mixer-layernorm"
+             ]
           <> [AttentionSpec "resnet50-token-mixing" latent baseHidden]
           <> [MeanPoolSpec "resnet50-global-mean-pool", denseFinal "resnet50-classifier" latent]
   layersForFamily (ResidualFamily depth) =
-    [patchStem "residual-conv-stem" latent baseHidden]
+    [residualPatchStem "residual-conv-stem" latent baseHidden]
       <> fmap (\i -> residualBlock i latent baseHidden) [1 .. depth]
+      <> [ mixerLayerNorm "residual-pre-mixer-layernorm"
+         , tokenMixer "residual-token-mixing-mlp" tokenCapacity baseHidden
+         , mixerLayerNorm "residual-post-mixer-layernorm"
+         ]
       <> [AttentionSpec "residual-token-mixing" latent baseHidden]
       <> [MeanPoolSpec "residual-global-mean-pool", denseFinal "residual-classifier" latent]
   layersForFamily (WideResidualFamily depth) =
-    [patchStem "wide-residual-conv-stem" wideLatent (baseHidden * 2)]
+    [residualPatchStem "wide-residual-conv-stem" wideLatent (baseHidden * 2)]
       <> fmap (\i -> residualBlock i wideLatent (baseHidden * 2)) [1 .. depth]
+      <> [ mixerLayerNorm "wide-residual-pre-mixer-layernorm"
+         , tokenMixer "wide-residual-token-mixing-mlp" tokenCapacity (baseHidden * 2)
+         , mixerLayerNorm "wide-residual-post-mixer-layernorm"
+         ]
       <> [AttentionSpec "wide-residual-token-mixing" wideLatent (baseHidden * 2)]
       <> [MeanPoolSpec "wide-residual-global-mean-pool", denseFinal "wide-residual-classifier" wideLatent]
   layersForFamily VisionTransformerFamily =
     [ vitPatchStem "vit-patch-embedding" latent baseHidden
+    , LayerNormSpec "vit-pre-mixer-layernorm"
+    , tokenMixer "vit-token-mixing-mlp" vitTokenCapacity baseHidden
+    , LayerNormSpec "vit-post-mixer-layernorm"
     , AttentionSpec "vit-self-attention" latent baseHidden
     , MeanPoolSpec "vit-token-mean-pool"
     , denseFinal "vit-classifier" latent
@@ -349,22 +396,27 @@ graphPlansForFamily family outputWidth latent wideLatent =
       | depth == 50 ->
           residualStem "resnet50" latent
             <> concatMap (bottleneckBlock "resnet50" latent) [1 .. 16 :: Int]
+            <> mixerGraphBlock "resnet50" latent
             <> residualHead "resnet50" outputWidth
       | otherwise ->
           residualStem "resnet" latent
             <> concatMap (basicBlock "resnet" latent) [1 .. depth]
+            <> mixerGraphBlock "resnet" latent
             <> residualHead "resnet" outputWidth
     WideResidualFamily depth ->
       [ GraphAffine "wide-resnet-conv-stem" LayerGraph.Conv2DLayer wideLatent LayerGraph.ReluActivation
       , GraphIdentity "wide-resnet-groupnorm-stem" (LayerGraph.NormLayer (LayerGraph.GroupNorm 4))
       ]
         <> concatMap (wideBasicBlock wideLatent) [1 .. depth]
+        <> mixerGraphBlock "wide-resnet" wideLatent
         <> [ GraphIdentity "wide-resnet-global-avg-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
            , GraphAffine "wide-resnet-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
            ]
     VisionTransformerFamily ->
       [ GraphAffine "vit-patch-embedding" LayerGraph.PatchEmbedLayer latent LayerGraph.ReluActivation
       , GraphIdentity "vit-layernorm-1" (LayerGraph.NormLayer LayerGraph.LayerNorm)
+      , GraphAffine "vit-token-mixing-mlp" LayerGraph.GeGLULayer latent LayerGraph.TanhActivation
+      , GraphIdentity "vit-layernorm-mixer" (LayerGraph.NormLayer LayerGraph.LayerNorm)
       , GraphAffine
           "vit-self-attention"
           (LayerGraph.MultiHeadAttentionLayer 2)
@@ -375,6 +427,18 @@ graphPlansForFamily family outputWidth latent wideLatent =
       , GraphIdentity "vit-token-mean-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
       , GraphAffine "vit-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
       ]
+
+mixerGraphBlock :: Text -> Int -> [GraphLayerPlan]
+mixerGraphBlock prefix width =
+  [ GraphIdentity (prefix <> "-pre-mixer-layernorm") (LayerGraph.NormLayer LayerGraph.LayerNorm)
+  , GraphAffine (prefix <> "-token-mixing-mlp") LayerGraph.GeGLULayer width LayerGraph.TanhActivation
+  , GraphIdentity (prefix <> "-post-mixer-layernorm") (LayerGraph.NormLayer LayerGraph.LayerNorm)
+  , GraphAffine
+      (prefix <> "-token-attention")
+      (LayerGraph.MultiHeadAttentionLayer 2)
+      width
+      LayerGraph.TanhActivation
+  ]
 
 residualStem :: Text -> Int -> [GraphLayerPlan]
 residualStem prefix width =
@@ -492,22 +556,38 @@ architectureClaimedFeaturesForProblem problem =
     "Conv2D" ->
       [FeatureDense, FeatureConv2D, FeaturePooling]
     "ResidualBlock" ->
-      resNetFeatures FeatureBasicBlock
+      mixerResNetFeatures FeatureBasicBlock
     "ResidualBlock20" ->
-      resNetFeatures FeatureBasicBlock
+      mixerResNetFeatures FeatureBasicBlock
     "ResidualBlock56" ->
-      resNetFeatures FeatureBasicBlock
+      mixerResNetFeatures FeatureBasicBlock
     "WideResidualBlock" ->
-      [FeatureDense, FeatureConv2D, FeatureGroupNorm, FeatureResidual, FeatureBasicBlock]
+      [ FeatureDense
+      , FeatureConv2D
+      , FeatureGroupNorm
+      , FeatureLayerNorm
+      , FeatureResidual
+      , FeatureBasicBlock
+      , FeatureAttention
+      , FeatureGeGLU
+      ]
     "VisionTransformer" ->
       [FeatureDense, FeaturePatchEmbedding, FeatureLayerNorm, FeatureAttention, FeatureGeGLU]
     "ResidualBlock50" ->
-      resNetFeatures FeatureBottleneckBlock
+      mixerResNetFeatures FeatureBottleneckBlock
     _ ->
       [FeatureDense]
  where
-  resNetFeatures blockFeature =
-    [FeatureDense, FeatureConv2D, FeatureBatchNorm, FeatureResidual, blockFeature]
+  mixerResNetFeatures blockFeature =
+    [ FeatureDense
+    , FeatureConv2D
+    , FeatureBatchNorm
+    , FeatureLayerNorm
+    , FeatureResidual
+    , blockFeature
+    , FeatureAttention
+    , FeatureGeGLU
+    ]
 
 architectureImplementedFeatures :: ArchitectureSpec -> [ArchitectureFeature]
 architectureImplementedFeatures spec =
@@ -741,6 +821,8 @@ architectureLayerWeights =
  where
   layerWeights (DenseState _ params _) = mlpParamsToFlat params
   layerWeights (ResidualState _ _ params _) = mlpParamsToFlat params
+  layerWeights (LayerNormState _) = []
+  layerWeights (TokenMixingState _ _ params _) = mlpParamsToFlat params
   layerWeights (PatchState _ _ params _) = mlpParamsToFlat params
   layerWeights (AttentionState _ params _) = mlpParamsToFlat params
   layerWeights (MeanPoolState _) = []
@@ -811,12 +893,20 @@ initialiseLayers seed specs =
             let shape = MlpShape width hidden width
                 params = mlpInit shape layerSeed
              in Right (ResidualState name scale params (adamInit shape))
+          LayerNormSpec name -> Right (LayerNormState name)
+          TokenMixingSpec name tokens hidden
+            | tokens <= 0 ->
+                Left (name <> ": token-mixing token count must be positive")
+            | otherwise ->
+                let shape = MlpShape tokens hidden tokens
+                    params = mlpInit shape layerSeed
+                 in Right (TokenMixingState name tokens params (adamInit shape))
           PatchSpec name geometry pSize pStride hidden outputs
             | pSize <= 0 || pStride <= 0 ->
                 Left (name <> ": patch size and stride must be positive")
             | otherwise ->
                 let positions = patchPositions geometry pSize pStride
-                    patchInputs = pSize * pSize * geomChannels geometry
+                    patchInputs = pSize * pSize * geomChannels geometry + 2
                     shape = MlpShape patchInputs hidden outputs
                     params = mlpInit shape layerSeed
                     runtime =
@@ -885,6 +975,36 @@ forwardLayer device state rep =
                   )
           )
           outsE
+    (LayerNormState _, TokenBatch samples) ->
+      let normalized = fmap (fmap layerNormForward) samples
+       in pure
+            ( Right
+                ( TokenBatch (fmap (fmap layerNormOutput) normalized)
+                , LayerNormTape normalized
+                )
+            )
+    (TokenMixingState name expectedTokens params _, TokenBatch samples)
+      | any ((/= expectedTokens) . length) samples ->
+          pure
+            ( Left
+                ( name
+                    <> ": token-mixing expected "
+                    <> Text.pack (show expectedTokens)
+                    <> " tokens"
+                )
+            )
+      | otherwise -> do
+          let (width, channelInputs) = tokenMixingInputs samples
+          outsE <- mlpdForwardBatch device params (concat channelInputs)
+          pure $
+            fmap
+              ( \flatOuts ->
+                  let mixedChannels = unflattenBy (fmap length channelInputs) flatOuts
+                   in ( TokenBatch (tokenMixingOutputs width mixedChannels)
+                      , TokenMixingTape width channelInputs
+                      )
+              )
+              outsE
     (PatchState _ runtime params _, FlatBatch xs) -> do
       let patchesBySample = fmap (extractPatches runtime) xs
           flatPatches = concat patchesBySample
@@ -914,6 +1034,10 @@ forwardLayer device state rep =
       pure (Right (FlatBatch (fmap meanVector samples), MeanPoolTape (fmap length samples)))
     (DenseState name _ _, TokenBatch _) ->
       pure (Left (name <> ": dense layer expected flat inputs"))
+    (LayerNormState name, FlatBatch _) ->
+      pure (Left (name <> ": layernorm expected token inputs"))
+    (TokenMixingState name _ _ _, FlatBatch _) ->
+      pure (Left (name <> ": token-mixing expected token inputs"))
     (PatchState name _ _ _, TokenBatch _) ->
       pure (Left (name <> ": patch layer expected flat inputs"))
     (AttentionState name _ _, FlatBatch _) ->
@@ -983,6 +1107,45 @@ backwardLayer device adamConfig needInputGradient state tape upstream batchN =
                   )
           )
           result
+    (LayerNormState name, LayerNormTape normalized, TokenBatch dysBySample) ->
+      pure
+        ( Right
+            ( LayerNormState name
+            , TokenBatch (zipWith (zipWith layerNormBackward) normalized dysBySample)
+            )
+        )
+    ( TokenMixingState name expectedTokens params adam
+      , TokenMixingTape width channelInputs
+      , TokenBatch dysBySample
+      )
+        | any ((/= expectedTokens) . length) dysBySample ->
+            pure (Left (name <> ": token-mixing backward token count mismatch"))
+        | otherwise -> do
+            let channelDys = tokenMixingGradients width dysBySample
+            result <-
+              deviceGradientStep
+                device
+                adamConfig
+                needInputGradient
+                params
+                adam
+                (concat channelInputs)
+                (concat channelDys)
+                batchN
+            pure $
+              fmap
+                ( \(params', adam', channelDxsFlat) ->
+                    let channelDxs =
+                          if needInputGradient
+                            then unflattenBy (fmap length channelInputs) channelDxsFlat
+                            else replicate (length channelInputs) []
+                        tokenDxs =
+                          if needInputGradient
+                            then tokenMixingOutputs width channelDxs
+                            else replicate (length dysBySample) []
+                     in (TokenMixingState name expectedTokens params' adam', TokenBatch tokenDxs)
+                )
+                result
     (PatchState name runtime params adam, PatchTape patchesBySample, TokenBatch tokenDys) -> do
       let flatPatches = concat patchesBySample
           flatDys = concat tokenDys
@@ -1177,6 +1340,69 @@ splitQkv vector =
 concat3 :: Vector Double -> Vector Double -> Vector Double -> Vector Double
 concat3 a b c = a VU.++ b VU.++ c
 
+layerNormEpsilon :: Double
+layerNormEpsilon = 1.0e-5
+
+layerNormForward :: Vector Double -> LayerNormToken
+layerNormForward input =
+  let width = max 1 (VU.length input)
+      mean = VU.sum input / fromIntegral width
+      centered = VU.map (subtract mean) input
+      variance = VU.sum (VU.map (\x -> x * x) centered) / fromIntegral width
+      invStd = 1.0 / sqrt (variance + layerNormEpsilon)
+      output = VU.map (* invStd) centered
+   in LayerNormToken
+        { layerNormInvStd = invStd
+        , layerNormOutput = output
+        }
+
+layerNormBackward :: LayerNormToken -> Vector Double -> Vector Double
+layerNormBackward token dy =
+  let output = layerNormOutput token
+      width = max 1 (VU.length output)
+      meanDy = VU.sum dy / fromIntegral width
+      meanDyY = VU.sum (VU.zipWith (*) dy output) / fromIntegral width
+      invStd = layerNormInvStd token
+   in VU.zipWith
+        (\dyI yI -> invStd * (dyI - meanDy - yI * meanDyY))
+        dy
+        output
+
+tokenMixingInputs :: [[Vector Double]] -> (Int, [[Vector Double]])
+tokenMixingInputs samples =
+  let width =
+        case samples of
+          (token : _) : _ -> VU.length token
+          _ -> 0
+      sampleChannels sample =
+        [ VU.fromList [token VU.! channel | token <- sample]
+        | channel <- [0 .. width - 1]
+        ]
+   in (width, fmap sampleChannels samples)
+
+tokenMixingOutputs :: Int -> [[Vector Double]] -> [[Vector Double]]
+tokenMixingOutputs width =
+  fmap sampleOutput
+ where
+  sampleOutput channels =
+    case take width channels of
+      [] -> []
+      first : _ ->
+        [ VU.fromList [channel VU.! tokenIdx | channel <- channelSlice]
+        | tokenIdx <- [0 .. VU.length first - 1]
+        ]
+       where
+        channelSlice = take width channels
+
+tokenMixingGradients :: Int -> [[Vector Double]] -> [[Vector Double]]
+tokenMixingGradients width =
+  fmap
+    ( \tokens ->
+        [ VU.fromList [token VU.! channel | token <- tokens]
+        | channel <- [0 .. width - 1]
+        ]
+    )
+
 patchPositions :: ImageGeometry -> Int -> Int -> [[Int]]
 patchPositions geometry size stride =
   [ [ pixelIndex geometry (x + dx) (y + dy) c
@@ -1191,11 +1417,28 @@ patchPositions geometry size stride =
 extractPatches :: PatchRuntime -> Vector Double -> [Vector Double]
 extractPatches runtime input =
   [ VU.fromList
-      [ if idx < VU.length input then input VU.! idx else 0.0
-      | idx <- indices
-      ]
+      ( [ if idx < VU.length input then input VU.! idx else 0.0
+        | idx <- indices
+        ]
+          <> patchPositionFeatures runtime indices
+      )
   | indices <- patchRuntimePositions runtime
   ]
+
+patchPositionFeatures :: PatchRuntime -> [Int] -> [Double]
+patchPositionFeatures runtime indices =
+  case indices of
+    [] -> [0.0, 0.0]
+    firstIdx : _ ->
+      let geometry = patchRuntimeGeometry runtime
+          pixel = firstIdx `div` max 1 (geomChannels geometry)
+          x = pixel `mod` max 1 (geomWidth geometry)
+          y = pixel `div` max 1 (geomWidth geometry)
+          norm coordinate extent =
+            if extent <= 1
+              then 0.0
+              else (fromIntegral coordinate / fromIntegral (extent - 1)) * 2.0 - 1.0
+       in [norm x (geomWidth geometry), norm y (geomHeight geometry)]
 
 scatterPatchGradients :: PatchRuntime -> [Int] -> [Vector Double] -> [Vector Double]
 scatterPatchGradients runtime counts patchDxs =
@@ -1209,6 +1452,7 @@ scatterPatchGradients runtime counts patchDxs =
         [ [ (idx, dx VU.! offset)
           | (offset, idx) <- zip [0 ..] indices
           , idx < inputCount
+          , offset < VU.length dx
           ]
         | (indices, dx) <- zip positions dxs
         ]
@@ -1234,6 +1478,15 @@ patchSide geometry
   | geomWidth geometry <= 8 = 2
   | geomWidth geometry <= 32 = 4
   | otherwise = 8
+
+residualPatchSide :: ImageGeometry -> Int
+residualPatchSide geometry
+  | geomHeight geometry <= 1 = 1
+  | geomWidth geometry <= 2 = geomWidth geometry
+  | geomWidth geometry <= 8 = 2
+  | geomWidth geometry <= 28 = 7
+  | geomWidth geometry <= 32 = 8
+  | otherwise = 16
 
 vitPatchSide :: ImageGeometry -> Int
 vitPatchSide geometry

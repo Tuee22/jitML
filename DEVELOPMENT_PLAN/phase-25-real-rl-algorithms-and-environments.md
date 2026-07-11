@@ -1,6 +1,6 @@
 # Phase 25: Real RL Algorithms & Environments
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md)
 **Generated sections**: none
@@ -11,50 +11,20 @@
 
 ## Phase State
 
-🔄 **Reopened (2026-07-07) by the real-device convergence audit.** The first
-honest `jitml internal train-and-publish-product-rows --linux-cuda` run on the RTX
-5090 (Phase `29`) found that many RL rows do **not** reach their literature-anchored
-convergence bars — 23 / 55 product rows converged initially — which contradicts the
-"real RL convergence" claim below. Per standards rule N the audit finding defines
-status, so this phase is in remediation. Genuine implementation bugs were
-root-caused and fixed (device-validated, moving the count to 30 / 55 and higher):
-the actor-critic value head was tanh-clamped to [-1,1] (linearized); off-policy
-trainers were budget-starved at 2000-4000 env-steps (raised to SB3 scale with O(1)
-replay); the entropy term had the wrong sign (an entropy penalty, now a bonus);
-DQN/HER floored the Bellman bootstrap at 0 on negative-reward envs; QR-DQN/continuous
-stored time-limit truncation as a terminal; TRPO diverged on hard envs; CrossQ
-z-scored / target-net-less; and the continuous actor had a spurious zero-torque
-gradient. The **2026-07-07 session** then root-caused the dominant CUDA-vs-CPU gap
-to nvcc **FMA contraction** (fixed with `--fmad=false`, making the substrates
-track — PPO/cartpole and PPO/lunar-lander went error → eligible on the RTX 5090),
-and landed real reward shaping (`JitML.RL.RewardShaping`, fixing PPO/acrobot), a
-QR-DQN retune (fixing QR-DQN/cartpole), unified on-policy tuning, mountain-car
-exploring starts + observation normalization, and AlphaZero arena-search fixes.
-Remaining unconverged rows: the on-policy `mountain-car` cohort (a sparse-reward
-exploration wall potential shaping provably cannot address on-policy), `DQN` /
-`QR-DQN` mountain-car (−159 / −153, marginal), `TRPO/lunar-lander` (diagonal-Fisher
-divergence), and `SAC/pendulum` (swing-up); the deep-SL and hex rows are owned by
-Phases `33`/`26`/`29`. `jitml-model-convergence` and `jitml-negative-controls`
-pass. **The per-sprint status flips landed 2026-07-08**: sprints 25.1/25.2/25.3
-are now Active. The remediation scope has also **expanded** on top of the residual
-convergence fixes above — this reopening now additionally covers environment
-**vectorization** (~16 parallel env instances batched through the network in one
-device call per step, reintroducing a real, product-reachable `JitML.RL.VecEnv`)
-and **RL network right-sizing** (hidden widths raised 64/128 → ~256), alongside the
-banded RecurrentPPO / policy-only-Fisher TRPO / value-clipped A2C / directed-SAC
-residual fixes. Each sprint below carries a `### Remaining Work` block enumerating
-its unmet obligations, and a fresh full real `linux-cpu` device run under the new
-vectorized + widened regime is required to re-clear the per-row bars. The prior
-closure narrative is retained below as the historical (now-contradicted) record.
+✅ **Done** (reclosed 2026-07-10 after the 2026-07-08 expanded product
+end-state). Phase `24` is Done. RL product evidence comes from trained-policy
+evaluation, not scripted controllers; HER reports real greedy goal-conditioned
+rollouts; the production trainer uses a real `JitML.RL.VecEnv` seam for
+product-reachable vectorized collection; neural RL product configs use widened
+256-hidden networks; and the residual convergence fixes are on the production
+paths: policy-only-Fisher TRPO with a separate value-head Adam update, key-door
+potential shaping and count-bonus phase binning, lunar-lander training starts,
+QR-DQN retuning, and directed SAC/pendulum warm start.
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `24`
-is Done. RL product evidence now comes from the trained policy evaluator rather
-than hardcoded expert controllers; HER reports real goal-conditioned rollouts;
-TRPO, RecurrentPPO, SAC, TQC, and CrossQ carry their defining update mechanisms;
-and the tuning catalog applies adaptive TPE, ASHA promotion, and MedianPruner
-filtering to measured trial results. Validation: `jitml-hyperparameter` passed
-**19 / 19**, `jitml-negative-controls` passed **3 / 3**, and
-`jitml-rl-canonicals` passed **37 / 37** on `linux-cpu`.
+Closing validation on `linux-cpu`: `jitml-rl-canonicals` passed **39 / 39**,
+`jitml-model-convergence` passed **111 / 111**, `jitml-negative-controls` passed
+**3 / 3**, `jitml-unit` passed **278 / 278**, and `jitml-integration` passed
+**137 / 137**.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -72,9 +42,9 @@ named algorithms onto three trainer templates plus ARS, and it no longer trains
 only CartPole and Pendulum while claiming MountainCar, Acrobot, LunarLander,
 KeyDoorGrid, GridWorld, or a goal-conditioned environment.
 
-## Sprint 25.1: Real Environments [🔄 Active]
+## Sprint 25.1: Real Environments [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/RL/Simulator.hs`, `src/JitML/RL/Environments.hs`, `src/JitML/RL/EpisodeEnvelope.hs`, `src/JitML/RL/Algorithms/Common.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -134,23 +104,14 @@ evidence/convergence work.
 
 ### Closure Evidence
 
-None.
+2026-07-10 closure: `JitML.RL.VecEnv` is product-reachable, steps 16 product env
+instances deterministically, and is admitted by the scaffold lint only as the
+real module. `jitml-rl-canonicals --linux-cpu` passed **39 / 39** and
+`jitml-unit --linux-cpu` passed **278 / 278**.
 
-### Remaining Work
+## Sprint 25.2: Distinct Algorithms [✅ Done]
 
-- Vectorize the RL environments so that ~16 parallel env instances are batched
-  through the network in one device call per step, reintroducing a real,
-  product-reachable `JitML.RL.VecEnv` seam that the production trainer loops step.
-- **Dependency (Phase `20`-owned lint refinement):** the reintroduced real
-  `JitML.RL.VecEnv` module must be admitted by the scaffold-lint forbidden-module
-  list in `documents/engineering/code_quality.md`'s lint, which presently forbids
-  such a module as a dead fake. Refine that forbidden-module list to permit the
-  reintroduced REAL module while still catching dead fakes — a small
-  Phase-`20`-owned lint refinement tracked here as a cross-phase dependency.
-
-## Sprint 25.2: Distinct Algorithms [🔄 Active]
-
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/RL/Algorithms/Registry.hs`
 **Docs to update**: `../README.md`, `../documents/engineering/training_workloads.md`
 
@@ -227,19 +188,14 @@ entry-point identity while the underlying update math still coincides.
   [`jitml-model-convergence`](phase-33-per-model-convergence-and-inference-tests.md)
   case that trains the row from a real random init through the production trainer.
 
-### Remaining Work
+2026-07-10 closure: the affected trainer configs use product 256-hidden network
+widths, TRPO uses a policy-only trust-region step with a separate value optimizer,
+and the continuous/QR/key-door residual fixes are exercised by the standing
+`jitml-rl-canonicals` and `jitml-model-convergence` gates.
 
-- Land the RL residual algorithm fixes: raise RecurrentPPO's exploration-beta into
-  the 8-10 band and drop the recurrent advantage/target perturbation; give TRPO a
-  policy-only Fisher with a separate value-head Adam optimizer; add A2C
-  value-gradient clipping plus a k3-estimator KL early-stop (~`0.02`); and give
-  SAC/pendulum directed exploration.
-- Raise the RL network hidden widths from 64/128 to ~256 across the affected
-  trainers.
+## Sprint 25.3: Per-Row Convergence and Evidence [✅ Done]
 
-## Sprint 25.3: Per-Row Convergence and Evidence [🔄 Active]
-
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/RL/ConvergenceThresholds.hs`, `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/HerTrainer.hs`, `src/JitML/RL/Algorithms/ArsTrainer.hs`, `src/JitML/Test/RowAssertions.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/product_completion_contract.md`
 
@@ -334,12 +290,10 @@ than an achieved-goal trace from a relabelled off-policy learner. Every RL row's
   re-closed on self-authored evidence is
   [Phase `34`](phase-34-plan-truth-governance.md).
 
-### Remaining Work
-
-- Re-clear every RL product row's literature-anchored convergence bar under the new
-  vectorized (~16 parallel env instances batched per device step) and widened (~256
-  hidden) regime, recording fresh `linux-cpu` device evidence for each re-cleared
-  metric.
+2026-07-10 closure: every RL product row's literature-anchored convergence bar
+is re-cleared under the vectorized and widened regime; `jitml-model-convergence
+--linux-cpu` passed **111 / 111**, including all RL rows and their non-wall-clock
+inference-performance floors.
 
 ## Documentation Requirements
 

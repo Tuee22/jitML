@@ -199,6 +199,7 @@ library
         JitML.RL.RewardShaping
         JitML.RL.Schema
         JitML.RL.Simulator
+        JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
         JitML.Service.CatalogSchema

@@ -37,6 +37,8 @@ module JitML.RL.Algorithms.PpoTrainer
     PpoTrainConfig (..)
   , OnPolicyVariant (..)
   , defaultPpoTrainConfig
+  , productPpoHiddenUnits
+  , productPpoVectorEnvCount
 
     -- * Result
   , PpoTrainResult (..)
@@ -108,6 +110,7 @@ import JitML.RL.Simulator
   , cartPoleEnvironment
   , renderObservation
   )
+import JitML.RL.VecEnv qualified as VecEnv
 
 -- | The five on-policy algorithms in the catalog share the MLP
 -- forward/backward seam + GAE + Adam plumbing, but each variant selects its
@@ -134,6 +137,7 @@ data OnPolicyVariant
 data PpoTrainConfig = PpoTrainConfig
   { ppoSeed :: !Int
   , ppoHiddenUnits :: !Int
+  , ppoVectorEnvCount :: !Int
   , ppoRolloutSteps :: !Int
   , ppoNumIterations :: !Int
   , ppoEpochsPerUpdate :: !Int
@@ -161,11 +165,18 @@ data PpoTrainConfig = PpoTrainConfig
   }
   deriving stock (Eq, Show)
 
+productPpoHiddenUnits :: Int
+productPpoHiddenUnits = 256
+
+productPpoVectorEnvCount :: Int
+productPpoVectorEnvCount = 16
+
 defaultPpoTrainConfig :: PpoTrainConfig
 defaultPpoTrainConfig =
   PpoTrainConfig
     { ppoSeed = 42
     , ppoHiddenUnits = 64
+    , ppoVectorEnvCount = 1
     , ppoRolloutSteps = 2048
     , ppoNumIterations = 40
     , ppoEpochsPerUpdate = 10
@@ -208,6 +219,11 @@ data Rollout = Rollout
   , rolloutFinalValue :: !Double
   }
   deriving stock (Eq, Show)
+
+data VectorizedRollout = VectorizedRollout
+  { vectorizedRollout :: !Rollout
+  , vectorizedRolloutGroups :: ![([RolloutStep], Double)]
+  }
 
 -- | Per-iteration stats: mean / median / max episode return inside the
 -- iteration's rollout. The convergence assertion compares the median
@@ -899,14 +915,19 @@ trainPpoOnDeviceWithEnvironment device environment config = do
   let shape = ppoMlpShape config
       initialParams = initialPpoParams config
       initialAdam = adamInit shape
+      (initialVecEnv, initialGen) =
+        VecEnv.mkVecEnv
+          environment
+          (max 1 (ppoVectorEnvCount config))
+          (Random.mkStdGen (ppoSeed config + 1))
   -- One visitation table for the whole run, mutated across rollouts.
   countTable <- CountExploration.newCountTable
   result <-
     foldM
       (step countTable)
       ( Right
-          ( envInitial environment
-          , Random.mkStdGen (ppoSeed config + 1)
+          ( initialVecEnv
+          , initialGen
           , initialParams
           , initialAdam
           , [] :: [PpoIterationStat]
@@ -926,21 +947,195 @@ trainPpoOnDeviceWithEnvironment device environment config = do
       result
  where
   step _ (Left e) _ = pure (Left e)
-  step countTable (Right (state, gen, params, adam, stats, _)) iteration = do
-    (rollout, nextState, nextGen) <-
-      collectRolloutInEnvironment countTable environment config params state gen
-    let (advs, targets) = computeAdvantages config rollout
-        normAdvs = standardise advs
-        triples = zip3 (rolloutSteps rollout) normAdvs targets
-    updated <- ppoUpdateDevice device config params adam triples
-    case updated of
+  step countTable (Right (vecEnv, gen, params, adam, stats, _)) iteration = do
+    collected <-
+      collectRolloutVectorizedOnDevice
+        device
+        countTable
+        environment
+        config
+        params
+        vecEnv
+        gen
+    case collected of
       Left e -> pure (Left e)
-      Right (paramsAfter, adamAfter) ->
-        let stat = rolloutSummary iteration (rolloutEpisodes rollout)
-         in pure
-              ( Right
-                  (nextState, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
-              )
+      Right (vectorized, nextVecEnv, nextGen) -> do
+        let rollout = vectorizedRollout vectorized
+            triples = vectorizedRolloutTriples config (vectorizedRolloutGroups vectorized)
+        updated <- ppoUpdateDevice device config params adam triples
+        case updated of
+          Left e -> pure (Left e)
+          Right (paramsAfter, adamAfter) ->
+            let stat = rolloutSummary iteration (rolloutEpisodes rollout)
+             in pure
+                  ( Right
+                      (nextVecEnv, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
+                  )
+
+collectRolloutVectorizedOnDevice
+  :: MlpDevice
+  -> CountExploration.CountTable
+  -> SimulatedEnvironment state
+  -> PpoTrainConfig
+  -> MlpParams
+  -> VecEnv.VecEnv state
+  -> Random.StdGen
+  -> IO (Either Text (VectorizedRollout, VecEnv.VecEnv state, Random.StdGen))
+collectRolloutVectorizedOnDevice device countTable environment config params vecEnv0 gen0 =
+  go 0 vecEnv0 gen0 emptyGroups []
+ where
+  vectorSteps = max 1 (ppoRolloutSteps config)
+  actionCount = ppoActionCount config
+  emptyGroups = replicate (VecEnv.vecEnvSize vecEnv0) []
+  go stepIndex vecEnv gen groups completedEpisodes
+    | stepIndex >= vectorSteps = do
+        finalValuesE <- finalValuesFor vecEnv
+        pure $
+          fmap
+            ( \finalValues ->
+                let grouped = zipWith (\steps finalValue -> (reverse steps, finalValue)) groups finalValues
+                    flatSteps = concatMap fst grouped
+                    rollout =
+                      Rollout
+                        { rolloutSteps = flatSteps
+                        , rolloutEpisodes = reverse completedEpisodes
+                        , rolloutFinalValue = mean finalValues
+                        }
+                 in (VectorizedRollout rollout grouped, vecEnv, gen)
+            )
+            finalValuesE
+    | otherwise = do
+        let observations = VecEnv.vecEnvObservations vecEnv
+            slots = VecEnv.vecEnvSlots vecEnv
+            masks = fmap (actionMaskFor environment config . VecEnv.vecSlotState) slots
+        forwardResult <- mlpdForwardBatch device params observations
+        case forwardResult of
+          Left err -> pure (Left err)
+          Right outs -> do
+            let policies = fmap (softmax . VU.take actionCount) outs
+                values = fmap (`VU.unsafeIndex` actionCount) outs
+                maskedPolicies = zipWith (maskedPolicyFor config) masks policies
+                (actions, logProbs, genAfterActions) = sampleActions maskedPolicies gen
+                (vecEnv', transitions, genAfterStep) =
+                  VecEnv.vecEnvStep (ppoMaxEpisodeSteps config) vecEnv actions genAfterActions
+            indexedSteps <-
+              traverse
+                (uncurry5 transitionToRolloutStep)
+                (zip5 transitions actions logProbs values maskedPolicies masks)
+            let groups' = foldl appendStep groups indexedSteps
+                completedEpisodes' =
+                  foldl
+                    ( \acc transition ->
+                        case VecEnv.vecTransitionCompletedReturn transition of
+                          Nothing -> acc
+                          Just reward -> reward : acc
+                    )
+                    completedEpisodes
+                    transitions
+            go (stepIndex + 1) vecEnv' genAfterStep groups' completedEpisodes'
+  finalValuesFor vecEnv = do
+    forwardResult <- mlpdForwardBatch device params (VecEnv.vecEnvObservations vecEnv)
+    pure $
+      fmap
+        (fmap (`VU.unsafeIndex` actionCount))
+        forwardResult
+  transitionToRolloutStep transition action logProb value probs mask = do
+    countBonus <-
+      CountExploration.countExplorationBonus
+        countTable
+        (ppoCountBeta config)
+        (envName environment)
+        (VecEnv.vecTransitionNextObservation transition)
+    let obs = VecEnv.vecTransitionObservation transition
+        nextObs = VecEnv.vecTransitionNextObservation transition
+        recurrentState =
+          recurrentStateFor
+            config
+            obs
+            (VecEnv.vecTransitionEpisodeReturnBefore transition)
+            (VecEnv.vecTransitionEpisodeLengthBefore transition)
+        reward =
+          VecEnv.vecTransitionReward transition
+            + RewardShaping.shapingBonus
+              (envName environment)
+              (ppoGamma config)
+              obs
+              nextObs
+            + countBonus
+    pure
+      ( VecEnv.vecTransitionIndex transition
+      , RolloutStep
+          { rsObs = obs
+          , rsAction = clamp 0 (max 0 (actionCount - 1)) action
+          , rsLogProb = logProb
+          , rsValue = value
+          , rsReward = reward
+          , rsDone = VecEnv.vecTransitionDone transition
+          , rsPolicy = probs
+          , rsActionMask = mask
+          , rsRecurrentState = recurrentState
+          }
+      )
+
+vectorizedRolloutTriples
+  :: PpoTrainConfig
+  -> [([RolloutStep], Double)]
+  -> [(RolloutStep, Double, Double)]
+vectorizedRolloutTriples config groups =
+  zipWith
+    (\(step, _, target) advantage -> (step, advantage, target))
+    rawTriples
+    normAdvs
+ where
+  rawTriples =
+    concatMap
+      ( \(steps, finalValue) ->
+          let (advs, targets) =
+                computeAdvantages
+                  config
+                  Rollout
+                    { rolloutSteps = steps
+                    , rolloutEpisodes = []
+                    , rolloutFinalValue = finalValue
+                    }
+           in zip3 steps advs targets
+      )
+      groups
+  normAdvs = standardise [advantage | (_, advantage, _) <- rawTriples]
+
+sampleActions :: [Vector Double] -> Random.StdGen -> ([Int], [Double], Random.StdGen)
+sampleActions [] gen = ([], [], gen)
+sampleActions (probs : rest) gen =
+  let (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
+      action = sampleCategorical probs u
+      prob = probs VU.! action
+      logProb = if prob <= 0 then -1.0e9 else log prob
+      (actions, logProbs, genN) = sampleActions rest gen'
+   in (action : actions, logProb : logProbs, genN)
+
+appendStep :: [[RolloutStep]] -> (Int, RolloutStep) -> [[RolloutStep]]
+appendStep groups (index, step) =
+  let targetIndex = max 0 (min (length groups - 1) index)
+   in updateAt targetIndex (step :) groups
+
+updateAt :: Int -> (a -> a) -> [a] -> [a]
+updateAt _ _ [] = []
+updateAt 0 f (x : xs) = f x : xs
+updateAt n f (x : xs) = x : updateAt (n - 1) f xs
+
+zip5 :: [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [(a, b, c, d, e, f)]
+zip5 (a : as) (b : bs) (c : cs) (d : ds) (e : es) (f : fs) = (a, b, c, d, e, f) : zip5 as bs cs ds es fs
+zip5 _ _ _ _ _ _ = []
+
+uncurry5 :: (a -> b -> c -> d -> e -> f -> g) -> (a, b, c, d, e, f) -> g
+uncurry5 f (a, b, c, d, e, g) = f a b c d e g
+
+mean :: [Double] -> Double
+mean [] = 0.0
+mean xs = sum xs / fromIntegral (length xs)
+
+clamp :: (Ord a) => a -> a -> a -> a
+clamp lo hi = max lo . min hi
 
 ppoMlpShape :: PpoTrainConfig -> MlpShape
 ppoMlpShape config =
@@ -971,8 +1166,14 @@ ppoUpdateDevice
 ppoUpdateDevice device config params0 adam0 batch =
   if ppoVariant config == VariantTRPO
     then do
-      gradientResult <- deviceMeanBatchGradient params0 batch
-      pure (trpoLineSearchUpdate config batch params0 adam0 <$> gradientResult)
+      policyGradientResult <- deviceMeanBatchGradientWith trpoPolicyOutputGradient params0 batch
+      valueGradientResult <- deviceMeanBatchGradientWith trpoValueOutputGradient params0 batch
+      pure $ do
+        policyGradient <- policyGradientResult
+        valueGradient <- valueGradientResult
+        let (policyParams, _) = trpoLineSearchUpdate config batch params0 adam0 policyGradient
+            (paramsAfter, adamAfter) = adamStep adamConfig adam0 policyParams valueGradient
+        Right (paramsAfter, adamAfter)
     else foldM runEpoch (Right (params0, adam0)) [1 .. ppoEpochsPerUpdate config]
  where
   adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
@@ -1002,13 +1203,13 @@ ppoUpdateDevice device config params0 adam0 batch =
                 meanGradient = scaleGradient scale summed
                 (paramsAfter, adamAfter) = adamStep adamConfig adam params meanGradient
              in pure (Right (paramsAfter, adamAfter))
-  deviceMeanBatchGradient params mb = do
+  deviceMeanBatchGradientWith headGradient params mb = do
     forwardResult <- mlpdForwardBatch device params [rsObs s | (s, _, _) <- mb]
     case forwardResult of
       Left e -> pure (Left e)
       Right outs -> do
         let pairs =
-              [ (rsObs s, fullOutputGradient out s adv target)
+              [ (rsObs s, headGradient out s adv target)
               | ((s, adv, target), out) <- zip mb outs
               ]
         gradResult <- mlpdBatchGradient device params pairs
@@ -1016,6 +1217,13 @@ ppoUpdateDevice device config params0 adam0 batch =
           fmap
             (scaleGradient (1.0 / fromIntegral (max 1 (length mb))))
             gradResult
+  trpoPolicyOutputGradient out step advantage target =
+    let full = fullOutputGradient out step advantage target
+     in VU.take actionCount full VU.++ VU.singleton 0.0
+  trpoValueOutputGradient out _step _advantage target =
+    let value = out VU.! actionCount
+        valueGrad = ppoValueCoef config * (value - target)
+     in VU.replicate actionCount 0.0 VU.++ VU.singleton valueGrad
   fullOutputGradient out step advantage target =
     let policy = softmax (VU.take actionCount out)
         -- Linear critic (matches 'policyValueFromForward'): the device value

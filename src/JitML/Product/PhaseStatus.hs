@@ -85,17 +85,17 @@ allProductPhaseStatuses =
       24
       "Real Supervised Architectures"
       "DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md"
-      [ sprint "24.1" "Literal Architectures" Active
-      , sprint "24.2" "Convergence and Evidence" Active
-      , sprint "24.3" "CompletedTraining SL Manifests" Active
+      [ sprint "24.1" "Literal Architectures" Done
+      , sprint "24.2" "Convergence and Evidence" Done
+      , sprint "24.3" "CompletedTraining SL Manifests" Done
       ]
   , productPhase
       25
       "Real RL Algorithms and Environments"
       "DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md"
-      [ sprint "25.1" "Real Environments" Active
-      , sprint "25.2" "Distinct Algorithms" Active
-      , sprint "25.3" "Per-Row Convergence and Evidence" Active
+      [ sprint "25.1" "Real Environments" Done
+      , sprint "25.2" "Distinct Algorithms" Done
+      , sprint "25.3" "Per-Row Convergence and Evidence" Done
       ]
   , productPhase
       26
@@ -124,10 +124,10 @@ allProductPhaseStatuses =
       29
       "Linux CUDA Product Lane"
       "DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md"
-      [ sprint "29.1" "Real cuDNN/cuBLAS Kernels" Blocked
-      , sprint "29.2" "CUDA Row Device Evidence" Blocked
-      , sprint "29.3" "CUDA Integration, E2E, and Attestation" Blocked
-      , sprint "29.4" "GPU Performance and Persistent Device Buffers" Blocked
+      [ sprint "29.1" "Real cuDNN/cuBLAS Kernels" Done
+      , sprint "29.2" "CUDA Row Device Evidence" Done
+      , sprint "29.3" "CUDA Integration, E2E, and Attestation" Done
+      , sprint "29.4" "GPU Performance and Persistent Device Buffers" Done
       ]
   , productPhase
       30
@@ -141,8 +141,8 @@ allProductPhaseStatuses =
       31
       "No-Caveat Product Aggregation"
       "DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md"
-      [ sprint "31.1" "Attestation Join" Blocked
-      , sprint "31.2" "No-Caveat Closure" Blocked
+      [ sprint "31.1" "Attestation Join" Done
+      , sprint "31.2" "No-Caveat Closure" Done
       ]
   , productPhase
       32
@@ -156,8 +156,8 @@ allProductPhaseStatuses =
       33
       "Per-Model Convergence & Inference-Performance Tests"
       "DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md"
-      [ sprint "33.1" "Per-Model Measured Convergence" Active
-      , sprint "33.2" "Inference-Performance & Determinism" Active
+      [ sprint "33.1" "Per-Model Measured Convergence" Done
+      , sprint "33.2" "Inference-Performance & Determinism" Done
       ]
   , productPhase
       34

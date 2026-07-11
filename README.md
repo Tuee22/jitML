@@ -31,21 +31,20 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (2026-07-08):** The product chain is **not closed**.
-> Phases `24` (Real Supervised Architectures), `25` (Real RL Algorithms &
-> Environments), and `33` (Per-Model Convergence & Inference Tests) were
-> **reopened 2026-07-08** and are now `🔄 Active`: the expanded end-state moves
-> the executed supervised path to a real MLP-Mixer (token-mixing MLP + executed
-> LayerNorm) at raised widths, vectorizes the RL environments (~16 parallel env
-> instances batched through the network in one device call per step) with
-> right-sized hidden widths (~256), and re-clears every per-model convergence and
-> inference-performance bar at those new sizes. Phase `29` (`linux-cuda`) remains
-> `⏸️ Blocked` and gains a new sprint `29.4` (GPU performance / persistent CUDA
-> device weight buffers); the GPU runtime is available, so the remaining blockers
-> are real convergence, a fresh real `linux-cuda` run, and the new every-row
-> performance obligation (Exit Definition #29) — not a missing device driver.
-> Phase `31` remains `⏸️ Blocked` downstream until that real CUDA lane produces a
-> fresh attestation fragment. The current execution-ordered status lives in
+> **Current product status (2026-07-11):** The Phase `19`–`34` product chain is
+> closed. Phase `31` restored the no-caveat product claim by joining the three
+> committed per-lane fragments on `linux-cpu`: `linux-cpu`,
+> `linux-cuda`, and `apple-silicon`, each with **55** ProductRows, for **165**
+> lane-row evidence records. The report artifacts are
+> [`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md),
+> [`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md),
+> and
+> [`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`](DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md).
+> Phase `29` contributes the 2026-07-10 `linux-cuda` fragment: publisher
+> **55 / 55**, ProductRow integration **56 / 56**, `jitml test all
+> --linux-cuda` **10 / 10**, live CUDA e2e Playwright **71 / 71** plus Haskell
+> e2e **27 / 27**, and the Phase `29.4` timing table **55 / 55** rows faster
+> on `linux-cuda` than `linux-cpu`. The current execution-ordered status lives in
 > [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 ---
@@ -998,6 +997,7 @@ mindmap
       upload-dataset
       seed-demo-checkpoints
       train-and-publish-product-rows
+      benchmark-product-row-wall-clock
       dhall-schema
       third-party-images
       gc
@@ -1057,6 +1057,7 @@ mindmap
 | `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]` |
 | `jitml internal seed-demo-checkpoints` | Retired legacy fixture checkpoint seeder. | `jitml internal seed-demo-checkpoints` |
 | `jitml internal train-and-publish-product-rows` | Train and publish product row checkpoints. | `jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda]` |
+| `jitml internal benchmark-product-row-wall-clock` | Benchmark ProductRow CPU/CUDA wall-clock. | `jitml internal benchmark-product-row-wall-clock` |
 | `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>] [--catalog <catalog>]` |
 | `jitml internal third-party-images` | Print the third-party chart image list. | `jitml internal third-party-images` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |

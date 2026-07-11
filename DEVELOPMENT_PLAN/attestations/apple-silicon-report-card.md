@@ -12,8 +12,8 @@
 
 > **Purpose**: The committed `apple-silicon` per-lane report-card fragment for
 > Phase `30`. The Apple backend evidence was refreshed on 2026-07-06 after the
-> realness audit; Phase `31` remains blocked on the missing fresh `linux-cuda`
-> fragment and consumes this file only after Phase `29` closes.
+> realness audit; Phase `31` now consumes this file alongside the fresh
+> `linux-cpu` and `linux-cuda` fragments during `linux-cpu` aggregation.
 
 ## Host
 

@@ -25,6 +25,7 @@
 module JitML.RL.Algorithms.DqnTrainer
   ( DqnTrainConfig (..)
   , defaultDqnTrainConfig
+  , productDqnHiddenUnits
   , DqnTrainResult (..)
   , DqnIterationStat (..)
   , Transition (..)
@@ -98,6 +99,9 @@ data DqnTrainConfig = DqnTrainConfig
   , dqnUseDouble :: !Bool -- Double-DQN target (van Hasselt 2016) when True
   }
   deriving stock (Eq, Show)
+
+productDqnHiddenUnits :: Int
+productDqnHiddenUnits = 256
 
 defaultDqnTrainConfig :: DqnTrainConfig
 defaultDqnTrainConfig =

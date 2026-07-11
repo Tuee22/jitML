@@ -1,6 +1,6 @@
 # Phase 24: Real Supervised Architectures
 
-**Status**: Active
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md), [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
 **Generated sections**: none
@@ -11,20 +11,18 @@
 
 ## Phase State
 
-🔄 Reopened (2026-07-08): the product Exit Definition expanded — the executed
-supervised architecture moves from the un-normalized bag-of-patches dense
-stand-in to a real MLP-Mixer (token-mixing MLP + executed LayerNorm) at raised
-feature widths, so the literal-architecture, convergence, and manifest
-obligations are back open.
+✅ **Done** (reclosed 2026-07-10 after the 2026-07-08 expanded product
+end-state). The executed supervised path now uses the widened MLP-Mixer regime:
+token-mixing MLP blocks, executed LayerNorm, residual patch stems with
+coordinate features, and raised latent/wide clamps on the trained and served
+path. The regenerated `CompletedTraining` manifests describe the widened Mixer
+topology and its retrained weights, and every supervised row clears its external
+bar under the standing per-model convergence gate.
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
-supervised architecture path no longer trains a residual-MLP stand-in for every
-named convolutional/attention family. Residual, ResNet, WideResNet, LeNet, and
-ViT-style rows now build trained token/spatial topology through the Phase `23`
-layer engine, and Conv2D/Conv3D/norm/attention layer kinds no longer collapse to
-dense or identity behavior. Validation: `docker compose run --rm jitml cabal
-build lib:jitml` passed, `jitml-unit` passed **277 / 277**, and
-`jitml-sl-canonicals` passed **31 / 31** on `linux-cpu`.
+Closing validation on `linux-cpu`: `jitml-sl-canonicals` passed **31 / 31**,
+`jitml-negative-controls` passed **3 / 3**, `jitml-model-convergence` passed
+**111 / 111**, `jitml-unit` passed **278 / 278**, and `jitml-integration`
+passed **137 / 137**.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -43,9 +41,9 @@ throughput, and clears `median(k=5) >= literature_target - slack`. Each row writ
 an inference-eligible `CompletedTraining` checkpoint, and partial, synthetic, or
 untrained supervised manifests are rejected.
 
-## Sprint 24.1: Literal Architectures [🔄 Active]
+## Sprint 24.1: Literal Architectures [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
@@ -116,18 +114,13 @@ rejection actually guards the model that runs.
   must reject the current MLP-for-conv stand-in, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
-### Remaining Work
+2026-07-10 closure: the trained and served architecture path implements the
+widened Mixer blocks and raised clamps required by the expanded end-state, and
+`jitml-sl-canonicals --linux-cpu` passed **31 / 31**.
 
-- The MLP-Mixer executed layer set — a token-mixing MLP plus an executed
-  LayerNorm — will be implemented in `src/JitML/SL/Architecture.hs` for the deep
-  residual/ViT rows, replacing the un-normalized bag-of-patches dense stand-in on
-  the trained and served path.
-- The latent/wide clamp ceilings will be raised toward `~256` so the executed
-  Mixer runs at the widened feature widths the expanded Exit Definition requires.
+## Sprint 24.2: Convergence and Evidence [✅ Done]
 
-## Sprint 24.2: Convergence and Evidence [🔄 Active]
-
-**Status**: Active
+**Status**: Done
 **Implementation**: `test/sl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/numerical_core.md`
 
@@ -185,16 +178,13 @@ learning.
   `ExternalBars` target, must pass for every supervised row via
   `docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu`.
 
-### Remaining Work
+2026-07-10 closure: the standing `jitml-model-convergence --linux-cpu` gate
+passed **111 / 111**, including the deep-SL rows measured on the widened
+architecture.
 
-- The deep-SL rows (`cifar10-resnet56`, `cifar100-wide-resnet`,
-  `fashion-mnist-resnet`) will re-clear their literature-anchored convergence bars
-  measured on the widened MLP-Mixer architecture, not on the retired
-  bag-of-patches stand-in.
+## Sprint 24.3: CompletedTraining SL Manifests [✅ Done]
 
-## Sprint 24.3: CompletedTraining SL Manifests [🔄 Active]
-
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Checkpoint/`, `test/integration/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`
 
@@ -251,12 +241,9 @@ they attest a fabricated topology as complete.
   weights are not the real trained architecture, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
-### Remaining Work
-
-- The supervised `CompletedTraining` manifests will regenerate at the new
-  MLP-Mixer architecture and its retrained weights, so the inference-eligible
-  checkpoint and its graph/layout evidence describe the widened Mixer topology
-  that is actually trained and served.
+2026-07-10 closure: regenerated `CompletedTraining` manifests are
+inference-eligible under the widened Mixer topology; `jitml-negative-controls
+--linux-cpu` passed **3 / 3** and `jitml-integration` passed **137 / 137**.
 
 ## Documentation Requirements
 

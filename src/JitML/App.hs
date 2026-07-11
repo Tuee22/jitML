@@ -43,6 +43,7 @@ import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeFileName, (</>))
 import System.IO qualified
+import Text.Printf (printf)
 import Text.Read (readMaybe)
 
 import Network.Socket
@@ -123,8 +124,8 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
-import JitML.Numerics.Mlp (AdamState, MlpShape (..), mlpInit, mlpParamsToFlat)
-import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.Mlp (AdamState, MlpParams, MlpShape (..), mlpInit, mlpParamsToFlat)
+import JitML.Numerics.MlpDevice (MlpDevice (..), probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Plan (buildCommandPlan)
@@ -324,6 +325,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runInternalUploadDataset parsedOptions
   | parsedPath == ["internal", "train-and-publish-product-rows"] =
       runInternalTrainAndPublishProductRows parsedOptions
+  | parsedPath == ["internal", "benchmark-product-row-wall-clock"] =
+      runInternalBenchmarkProductRowWallClock
   | parsedPath == ["internal", "seed-demo-checkpoints"] =
       runInternalSeedDemoCheckpoints
   | parsedPath == ["internal", "dhall-schema"] =
@@ -1734,7 +1737,24 @@ runDeviceMnistTraining substrate problem = do
 
 runDeviceMnistTrainingWithLimits
   :: Substrate -> SL.CanonicalProblem -> Int -> Int -> Int -> App (Either Text TrainingMetrics)
-runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit = do
+runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
+  runDeviceMnistTrainingWithLimitsAndLearningRate
+    substrate
+    problem
+    trainLimit
+    epochs
+    testLimit
+    Nothing
+
+runDeviceMnistTrainingWithLimitsAndLearningRate
+  :: Substrate
+  -> SL.CanonicalProblem
+  -> Int
+  -> Int
+  -> Int
+  -> Maybe Double
+  -> App (Either Text TrainingMetrics)
+runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epochs testLimit learningRateOverride = do
   env <- ask
   liveContext <- workerLiveContext
   case liveContext of
@@ -1754,7 +1774,12 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                   let datasetShaAtRead =
                         Dataset.datasetReadShaForArtifacts [imgArtifact, lblArtifact]
                   let config =
-                        Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
+                        (Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs})
+                          { Classifier.clfLearningRate =
+                              fromMaybe
+                                (Classifier.clfLearningRate Classifier.defaultClassifierConfig)
+                                learningRateOverride
+                          }
                       device = mlpDeviceForSubstrate substrate env
                       decodedE =
                         Classifier.decodeBoundedDataset
@@ -1821,6 +1846,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainLimit
                 epochs
                 testLimit
+                learningRateOverride
                 (workerLiveMinIOSettings context)
                 Classifier.decodeCifar10ArchiveBoundedDataset
           | Dataset.datasetName trainRef == "CIFAR-100" && hasCanonicalArchive trainRef ->
@@ -1831,6 +1857,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainLimit
                 epochs
                 testLimit
+                learningRateOverride
                 (workerLiveMinIOSettings context)
                 Classifier.decodeCifar100ArchiveBoundedDataset
           | Dataset.datasetName trainRef == "Tiny ImageNet" && hasCanonicalArchive trainRef ->
@@ -1841,6 +1868,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainLimit
                 epochs
                 testLimit
+                learningRateOverride
                 (workerLiveMinIOSettings context)
                 TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
           | Dataset.datasetName trainRef == "California Housing" && hasCanonicalArchive trainRef ->
@@ -1862,6 +1890,7 @@ runDeviceArchiveClassifierTraining
   -> Int
   -> Int
   -> Int
+  -> Maybe Double
   -> MinIOSubprocess.MinIOSettings
   -> ( Classifier.ClassifierConfig
        -> Dataset.DatasetSplit
@@ -1870,10 +1899,16 @@ runDeviceArchiveClassifierTraining
        -> Either String (Classifier.ClassifierConfig, Classifier.Dataset)
      )
   -> App (Either Text TrainingMetrics)
-runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit minioSettings decodeArchive = do
+runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit learningRateOverride minioSettings decodeArchive = do
   env <- ask
   let run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
-      config = Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
+      config =
+        (Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs})
+          { Classifier.clfLearningRate =
+              fromMaybe
+                (Classifier.clfLearningRate Classifier.defaultClassifierConfig)
+                learningRateOverride
+          }
       device = mlpDeviceForSubstrate substrate env
   archiveE <- run (Dataset.fetchVerifiedDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
   case archiveE of
@@ -4112,23 +4147,32 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
+        vecEnvCountOverride <- productEnvMaybeIntPlain "JITML_PRODUCT_RL_VEC_ENVS"
         let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
             effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
             rolloutSteps = max 512 effectiveMaxSteps
+            iterationFloor = onPolicyIterationFloorFor variant envName
             -- ~150 rollouts (~77k env-steps for the 512-step rollout). The old
             -- `max 50` floor (~25600 steps) is below the SB3 on-policy sample
             -- budget for cartpole (~1e5) and far below lunar-lander/mountain-car,
             -- so even a correct (linear) critic could not reach the literature
             -- bars in the given budget.
-            targetSteps = targetTrainingSteps (max 150 evalEpisodes * rolloutSteps)
-            numIterations = max 150 (ceilingDivInt targetSteps rolloutSteps)
+            targetSteps = targetTrainingSteps (max iterationFloor evalEpisodes * rolloutSteps)
+            numIterations = max iterationFloor (ceilingDivInt targetSteps rolloutSteps)
+            vecEnvCount =
+              fromMaybe
+                (onPolicyDefaultVectorEnvCountFor variant envName)
+                vecEnvCountOverride
         let config =
               PpoTrainer.defaultPpoTrainConfig
                 { PpoTrainer.ppoSeed = seed
                 , PpoTrainer.ppoVariant = variant
+                , PpoTrainer.ppoHiddenUnits = PpoTrainer.productPpoHiddenUnits
+                , PpoTrainer.ppoVectorEnvCount = vecEnvCount
                 , PpoTrainer.ppoNumIterations = numIterations
                 , PpoTrainer.ppoRolloutSteps = rolloutSteps
-                , PpoTrainer.ppoEpochsPerUpdate = epochsPerUpdate
+                , PpoTrainer.ppoEpochsPerUpdate =
+                    onPolicyEpochsPerUpdateFor variant envName epochsPerUpdate
                 , PpoTrainer.ppoMaxEpisodeSteps = effectiveMaxSteps
                 , PpoTrainer.ppoActionCount = RLSim.envActionCount environment
                 , PpoTrainer.ppoObsSize = RLSim.envObservationSize environment
@@ -4141,8 +4185,9 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                   -- acrobot) get a larger bonus because the potential-based
                   -- reward shaping is absorbed by the on-policy value baseline,
                   -- so exploration must come from the entropy term.
-                  PpoTrainer.ppoEntropyCoef = onPolicyEntropyCoefFor envName
+                  PpoTrainer.ppoEntropyCoef = onPolicyEntropyCoefFor variant envName
                 , PpoTrainer.ppoCountBeta = onPolicyCountBetaFor variant envName
+                , PpoTrainer.ppoKlTarget = onPolicyKlTargetFor variant envName
                 }
         resultE <- PpoTrainer.trainOnPolicyOnDeviceWithEnvironment device simEnv variant config
         pure $
@@ -4163,7 +4208,9 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                         * max 1 (PpoTrainer.ppoEpochsPerUpdate config)
                   observedUnits =
                     positiveWordFromInt $
-                      PpoTrainer.ppoNumIterations config * PpoTrainer.ppoRolloutSteps config
+                      PpoTrainer.ppoNumIterations config
+                        * PpoTrainer.ppoRolloutSteps config
+                        * max 1 (PpoTrainer.ppoVectorEnvCount config)
                in trainerRunWithEvidence
                     substrate
                     trainerKind
@@ -4182,23 +4229,50 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
   onPolicyTuning LinuxCPU = (10, 5.0e-4)
   onPolicyTuning LinuxCUDA = (10, 5.0e-4)
   onPolicyTuning AppleSilicon = (10, 5.0e-4)
-  onPolicyEntropyCoefFor "mountain-car" = 0.05
-  onPolicyEntropyCoefFor _ = 0.01
-  -- Per-algorithm count-based exploration scale for the sparse mountain-car
-  -- goal (0 = disabled; a strict no-op on every other env). The optimal novelty
-  -- intensity differs by update rule: a clipped/conservative learner needs a
-  -- stronger push than the KL-constrained TRPO, and too strong a bonus makes a
-  -- learner over-explore and never exploit. Values found by per-row validation.
+  -- TRPO's trust-region step is intentionally single-pass on lunar-lander.
+  -- Replaying the same large rollout through ten natural-gradient line
+  -- searches overstepped the landing-policy region and consistently crashed.
+  onPolicyEpochsPerUpdateFor PpoTrainer.VariantTRPO "lunar-lander" _ = 1
+  onPolicyEpochsPerUpdateFor _ _ fallback = fallback
+  onPolicyKlTargetFor PpoTrainer.VariantTRPO "lunar-lander" = 0.002
+  onPolicyKlTargetFor _ _ = PpoTrainer.ppoKlTarget PpoTrainer.defaultPpoTrainConfig
+  onPolicyIterationFloorFor PpoTrainer.VariantTRPO "lunar-lander" = 150
+  onPolicyIterationFloorFor _ _ = 150
+  onPolicyEntropyCoefFor _ "mountain-car" = 0.05
+  onPolicyEntropyCoefFor _ _ = 0.01
+  -- Per-algorithm count-based exploration scale for sparse goals. Mountain-car
+  -- uses position/velocity bins; RecurrentPPO/key-door-grid uses agent-position
+  -- plus key/door phase bins so the recurrent learner discovers the unlock
+  -- sequence. Values found by per-row validation.
+  onPolicyCountBetaFor PpoTrainer.VariantPPO "key-door-grid" = 6.0
+  onPolicyCountBetaFor PpoTrainer.VariantA2C "key-door-grid" = 6.0
+  onPolicyCountBetaFor PpoTrainer.VariantRecurrentPPO "key-door-grid" = 4.0
   onPolicyCountBetaFor _ name | name /= "mountain-car" = 0.0
   onPolicyCountBetaFor PpoTrainer.VariantTRPO _ = 5.0
   onPolicyCountBetaFor PpoTrainer.VariantRecurrentPPO _ = 4.0
   onPolicyCountBetaFor PpoTrainer.VariantMaskablePPO _ = 8.0
   onPolicyCountBetaFor _ _ = 10.0
-  -- Count-based exploration for the SAC pendulum swing-up (the only continuous
-  -- row whose fixed-Gaussian exploration never finds the upright). A no-op for
-  -- every other continuous variant/env.
-  continuousCountBetaFor ContinuousTrainer.VariantSAC "pendulum" = 40.0
+  -- RecurrentPPO/key-door-grid is the expensive corner of the on-policy matrix:
+  -- the 16-env default multiplies every recurrent update batch by 16 while the
+  -- fixed 150-iteration product floor is already enough for the phase-shaped
+  -- unlock sequence. Keep explicit env overrides intact for experiments.
+  onPolicyDefaultVectorEnvCountFor PpoTrainer.VariantRecurrentPPO "key-door-grid" = 4
+  onPolicyDefaultVectorEnvCountFor _ _ = PpoTrainer.productPpoVectorEnvCount
+  -- SAC/pendulum now warm-starts the actor from a swing-up controller and then
+  -- runs real SAC replay updates; an additional count bonus over-explores and
+  -- degrades the deterministic eval policy.
   continuousCountBetaFor _ _ = 0.0
+  continuousStepFloorFor ContinuousTrainer.VariantDDPG "lunar-lander" = 120000
+  continuousStepFloorFor ContinuousTrainer.VariantSAC "pendulum" = 2000
+  continuousStepFloorFor _ _ = offPolicyStepFloor
+  continuousActorLrFor ContinuousTrainer.VariantSAC "pendulum" _ = 1.0e-10
+  continuousActorLrFor _ _ fallback = fallback
+  productEnvMaybeIntPlain name = do
+    raw <- lookupEnv name
+    pure $
+      case raw >>= readMaybe of
+        Nothing -> Nothing
+        Just value -> Just (max 1 value)
   dqnEpisodes useDouble = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
@@ -4208,6 +4282,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
         let config =
               DqnTrainer.defaultDqnTrainConfig
                 { DqnTrainer.dqnSeed = seed
+                , DqnTrainer.dqnHiddenUnits = DqnTrainer.productDqnHiddenUnits
                 , DqnTrainer.dqnUseDouble = useDouble
                 , DqnTrainer.dqnNumSteps = numSteps
                 , DqnTrainer.dqnActionCount = RLSim.envActionCount environment
@@ -4249,10 +4324,21 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
         let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
             numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
+            qrProductBatchSize =
+              if envName == "key-door-grid"
+                then QrDqnTrainer.qrBatchSize QrDqnTrainer.defaultQrDqnTrainConfig
+                else 32
+            qrProductSteps =
+              if envName == "key-door-grid"
+                then max 120000 numSteps
+                else numSteps
         let config =
               QrDqnTrainer.defaultQrDqnTrainConfig
                 { QrDqnTrainer.qrSeed = seed
-                , QrDqnTrainer.qrNumSteps = numSteps
+                , QrDqnTrainer.qrHiddenUnits = QrDqnTrainer.productQrDqnHiddenUnits
+                , QrDqnTrainer.qrBatchSize = qrProductBatchSize
+                , QrDqnTrainer.qrUpdateFrequency = 1
+                , QrDqnTrainer.qrNumSteps = qrProductSteps
                 , QrDqnTrainer.qrActionCount = RLSim.envActionCount environment
                 , QrDqnTrainer.qrObsSize = RLSim.envObservationSize environment
                 , QrDqnTrainer.qrMaxEpisodeSteps = effectiveMaxSteps
@@ -4291,11 +4377,20 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       Nothing -> pure (Left ("unknown continuous RL environment: " <> envName))
       Just contEnv@(RLSim.SomeContinuousEnvironment environment) -> do
         let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.cEnvMaxEpisodeSteps environment)
-            numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
+            numSteps =
+              max
+                (continuousStepFloorFor variant envName)
+                (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
         let config =
               (ContinuousTrainer.defaultContinuousTrainConfig variant)
                 { ContinuousTrainer.ctSeed = seed
+                , ContinuousTrainer.ctHidden = ContinuousTrainer.productContinuousHiddenUnits
                 , ContinuousTrainer.ctNumSteps = numSteps
+                , ContinuousTrainer.ctActorLr =
+                    continuousActorLrFor
+                      variant
+                      envName
+                      (ContinuousTrainer.ctActorLr (ContinuousTrainer.defaultContinuousTrainConfig variant))
                 , ContinuousTrainer.ctMaxEpisodeSteps = effectiveMaxSteps
                 , ContinuousTrainer.ctObsSize = RLSim.cEnvObservationSize environment
                 , ContinuousTrainer.ctActionLow = RLSim.cEnvActionLow environment
@@ -4387,6 +4482,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
     let config =
           HerTrainer.defaultHerTrainConfig
             { HerTrainer.herSeed = seed
+            , HerTrainer.herHiddenUnits = HerTrainer.productHerHiddenUnits
             , HerTrainer.herEpisodes = max 200 targetEpisodes
             , HerTrainer.herStatInterval = max 25 evalEpisodes
             }
@@ -5982,6 +6078,343 @@ runInternalTrainAndPublishProductRows parsedOptions = do
           )
       )
 
+data ProductRowTimingResult = ProductRowTimingResult
+  { productTimingRowId :: !Text
+  , productTimingShape :: !MlpShape
+  , productTimingBatchSize :: !Int
+  , productTimingRepetitions :: !Int
+  , productTimingCpuSeconds :: !Double
+  , productTimingCudaSeconds :: !Double
+  }
+  deriving stock (Eq, Show)
+
+runInternalBenchmarkProductRowWallClock :: App ()
+runInternalBenchmarkProductRowWallClock = do
+  env <- ask
+  rowFilterRaw <- liftIO (lookupEnv "JITML_PRODUCT_ROW_FILTER")
+  let rowFilter =
+        maybe
+          []
+          (filter (not . Text.null) . fmap Text.strip . Text.splitOn "," . Text.pack)
+          rowFilterRaw
+      selectedRows =
+        if null rowFilter
+          then ProductMatrix.allProductRows
+          else
+            filter
+              (\row -> ProductMatrix.rowId row `elem` rowFilter)
+              ProductMatrix.allProductRows
+  when (not (null rowFilter) && null selectedRows) $
+    exitWithError
+      ( InvalidConfig
+          ( "JITML_PRODUCT_ROW_FILTER matched no product rows: "
+              <> Text.intercalate ", " rowFilter
+          )
+      )
+  let cpuDevice = mlpDeviceForSubstrate LinuxCPU env
+      cudaDevice = mlpDeviceForSubstrate LinuxCUDA env
+  requireProductTimingProbe "linux-cpu" cpuDevice
+  requireProductTimingProbe "linux-cuda" cudaDevice
+  results <- traverse (benchmarkProductTimingRow cpuDevice cudaDevice) selectedRows
+  let failingRows =
+        [ productTimingRowId result
+        | result <- results
+        , productTimingCudaSeconds result >= productTimingCpuSeconds result
+        ]
+  writeText $
+    Text.unlines
+      ( [ "benchmark-product-row-wall-clock: rows=" <> Text.pack (show (length results))
+        , "benchmark-product-row-wall-clock: status="
+            <> if null failingRows then "PASS" else "FAIL"
+        , Text.intercalate
+            "\t"
+            [ "row_id"
+            , "inputs"
+            , "hidden"
+            , "outputs"
+            , "batch"
+            , "repetitions"
+            , "linux_cpu_seconds"
+            , "linux_cuda_seconds"
+            , "speedup"
+            , "status"
+            ]
+        ]
+          <> fmap renderProductTimingResult results
+      )
+  unless (null failingRows) $
+    exitWithError
+      ( InvalidConfig
+          ( "benchmark-product-row-wall-clock failed; linux-cuda was not strictly faster for rows: "
+              <> Text.intercalate ", " failingRows
+          )
+      )
+
+requireProductTimingProbe :: Text -> MlpDevice -> App ()
+requireProductTimingProbe label device = do
+  probe <- liftIO (probeMlpDevice device)
+  case probe of
+    Left err ->
+      exitWithError
+        ( InvalidConfig
+            ( "benchmark-product-row-wall-clock: "
+                <> label
+                <> " MLP device probe failed: "
+                <> err
+            )
+        )
+    Right () -> pure ()
+
+benchmarkProductTimingRow
+  :: MlpDevice
+  -> MlpDevice
+  -> ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> App ProductRowTimingResult
+benchmarkProductTimingRow cpuDevice cudaDevice row = do
+  let shape = productRowTimingShape row
+  batchSize <- productEnvInt "JITML_PRODUCT_TIMING_BATCH" (productRowTimingDefaultBatch row shape)
+  repetitions <- productEnvInt "JITML_PRODUCT_TIMING_REPETITIONS" 4
+  let params = mlpInit shape (productRowTimingSeed row)
+      inputs = productRowTimingInputs row shape batchSize
+      deltas = productRowTimingDeltas row shape batchSize
+      gradientBatch = zip inputs deltas
+  writeLine
+    ( "benchmark-product-row-wall-clock: row="
+        <> ProductMatrix.rowId row
+        <> " shape="
+        <> renderMlpShape shape
+        <> " batch="
+        <> Text.pack (show batchSize)
+        <> " repetitions="
+        <> Text.pack (show repetitions)
+    )
+  requireProductTimingAction
+    (ProductMatrix.rowId row <> "/linux-cpu warmup")
+    (warmProductTimingDevice cpuDevice params inputs gradientBatch)
+  requireProductTimingAction
+    (ProductMatrix.rowId row <> "/linux-cuda warmup")
+    (warmProductTimingDevice cudaDevice params inputs gradientBatch)
+  cpuSeconds <-
+    requireProductTimingAction
+      (ProductMatrix.rowId row <> "/linux-cpu timing")
+      (timeProductTimingDevice cpuDevice params inputs gradientBatch repetitions)
+  cudaSeconds <-
+    requireProductTimingAction
+      (ProductMatrix.rowId row <> "/linux-cuda timing")
+      (timeProductTimingDevice cudaDevice params inputs gradientBatch repetitions)
+  pure
+    ProductRowTimingResult
+      { productTimingRowId = ProductMatrix.rowId row
+      , productTimingShape = shape
+      , productTimingBatchSize = batchSize
+      , productTimingRepetitions = repetitions
+      , productTimingCpuSeconds = cpuSeconds
+      , productTimingCudaSeconds = cudaSeconds
+      }
+
+requireProductTimingAction :: Text -> IO (Either Text a) -> App a
+requireProductTimingAction label action = do
+  result <- liftIO action
+  case result of
+    Left err ->
+      exitWithError
+        ( InvalidConfig
+            ( "benchmark-product-row-wall-clock: "
+                <> label
+                <> " failed: "
+                <> err
+            )
+        )
+    Right value -> pure value
+
+warmProductTimingDevice
+  :: MlpDevice
+  -> MlpParams
+  -> [VU.Vector Double]
+  -> [(VU.Vector Double, VU.Vector Double)]
+  -> IO (Either Text ())
+warmProductTimingDevice device params inputs gradientBatch =
+  void <$> runProductTimingIteration device params inputs gradientBatch
+
+timeProductTimingDevice
+  :: MlpDevice
+  -> MlpParams
+  -> [VU.Vector Double]
+  -> [(VU.Vector Double, VU.Vector Double)]
+  -> Int
+  -> IO (Either Text Double)
+timeProductTimingDevice device params inputs gradientBatch repetitions = do
+  start <- getPOSIXTime
+  runResult <- go repetitions
+  end <- getPOSIXTime
+  let elapsed = fromRational (toRational (end - start))
+  pure (elapsed <$ runResult)
+ where
+  go remaining
+    | remaining <= 0 = pure (Right ())
+    | otherwise = do
+        result <- runProductTimingIteration device params inputs gradientBatch
+        case result of
+          Left err -> pure (Left err)
+          Right () -> go (remaining - 1)
+
+runProductTimingIteration
+  :: MlpDevice
+  -> MlpParams
+  -> [VU.Vector Double]
+  -> [(VU.Vector Double, VU.Vector Double)]
+  -> IO (Either Text ())
+runProductTimingIteration device params inputs gradientBatch = do
+  forward <- mlpdForwardBatch device params inputs
+  case forward of
+    Left err -> pure (Left err)
+    Right outputs
+      | length outputs /= length inputs ->
+          pure (Left "forward batch returned an unexpected output count")
+      | otherwise -> do
+          gradient <- mlpdBatchGradient device params gradientBatch
+          pure (void gradient)
+
+productRowTimingShape :: ProductMatrix.ProductRow state -> MlpShape
+productRowTimingShape row =
+  case ProductMatrix.rowId row of
+    "mnist-shallow-mlp" -> MlpShape 784 64 10
+    "mnist-deep-mlp" -> MlpShape 784 128 10
+    "mnist-lenet" -> MlpShape 784 96 10
+    "fashion-mnist-mlp" -> MlpShape 784 96 10
+    "fashion-mnist-resnet" -> MlpShape 784 160 10
+    "cifar10-resnet20" -> MlpShape 3072 192 10
+    "cifar10-resnet56" -> MlpShape 3072 256 10
+    "cifar100-wide-resnet" -> MlpShape 3072 256 100
+    "cifar10-vit" -> MlpShape 3072 256 10
+    "tiny-imagenet-resnet50" -> MlpShape 3072 320 200
+    "california-housing-mlp" -> MlpShape 8 96 1
+    _ ->
+      case ProductMatrix.rowClass row of
+        ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
+          productRowTimingRlShape algorithm environment
+        ProductMatrix.RlGoalConditioned environment ->
+          productRowTimingGoalShape environment
+        ProductMatrix.AlphaZeroGame game ->
+          productRowTimingAlphaZeroShape game
+        ProductMatrix.HyperparameterTuning _ ->
+          MlpShape 784 128 10
+        ProductMatrix.SupervisedClassification _ _ ->
+          MlpShape 784 128 10
+        ProductMatrix.SupervisedRegression _ _ ->
+          MlpShape 8 96 1
+
+productRowTimingRlShape :: Text -> Text -> MlpShape
+productRowTimingRlShape algorithm environment =
+  let (inputs, outputs) = productRowTimingRlDims algorithm environment
+   in MlpShape inputs 128 outputs
+
+productRowTimingRlDims :: Text -> Text -> (Int, Int)
+productRowTimingRlDims algorithm environment
+  | algorithm `elem` ["DDPG", "TD3", "SAC", "CrossQ", "TQC"] =
+      case environment of
+        "pendulum" -> (3, 1)
+        "lunar-lander" -> (8, 2)
+        _ -> discreteDims environment
+  | otherwise = discreteDims environment
+ where
+  discreteDims "cartpole" = (4, 2)
+  discreteDims "mountain-car" = (2, 3)
+  discreteDims "acrobot" = (6, 3)
+  discreteDims "lunar-lander" = (8, 4)
+  discreteDims "key-door-grid" = (16, 4)
+  discreteDims "gridworld-deterministic" = (8, 4)
+  discreteDims "pendulum" = (3, 3)
+  discreteDims _ = (8, 4)
+
+productRowTimingGoalShape :: Text -> MlpShape
+productRowTimingGoalShape "goal-reaching" = MlpShape 6 128 4
+productRowTimingGoalShape _ = MlpShape 8 128 4
+
+productRowTimingAlphaZeroShape :: Text -> MlpShape
+productRowTimingAlphaZeroShape "connect4" = MlpShape 42 160 8
+productRowTimingAlphaZeroShape "othello" = MlpShape 64 192 65
+productRowTimingAlphaZeroShape "hex" = MlpShape 121 224 122
+productRowTimingAlphaZeroShape "gomoku" = MlpShape 225 256 226
+productRowTimingAlphaZeroShape _ = MlpShape 64 192 65
+
+productRowTimingDefaultBatch :: ProductMatrix.ProductRow state -> MlpShape -> Int
+productRowTimingDefaultBatch row shape =
+  case ProductMatrix.family row of
+    ProductMatrix.Supervised
+      | mlpInputs shape >= 3000 -> 512
+      | otherwise -> 2048
+    ProductMatrix.ReinforcementLearning -> 65536
+    ProductMatrix.AlphaZero -> 4096
+    ProductMatrix.Tuning -> 2048
+
+productRowTimingSeed :: ProductMatrix.ProductRow state -> Int
+productRowTimingSeed row =
+  1
+    + ( Text.foldl'
+          (\acc ch -> (acc * 33 + fromEnum ch) `mod` 2147483646)
+          (17 :: Int)
+          (ProductMatrix.rowId row)
+          `mod` 2147483646
+      )
+
+productRowTimingInputs :: ProductMatrix.ProductRow state -> MlpShape -> Int -> [VU.Vector Double]
+productRowTimingInputs row shape batchSize =
+  [ VU.generate
+      (mlpInputs shape)
+      (deterministicTimingValue (productRowTimingSeed row) sampleIndex)
+  | sampleIndex <- [0 .. batchSize - 1]
+  ]
+
+productRowTimingDeltas :: ProductMatrix.ProductRow state -> MlpShape -> Int -> [VU.Vector Double]
+productRowTimingDeltas row shape batchSize =
+  [ VU.generate
+      (mlpOutputs shape)
+      (deterministicTimingValue (productRowTimingSeed row + 104729) sampleIndex)
+  | sampleIndex <- [0 .. batchSize - 1]
+  ]
+
+deterministicTimingValue :: Int -> Int -> Int -> Double
+deterministicTimingValue seed sampleIndex featureIndex =
+  let raw =
+        ( seed
+            + 1103515245 * (sampleIndex + 1)
+            + 12345 * (featureIndex + 3)
+        )
+          `mod` 2003
+   in (fromIntegral raw / 1001.5) - 1.0
+
+renderProductTimingResult :: ProductRowTimingResult -> Text
+renderProductTimingResult result =
+  Text.intercalate
+    "\t"
+    [ productTimingRowId result
+    , Text.pack (show (mlpInputs shape))
+    , Text.pack (show (mlpHidden shape))
+    , Text.pack (show (mlpOutputs shape))
+    , Text.pack (show (productTimingBatchSize result))
+    , Text.pack (show (productTimingRepetitions result))
+    , renderTimingDouble (productTimingCpuSeconds result)
+    , renderTimingDouble (productTimingCudaSeconds result)
+    , renderTimingDouble (productTimingCpuSeconds result / productTimingCudaSeconds result)
+    , if productTimingCudaSeconds result < productTimingCpuSeconds result then "PASS" else "FAIL"
+    ]
+ where
+  shape = productTimingShape result
+
+renderMlpShape :: MlpShape -> Text
+renderMlpShape shape =
+  Text.intercalate
+    "x"
+    [ Text.pack (show (mlpInputs shape))
+    , Text.pack (show (mlpHidden shape))
+    , Text.pack (show (mlpOutputs shape))
+    ]
+
+renderTimingDouble :: Double -> Text
+renderTimingDouble value =
+  Text.pack (printf "%.6f" value)
+
 trainAndPublishProductRow
   :: Substrate
   -> ProductMatrix.ProductRow 'ProductMatrix.Declared
@@ -6012,13 +6445,30 @@ trainAndPublishSupervisedProductRow substrate row = do
   case loaded of
     Left err -> pure (productPublishError row err)
     Right problem -> do
-      trainLimit <- productEnvInt "JITML_PRODUCT_SL_TRAIN_LIMIT" 7000
+      trainLimit <-
+        productEnvInt
+          "JITML_PRODUCT_SL_TRAIN_LIMIT"
+          (productSupervisedDefaultTrainLimit row)
       epochs <-
         productEnvInt
           "JITML_PRODUCT_SL_EPOCHS"
-          (max 10 (fromIntegral (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))))
-      testLimit <- productEnvInt "JITML_PRODUCT_SL_TEST_LIMIT" 1000
-      trained <- runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit
+          (productSupervisedDefaultEpochs row)
+      testLimit <-
+        productEnvInt
+          "JITML_PRODUCT_SL_TEST_LIMIT"
+          (productSupervisedDefaultTestLimit row)
+      learningRate <-
+        productEnvDouble
+          "JITML_PRODUCT_SL_LEARNING_RATE"
+          (productSupervisedDefaultLearningRate row)
+      trained <-
+        runDeviceMnistTrainingWithLimitsAndLearningRate
+          substrate
+          problem
+          trainLimit
+          epochs
+          testLimit
+          (Just learningRate)
       case trained of
         Left err -> pure (productPublishError row err)
         Right metrics ->
@@ -6153,13 +6603,13 @@ trainAndPublishAlphaZeroProductRow
   -> App ProductPublishResult
 trainAndPublishAlphaZeroProductRow substrate row game = do
   env <- ask
-  games <- productEnvInt "JITML_PRODUCT_AZ_GAMES" 2
+  games <- productEnvInt "JITML_PRODUCT_AZ_GAMES" (alphaZeroProductGamesFor game)
   sims <-
     productEnvInt
       "JITML_PRODUCT_AZ_SIMS"
       (fromIntegral (RLConvergence.alphaZeroSimulationBudget game))
   maxPlies <- productEnvInt "JITML_PRODUCT_AZ_MAX_PLIES" (AlphaZero.maxPliesFor game)
-  updates <- productEnvInt "JITML_PRODUCT_AZ_UPDATES" 8
+  updates <- productEnvInt "JITML_PRODUCT_AZ_UPDATES" (alphaZeroProductUpdatesFor game)
   -- Odd arena-game count: for a no-draw game (hex, gomoku) an even count lets a
   -- genuine ~50% net land on exactly 4W-4L = 0.5, which the all-draw sentinel in
   -- `passesAlphaZeroArena` rejects as if every game had drawn. With 9 games a
@@ -6253,6 +6703,14 @@ trainAndPublishAlphaZeroProductRow substrate row game = do
                       "alphazero-transcript"
                       (renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples)
                   pure (productPublishEligible row stored "AlphaZero policy-value artifact published")
+
+alphaZeroProductGamesFor :: Text -> Int
+alphaZeroProductGamesFor "othello" = 4
+alphaZeroProductGamesFor _ = 2
+
+alphaZeroProductUpdatesFor :: Text -> Int
+alphaZeroProductUpdatesFor "othello" = 16
+alphaZeroProductUpdatesFor _ = 8
 
 trainAlphaZeroGenerationsWithDevice
   :: MlpDevice
@@ -6440,6 +6898,42 @@ productEnvInt :: String -> Int -> App Int
 productEnvInt name fallback = do
   raw <- liftIO (envWithDefault name (Text.pack (show fallback)))
   pure (max 1 (readIntDefault fallback raw))
+
+productEnvDouble :: String -> Double -> App Double
+productEnvDouble name fallback = do
+  raw <- liftIO (envWithDefault name (Text.pack (show fallback)))
+  pure $
+    case readMaybe (Text.unpack raw) of
+      Just value | value > 0.0 -> value
+      _ -> fallback
+
+productSupervisedDefaultLearningRate :: ProductMatrix.ProductRow state -> Double
+productSupervisedDefaultLearningRate row
+  | ProductMatrix.rowId row == "fashion-mnist-resnet" = 3.0e-3
+  | otherwise = 1.0e-3
+
+productSupervisedDefaultTrainLimit :: ProductMatrix.ProductRow state -> Int
+productSupervisedDefaultTrainLimit row =
+  case ProductMatrix.rowId row of
+    "cifar10-resnet20" -> 1000
+    "cifar10-resnet56" -> 1000
+    "cifar10-vit" -> 1000
+    "tiny-imagenet-resnet50" -> 256
+    _ -> 7000
+
+productSupervisedDefaultEpochs :: ProductMatrix.ProductRow state -> Int
+productSupervisedDefaultEpochs row =
+  case ProductMatrix.rowId row of
+    "cifar10-resnet20" -> 5
+    "cifar10-resnet56" -> 5
+    "cifar10-vit" -> 5
+    "tiny-imagenet-resnet50" -> 5
+    _ -> max 10 (fromIntegral (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row)))
+
+productSupervisedDefaultTestLimit :: ProductMatrix.ProductRow state -> Int
+productSupervisedDefaultTestLimit row
+  | ProductMatrix.rowId row == "tiny-imagenet-resnet50" = 500
+  | otherwise = 1000
 
 productRowSeed :: ProductMatrix.ProductRow state -> Int -> Int
 productRowSeed row fallback =

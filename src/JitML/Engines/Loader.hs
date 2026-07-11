@@ -7,8 +7,9 @@ module JitML.Engines.Loader
   )
 where
 
-import Control.Exception (bracket)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception.Safe (displayException, tryAny)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -20,7 +21,8 @@ import System.Directory
   )
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
-import System.Posix.DynamicLinker (RTLDFlags (RTLD_NOW), dlclose, dlopen, dlsym)
+import System.IO.Unsafe (unsafePerformIO)
+import System.Posix.DynamicLinker (DL, RTLDFlags (RTLD_NOW), dlopen, dlsym)
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.RuntimeSource
@@ -129,7 +131,20 @@ writeTextAtomic artifactPath contents = do
   tmpPath = artifactPath <> ".tmp"
 
 withKernelSymbol :: FilePath -> String -> (FunPtr symbol -> IO result) -> IO result
-withKernelSymbol artifactPath symbolName useSymbol =
-  bracket (dlopen artifactPath [RTLD_NOW]) dlclose $ \dynamicLibrary -> do
-    symbol <- dlsym dynamicLibrary symbolName
-    useSymbol symbol
+withKernelSymbol artifactPath symbolName useSymbol = do
+  dynamicLibrary <- cachedKernelLibrary artifactPath
+  symbol <- dlsym dynamicLibrary symbolName
+  useSymbol symbol
+
+cachedKernelLibrary :: FilePath -> IO DL
+cachedKernelLibrary artifactPath =
+  modifyMVar kernelLibraryCache $ \cache ->
+    case Map.lookup artifactPath cache of
+      Just dynamicLibrary -> pure (cache, dynamicLibrary)
+      Nothing -> do
+        dynamicLibrary <- dlopen artifactPath [RTLD_NOW]
+        pure (Map.insert artifactPath dynamicLibrary cache, dynamicLibrary)
+
+kernelLibraryCache :: MVar (Map.Map FilePath DL)
+{-# NOINLINE kernelLibraryCache #-}
+kernelLibraryCache = unsafePerformIO (newMVar Map.empty)

@@ -297,9 +297,11 @@ scaffolding modules.
   `jitml-backends --linux-cuda` lane was recorded as passing **21 / 21** on the
   RTX 5090, asserting those generated source entry points before executing the
   kernels. That evidence is withdrawn and must be cited only as dated historical
-  record; the `linux-cuda` product lane is **Blocked** pending a fresh real run.
-  The lane's assertion structure (checking the generated source entry points
-  before kernel execution) is unchanged.
+  record. Current 2026-07-10 backend validation passes **22 / 22** on the RTX
+  5090, and the full `linux-cuda` product lane is **Done** after the fresh
+  55-row publisher, integration/e2e/live gates, and Phase `29.4` performance
+  table passed. The lane's assertion structure (checking the generated source
+  entry points before kernel execution) is unchanged.
 - `src/JitML/Engines/CudaLocal.hs` is the guarded CUDA local runner. It
   consumes a positive `probeCudaRuntime` before materializing and compiling the
   generated source, then loads the `.so` through the shared
@@ -347,7 +349,8 @@ scaffolding modules.
   `jitml test all --linux-cuda` **8 / 8**, and passed live Playwright **71 / 71**
   at the CUDA edge `:9092`. This evidence is withdrawn and must be presented only
   as dated historical record, never as current closure; the `linux-cuda` product
-  lane is **Blocked** pending a fresh real run.
+  lane is **Active** pending the fresh current-source 55-row publisher,
+  integration/e2e attestation, and performance table.
 - **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`
@@ -367,11 +370,15 @@ scaffolding modules.
   network produces (CUDA `float` vs host `Double`, so agreement is within a
   single-precision tolerance). Under Sprint `29.4` the flat weight buffers are
   uploaded once per fixed-parameter phase into persistent device buffers and
-  reused across batches, rather than re-marshalled on every per-batch launch. `jitml-backends` validates this on the
-  RTX 3090: forward + backward match the pure network within `1e-3` and are
-  bit-equal across repeated runs. Routing the RL trainers and the AlphaZero
-  `PolicyValueNet` through these device kernels (batched) plus the cuDNN
-  deterministic-pin are validated (Sprints 15.8 / 15.9 closed). Re-validated 2026-06-06 on an RTX 5090 / Blackwell `sm_120` — `nvcc -arch=sm_70` PTX forward-JITs at launch, `jitml-backends -fcuda` 38 / 38.
+  reused across batches, rather than re-marshalled on every per-batch launch.
+  The CUDA batch-gradient path also uses one thread per `gW1`/`gW2` weight
+  element plus separate bias kernels, preserving deterministic per-thread batch
+  reductions while keeping tiny-output rows fast enough for the strict
+  ProductRow speedup gate. `jitml-backends --linux-cuda` validates this on the
+  RTX 5090: forward + backward match the pure network within `1e-3`, batched
+  forward/gradient/input-gradient match the pure MLP oracle, trainer paths run
+  through the batched device kernels, and the Phase `29.4` source guard covers
+  persistent buffers and per-weight gradient kernels (**22 / 22**).
 
 ### `apple-silicon` — fixed Metal bridge
 

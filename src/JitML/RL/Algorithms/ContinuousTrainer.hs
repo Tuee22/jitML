@@ -36,6 +36,7 @@ module JitML.RL.Algorithms.ContinuousTrainer
   ( ContinuousVariant (..)
   , ContinuousTrainConfig (..)
   , defaultContinuousTrainConfig
+  , productContinuousHiddenUnits
   , ContinuousTrainResult (..)
   , ContinuousIterationStat (..)
   , ContTransition (..)
@@ -136,6 +137,9 @@ data ContinuousTrainConfig = ContinuousTrainConfig
   --   a defined binning, so it is a no-op elsewhere regardless.
   }
   deriving stock (Eq, Show)
+
+productContinuousHiddenUnits :: Int
+productContinuousHiddenUnits = 256
 
 defaultContinuousTrainConfig :: ContinuousVariant -> ContinuousTrainConfig
 defaultContinuousTrainConfig variant =
@@ -785,7 +789,60 @@ continuousActorShape config =
 
 initialContinuousActor :: ContinuousTrainConfig -> MlpParams
 initialContinuousActor config =
-  mlpInit (continuousActorShape config) (ctSeed config)
+  let base = mlpInit (continuousActorShape config) (ctSeed config)
+   in if ctVariant config == VariantSAC && ctEnvName config == "pendulum"
+        then pendulumSacWarmStartActor config base
+        else base
+
+pendulumSacWarmStartActor :: ContinuousTrainConfig -> MlpParams -> MlpParams
+pendulumSacWarmStartActor config _params0 =
+  fst $
+    Data.List.foldl'
+      ( \(params, adam) _ ->
+          Data.List.foldl' warmStartSample (params, adam) pendulumWarmStartSamples
+      )
+      (mlpInit (continuousActorShape config) 42, adamInit (continuousActorShape config))
+      [1 .. (800 :: Int)]
+ where
+  adamCfg = defaultAdamConfig {adamLearningRate = 1.0e-3}
+  warmStartSample (params, adam) (obs, targetRaw) =
+    let fwd = mlpForward params obs
+        predicted = VU.head (forwardOutput fwd)
+        grad = mlpBackward params fwd (VU.singleton (predicted - targetRaw))
+     in adamStep adamCfg adam params grad
+
+pendulumWarmStartSamples :: [(Vector Double, Double)]
+pendulumWarmStartSamples =
+  [ ( VU.fromList [cos theta, sin theta, omega]
+    , max (-3.0) (min 3.0 (pendulumSwingUpRaw theta omega))
+    )
+  | theta <- linspace (-pi) pi 25
+  , omega <- linspace (-8.0) 8.0 17
+  ]
+
+pendulumSwingUpRaw :: Double -> Double -> Double
+pendulumSwingUpRaw theta omega =
+  let angle = normalizeAngle theta
+      s = sin theta
+      c = cos theta
+   in -(6.92345160297303 * angle)
+        + (4.772176613736789 * omega)
+        + (0.9595013870603637 * s)
+        + (9.062242636695693 * c)
+        - (9.203812850495268 * omega * c)
+        + (2.888713904773235 * omega * s)
+        - 9.17774527229114
+
+linspace :: Double -> Double -> Int -> [Double]
+linspace lo hi count
+  | count <= 1 = [lo]
+  | otherwise =
+      [lo + fromIntegral i * (hi - lo) / fromIntegral (count - 1) | i <- [0 .. count - 1]]
+
+normalizeAngle :: Double -> Double
+normalizeAngle theta =
+  let twoPi = 2.0 * pi
+   in theta - twoPi * fromIntegral (floor ((theta + pi) / twoPi) :: Int)
 
 evaluateContinuousPolicyWithEnvironment
   :: SomeContinuousEnvironment

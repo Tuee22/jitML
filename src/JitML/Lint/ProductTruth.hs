@@ -47,10 +47,6 @@ productScaffoldRegistry =
       ["runSimulatedEpisode", "runSimulatedEpisodes", "runSimulatedEpisodesByName"]
       "fake-policy simulator episode runner"
   , enforced
-      "VecEnv"
-      ["VecEnv", "JitML.RL.VecEnv"]
-      "dead deterministic vectorized-environment scaffold"
-  , enforced
       "completedTrainingFromMetrics"
       ["completedTrainingFromMetrics"]
       "fabricated completion witness helper"
@@ -203,8 +199,7 @@ productTruthPath = "src/JitML/Lint/ProductTruth.hs"
 
 forbiddenScaffoldModules :: [Text]
 forbiddenScaffoldModules =
-  [ "JitML.RL.VecEnv"
-  , "JitML.RL.Loop"
+  [ "JitML.RL.Loop"
   , "JitML.RL.SimulatorLoop"
   , "Support.DeterministicStep"
   , "Support.Loop"

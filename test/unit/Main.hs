@@ -3260,6 +3260,22 @@ main =
               assertBool
                 "HER achieved-goal distance metric passes"
                 (TrainingBudget.convergencePassed (ConvergenceThresholds.hgmAchievedGoalDistance her))
+              case find ((== "HER/goal-reaching") . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                Nothing -> assertFailure "missing HER/goal-reaching ProductRow"
+                Just row -> do
+                  observations <-
+                    either
+                      (assertFailure . Text.unpack)
+                      pure
+                      ( convergenceObservationsFixture
+                          [ ("goal_success_rate", 1.0)
+                          , ("achieved_goal_distance", 0.0)
+                          ]
+                      )
+                  ProductExternalBars.assertConvergenceObservationsAgainstBar
+                    (ProductMatrix.convergenceBar row)
+                    observations
+                    @?= []
               games @?= ["connect4", "othello", "hex", "gomoku"]
           , testCase "all-model workflow matrix enumerates SL/RL/HER/AlphaZero trained-artifact cells" $ do
               let cells = WorkflowMatrix.allModelCells
@@ -3686,6 +3702,23 @@ main =
                     ((== "product-truth.reachable-import") . findingKey)
                     findings
                 )
+          , testCase "ProductTruth reachability permits the real VecEnv module" $ do
+              let modules =
+                    [ ProductTruth.SourceModule
+                        "JitML.App"
+                        "src/JitML/App.hs"
+                        ["JitML.RL.Algorithms.PpoTrainer"]
+                    , ProductTruth.SourceModule
+                        "JitML.RL.Algorithms.PpoTrainer"
+                        "src/JitML/RL/Algorithms/PpoTrainer.hs"
+                        ["JitML.RL.VecEnv"]
+                    , ProductTruth.SourceModule
+                        "JitML.RL.VecEnv"
+                        "src/JitML/RL/VecEnv.hs"
+                        []
+                    ]
+                  findings = ProductTruth.scanProductTruthImports modules
+              findings @?= []
           , testCase "ProductRow implementations do not name non-product scaffolding" $ do
               let offenders =
                     [ (ProductMatrix.rowId row, ProductMatrix.implementation row, scaffold)
@@ -3702,7 +3735,7 @@ main =
               PhaseStatus.productPhaseNumbers @?= [19 .. 34]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports complete only when every product sprint is Done" $ do
-              PhaseStatus.allProductPhasesDone @?= False
+              PhaseStatus.allProductPhasesDone @?= True
               assertBool
                 "an all-Done registry satisfies the predicate"
                 ( PhaseStatus.productPhasesDone
@@ -5471,6 +5504,7 @@ canonicalLeafPaths =
   , ["internal", "upload-dataset"]
   , ["internal", "seed-demo-checkpoints"]
   , ["internal", "train-and-publish-product-rows"]
+  , ["internal", "benchmark-product-row-wall-clock"]
   , ["internal", "dhall-schema"]
   , ["internal", "third-party-images"]
   , ["internal", "gc"]

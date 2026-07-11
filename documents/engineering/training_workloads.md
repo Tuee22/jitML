@@ -11,11 +11,15 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Current audit status (2026-07-06).** Product training closure is complete for
-the Phase `19`–`34` product chain. Product dataset reads route through read-time
-SHA verification before decode, Phase `24` records supervised architecture
-evidence, Phase `25` records trained-policy RL evidence, Phase `31` aggregates
-the product chain, and Phases `32`–`34` keep the claim tied to negative controls,
+**Current audit status (2026-07-11).** Product training closure is restored
+after Phase `31` aggregated the committed `linux-cpu`, `linux-cuda`, and
+`apple-silicon` fragments on `linux-cpu`: **55** ProductRows per lane and
+**165** lane-row evidence records. The `linux-cpu` truth gates for Phases `24`,
+`25`, and `33` are closed, and Phase `29` closed the fresh `linux-cuda` product
+lane, including the every-row CUDA-vs-CPU timing table. Product dataset reads
+route through read-time SHA verification before decode, Phase `24` records
+supervised architecture evidence, Phase `25` records trained-policy RL
+evidence, and Phases `32`–`34` keep the claim tied to negative controls,
 per-model convergence, and plan-truth governance. The binding contract lives in
 [product_completion_contract.md](product_completion_contract.md).
 
@@ -42,11 +46,10 @@ the canonical problem catalog and all-row trainable product cohort in
 `src/JitML/SL/Canonicals.hs`, typed dataset references in
 `src/JitML/SL/Dataset.hs`, the single-hidden-layer softmax primitive in
 `src/JitML/SL/Classifier.hs`, and the all-row substrate-backed architecture
-runtime in `src/JitML/SL/Architecture.hs`. Phase `24` is moving the executed
+runtime in `src/JitML/SL/Architecture.hs`. Phase `24` moved the executed
 supervised architecture beyond that single-hidden-layer softmax primitive to a
-real MLP-Mixer — a token-mixing MLP plus an executed LayerNorm — at raised
-widths (the SL feature clamps for the latent/wide rows are raised toward
-`~256`), so the trained topology matches the richer graph a product row
+real MLP-Mixer-style path — a token-mixing MLP plus executed LayerNorm — at
+raised widths, so the trained topology matches the richer graph a product row
 documents rather than an un-normalized dense stand-in.
 
 - Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket

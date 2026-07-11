@@ -216,8 +216,8 @@ docker compose run --rm jitml jitml check-code
 2026-07-06 closing validation: the refreshed Apple backend evidence validates the
 fixed-bridge Metal kernel surface that underlies the committed
 `apple-silicon` fragment. The Phase `30` lane is closed on its Apple-host
-obligations, while Phase `31` remains blocked until Phase `29` produces a fresh
-real `linux-cuda` fragment.
+obligations, and Phase `31` now consumes this committed fragment alongside the
+fresh `linux-cuda` and `linux-cpu` fragments.
 
 ### Closure Evidence
 

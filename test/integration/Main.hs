@@ -61,8 +61,8 @@ import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env)
 import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Schema qualified as Numerics
-import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
@@ -176,12 +176,7 @@ convergenceObservationsFixture
   :: [(Text, Double)]
   -> Either Text [TrainingBudget.ConvergenceObservation]
 convergenceObservationsFixture =
-  traverse
-    ( \metric@(name, value) ->
-        ProductConvergence.evaluateConvergence
-          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
-          (ProductConvergence.MeasuredMetrics [metric])
-    )
+  ProductExternalBars.convergenceObservationsForMetrics
 
 productRowIntegrationTest :: ProductMatrix.ProductRow 'ProductMatrix.Declared -> TestTree
 productRowIntegrationTest row =
@@ -1515,7 +1510,7 @@ main =
                         experimentHash
                         [tensorFor experimentHash "synthetic"]
                         1
-                        [("accuracy", 0.95)]
+                        [("validation_accuracy", 0.95)]
                     )
                       { Checkpoint.manifestInitialWeightHash = Nothing
                       , Checkpoint.manifestFinalWeightHash = Nothing
@@ -1678,7 +1673,7 @@ main =
                   experimentHash
                   [Checkpoint.TensorBlob "dense" [2, 2] completeBlob]
                   3
-                  [("accuracy", 0.95)]
+                  [("validation_accuracy", 0.95)]
               partialManifest =
                 ( Checkpoint.emptyManifest
                     "m-partial"
@@ -1694,7 +1689,7 @@ main =
                     experimentHash
                     [Checkpoint.TensorBlob "dense" [2, 2] syntheticBlob]
                     3
-                    [("accuracy", 0.95)]
+                    [("validation_accuracy", 0.95)]
                 )
                   { Checkpoint.manifestInitialWeightHash = Nothing
                   , Checkpoint.manifestFinalWeightHash = Nothing
@@ -4257,7 +4252,7 @@ supervisedCompletedManifestFor experimentHash problem =
           experimentHash
           tensors
           5
-          [("test_supervised_metric", 0.95)]
+          [("test_accuracy", 0.95)]
    in manifest
         { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
         , Checkpoint.manifestArchitecture =

@@ -12,14 +12,17 @@
 
 ## Current Product State
 
-The current product chain is blocked on Phase `29` in
+The current product chain is closed after Phase `31` aggregation in
 [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md). The
 55-row product matrix, standing external-truth gates added by Phases `32`–`34`,
-and refreshed `linux-cpu`/`apple-silicon` evidence remain required inputs, but
-the no-caveat claim is not restored until the real `linux-cuda` lane produces a
-fresh validated attestation and Phase `31` aggregates it. Historical green runs
-remain dated evidence for the surfaces they actually exercised. The 2026-07-05
-realness audit, below, explains why those standing gates are required.
+and refreshed `linux-cpu`/`linux-cuda`/`apple-silicon` evidence are the required
+inputs. Phase `31` joined those committed fragments on `linux-cpu`: **55**
+ProductRows per lane and **165** lane-row evidence records across the three
+report artifacts under
+[../../DEVELOPMENT_PLAN/attestations/](../../DEVELOPMENT_PLAN/attestations/).
+Historical green runs remain dated evidence for the surfaces they actually
+exercised. The 2026-07-05 realness audit, below, explains why those standing
+gates are required.
 
 > **2026-07-05 realness-audit reopen.** The audit found the Phase `19`–`31`
 > closure was **satisfiable by fabrication**: every gate that graded a product

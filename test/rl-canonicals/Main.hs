@@ -65,6 +65,7 @@ import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.PpoLoss qualified as PpoLoss
 import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
+import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
 import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
@@ -113,8 +114,10 @@ import JitML.RL.Environments
   , environmentTermination
   )
 import JitML.RL.Policy (defaultPolicy)
+import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator (cartPoleInitial)
 import JitML.RL.Simulator qualified as Sim
+import JitML.RL.VecEnv qualified as VecEnv
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCardKnobs (..)
@@ -236,6 +239,12 @@ main =
                   Just _ -> pure ()
             )
             canonicalEnvironments
+      , testCase
+          "VecEnv steps 16 product env instances deterministically (Sprint 25.1)"
+          assertVecEnvDeterminism
+      , testCase
+          "product RL neural configs use widened 256-hidden networks (Sprint 25.2)"
+          assertProductRlHiddenWidths
       , testCase "PPO trained-policy CartPole rollout regenerates deterministically without fixtures" $ do
           first <- ppoCartpoleTrainedRollout 42
           second <- ppoCartpoleTrainedRollout 42
@@ -482,6 +491,36 @@ main =
 assertContains :: Text -> [Text] -> IO ()
 assertContains value values =
   assertBool ("missing " <> show value) (value `elem` values)
+
+assertVecEnvDeterminism :: IO ()
+assertVecEnvDeterminism = do
+  let seed = Random.mkStdGen 2501
+      (vecA, genA) = VecEnv.mkVecEnv Sim.cartPoleEnvironment 16 seed
+      (vecB, genB) = VecEnv.mkVecEnv Sim.cartPoleEnvironment 16 seed
+      actions = cycle [0, 1]
+      (nextA, transitionsA, genA') = VecEnv.vecEnvStep 200 vecA actions genA
+      (nextB, transitionsB, genB') = VecEnv.vecEnvStep 200 vecB actions genB
+      transitionSignature transition =
+        ( VecEnv.vecTransitionIndex transition
+        , VecEnv.vecTransitionObservation transition
+        , VecEnv.vecTransitionNextObservation transition
+        , VecEnv.vecTransitionReward transition
+        , VecEnv.vecTransitionDone transition
+        )
+  VecEnv.vecEnvSize vecA @?= 16
+  VecEnv.vecEnvSize nextA @?= 16
+  fmap transitionSignature transitionsA @?= fmap transitionSignature transitionsB
+  VecEnv.vecEnvObservations nextA @?= VecEnv.vecEnvObservations nextB
+  show genA' @?= show genB'
+
+assertProductRlHiddenWidths :: IO ()
+assertProductRlHiddenWidths = do
+  PpoTrainer.productPpoHiddenUnits @?= 256
+  PpoTrainer.productPpoVectorEnvCount @?= 16
+  DqnTrainer.productDqnHiddenUnits @?= 256
+  QrDqnTrainer.productQrDqnHiddenUnits @?= 256
+  ContinuousTrainer.productContinuousHiddenUnits @?= 256
+  HerTrainer.productHerHiddenUnits @?= 256
 
 -- | Cohorts asserted against `ConvergenceThresholds.cohortThreshold` from the
 -- canonical stanza. The list excludes (algo, env) pairs where the threshold
@@ -1012,6 +1051,35 @@ assertKeyDoorGridCanonicals = do
   masked @?= [0.0, 0.5, 0.0, 0.5, 0.0, 0.0]
   Sim.keyDoorGridInitial 11 @?= Sim.keyDoorGridInitial 11
   Sim.keyDoorGridRenderFrame state @?= Sim.keyDoorGridRenderFrame state
+  let step s action = Sim.simStepState (Sim.keyDoorGridStep s (fromEnum action))
+      potential =
+        RewardShaping.shapingPotential "key-door-grid"
+          . Data.Vector.Unboxed.fromList
+          . Sim.keyDoorGridObservation
+      nearKey =
+        step
+          (step state Sim.KeyDoorGridEast)
+          Sim.KeyDoorGridEast
+      carryingKey = step nearKey Sim.KeyDoorGridPickUpKey
+      adjacentToDoor =
+        foldl
+          step
+          carryingKey
+          [ Sim.KeyDoorGridEast
+          , Sim.KeyDoorGridEast
+          , Sim.KeyDoorGridSouth
+          , Sim.KeyDoorGridSouth
+          ]
+      openedDoor = step adjacentToDoor Sim.KeyDoorGridOpenDoor
+  assertBool
+    "key-door-grid shaping rewards progress toward the key"
+    (potential nearKey > potential state)
+  assertBool
+    "key-door-grid shaping advances after key pickup"
+    (potential carryingKey > potential nearKey)
+  assertBool
+    "key-door-grid shaping advances after door opening"
+    (potential openedDoor > potential adjacentToDoor)
   let handle =
         case SimulatorLoop.lookupSimulatedEnvByName "key-door-grid" of
           Just envHandle -> envHandle

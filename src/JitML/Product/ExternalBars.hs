@@ -20,6 +20,7 @@
 module JitML.Product.ExternalBars
   ( barIsSelfReferential
   , assertProductBarExternal
+  , assertConvergenceObservationsAgainstBar
   , assertConvergenceObservationsExternal
   , convergenceBarForMetric
   , convergenceObservationForMetric
@@ -143,3 +144,29 @@ assertConvergenceObservationsExternal =
             || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
             || TrainingBudget.coPassed observation /= TrainingBudget.coPassed expected
         ]
+
+assertConvergenceObservationsAgainstBar
+  :: ConvergenceBar
+  -> [TrainingBudget.ConvergenceObservation]
+  -> [Text]
+assertConvergenceObservationsAgainstBar bar observations =
+  case evaluateConvergence bar (MeasuredMetrics measured) of
+    Left err -> [err]
+    Right expected ->
+      [ "stored convergence observation for "
+          <> TrainingBudget.coMetricName observation
+          <> " does not match the product-row external bar"
+      | observation <- matchingObservations
+      , TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
+          || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
+          || TrainingBudget.coPassed observation /= TrainingBudget.coPassed expected
+      ]
+ where
+  measured =
+    [ (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation)
+    | observation <- observations
+    ]
+  matchingObservations =
+    filter
+      ((== convergenceMetricName bar) . TrainingBudget.coMetricName)
+      observations

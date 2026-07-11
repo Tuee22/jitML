@@ -14,16 +14,18 @@
 --
 -- 'shapingPotential' returns @0@ for every environment without a defined
 -- potential, so shaping is a strict no-op for cartpole, lunar-lander,
--- key-door-grid, gridworld, pendulum, and the goal-conditioned envs. Only
--- @mountain-car@ and @acrobot@ — where the goal is otherwise never reached, so
--- the return sits pinned on its @-200@/@-500@ floor — carry a potential. This
--- scopes the blast radius of shaping to exactly the rows it is meant to rescue.
+-- gridworld, pendulum, and the goal-conditioned envs. @key-door-grid@ carries
+-- a phase potential (agent -> key -> door -> goal) because the sparse terminal
+-- reward otherwise gives recurrent on-policy learners little signal before
+-- they discover the full unlock sequence. Other environments remain no-ops
+-- unless listed below.
 module JitML.RL.RewardShaping
   ( shapingPotential
   , shapingBonus
   )
 where
 
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
@@ -61,6 +63,9 @@ shapingPotential env obs =
               cos12 = c1 * c2 - s1 * s2
               tipHeight = negate c1 - cos12
            in acrobotShapeScale * tipHeight
+    "key-door-grid"
+      | VU.length obs >= keyDoorGridObservationSize ->
+          keyDoorGridShapeScale * keyDoorGridPotential obs
     _ -> 0.0
 
 -- | Scale of the mountain-car potential. Chosen so a single step's shaping
@@ -72,6 +77,88 @@ mountainCarShapeScale = 30.0
 -- | Scale of the acrobot potential (tip height in [-2, 2]).
 acrobotShapeScale :: Double
 acrobotShapeScale = 3.0
+
+-- | KeyDoorGrid-v0 observation layout from "JitML.RL.Simulator": a 5x5 grid
+-- with channels [wall, key, door, goal, agent], followed by has-key and
+-- door-open flags.
+keyDoorGridObservationSize :: Int
+keyDoorGridObservationSize = keyDoorGridWidth * keyDoorGridHeight * keyDoorGridChannels + 2
+
+keyDoorGridWidth :: Int
+keyDoorGridWidth = 5
+
+keyDoorGridHeight :: Int
+keyDoorGridHeight = 5
+
+keyDoorGridChannels :: Int
+keyDoorGridChannels = 5
+
+keyDoorGridHasKeyIndex :: Int
+keyDoorGridHasKeyIndex = keyDoorGridWidth * keyDoorGridHeight * keyDoorGridChannels
+
+keyDoorGridDoorOpenIndex :: Int
+keyDoorGridDoorOpenIndex = keyDoorGridHasKeyIndex + 1
+
+keyDoorGridShapeScale :: Double
+keyDoorGridShapeScale = 1.5
+
+keyDoorGridPotential :: Vector Double -> Double
+keyDoorGridPotential obs =
+  case findCell keyDoorGridAgentChannel obs of
+    Nothing -> 0.0
+    Just agent
+      | not hasKey ->
+          maybe 0.0 (progress agent) (findCell keyDoorGridKeyChannel obs)
+      | not doorOpen ->
+          maybe 1.0 ((1.0 +) . progress agent) (findCell keyDoorGridDoorChannel obs)
+      | otherwise ->
+          maybe 2.0 ((2.0 +) . progress agent) (findCell keyDoorGridGoalChannel obs)
+ where
+  hasKey = flagAt keyDoorGridHasKeyIndex obs
+  doorOpen = flagAt keyDoorGridDoorOpenIndex obs
+
+keyDoorGridKeyChannel :: Int
+keyDoorGridKeyChannel = 1
+
+keyDoorGridDoorChannel :: Int
+keyDoorGridDoorChannel = 2
+
+keyDoorGridGoalChannel :: Int
+keyDoorGridGoalChannel = 3
+
+keyDoorGridAgentChannel :: Int
+keyDoorGridAgentChannel = 4
+
+type GridCell = (Int, Int)
+
+findCell :: Int -> Vector Double -> Maybe GridCell
+findCell channel obs =
+  listToMaybe
+    [ (row, col)
+    | row <- [0 .. keyDoorGridHeight - 1]
+    , col <- [0 .. keyDoorGridWidth - 1]
+    , flagAt (gridOffset row col channel) obs
+    ]
+
+gridOffset :: Int -> Int -> Int -> Int
+gridOffset row col channel =
+  (row * keyDoorGridWidth + col) * keyDoorGridChannels + channel
+
+flagAt :: Int -> Vector Double -> Bool
+flagAt index obs =
+  index >= 0 && index < VU.length obs && obs VU.! index >= 0.5
+
+progress :: GridCell -> GridCell -> Double
+progress from to =
+  1.0 - fromIntegral (manhattan from to) / fromIntegral keyDoorGridMaxDistance
+
+manhattan :: GridCell -> GridCell -> Int
+manhattan (r1, c1) (r2, c2) =
+  abs (r1 - r2) + abs (c1 - c2)
+
+keyDoorGridMaxDistance :: Int
+keyDoorGridMaxDistance =
+  (keyDoorGridHeight - 1) + (keyDoorGridWidth - 1)
 
 -- | Potential-based shaping increment @F(s, s') = gamma * Phi(s') - Phi(s)@ to
 -- add to the raw environment reward when storing a training transition.

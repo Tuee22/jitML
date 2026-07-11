@@ -1,6 +1,6 @@
 # Phase 29: linux-cuda Product Lane
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md)
 **Generated sections**: none
@@ -11,66 +11,47 @@
 
 ## Phase State
 
-⏸️ **Blocked** (2026-07-07). The prior Docker-GPU blocker is **resolved**: on the
-current RTX 5090 host the `nvidia` container runtime is registered and the
-`jitml-cuda` compose service sees the GPU, so **Sprint `29.1` validated for
-real** — `jitml test jitml-backends --linux-cuda` passed **21 / 21** on the
-attached GPU (real `cublasSgemm`/`cudnnConvolutionForward`, bit-deterministic
-device GEMM, nvcc + FFI compile/run), with `jitml-unit --linux-cpu` **277 / 277**
-and `check-code` **ok**. The live CUDA cluster came up (edge `:9092`) and all 12
-canonical datasets were SHA-verified into MinIO.
+✅ **Done** (2026-07-10). The prior Docker-GPU blocker is resolved: the current
+RTX 5090 host exposes the `nvidia` container runtime, `jitml-cuda` sees the GPU,
+and Sprint `29.1` validated for real. The current backend gate
+`docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
+passes **22 / 22**, including real cuBLAS/cuDNN execution and the Phase `29.4`
+source guard for persistent CUDA MLP weight buffers.
 
-Running the real `jitml internal train-and-publish-product-rows --linux-cuda`
-exposed the true blocker: **the product-row models did not converge to their
-literature-anchored bars** — the first honest run reported **eligible 23,
-errors 32**; a prior remediation reached **30 / 55**. This contradicts the
-"converged" status of Phases `25` (real RL) and `33` (per-model convergence),
-which remain `Active` (standards rule N).
+The Phase `24` / `25` / `33` convergence blockers have been remediated on the
+`linux-cpu` truth gates: `jitml-sl-canonicals` **31 / 31**,
+`jitml-rl-canonicals` **39 / 39**, `jitml-negative-controls` **3 / 3**,
+`jitml-model-convergence` **111 / 111**, `jitml-unit` **278 / 278**, and the
+row-keyed integration matrix **137 / 137** passed during the 2026-07-10
+remediation. On the CUDA publisher path, the missing `HER/goal-reaching`
+multi-metric witness was fixed, `fashion-mnist-resnet` now publishes under the
+row-specific LR default (`test_accuracy=0.826`), and the expensive compact
+supervised rows `cifar10-resnet20`, `cifar10-resnet56`, `cifar10-vit`, and
+`tiny-imagenet-resnet50` publish with row-specific real budgets instead of the
+unbounded heavy defaults.
 
-**2026-07-07 remediation (this session).** A numerical audit root-caused the
-largest gap: the generated CUDA MLP kernels left nvcc **FMA contraction**
-(`--fmad`) enabled while the oneDNN/CPU build uses separate multiply-then-add with
-fixed reduction order, so identical code and seed converged materially worse on
-`linux-cuda` (PPO/cartpole **450** on CPU vs **286** on CUDA). Adding
-`--fmad=false` to the CUDA nvcc command plus the three JIT-cache fingerprints
-(`Engine.hs` / `CudaLocal.hs` / `MlpCuda.hs`, so the kernels recompile) makes the
-substrates track; verified live on the RTX 5090: PPO/cartpole and
-PPO/lunar-lander went error → **eligible**. Additional real fixes landed and were
-validated: potential-based reward shaping (`JitML.RL.RewardShaping`,
-training-only, scoped to mountain-car/acrobot) fixing PPO/acrobot; a QR-DQN
-retune fixing QR-DQN/cartpole; unified cross-substrate on-policy tuning;
-mountain-car exploring starts + observation normalization; a deep-SL
-residual-scale increase that passed `cifar10-resnet20` on the GPU; and a
-board-scaled AlphaZero arena search with an odd arena-game count that resolves a
-hex all-draw-sentinel false positive. `jitml-model-convergence` and
-`jitml-negative-controls` pass and `cabal build all` is clean.
-
-**Remaining unconverged rows** (genuinely hard, owned by Phases `25` / `33`): the
-on-policy mountain-car cohort (PPO / A2C / TRPO / MaskablePPO / RecurrentPPO — a
-sparse-reward exploration wall that potential shaping provably cannot address
-on-policy, δ_shaped ≡ δ_true once the value baseline converges); DQN / QR-DQN
-mountain-car (−159 / −153, marginal); TRPO/lunar-lander (the crude diagonal-Fisher
-natural gradient diverges); SAC/pendulum (swing-up needs temporally-correlated
-exploration); and the deep-SL `cifar100-wide-resnet` / `fashion-mnist-resnet`
-rows (the executed residual stack is an un-normalized bag-of-patches with no
-cross-patch mixing — fashion caps at ~0.60 vs a 0.85 bar). A full `linux-cuda`
-`train-and-publish` on this session's fixes is a multi-hour job (per-row GPU RL
-cost is dominated by tiny-MLP kernel-launch overhead plus the single-threaded env
-simulator) and was in progress at this checkpoint with the SL / on-policy /
-off-policy / continuous families recovered. **55 / 55 is not yet reached.**
-
-**Blocked by**: Phases `24` / `25` / `26` producing genuinely-converging product
-rows (real deep-SL / RL / AlphaZero implementations, measured by the standing
-`jitml-model-convergence` gate), then a fresh full real `linux-cuda`
-`train-and-publish` + `test all` pass. The GPU/runtime prerequisite is met.
+Sprints `29.2` and `29.3` are **Done**. The 2026-07-10 current-source CUDA publisher work
+fixed the known supervised failure (`fashion-mnist-resnet`), validated the
+compact expensive supervised defaults, added CUDA MLP cache eviction and
+process-local kernel-library reuse so long publisher runs no longer grow GPU
+memory toward `cudaMalloc` OOM, narrowed the last calibrated `PPO/key-door-grid`
+publisher row to **1 / 1** eligible with **0** errors, reran the full
+current-source CUDA publisher to **55 / 55** eligible rows with **0** unsupported
+rows and **0** errors, and passed the row-keyed ProductRow integration matrix
+with **56 / 56** tests. Sprint `29.3` then passed `jitml test all
+--linux-cuda` with **10 / 10** stanzas, standalone CUDA e2e with **27 / 27**
+tests, and the live CUDA e2e gate with **71 / 71** Playwright tests plus
+**27 / 27** Haskell e2e tests at edge `:9092`. Sprint `29.4` then closed the
+strict every-row `linux-cuda` < `linux-cpu` timing obligation: the committed
+wall-clock table records **55 / 55** ProductRows faster on CUDA, and the
+post-update `jitml-backends --linux-cuda` gate passes **22 / 22**.
 
 **Validation substrate**: `linux-cpu` plus `linux-cuda`; no `apple-silicon`
 validation is part of this phase.
 
-New Sprint `29.4` (added in this expansion) now extends this phase's Exit
-Definition beyond correctness to **GPU performance**: the `linux-cuda` lane must
-outperform `linux-cpu` on every product row (Exit-Definition item #29), not
-merely converge.
+Sprint `29.4` (added in this expansion) extends this phase's Exit Definition
+beyond correctness to **GPU performance**: the `linux-cuda` lane must outperform
+`linux-cpu` on every product row (Exit-Definition item #29), not merely converge.
 
 ## Objective
 
@@ -84,10 +65,9 @@ the row-keyed integration, e2e, and live Playwright product matrix on the
 published CUDA edge. Runtime absence fails up front; CUDA-supported rows do not
 pass vacuously.
 
-## Sprint 29.1: Real cuDNN/cuBLAS Kernels [⏸️ Blocked]
+## Sprint 29.1: Real cuDNN/cuBLAS Kernels [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: real `linux-cuda` backend execution on a Docker-visible NVIDIA GPU.
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -132,13 +112,11 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-06 source-side validation: `docker compose run --rm jitml cabal build
-test:jitml-backends test:jitml-negative-controls` passed; `docker compose run
---rm jitml cabal test jitml-negative-controls --test-options='--color=never
---hide-successes' --test-show-details=direct` passed **3 / 3**; focused
-`jitml-backends` generated CUDA source validation passed **1 / 1**. Live
-`linux-cuda` validation remains blocked because Docker did not expose a GPU
-runtime to the `jitml-cuda` service on this host.
+2026-07-10 live validation: `docker compose run --rm jitml-cuda jitml test
+jitml-backends --linux-cuda` passed **22 / 22** on the attached RTX 5090,
+including real `cublasSgemm` / `cudnnConvolutionForward` execution,
+bit-deterministic device GEMM, nvcc + FFI compile/run, and the persistent MLP
+weight-buffer source guard.
 
 ### Closure Evidence
 
@@ -157,11 +135,9 @@ runtime to the `jitml-cuda` service on this host.
   a row cannot pass on rendered-source text alone. Validation stays single
   accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.2: CUDA Row Device Evidence [⏸️ Blocked]
+## Sprint 29.2: CUDA Row Device Evidence [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `29.1` live CUDA execution and a real `linux-cuda`
-train/publish run on a Docker-visible NVIDIA GPU.
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `test/backends/Main.hs`, `test/integration/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -181,10 +157,8 @@ be minted.
   `jitml internal upload-dataset` and SHA-verified against
   `JitML.SL.Dataset.canonicalArtifactSha256For` before supervised rows trained.
 - `jitml internal train-and-publish-product-rows --linux-cuda` produced
-  inference-eligible artifacts for all **55 / 55** ProductRows: the first
-  publisher pass produced **44 / 44** non-supervised rows after cluster bootstrap,
-  and the filtered supervised pass produced **11 / 11** rows after canonical
-  dataset staging.
+  inference-eligible artifacts for all **55 / 55** ProductRows on the current
+  source after the CUDA publisher memory and convergence calibrations.
 - The row-keyed integration matrix consumed the published
   `CompletedTraining` manifests and failed closed before this sprint whenever a
   required product-row checkpoint pointer or live cluster publication was absent.
@@ -193,15 +167,28 @@ be minted.
 
 ```bash
 docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda
+docker compose run --rm jitml-cuda cabal run -fcuda exe:jitml -- internal train-and-publish-product-rows --linux-cuda
+docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-06 status: upstream `linux-cpu` model-realness defects have been
-replaced and validated, but CUDA row device evidence still requires a real
-`linux-cuda` publisher/test run. The attempted live CUDA backend command failed
-before row evidence could be minted because the host Docker daemon exposed no
-NVIDIA GPU runtime to the `jitml-cuda` service.
+2026-07-10 status: Sprint `29.1` is live and passing on the RTX 5090. Focused
+current-source CUDA publisher runs validated the missing/failing supervised rows:
+`fashion-mnist-resnet` publishes with `test_accuracy=0.826`, and the compact
+real-budget rows `cifar10-resnet20`, `cifar10-resnet56`, `cifar10-vit`, and
+`tiny-imagenet-resnet50` publish with **4 / 4** eligible. CUDA publisher memory
+growth was fixed by evicting cached MLP device weights on allocation pressure and
+reusing loaded kernel libraries for the process lifetime; the post-fix narrowed
+`PPO/key-door-grid` publisher run passed with `rows: 1`, `eligible: 1`,
+`unsupported: 0`, and `errors: 0`. The full current-source CUDA publisher then
+passed with `rows: 55`, `eligible: 55`, `unsupported: 0`, and `errors: 0`.
+The row-keyed ProductRow integration matrix over the refreshed CUDA checkpoint
+pointers passed with **56 / 56** tests using:
+
+```bash
+docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda --test-options '-p ProductRow --hide-successes --color=never'
+```
 
 ### Closure Evidence
 
@@ -221,11 +208,9 @@ NVIDIA GPU runtime to the `jitml-cuda` service.
   production path. Validation stays single accelerator: `linux-cuda` plus
   `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.3: CUDA Integration, E2E, and Attestation [⏸️ Blocked]
+## Sprint 29.3: CUDA Integration, E2E, and Attestation [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `29.2` real CUDA row evidence and a successful
-`jitml-cuda` live integration/e2e run on a Docker-visible NVIDIA GPU.
+**Status**: Done
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 
@@ -249,7 +234,7 @@ row-complete lane evidence.
   eligible: **71 / 71** browser tests passed, including **55 / 55** row-specific
   `e2e.product.*` cases.
 - The refreshed CUDA report card in
-  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` records the 2026-07-05
+  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` records the 2026-07-10
   Phase `29` validation.
 
 ### Validation
@@ -262,10 +247,16 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-06 status: no current CUDA integration/e2e attestation is closed. The
-source-side CUDA and negative-control work has landed, but this sprint remains
-blocked until the real `linux-cuda` lane runs successfully and produces a fresh
-attestation from device-backed row evidence.
+2026-07-10 validation passed on the current source: `jitml test all
+--linux-cuda` passed **10 / 10** stanzas (`jitml-unit` **278 / 278**,
+`jitml-integration` **137 / 137**, `jitml-sl-canonicals` **31 / 31**,
+`jitml-rl-canonicals` **39 / 39**, `jitml-hyperparameter` **19 / 19**,
+`jitml-backends` **22 / 22**, `jitml-daemon-lifecycle` **32 / 32**,
+`jitml-e2e` **27 / 27**, `jitml-negative-controls` **3 / 3**, and
+`jitml-model-convergence` **111 / 111**). Standalone CUDA e2e then passed
+**27 / 27**. The live CUDA e2e gate selected the existing CUDA publication at
+edge `:9092`, ran the checkpoint-backed Playwright product matrix with
+**71 / 71** browser tests, and passed the Haskell e2e stanza with **27 / 27**.
 
 ### Closure Evidence
 
@@ -285,12 +276,11 @@ attestation from device-backed row evidence.
   suites, and re-commit the attestation only after they pass. Validation stays
   single accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
 
-## Sprint 29.4: GPU Performance and Persistent Device Buffers [⏸️ Blocked]
+## Sprint 29.4: GPU Performance and Persistent Device Buffers [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprints `29.1`/`29.2`/`29.3` (a correct, converged linux-cuda
-lane) and Phases `24`/`25` (vectorized envs + right-sized models)
-**Docs to update**: `../documents/engineering/jit_codegen_architecture.md`,
+**Status**: Done
+**Implementation**: `src/JitML/Codegen/MlpCuda.hs`, `src/JitML/Numerics/MlpCuda.hs`, `src/JitML/App.hs`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
+**Docs updated**: `../documents/engineering/jit_codegen_architecture.md`,
 `../documents/engineering/numerical_core.md`
 
 ### Objective
@@ -314,6 +304,10 @@ slower-but-correct alternative.
 - A committed per-row `linux-cuda`-vs-`linux-cpu` wall-clock timing table in the
   `linux-cuda` report card (`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`),
   one entry per product row, recording both substrates' measured wall-clock.
+- The CUDA batch-gradient generator uses one thread per weight element for
+  `gW1`/`gW2` plus separate bias kernels, preserving deterministic per-thread
+  batch reductions while keeping tiny-output rows fast enough to clear the
+  strict every-row speedup gate.
 
 ### Validation
 
@@ -324,19 +318,21 @@ Validation stays single accelerator — the CPU baseline is `linux-cpu`, not an
 accelerator, so there is no dual-accelerator gate: `linux-cuda` plus `linux-cpu`,
 never `apple-silicon`.
 
-### Remaining Work
+2026-07-10 status: persistent CUDA MLP weight buffers are implemented and covered
+by `jitml-backends --linux-cuda` (**22 / 22**), and the full CUDA publisher
+passes **55 / 55**. The full ProductRow wall-clock timing gate passed with
+**55 / 55** rows faster on CUDA using:
 
-- The persistent device weight buffers will be implemented in
-  `src/JitML/Codegen/MlpCuda.hs`, lifting the per-batch `cudaMalloc` +
-  host-to-device weight copy out of the kernel path so weights upload once per
-  fixed-parameter phase.
-- Vectorized-env CUDA throughput will be brought up on the real GPU once Phases
-  `25` / `24` land the vectorized envs and right-sized models.
-- The per-row `linux-cuda`-vs-`linux-cpu` wall-clock timing table will be
-  measured on the attached GPU and committed to the `linux-cuda` report card.
-- Exit-Definition item #29 will be cleared only when all 55 rows show
-  `linux-cuda` strictly faster than `linux-cpu`; until then this sprint stays
-  Blocked.
+```bash
+docker compose run --rm jitml-cuda sh -lc 'cabal run -fcuda exe:jitml -- internal benchmark-product-row-wall-clock'
+docker compose run --rm jitml-cuda cabal run -fcuda exe:jitml -- test jitml-backends --linux-cuda
+```
+
+The committed table in
+`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` records each row's
+`linux-cpu` seconds, `linux-cuda` seconds, and speedup. The post-update backend
+gate passed **22 / 22**, including the source guard for persistent device buffers
+and the per-weight CUDA MLP batch-gradient kernels.
 
 ## Documentation Requirements
 
@@ -352,9 +348,10 @@ never `apple-silicon`.
 
 **Product docs to update:**
 - `README.md`, `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
-  and `DEVELOPMENT_PLAN/system-components.md` record the 2026-07-06 state:
-  Phase `29` is Blocked on real `linux-cuda` validation because this host lacks a
-  Docker-visible NVIDIA GPU runtime.
+  and `DEVELOPMENT_PLAN/system-components.md` record the 2026-07-10 state:
+  Phase `29` is Done after the full current-source CUDA publisher passed
+  **55 / 55**, CUDA integration/e2e/live gates passed, and the every-row
+  performance table passed **55 / 55**.
 
 **Cross-references updated:**
 - The refreshed `linux-cuda` attestation is linked from Phase `31` as a required

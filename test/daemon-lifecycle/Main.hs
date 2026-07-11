@@ -36,8 +36,8 @@ import Proto.Jitml.Inference_Fields ()
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
-import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
@@ -1093,12 +1093,7 @@ convergenceObservationsFixture
   :: [(Text, Double)]
   -> Either Text [TrainingBudget.ConvergenceObservation]
 convergenceObservationsFixture =
-  traverse
-    ( \metric@(name, value) ->
-        ProductConvergence.evaluateConvergence
-          (ProductConvergence.mkConvergenceBar name TrainingBudget.MetricMaximise value 0.0)
-          (ProductConvergence.MeasuredMetrics [metric])
-    )
+  ProductExternalBars.convergenceObservationsForMetrics
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")

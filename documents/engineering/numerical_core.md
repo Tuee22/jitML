@@ -26,10 +26,14 @@ and browser consumption in
 [DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
 **Current accelerator lane evidence.** The `linux-cuda` product lane is
-currently **Blocked** (reopened): Phase `29` has been reopened with a new
-Sprint `29.4` ("GPU Performance and Persistent Device Buffers"), so the lane
-awaits a fresh real run and is not closed. The executed trainer MLP device path
-on CUDA runs through **hand-written elementwise kernels** in
+**Done** for Phase `29`: the current-source CUDA publisher produced **55 / 55**
+eligible ProductRows with **0** unsupported rows and **0** errors, ProductRow
+integration passed **56 / 56**, CUDA all/e2e/live gates passed, and Sprint
+`29.4` committed a timing table with **55 / 55** rows faster on `linux-cuda`
+than `linux-cpu`. The backend lane itself is live on the RTX 5090 and passes
+`jitml-backends --linux-cuda` **22 / 22** after the persistent-buffer and
+per-weight batch-gradient update. The executed trainer MLP device path on CUDA
+runs through **hand-written elementwise kernels** in
 `src/JitML/Codegen/MlpCuda.hs` (`jitml_mlp_forward` / `jitml_mlp_forward_batch` /
 `jitml_mlp_grad`) — forward, batched, and gradient — **not** cuBLAS
 `cublasSgemm`. cuBLAS/cuDNN apply only to the separate generated family-kernel
@@ -90,7 +94,7 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 > This "everything is a dense GEMM stand-in" description is being remediated on
 > the executed supervised path by Phase `24`
 > ([phase-24-real-supervised-architectures.md](../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md)):
-> the executed SL architecture is moving from the un-normalized "bag-of-patches"
+> the executed SL architecture moved from the un-normalized "bag-of-patches"
 > dense stand-in to a real **MLP-Mixer** — a token-mixing MLP plus **executed
 > LayerNorm** at raised widths — so the ViT and deeper rows train real
 > token-mixing and normalization, not a bare dense stack.
@@ -148,7 +152,7 @@ ResNet-56 have 20 and 56 BasicBlock nodes, WideResNet-28-10 has 12
 GroupNorm-backed BasicBlock nodes, the small ViT has patch embedding,
 MultiHeadAttention, two LayerNorm nodes, and GeGLU, and ResNet-50 has 16
 BottleneckBlock nodes. Under Phase `24`'s remediation, the executed supervised
-path for these rows is moving to a real MLP-Mixer with a token-mixing MLP and
+path for these rows uses a real MLP-Mixer-style block with a token-mixing MLP and
 executed LayerNorm, so the ViT and deep rows train real token-mixing and
 normalization rather than the dense-GEMM stand-in.
 

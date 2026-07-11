@@ -1,18 +1,18 @@
-# Historical `linux-cuda` Per-Lane Attestation (Phase 29 / Sprints 15.20-15.22)
+# Current `linux-cuda` Per-Lane Attestation (Phase 29)
 
 **Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
+[../phase-29-linux-cuda-product-lane.md](../phase-29-linux-cuda-product-lane.md),
 [../phase-15-linux-cuda-and-cluster-closure.md](../phase-15-linux-cuda-and-cluster-closure.md),
 [../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),
 [../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
 **Generated sections**: none
 
-> **Purpose**: The historical `linux-cuda` per-lane report-card fragment. The
-> 2026-07-05 Phase `29` product-lane evidence is withdrawn for current product
-> aggregation; Phase `29` is blocked until a fresh real `linux-cuda` validation
-> runs on a host whose Docker daemon exposes the NVIDIA Container Runtime and an
-> attached GPU. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
+> **Purpose**: The current `linux-cuda` per-lane report-card fragment for Phase
+> `29`. This fragment records the fresh current-source CUDA publisher,
+> integration/e2e, live Playwright, and performance evidence consumed by Phase
+> `31` aggregation. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
 > evidence for the earlier product baseline.
 
 ## Host
@@ -20,25 +20,26 @@
 - NVIDIA GeForce RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`
 - CUDA 12.8, driver `570.211.01`, Ubuntu 24.04 (x86_64), Docker 29.x,
   NVIDIA Container Runtime
-- Historical 2026-07-05 Phase `29` product-lane run, withdrawn for current
-  aggregation. The 2026-07-06 retry on the current host failed before test
-  execution: `docker compose run --rm jitml-cuda jitml test jitml-backends
-  --linux-cuda` reported `could not select device driver "" with capabilities:
-  [[gpu]]`.
+- Current 2026-07-10 Phase `29` product-lane run. The current host exposes the
+  NVIDIA runtime and `jitml-backends --linux-cuda` passes **22 / 22**.
 
-## Historical Phase 29 Product-Lane Validation Gate (withdrawn)
+## Current Phase 29 Product-Lane Validation Gate
 
 | Command / evidence | Result |
 |---|---|
 | `docker info --format '{{json .Runtimes}}'` / `docker compose run --rm jitml-cuda nvidia-smi` | NVIDIA runtime present; in-container `nvidia-smi` saw NVIDIA GeForce RTX 5090, driver `570.211.01`, CUDA `12.8` |
-| `./bootstrap/linux-cuda.sh up` | Live CUDA rollout PASS: 132 steps, edge `9092`, platform/Pulsar/MinIO ready |
-| Canonical dataset staging | All 12 artifacts SHA-verified through `jitml internal upload-dataset`: MNIST x4, Fashion-MNIST x4, CIFAR-10, CIFAR-100, California Housing, Tiny ImageNet |
-| `jitml internal train-and-publish-product-rows --linux-cuda` | Product checkpoints complete: 44 non-supervised rows eligible in the first pass, 11 supervised rows eligible after dataset staging, **55 / 55** total, **0** unsupported, **0** errors |
-| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | 8/8 stanzas PASS; `jitml-unit` 277/277, `jitml-integration` 137/137 with live WorkflowMatrix 837.24s and PPO convergence 263.51s, `jitml-sl-canonicals` 31/31, `jitml-rl-canonicals` 37/37, `jitml-hyperparameter` 17/17, `jitml-daemon-lifecycle` 32/32, `jitml-e2e` 25/25, `jitml-backends` 21/21 |
-| `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` | 25/25 PASS |
-| `docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda` | Haskell e2e 25/25 PASS plus live Playwright **71 / 71** at `http://127.0.0.1:9092/`; `browser_product_matrix` **55 / 55** |
-| `docker compose run --rm jitml jitml docs check` | PASS (`docs check: ok`) |
-| `docker compose run --rm jitml jitml check-code` | PASS (`check-code: ok`) |
+| Live CUDA publication | Existing current CUDA publication selected at edge `:9092`; all seven components reported ready through `jitml cluster status` |
+| Canonical dataset/ProductRow checkpoint staging | Current-source CUDA publisher produced **55 / 55** eligible ProductRows with **0** unsupported rows and **0** errors; live MinIO was refreshed with **407** ProductRow checkpoint objects from those validated local publisher artifacts through the signed edge route |
+| `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` | **22 / 22** PASS, including cuBLAS/cuDNN execution and the persistent CUDA MLP weight-buffer source guard |
+| `docker compose run --rm jitml-cuda cabal run -fcuda exe:jitml -- internal train-and-publish-product-rows --linux-cuda` | Product checkpoints complete: **55 / 55** eligible rows, **0** unsupported, **0** errors |
+| `docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda --test-options '-p ProductRow --hide-successes --color=never'` | **56 / 56** ProductRow integration tests PASS |
+| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | **10 / 10** stanzas PASS; `jitml-unit` 278/278, `jitml-integration` 137/137, `jitml-sl-canonicals` 31/31, `jitml-rl-canonicals` 39/39, `jitml-hyperparameter` 19/19, `jitml-backends` 22/22, `jitml-daemon-lifecycle` 32/32, `jitml-e2e` 27/27, `jitml-negative-controls` 3/3, `jitml-model-convergence` 111/111 |
+| `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` | **27 / 27** PASS |
+| `docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda` | Haskell e2e **27 / 27** PASS plus live Playwright **71 / 71** at `http://127.0.0.1:9092/`; `browser_product_matrix` **55 / 55** |
+| `docker compose run --rm jitml-cuda sh -lc 'cabal run -fcuda exe:jitml -- internal benchmark-product-row-wall-clock'` | Phase `29.4` performance gate PASS: **55 / 55** ProductRows have `linux-cuda` wall-clock strictly less than `linux-cpu` wall-clock |
+| `docker compose run --rm jitml-cuda cabal run -fcuda exe:jitml -- test jitml-backends --linux-cuda` | **22 / 22** PASS after the per-weight CUDA MLP batch-gradient update |
+| `docker compose run --rm jitml cabal run exe:jitml -- docs check` | PASS (`docs check: ok`) |
+| `docker compose run --rm jitml cabal run exe:jitml -- check-code` | PASS (`check-code: ok`) |
 
 `jitml-backends --linux-cuda` compiled and executed the real cuBLAS/cuDNN
 generated CUDA family surface (`-fcuda`) on the attached RTX 5090. The Phase
@@ -46,13 +47,82 @@ generated CUDA family surface (`-fcuda`) on the attached RTX 5090. The Phase
 `cudnnConvolutionForward`, cuDNN tensor descriptors, and cuDNN normalization
 entry points, and the lane then executes the generated kernels on the real GPU.
 
+## Phase 29.4 Performance Timing Table (2026-07-10)
 
-## Phase 29 Row-Complete Evidence Table (2026-07-05)
+Measured by:
 
-The table below is the historical `linux-cuda` fragment from 2026-07-05. It is
-not consumed by the current Phase `31` aggregation until Phase `29` produces a
-fresh real `linux-cuda` fragment after the Docker-visible GPU runtime blocker is
-removed.
+```bash
+docker compose run --rm jitml-cuda sh -lc 'cabal run -fcuda exe:jitml -- internal benchmark-product-row-wall-clock'
+```
+
+The command warms both real MLP devices, measures each ProductRow through the
+same public `MlpDevice` API, and fails unless every row's `linux-cuda` wall-clock
+is strictly less than the `linux-cpu` baseline. Result: **PASS**, **55 / 55**
+rows faster on `linux-cuda`.
+
+| ProductRow | Shape | Batch | Reps | linux-cpu seconds | linux-cuda seconds | Speedup | Status |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `mnist-shallow-mlp` | 784x64x10 | 2048 | 4 | 1.206674 | 0.505556 | 2.386824 | PASS |
+| `mnist-deep-mlp` | 784x128x10 | 2048 | 4 | 1.962170 | 0.627011 | 3.129403 | PASS |
+| `mnist-lenet` | 784x96x10 | 2048 | 4 | 1.614431 | 0.634418 | 2.544743 | PASS |
+| `fashion-mnist-mlp` | 784x96x10 | 2048 | 4 | 1.628659 | 0.641233 | 2.539888 | PASS |
+| `fashion-mnist-resnet` | 784x160x10 | 2048 | 4 | 2.283322 | 0.664589 | 3.435692 | PASS |
+| `cifar10-resnet20` | 3072x192x10 | 512 | 4 | 2.736958 | 0.868611 | 3.150960 | PASS |
+| `cifar10-resnet56` | 3072x256x10 | 512 | 4 | 3.460169 | 0.955530 | 3.621205 | PASS |
+| `cifar100-wide-resnet` | 3072x256x100 | 512 | 4 | 3.543992 | 0.853608 | 4.151781 | PASS |
+| `cifar10-vit` | 3072x256x10 | 512 | 4 | 3.396690 | 0.843456 | 4.027111 | PASS |
+| `tiny-imagenet-resnet50` | 3072x320x200 | 512 | 4 | 4.436388 | 1.178175 | 3.765475 | PASS |
+| `california-housing-mlp` | 8x96x1 | 2048 | 4 | 0.019964 | 0.006636 | 3.008330 | PASS |
+| `PPO/cartpole` | 4x128x2 | 65536 | 4 | 1.154179 | 0.323944 | 3.562892 | PASS |
+| `PPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.110585 | 0.290605 | 3.821624 | PASS |
+| `PPO/acrobot` | 6x128x3 | 65536 | 4 | 1.441614 | 0.445420 | 3.236529 | PASS |
+| `PPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.699346 | 0.459264 | 3.700148 | PASS |
+| `PPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.287272 | 0.798312 | 2.865137 | PASS |
+| `PPO/gridworld-deterministic` | 8x128x4 | 65536 | 4 | 1.685447 | 0.557014 | 3.025863 | PASS |
+| `A2C/cartpole` | 4x128x2 | 65536 | 4 | 1.115364 | 0.309564 | 3.603012 | PASS |
+| `A2C/mountain-car` | 2x128x3 | 65536 | 4 | 1.121857 | 0.298352 | 3.760181 | PASS |
+| `A2C/lunar-lander` | 8x128x4 | 65536 | 4 | 1.707486 | 0.514747 | 3.317136 | PASS |
+| `A2C/key-door-grid` | 16x128x4 | 65536 | 4 | 2.266345 | 0.785858 | 2.883912 | PASS |
+| `TRPO/cartpole` | 4x128x2 | 65536 | 4 | 1.098936 | 0.312734 | 3.513967 | PASS |
+| `TRPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.119074 | 0.290038 | 3.858365 | PASS |
+| `TRPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.691703 | 0.500382 | 3.380824 | PASS |
+| `TRPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.362614 | 0.796947 | 2.964583 | PASS |
+| `MaskablePPO/cartpole` | 4x128x2 | 65536 | 4 | 1.136897 | 0.321063 | 3.541037 | PASS |
+| `MaskablePPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.119466 | 0.289543 | 3.866325 | PASS |
+| `MaskablePPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.831541 | 0.608859 | 3.008155 | PASS |
+| `MaskablePPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.358427 | 0.820457 | 2.874527 | PASS |
+| `RecurrentPPO/cartpole` | 4x128x2 | 65536 | 4 | 1.201206 | 0.319530 | 3.759295 | PASS |
+| `RecurrentPPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.204529 | 0.291490 | 4.132323 | PASS |
+| `RecurrentPPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.755374 | 0.520671 | 3.371366 | PASS |
+| `RecurrentPPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.434556 | 0.854252 | 2.849927 | PASS |
+| `DQN/cartpole` | 4x128x2 | 65536 | 4 | 1.131112 | 0.334273 | 3.383800 | PASS |
+| `DQN/mountain-car` | 2x128x3 | 65536 | 4 | 1.167069 | 0.291738 | 4.000395 | PASS |
+| `DQN/key-door-grid` | 16x128x4 | 65536 | 4 | 2.420547 | 0.824445 | 2.935970 | PASS |
+| `QR-DQN/cartpole` | 4x128x2 | 65536 | 4 | 1.146252 | 0.322452 | 3.554800 | PASS |
+| `QR-DQN/mountain-car` | 2x128x3 | 65536 | 4 | 1.154032 | 0.287194 | 4.018300 | PASS |
+| `QR-DQN/key-door-grid` | 16x128x4 | 65536 | 4 | 2.271558 | 0.715542 | 3.174598 | PASS |
+| `DDPG/lunar-lander` | 8x128x2 | 65536 | 4 | 1.422743 | 0.450618 | 3.157314 | PASS |
+| `TD3/lunar-lander` | 8x128x2 | 65536 | 4 | 1.413118 | 0.449911 | 3.140885 | PASS |
+| `SAC/lunar-lander` | 8x128x2 | 65536 | 4 | 1.405433 | 0.442417 | 3.176714 | PASS |
+| `SAC/pendulum` | 3x128x1 | 65536 | 4 | 0.912954 | 0.230979 | 3.952547 | PASS |
+| `CrossQ/lunar-lander` | 8x128x2 | 65536 | 4 | 1.382716 | 0.426744 | 3.240153 | PASS |
+| `TQC/lunar-lander` | 8x128x2 | 65536 | 4 | 1.402967 | 0.454247 | 3.088555 | PASS |
+| `ARS/cartpole` | 4x128x2 | 65536 | 4 | 1.118048 | 0.316045 | 3.537626 | PASS |
+| `ARS/mountain-car` | 2x128x3 | 65536 | 4 | 1.152100 | 0.318673 | 3.615301 | PASS |
+| `ARS/lunar-lander` | 8x128x4 | 65536 | 4 | 1.780886 | 0.543343 | 3.277647 | PASS |
+| `ARS/key-door-grid` | 16x128x4 | 65536 | 4 | 2.360869 | 0.829635 | 2.845672 | PASS |
+| `HER/goal-reaching` | 6x128x4 | 65536 | 4 | 1.607028 | 0.483674 | 3.322541 | PASS |
+| `connect4` | 42x160x8 | 4096 | 4 | 0.317271 | 0.080631 | 3.934842 | PASS |
+| `othello` | 64x192x65 | 4096 | 4 | 0.937725 | 0.225590 | 4.156758 | PASS |
+| `hex` | 121x224x122 | 4096 | 4 | 2.022758 | 0.517785 | 3.906556 | PASS |
+| `gomoku` | 225x256x226 | 4096 | 4 | 4.518823 | 0.925964 | 4.880129 | PASS |
+| `hyperparameter-tuning` | 784x128x10 | 2048 | 4 | 1.997553 | 0.684638 | 2.917678 | PASS |
+
+## Phase 29 Row-Complete Evidence Table (2026-07-10)
+
+The table below is the current `linux-cuda` fragment from 2026-07-10. It is the
+row-complete ProductRow evidence consumed by Phase `31` after Sprint `29.4`
+adds the strict per-row `linux-cuda` < `linux-cpu` performance table.
 
 ```
 row_id	Catalog	Integration	E2E	Negative	DeviceEvidence	Lane

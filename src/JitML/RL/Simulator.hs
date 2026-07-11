@@ -569,8 +569,27 @@ lunarLanderEnvironment =
     , envObservationSize = 8
     , envMaxEpisodeSteps = 1000
     , envActionMask = Nothing
-    , envTrainingStart = Nothing
+    , envTrainingStart = Just lunarLanderTrainingStart
     }
+
+-- | Deterministic exploring starts for learner resets. Evaluation still starts
+-- from 'lunarLanderInitial', but training sees a curriculum of near-pad descent
+-- states so on-policy learners observe soft-landing rewards before they must
+-- solve the full 1.5m approach.
+lunarLanderTrainingStart :: Double -> Double -> LunarLanderState
+lunarLanderTrainingStart u1 u2 =
+  lunarLanderInitial
+    { lunarLanderX = 0.20 * centered
+    , lunarLanderY = 0.25 + 1.25 * boundedU2
+    , lunarLanderVx = 0.08 * centered
+    , lunarLanderVy = -0.10 - 0.35 * boundedU2
+    , lunarLanderAngle = 0.10 * centered
+    , lunarLanderOmega = 0.02 * centered
+    }
+ where
+  boundedU1 = clamp u1 0.0 1.0
+  boundedU2 = clamp u2 0.0 1.0
+  centered = 2.0 * boundedU1 - 1.0
 
 -- | Advance the lander one Gym timestep under the documented discrete
 -- action space:

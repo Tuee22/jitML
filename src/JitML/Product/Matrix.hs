@@ -18,6 +18,7 @@ module JitML.Product.Matrix
   , productRowCount
   , productRowDeviceEvidenceForSubstrate
   , productRowExperimentHash
+  , productRowForExperimentHash
   , productRowIds
   , renderRowClass
   , renderRowFamily
@@ -213,6 +214,10 @@ productRowIds = fmap rowId allProductRows
 productRowExperimentHash :: ProductRow state -> Text
 productRowExperimentHash row =
   "product-row-" <> sanitizeTestId (rowId row)
+
+productRowForExperimentHash :: Text -> Maybe (ProductRow 'Declared)
+productRowForExperimentHash experimentHash =
+  List.find ((== experimentHash) . productRowExperimentHash) allProductRows
 
 productRowDeviceEvidenceForSubstrate :: Substrate -> ProductRow state -> Text
 productRowDeviceEvidenceForSubstrate substrate row =

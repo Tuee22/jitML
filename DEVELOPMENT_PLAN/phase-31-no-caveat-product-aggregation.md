@@ -1,6 +1,6 @@
 # Phase 31: No-Caveat Product Aggregation
 
-**Status**: Blocked
+**Status**: Done
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -11,18 +11,19 @@
 
 ## Phase State
 
-⏸️ **Blocked** (2026-07-06). The prior 2026-07-05 aggregation consumed three
+✅ **Done** (2026-07-11). The prior 2026-07-05 aggregation consumed three
 **withdrawn** per-lane attestations (`linux-cpu`/`linux-cuda`/`apple-silicon`,
 55 rows each) whose row evidence was not backed by real training, real
-inference, or real kernel dispatch. Current `linux-cpu` model-realness and
-Apple Metal backend evidence have been refreshed, but this aggregation cannot
-close until Phase `29` produces a fresh real `linux-cuda` fragment on a host
-whose Docker daemon exposes the NVIDIA Container Runtime and an attached GPU.
-This phase remains a `linux-cpu`-only aggregation: it consumes committed real
-per-lane fragments and **never re-runs an accelerator** (rule M enforcement scan
-3 — no `-fcuda` / `--apple-silicon` re-runs).
-
-**Blocked by**: Phase `29` (`linux-cuda` product lane) real CUDA validation.
+inference, or real kernel dispatch. Current `linux-cpu` model-realness, Apple
+Metal backend evidence, and the Phase `29` current-source `linux-cuda` fragment
+are now committed. Phase `31` joins those three report-card fragments on
+`linux-cpu`: **55** ProductRows per lane and **165** lane-row evidence records.
+The `linux-cuda` fragment records CUDA publisher **55 / 55**, ProductRow
+integration **56 / 56**, CUDA all/e2e/live gates, and the strict every-row
+CUDA-vs-CPU timing table **55 / 55**. This phase remains a `linux-cpu`-only
+aggregation: it consumes committed real per-lane fragments and **never re-runs
+an accelerator** (rule M enforcement scan 3 — no `-fcuda` / `--apple-silicon`
+re-runs).
 
 **Historical (withdrawn):** ✅ **Claimed Done on 2026-07-05** after Phase `30`
 refreshed `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` with the
@@ -56,12 +57,11 @@ the typed `PhaseStatus` registry reports every Phase `19`–`34` sprint Done. Th
 final status paragraph in the governed docs names exact dates, the three real
 lanes, the aggregated row count, and the report artifacts.
 
-## Sprint 31.1: Attestation Join [⏸️ Blocked]
+## Sprint 31.1: Attestation Join [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `29` fresh real `linux-cuda` per-lane attestation.
+**Status**: Done
 **Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/`
-**Docs to update**: `system-components.md`, `../documents/engineering/product_completion_contract.md`
+**Docs updated**: `system-components.md`, `../documents/engineering/product_completion_contract.md`
 
 ### Objective
 
@@ -92,10 +92,8 @@ silently skipped and no historical pass count can stand in for a real row.
 ### Validation
 
 ```bash
-PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-e2e --test-show-details=direct
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml cabal test jitml-e2e --test-show-details=direct --test-options='-p "committed product-lane attestations aggregate without drift" --hide-successes --color=never'
+docker compose run --rm jitml cabal run exe:jitml -- docs check
 ```
 
 ### Closure Evidence
@@ -105,22 +103,32 @@ fragments (55 rows each) whose row evidence was fabricated, so the aggregator's
 fail-closed contract is unmet: `src/JitML/Test/Report.hs` accepted fragments that
 were not backed by real trained-state deltas, completed-training checkpoints,
 verified dataset bytes, or real kernel dispatch. The negative-control suite now
-covers fabricated evidence, but this sprint remains blocked until Phase `29`
-commits a fresh `linux-cuda` fragment from real device validation. Aggregation
-stays `linux-cpu`-only and re-runs no accelerator.
+covers fabricated evidence, Phase `29` has committed the fresh `linux-cuda`
+fragment, and the committed-fragment join now passes on `linux-cpu`.
+Aggregation stays `linux-cpu`-only and re-runs no accelerator.
 
 ```bash
 docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
 docker compose run --rm jitml jitml docs check
 ```
 
-## Sprint 31.2: No-Caveat Closure [⏸️ Blocked]
+2026-07-10 validation:
 
-**Status**: Blocked
-**Blocked by**: Sprint `31.1` merged attestation join over a fresh real
-`linux-cuda` fragment.
+```bash
+docker compose run --rm jitml cabal test jitml-e2e --test-show-details=direct --test-options='-p "committed product-lane attestations aggregate without drift" --hide-successes --color=never'
+```
+
+The focused Phase `31.1` committed attestation join passed **1 / 1**, reading
+`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`,
+`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`, and
+`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` and producing the
+expected **165** lane-row evidence records.
+
+## Sprint 31.2: No-Caveat Closure [✅ Done]
+
+**Status**: Done
 **Implementation**: `README.md`, `DEVELOPMENT_PLAN/README.md`, `src/JitML/Lint/Docs.hs`
-**Docs to update**: `README.md`, `00-overview.md`, `system-components.md`
+**Docs updated**: `README.md`, `00-overview.md`, `system-components.md`
 
 ### Objective
 
@@ -151,39 +159,49 @@ merged report card, and the legacy ledger is empty.
 ### Validation
 
 ```bash
-PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-unit --test-show-details=direct
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml cabal run exe:jitml -- test jitml-unit --linux-cpu
+docker compose run --rm jitml cabal run exe:jitml -- docs check
+docker compose run --rm jitml cabal run exe:jitml -- check-code
 ```
 
 ### Closure Evidence
 
-Reopened 2026-07-05. The reopened→closed flip was permitted on a merged report
-card backed by fabricated evidence, and the typed `PhaseStatus` registry reported
-every Phase `19`–`31` sprint Done while the underlying rows were not real. The
-2026-07-06 guard now extends through Phases
-[`32`](phase-32-external-truth-realness-harness.md)–[`34`](phase-34-plan-truth-governance.md)
-and the registry reports Phase `29`/`31` as blocked. The remaining obligation is
-a successful aggregation over a fresh real `linux-cuda` fragment after Phase
-`29` closes. Aggregation stays `linux-cpu`-only — it consumes committed real
-per-lane fragments and never re-runs an accelerator.
+Reopened 2026-07-05. The reopened→closed flip had previously been permitted on a
+merged report card backed by fabricated evidence, and the typed `PhaseStatus`
+registry reported every Phase `19`–`31` sprint Done while the underlying rows
+were not real. The 2026-07-06 guard now extends through Phases
+[`32`](phase-32-external-truth-realness-harness.md)–[`34`](phase-34-plan-truth-governance.md),
+the standing negative-control and per-model convergence gates are closed, Phase
+`29` is Done with the fresh current-source CUDA fragment, and Sprint `31.1`
+successfully aggregated the real fragments. Sprint `31.2` closes the governed
+status flip: `README.md`, `DEVELOPMENT_PLAN/README.md`, `00-overview.md`,
+`system-components.md`, and the engineering docs name the exact closure date,
+the three real lanes, the **55** rows per lane, the **165** lane-row aggregate,
+and the committed report artifacts under `DEVELOPMENT_PLAN/attestations/`.
+The legacy ledger has zero `Pending Removal` rows. Aggregation stays
+`linux-cpu`-only — it consumes committed real per-lane fragments and never
+re-runs an accelerator.
+
+2026-07-11 validation:
 
 ```bash
-docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
-docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
-docker compose run --rm jitml jitml docs check
-docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml cabal run exe:jitml -- test jitml-unit --linux-cpu
+docker compose run --rm jitml cabal run exe:jitml -- docs check
+docker compose run --rm jitml cabal run exe:jitml -- check-code
 ```
+
+Result: `jitml-unit --linux-cpu` passed **278 / 278**, `docs check: ok`, and
+`check-code: ok`.
 
 ## Documentation Requirements
 
-**Engineering docs to create/update:**
+**Engineering docs updated:**
 - `documents/engineering/product_completion_contract.md` — record the final
   merged-evidence closure state and the Phase `19`–`34` validation boundary.
 - `documents/engineering/unit_testing_policy.md` — ownership of the attestation
   join and the no-caveat closure gate tests.
 
-**Product docs to create/update:**
+**Product docs updated:**
 - `README.md` — the final no-caveat product status paragraph with dates, lanes,
   row count, and report artifacts.
 

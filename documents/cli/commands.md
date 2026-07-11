@@ -1226,6 +1226,25 @@ jitml internal train-and-publish-product-rows --linux-cpu
 Train and publish product-row artifacts for the Linux CPU lane.
 
 
+## `jitml internal benchmark-product-row-wall-clock`
+
+Benchmark ProductRow CPU/CUDA wall-clock.
+
+Runs the Phase 29.4 ProductRow timing gate by measuring the linux-cpu and linux-cuda MLP devices for every ProductRow through the same public device API. The command fails unless linux-cuda is strictly faster than linux-cpu for every measured row. JITML_PRODUCT_ROW_FILTER narrows rows; JITML_PRODUCT_TIMING_BATCH and JITML_PRODUCT_TIMING_REPETITIONS override the timing workload.
+
+```text
+jitml internal benchmark-product-row-wall-clock
+```
+
+Examples:
+
+```text
+jitml internal benchmark-product-row-wall-clock
+```
+
+Measure the linux-cuda ProductRow speedup table against the linux-cpu baseline.
+
+
 ## `jitml internal dhall-schema`
 
 Print the reflected Dhall config schema.

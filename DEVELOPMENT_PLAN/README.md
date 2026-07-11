@@ -59,112 +59,27 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**⏸️ Current status (2026-07-09): product chain blocked on Phase `29`; Phases
-`24`, `25`, and `33` `Active`.** The prior recorded blocker — Docker not exposing
-an NVIDIA GPU — is **resolved** (RTX 5090 host
-`GPU-e764ef97-32d7-4981-c348-029983c64073`, driver `570.211.01`, CUDA `12.8`; the
-`nvidia` container runtime is registered and `jitml-cuda` sees the GPU). Running
-the real `linux-cuda` lane exposed a genuine **product realness gap** — many rows
-do not clear their literature-anchored bars — which per standards rule N defines
-status. Remediation root-caused and fixed the dominant CUDA-vs-CPU divergence
-(nvcc FMA contraction, `--fmad=false`) plus real RL/deep-SL/AlphaZero fixes
-(below), but the genuinely-hard rows (on-policy mountain-car, `TRPO/lunar-lander`,
-`SAC/pendulum`, the deep-SL bag-of-patches ResNet rows) remain unconverged. On
-**2026-07-08 the scope expanded** by an explicit product decision: beyond
-finishing convergence, the executed supervised architecture becomes a real
-**MLP-Mixer** (token-mixing MLP + executed LayerNorm) at raised widths (Phase
-`24`, reopened), the RL environments are **vectorized** (~16 parallel envs) and
-networks right-sized (Phase `25`), every per-model bar is re-cleared at that
-regime (Phase `33`), and Phase `29` gains **Sprint `29.4`** (persistent CUDA
-device weight buffers + vectorized-env throughput) carrying new **Exit-Definition
-item 29**: every one of the 55 rows' `linux-cuda` wall-clock is strictly less than
-its `linux-cpu` wall-clock. 55 / 55 convergence and item 29 are not yet met, so
-Phases `29`/`31` stay `Blocked`.
-
-Real `linux-cuda` evidence gathered on 2026-07-06:
-
-- **Phase `29.1` device kernels — real and passing.**
-  `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
-  passed **21 / 21** on the attached RTX 5090, including the Phase `29.1` gate
-  "generated product-family CUDA source calls real cuBLAS/cuDNN entry points",
-  live `cublasSgemm`/`cudnnConvolutionForward` bindings, a bit-deterministic
-  device GEMM, and the nvcc + FFI compile/run path.
-- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` **277 / 277**
-  and `jitml check-code` **ok**.
-- All 12 canonical dataset artifacts were downloaded, SHA-verified against
-  `JitML.SL.Dataset`, and staged into live MinIO via `jitml internal
-  upload-dataset` on a live `linux-cuda` cluster (edge `:9092`, all 7 components
-  ready).
-- **Phase `29.2` per-row training — 23 / 55 converged, 32 failed their
-  literature-anchored bars.** A real
-  `jitml internal train-and-publish-product-rows --linux-cuda` run trained every
-  row on the GPU and honestly reported **eligible 23, errors 32**: the on-policy
-  RL critic was tanh-clamped to `[-1, 1]` (unrepresentable returns), off-policy
-  DQN/QR-DQN/continuous were budget-starved at 2000–4000 env-steps, TRPO never
-  moved its weights, CrossQ z-scored its scalar TD target, HER/DQN Bellman
-  bootstraps were floored at 0 on negative-reward envs, the tuning row counted
-  pruner survivors instead of executed trials, the deep-SL ResNet/Wide-ResNet
-  rows are an un-normalized bag-of-patches, and AlphaZero hex searched too
-  shallow. These contradict the "converged" claims that Phases `25` (real RL) and
-  `33` (per-model convergence) previously recorded, so **Phases `25` and `33`
-  reopen to `Active`** and Phases `29`/`31` stay `Blocked`.
-
-Convergence remediation is **in progress** (owned by the reopened Phases `25` /
-`33`). Two diagnostic passes root-caused each failure family and the
-high-confidence fixes landed and were validated on the GPU, moving the real
-converged count from **23 / 55 → 30 / 55** on a full `train-and-publish` run and
-higher on subsequent per-row validation. Landed, compiled, and device-validated:
-linear (unbounded) actor-critic value head with AlphaZero's tanh head preserved
-(`JitML.Numerics.Mlp.ValueHeadActivation`); unclamped `max_a' Q` bootstrap
-(DQN/HER); time-limit truncation no longer stored as a terminal `done`
-(QR-DQN/continuous/PPO); SB3-scale off-policy and on-policy step budgets with
-O(1) replay sampling; corrected entropy-**bonus** sign (was an entropy penalty
-collapsing the policy); a KL-safe TRPO line search; CrossQ given a target network
-(its BatchRenorm stabilizer is not yet in the MLP seam); the continuous
-zero-torque pseudo-entropy actor gradient removed and gamma raised to 0.99; a
-per-executed-trials tuning-budget count; and a HER greedy (epsilon = 0) evaluation
-with per-episode success/distance metrics and ~40 updates/episode. Per-row GPU
-validation confirms `DQN/cartpole` (8 → pass), `SAC/lunar-lander` (72.9 → pass),
-`A2C/cartpole`, `TRPO/cartpole`, `RecurrentPPO/cartpole`, `CrossQ/lunar-lander`
-(-0.14 → pass), the tuning row, and `HER/goal-reaching` (0.0 → pass) all now
-converge.
-
-**2026-07-07 remediation.** A numerical audit root-caused the largest remaining
-gap: the generated CUDA MLP kernels left nvcc **FMA contraction** (`--fmad`)
-enabled while the oneDNN/CPU build uses separate multiply-then-add with a fixed
-reduction order, so identical code and seed converged materially worse on
-`linux-cuda` (PPO/cartpole **450** on CPU vs **286** on CUDA). Adding
-`--fmad=false` to the CUDA nvcc command plus the three JIT-cache fingerprints
-(`Engine.hs` / `CudaLocal.hs` / `MlpCuda.hs`, forcing recompile) makes the
-substrates track — verified live: PPO/cartpole and PPO/lunar-lander went
-error → **eligible on the RTX 5090**. Further real fixes landed and were
-validated: potential-based reward shaping (`JitML.RL.RewardShaping`,
-training-only, scoped to mountain-car/acrobot) fixing PPO/acrobot; a QR-DQN
-retune fixing QR-DQN/cartpole; unified cross-substrate on-policy tuning;
-mountain-car exploring starts + observation normalization; a deep-SL
-residual-scale increase that passed `cifar10-resnet20` on the GPU; and a
-board-scaled AlphaZero arena search with an odd arena-game count resolving a hex
-all-draw-sentinel false positive. `jitml-model-convergence` /
-`jitml-negative-controls` pass and `cabal build all` is clean.
-
-The remaining unconverged rows are the genuinely-hard cases owned by the reopened
-phases: the on-policy `mountain-car` cohort
-(PPO / A2C / TRPO / MaskablePPO / RecurrentPPO — a sparse-reward exploration wall
-potential shaping provably cannot address on-policy); `DQN` / `QR-DQN`
-mountain-car (−159 / −153, marginal); `TRPO/lunar-lander` (the crude
-diagonal-Fisher natural gradient diverges); `SAC/pendulum` (needs
-temporally-correlated swing-up exploration); and the deep-SL
-`cifar100-wide-resnet` / `fashion-mnist-resnet` rows (the residual stack is an
-un-normalized bag-of-patches with no cross-patch mixing — fashion caps at ~0.60
-vs a 0.85 bar; needs an executed normalization + mixing engine). Reaching the
-full 55 / 55 required for Phase `29` closure is therefore a substantial further
-effort plus a fresh full real `linux-cuda` `train-and-publish` + `test all` run;
-the single-threaded CPU-bound environment simulator plus the per-row GPU
-tiny-MLP kernel-launch overhead make the 55-row run a multi-hour job.
+**✅ Current status (2026-07-11): product chain closed after Phase `31`
+aggregation.** Phases `19`–`34` are Done under the realness-governed product
+chain. Phase `31` restored the no-caveat product claim on `linux-cpu` by
+joining the three committed per-lane fragments:
+[`attestations/linux-cpu-report-card.md`](attestations/linux-cpu-report-card.md),
+[`attestations/linux-cuda-report-card.md`](attestations/linux-cuda-report-card.md),
+and
+[`attestations/apple-silicon-report-card.md`](attestations/apple-silicon-report-card.md).
+Each fragment carries **55** ProductRows for `linux-cpu`, `linux-cuda`, and
+`apple-silicon`, producing **165** lane-row evidence records. The current
+`linux-cuda` Phase `29` fragment is dated 2026-07-10 and records publisher
+**55 / 55**, ProductRow integration **56 / 56**, `jitml test all --linux-cuda`
+**10 / 10**, standalone CUDA e2e **27 / 27**, live CUDA e2e Playwright
+**71 / 71** plus Haskell e2e **27 / 27**, and the Phase `29.4` timing table
+with **55 / 55** ProductRows faster on `linux-cuda` than `linux-cpu`. Phase
+`31` remains a `linux-cpu`-only aggregation phase: it consumes committed lane
+fragments and does not re-run accelerators.
 
 The 2026-07-05 realness-audit reopen narrative is retained below as historical
-context for why Phases `32`–`34` were added and why Phases `29`/`31` remain
-blocked today.
+context for why Phases `32`–`34` were added and why Phase `31` must aggregate
+only committed real fragments.
 
 ---
 
@@ -1433,22 +1348,22 @@ obligation exists.
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence; current product handoff is blocked on Phase `29` and Phase `31` | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence; current product handoff is closed by the Phase `19`–`34` chain | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 | 19 | Product Truth Gates & Registry | ✅ Done (reclosed 2026-07-06 — external-bar and status-truth gates validated) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
 | 20 | De-Fossilization & Scaffold Lint | ✅ Done (reclosed 2026-07-06 — product-scaffold lint and reachability gates validated) | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
 | 21 | Type-State DSL and Inference Eligibility | ✅ Done (reclosed 2026-07-06 — completed-training evidence uses real initial/final weights) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
 | 22 | Canonical Matrix and Dataset Integrity | ✅ Done (Sprints 22.1-22.3 complete; matrix parity, per-row Dhall, and read-time dataset SHA validated) | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
 | 23 | General Differentiable Layer Engine | ✅ Done (reclosed 2026-07-06) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
-| 24 | Real Supervised Architectures | 🔄 Active (reopened 2026-07-08 — the executed architecture moves to a real MLP-Mixer at raised widths) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
-| 25 | Real RL Algorithms and Environments | 🔄 Active (reopened 2026-07-08 — vectorized environments + RL residual fixes + net right-sizing) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
+| 24 | Real Supervised Architectures | ✅ Done (reclosed 2026-07-10 — executed MLP-Mixer-style path at raised widths validated) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
+| 25 | Real RL Algorithms and Environments | ✅ Done (reclosed 2026-07-10 — vectorized environments, residual fixes, and right-sized policy networks validated) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (reclosed 2026-07-06) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
 | 27 | Demo All-Model Rendering | ✅ Done (reclosed 2026-07-06) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
 | 28 | Per-Model Integration and E2E | ✅ Done (reclosed 2026-07-06) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
-| 29 | Linux CUDA Product Lane | ⏸️ Blocked (blocked on Phases `24`/`25`/`26` convergence + a fresh real `linux-cuda` `train-and-publish` + `test all`; the GPU runtime is available. Now carries **Sprint `29.4`** — GPU performance / persistent device weight buffers, Exit-Definition item 29) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 29 | Linux CUDA Product Lane | ✅ Done (reclosed 2026-07-10 — current-source CUDA publisher **55 / 55**, CUDA all/e2e/live gates, and Phase `29.4` every-row performance table validated) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
 | 30 | Apple Silicon Product Lane | ✅ Done (reclosed 2026-07-06) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
-| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (waiting on a fresh real `linux-cuda` attestation from Phase `29`, including Sprint `29.4` performance evidence) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 31 | No-Caveat Product Aggregation | ✅ Done (2026-07-11 linux-cpu-only join over committed `linux-cpu`, `linux-cuda`, and `apple-silicon` fragments; **165** lane-row records; no accelerator reruns) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
 | 32 | External-Truth Realness Harness & Negative-Control Gate | ✅ Done (`jitml-negative-controls` passed 3 / 3 on 2026-07-06) | [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md) |
-| 33 | Per-Model Convergence & Inference-Performance Tests | 🔄 Active (reopened 2026-07-08 — re-clear every per-model bar at the widened + vectorized regime) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
+| 33 | Per-Model Convergence & Inference-Performance Tests | ✅ Done (reclosed 2026-07-10 — `jitml-model-convergence --linux-cpu` passed 111 / 111) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
 | 34 | Plan-Truth Governance | ✅ Done (closure status thinned to validation evidence on 2026-07-06) | [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md) |
 
 ## Reopened phases (2026-07-01 — product truth and per-model completion)
@@ -2060,13 +1975,13 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-07-06, Phases `0`–`18` are historical evidence. Phases `20`, `21`,
-`23`, `24`, `25`, `26`, and `30` have refreshed validation after the realness
-audit, but Phase `29` is blocked because this host's Docker daemon does not
-expose an NVIDIA GPU runtime to `jitml-cuda`. Phase `31` is blocked downstream
-until Phase `29` produces a fresh real `linux-cuda` attestation. Phases
-`32`–`34` remain the standing negative-control, per-model convergence, and
-plan-truth governance gates for the final product handoff.
+As of 2026-07-10, Phases `0`–`18` are historical evidence. Phases `20`, `21`,
+`23`–`28`, `30`, and `32`–`34` have refreshed validation after the realness
+audit. Phase `29` is active because the GPU runtime is available and backend
+validation passes, but the fresh full current-source **55 / 55** CUDA publisher,
+CUDA integration/e2e attestation, and every-row CUDA-vs-CPU timing table remain
+open. Phase `31` is blocked downstream until Phase `29` produces that fresh real
+`linux-cuda` attestation.
 
 Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals

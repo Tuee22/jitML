@@ -552,6 +552,15 @@ internalCommand =
             "Train and publish product-row artifacts for the Linux CPU lane."
         ]
     , leaf
+        "benchmark-product-row-wall-clock"
+        "Benchmark ProductRow CPU/CUDA wall-clock."
+        "Runs the Phase 29.4 ProductRow timing gate by measuring the linux-cpu and linux-cuda MLP devices for every ProductRow through the same public device API. The command fails unless linux-cuda is strictly faster than linux-cpu for every measured row. JITML_PRODUCT_ROW_FILTER narrows rows; JITML_PRODUCT_TIMING_BATCH and JITML_PRODUCT_TIMING_REPETITIONS override the timing workload."
+        []
+        [ Example
+            "jitml internal benchmark-product-row-wall-clock"
+            "Measure the linux-cuda ProductRow speedup table against the linux-cpu baseline."
+        ]
+    , leaf
         "dhall-schema"
         "Print the reflected Dhall config schema."
         "Sprint 5.12 (Pulsar ML-Workflow convergence) — prints the binary's own reflected Dhall schema for each daemon config surface (BootConfig, LiveConfig, TrainingRunConfig, TuneRunConfig, RlRunConfig). The schema is read back off the live FromDhall decoder via Dhall.expected, so it cannot drift from the decoder types. With --config NAME it prints one surface; otherwise it prints every surface. With --catalog numerics|rl|all it instead prints the reflected numerics/RL catalog Dhall leaves, emitted from the Haskell catalogs so the checked-in dhall/numerics and dhall/rl leaves cannot drift."

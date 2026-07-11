@@ -17,6 +17,7 @@
 module JitML.RL.Algorithms.QrDqnTrainer
   ( QrDqnTrainConfig (..)
   , defaultQrDqnTrainConfig
+  , productQrDqnHiddenUnits
   , QrDqnTrainResult (..)
   , QrDqnIterationStat (..)
   , initialQrDqnParams
@@ -89,6 +90,9 @@ data QrDqnTrainConfig = QrDqnTrainConfig
   , qrStatInterval :: !Int
   }
   deriving stock (Eq, Show)
+
+productQrDqnHiddenUnits :: Int
+productQrDqnHiddenUnits = 256
 
 defaultQrDqnTrainConfig :: QrDqnTrainConfig
 defaultQrDqnTrainConfig =

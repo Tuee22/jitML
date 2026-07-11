@@ -23,6 +23,7 @@
 module JitML.RL.Algorithms.HerTrainer
   ( HerTrainConfig (..)
   , defaultHerTrainConfig
+  , productHerHiddenUnits
   , HerTrainResult (..)
   , HerIterationStat (..)
   , initialHerParams
@@ -87,6 +88,9 @@ data HerTrainConfig = HerTrainConfig
   , herUpdatesPerEpisode :: !Int
   }
   deriving stock (Eq, Show)
+
+productHerHiddenUnits :: Int
+productHerHiddenUnits = 256
 
 defaultHerTrainConfig :: HerTrainConfig
 defaultHerTrainConfig =
