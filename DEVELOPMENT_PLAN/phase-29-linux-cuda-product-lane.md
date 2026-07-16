@@ -1,6 +1,6 @@
 # Phase 29: linux-cuda Product Lane
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md)
 **Generated sections**: none
@@ -11,7 +11,13 @@
 
 ## Phase State
 
-✅ **Done** (2026-07-10). The prior Docker-GPU blocker is resolved: the current
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `29.5`). The existing
+`linux-cuda` attestation predates the validated-plan and exact-evidence contract,
+so it cannot close the expanded Exit Definition. Sprint `29.5` is blocked by
+Sprint `28.4`. Sprints `29.1`–`29.4` remain Done on their retained CUDA kernel,
+device-evidence, integration, and performance surfaces.
+
+**Historical retained closure.** ✅ **Done** (2026-07-10). The prior Docker-GPU blocker is resolved: the current
 RTX 5090 host exposes the `nvidia` container runtime, `jitml-cuda` sees the GPU,
 and Sprint `29.1` validated for real. The current backend gate
 `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda`
@@ -334,9 +340,63 @@ The committed table in
 gate passed **22 / 22**, including the source guard for persistent device buffers
 and the per-weight CUDA MLP batch-gradient kernels.
 
+## Sprint 29.5: Contract-Driven CUDA Lane Revalidation [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Test/RunContract.hs`,
+`src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
+`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
+**Blocked by**: Sprint `28.4`
+**Docs to update**: `../README.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`
+
+### Objective
+
+Revalidate the full row-complete workflow contract on a real `linux-cuda` host
+and replace the lane fragment with journal-derived evidence. This sprint owns
+the CUDA-lane portions of [Exit Definition](README.md#exit-definition) items
+`31`, `32`, and `34` while preserving the existing item `29` performance bar.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Run every supported CUDA product scenario through the same validated plan,
+  receipt-bound consumer, exact evidence reducer, and scoped lifecycle used by
+  the `linux-cpu` lane.
+- Prove each completed row journal carries the CUDA substrate/device witness,
+  exact terminal evidence, trained artifact hash, and measured inference result.
+- Re-run the existing backend, publisher, integration, e2e, negative-control,
+  model-convergence, and every-row CUDA-vs-CPU performance gates on the real GPU.
+- Replace the committed `linux-cuda` fragment only after all scenarios complete;
+  retain explicit failed/not-run entries rather than fabricating pass cells.
+- Record cleanup and diagnostic evidence for the full bootstrap/test/down
+  lifecycle without requiring Apple Silicon in this phase.
+
+### Validation
+
+```bash
+./bootstrap/linux-cuda.sh up
+./bootstrap/linux-cuda.sh test
+./bootstrap/linux-cuda.sh down
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `28.4` closes the contract-driven `linux-cpu` row matrix.
+- Execute the real CUDA lifecycle and regenerate the lane journal/attestation.
+- Reconfirm the existing strict per-row GPU-performance criterion before
+  returning this phase to Done.
+
 ## Documentation Requirements
 
 **Engineering docs updated:**
+- `documents/engineering/run_contract.md` — contract-driven CUDA lane journals
+  and scoped lifecycle evidence.
 - `documents/engineering/jit_codegen_architecture.md` — records the Phase `29`
   cuBLAS/cuDNN generated CUDA family surface and row-complete CUDA validation.
 - `documents/engineering/numerical_core.md` — records the CUDA family kernels and
@@ -346,12 +406,14 @@ and the per-weight CUDA MLP batch-gradient kernels.
 - `documents/engineering/purescript_frontend.md` — records CUDA-edge Playwright
   coverage of row-specific trained artifacts.
 
-**Product docs to update:**
+**Product docs to update after Sprint `29.5`:**
 - `README.md`, `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
-  and `DEVELOPMENT_PLAN/system-components.md` record the 2026-07-10 state:
-  Phase `29` is Done after the full current-source CUDA publisher passed
-  **55 / 55**, CUDA integration/e2e/live gates passed, and the every-row
-  performance table passed **55 / 55**.
+  and `DEVELOPMENT_PLAN/system-components.md` retain the dated Sprint
+  `29.1`–`29.4` runtime/performance evidence while recording Phase `29` as
+  Blocked until the refreshed CUDA scenario journal is emitted and validated.
+- On closure, replace the blocked wording with the journal identity, exact
+  ProductRow/PlanId coverage, real CUDA substrate evidence, and validation
+  result produced by the shared workflow interpreter.
 
 **Cross-references updated:**
 - The refreshed `linux-cuda` attestation is linked from Phase `31` as a required

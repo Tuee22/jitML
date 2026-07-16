@@ -1,74 +1,127 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Service.Consumer
   ( ConsumerOutcome (..)
-  , DaemonSubscription (..)
+  , DaemonCommand (..)
+  , DaemonSubscription
+  , DaemonSubscriptionPlanError (..)
   , DedupCache (..)
   , EventDomain (..)
-  , EventId (..)
+  , EventId
   , HandlerRouter (..)
   , consumerOutcomeError
   , consumerStep
-  , consumerStepWithActions
+  , consumerStepAt
+  , consumerStepCommitted
+  , consumeDaemonSubscription
+  , consumeDaemonSubscriptionBatches
+  , daemonSubscriptionDomain
+  , daemonSubscriptionName
+  , daemonSubscriptionOwnership
+  , daemonSubscriptionStart
+  , daemonSubscriptionTopicName
+  , daemonSubscriptionsForBootConfig
+  , daemonCommandDomain
+  , daemonCommandEventId
+  , daemonCommandPayload
+  , daemonCommandPlanId
+  , daemonCommandSubstrate
   , dedupCacheCapacity
   , dedupCacheExpireAt
   , dedupCacheInsert
   , dedupCacheInsertAt
   , dedupCacheKnown
   , dedupCacheKnownAt
-  , daemonSubscriptionsForBootConfig
-  , domainFor
-  , emptyHandlerRouter
-  , emptyHandlerRouterWithTtl
-  , eventIdFromPayload
   , emptyDedupCache
   , emptyDedupCacheWithTtl
+  , emptyHandlerRouter
+  , emptyHandlerRouterWithTtl
+  , eventIdText
   , processAtLeastOnce
   , routeByKind
   , routeByKindAt
+  , reconfigureHandlerRouter
+  , reconfigureHandlerRouterAt
   , runConsumerLoop
-  , subscribeDaemonTopics
   )
 where
 
+import Control.Concurrent.MVar (MVar, modifyMVar)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Crypto.Hash.SHA256 qualified as SHA256
-import Data.ByteString qualified as ByteString
-import Data.ByteString qualified as StrictByteString
-import Data.Char (intToDigit)
+import Data.Either.Combinators (mapLeft)
+import Data.IORef
+  ( atomicModifyIORef'
+  , modifyIORef'
+  , newIORef
+  , readIORef
+  , writeIORef
+  )
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text (Text)
-import Data.Text.Encoding qualified as Text.Encoding
+import Data.Text qualified as Text
 import System.Posix.Time (epochTime)
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Coordinator.Topology
-  ( Phase (..)
-  , Workflow (..)
-  , defaultNamespace
-  , defaultTenant
+  ( ProtocolRoute (..)
+  , Topic
+  , TopicError
   , topicFor
   , topicName
+  , topicSubstrate
   )
+import JitML.Plan.Plan
+  ( EventId
+  , PlanError
+  , PlanId
+  , Validation (..)
+  , deriveEventIdForPlanId
+  , eventIdText
+  , planIdFromCanonicalText
+  )
+import JitML.Proto.Inference (InferenceCommand (..), renderInferenceCommand)
+import JitML.Proto.Inference qualified as Inference
+import JitML.Proto.Rl (RlCommand (..), renderRlCommand)
+import JitML.Proto.Rl qualified as Rl
+import JitML.Proto.Training (TrainingCommand (..), renderTrainingCommand)
+import JitML.Proto.Training qualified as Training
+import JitML.Proto.Tune (TuneCommand (..), renderTuneCommand)
+import JitML.Proto.Tune qualified as Tune
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , Residency (..)
+  , Role (..)
   )
 import JitML.Service.Capabilities
-  ( HasPulsar (..)
-  , SubscriptionId
-  , TopicName (..)
+  ( ConsumerBatchDecision
+  , ConsumerDecision
+  , ConsumerFailure (..)
+  , ConsumerSessionEvent
+  , DeliveryBatch
+  , Disposition
+  , HasPulsar (..)
+  , NackReason (..)
+  , Subscription
+  , SubscriptionError
+  , SubscriptionOwnership (..)
+  , SubscriptionStart (..)
+  , ack
+  , continue
+  , deliveryEvent
+  , done
+  , mapDeliveryBatch
+  , mkSubscription
+  , nack
+  , subscriptionName
+  , subscriptionOwnership
+  , subscriptionStart
   )
+import JitML.Service.InferenceBatch (BatchPolicy)
 import JitML.Service.Retry (ServiceError (..), serviceErrorToAppError)
-import JitML.Substrate (Substrate (..))
-
-newtype EventId = EventId
-  { unEventId :: Text
-  }
-  deriving stock (Eq, Ord, Show)
-
-eventIdFromPayload :: ByteString.ByteString -> EventId
-eventIdFromPayload payload =
-  EventId (Text.Encoding.decodeUtf8 (hexEncode (SHA256.hash payload)))
+import JitML.Sub.Outcome (ProcessOutcome (..))
+import JitML.Substrate (Substrate (..), renderSubstrate)
 
 processAtLeastOnce :: (Ord eventId) => [eventId] -> [eventId]
 processAtLeastOnce = reverse . foldl insertIfMissing []
@@ -77,16 +130,6 @@ processAtLeastOnce = reverse . foldl insertIfMissing []
     | eventId `elem` seen = seen
     | otherwise = eventId : seen
 
-hexEncode :: StrictByteString.ByteString -> StrictByteString.ByteString
-hexEncode =
-  StrictByteString.pack . concatMap byteToHex . StrictByteString.unpack
- where
-  byteToHex byte =
-    [ fromIntegral (fromEnum (intToDigit (fromIntegral (byte `div` 16))))
-    , fromIntegral (fromEnum (intToDigit (fromIntegral (byte `mod` 16))))
-    ]
-
--- | The four per-domain handlers the consumer dispatches to.
 data EventDomain
   = TrainingDomain
   | TuneDomain
@@ -94,122 +137,281 @@ data EventDomain
   | InferenceDomain
   deriving stock (Eq, Show)
 
--- | Pure routing — given a topic name (e.g.
--- `"training.command.linux-cpu"`), return the per-domain handler bucket.
-domainFor :: Text -> Maybe EventDomain
-domainFor topic
-  | "training." `isPrefix` normalizedTopic = Just TrainingDomain
-  | "tune." `isPrefix` normalizedTopic = Just TuneDomain
-  | "rl." `isPrefix` normalizedTopic = Just RlDomain
-  | "inference." `isPrefix` normalizedTopic = Just InferenceDomain
-  | otherwise = Nothing
- where
-  normalizedTopic = stripPulsarPrefix topic
-  isPrefix prefix t =
-    Text.Encoding.encodeUtf8 prefix `StrictByteString.isPrefixOf` Text.Encoding.encodeUtf8 t
-
-stripPulsarPrefix :: Text -> Text
-stripPulsarPrefix topic =
-  maybe
-    topic
-    Text.Encoding.decodeUtf8
-    (StrictByteString.stripPrefix prefix (Text.Encoding.encodeUtf8 topic))
- where
-  prefix = Text.Encoding.encodeUtf8 ("persistent://public/default/" :: Text)
-
-data DaemonSubscription = DaemonSubscription
-  { daemonSubscriptionTopic :: TopicName
-  , daemonSubscriptionName :: Text
-  }
+-- | The closed command family accepted by daemon consumers after the topic
+-- codec has succeeded.  The consumed topology route supplies the substrate;
+-- downstream dispatch never reparses text or trusts a substrate embedded in a
+-- payload to select placement.
+data DaemonCommand
+  = TrainingDaemonCommand Substrate TrainingCommand
+  | TuneDaemonCommand Substrate TuneCommand
+  | RlDaemonCommand Substrate RlCommand
+  | InferenceDaemonCommand Substrate InferenceCommand
   deriving stock (Eq, Show)
 
--- Sprint 5.13 — the daemon subscription plan derives every topic from the
--- Coordinator's validated topic algebra ('topicFor'), not ad-hoc string prefixes,
--- so the subscriptions cannot drift from the reconciled topic set.
-daemonSubscriptionsForBootConfig :: BootConfig -> [DaemonSubscription]
+daemonCommandDomain :: DaemonCommand -> EventDomain
+daemonCommandDomain command =
+  case command of
+    TrainingDaemonCommand _substrate _command -> TrainingDomain
+    TuneDaemonCommand _substrate _command -> TuneDomain
+    RlDaemonCommand _substrate _command -> RlDomain
+    InferenceDaemonCommand _substrate _command -> InferenceDomain
+
+daemonCommandSubstrate :: DaemonCommand -> Substrate
+daemonCommandSubstrate command =
+  case command of
+    TrainingDaemonCommand substrate _command -> substrate
+    TuneDaemonCommand substrate _command -> substrate
+    RlDaemonCommand substrate _command -> substrate
+    InferenceDaemonCommand substrate _command -> substrate
+
+daemonCommandPayload :: DaemonCommand -> Text
+daemonCommandPayload command =
+  case command of
+    TrainingDaemonCommand _substrate training -> renderTrainingCommand training
+    TuneDaemonCommand _substrate tune -> renderTuneCommand tune
+    RlDaemonCommand _substrate rl -> renderRlCommand rl
+    InferenceDaemonCommand _substrate inference -> renderInferenceCommand inference
+
+-- | Derive the stable plan identity for a command only after the route codec
+-- has produced the closed 'DaemonCommand' family.  The canonical text includes
+-- the protocol version, typed domain and routed substrate as well as the
+-- workload codec's canonical rendering, so alternate wire encodings of the
+-- same typed command agree while any resolved command input changes the plan.
+daemonCommandPlanId :: DaemonCommand -> Validation (NonEmpty PlanError) PlanId
+daemonCommandPlanId command =
+  planIdFromCanonicalText
+    ( Text.unlines
+        [ "jitml-daemon-command-version: 1"
+        , "domain: " <> daemonCommandDomainText command
+        , "substrate: " <> renderSubstrate (daemonCommandSubstrate command)
+        , "payload:"
+        ]
+        <> daemonCommandPayload command
+    )
+
+-- | Semantic command identity is plan-bound and independent of Pulsar delivery
+-- receipts.  Event kind and logical key come from the decoded command rather
+-- than caller-controlled bytes.
+daemonCommandEventId :: DaemonCommand -> Validation (NonEmpty PlanError) EventId
+daemonCommandEventId command =
+  case daemonCommandPlanId command of
+    Failure errors -> Failure errors
+    Success planId ->
+      deriveEventIdForPlanId
+        planId
+        (daemonCommandKind command)
+        (daemonCommandLogicalKey command)
+
+daemonCommandDomainText :: DaemonCommand -> Text
+daemonCommandDomainText command =
+  case daemonCommandDomain command of
+    TrainingDomain -> "training"
+    TuneDomain -> "tune"
+    RlDomain -> "rl"
+    InferenceDomain -> "inference"
+
+daemonCommandKind :: DaemonCommand -> Text
+daemonCommandKind command =
+  case command of
+    TrainingDaemonCommand _ (TrainingStart _) -> "StartTraining"
+    TrainingDaemonCommand _ (TrainingStop _) -> "StopTraining"
+    TuneDaemonCommand _ (TuneStart _) -> "StartSweep"
+    TuneDaemonCommand _ (TuneStop _) -> "StopSweep"
+    RlDaemonCommand _ (RlStart _) -> "StartRLRun"
+    RlDaemonCommand _ (RlStartAlphaZero _) -> "StartAlphaZeroRun"
+    RlDaemonCommand _ (RlStop _) -> "StopRLRun"
+    InferenceDaemonCommand _ (RunInference _) -> "RunInference"
+    InferenceDaemonCommand _ (CompareCheckpoints _) -> "CheckpointCompareCommand"
+    InferenceDaemonCommand _ (SelectAdversarialMove _) -> "AdversarialMoveCommand"
+    InferenceDaemonCommand _ (ListCheckpoints _) -> "ListCheckpointsCommand"
+    InferenceDaemonCommand _ (LoadTranscript _) -> "LoadTranscriptCommand"
+
+daemonCommandLogicalKey :: DaemonCommand -> Text
+daemonCommandLogicalKey command =
+  case command of
+    TrainingDaemonCommand _ (TrainingStart start) -> Training.stExperimentHash start
+    TrainingDaemonCommand _ (TrainingStop stop) -> Training.stopExperimentHash stop
+    TuneDaemonCommand _ (TuneStart start) -> Tune.ssExperimentHash start
+    TuneDaemonCommand _ (TuneStop stop) -> Tune.ssStopExperimentHash stop
+    RlDaemonCommand _ (RlStart start) -> Rl.srlExperimentHash start
+    RlDaemonCommand _ (RlStartAlphaZero start) -> Rl.sazExperimentHash start
+    RlDaemonCommand _ (RlStop stop) -> Rl.srStopExperimentHash stop
+    InferenceDaemonCommand _ (RunInference request) -> Inference.irCallId request
+    InferenceDaemonCommand _ (CompareCheckpoints request) -> Inference.cccCallId request
+    InferenceDaemonCommand _ (SelectAdversarialMove request) -> Inference.amcCallId request
+    InferenceDaemonCommand _ (ListCheckpoints request) -> Inference.lccCallId request
+    InferenceDaemonCommand _ (LoadTranscript request) -> Inference.ltcCallId request
+
+-- | An existential typed subscription.  The topic codec and subscription
+-- constructor remain hidden; callers can inspect only safe projections or run
+-- a rank-n action through 'consumeDaemonSubscription'.
+data DaemonSubscription where
+  DaemonSubscription
+    :: EventDomain
+    -> Topic event
+    -> Subscription event
+    -> (Substrate -> event -> DaemonCommand)
+    -> DaemonSubscription
+
+instance Eq DaemonSubscription where
+  left == right =
+    daemonSubscriptionDomain left == daemonSubscriptionDomain right
+      && daemonSubscriptionTopicName left == daemonSubscriptionTopicName right
+      && daemonSubscriptionName left == daemonSubscriptionName right
+      && daemonSubscriptionStart left == daemonSubscriptionStart right
+      && daemonSubscriptionOwnership left == daemonSubscriptionOwnership right
+
+instance Show DaemonSubscription where
+  showsPrec precedence subscription =
+    showParen (precedence > 10) $
+      showString "DaemonSubscription "
+        . shows
+          ( daemonSubscriptionDomain subscription
+          , daemonSubscriptionTopicName subscription
+          , daemonSubscriptionName subscription
+          , daemonSubscriptionStart subscription
+          , daemonSubscriptionOwnership subscription
+          )
+
+data DaemonSubscriptionPlanError
+  = DaemonSubscriptionTopicError TopicError
+  | DaemonSubscriptionValidationError SubscriptionError
+  deriving stock (Eq, Show)
+
+daemonSubscriptionDomain :: DaemonSubscription -> EventDomain
+daemonSubscriptionDomain (DaemonSubscription domain _topic _subscription _toCommand) = domain
+
+daemonSubscriptionTopicName :: DaemonSubscription -> Text
+daemonSubscriptionTopicName (DaemonSubscription _domain topic _subscription _toCommand) = topicName topic
+
+daemonSubscriptionName :: DaemonSubscription -> Text
+daemonSubscriptionName (DaemonSubscription _domain _topic subscription _toCommand) =
+  subscriptionName subscription
+
+daemonSubscriptionStart :: DaemonSubscription -> SubscriptionStart
+daemonSubscriptionStart (DaemonSubscription _domain _topic subscription _toCommand) =
+  subscriptionStart subscription
+
+daemonSubscriptionOwnership :: DaemonSubscription -> SubscriptionOwnership
+daemonSubscriptionOwnership (DaemonSubscription _domain _topic subscription _toCommand) =
+  subscriptionOwnership subscription
+
+consumeDaemonSubscription
+  :: (HasPulsar m)
+  => DaemonSubscription
+  -> (ConsumerSessionEvent -> m ())
+  -> (DaemonCommand -> m (ConsumerDecision result))
+  -> m (Either ConsumerFailure result)
+consumeDaemonSubscription (DaemonSubscription _domain topic subscription toCommand) observe handler =
+  pulsarConsumeUntil subscription observe $ \delivery ->
+    handler (toCommand (topicSubstrate topic) (deliveryEvent delivery))
+
+-- | Batch counterpart of 'consumeDaemonSubscription'.  The existential topic
+-- event is decoded and mapped to the closed daemon command family without
+-- exposing either the topic witness or any broker receipt.  Compatibility is
+-- evaluated on the mapped command, while the handler receives the original
+-- admission window through the opaque 'DeliveryBatch'.
+consumeDaemonSubscriptionBatches
+  :: (HasPulsar m, Eq key)
+  => DaemonSubscription
+  -> m BatchPolicy
+  -> (DaemonCommand -> key)
+  -> (ConsumerSessionEvent -> m ())
+  -> (DeliveryBatch DaemonCommand -> m (ConsumerBatchDecision result))
+  -> m (Either ConsumerFailure result)
+consumeDaemonSubscriptionBatches
+  (DaemonSubscription _domain topic subscription toCommand)
+  readPolicy
+  compatibilityKey
+  observe
+  handler =
+    pulsarConsumeBatchesUntil
+      readPolicy
+      (compatibilityKey . toDaemonCommand)
+      subscription
+      observe
+      (handler . mapDeliveryBatch toDaemonCommand)
+   where
+    toDaemonCommand = toCommand (topicSubstrate topic)
+
+daemonSubscriptionsForBootConfig
+  :: BootConfig
+  -> Either DaemonSubscriptionPlanError [DaemonSubscription]
 daemonSubscriptionsForBootConfig bootConfig =
+  traverse buildSubscription (subscriptionRoutes bootConfig)
+ where
+  buildSubscription (SomeSubscriptionRoute domain route name toCommand) = do
+    topic <- firstPlanError (topicFor route (bootSubstrate bootConfig))
+    subscription <-
+      firstSubscriptionError
+        (mkSubscription topic name FromEarliest Borrowed)
+    pure (DaemonSubscription domain topic subscription toCommand)
+
+data SomeSubscriptionRoute where
+  SomeSubscriptionRoute
+    :: EventDomain
+    -> ProtocolRoute event
+    -> Text
+    -> (Substrate -> event -> DaemonCommand)
+    -> SomeSubscriptionRoute
+
+subscriptionRoutes :: BootConfig -> [SomeSubscriptionRoute]
+subscriptionRoutes bootConfig =
+  case bootActiveRole bootConfig of
+    Engine -> engineSubscriptionRoutes bootConfig
+    Coordinator -> coordinatorSubscriptionRoutes bootConfig
+    Webapp -> []
+
+-- | Engine owns only substrate compute. Linux Engines consume inference; the
+-- Apple host Engine consumes the four host-command families. Cluster placement
+-- commands are deliberately absent from this plan.
+engineSubscriptionRoutes :: BootConfig -> [SomeSubscriptionRoute]
+engineSubscriptionRoutes bootConfig =
   case (bootSubstrate bootConfig, bootResidency bootConfig) of
     (AppleSilicon, Host) ->
-      [ daemonSubscription Infer Command AppleSilicon "jitml-host"
-      , daemonSubscription Train HostCommand AppleSilicon "jitml-host"
-      , daemonSubscription Tune HostCommand AppleSilicon "jitml-host"
-      , daemonSubscription Rl HostCommand AppleSilicon "jitml-host"
+      [ SomeSubscriptionRoute InferenceDomain InferenceHostCommandRoute "jitml-host" InferenceDaemonCommand
+      , SomeSubscriptionRoute TrainingDomain TrainingHostCommandRoute "jitml-host" TrainingDaemonCommand
+      , SomeSubscriptionRoute TuneDomain TuneHostCommandRoute "jitml-host" TuneDaemonCommand
+      , SomeSubscriptionRoute RlDomain RlHostCommandRoute "jitml-host" RlDaemonCommand
       ]
-    -- Sprint 14.4 — the Apple in-cluster (`ForwardToHost`) daemon subscribes to
-    -- the inference request topic and forwards each command raw to the host
-    -- daemon's `inference.command.apple-silicon` topic; the host Engine publishes
-    -- the `InferenceResult` to the request's reply-topic directly (the converged
-    -- values model), so the cluster daemon no longer correlates a reply event.
+    (AppleSilicon, Cluster) -> []
+    (_, Cluster) ->
+      [ SomeSubscriptionRoute InferenceDomain InferenceRequestRoute "jitml-engine" InferenceDaemonCommand
+      ]
+    (_, Host) -> []
+
+-- | Coordinator owns cluster orchestration. On Linux it consumes the three
+-- placement domains while the Engine retains inference. On Apple the
+-- Coordinator additionally bridges inference to the host Engine.
+coordinatorSubscriptionRoutes :: BootConfig -> [SomeSubscriptionRoute]
+coordinatorSubscriptionRoutes bootConfig =
+  case (bootSubstrate bootConfig, bootResidency bootConfig) of
     (AppleSilicon, Cluster) ->
-      fmap
-        (\(workflow, phase) -> daemonSubscription workflow phase AppleSilicon "jitml-service")
-        [ (Train, Command)
-        , (Tune, Command)
-        , (Rl, Command)
-        , (Infer, Request)
-        ]
-    _ ->
-      fmap
-        (\(workflow, phase) -> daemonSubscription workflow phase (bootSubstrate bootConfig) "jitml-service")
-        [ (Train, Command)
-        , (Tune, Command)
-        , (Rl, Command)
-        , (Infer, Request)
-        ]
-
--- | Sprint 16.11 — the host daemon's Pulsar-WS subscribe through the Envoy edge
--- intermittently fails the WebSocket upgrade (@pulsarSubscribe: node exit 1:
--- Received network error or non-101 status code@). A single attempt left
--- `inference.command`/`*.host-command` subscriptions in `failed transient`, so
--- `acquiredSubscriptionIds` dropped them, no `daemonConsumerWorkerLoop` was
--- spawned, and apple-silicon inference requests were never served. Retry transient
--- (and timeout) acquisition failures so every subscription is acquired; the node
--- WS subprocess spawn latency naturally spaces the attempts (no explicit delay /
--- `MonadIO` needed, keeping the `HasPulsar`-only constraint).
-daemonSubscriptionAcquireAttempts :: Int
-daemonSubscriptionAcquireAttempts = 8
-
-subscribeDaemonTopics
-  :: (HasPulsar m)
-  => [DaemonSubscription]
-  -> m [(DaemonSubscription, Either ServiceError SubscriptionId)]
-subscribeDaemonTopics =
-  traverse subscribeOne
+      placementRoutes
+        <> [ SomeSubscriptionRoute
+               InferenceDomain
+               InferenceRequestRoute
+               "jitml-coordinator"
+               InferenceDaemonCommand
+           ]
+    (_, Cluster) -> placementRoutes
+    (_, Host) -> []
  where
-  subscribeOne subscription = do
-    result <- attempt daemonSubscriptionAcquireAttempts
-    pure (subscription, result)
-   where
-    attempt n = do
-      result <-
-        pulsarSubscribe
-          (daemonSubscriptionTopic subscription)
-          (daemonSubscriptionName subscription)
-      case result of
-        Right _ -> pure result
-        Left err
-          | n > 1 && acquisitionRetryable err -> attempt (n - 1)
-          | otherwise -> pure (Left err)
+  placementRoutes =
+    [ SomeSubscriptionRoute TrainingDomain TrainingCommandRoute "jitml-coordinator" TrainingDaemonCommand
+    , SomeSubscriptionRoute TuneDomain TuneCommandRoute "jitml-coordinator" TuneDaemonCommand
+    , SomeSubscriptionRoute RlDomain RlCommandRoute "jitml-coordinator" RlDaemonCommand
+    ]
 
--- | Retry only transient/timeout acquisition failures; surface auth/conflict
--- errors immediately (retrying them cannot help).
-acquisitionRetryable :: ServiceError -> Bool
-acquisitionRetryable (SETransient _) = True
-acquisitionRetryable (SETimeout _) = True
-acquisitionRetryable (SEConflict _) = False
-acquisitionRetryable (SEUnauthorized _) = False
+firstPlanError :: Either TopicError value -> Either DaemonSubscriptionPlanError value
+firstPlanError = mapLeft DaemonSubscriptionTopicError
 
-daemonSubscription :: Workflow -> Phase -> Substrate -> Text -> DaemonSubscription
-daemonSubscription workflow phase substrate subscriptionName =
-  DaemonSubscription
-    { daemonSubscriptionTopic =
-        TopicName (topicName (topicFor defaultTenant defaultNamespace workflow phase substrate))
-    , daemonSubscriptionName = subscriptionName
-    }
+firstSubscriptionError
+  :: Either SubscriptionError value
+  -> Either DaemonSubscriptionPlanError value
+firstSubscriptionError =
+  mapLeft DaemonSubscriptionValidationError
 
--- | Per-handler LRU dedup cache. The capacity + TTL come from the LiveConfig.
--- The implementation is a bounded list of recently-seen `EventId` values with
--- their wall-clock insertion time in seconds.
 data DedupCache = DedupCache
   { dedupCacheEntries :: [(EventId, Int)]
   , dedupCacheLimit :: Int
@@ -276,9 +478,6 @@ entryIsLive _nowSeconds ttlSeconds _entry
 entryIsLive nowSeconds ttlSeconds (_eventId, insertedAtSeconds) =
   nowSeconds - insertedAtSeconds < ttlSeconds
 
--- | The handler router carries one dedup cache per domain. The daemon's
--- consumer threads each event through the router, which checks the per-domain
--- cache before dispatch.
 data HandlerRouter = HandlerRouter
   { trainingCache :: DedupCache
   , tuneCache :: DedupCache
@@ -309,26 +508,16 @@ routeByKindWith
   -> (HandlerRouter, Bool)
 routeByKindWith known insert router domain eventId =
   case domain of
-    TrainingDomain ->
-      let cache = trainingCache router
-       in if known eventId cache
-            then (router, False)
-            else (router {trainingCache = insert eventId cache}, True)
-    TuneDomain ->
-      let cache = tuneCache router
-       in if known eventId cache
-            then (router, False)
-            else (router {tuneCache = insert eventId cache}, True)
-    RlDomain ->
-      let cache = rlCache router
-       in if known eventId cache
-            then (router, False)
-            else (router {rlCache = insert eventId cache}, True)
-    InferenceDomain ->
-      let cache = inferenceCache router
-       in if known eventId cache
-            then (router, False)
-            else (router {inferenceCache = insert eventId cache}, True)
+    TrainingDomain -> route trainingCache (\cache -> router {trainingCache = cache})
+    TuneDomain -> route tuneCache (\cache -> router {tuneCache = cache})
+    RlDomain -> route rlCache (\cache -> router {rlCache = cache})
+    InferenceDomain -> route inferenceCache (\cache -> router {inferenceCache = cache})
+ where
+  route select replace =
+    let cache = select router
+     in if known eventId cache
+          then (router, False)
+          else (replace (insert eventId cache), True)
 
 emptyHandlerRouter :: Int -> HandlerRouter
 emptyHandlerRouter limit = emptyHandlerRouterWithTtl limit maxBound
@@ -351,133 +540,187 @@ expireRouterAt nowSeconds router =
     , inferenceCache = dedupCacheExpireAt nowSeconds (inferenceCache router)
     }
 
--- | The outcome of a single consumer step. The daemon's `Consumer` IO loop
--- runs `pulsarSubscribe` once, then walks `consumerStep` per delivered
--- envelope. The typed record names what happened so the daemon's tests can
--- assert ack-after-dispatch + dedup-on-redelivery without binding to a
--- live broker.
+-- | Apply hot-reloaded cache bounds without discarding semantic ids that are
+-- still live under the new TTL. Entries are newest-first, so shrinking the
+-- capacity retains the newest valid ids and preserves at-least-once dedup
+-- evidence up to the newly configured bound.
+reconfigureHandlerRouter :: Int -> Int -> HandlerRouter -> IO HandlerRouter
+reconfigureHandlerRouter limit ttlSeconds router = do
+  nowSeconds <- currentEpochSeconds
+  pure (reconfigureHandlerRouterAt nowSeconds limit ttlSeconds router)
+
+reconfigureHandlerRouterAt :: Int -> Int -> Int -> HandlerRouter -> HandlerRouter
+reconfigureHandlerRouterAt nowSeconds limit ttlSeconds router =
+  HandlerRouter
+    { trainingCache = reconfigureCache (trainingCache router)
+    , tuneCache = reconfigureCache (tuneCache router)
+    , rlCache = reconfigureCache (rlCache router)
+    , inferenceCache = reconfigureCache (inferenceCache router)
+    }
+ where
+  boundedLimit = max 0 limit
+  boundedTtlSeconds = max 0 ttlSeconds
+  reconfigureCache cache =
+    let configured =
+          cache
+            { dedupCacheLimit = boundedLimit
+            , dedupCacheTtlSeconds = boundedTtlSeconds
+            }
+        liveEntries = dedupCacheEntries (dedupCacheExpireAt nowSeconds configured)
+     in configured {dedupCacheEntries = take boundedLimit liveEntries}
+
 data ConsumerOutcome
-  = -- | Fresh event for the named domain; the handler was invoked + acked.
-    ConsumerDispatched EventDomain EventId
-  | -- | Pulsar redelivery; the handler was skipped, the event was still acked.
-    ConsumerDeduplicated EventDomain EventId
-  | -- | Topic name didn't match any of the four domains; the event was acked
-    -- and skipped (idempotent no-op).
-    ConsumerSkippedUnroutable Text
-  | -- | Dispatch or ack failed beyond the retry budget.
-    ConsumerError ServiceError
+  = ConsumerDispatched EventDomain EventId
+  | ConsumerDeduplicated EventDomain EventId
+  | ConsumerError ServiceError
+  | ConsumerSessionError ConsumerFailure
   deriving stock (Eq, Show)
 
--- | Process one Pulsar envelope through the typed pipeline:
--- (1) compute the payload-hash `EventID`, (2) route by topic prefix to the
--- per-domain cache, (3) on first-seen dispatch the handler (caller-supplied,
--- IO action), (4) ack the envelope through `HasPulsar.pulsarAcknowledge`
--- only after dispatch succeeds. On dedup-hit, skip dispatch but still ack
--- (Pulsar redelivery semantics). A failed dispatch leaves the dedup cache
--- unchanged and seeks the subscription cursor back to the computed event id,
--- so redelivery cannot be mistaken for an already-applied side effect.
+-- | Handle one already-decoded delivery.  Dispatch failure leaves the semantic
+-- dedup cache untouched and requests a negative acknowledgement.  Successful
+-- dispatch inserts the semantic id before returning 'ack'; the persistent
+-- interpreter then settles that exact delivery receipt and confirms settlement
+-- before requesting another permit.
 consumerStep
-  :: (HasPulsar m, MonadIO m)
-  => SubscriptionId
-  -> HandlerRouter
-  -> TopicName
-  -> Text
-  -- ^ payload bytes (Pulsar message body)
-  -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
-  -- ^ per-domain dispatcher
-  -> m (HandlerRouter, ConsumerOutcome)
-consumerStep subscription router topic payload dispatch = do
-  consumerStepWithActions
-    subscription
-    router
-    topic
-    payload
-    (pulsarAcknowledge topic payload)
-    (pulsarSeek subscription)
-    dispatch
-
-consumerStepWithActions
   :: (MonadIO m)
-  => SubscriptionId
-  -> HandlerRouter
-  -> TopicName
-  -> Text
-  -- ^ payload bytes (Pulsar message body)
-  -> m (Either ServiceError ())
-  -- ^ explicit ack action for the concrete delivery
-  -> (Text -> m (Either ServiceError ()))
-  -- ^ cursor redelivery / seek action, called with the computed event id
-  -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
-  -- ^ per-domain dispatcher
-  -> m (HandlerRouter, ConsumerOutcome)
-consumerStepWithActions _subscription router topic payload ackDelivery seekDelivery dispatch = do
-  let eventId = eventIdFromPayload (Text.Encoding.encodeUtf8 payload)
-  case domainFor (unTopicName topic) of
-    Nothing -> do
-      ackResult <- ackDelivery
-      case ackResult of
-        Left err -> pure (router, ConsumerError err)
-        Right () -> pure (router, ConsumerSkippedUnroutable (unTopicName topic))
-    Just domain -> do
-      nowSeconds <- liftIO currentEpochSeconds
-      let (routerAfterInsert, isFresh) = routeByKindAt nowSeconds router domain eventId
-      if isFresh
-        then do
-          dispatchResult <- dispatch domain eventId payload
-          case dispatchResult of
-            Left err -> do
-              seekResult <- seekDelivery (unEventId eventId)
-              case seekResult of
-                Left seekErr -> pure (router, ConsumerError seekErr)
-                Right () -> pure (router, ConsumerError err)
-            Right () -> do
-              ackResult <- ackDelivery
-              case ackResult of
-                Left err -> pure (routerAfterInsert, ConsumerError err)
-                Right () -> pure (routerAfterInsert, ConsumerDispatched domain eventId)
-        else do
-          ackResult <- ackDelivery
-          case ackResult of
-            Left err -> pure (routerAfterInsert, ConsumerError err)
-            Right () -> pure (routerAfterInsert, ConsumerDeduplicated domain eventId)
+  => HandlerRouter
+  -> DaemonCommand
+  -> (DaemonCommand -> EventId -> m (Either ServiceError ()))
+  -> m (HandlerRouter, ConsumerOutcome, Disposition)
+consumerStep router command dispatch = do
+  nowSeconds <- liftIO currentEpochSeconds
+  consumerStepAt nowSeconds router command dispatch
 
--- | Map a `ConsumerOutcome` to an `AppError` for the daemon's exit path.
--- A dispatch/ack failure beyond the `RetryPolicy` budget surfaces `PulsarFailed`
--- per doctrine §Capability Classes and Service Errors. Successful
--- dispatch / dedup / skip outcomes return `Nothing`.
+-- | Commit one semantic dedup transition independently of surrounding batch
+-- work. If a later command is cancelled, 'modifyMVar' restores only that
+-- command's input state; earlier successful commands remain visible to a
+-- redelivery and cannot replay their external effects.
+consumerStepCommitted
+  :: MVar HandlerRouter
+  -> DaemonCommand
+  -> (DaemonCommand -> EventId -> IO (Either ServiceError ()))
+  -> IO (ConsumerOutcome, Disposition)
+consumerStepCommitted routerRef command dispatch =
+  modifyMVar routerRef $ \router -> do
+    (router', outcome, disposition) <- consumerStep router command dispatch
+    pure (router', (outcome, disposition))
+
+consumerStepAt
+  :: (Monad m)
+  => Int
+  -> HandlerRouter
+  -> DaemonCommand
+  -> (DaemonCommand -> EventId -> m (Either ServiceError ()))
+  -> m (HandlerRouter, ConsumerOutcome, Disposition)
+consumerStepAt nowSeconds router command dispatch = do
+  let domain = daemonCommandDomain command
+      freshRouter = expireRouterAt nowSeconds router
+  case daemonCommandEventId command of
+    Failure planErrors ->
+      let err =
+            SEConflict
+              ( "invalid semantic event identity: "
+                  <> Text.intercalate "; " (fmap (Text.pack . show) (NonEmpty.toList planErrors))
+              )
+       in pure
+            ( freshRouter
+            , ConsumerError err
+            , nack (HandlerRejected (renderServiceError err))
+            )
+    Success eventId ->
+      if eventKnownForDomain domain eventId freshRouter
+        then pure (freshRouter, ConsumerDeduplicated domain eventId, ack)
+        else do
+          dispatchResult <- dispatch command eventId
+          case dispatchResult of
+            Left err ->
+              pure
+                ( freshRouter
+                , ConsumerError err
+                , nack (HandlerRejected (renderServiceError err))
+                )
+            Right () ->
+              let (routerAfterInsert, _wasFresh) =
+                    routeByKindAt nowSeconds freshRouter domain eventId
+               in pure
+                    ( routerAfterInsert
+                    , ConsumerDispatched domain eventId
+                    , ack
+                    )
+
+eventKnownForDomain :: EventDomain -> EventId -> HandlerRouter -> Bool
+eventKnownForDomain domain eventId router =
+  dedupCacheKnown eventId $
+    case domain of
+      TrainingDomain -> trainingCache router
+      TuneDomain -> tuneCache router
+      RlDomain -> rlCache router
+      InferenceDomain -> inferenceCache router
+
 consumerOutcomeError :: ConsumerOutcome -> Maybe AppError
 consumerOutcomeError outcome =
   case outcome of
     ConsumerError serviceErr -> Just (serviceErrorToAppError serviceErr)
+    ConsumerSessionError (ConsumerTransportFailure failure) -> Just (SubprocessFailed failure)
+    ConsumerSessionError (ConsumerTransportContextFailure _context failure) ->
+      Just (SubprocessFailed failure)
+    ConsumerSessionError (ConsumerPipedActionFailure _context (ProcessFailed failure)) ->
+      Just (SubprocessFailed failure)
+    ConsumerSessionError (ConsumerCleanupContextFailure primaryFailure _cleanupError) ->
+      consumerOutcomeError (ConsumerSessionError primaryFailure)
+    ConsumerSessionError failure -> Just (PulsarFailed (Text.pack (show failure)))
     _ -> Nothing
 
--- | Drain the subscription cursor through `consumerStep` for `n` envelopes;
--- returns the final router state and the in-order outcome list. The daemon's
--- production loop calls this in an `infinitely`-style loop with batch
--- pulls; the bounded variant is what `jitml-daemon-lifecycle` uses to
--- assert the dispatcher + dedup behavior against a synthetic broker.
+-- | Bounded adapter used by @--consume-once@ and lifecycle tests.  The same
+-- persistent session handles every delivery; @Done@ settles the final receipt,
+-- requests drain, waits for @drained@, and only then returns.
 runConsumerLoop
   :: (HasPulsar m, MonadIO m)
-  => SubscriptionId
+  => DaemonSubscription
   -> HandlerRouter
   -> Int
-  -- ^ envelopes to pull
-  -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
-  -> m (HandlerRouter, [ConsumerOutcome])
-runConsumerLoop subscription router0 budget dispatch =
-  go router0 [] budget
- where
-  go router outcomes 0 = pure (router, reverse outcomes)
-  go router outcomes remaining = do
-    consumed <- pulsarConsume subscription
-    case consumed of
-      Left err -> pure (router, reverse (ConsumerError err : outcomes))
-      Right (topicText, payload) -> do
-        (router', outcome) <-
-          consumerStep subscription router (TopicName topicText) payload dispatch
-        go router' (outcome : outcomes) (remaining - 1)
+  -> (ConsumerSessionEvent -> m ())
+  -> (DaemonCommand -> EventId -> m (Either ServiceError ()))
+  -> m (Either ConsumerFailure (HandlerRouter, [ConsumerOutcome]))
+runConsumerLoop _subscription router0 budget _observe _dispatch
+  | budget <= 0 = pure (Right (router0, []))
+runConsumerLoop subscription router0 budget observe dispatch = do
+  routerRef <- liftIO (newIORef router0)
+  outcomesRef <- liftIO (newIORef [])
+  remainingRef <- liftIO (newIORef budget)
+  result <-
+    consumeDaemonSubscription subscription observe $ \command -> do
+      router <- liftIO (readIORef routerRef)
+      (router', outcome, disposition) <-
+        consumerStep router command dispatch
+      liftIO $ do
+        writeIORef routerRef router'
+        modifyIORef' outcomesRef (outcome :)
+      remaining <-
+        liftIO $
+          atomicModifyIORef' remainingRef $ \remaining ->
+            let next = max 0 (remaining - 1)
+             in (next, next)
+      pure $
+        if remaining == 0
+          then done disposition ()
+          else continue disposition
+  case result of
+    Left failure -> pure (Left failure)
+    Right () -> do
+      router <- liftIO (readIORef routerRef)
+      outcomes <- reverse <$> liftIO (readIORef outcomesRef)
+      pure (Right (router, outcomes))
 
 currentEpochSeconds :: IO Int
 currentEpochSeconds = do
   now <- epochTime
   pure (floor (realToFrac now :: Double))
+
+renderServiceError :: ServiceError -> Text
+renderServiceError err =
+  case err of
+    SEConflict message -> "conflict: " <> message
+    SEUnauthorized message -> "unauthorized: " <> message
+    SETimeout message -> "timeout: " <> message
+    SETransient message -> "transient: " <> message

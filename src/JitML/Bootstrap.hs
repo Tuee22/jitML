@@ -1,18 +1,39 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module JitML.Bootstrap
-  ( LiveExecutionResult (..)
+  ( AppPodImagePollDecision (..)
+  , TopicStatsPollDecision (..)
+  , LiveExecutionResult (..)
+  , LiveStepFailure (..)
+  , KindClusterPresence (..)
+  , LiveKindAction (..)
+  , appPodImageEvidenceMatchesLoadedImage
+  , appPodImagePollDecision
+  , appRolloutMatchesLoadedImage
   , bootstrapPlanSteps
   , cachedThirdPartyRolloutImages
   , hostBootConfigForPublication
   , livePhasedRolloutSubprocesses
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
+  , materializeBootstrapFilesForPort
+  , parseAppPodImageEvidence
+  , parseContainerdImageListDigest
+  , prepareLiveKindRecovery
+  , publicReadyzSubprocessForPort
   , readExistingLivePublication
+  , renderLiveStepFailure
+  , resolveKindClusterPresence
+  , selectLiveKindRecovery
   , selectLiveLease
+  , topicStatsPollDecision
+  , uniformImageId
   )
 where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (filterM, when)
 import Data.Aeson
   ( FromJSON (..)
@@ -22,13 +43,18 @@ import Data.Aeson
   , encode
   , object
   , withObject
+  , (.!=)
   , (.:)
+  , (.:?)
   , (.=)
   )
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.List (isPrefixOf, isSuffixOf)
+import Data.Char (isHexDigit)
+import Data.List (isPrefixOf, isSuffixOf, nub)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -43,7 +69,6 @@ import System.Directory
   , renameFile
   )
 import System.Environment (lookupEnv)
-import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
 import JitML.Cluster.DockerImage
@@ -57,15 +82,16 @@ import JitML.Cluster.Helm
   ( dependencyPackages
   , helmDependencyBuildSubprocess
   , helmInstallSubprocessForEdgePort
+  , helmInstallSubprocessForEdgePortNoWait
   , kindCreateKubeconfigPath
   , kindCreateSubprocess
+  , kindGetClustersSubprocess
   , phasedReleases
   , releaseName
   , renderHelmDependencyBuildPlan
   )
 import JitML.Cluster.Kind
   ( kindConfigForEdgePortAndWorkers
-  , kindConfigForWorkers
   , renderKindConfig
   , substrateKindNodeContainerNames
   )
@@ -80,10 +106,22 @@ import JitML.Cluster.Publication
   , markPublicationLive
   , publicationHasLiveEvidence
   , publicationWithLeasedPort
+  , requiredPublicationComponents
   )
 import JitML.Cluster.PulsarBootstrap (runPulsarTopicCreatesIO)
+import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Cluster.Readiness (platformReadinessSubprocesses, runMinioBucketReadinessIO)
 import JitML.Cluster.Readiness qualified as Readiness
+import JitML.Cluster.ReconcileStamp
+  ( LivePublicationObservation (..)
+  , ReconcileDecision (..)
+  , ReconcileEvidence (..)
+  , ReconcileObservation (..)
+  , ReconcileStamp (..)
+  , classifyReconcileObservation
+  , fingerprintWorkspace
+  , mkReconcileStamp
+  )
 import JitML.Cluster.Resources
   ( ClusterResources
   , clusterNodeCapSubprocesses
@@ -108,8 +146,15 @@ import JitML.Service.BootConfig
   , defaultBootConfig
   , renderBootConfigDhall
   )
-import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment, renderServiceRBAC)
+import JitML.Service.ConfigMap (renderServiceConfigMaps, renderServiceDeployment, renderServiceRBAC)
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
+import JitML.Sub.Outcome
+  ( ProcessFailure
+  , ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , renderProcessFailure
+  , renderProcessOutcome
+  )
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess
@@ -134,11 +179,21 @@ bootstrapPlanSteps substrate =
   , "install Harbor bootstrap phase"
   , "build jitml:local, retag jitml-demo:local, and load them into Kind"
   , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
+  , "reconcile app pods to the loaded image identities"
+  , "prove Engine, Coordinator, and public edge readiness"
   , "write ./.build/runtime/cluster-publication.json"
   ]
 
 materializeBootstrapFiles :: FilePath -> Substrate -> IO Bool
-materializeBootstrapFiles root substrate = do
+materializeBootstrapFiles root substrate =
+  materializeBootstrapFilesForPort root substrate (substrateEdgePort substrate)
+
+-- | Materialize every edge-coordinate-bearing input from one authoritative
+-- port. The public file-only materializer uses the substrate default, while a
+-- live retained-cluster reconcile supplies the port recovered from its
+-- publication before checking whether any input changed.
+materializeBootstrapFilesForPort :: FilePath -> Substrate -> Int -> IO Bool
+materializeBootstrapFilesForPort root substrate edgePort = do
   let buildRoot = root </> ".build"
       runtimeRoot = buildRoot </> "runtime"
       clusterConfRoot = buildRoot </> "conf" </> "cluster"
@@ -157,14 +212,16 @@ materializeBootstrapFiles root substrate = do
     sequence
       [ writeTextFileIfChanged
           (kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml")
-          (renderKindConfig (kindConfigForWorkers substrate (workerCount clusterResources)))
+          ( renderKindConfig
+              (kindConfigForEdgePortAndWorkers substrate edgePort (workerCount clusterResources))
+          )
       , writeTextFileIfChanged (chartTemplatesRoot </> "storageclass-jitml-manual.yaml") renderStorageClass
       , writeTextFileIfChanged (chartTemplatesRoot </> "gatewayclass-jitml.yaml") renderGatewayClass
       , writeTextFileIfChanged
           (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
-          (renderGateway (substrateEdgePort substrate))
+          (renderGateway edgePort)
       , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") $
-          renderEnvoyProxy (substrateEdgePort substrate)
+          renderEnvoyProxy edgePort
       ]
   pvResults <- traverse (materializePv chartTemplatesRoot) manualPVs
   -- Sprint 3.2 (reopened): when the manualPVs list shrinks (e.g., MinIO
@@ -188,16 +245,26 @@ materializeBootstrapFiles root substrate = do
           (clusterConfRoot </> "LiveConfig.dhall")
           (renderLiveConfigDhall defaultLiveConfig)
       , writeTextFileIfChanged (chartTemplatesRoot </> "configmap-jitml-service.yaml") $
-          renderServiceConfigMap clusterBoot defaultLiveConfig
+          renderServiceConfigMaps clusterBoot defaultLiveConfig
       , writeTextFileIfChanged (chartTemplatesRoot </> "deployment-jitml-service.yaml") $
           renderServiceDeployment substrate
       , writeTextFileIfChanged (chartTemplatesRoot </> "rbac-jitml-service.yaml") renderServiceRBAC
       ]
   hostResults <- case substrate of
     AppleSilicon ->
-      fmap (: []) $
-        writeTextFileIfChanged (hostConfRoot </> "apple-silicon.dhall") $
-          renderBootConfigDhall (hostBootConfigForPublication (defaultPublication AppleSilicon))
+      let lease =
+            EdgePort.EdgePortLease
+              { EdgePort.leasedPort = edgePort
+              , EdgePort.leasedHost = "127.0.0.1"
+              }
+          publication = publicationWithLeasedPort lease (defaultPublication AppleSilicon)
+       in sequence
+            [ writeTextFileIfChanged (hostConfRoot </> "apple-silicon.dhall") $
+                renderBootConfigDhall (hostBootConfigForPublication publication)
+            , writeTextFileIfChanged
+                (hostConfRoot </> "LiveConfig.dhall")
+                (renderLiveConfigDhall defaultLiveConfig)
+            ]
     _ -> pure []
   -- Sprint 2.14 — materialize the in-cluster Docker Hub imagePullSecret manifest
   -- from the host login (the credential lands only in this gitignored file).
@@ -238,10 +305,39 @@ materializeBootstrapFiles root substrate = do
 
 data LiveExecutionResult = LiveExecutionResult
   { liveStepsExecuted :: [Text]
-  , liveStepsFailed :: [(Text, Text)]
+  , liveStepsFailed :: [LiveStepFailure]
   , livePublication :: ClusterPublication
+  , liveAlreadyConverged :: Bool
   }
   deriving stock (Eq, Show)
+
+data LiveStepFailure
+  = LiveStepProcessFailure Text ProcessFailure
+  | LiveStepInvalidResult Text Text ProcessTranscript
+  | LiveStepInvariantFailure Text Text
+  deriving stock (Eq, Show)
+
+data KindClusterPresence
+  = KindClusterAbsent
+  | KindClusterPresent
+  deriving stock (Eq, Show)
+
+data LiveKindAction
+  = CreateLiveKindCluster
+  | ReuseLiveKindCluster
+  deriving stock (Eq, Show)
+
+renderLiveStepFailure :: LiveStepFailure -> Text
+renderLiveStepFailure (LiveStepProcessFailure label failure) =
+  label <> ":\n" <> renderProcessFailure failure
+renderLiveStepFailure (LiveStepInvalidResult label message transcript) =
+  label
+    <> ": "
+    <> message
+    <> "\n"
+    <> renderProcessOutcome (ProcessSucceeded transcript)
+renderLiveStepFailure (LiveStepInvariantFailure label message) =
+  label <> ": " <> message
 
 livePhasedRolloutSubprocesses :: Substrate -> FilePath -> [Subprocess]
 livePhasedRolloutSubprocesses substrate =
@@ -283,14 +379,22 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
 
 livePostGrantSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
 livePostGrantSubprocessesForPort substrate edgePort chartPath =
+  livePostGrantApplySubprocessesForPort substrate edgePort chartPath
+    <> livePostGrantReadinessSubprocesses edgePort
+
+livePostGrantApplySubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
+livePostGrantApplySubprocessesForPort substrate edgePort chartPath =
   concatMap releaseSteps harborApplicationReleases
     <> mirrorBuildSteps substrate
     <> concatMap releaseSteps remainingReleases
     <> observabilityManifestApplySubprocesses chartPath
-    <> platformReadinessSubprocesses
     <> edgeManifestApplySubprocesses chartPath
  where
-  releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
+  releaseSteps release =
+    [ if releaseName release `elem` repoAppReleaseNames
+        then helmInstallSubprocessForEdgePortNoWait substrate edgePort release chartPath
+        else helmInstallSubprocessForEdgePort substrate edgePort release chartPath
+    ]
   harborApplicationReleases = filter ((== "harbor") . releaseName) phasedReleases
   remainingReleases =
     filter
@@ -300,6 +404,11 @@ livePostGrantSubprocessesForPort substrate edgePort chartPath =
             && releaseName release /= "minio"
       )
       phasedReleases
+  repoAppReleaseNames = ["jitml-service", "jitml-demo"]
+
+livePostGrantReadinessSubprocesses :: Int -> [Subprocess]
+livePostGrantReadinessSubprocesses edgePort =
+  platformReadinessSubprocesses <> [publicReadyzSubprocessForPort edgePort]
 
 livePhasedRolloutSubprocessesForPort
   :: Substrate -> Int -> ClusterResources -> FilePath -> [Subprocess]
@@ -486,6 +595,34 @@ edgeManifestApplySubprocesses chartPath =
  where
   templatePath fileName = chartPath </> "templates" </> fileName
 
+-- | Prove the complete public edge path after the Gateway and HTTPRoutes have
+-- been applied. The @jitml-service@ Service selects only the Coordinator, so a
+-- successful fail-on-HTTP-error request proves Gateway admission, Service
+-- routing, and the Coordinator's dynamic readiness state before publication.
+-- Curl's per-attempt and aggregate limits keep this a bounded typed subprocess;
+-- no shell retry loop or stringly status parsing is involved.
+publicReadyzSubprocessForPort :: Int -> Subprocess
+publicReadyzSubprocessForPort edgePort =
+  subprocess
+    "curl"
+    [ "--fail"
+    , "--silent"
+    , "--show-error"
+    , "--connect-timeout"
+    , "5"
+    , "--max-time"
+    , "10"
+    , "--retry"
+    , "30"
+    , "--retry-delay"
+    , "2"
+    , "--retry-max-time"
+    , "180"
+    , "--retry-connrefused"
+    , "--retry-all-errors"
+    , "http://127.0.0.1:" <> Text.pack (show edgePort) <> "/readyz"
+    ]
+
 observabilityManifestApplySubprocesses :: FilePath -> [Subprocess]
 observabilityManifestApplySubprocesses chartPath =
   fmap
@@ -608,7 +745,7 @@ postgresClusterApplySubprocess cluster =
 -- -c@ that captured the primary pod name via @$(kubectl ... jsonpath)@ and
 -- then exec'd @psql -c \"GRANT ...\"@. Two typed @kubectl@ subprocesses; the
 -- pod-name capture happens in Haskell via @runStreaming@'s stdout result.
-postgresSchemaGrantIO :: PerconaPGCluster -> IO (Either Text ())
+postgresSchemaGrantIO :: PerconaPGCluster -> IO (Either LiveStepFailure ())
 postgresSchemaGrantIO cluster = do
   let ns = perconaNamespace cluster
       cn = perconaClusterName cluster
@@ -629,14 +766,22 @@ postgresSchemaGrantIO cluster = do
           , "-o"
           , "jsonpath={.items[0].metadata.name}"
           ]
-  (getCode, getStdout, getStderr) <- runStreaming defaultSubprocessEnv getPodSub
-  case getCode of
-    ExitFailure _ ->
-      pure (Left ("postgres get-primary " <> cn <> ": " <> getStderr))
-    ExitSuccess ->
-      let podName = Text.strip getStdout
+  getOutcome <- runStreaming defaultSubprocessEnv getPodSub
+  case getOutcome of
+    ProcessFailed failure ->
+      pure (Left (LiveStepProcessFailure ("postgres get-primary " <> cn) failure))
+    ProcessSucceeded transcript ->
+      let podName = Text.strip (processTranscriptStdout transcript)
        in if Text.null podName
-            then pure (Left ("postgres get-primary " <> cn <> ": empty pod name"))
+            then
+              pure
+                ( Left
+                    ( LiveStepInvalidResult
+                        ("postgres get-primary " <> cn)
+                        "empty pod name"
+                        transcript
+                    )
+                )
             else do
               let psqlSub =
                     subprocess
@@ -668,16 +813,16 @@ postgresSchemaGrantIO cluster = do
                           <> db
                           <> ";"
                       ]
-              (psqlCode, _, psqlStderr) <- runStreaming defaultSubprocessEnv psqlSub
-              case psqlCode of
-                ExitSuccess -> pure (Right ())
-                ExitFailure _ ->
-                  pure (Left ("postgres schema grant " <> cn <> ": " <> psqlStderr))
+              psqlOutcome <- runStreaming defaultSubprocessEnv psqlSub
+              case psqlOutcome of
+                ProcessSucceeded _ -> pure (Right ())
+                ProcessFailed failure ->
+                  pure (Left (LiveStepProcessFailure ("postgres schema grant " <> cn) failure))
 
 -- | Run all postgres schema grants in registry order, returning the first
 -- failure as @Left@. Equivalent to the former @postgresSchemaGrantSubprocesses@
 -- list except that command-substitution lives in Haskell, not @sh -c@.
-runPostgresSchemaGrantsIO :: IO (Either Text ())
+runPostgresSchemaGrantsIO :: IO (Either LiveStepFailure ())
 runPostgresSchemaGrantsIO = go postgresRegistry
  where
   go [] = pure (Right ())
@@ -712,6 +857,801 @@ hostBootConfigForPublication publication =
  where
   portText = Text.pack (show (publicationEdgePort publication))
 
+data RepoAppImageSpec = RepoAppImageSpec
+  { repoAppDeployment :: Text
+  , repoAppLabel :: Text
+  , repoAppImageTag :: Text
+  }
+
+repoAppImageSpecs :: Substrate -> [RepoAppImageSpec]
+repoAppImageSpecs substrate =
+  engineSpec
+    <> [ RepoAppImageSpec "jitml-coordinator" "jitml-coordinator" "jitml:local"
+       , RepoAppImageSpec "jitml-demo" "jitml-demo" "jitml-demo:local"
+       ]
+ where
+  engineSpec =
+    case substrate of
+      AppleSilicon -> []
+      LinuxCPU -> [RepoAppImageSpec "jitml-service" "jitml-service" "jitml:local"]
+      LinuxCUDA -> [RepoAppImageSpec "jitml-service" "jitml-service" "jitml:local"]
+
+newtype AppPodList = AppPodList [AppPodObservation]
+
+instance FromJSON AppPodList where
+  parseJSON =
+    withObject "AppPodList" $ \root ->
+      AppPodList <$> root .: "items"
+
+data AppPodObservation = AppPodObservation
+  { appPodDeletionTimestamp :: Maybe Text
+  , appPodContainerStatuses :: [AppContainerObservation]
+  }
+
+instance FromJSON AppPodObservation where
+  parseJSON =
+    withObject "AppPodObservation" $ \pod -> do
+      metadata <- pod .: "metadata"
+      status <- pod .: "status"
+      AppPodObservation
+        <$> withObject
+          "AppPodMetadata"
+          (.:? "deletionTimestamp")
+          metadata
+        <*> withObject
+          "AppPodStatus"
+          (\statusObject -> statusObject .:? "containerStatuses" .!= [])
+          status
+
+data AppContainerObservation = AppContainerObservation
+  { appContainerReady :: Bool
+  , appContainerImageId :: Text
+  }
+
+instance FromJSON AppContainerObservation where
+  parseJSON =
+    withObject "AppContainerObservation" $ \container ->
+      AppContainerObservation
+        <$> container .: "ready"
+        <*> container .: "imageID"
+
+data AppPodImageEvidence = AppPodImageEvidence
+  { appPodActiveImageIds :: [Text]
+  , appPodTerminatingImageIds :: [Text]
+  , appPodIncompleteActiveCount :: Int
+  }
+  deriving (Eq, Show)
+
+-- | Parse the exact image state of every label-matching repo-owned app pod.
+-- Deployment rollout completion and Pod-object deletion are separate events,
+-- so terminating pods remain explicit evidence until the API object is gone.
+-- Active pods are complete only when they expose exactly one ready container
+-- with a concrete SHA-256 config digest.
+parseAppPodImageEvidence :: Text -> Maybe AppPodImageEvidence
+parseAppPodImageEvidence output = do
+  AppPodList pods <-
+    decode (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 output))
+  observations <- traverse observePod pods
+  pure
+    AppPodImageEvidence
+      { appPodActiveImageIds = concatMap activeIds observations
+      , appPodTerminatingImageIds = concatMap terminatingIds observations
+      , appPodIncompleteActiveCount = sum (fmap incompleteActive observations)
+      }
+ where
+  observePod pod
+    | isJust (appPodDeletionTimestamp pod) =
+        Just
+          PodImageObservation
+            { activeIds = []
+            , terminatingIds = containerImageIds pod
+            , incompleteActive = 0
+            }
+    | otherwise =
+        case appPodContainerStatuses pod of
+          [container]
+            | let imageId = Text.strip (appContainerImageId container) ->
+                Just
+                  PodImageObservation
+                    { activeIds = [imageId]
+                    , terminatingIds = []
+                    , incompleteActive =
+                        if appContainerReady container && validSha256Digest imageId
+                          then 0
+                          else 1
+                    }
+          _ ->
+            Just
+              PodImageObservation
+                { activeIds = containerImageIds pod
+                , terminatingIds = []
+                , incompleteActive = 1
+                }
+
+  containerImageIds =
+    fmap (Text.strip . appContainerImageId) . appPodContainerStatuses
+
+data PodImageObservation = PodImageObservation
+  { activeIds :: [Text]
+  , terminatingIds :: [Text]
+  , incompleteActive :: Int
+  }
+
+appPodImageEvidenceMatchesLoadedImage
+  :: Int
+  -> Text
+  -> AppPodImageEvidence
+  -> Bool
+appPodImageEvidenceMatchesLoadedImage expectedReplicas expectedImageId evidence =
+  null (appPodTerminatingImageIds evidence)
+    && appPodIncompleteActiveCount evidence == 0
+    && appRolloutMatchesLoadedImage
+      expectedReplicas
+      expectedImageId
+      (appPodActiveImageIds evidence)
+
+data AppPodImagePollDecision
+  = AppPodImageConverged
+  | AppPodImageRetry
+  | AppPodImageExhausted
+  deriving (Eq, Show)
+
+appPodImagePollDecision
+  :: Int
+  -> Text
+  -> Int
+  -> AppPodImageEvidence
+  -> AppPodImagePollDecision
+appPodImagePollDecision expectedReplicas expectedImageId attemptsRemaining evidence
+  | appPodImageEvidenceMatchesLoadedImage expectedReplicas expectedImageId evidence =
+      AppPodImageConverged
+  | attemptsRemaining > 1 = AppPodImageRetry
+  | otherwise = AppPodImageExhausted
+
+-- | Decide whether the complete ready pod set already resolves the mutable
+-- local tag to the image identity loaded into Kind. A same-tag rebuild is not
+-- a Kubernetes template change, so bootstrap uses this predicate after Helm
+-- and rolls only workloads whose observed config IDs are stale or incomplete.
+appRolloutMatchesLoadedImage :: Int -> Text -> [Text] -> Bool
+appRolloutMatchesLoadedImage expectedReplicas expectedImageId observedImageIds =
+  expectedReplicas > 0
+    && length observedImageIds == expectedReplicas
+    && all (== expectedImageId) observedImageIds
+
+reconcileStampPath :: FilePath -> FilePath
+reconcileStampPath root =
+  root </> ".build" </> "runtime" </> "cluster-reconcile-stamp.json"
+
+readReconcileStamp :: FilePath -> IO (Maybe ReconcileStamp)
+readReconcileStamp root = do
+  let path = reconcileStampPath root
+  exists <- doesFileExist path
+  if exists
+    then decode <$> LazyByteString.readFile path
+    else pure Nothing
+
+writeReconcileStamp :: FilePath -> ReconcileStamp -> IO Bool
+writeReconcileStamp root stamp = do
+  let path = reconcileStampPath root
+  createDirectoryIfMissing True (root </> ".build" </> "runtime")
+  writeLazyByteStringIfChanged path (encode stamp)
+
+localDockerImageInspectSubprocess :: Text -> Subprocess
+localDockerImageInspectSubprocess imageTag =
+  subprocess
+    "docker"
+    [ "image"
+    , "inspect"
+    , "--format={{.Descriptor.digest}}"
+    , imageTag
+    ]
+
+kindNodeImageInspectSubprocess :: Text -> Text -> Subprocess
+kindNodeImageInspectSubprocess nodeName imageTag =
+  subprocess
+    "docker"
+    [ "exec"
+    , nodeName
+    , "crictl"
+    , "inspecti"
+    , imageTag
+    ]
+
+kindNodeImageManifestInspectSubprocess :: Text -> Text -> Subprocess
+kindNodeImageManifestInspectSubprocess nodeName imageTag =
+  subprocess
+    "docker"
+    [ "exec"
+    , nodeName
+    , "ctr"
+    , "-n"
+    , "k8s.io"
+    , "images"
+    , "ls"
+    , "name==" <> containerdImageReference imageTag
+    ]
+
+containerdImageReference :: Text -> Text
+containerdImageReference imageTag
+  | "/" `Text.isInfixOf` imageTag = imageTag
+  | otherwise = "docker.io/library/" <> imageTag
+
+-- | Extract the exact OCI target digest from one filtered @ctr images ls@
+-- result. The header is ignored because its digest column is not a SHA-256;
+-- multiple matching rows are rejected instead of selecting one ambiguously.
+parseContainerdImageListDigest :: Text -> Maybe Text
+parseContainerdImageListDigest output =
+  case [ digest
+       | line <- Text.lines output
+       , _reference : _mediaType : digest : _ <- [Text.words line]
+       , validSha256Digest digest
+       ] of
+    [digest] -> Just digest
+    _ -> Nothing
+
+validSha256Digest :: Text -> Bool
+validSha256Digest digest =
+  case Text.stripPrefix "sha256:" digest of
+    Just hexadecimal ->
+      Text.length hexadecimal == 64 && Text.all isHexDigit hexadecimal
+    Nothing -> False
+
+inspectLocalDockerImageIdIO :: Text -> IO (Either LiveStepFailure Text)
+inspectLocalDockerImageIdIO imageTag = do
+  let command = localDockerImageInspectSubprocess imageTag
+      label = renderSubprocess command
+  outcome <- runStreaming defaultSubprocessEnv command
+  pure $
+    case outcome of
+      ProcessFailed failure -> Left (LiveStepProcessFailure label failure)
+      ProcessSucceeded transcript ->
+        let imageId = Text.strip (processTranscriptStdout transcript)
+         in if Text.null imageId
+              then Left (LiveStepInvalidResult label "empty image identity" transcript)
+              else Right imageId
+
+inspectKindNodeImageIdIO :: Text -> Text -> IO (Maybe Text)
+inspectKindNodeImageIdIO nodeName imageTag = do
+  outcome <-
+    runStreaming
+      defaultSubprocessEnv
+      (kindNodeImageInspectSubprocess nodeName imageTag)
+  pure $
+    case outcome of
+      ProcessFailed _ -> Nothing
+      ProcessSucceeded transcript ->
+        case eitherDecode
+          (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 (processTranscriptStdout transcript))) of
+          Right (Object root)
+            | Just (Object status) <- KeyMap.lookup "status" root
+            , Just (String imageId) <- KeyMap.lookup "id" status
+            , not (Text.null (Text.strip imageId)) ->
+                Just (Text.strip imageId)
+          _ -> Nothing
+
+inspectKindNodeImageManifestIdIO :: Text -> Text -> IO (Maybe Text)
+inspectKindNodeImageManifestIdIO nodeName imageTag = do
+  outcome <-
+    runStreaming
+      defaultSubprocessEnv
+      (kindNodeImageManifestInspectSubprocess nodeName imageTag)
+  pure $
+    case outcome of
+      ProcessFailed _ -> Nothing
+      ProcessSucceeded transcript ->
+        parseContainerdImageListDigest (processTranscriptStdout transcript)
+
+repoAppImageTags :: Substrate -> [Text]
+repoAppImageTags = nub . fmap repoAppImageTag . repoAppImageSpecs
+
+repoAppImageIdsIO :: Substrate -> IO (Either LiveStepFailure (Map Text Text))
+repoAppImageIdsIO substrate = go Map.empty (repoAppImageTags substrate)
+ where
+  go imageIds [] = pure (Right imageIds)
+  go imageIds (imageTag : rest) = do
+    inspected <- inspectLocalDockerImageIdIO imageTag
+    case inspected of
+      Left failure -> pure (Left failure)
+      Right imageId -> go (Map.insert imageTag imageId imageIds) rest
+
+buildExpectedReconcileStampIO
+  :: FilePath
+  -> Substrate
+  -> Int
+  -> IO (Either LiveStepFailure ReconcileStamp)
+buildExpectedReconcileStampIO root substrate edgePort = do
+  fingerprint <- fingerprintWorkspace root
+  imageIdsResult <- repoAppImageIdsIO substrate
+  pure $ do
+    imageIds <- imageIdsResult
+    case mkReconcileStamp substrate edgePort fingerprint imageIds of
+      Left message ->
+        Left (LiveStepInvariantFailure "cluster reconcile stamp" message)
+      Right stamp -> Right stamp
+
+releaseConvergenceEvidenceIO :: IO ReconcileEvidence
+releaseConvergenceEvidenceIO = do
+  let expected = fmap releaseName phasedReleases
+  statuses <- traverse measureHelmRelease expected
+  pure
+    ReconcileEvidence
+      { reconcileEvidenceExpected = expected
+      , reconcileEvidenceObserved =
+          fmap (\(release, status) -> (release, status == "deployed")) statuses
+      }
+
+readinessConvergenceEvidence :: ClusterPublication -> ReconcileEvidence
+readinessConvergenceEvidence publication =
+  ReconcileEvidence
+    { reconcileEvidenceExpected =
+        requiredPublicationComponents (publicationSubstrate publication)
+    , reconcileEvidenceObserved =
+        fmap (\(name, status) -> (name, status == "ready")) (publicationComponents publication)
+    }
+
+data TopicStatsPollDecision
+  = TopicStatsObserved
+  | TopicStatsRetry
+  | TopicStatsExhausted
+  deriving stock (Eq, Show)
+
+topicStatsPollDecision :: Int -> Maybe Text -> TopicStatsPollDecision
+topicStatsPollDecision attemptsRemaining capturedStdout
+  | maybe False topicStatsJsonObject capturedStdout = TopicStatsObserved
+  | attemptsRemaining <= 1 = TopicStatsExhausted
+  | otherwise = TopicStatsRetry
+ where
+  topicStatsJsonObject output =
+    case eitherDecode
+      ( LazyByteString.fromStrict
+          (Text.Encoding.encodeUtf8 output)
+      ) of
+      Right (Object _) -> True
+      _ -> False
+
+topicConvergenceEvidenceIO :: IO ReconcileEvidence
+topicConvergenceEvidenceIO = do
+  observed <- mapConcurrently observeTopic PulsarBootstrap.pulsarTopics
+  pure
+    ReconcileEvidence
+      { reconcileEvidenceExpected = fmap fst observed
+      , reconcileEvidenceObserved = observed
+      }
+ where
+  observeTopic topic =
+    (PulsarBootstrap.topicName topic,) <$> probeTopic (3 :: Int) topic
+  probeTopic attemptsRemaining topic = do
+    outcome <-
+      runStreaming
+        defaultSubprocessEnv
+        (PulsarBootstrap.pulsarTopicStatsSubprocess topic)
+    let capturedStdout =
+          case outcome of
+            ProcessSucceeded transcript -> Just (processTranscriptStdout transcript)
+            ProcessFailed _ -> Nothing
+    case topicStatsPollDecision attemptsRemaining capturedStdout of
+      TopicStatsObserved -> pure True
+      TopicStatsExhausted -> pure False
+      TopicStatsRetry -> do
+        threadDelay 500_000
+        probeTopic (attemptsRemaining - 1) topic
+
+nodeImageConvergenceEvidenceIO
+  :: Substrate
+  -> ClusterResources
+  -> Map Text Text
+  -> IO (ReconcileEvidence, Map Text Text)
+nodeImageConvergenceEvidenceIO substrate resources expectedImageIds = do
+  let nodeNames =
+        substrateKindNodeContainerNames substrate (workerCount resources)
+      imageTags = repoAppImageTags substrate
+      nodeImagePairs =
+        [ (nodeName, imageTag)
+        | nodeName <- nodeNames
+        , imageTag <- imageTags
+        ]
+      expected =
+        concatMap
+          ( \(nodeName, imageTag) ->
+              let (manifestLabel, configLabel) =
+                    nodeImageEvidenceLabels nodeName imageTag
+               in [manifestLabel, configLabel]
+          )
+          nodeImagePairs
+  manifestIds <-
+    traverse
+      ( \pair@(nodeName, imageTag) ->
+          (pair,) <$> inspectKindNodeImageManifestIdIO nodeName imageTag
+      )
+      nodeImagePairs
+  configIds <-
+    traverse
+      ( \pair@(nodeName, imageTag) ->
+          (pair,) <$> inspectKindNodeImageIdIO nodeName imageTag
+      )
+      nodeImagePairs
+  let uniformConfigIds =
+        Map.fromList
+          [ (imageTag, configId)
+          | imageTag <- imageTags
+          , Just configId <-
+              [ uniformImageId
+                  [ configId
+                  | ((_, observedTag), configId) <- configIds
+                  , observedTag == imageTag
+                  ]
+              ]
+          ]
+      observed =
+        concatMap
+          ( \pair@(nodeName, imageTag) ->
+              let (manifestLabel, configLabel) =
+                    nodeImageEvidenceLabels nodeName imageTag
+                  manifestMatches =
+                    case (lookup pair manifestIds, Map.lookup imageTag expectedImageIds) of
+                      (Just (Just actual), Just expectedId) -> actual == expectedId
+                      _ -> False
+                  configMatches =
+                    case (lookup pair configIds, Map.lookup imageTag uniformConfigIds) of
+                      (Just (Just actual), Just expectedId) -> actual == expectedId
+                      _ -> False
+               in [
+                    ( manifestLabel
+                    , manifestMatches
+                    )
+                  ,
+                    ( configLabel
+                    , configMatches
+                    )
+                  ]
+          )
+          nodeImagePairs
+  pure
+    ( ReconcileEvidence
+        { reconcileEvidenceExpected = expected
+        , reconcileEvidenceObserved = observed
+        }
+    , uniformConfigIds
+    )
+
+nodeImageEvidenceLabels :: Text -> Text -> (Text, Text)
+nodeImageEvidenceLabels nodeName imageTag =
+  ( nodeName <> "/" <> imageTag <> "/oci-target"
+  , nodeName <> "/" <> imageTag <> "/config"
+  )
+
+uniformImageId :: [Maybe Text] -> Maybe Text
+uniformImageId values =
+  case sequence values of
+    Just (first : rest)
+      | not (Text.null (Text.strip first))
+      , all (== first) rest ->
+          Just first
+    _ -> Nothing
+
+appImageConvergenceEvidenceIO
+  :: Substrate
+  -> Map Text Text
+  -> IO ReconcileEvidence
+appImageConvergenceEvidenceIO substrate expectedImageIds = do
+  let specs = repoAppImageSpecs substrate
+      expected = fmap repoAppDeployment specs
+  observed <- traverse observe specs
+  pure
+    ReconcileEvidence
+      { reconcileEvidenceExpected = expected
+      , reconcileEvidenceObserved = observed
+      }
+ where
+  observe spec = do
+    replicaOutcome <-
+      runStreaming
+        defaultSubprocessEnv
+        (appDeploymentReplicaCountSubprocess (repoAppDeployment spec))
+    imageOutcome <-
+      runStreaming
+        defaultSubprocessEnv
+        (appPodEvidenceSubprocess (repoAppLabel spec))
+    let expectedImageId = Map.lookup (repoAppImageTag spec) expectedImageIds
+        expectedReplicas =
+          case replicaOutcome of
+            ProcessFailed _ -> Nothing
+            ProcessSucceeded transcript ->
+              case reads (Text.unpack (Text.strip (processTranscriptStdout transcript))) of
+                [(replicaCount, "")] | replicaCount > 0 -> Just replicaCount
+                _ -> Nothing
+        observedEvidence =
+          case imageOutcome of
+            ProcessFailed _ -> Nothing
+            ProcessSucceeded transcript ->
+              parseAppPodImageEvidence (processTranscriptStdout transcript)
+        current =
+          case (expectedReplicas, expectedImageId, observedEvidence) of
+            (Just replicas, Just imageId, Just evidence) ->
+              appPodImageEvidenceMatchesLoadedImage replicas imageId evidence
+            _ -> False
+    pure (repoAppDeployment spec, current)
+
+data LiveConvergenceObservation
+  = LiveClusterAlreadyConverged ClusterPublication
+  | LiveClusterNeedsReconcile Text
+
+observeLiveConvergenceIO
+  :: FilePath
+  -> Substrate
+  -> ClusterResources
+  -> LiveKindAction
+  -> Int
+  -> Bool
+  -> IO LiveConvergenceObservation
+observeLiveConvergenceIO root substrate resources kindAction edgePort materializationChanged =
+  case kindAction of
+    CreateLiveKindCluster ->
+      pure (LiveClusterNeedsReconcile "target Kind cluster is absent")
+    ReuseLiveKindCluster
+      | materializationChanged ->
+          pure (LiveClusterNeedsReconcile "port-aware materialization changed")
+      | otherwise -> do
+          publicationState <- readExistingPublicationState root
+          persistedStamp <- readReconcileStamp root
+          expectedStampResult <- buildExpectedReconcileStampIO root substrate edgePort
+          case (publicationState, expectedStampResult) of
+            (ExistingPublicationValid publication, Right expectedStamp) -> do
+              measuredPublication <- measureLivePublication publication
+              releaseEvidence <- releaseConvergenceEvidenceIO
+              topicEvidence <- topicConvergenceEvidenceIO
+              let expectedImageIds = reconcileStampRepoAppImageIds expectedStamp
+              (nodeImageEvidence, liveConfigImageIds) <-
+                nodeImageConvergenceEvidenceIO substrate resources expectedImageIds
+              appImageEvidence <-
+                appImageConvergenceEvidenceIO substrate liveConfigImageIds
+              let publicationObservation
+                    | publicationSubstrate publication /= substrate =
+                        LivePublicationInvalid "publication substrate does not match"
+                    | publicationEdgePort publication /= edgePort =
+                        LivePublicationInvalid "publication edge port does not match"
+                    | not (publicationHasLiveEvidence publication) =
+                        LivePublicationNotReady "persisted publication lacks live evidence"
+                    | publicationHasLiveEvidence measuredPublication =
+                        LivePublicationReady
+                    | otherwise =
+                        LivePublicationNotReady (renderIncompletePublication measuredPublication)
+                  observation =
+                    ReconcileObservation
+                      { reconcileExpectedStamp = expectedStamp
+                      , reconcilePersistedStamp = persistedStamp
+                      , reconcileLivePublication = publicationObservation
+                      , reconcileReleaseEvidence = releaseEvidence
+                      , reconcileReadinessEvidence =
+                          readinessConvergenceEvidence measuredPublication
+                      , reconcileTopicEvidence = topicEvidence
+                      , reconcileNodeImageEvidence = nodeImageEvidence
+                      , reconcileAppImageEvidence = appImageEvidence
+                      , reconcilePortAwareMaterializationUnchanged = True
+                      }
+              pure $
+                case classifyReconcileObservation observation of
+                  AlreadyConverged -> LiveClusterAlreadyConverged publication
+                  NeedsReconcile reasons ->
+                    LiveClusterNeedsReconcile (Text.pack (show reasons))
+            (ExistingPublicationMissing, _) ->
+              pure (LiveClusterNeedsReconcile "cluster publication is missing")
+            (ExistingPublicationInvalid message, _) ->
+              pure (LiveClusterNeedsReconcile ("cluster publication is invalid: " <> message))
+            (_, Left failure) ->
+              pure (LiveClusterNeedsReconcile (renderLiveStepFailure failure))
+
+kindImageInspectSubprocess :: Substrate -> Text -> Subprocess
+kindImageInspectSubprocess substrate imageTag =
+  subprocess
+    "docker"
+    [ "exec"
+    , substrateClusterName substrate <> "-control-plane"
+    , "crictl"
+    , "inspecti"
+    , imageTag
+    ]
+
+appPodEvidenceSubprocess :: Text -> Subprocess
+appPodEvidenceSubprocess appLabel =
+  subprocess
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "get"
+    , "pod"
+    , "-n"
+    , "platform"
+    , "-l"
+    , "app=" <> appLabel
+    , "-o"
+    , "json"
+    ]
+
+appDeploymentReplicaCountSubprocess :: Text -> Subprocess
+appDeploymentReplicaCountSubprocess deployment =
+  subprocess
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "get"
+    , "deployment/" <> deployment
+    , "-n"
+    , "platform"
+    , "-o"
+    , "jsonpath={.spec.replicas}"
+    ]
+
+appRolloutRestartSubprocess :: Text -> Subprocess
+appRolloutRestartSubprocess deployment =
+  subprocess
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "rollout"
+    , "restart"
+    , "deployment/" <> deployment
+    , "-n"
+    , "platform"
+    ]
+
+appRolloutStatusSubprocess :: Text -> Subprocess
+appRolloutStatusSubprocess deployment =
+  subprocess
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "rollout"
+    , "status"
+    , "deployment/" <> deployment
+    , "-n"
+    , "platform"
+    , "--timeout=300s"
+    ]
+
+runRepoAppImageReconcileIO :: Substrate -> IO (Either LiveStepFailure [Text])
+runRepoAppImageReconcileIO substrate = go [] (repoAppImageSpecs substrate)
+ where
+  go executed [] = pure (Right (reverse executed))
+  go executed (spec : rest) = do
+    expectedResult <- inspectExpectedImage spec
+    case expectedResult of
+      Left failure -> pure (Left failure)
+      Right (expectedImageId, expectedLabel) -> do
+        replicaResult <- inspectExpectedReplicas spec
+        case replicaResult of
+          Left failure -> pure (Left failure)
+          Right (expectedReplicas, replicaLabel) -> do
+            observedResult <- inspectObservedImages spec
+            case observedResult of
+              Left failure -> pure (Left failure)
+              Right (observedEvidence, observedLabel) ->
+                if appPodImageEvidenceMatchesLoadedImage
+                  expectedReplicas
+                  expectedImageId
+                  observedEvidence
+                  then
+                    go
+                      ( ( "app image reconcile "
+                            <> repoAppDeployment spec
+                            <> " already current at "
+                            <> expectedImageId
+                        )
+                          : observedLabel
+                          : replicaLabel
+                          : expectedLabel
+                          : executed
+                      )
+                      rest
+                  else do
+                    rolloutResult <- rollAndVerify spec expectedReplicas expectedImageId
+                    case rolloutResult of
+                      Left failure -> pure (Left failure)
+                      Right rolloutLabels ->
+                        go
+                          ( reverse rolloutLabels
+                              <> (observedLabel : replicaLabel : expectedLabel : executed)
+                          )
+                          rest
+
+  inspectExpectedImage spec = do
+    let command = kindImageInspectSubprocess substrate (repoAppImageTag spec)
+        label = renderSubprocess command
+    outcome <- runStreaming defaultSubprocessEnv command
+    pure $
+      case outcome of
+        ProcessFailed failure -> Left (LiveStepProcessFailure label failure)
+        ProcessSucceeded transcript ->
+          case eitherDecode
+            (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 (processTranscriptStdout transcript))) of
+            Right (Object root)
+              | Just (Object status) <- KeyMap.lookup "status" root
+              , Just (String imageId) <- KeyMap.lookup "id" status
+              , not (Text.null (Text.strip imageId)) ->
+                  Right (Text.strip imageId, label)
+            _ -> Left (LiveStepInvalidResult label "missing status.id image identity" transcript)
+
+  inspectExpectedReplicas spec = do
+    let command = appDeploymentReplicaCountSubprocess (repoAppDeployment spec)
+        label = renderSubprocess command
+    outcome <- runStreaming defaultSubprocessEnv command
+    pure $
+      case outcome of
+        ProcessFailed failure -> Left (LiveStepProcessFailure label failure)
+        ProcessSucceeded transcript ->
+          case reads (Text.unpack (Text.strip (processTranscriptStdout transcript))) of
+            [(replicaCount, "")]
+              | replicaCount > 0 -> Right (replicaCount, label)
+            _ -> Left (LiveStepInvalidResult label "missing positive spec.replicas" transcript)
+
+  inspectObservedImages spec = do
+    let command = appPodEvidenceSubprocess (repoAppLabel spec)
+        label = renderSubprocess command
+    outcome <- runStreaming defaultSubprocessEnv command
+    pure $
+      case outcome of
+        ProcessFailed failure -> Left (LiveStepProcessFailure label failure)
+        ProcessSucceeded transcript ->
+          case parseAppPodImageEvidence (processTranscriptStdout transcript) of
+            Just evidence -> Right (evidence, label)
+            Nothing ->
+              Left
+                ( LiveStepInvalidResult
+                    label
+                    "app pod evidence is not valid Kubernetes PodList JSON"
+                    transcript
+                )
+
+  rollAndVerify spec expectedReplicas expectedImageId = do
+    restartOutcome <- runStreaming defaultSubprocessEnv restartCommand
+    case restartOutcome of
+      ProcessFailed failure ->
+        pure (Left (LiveStepProcessFailure (renderSubprocess restartCommand) failure))
+      ProcessSucceeded _ -> do
+        statusOutcome <- runStreaming defaultSubprocessEnv statusCommand
+        case statusOutcome of
+          ProcessFailed failure ->
+            pure (Left (LiveStepProcessFailure (renderSubprocess statusCommand) failure))
+          ProcessSucceeded _ ->
+            pollForStablePodSet 60
+   where
+    restartCommand = appRolloutRestartSubprocess (repoAppDeployment spec)
+    statusCommand = appRolloutStatusSubprocess (repoAppDeployment spec)
+
+    pollForStablePodSet attemptsRemaining = do
+      verified <- inspectObservedImages spec
+      case verified of
+        Left failure -> pure (Left failure)
+        Right (observedEvidence, observedLabel) ->
+          case appPodImagePollDecision
+            expectedReplicas
+            expectedImageId
+            attemptsRemaining
+            observedEvidence of
+            AppPodImageConverged ->
+              pure $
+                Right
+                  [ renderSubprocess restartCommand
+                  , renderSubprocess statusCommand
+                  , observedLabel
+                  ]
+            AppPodImageRetry -> do
+              threadDelay 500000
+              pollForStablePodSet (attemptsRemaining - 1)
+            AppPodImageExhausted ->
+              pure $
+                Left
+                  ( LiveStepInvariantFailure
+                      ("app image reconcile " <> repoAppDeployment spec)
+                      ( "expected a stable set of "
+                          <> Text.pack (show expectedReplicas)
+                          <> " ready pods at "
+                          <> expectedImageId
+                          <> ", observed "
+                          <> Text.pack (show observedEvidence)
+                      )
+                  )
+
 -- | Live phased rollout executor. Runs the typed
 -- `kindCreateSubprocess` + Helm phases + Docker build / Kind image-load phase
 -- through the typed `runStreaming` boundary. The rollout stops at the first
@@ -721,58 +1661,137 @@ hostBootConfigForPublication publication =
 liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
 liveExecutePhasedRollout substrate chartPath = do
   resources <- loadClusterResourcesOrDefault "."
-  lease <- selectLiveLease "." substrate
-  let publication = publicationWithLeasedPort lease (defaultPublication substrate)
-      port = EdgePort.leasedPort lease
-  removeLivePublication "."
-  patchLiveMaterialization substrate lease publication
-  prepareKindKubeconfigFiles substrate
-  -- Sprint 2.9: skip `helm dependency build` when every subchart `.tgz` is
-  -- already present in `chart/charts/` (the previous `sh -c` did this in
-  -- shell). The typed subprocess is still in the rendered plan for
-  -- visibility; this filter only affects live execution.
-  preGrantSubs <-
-    filterCachedThirdPartyImageLoads
-      =<< filterHelmDepBuildWhenArchivesPresent
-        chartPath
-        (livePreGrantSubprocessesForPort substrate port resources chartPath)
-  case preGrantSubs of
-    [] -> runAfterPreGrant port publication []
-    kindSub : remainingPreGrantSubs -> do
-      (kindExecuted, kindFailure) <- runStepList [kindSub]
-      case kindFailure of
-        Just (renderedFail, stderrTxt) ->
+  presenceOutcome <- probeKindClusterPresenceIO substrate
+  case presenceOutcome of
+    Left failure ->
+      pure $
+        LiveExecutionResult
+          { liveStepsExecuted = [renderSubprocess kindGetClustersSubprocess]
+          , liveStepsFailed = [failure]
+          , livePublication = defaultPublication substrate
+          , liveAlreadyConverged = False
+          }
+    Right presence -> do
+      recoveryOutcome <- selectLiveKindRecovery "." substrate presence
+      case recoveryOutcome of
+        Left failure ->
           pure $
             LiveExecutionResult
-              { liveStepsExecuted = kindExecuted
-              , liveStepsFailed = [(renderedFail, stderrTxt)]
-              , livePublication = publication
+              { liveStepsExecuted = [renderSubprocess kindGetClustersSubprocess]
+              , liveStepsFailed = [failure]
+              , livePublication = defaultPublication substrate
+              , liveAlreadyConverged = False
               }
-        Nothing -> do
-          kubeconfigOutcome <- writeKindKubeconfigIO substrate
-          let kubeconfigLabel = "kind kubeconfig export"
-          case kubeconfigOutcome of
-            Left err ->
+        Right (kindAction, lease, publication) -> do
+          let port = EdgePort.leasedPort lease
+          materializationChanged <-
+            materializeBootstrapFilesForPort "." substrate port
+          convergence <-
+            observeLiveConvergenceIO
+              "."
+              substrate
+              resources
+              kindAction
+              port
+              materializationChanged
+          case convergence of
+            LiveClusterAlreadyConverged currentPublication ->
               pure $
                 LiveExecutionResult
-                  { liveStepsExecuted = kindExecuted <> [kubeconfigLabel]
-                  , liveStepsFailed = [(kubeconfigLabel, err)]
-                  , livePublication = publication
+                  { liveStepsExecuted =
+                      [ renderSubprocess kindGetClustersSubprocess
+                      , "cluster convergence observation: already converged"
+                      ]
+                  , liveStepsFailed = []
+                  , livePublication = currentPublication
+                  , liveAlreadyConverged = True
                   }
-            Right () -> do
-              (preRestExecuted, preFailure) <- runStepList remainingPreGrantSubs
-              let preExecuted = kindExecuted <> [kubeconfigLabel] <> preRestExecuted
-              case preFailure of
-                Just (renderedFail, stderrTxt) ->
-                  pure $
-                    LiveExecutionResult
-                      { liveStepsExecuted = preExecuted
-                      , liveStepsFailed = [(renderedFail, stderrTxt)]
-                      , livePublication = publication
-                      }
-                Nothing -> runAfterPreGrant port publication preExecuted
+            LiveClusterNeedsReconcile reason -> do
+              -- Invalidate prior live evidence only after retained coordinates,
+              -- port-aware materialization, and the read-only convergence
+              -- decision are complete. A failed apply retains retryable
+              -- coordinates without advertising stale readiness.
+              _ <- writeLivePublication "." publication
+              executeRequiredReconcile
+                resources
+                kindAction
+                lease
+                publication
+                reason
  where
-  runAfterPreGrant port publication preExecuted = do
+  executeRequiredReconcile resources kindAction lease publication reason = do
+    let port = EdgePort.leasedPort lease
+        probeExecuted =
+          [ renderSubprocess kindGetClustersSubprocess
+          , "cluster convergence drift: " <> reason
+          , "cluster publication marked reconciling"
+          ]
+    prepareKindKubeconfigFiles substrate
+    -- Sprint 2.9: skip `helm dependency build` when every subchart `.tgz` is
+    -- already present in `chart/charts/` (the previous `sh -c` did this in
+    -- shell). The typed subprocess is still in the rendered plan for
+    -- visibility; this filter only affects live execution.
+    preGrantSubs <-
+      filterCachedThirdPartyImageLoads
+        =<< filterHelmDepBuildWhenArchivesPresent
+          chartPath
+          (livePreGrantSubprocessesForPort substrate port resources chartPath)
+    case preGrantSubs of
+      [] -> runAfterPreGrant resources port publication probeExecuted
+      kindSub : remainingPreGrantSubs -> do
+        (kindExecuted, kindFailure) <-
+          case kindAction of
+            CreateLiveKindCluster -> runStepList [kindSub]
+            ReuseLiveKindCluster ->
+              pure
+                (
+                  [ "kind cluster "
+                      <> substrateClusterName substrate
+                      <> " already present; create skipped"
+                  ]
+                , Nothing
+                )
+        case kindFailure of
+          Just failure ->
+            pure $
+              LiveExecutionResult
+                { liveStepsExecuted = probeExecuted <> kindExecuted
+                , liveStepsFailed = [failure]
+                , livePublication = publication
+                , liveAlreadyConverged = False
+                }
+          Nothing -> do
+            kubeconfigOutcome <- writeKindKubeconfigIO substrate
+            let kubeconfigLabel = "kind kubeconfig export"
+            case kubeconfigOutcome of
+              Left err ->
+                pure $
+                  LiveExecutionResult
+                    { liveStepsExecuted =
+                        probeExecuted <> kindExecuted <> [kubeconfigLabel]
+                    , liveStepsFailed = [err]
+                    , livePublication = publication
+                    , liveAlreadyConverged = False
+                    }
+              Right () -> do
+                (preRestExecuted, preFailure) <- runStepList remainingPreGrantSubs
+                let preExecuted =
+                      probeExecuted
+                        <> kindExecuted
+                        <> [kubeconfigLabel]
+                        <> preRestExecuted
+                case preFailure of
+                  Just failure ->
+                    pure $
+                      LiveExecutionResult
+                        { liveStepsExecuted = preExecuted
+                        , liveStepsFailed = [failure]
+                        , livePublication = publication
+                        , liveAlreadyConverged = False
+                        }
+                  Nothing -> runAfterPreGrant resources port publication preExecuted
+
+  runAfterPreGrant resources port publication preExecuted = do
     bucketsOutcome <- runMinioBucketReadinessIO
     let bucketsLabel = "minio bucket readiness"
     case bucketsOutcome of
@@ -780,8 +1799,9 @@ liveExecutePhasedRollout substrate chartPath = do
         pure $
           LiveExecutionResult
             { liveStepsExecuted = preExecuted <> [bucketsLabel]
-            , liveStepsFailed = [(bucketsLabel, err)]
+            , liveStepsFailed = [LiveStepProcessFailure bucketsLabel err]
             , livePublication = publication
+            , liveAlreadyConverged = False
             }
       Right () -> do
         grantOutcome <- runPostgresSchemaGrantsIO
@@ -791,59 +1811,182 @@ liveExecutePhasedRollout substrate chartPath = do
             pure $
               LiveExecutionResult
                 { liveStepsExecuted = preExecuted <> [bucketsLabel, grantLabel]
-                , liveStepsFailed = [(grantLabel, err)]
+                , liveStepsFailed = [err]
                 , livePublication = publication
+                , liveAlreadyConverged = False
                 }
           Right () -> do
             postGrantSubs <-
               filterDockerBuildWhenImageExists
-                (livePostGrantSubprocessesForPort substrate port chartPath)
+                (livePostGrantApplySubprocessesForPort substrate port chartPath)
             (postExecuted, postFailure) <- runStepList postGrantSubs
             let prePostExecuted = preExecuted <> [bucketsLabel, grantLabel] <> postExecuted
             case postFailure of
-              Just (renderedFail, stderrTxt) ->
+              Just failure ->
                 pure $
                   LiveExecutionResult
                     { liveStepsExecuted = prePostExecuted
-                    , liveStepsFailed = [(renderedFail, stderrTxt)]
+                    , liveStepsFailed = [failure]
                     , livePublication = publication
+                    , liveAlreadyConverged = False
                     }
               Nothing -> do
-                topicsOutcome <- runPulsarTopicCreatesIO
-                let topicsLabel = "pulsar topic create"
-                    allExecuted = prePostExecuted <> [topicsLabel]
-                case topicsOutcome of
-                  Left err ->
+                imageReconcile <- runRepoAppImageReconcileIO substrate
+                case imageReconcile of
+                  Left failure ->
                     pure $
                       LiveExecutionResult
-                        { liveStepsExecuted = allExecuted
-                        , liveStepsFailed = [(topicsLabel, err)]
+                        { liveStepsExecuted = prePostExecuted <> ["app image reconcile"]
+                        , liveStepsFailed = [failure]
                         , livePublication = publication
+                        , liveAlreadyConverged = False
                         }
-                  Right () -> do
-                    measuredPublication <- measureLivePublication publication
-                    _ <- writeLivePublication "." measuredPublication
+                  Right imageExecuted -> do
+                    let reconciledExecuted = prePostExecuted <> imageExecuted
+                    (readinessExecuted, readinessFailure) <-
+                      runStepList (livePostGrantReadinessSubprocesses port)
+                    let reverifiedExecuted = reconciledExecuted <> readinessExecuted
+                    case readinessFailure of
+                      Just failure ->
+                        pure $
+                          LiveExecutionResult
+                            { liveStepsExecuted = reverifiedExecuted
+                            , liveStepsFailed = [failure]
+                            , livePublication = publication
+                            , liveAlreadyConverged = False
+                            }
+                      Nothing ->
+                        finishLivePublication resources publication reverifiedExecuted
+
+  finishLivePublication resources publication executed = do
+    topicsOutcome <- runPulsarTopicCreatesIO
+    let topicsLabel = "pulsar topic create"
+        allExecuted = executed <> [topicsLabel]
+    case topicsOutcome of
+      Left (PulsarBootstrap.TopicCreateFailed _topic err) ->
+        pure $
+          LiveExecutionResult
+            { liveStepsExecuted = allExecuted
+            , liveStepsFailed = [LiveStepProcessFailure topicsLabel err]
+            , livePublication = publication
+            , liveAlreadyConverged = False
+            }
+      Left (PulsarBootstrap.InvalidTopicFamilyEvidence evidenceError) ->
+        pure $
+          LiveExecutionResult
+            { liveStepsExecuted = allExecuted
+            , liveStepsFailed =
+                [ LiveStepInvariantFailure
+                    topicsLabel
+                    ("invalid Coordinator topic family: " <> Text.pack (show evidenceError))
+                ]
+            , livePublication = publication
+            , liveAlreadyConverged = False
+            }
+      Right _evidence -> do
+        measuredPublication <- measureLivePublication publication
+        let publicationLabel = "cluster publication readiness"
+            measuredExecuted = allExecuted <> [publicationLabel]
+        if publicationHasLiveEvidence measuredPublication
+          then do
+            stampResult <-
+              buildExpectedReconcileStampIO
+                "."
+                substrate
+                (publicationEdgePort measuredPublication)
+            case stampResult of
+              Left failure ->
+                pure $
+                  LiveExecutionResult
+                    { liveStepsExecuted = measuredExecuted <> ["cluster reconcile stamp"]
+                    , liveStepsFailed = [failure]
+                    , livePublication = measuredPublication
+                    , liveAlreadyConverged = False
+                    }
+              Right stamp -> do
+                releaseEvidence <- releaseConvergenceEvidenceIO
+                topicEvidence <- topicConvergenceEvidenceIO
+                let expectedImageIds = reconcileStampRepoAppImageIds stamp
+                (nodeImageEvidence, liveConfigImageIds) <-
+                  nodeImageConvergenceEvidenceIO substrate resources expectedImageIds
+                appImageEvidence <-
+                  appImageConvergenceEvidenceIO substrate liveConfigImageIds
+                let postReconcileObservation =
+                      ReconcileObservation
+                        { reconcileExpectedStamp = stamp
+                        , reconcilePersistedStamp = Just stamp
+                        , reconcileLivePublication = LivePublicationReady
+                        , reconcileReleaseEvidence = releaseEvidence
+                        , reconcileReadinessEvidence =
+                            readinessConvergenceEvidence measuredPublication
+                        , reconcileTopicEvidence = topicEvidence
+                        , reconcileNodeImageEvidence = nodeImageEvidence
+                        , reconcileAppImageEvidence = appImageEvidence
+                        , reconcilePortAwareMaterializationUnchanged = True
+                        }
+                    proofLabel = "post-reconcile convergence proof"
+                    proofExecuted = measuredExecuted <> [proofLabel]
+                case classifyReconcileObservation postReconcileObservation of
+                  NeedsReconcile reasons ->
                     pure $
                       LiveExecutionResult
-                        { liveStepsExecuted = allExecuted
+                        { liveStepsExecuted = proofExecuted
+                        , liveStepsFailed =
+                            [ LiveStepInvariantFailure
+                                proofLabel
+                                (Text.pack (show reasons))
+                            ]
+                        , livePublication = measuredPublication
+                        , liveAlreadyConverged = False
+                        }
+                  AlreadyConverged -> do
+                    _ <- writeLivePublication "." measuredPublication
+                    _ <- writeReconcileStamp "." stamp
+                    pure $
+                      LiveExecutionResult
+                        { liveStepsExecuted = proofExecuted <> ["cluster reconcile stamp"]
                         , liveStepsFailed = []
                         , livePublication = measuredPublication
+                        , liveAlreadyConverged = False
                         }
+          else
+            pure $
+              LiveExecutionResult
+                { liveStepsExecuted = measuredExecuted
+                , liveStepsFailed =
+                    [ LiveStepInvariantFailure
+                        publicationLabel
+                        (renderIncompletePublication measuredPublication)
+                    ]
+                , livePublication = measuredPublication
+                , liveAlreadyConverged = False
+                }
 
-  runStepList :: [Subprocess] -> IO ([Text], Maybe (Text, Text))
+  runStepList :: [Subprocess] -> IO ([Text], Maybe LiveStepFailure)
   runStepList = go []
    where
     go executed [] = pure (reverse executed, Nothing)
     go executed (subprocessValue : rest) = do
       let rendered = renderSubprocess subprocessValue
-      (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocessValue
-      case exitCode of
-        ExitSuccess -> go (rendered : executed) rest
-        ExitFailure _
+      outcome <- runStreaming defaultSubprocessEnv subprocessValue
+      case outcome of
+        ProcessSucceeded _ -> go (rendered : executed) rest
+        ProcessFailed failure
           | isCachedThirdPartyImageLoad subprocessValue ->
-              go ((rendered <> " (optional warm-cache load skipped)") : executed) rest
-        ExitFailure _ ->
-          pure (reverse (rendered : executed), Just (rendered, stderrText))
+              go
+                ( ( rendered
+                      <> " (optional warm-cache load skipped after:\n"
+                      <> renderProcessFailure failure
+                      <> ")"
+                  )
+                    : executed
+                )
+                rest
+        ProcessFailed failure ->
+          pure
+            ( reverse (rendered : executed)
+            , Just (LiveStepProcessFailure rendered failure)
+            )
 
 prepareKindKubeconfigFiles :: Substrate -> IO ()
 prepareKindKubeconfigFiles substrate = do
@@ -855,21 +1998,211 @@ prepareKindKubeconfigFiles substrate = do
     pathExists <- doesFileExist path
     when pathExists (removeFile path)
 
-writeKindKubeconfigIO :: Substrate -> IO (Either Text ())
+probeKindClusterPresenceIO
+  :: Substrate
+  -> IO (Either LiveStepFailure KindClusterPresence)
+probeKindClusterPresenceIO substrate =
+  resolveKindClusterPresence substrate
+    <$> runStreaming defaultSubprocessEnv kindGetClustersSubprocess
+
+-- | Refine the typed @kind get clusters@ outcome into exact target-cluster
+-- presence. Cluster names are compared as complete trimmed lines so a
+-- similarly prefixed cluster cannot accidentally suppress creation.
+resolveKindClusterPresence
+  :: Substrate
+  -> ProcessOutcome
+  -> Either LiveStepFailure KindClusterPresence
+resolveKindClusterPresence substrate outcome =
+  case outcome of
+    ProcessFailed failure ->
+      Left
+        ( LiveStepProcessFailure
+            (renderSubprocess kindGetClustersSubprocess)
+            failure
+        )
+    ProcessSucceeded transcript ->
+      Right $
+        if substrateClusterName substrate `elem` clusterNames transcript
+          then KindClusterPresent
+          else KindClusterAbsent
+ where
+  clusterNames =
+    filter
+      ( \name ->
+          not (Text.null name)
+            && name /= "No kind clusters found."
+      )
+      . fmap Text.strip
+      . Text.lines
+      . processTranscriptStdout
+
+writeKindKubeconfigIO :: Substrate -> IO (Either LiveStepFailure ())
 writeKindKubeconfigIO substrate = do
-  (exitCode, stdoutText, stderrText) <-
+  outcome <-
     runStreaming
       defaultSubprocessEnv
       (subprocess "kind" ["get", "kubeconfig", "--name", substrateClusterName substrate])
-  case exitCode of
-    ExitFailure _ -> pure (Left ("kind get kubeconfig: " <> stderrText))
-    ExitSuccess ->
-      if Text.null (Text.strip stdoutText)
-        then pure (Left "kind get kubeconfig: empty kubeconfig")
+  case outcome of
+    ProcessFailed failure ->
+      pure (Left (LiveStepProcessFailure "kind get kubeconfig" failure))
+    ProcessSucceeded transcript ->
+      if Text.null (Text.strip (processTranscriptStdout transcript))
+        then
+          pure
+            ( Left
+                (LiveStepInvalidResult "kind get kubeconfig" "empty kubeconfig" transcript)
+            )
         else do
           createDirectoryIfMissing True ".build"
-          Text.IO.writeFile (".build" </> "jitml.kubeconfig") stdoutText
+          Text.IO.writeFile
+            (".build" </> "jitml.kubeconfig")
+            (processTranscriptStdout transcript)
           pure (Right ())
+
+data ExistingPublicationState
+  = ExistingPublicationMissing
+  | ExistingPublicationInvalid Text
+  | ExistingPublicationValid ClusterPublication
+
+-- | Select the create/reuse path and its fixed edge coordinate before any
+-- rollout mutation. A retained Kind cluster already owns its host-port
+-- mapping, so it must recover that exact port from a matching persisted
+-- publication; probing the occupied port as though it were a fresh lease
+-- would incorrectly select a different coordinate. Both an earlier live
+-- publication and an evidence-free interrupted-rollout publication are valid
+-- coordinate authorities. A fresh cluster retains the established
+-- bindability-based lease behavior.
+--
+-- On success this function atomically writes an evidence-free recovery
+-- publication before the caller mutates the cluster. A failed rollout
+-- therefore cannot leave stale live evidence behind, but its fixed edge port
+-- remains available to the next retained-cluster retry.
+prepareLiveKindRecovery
+  :: FilePath
+  -> Substrate
+  -> KindClusterPresence
+  -> IO
+       ( Either
+           LiveStepFailure
+           (LiveKindAction, EdgePort.EdgePortLease, ClusterPublication)
+       )
+prepareLiveKindRecovery root substrate presence =
+  do
+    prepared <- selectLiveKindRecovery root substrate presence
+    case prepared of
+      Left failure -> pure (Left failure)
+      Right recovered@(_, _, publication) -> do
+        _ <- writeLivePublication root publication
+        pure (Right recovered)
+
+-- | Resolve a fresh or retained Kind cluster to one live action, edge lease,
+-- and fail-closed recovery publication without mutating the publication file.
+-- Phase 3 uses this non-mutating half to perform port-aware materialization and
+-- convergence observation before it decides whether a rollout is needed.
+selectLiveKindRecovery
+  :: FilePath
+  -> Substrate
+  -> KindClusterPresence
+  -> IO
+       ( Either
+           LiveStepFailure
+           (LiveKindAction, EdgePort.EdgePortLease, ClusterPublication)
+       )
+selectLiveKindRecovery root substrate presence =
+  case presence of
+    KindClusterAbsent -> do
+      lease <- selectLiveLease root substrate
+      pure
+        ( Right
+            ( CreateLiveKindCluster
+            , lease
+            , recoveryPublication substrate lease
+            )
+        )
+    KindClusterPresent -> do
+      existing <- readExistingPublicationState root
+      pure $ do
+        publication <-
+          case existing of
+            ExistingPublicationMissing ->
+              Left
+                ( recoveryFailure
+                    "matching Kind cluster exists, but cluster-publication.json is missing; the fixed host edge port cannot be recovered safely"
+                )
+            ExistingPublicationInvalid decodeError ->
+              Left
+                ( recoveryFailure
+                    ( "matching Kind cluster exists, but cluster-publication.json is invalid: "
+                        <> decodeError
+                    )
+                )
+            ExistingPublicationValid publication ->
+              Right publication
+        lease <- recoverExistingKindLease substrate publication
+        Right
+          ( ReuseLiveKindCluster
+          , lease
+          , recoveryPublication substrate lease
+          )
+ where
+  recoveryFailure =
+    LiveStepInvariantFailure
+      ("kind cluster recovery " <> substrateClusterName substrate)
+
+recoveryPublication
+  :: Substrate
+  -> EdgePort.EdgePortLease
+  -> ClusterPublication
+recoveryPublication substrate lease =
+  (publicationWithLeasedPort lease (defaultPublication substrate))
+    { publicationComponents =
+        fmap (,"reconciling") (requiredPublicationComponents substrate)
+    , publicationEvidence = Nothing
+    }
+
+recoverExistingKindLease
+  :: Substrate
+  -> ClusterPublication
+  -> Either LiveStepFailure EdgePort.EdgePortLease
+recoverExistingKindLease substrate publication
+  | publicationSubstrate publication /= substrate =
+      Left
+        ( recoveryFailure
+            ( "persisted publication substrate is "
+                <> renderSubstrate (publicationSubstrate publication)
+                <> ", expected "
+                <> renderSubstrate substrate
+            )
+        )
+  | publicationEdgePort publication < 1 || publicationEdgePort publication > 65535 =
+      Left
+        ( recoveryFailure
+            ( "persisted publication edge port is outside 1..65535: "
+                <> Text.pack (show (publicationEdgePort publication))
+            )
+        )
+  | publicationPulsarUrl publication /= publicationPulsarUrl expectedPublication =
+      Left
+        ( recoveryFailure
+            "persisted publication Pulsar URL does not match its loopback edge port"
+        )
+  | publicationMinioUrl publication /= publicationMinioUrl expectedPublication =
+      Left
+        ( recoveryFailure
+            "persisted publication MinIO URL does not match its loopback edge port"
+        )
+  | otherwise = Right lease
+ where
+  lease =
+    EdgePort.EdgePortLease
+      { EdgePort.leasedPort = publicationEdgePort publication
+      , EdgePort.leasedHost = "127.0.0.1"
+      }
+  expectedPublication =
+    publicationWithLeasedPort lease (defaultPublication substrate)
+  recoveryFailure =
+    LiveStepInvariantFailure
+      ("kind cluster recovery " <> substrateClusterName substrate)
 
 -- | Sprint 2.9 — replaces the original @sh -c "if test -f ...; then exit 0;
 -- else helm dependency build ...; fi"@ heuristic with a typed Haskell
@@ -942,14 +2275,17 @@ imageExistsLocally :: Text -> IO Bool
 imageExistsLocally tag = do
   let probe =
         subprocess "docker" ["image", "inspect", tag]
-  (exitCode, _stdoutText, _stderrText) <- runStreaming defaultSubprocessEnv probe
-  case exitCode of
-    ExitSuccess -> pure True
-    ExitFailure _ -> pure False
+  outcome <- runStreaming defaultSubprocessEnv probe
+  case outcome of
+    ProcessSucceeded _ -> pure True
+    -- A non-zero @docker image inspect@ is the command's documented
+    -- not-present result, not an execution error. No diagnostic is consumed
+    -- by this Boolean existence probe.
+    ProcessFailed _ -> pure False
 
 selectLiveLease :: FilePath -> Substrate -> IO EdgePort.EdgePortLease
 selectLiveLease root substrate = do
-  existing <- readExistingLivePublication root
+  existing <- readExistingPublicationState root
   fromMaybe defaultLease <$> EdgePort.leaseEdgePort (candidatePorts existing)
  where
   candidatePorts existing =
@@ -958,9 +2294,10 @@ selectLiveLease root substrate = do
         <> [substrateEdgePort substrate]
         <> EdgePort.defaultPortCandidates
 
-  existingPublicationPorts (Just publication)
-    | publicationSubstrate publication == substrate =
-        [publicationEdgePort publication]
+  existingPublicationPorts (ExistingPublicationValid publication) =
+    case recoverExistingKindLease substrate publication of
+      Right lease -> [EdgePort.leasedPort lease]
+      Left _ -> []
   existingPublicationPorts _ = []
 
   uniquePorts = go []
@@ -978,21 +2315,27 @@ selectLiveLease root substrate = do
 
 readExistingLivePublication :: FilePath -> IO (Maybe ClusterPublication)
 readExistingLivePublication root = do
+  state <- readExistingPublicationState root
+  pure $
+    case state of
+      ExistingPublicationValid publication
+        | publicationHasLiveEvidence publication -> Just publication
+      _ -> Nothing
+
+readExistingPublicationState :: FilePath -> IO ExistingPublicationState
+readExistingPublicationState root = do
   let path = root </> ".build" </> "runtime" </> "cluster-publication.json"
   exists <- doesFileExist path
   if exists
     then do
       bytes <- LazyByteString.readFile path
-      pure (eitherToMaybe (eitherDecode bytes) >>= liveOnly)
-    else pure Nothing
- where
-  liveOnly publication
-    | publicationHasLiveEvidence publication = Just publication
-    | otherwise = Nothing
-
-eitherToMaybe :: Either error value -> Maybe value
-eitherToMaybe (Right value) = Just value
-eitherToMaybe (Left _) = Nothing
+      pure $
+        case eitherDecode bytes of
+          Left decodeError ->
+            ExistingPublicationInvalid (Text.pack decodeError)
+          Right publication ->
+            ExistingPublicationValid publication
+    else pure ExistingPublicationMissing
 
 newtype HelmStatus = HelmStatus Text
   deriving stock (Eq, Show)
@@ -1003,21 +2346,75 @@ instance FromJSON HelmStatus where
       infoValue <- objectValue .: "info"
       withObject "HelmInfo" (\infoObject -> HelmStatus <$> infoObject .: "status") infoValue
 
+data PublicationHealthCheck
+  = HelmPublicationHealthCheck Text [Text]
+  | SubprocessPublicationHealthCheck Text Subprocess
+
 measureLivePublication :: ClusterPublication -> IO ClusterPublication
 measureLivePublication publication = do
-  components <- traverse measureComponent publicationHealthChecks
-  pure (markPublicationLive publication {publicationComponents = components})
+  components <- traverse measurePublicationHealthCheck (publicationHealthChecks publication)
+  pure $
+    markPublicationLive
+      publication
+        { publicationComponents = components
+        , publicationEvidence = Nothing
+        }
 
-publicationHealthChecks :: [(Text, [Text])]
-publicationHealthChecks =
-  [ ("harbor", ["harbor"])
-  , ("minio", ["minio"])
-  , ("pulsar", ["pulsar"])
-  , ("postgres", ["harbor-pg"])
-  , ("observability", ["kube-prometheus-stack", "tensorboard", "envoy-gateway"])
-  , ("jitml-service", ["jitml-service"])
-  , ("jitml-demo", ["jitml-demo"])
+publicationHealthChecks :: ClusterPublication -> [PublicationHealthCheck]
+publicationHealthChecks publication =
+  [ HelmPublicationHealthCheck "harbor" ["harbor"]
+  , HelmPublicationHealthCheck "minio" ["minio"]
+  , HelmPublicationHealthCheck "pulsar" ["pulsar"]
+  , HelmPublicationHealthCheck "postgres" ["harbor-pg"]
+  , HelmPublicationHealthCheck
+      "observability"
+      ["kube-prometheus-stack", "tensorboard", "envoy-gateway"]
   ]
+    <> engineHealthChecks
+    <> [ SubprocessPublicationHealthCheck
+           "jitml-coordinator"
+           (Readiness.rolloutStatusSubprocess "deployment/jitml-coordinator")
+       , HelmPublicationHealthCheck "jitml-demo" ["jitml-demo"]
+       , SubprocessPublicationHealthCheck
+           "edge"
+           (publicReadyzSubprocessForPort (publicationEdgePort publication))
+       ]
+ where
+  engineHealthChecks =
+    case publicationSubstrate publication of
+      AppleSilicon -> []
+      LinuxCPU -> [engineHealthCheck]
+      LinuxCUDA -> [engineHealthCheck]
+  engineHealthCheck =
+    SubprocessPublicationHealthCheck
+      "jitml-engine"
+      (Readiness.rolloutStatusSubprocess "deployment/jitml-service")
+
+measurePublicationHealthCheck :: PublicationHealthCheck -> IO (Text, Text)
+measurePublicationHealthCheck healthCheck =
+  case healthCheck of
+    HelmPublicationHealthCheck componentName releases ->
+      measureComponent (componentName, releases)
+    SubprocessPublicationHealthCheck componentName readinessSubprocess ->
+      measureSubprocessComponent componentName readinessSubprocess
+
+measureSubprocessComponent :: Text -> Subprocess -> IO (Text, Text)
+measureSubprocessComponent componentName readinessSubprocess = do
+  outcome <- runStreaming defaultSubprocessEnv readinessSubprocess
+  pure $
+    case outcome of
+      ProcessSucceeded _ -> (componentName, "ready")
+      ProcessFailed failure ->
+        (componentName, "not-ready:\n" <> renderProcessFailure failure)
+
+renderIncompletePublication :: ClusterPublication -> Text
+renderIncompletePublication publication =
+  "required component readiness is incomplete; required exactly once and ready: "
+    <> Text.intercalate "," (requiredPublicationComponents (publicationSubstrate publication))
+    <> "; measured: "
+    <> Text.intercalate
+      ","
+      [name <> "=" <> status | (name, status) <- publicationComponents publication]
 
 measureComponent :: (Text, [Text]) -> IO (Text, Text)
 measureComponent (componentName, releases) = do
@@ -1026,11 +2423,13 @@ measureComponent (componentName, releases) = do
 
 measureHelmRelease :: Text -> IO (Text, Text)
 measureHelmRelease release = do
-  (exitCode, stdoutText, _stderrText) <-
+  outcome <-
     runStreaming defaultSubprocessEnv (helmStatusSubprocess release)
-  case exitCode of
-    ExitSuccess -> pure (release, parseHelmStatus stdoutText)
-    ExitFailure _ -> pure (release, "unavailable")
+  case outcome of
+    ProcessSucceeded transcript ->
+      pure (release, parseHelmStatus (processTranscriptStdout transcript))
+    ProcessFailed failure ->
+      pure (release, "unavailable:\n" <> renderProcessFailure failure)
 
 componentStatus :: [(Text, Text)] -> Text
 componentStatus releaseStatuses
@@ -1062,50 +2461,11 @@ helmStatusSubprocess release =
     , "json"
     ]
 
-patchLiveMaterialization :: Substrate -> EdgePort.EdgePortLease -> ClusterPublication -> IO ()
-patchLiveMaterialization substrate lease publication = do
-  let kindRoot = "kind"
-      chartTemplatesRoot = "chart" </> "templates"
-      hostConfRoot = ".build" </> "conf" </> "host"
-      kindConfigPath = kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
-  clusterResources <- loadClusterResourcesOrDefault "."
-  createDirectoryIfMissing True kindRoot
-  createDirectoryIfMissing True chartTemplatesRoot
-  createDirectoryIfMissing True hostConfRoot
-  _ <-
-    writeTextFileIfChanged
-      kindConfigPath
-      ( renderKindConfig
-          (kindConfigForEdgePortAndWorkers substrate (EdgePort.leasedPort lease) (workerCount clusterResources))
-      )
-  _ <-
-    writeTextFileIfChanged
-      (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
-      (renderGateway (EdgePort.leasedPort lease))
-  _ <-
-    writeTextFileIfChanged
-      (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml")
-      (renderEnvoyProxy (EdgePort.leasedPort lease))
-  case substrate of
-    AppleSilicon -> do
-      _ <-
-        writeTextFileIfChanged
-          (hostConfRoot </> "apple-silicon.dhall")
-          (renderBootConfigDhall (hostBootConfigForPublication publication))
-      pure ()
-    _ -> pure ()
-
 writeLivePublication :: FilePath -> ClusterPublication -> IO Bool
 writeLivePublication root publication = do
   let runtimeRoot = root </> ".build" </> "runtime"
   createDirectoryIfMissing True runtimeRoot
   writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") (encode publication)
-
-removeLivePublication :: FilePath -> IO ()
-removeLivePublication root = do
-  let path = root </> ".build" </> "runtime" </> "cluster-publication.json"
-  exists <- doesFileExist path
-  when exists (removeFile path)
 
 writeTextFileIfChanged :: FilePath -> Text -> IO Bool
 writeTextFileIfChanged path expected = do

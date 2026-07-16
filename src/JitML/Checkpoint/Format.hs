@@ -7,6 +7,7 @@ module JitML.Checkpoint.Format
   , ArchitectureMetadata (..)
   , CheckpointManifest (..)
   , CheckpointPartKind (..)
+  , CompletedCheckpoint
   , EligibilityError (..)
   , InferenceEligibleCheckpoint
   , LayerGraphActivationMetadata (..)
@@ -22,6 +23,8 @@ module JitML.Checkpoint.Format
   , PointerWrite (..)
   , PointerWriteResult (..)
   , PreprocessingMetadata (..)
+  , RawCheckpointEnvelope (..)
+  , RawCheckpointManifest (..)
   , RngBlob (..)
   , SubstrateArtifact (..)
   , TensorBlob (..)
@@ -35,6 +38,8 @@ module JitML.Checkpoint.Format
   , attachCompletedTraining
   , bestPointerKey
   , blobKey
+  , checkpointManifestToRaw
+  , checkpointWireVersion
   , decodeJmw1
   , decodeInferenceEligibleManifestCbor
   , decodeManifestCbor
@@ -50,6 +55,8 @@ module JitML.Checkpoint.Format
   , manifestPointer
   , manifestTrainingEvidence
   , renderEligibilityError
+  , refineCheckpointManifest
+  , requireCompletedCheckpoint
   , requireInferenceEligibleCheckpoint
   , eligibleCheckpointCompletedTraining
   , eligibleCheckpointManifest
@@ -67,6 +74,7 @@ import Data.Bits (Bits, shiftL, shiftR, (.&.))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (intToDigit)
+import Data.Foldable (traverse_)
 import Data.List (group, sort, sortOn)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -76,24 +84,48 @@ import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import GHC.Generics (Generic)
 
 import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Plan.Plan
+  ( PlanId
+  , Validation (..)
+  , planIdFromCanonicalText
+  , planIdText
+  , refinePlanIdText
+  )
 import JitML.Product.Evidence
   ( TrainingEvidence
+  , evidenceDatasetShaAtRead
+  , evidenceFinalWeightHash
+  , evidenceInitialWeightHash
+  , evidenceUpdateCount
   , mkTrainingEvidence
   )
 import JitML.Product.ExternalBars qualified as ExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Training.Budget
-  ( CompletedTraining
+  ( BudgetKind (..)
+  , CompletedTraining
+  , ConvergenceObservation
+  , MetricGoal (..)
+  , RawCompletedTraining
+  , TensorBoardRunMetadata
+  , TrainingBudget
   , coMetricName
+  , completedTraining
   , completedTrainingDatasetShaAtRead
   , completedTrainingEvidence
   , completedTrainingFinalWeightHash
   , completedTrainingInitialWeightHash
   , completedTrainingMetrics
   , completedTrainingObservedUnits
+  , completedTrainingPlanId
   , completedTrainingTensorBoard
+  , completedTrainingToRaw
   , completedTrainingUpdateCount
   , convergencePassed
+  , measureCriterion
+  , measureCriterionExcluding
+  , mkTrainingBudget
+  , refineCompletedTraining
   , tbrScalarTags
   )
 
@@ -279,6 +311,7 @@ data CheckpointManifest = CheckpointManifest
   , manifestRng :: [RngBlob]
   , manifestStep :: Word64
   , manifestMetrics :: [(Text, Double)]
+  , manifestPlanId :: Maybe PlanId
   , manifestCompletedTraining :: Maybe CompletedTraining
   , manifestInitialWeightHash :: Maybe Text
   , manifestFinalWeightHash :: Maybe Text
@@ -287,14 +320,118 @@ data CheckpointManifest = CheckpointManifest
   , manifestParentManifestSha :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)
+
+-- | Versioned, forgeable checkpoint payload.  It contains only a raw
+-- completion DTO; refinement is mandatory before a completed manifest can
+-- reach an inference consumer.
+data RawCheckpointManifest = RawCheckpointManifest
+  { rawManifestId :: Text
+  , rawManifestExperiment :: Text
+  , rawManifestModelFamily :: ModelFamily
+  , rawManifestArchitecture :: ArchitectureMetadata
+  , rawManifestPreprocessing :: [PreprocessingMetadata]
+  , rawManifestOutputDecoders :: [OutputDecoder]
+  , rawManifestWeightLayout :: WeightLayout
+  , rawManifestReplayPointers :: [ArtifactPointer]
+  , rawManifestTranscriptPointers :: [ArtifactPointer]
+  , rawManifestSubstrateArtifacts :: [SubstrateArtifact]
+  , rawManifestTensors :: [TensorBlob]
+  , rawManifestOptimizer :: [OptimizerBlob]
+  , rawManifestRng :: [RngBlob]
+  , rawManifestStep :: Word64
+  , rawManifestMetrics :: [(Text, Double)]
+  , rawManifestPlanId :: Maybe Text
+  , rawManifestCompletedTraining :: Maybe RawCompletedTraining
+  , rawManifestInitialWeightHash :: Maybe Text
+  , rawManifestFinalWeightHash :: Maybe Text
+  , rawManifestUpdateCount :: Maybe Word64
+  , rawManifestDatasetShaAtRead :: Maybe Text
+  , rawManifestParentManifestSha :: Maybe Text
+  }
+  deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
-data InferenceEligibleCheckpoint = InferenceEligibleCheckpoint
+data RawCheckpointEnvelope = RawCheckpointEnvelope
+  { rawCheckpointVersion :: Word64
+  , rawCheckpointPayload :: RawCheckpointManifest
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
+-- Retained decoder-only DTOs for manifests written before Sprint 10.12.  They
+-- mirror the former generic record layout exactly, but are never exposed as
+-- proof-bearing values.  The stored verdict is checked against the recomputed
+-- typed criterion and then discarded; because the legacy wire carried no
+-- canonical PlanId, a legacy manifest always remains a resumable candidate and
+-- can never become inference eligible.
+data LegacyTrainingBudget = LegacyTrainingBudget
+  { legacyBudgetKind :: BudgetKind
+  , legacyBudgetTargetUnits :: Word64
+  , legacyBudgetUnitLabel :: Text
+  , legacyBudgetSeed :: Maybe Word64
+  }
+  deriving stock (Generic)
+  deriving anyclass (Serialise)
+
+data LegacyConvergenceObservation = LegacyConvergenceObservation
+  { legacyMetricName :: Text
+  , legacyMetricValue :: Double
+  , legacyMetricGoal :: MetricGoal
+  , legacyMetricThreshold :: Maybe Double
+  , legacyMetricPassed :: Bool
+  }
+  deriving stock (Generic)
+  deriving anyclass (Serialise)
+
+data LegacyCompletedTraining = LegacyCompletedTraining
+  { legacyCompletedBudget :: LegacyTrainingBudget
+  , legacyCompletedObservedUnits :: Word64
+  , legacyCompletedEvidence :: TrainingEvidence
+  , legacyCompletedMetrics :: [LegacyConvergenceObservation]
+  , legacyCompletedTensorBoard :: TensorBoardRunMetadata
+  }
+  deriving stock (Generic)
+  deriving anyclass (Serialise)
+
+data LegacyCheckpointManifest = LegacyCheckpointManifest
+  { legacyManifestId :: Text
+  , legacyManifestExperiment :: Text
+  , legacyManifestModelFamily :: ModelFamily
+  , legacyManifestArchitecture :: ArchitectureMetadata
+  , legacyManifestPreprocessing :: [PreprocessingMetadata]
+  , legacyManifestOutputDecoders :: [OutputDecoder]
+  , legacyManifestWeightLayout :: WeightLayout
+  , legacyManifestReplayPointers :: [ArtifactPointer]
+  , legacyManifestTranscriptPointers :: [ArtifactPointer]
+  , legacyManifestSubstrateArtifacts :: [SubstrateArtifact]
+  , legacyManifestTensors :: [TensorBlob]
+  , legacyManifestOptimizer :: [OptimizerBlob]
+  , legacyManifestRng :: [RngBlob]
+  , legacyManifestStep :: Word64
+  , legacyManifestMetrics :: [(Text, Double)]
+  , legacyManifestCompletedTraining :: Maybe LegacyCompletedTraining
+  , legacyManifestInitialWeightHash :: Maybe Text
+  , legacyManifestFinalWeightHash :: Maybe Text
+  , legacyManifestUpdateCount :: Maybe Word64
+  , legacyManifestDatasetShaAtRead :: Maybe Text
+  , legacyManifestParentManifestSha :: Maybe Text
+  }
+  deriving stock (Generic)
+  deriving anyclass (Serialise)
+
+-- | Refined completed-checkpoint proof.  Its constructor is hidden; candidate
+-- and partial manifests remain inspectable but cannot inhabit this type.
+data CompletedCheckpoint = CompletedCheckpoint
   { eligibleCheckpointManifest :: CheckpointManifest
   , eligibleCheckpointManifestSha :: Text
   , eligibleCheckpointCompletedTraining :: CompletedTraining
   }
   deriving stock (Eq, Show)
+
+-- Retained API name for inference consumers.  Eligibility is exactly the
+-- refined completed-checkpoint proof, not a second independently forgeable
+-- predicate.
+type InferenceEligibleCheckpoint = CompletedCheckpoint
 
 data EligibilityError
   = MissingCompletedTraining
@@ -305,6 +442,8 @@ data EligibilityError
   | CompletedTrainingEvidenceMissing
   | CompletedTrainingEvidenceInvalid Text
   | CompletedTrainingEvidenceMismatch
+  | CompletedTrainingPlanIdMissing
+  | CompletedTrainingPlanIdMismatch Text Text
   | SupervisedManifestShapeLayoutInvalid [Text]
   | TensorBoardMetadataMissing
   deriving stock (Eq, Show)
@@ -396,6 +535,7 @@ emptyManifest mid experiment tensors =
     , manifestRng = []
     , manifestStep = 0
     , manifestMetrics = []
+    , manifestPlanId = Nothing
     , manifestCompletedTraining = Nothing
     , manifestInitialWeightHash = Nothing
     , manifestFinalWeightHash = Nothing
@@ -407,7 +547,8 @@ emptyManifest mid experiment tensors =
 attachCompletedTraining :: CompletedTraining -> CheckpointManifest -> CheckpointManifest
 attachCompletedTraining completed manifest =
   manifest
-    { manifestCompletedTraining = Just completed
+    { manifestPlanId = Just (completedTrainingPlanId completed)
+    , manifestCompletedTraining = Just completed
     , manifestInitialWeightHash = Just (completedTrainingInitialWeightHash completed)
     , manifestFinalWeightHash = Just (completedTrainingFinalWeightHash completed)
     , manifestUpdateCount = Just (completedTrainingUpdateCount completed)
@@ -436,7 +577,16 @@ requireInferenceEligibleCheckpoint manifestSha manifest =
   case manifestCompletedTraining manifest of
     Nothing -> Left MissingCompletedTraining
     Just completed
-      | completedTrainingObservedUnits completed > manifestStep manifest ->
+      | Nothing <- manifestPlanId manifest ->
+          Left CompletedTrainingPlanIdMissing
+      | Just manifestPlan <- manifestPlanId manifest
+      , manifestPlan /= completedTrainingPlanId completed ->
+          Left
+            ( CompletedTrainingPlanIdMismatch
+                (planIdText (completedTrainingPlanId completed))
+                (planIdText manifestPlan)
+            )
+      | completedTrainingObservedUnits completed /= manifestStep manifest ->
           Left
             ( CompletedTrainingOutrunsManifest
                 (completedTrainingObservedUnits completed)
@@ -472,13 +622,17 @@ requireInferenceEligibleCheckpoint manifestSha manifest =
                               Left (SupervisedManifestShapeLayoutInvalid supervisedShapeLayoutErrors)
                           | otherwise ->
                               Right
-                                InferenceEligibleCheckpoint
+                                CompletedCheckpoint
                                   { eligibleCheckpointManifest = manifest
                                   , eligibleCheckpointManifestSha = manifestSha
                                   , eligibleCheckpointCompletedTraining = completed
                                   }
                         failed ->
                           Left (CompletedTrainingHasFailedMetrics (fmap coMetricName failed))
+
+requireCompletedCheckpoint
+  :: Text -> CheckpointManifest -> Either EligibilityError CompletedCheckpoint
+requireCompletedCheckpoint = requireInferenceEligibleCheckpoint
 
 validateSupervisedManifestShapeLayout :: CheckpointManifest -> [Text]
 validateSupervisedManifestShapeLayout manifest
@@ -650,7 +804,7 @@ renderEligibilityError err =
     CompletedTrainingOutrunsManifest observed manifestStepValue ->
       "completed-training witness observes "
         <> Text.pack (show observed)
-        <> " units but manifest step is "
+        <> " units but completed manifest step is "
         <> Text.pack (show manifestStepValue)
     CompletedTrainingEvidenceMissing ->
       "completed-training manifest is missing weight-delta evidence"
@@ -658,6 +812,13 @@ renderEligibilityError err =
       "completed-training manifest has invalid weight-delta evidence: " <> detail
     CompletedTrainingEvidenceMismatch ->
       "completed-training manifest evidence does not match its witness"
+    CompletedTrainingPlanIdMissing ->
+      "completed-training manifest is missing its plan-id"
+    CompletedTrainingPlanIdMismatch completedId manifestIdValue ->
+      "completed-training plan-id "
+        <> completedId
+        <> " does not match manifest plan-id "
+        <> manifestIdValue
     SupervisedManifestShapeLayoutInvalid errors ->
       "supervised manifest has invalid shape/layout metadata: "
         <> Text.intercalate "; " errors
@@ -792,20 +953,275 @@ decodeJmw1Doubles count bytes
       traverse decodeDoubleAt [0 .. count - 1]
  where
   decodeDoubleAt index =
-    castWord64ToDouble
-      <$> maybeToEither
-        "truncated .jmw1 double payload"
-        (word64FromLe (StrictByteString.take 8 (StrictByteString.drop (index * 8) bytes)))
+    do
+      value <-
+        castWord64ToDouble
+          <$> maybeToEither
+            "truncated .jmw1 double payload"
+            (word64FromLe (StrictByteString.take 8 (StrictByteString.drop (index * 8) bytes)))
+      if isNaN value || isInfinite value
+        then Left ".jmw1 tensor values must be finite"
+        else Right value
+
+checkpointWireVersion :: Word64
+checkpointWireVersion = 1
+
+checkpointManifestToRaw :: CheckpointManifest -> RawCheckpointManifest
+checkpointManifestToRaw manifest =
+  RawCheckpointManifest
+    { rawManifestId = manifestId manifest
+    , rawManifestExperiment = manifestExperiment manifest
+    , rawManifestModelFamily = manifestModelFamily manifest
+    , rawManifestArchitecture = manifestArchitecture manifest
+    , rawManifestPreprocessing = manifestPreprocessing manifest
+    , rawManifestOutputDecoders = manifestOutputDecoders manifest
+    , rawManifestWeightLayout = manifestWeightLayout manifest
+    , rawManifestReplayPointers = manifestReplayPointers manifest
+    , rawManifestTranscriptPointers = manifestTranscriptPointers manifest
+    , rawManifestSubstrateArtifacts = manifestSubstrateArtifacts manifest
+    , rawManifestTensors = manifestTensors manifest
+    , rawManifestOptimizer = manifestOptimizer manifest
+    , rawManifestRng = manifestRng manifest
+    , rawManifestStep = manifestStep manifest
+    , rawManifestMetrics = manifestMetrics manifest
+    , rawManifestPlanId = planIdText <$> manifestPlanId manifest
+    , rawManifestCompletedTraining =
+        completedTrainingToRaw <$> manifestCompletedTraining manifest
+    , rawManifestInitialWeightHash = manifestInitialWeightHash manifest
+    , rawManifestFinalWeightHash = manifestFinalWeightHash manifest
+    , rawManifestUpdateCount = manifestUpdateCount manifest
+    , rawManifestDatasetShaAtRead = manifestDatasetShaAtRead manifest
+    , rawManifestParentManifestSha = manifestParentManifestSha manifest
+    }
+
+refineCheckpointManifest :: RawCheckpointManifest -> Either Text CheckpointManifest
+refineCheckpointManifest raw = do
+  validateFiniteManifest raw
+  planId <- traverse refinePlanIdText (rawManifestPlanId raw)
+  completed <- traverse refineCompletedTraining (rawManifestCompletedTraining raw)
+  pure
+    CheckpointManifest
+      { manifestId = rawManifestId raw
+      , manifestExperiment = rawManifestExperiment raw
+      , manifestModelFamily = rawManifestModelFamily raw
+      , manifestArchitecture = rawManifestArchitecture raw
+      , manifestPreprocessing = rawManifestPreprocessing raw
+      , manifestOutputDecoders = rawManifestOutputDecoders raw
+      , manifestWeightLayout = rawManifestWeightLayout raw
+      , manifestReplayPointers = rawManifestReplayPointers raw
+      , manifestTranscriptPointers = rawManifestTranscriptPointers raw
+      , manifestSubstrateArtifacts = rawManifestSubstrateArtifacts raw
+      , manifestTensors = rawManifestTensors raw
+      , manifestOptimizer = rawManifestOptimizer raw
+      , manifestRng = rawManifestRng raw
+      , manifestStep = rawManifestStep raw
+      , manifestMetrics = rawManifestMetrics raw
+      , manifestPlanId = planId
+      , manifestCompletedTraining = completed
+      , manifestInitialWeightHash = rawManifestInitialWeightHash raw
+      , manifestFinalWeightHash = rawManifestFinalWeightHash raw
+      , manifestUpdateCount = rawManifestUpdateCount raw
+      , manifestDatasetShaAtRead = rawManifestDatasetShaAtRead raw
+      , manifestParentManifestSha = rawManifestParentManifestSha raw
+      }
 
 encodeManifestCbor :: CheckpointManifest -> LazyByteString.ByteString
-encodeManifestCbor =
-  serialise . canonicalManifest
+encodeManifestCbor manifest =
+  serialise
+    RawCheckpointEnvelope
+      { rawCheckpointVersion = checkpointWireVersion
+      , rawCheckpointPayload = checkpointManifestToRaw (canonicalManifest manifest)
+      }
 
 decodeManifestCbor :: LazyByteString.ByteString -> Either Text CheckpointManifest
 decodeManifestCbor payload =
+  case decodeRawCheckpointEnvelope payload of
+    Right envelope
+      | rawCheckpointVersion envelope /= checkpointWireVersion ->
+          Left
+            ( "unsupported checkpoint version: "
+                <> Text.pack (show (rawCheckpointVersion envelope))
+            )
+      | otherwise -> refineCheckpointManifest (rawCheckpointPayload envelope)
+    Left newFailure ->
+      case decodeLegacyCheckpointManifest payload of
+        Right legacy -> refineLegacyCheckpointManifest legacy
+        Left legacyFailure ->
+          Left
+            ( "invalid checkpoint DTO: "
+                <> newFailure
+                <> "; legacy decode: "
+                <> legacyFailure
+            )
+
+decodeRawCheckpointEnvelope
+  :: LazyByteString.ByteString -> Either Text RawCheckpointEnvelope
+decodeRawCheckpointEnvelope payload =
+  case deserialiseOrFail payload of
+    Left failure -> Left (Text.pack (show failure))
+    Right envelope -> Right envelope
+
+decodeLegacyCheckpointManifest
+  :: LazyByteString.ByteString -> Either Text LegacyCheckpointManifest
+decodeLegacyCheckpointManifest payload =
   case deserialiseOrFail payload of
     Left failure -> Left (Text.pack (show failure))
     Right manifest -> Right manifest
+
+refineLegacyCheckpointManifest
+  :: LegacyCheckpointManifest -> Either Text CheckpointManifest
+refineLegacyCheckpointManifest legacy = do
+  candidate <- refineCheckpointManifest (legacyManifestToRawCandidate legacy)
+  traverse_ refineLegacyCompletedTraining (legacyManifestCompletedTraining legacy)
+  pure candidate
+
+legacyManifestToRawCandidate :: LegacyCheckpointManifest -> RawCheckpointManifest
+legacyManifestToRawCandidate legacy =
+  RawCheckpointManifest
+    { rawManifestId = legacyManifestId legacy
+    , rawManifestExperiment = legacyManifestExperiment legacy
+    , rawManifestModelFamily = legacyManifestModelFamily legacy
+    , rawManifestArchitecture = legacyManifestArchitecture legacy
+    , rawManifestPreprocessing = legacyManifestPreprocessing legacy
+    , rawManifestOutputDecoders = legacyManifestOutputDecoders legacy
+    , rawManifestWeightLayout = legacyManifestWeightLayout legacy
+    , rawManifestReplayPointers = legacyManifestReplayPointers legacy
+    , rawManifestTranscriptPointers = legacyManifestTranscriptPointers legacy
+    , rawManifestSubstrateArtifacts = legacyManifestSubstrateArtifacts legacy
+    , rawManifestTensors = legacyManifestTensors legacy
+    , rawManifestOptimizer = legacyManifestOptimizer legacy
+    , rawManifestRng = legacyManifestRng legacy
+    , rawManifestStep = legacyManifestStep legacy
+    , rawManifestMetrics = legacyManifestMetrics legacy
+    , rawManifestPlanId = Nothing
+    , rawManifestCompletedTraining = Nothing
+    , rawManifestInitialWeightHash = legacyManifestInitialWeightHash legacy
+    , rawManifestFinalWeightHash = legacyManifestFinalWeightHash legacy
+    , rawManifestUpdateCount = legacyManifestUpdateCount legacy
+    , rawManifestDatasetShaAtRead = legacyManifestDatasetShaAtRead legacy
+    , rawManifestParentManifestSha = legacyManifestParentManifestSha legacy
+    }
+
+refineLegacyCompletedTraining
+  :: LegacyCompletedTraining -> Either Text CompletedTraining
+refineLegacyCompletedTraining legacy = do
+  budget <- refineLegacyBudget (legacyCompletedBudget legacy)
+  planId <- legacyCompletionPlanId legacy
+  observations <- traverse refineLegacyObservation (legacyCompletedMetrics legacy)
+  completedTraining
+    planId
+    budget
+    (legacyCompletedObservedUnits legacy)
+    (legacyCompletedEvidence legacy)
+    observations
+    (legacyCompletedTensorBoard legacy)
+
+legacyCompletionPlanId :: LegacyCompletedTraining -> Either Text PlanId
+legacyCompletionPlanId legacy =
+  case planIdFromCanonicalText canonical of
+    Success planId -> Right planId
+    Failure errors -> Left ("invalid legacy completion plan identity: " <> Text.pack (show errors))
+ where
+  budget = legacyCompletedBudget legacy
+  evidence = legacyCompletedEvidence legacy
+  canonical =
+    Text.intercalate
+      "\NUL"
+      [ "legacy-checkpoint-completion-v1"
+      , Text.pack (show (legacyBudgetKind budget))
+      , Text.pack (show (legacyBudgetTargetUnits budget))
+      , legacyBudgetUnitLabel budget
+      , maybe "seedless" (Text.pack . show) (legacyBudgetSeed budget)
+      , evidenceInitialWeightHash evidence
+      , evidenceFinalWeightHash evidence
+      , Text.pack (show (evidenceUpdateCount evidence))
+      , evidenceDatasetShaAtRead evidence
+      ]
+
+refineLegacyBudget :: LegacyTrainingBudget -> Either Text TrainingBudget
+refineLegacyBudget legacy = do
+  if legacyBudgetUnitLabel legacy `elem` legacyUnitAliases (legacyBudgetKind legacy)
+    then pure ()
+    else
+      Left
+        ( "legacy training budget unit mismatch for "
+            <> renderLegacyBudgetKind (legacyBudgetKind legacy)
+            <> ": "
+            <> legacyBudgetUnitLabel legacy
+        )
+  mkTrainingBudget
+    (legacyBudgetKind legacy)
+    (legacyBudgetTargetUnits legacy)
+    (legacyBudgetSeed legacy)
+
+legacyUnitAliases :: BudgetKind -> [Text]
+legacyUnitAliases kind =
+  case kind of
+    SupervisedEpochBudget -> ["epochs", "epoch", "fixed-epochs", "steps", "units"]
+    RlEnvironmentStepBudget -> ["environment-steps", "env-steps", "goal-conditioned-env-steps", "units"]
+    AlphaZeroSelfPlayBudget -> ["self-play-generations", "self-play-samples", "units"]
+    TuningTrialBudget -> ["trials", "units"]
+
+renderLegacyBudgetKind :: BudgetKind -> Text
+renderLegacyBudgetKind = Text.pack . show
+
+refineLegacyObservation
+  :: LegacyConvergenceObservation -> Either Text ConvergenceObservation
+refineLegacyObservation legacy = do
+  threshold <-
+    maybe
+      (Left ("legacy convergence metric is missing a criterion: " <> legacyMetricName legacy))
+      Right
+      (legacyMetricThreshold legacy)
+  observation <-
+    if legacyMetricName legacy == "arena_win_rate"
+      then
+        measureCriterionExcluding
+          (legacyMetricName legacy)
+          (legacyMetricGoal legacy)
+          threshold
+          0.5
+          1.0e-12
+          (legacyMetricValue legacy)
+      else
+        measureCriterion
+          (legacyMetricName legacy)
+          (legacyMetricGoal legacy)
+          threshold
+          (legacyMetricValue legacy)
+  if convergencePassed observation == legacyMetricPassed legacy
+    then Right observation
+    else
+      Left
+        ( "legacy stored convergence verdict contradicts criterion for "
+            <> legacyMetricName legacy
+        )
+
+validateFiniteManifest :: RawCheckpointManifest -> Either Text ()
+validateFiniteManifest raw = do
+  traverse_ finiteMetric (rawManifestMetrics raw)
+  traverse_ finiteLayerKind (layerKinds (rawManifestArchitecture raw))
+ where
+  finiteMetric (name, value)
+    | isNaN value || isInfinite value =
+        Left ("checkpoint metric " <> name <> " must be finite")
+    | otherwise = Right ()
+
+  finiteLayerKind kind =
+    case kind of
+      LayerGraphDropoutLayer value -> finiteMetadata "dropout" value
+      LayerGraphResidualLayer value -> finiteMetadata "residual" value
+      LayerGraphBasicBlockLayer value -> finiteMetadata "basic-block" value
+      LayerGraphBottleneckBlockLayer value -> finiteMetadata "bottleneck-block" value
+      _ -> Right ()
+
+  finiteMetadata label value
+    | isNaN value || isInfinite value =
+        Left ("checkpoint " <> label <> " metadata must be finite")
+    | otherwise = Right ()
+
+  layerKinds architecture =
+    maybe [] (fmap layerGraphNodeKind . layerGraphMetadataNodes) (architectureLayerGraph architecture)
 
 decodeInferenceEligibleManifestCbor
   :: Text

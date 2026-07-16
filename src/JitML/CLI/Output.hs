@@ -2,6 +2,7 @@ module JitML.CLI.Output
   ( exitWithError
   , exitWithErrorIO
   , renderError
+  , writeErrorLineIO
   , writeJsonValue
   , writeLazyByteString
   , writeLine
@@ -34,6 +35,9 @@ writeLine = liftIO . Text.IO.putStrLn
 
 writeLineIO :: Text -> IO ()
 writeLineIO = Text.IO.putStrLn
+
+writeErrorLineIO :: Text -> IO ()
+writeErrorLineIO = Text.IO.hPutStrLn stderr
 
 writeLazyByteString :: ByteString -> App ()
 writeLazyByteString = liftIO . ByteString.putStr

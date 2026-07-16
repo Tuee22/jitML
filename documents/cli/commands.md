@@ -381,7 +381,7 @@ Run AlphaZero self-play.
 Runs a bounded AlphaZero self-play generation through the selected substrate MLP device.
 
 ```text
-jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
+jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--generations <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
 ```
 
 | Option | Kind | Required | Description |
@@ -390,6 +390,7 @@ jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game
 | `--seed <word64>` | value | no | Self-play seed. |
 | `--game <game>` | value | no | AlphaZero game (connect4, othello, hex, or gomoku). |
 | `--games <n>` | value | no | Number of self-play games. |
+| `--generations <n>` | value | no | Number of self-play training generations. |
 | `--sims <n>` | value | no | MCTS simulations per move. |
 | `--max-plies <n>` | value | no | Maximum plies per self-play game. |
 | `--updates <n>` | value | no | Policy/value gradient updates. |

@@ -1,11 +1,17 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
+import Control.Concurrent.Async (async, cancel, waitCatch)
+import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Control.Exception (bracket)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.List (isInfixOf)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isJust)
 import Network.Socket
   ( AddrInfo (..)
   , Socket
@@ -19,14 +25,16 @@ import Network.Socket
   )
 import Network.Socket.ByteString (recv, sendAll)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, evalStateT, get)
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Word (Word64)
+import GHC.Clock (getMonotonicTimeNSec)
 
 import Data.ProtoLens qualified as ProtoLens
 import Data.ProtoLens.Field qualified as Field
@@ -34,8 +42,19 @@ import Lens.Family2 qualified as Lens
 import Proto.Jitml.Inference qualified as ProtoInference
 import Proto.Jitml.Inference_Fields ()
 
+import SigtermRegression qualified
+
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
+import JitML.Coordinator.Topology
+  ( ProtocolRoute (..)
+  , decodeTopicPayload
+  , topicFor
+  , topicName
+  )
+import JitML.Plan.Command qualified as PlanCommand
+import JitML.Plan.Plan (PlanId, Validation (..), refinePlanIdText)
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Proto.Inference qualified as Inference
@@ -46,6 +65,8 @@ import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
   ( BucketName (..)
+  , ConsumerFailure (..)
+  , ConsumerSessionEvent (..)
   , ETag (..)
   , HasHarbor (..)
   , HasKubectl (..)
@@ -53,36 +74,56 @@ import JitML.Service.Capabilities
   , HasPulsar (..)
   , ImageRef (..)
   , KubeResource (..)
+  , NackReason (..)
   , ObjectKey (..)
   , ObjectRef (..)
-  , SubscriptionId (..)
-  , TopicName (..)
+  , SubscriptionOwnership (..)
+  , SubscriptionStart (..)
+  , ack
+  , deliveryBatchWindow
+  , done
+  , doneBatch
+  , mkSubscription
+  , subscriptionName
+  , subscriptionOwnership
+  , subscriptionTopic
   )
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
-  , DaemonSubscription (..)
+  , DaemonCommand (..)
+  , DaemonSubscription
   , EventDomain (..)
-  , EventId (..)
+  , EventId
   , HandlerRouter (..)
   , consumerOutcomeError
   , consumerStep
+  , consumerStepCommitted
+  , daemonCommandDomain
+  , daemonCommandEventId
+  , daemonCommandPayload
+  , daemonSubscriptionDomain
+  , daemonSubscriptionName
+  , daemonSubscriptionOwnership
+  , daemonSubscriptionStart
+  , daemonSubscriptionTopicName
   , daemonSubscriptionsForBootConfig
   , dedupCacheCapacity
   , dedupCacheKnown
   , dedupCacheTtlSeconds
-  , domainFor
   , emptyHandlerRouter
   , emptyHandlerRouterWithTtl
-  , eventIdFromPayload
   , processAtLeastOnce
+  , reconfigureHandlerRouterAt
   , routeByKindAt
   , runConsumerLoop
-  , subscribeDaemonTopics
   )
 import JitML.Service.Endpoints (MetricsSnapshot (..), endpointStatus, healthz, metrics, readyz)
+import JitML.Service.HostWorkloadRegistry qualified as HostWorkloadRegistry
 import JitML.Service.Http (withHttpRoutesOnce)
+import JitML.Service.InferenceBatch qualified as InferenceBatch
 import JitML.Service.Lifecycle (LifecyclePhase (..), lifecyclePlan)
+import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Service.Retry (RetryPolicy (..), ServiceError (..), retryServiceAction)
 import JitML.Service.RoleLifecycle
   ( computeRoles
@@ -93,37 +134,63 @@ import JitML.Service.RoleLifecycle
   , roleProfile
   )
 import JitML.Service.Runtime
-  ( DaemonRuntime (daemonAppleMetalAcquireStatus, daemonReady)
+  ( DaemonRuntime (daemonAppleMetalAcquireStatus, daemonState)
+  , daemonConsumerSessionTransition
   , daemonHttpRoutes
+  , daemonReady
   , defaultDaemonRuntime
   , runtimeAfterSignal
   )
 import JitML.Service.Runtime qualified as Runtime
+import JitML.Service.RuntimeState
+  ( daemonStateLabel
+  )
+import JitML.Service.RuntimeState qualified as RuntimeState
 import JitML.Service.Signal
-  ( DaemonControlSnapshot (..)
+  ( DaemonControl
+  , DaemonControlSnapshot (..)
   , DaemonSignal (..)
   , DaemonSignalAction (..)
+  , applyDaemonLiveConfig
   , applyDaemonSignal
   , daemonSignalAction
+  , modifyDaemonState
   , newDaemonControl
+  , readDaemonControl
   , renderDaemonSignalAction
+  , snapshotDraining
+  , snapshotReady
+  , snapshotReloadGeneration
   )
 import JitML.Service.Workload
-  ( WorkloadEffect (..)
-  , WorkloadEffectResult (..)
-  , WorkloadKind (..)
+  ( ClusterJobSpec (..)
+  , SomeWorkloadEffect (..)
+  , SomeWorkloadOutcome (..)
+  , WorkloadDecodeError
+  , WorkloadEffect (..)
+  , WorkloadLaunch (..)
   , WorkloadPlacement (..)
-  , dispatchDomainPayloadForResidency
-  , hostWorkloadCommandTopic
+  , dispatchRlCommand
+  , dispatchWorkloadPayload
+  , hostCommandSpecPayload
+  , hostCommandSpecTopicName
   , parseWorkloadEffectPayload
   , planWorkloadPlacement
   , renderRlJob
+  , renderSomeWorkloadOutcome
   , renderTrainingJob
   , renderTuneJob
   , renderWorkloadEffectPayload
   , runWorkloadEffects
+  , workloadOutcomeError
   )
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Test.Pulsar
+  ( ObservedDecision (..)
+  , ObservedDisposition (..)
+  , observeDisposition
+  , simulateDeliveryDecisionForTest
+  )
 import JitML.Training.Budget qualified as TrainingBudget
 
 main :: IO ()
@@ -133,6 +200,24 @@ main =
       "jitml-daemon-lifecycle"
       [ testCase "lifecycle order reaches ready before serve" $
           lifecyclePlan @?= [Load, Prereq, Acquire, Ready, Serve, Drain, Exit]
+      , testCase
+          "actual jitml executable is linked with the threaded RTS"
+          SigtermRegression.threadedRtsRegression
+      , testCase
+          "actual jitml service SIGTERM drops readiness and drains one in-flight delivery"
+          SigtermRegression.sigtermDrainRegression
+      , testCase
+          "actual jitml service enforces configured drain deadline and joins forced cleanup"
+          SigtermRegression.sigtermDeadlineRegression
+      , testCase
+          "actual jitml service reloads LiveConfig and drains restart-required BootConfig changes"
+          SigtermRegression.sighupReloadRegression
+      , testCase
+          "actual Webapp service survives LiveConfig reloads and exits cleanly on SIGTERM"
+          SigtermRegression.webappSignalRegression
+      , testCase
+          "actual jitml service fails closed without a valid adjacent LiveConfig"
+          SigtermRegression.liveConfigFailClosedRegression
       , testCase "role model: exactly the Engine computes; every role shares the skeleton" $ do
           -- The Engine is the only compute role (Webapp/Coordinator run no ML).
           computeRoles @?= [BootConfig.Engine]
@@ -162,21 +247,131 @@ main =
           endpointStatus (readyz True) @?= 200
           endpointStatus (readyz (daemonReady drainingRuntime)) @?= 503
       , testCase "daemon control records reload generation and drain readiness" $ do
-          control <- newDaemonControl True
-          reloaded <- applyDaemonSignal control DaemonSighup
-          reloaded @?= DaemonControlSnapshot True False 1
+          control <- newDaemonControl (daemonState defaultDaemonRuntime)
+          requested <- applyDaemonSignal control DaemonSighup
+          snapshotReloadGeneration requested @?= 0
+          snapshotReady requested @?= False
+          snapshotDraining requested @?= False
+          _ <- applyDaemonLiveConfig control (Runtime.daemonLiveConfig defaultDaemonRuntime)
+          unchanged <- readDaemonControl control
+          snapshotReloadGeneration unchanged @?= 0
+          _ <-
+            applyDaemonLiveConfig
+              control
+              ( (Runtime.daemonLiveConfig defaultDaemonRuntime)
+                  { LiveConfig.liveDedupCacheSize = 17
+                  }
+              )
+          reloaded <- readDaemonControl control
+          snapshotReloadGeneration reloaded @?= 1
           drained <- applyDaemonSignal control DaemonSigint
-          drained @?= DaemonControlSnapshot False True 1
+          snapshotReloadGeneration drained @?= 1
+          snapshotReady drained @?= False
+          snapshotDraining drained @?= True
+          daemonStateLabel (snapshotDaemonState drained) @?= "draining"
       , testCase "retry policy retries transient errors" $ do
           result <-
             retryServiceAction (LinearN 2 0) (\() -> pure (Left (SETimeout "timeout"))) ()
               :: IO (Either AppError ())
           result @?= Left (PulsarFailed "timeout: timeout")
-      , testCase "message hash dedup collapses repeated messages" $ do
-          let first = eventIdFromPayload (ByteString.pack "payload")
-              second = eventIdFromPayload (ByteString.pack "payload")
+      , testCase "semantic command identity is stable and plan-bound" $ do
+          let command = syntheticTrainingCommand "semantic-plan" LinuxCPU
+              changedCommand =
+                TrainingDaemonCommand
+                  LinuxCPU
+                  ( Training.TrainingStart
+                      ( preparedStartTraining
+                          Training.StartTraining
+                            { Training.stExperimentHash = "semantic-plan"
+                            , Training.stDhallObjectKey = "experiments/synthetic.dhall"
+                            , Training.stSubstrate = LinuxCPU
+                            , Training.stSeed = 7
+                            , Training.stEpochs = 3
+                            , Training.stBatchSize = 8
+                            , Training.stPlanId = ""
+                            , Training.stResolvedPlan = ""
+                            , Training.stTrainingExamples = 64
+                            , Training.stEvaluationExamples = 16
+                            }
+                      )
+                  )
+          first <- expectDaemonCommandEventId command
+          second <- expectDaemonCommandEventId command
+          changed <- expectDaemonCommandEventId changedCommand
           first @?= second
+          assertBool "changed canonical plan changes semantic identity" (first /= changed)
           assertBool "one side effect" (length (processAtLeastOnce [first, second]) == 1)
+      , testCase "semantic command identity is encoding-independent after typed decode" $ do
+          let typedStart =
+                preparedStartTraining
+                  Training.StartTraining
+                    { Training.stExperimentHash = "semantic-encoding"
+                    , Training.stDhallObjectKey = "experiments/synthetic.dhall"
+                    , Training.stSubstrate = LinuxCPU
+                    , Training.stSeed = 7
+                    , Training.stEpochs = 2
+                    , Training.stBatchSize = 8
+                    , Training.stPlanId = ""
+                    , Training.stResolvedPlan = ""
+                    , Training.stTrainingExamples = 64
+                    , Training.stEvaluationExamples = 16
+                    }
+              typedCommand = Training.TrainingStart typedStart
+              reorderedText =
+                Text.unlines
+                  [ "batch-size: " <> Text.pack (show (Training.stBatchSize typedStart))
+                  , "kind: StartTraining"
+                  , "evaluation-examples: "
+                      <> Text.pack (show (Training.stEvaluationExamples typedStart))
+                  , "epochs: " <> Text.pack (show (Training.stEpochs typedStart))
+                  , "seed: " <> Text.pack (show (Training.stSeed typedStart))
+                  , "substrate: linux-cpu"
+                  , "dhall-object-key: experiments/synthetic.dhall"
+                  , "experiment-hash: semantic-encoding"
+                  , "training-examples: "
+                      <> Text.pack (show (Training.stTrainingExamples typedStart))
+                  , "resolved-plan: " <> Training.stResolvedPlan typedStart
+                  , "plan-id: " <> Training.stPlanId typedStart
+                  ]
+          textDecoded <-
+            case Training.parseTrainingCommand reorderedText of
+              Nothing -> assertFailure "reordered typed Training command did not decode" >> fail "unreachable"
+              Just value -> pure value
+          protoDecoded <-
+            case Training.decodeTrainingCommandProto (Training.encodeTrainingCommandProto typedCommand) of
+              Left err -> assertFailure (Text.unpack err) >> fail "unreachable"
+              Right value -> pure value
+          canonicalId <-
+            expectDaemonCommandEventId (TrainingDaemonCommand LinuxCPU typedCommand)
+          textId <- expectDaemonCommandEventId (TrainingDaemonCommand LinuxCPU textDecoded)
+          protoId <- expectDaemonCommandEventId (TrainingDaemonCommand LinuxCPU protoDecoded)
+          textId @?= canonicalId
+          protoId @?= canonicalId
+      , testCase "invalid semantic command identity Nacks without dispatch" $ do
+          dispatchedRef <- newIORef False
+          let command =
+                case syntheticTrainingCommand "invalid-semantic-plan" LinuxCPU of
+                  TrainingDaemonCommand substrate (Training.TrainingStart start) ->
+                    TrainingDaemonCommand
+                      substrate
+                      (Training.TrainingStart start {Training.stExperimentHash = ""})
+                  _ -> error "synthetic training fixture produced a non-training command"
+              router = emptyHandlerRouter 16
+          (routerAfter, outcome, disposition) <-
+            consumerStep router command $ \_command _eventId -> do
+              writeIORef dispatchedRef True
+              pure (Right ())
+          routerAfter @?= router
+          case outcome of
+            ConsumerError (SEConflict identityError) -> do
+              assertBool
+                "identity refinement is reported"
+                ("invalid semantic event identity" `Text.isInfixOf` identityError)
+              observeDisposition disposition
+                @?= ObservedNack (HandlerRejected ("conflict: " <> identityError))
+            unexpected ->
+              assertFailure ("expected typed semantic identity failure, got " <> show unexpected)
+          readIORef dispatchedRef >>= (@?= False)
       , testCase "inference request and result protobuf envelopes round-trip" $ do
           let request =
                 Inference.InferenceRequest
@@ -217,93 +412,316 @@ main =
                 @?= Inference.irInput request
               let reencoded = ProtoLens.encodeMessage decoded
               Inference.decodeInferenceRequestProto reencoded @?= Right request
-      , testCase "domainFor accepts fully-qualified Pulsar topics (Sprint 5.5)" $ do
-          domainFor "persistent://public/default/training.command.linux-cpu" @?= Just TrainingDomain
-          domainFor "persistent://public/default/tune.command.linux-cuda" @?= Just TuneDomain
-          domainFor "persistent://public/default/rl.command.apple-silicon" @?= Just RlDomain
-          domainFor "persistent://public/default/inference.request.linux-cpu" @?= Just InferenceDomain
-      , testCase "daemon subscriptions follow BootConfig residency (Sprint 5.5)" $ do
-          let clusterSubscriptions =
-                daemonSubscriptionsForBootConfig
-                  (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
-              hostSubscriptions =
-                daemonSubscriptionsForBootConfig
-                  (BootConfig.defaultBootConfig AppleSilicon BootConfig.Host)
-          fmap (unTopicName . daemonSubscriptionTopic) clusterSubscriptions
-            @?= [ "persistent://public/default/training.command.linux-cpu"
-                , "persistent://public/default/tune.command.linux-cpu"
-                , "persistent://public/default/rl.command.linux-cpu"
-                , "persistent://public/default/inference.request.linux-cpu"
+      , testCase "daemon subscription plans are opaque topology-derived borrowed cursors" $ do
+          clusterSubscriptions <-
+            expectSubscriptionPlan
+              (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
+          hostSubscriptions <-
+            expectSubscriptionPlan
+              (BootConfig.defaultBootConfig AppleSilicon BootConfig.Host)
+          appleClusterSubscriptions <-
+            expectSubscriptionPlan
+              (BootConfig.defaultBootConfig AppleSilicon BootConfig.Cluster)
+          assertSubscriptionPlan
+            "jitml-engine"
+            ["persistent://public/default/inference.request.linux-cpu"]
+            clusterSubscriptions
+          assertSubscriptionPlan
+            "jitml-host"
+            [ "persistent://public/default/inference.command.apple-silicon"
+            , "persistent://public/default/training.host-command.apple-silicon"
+            , "persistent://public/default/tune.host-command.apple-silicon"
+            , "persistent://public/default/rl.host-command.apple-silicon"
+            ]
+            hostSubscriptions
+          appleClusterSubscriptions @?= []
+          traverse_
+            ( \substrate -> do
+                let base = BootConfig.defaultBootConfig substrate BootConfig.Cluster
+                    coordinator = base {BootConfig.bootActiveRole = BootConfig.Coordinator}
+                    webapp =
+                      base
+                        { BootConfig.bootActiveRole = BootConfig.Webapp
+                        , BootConfig.bootWebappPulsarWsUrl = Just "ws://pulsar.example/ws"
+                        }
+                coordinatorSubscriptions <- expectSubscriptionPlan coordinator
+                webappSubscriptions <- expectSubscriptionPlan webapp
+                assertSubscriptionPlan
+                  "jitml-coordinator"
+                  ( coordinatorTopicNames substrate
+                      <> [ "persistent://public/default/inference.request.apple-silicon"
+                         | substrate == AppleSilicon
+                         ]
+                  )
+                  coordinatorSubscriptions
+                webappSubscriptions @?= []
+            )
+            [LinuxCPU, LinuxCUDA, AppleSilicon]
+      , testCase "runtime workload dispatch is restricted by role and command domain" $ do
+          let engineConfig = BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster
+              coordinatorConfig =
+                engineConfig {BootConfig.bootActiveRole = BootConfig.Coordinator}
+              webappConfig =
+                engineConfig
+                  { BootConfig.bootActiveRole = BootConfig.Webapp
+                  , BootConfig.bootWebappPulsarWsUrl = Just "ws://pulsar.example/ws"
+                  }
+              runtimeFor = Runtime.daemonRuntimeForBootConfig
+          Runtime.validateDaemonWorkloadDispatchRole (runtimeFor engineConfig)
+            @?= Right ()
+          Runtime.validateDaemonWorkloadDispatchRole (runtimeFor coordinatorConfig)
+            @?= Right ()
+          Runtime.validateDaemonWorkloadDispatchRole (runtimeFor webappConfig)
+            @?= Left
+              (SEUnauthorized "workload dispatch requires activeRole=Engine or Coordinator, received webapp")
+          let inference = syntheticInferenceCommand LinuxCPU "role-inference"
+              training = syntheticTrainingCommand "role-training" LinuxCPU
+          Runtime.validateDaemonCommandDispatchRole (runtimeFor engineConfig) inference @?= Right ()
+          assertUnauthorized
+            (Runtime.validateDaemonCommandDispatchRole (runtimeFor engineConfig) training)
+          Runtime.validateDaemonCommandDispatchRole (runtimeFor coordinatorConfig) training @?= Right ()
+          assertUnauthorized
+            (Runtime.validateDaemonCommandDispatchRole (runtimeFor coordinatorConfig) inference)
+      , testCase "Apple host Stops refine to exact keyed cancel-or-drain actions" $ do
+          let trainingStop =
+                TrainingDaemonCommand
+                  AppleSilicon
+                  (Training.TrainingStop (Training.StopTraining "apple-training" True))
+              tuneStop =
+                TuneDaemonCommand
+                  AppleSilicon
+                  (Tune.TuneStop (Tune.StopSweep "apple-tune"))
+              rlStop =
+                RlDaemonCommand
+                  AppleSilicon
+                  (Rl.RlStop (Rl.StopRLRun "apple-rl" True))
+          traverse_
+            ( \(command, expectedMode, expectedFamily, expectedHash) -> do
+                action <- expectRight (Runtime.planAppleHostWorkloadAction command)
+                case action of
+                  Runtime.StopAppleHostWorkload observedMode _key ->
+                    observedMode @?= expectedMode
+                  other ->
+                    assertFailure ("expected an Apple host Stop action, got " <> show other)
+                maybeKey <- expectRight (Runtime.appleHostWorkloadActionKey action)
+                case maybeKey of
+                  Nothing -> assertFailure "expected a keyed Apple host Stop action"
+                  Just key -> do
+                    HostWorkloadRegistry.hostWorkloadFamily key @?= expectedFamily
+                    HostWorkloadRegistry.hostWorkloadExperimentHash key @?= expectedHash
+            )
+            [
+              ( trainingStop
+              , Runtime.DrainAppleHostWorkload
+              , HostWorkloadRegistry.TrainingWorkload
+              , "apple-training"
+              )
+            ,
+              ( tuneStop
+              , Runtime.CancelAppleHostWorkload
+              , HostWorkloadRegistry.TuneWorkload
+              , "apple-tune"
+              )
+            ,
+              ( rlStop
+              , Runtime.DrainAppleHostWorkload
+              , HostWorkloadRegistry.RlWorkload
+              , "apple-rl"
+              )
+            ]
+          let appleHostEngine =
+                BootConfig.defaultBootConfig AppleSilicon BootConfig.Host
+              appleCoordinator =
+                (BootConfig.defaultBootConfig AppleSilicon BootConfig.Cluster)
+                  { BootConfig.bootActiveRole = BootConfig.Coordinator
+                  }
+              linuxEngine =
+                BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster
+          Runtime.workflowStatusProjectionMode appleHostEngine trainingStop
+            @?= Runtime.RequireWorkflowStatusProjection
+          Runtime.workflowStatusProjectionMode appleCoordinator trainingStop
+            @?= Runtime.SkipWorkflowStatusProjection
+          Runtime.workflowStatusProjectionMode linuxEngine trainingStop
+            @?= Runtime.BestEffortWorkflowStatusProjection
+          let publicationFailure = Left (SETransient "workflow status unavailable")
+          Runtime.applyWorkflowStatusProjectionResult
+            Runtime.RequireWorkflowStatusProjection
+            publicationFailure
+            @?= publicationFailure
+          Runtime.applyWorkflowStatusProjectionResult
+            Runtime.BestEffortWorkflowStatusProjection
+            publicationFailure
+            @?= Right ()
+      , testCase "Apple host AlphaZero starts refine to an executable host action" $ do
+          let start =
+                preparedStartAlphaZeroRun
+                  Rl.StartAlphaZeroRun
+                    { Rl.sazSubstrate = AppleSilicon
+                    , Rl.sazExperimentHash = "apple-alpha-zero"
+                    , Rl.sazPlanId = ""
+                    , Rl.sazResolvedPlan = ""
+                    , Rl.sazGame = "hex"
+                    , Rl.sazGenerations = 2
+                    , Rl.sazSelfPlayGames = 4
+                    , Rl.sazMctsSimulationsPerMove = 8
+                    , Rl.sazMaxPlies = 32
+                    , Rl.sazOptimizerUpdates = 3
+                    , Rl.sazArenaGames = 4
+                    , Rl.sazSeed = 19
+                    }
+              command = RlDaemonCommand AppleSilicon (Rl.RlStartAlphaZero start)
+          Runtime.planAppleHostWorkloadAction command
+            @?= Right (Runtime.RunAppleHostAlphaZero start)
+      , testCase "Apple cluster Stops forward exactly once to host command topics" $ do
+          let assertClusterStopForwarded (command, expectedTopic) = do
+                clientLogRef <- newIORef []
+                let router = emptyHandlerRouter 16
+                (routerAfterStop, outcome, disposition) <-
+                  evalStateT
+                    (consumerStep router command Runtime.daemonWorkloadDispatcherForwardingInference)
+                    (SyntheticClientState clientLogRef)
+                eventId <- expectDaemonCommandEventId command
+                assertBool "successful Stop is entered into dedup" (routerAfterStop /= router)
+                outcome @?= ConsumerDispatched (daemonCommandDomain command) eventId
+                observeDisposition disposition @?= ObservedAck
+                readIORef clientLogRef
+                  >>= (@?= ["pulsar:publish:" <> expectedTopic])
+              commands =
+                [
+                  ( TrainingDaemonCommand
+                      AppleSilicon
+                      (Training.TrainingStop (Training.StopTraining "apple-training" True))
+                  , "persistent://public/default/training.host-command.apple-silicon"
+                  )
+                ,
+                  ( TuneDaemonCommand
+                      AppleSilicon
+                      (Tune.TuneStop (Tune.StopSweep "apple-tune"))
+                  , "persistent://public/default/tune.host-command.apple-silicon"
+                  )
+                ,
+                  ( RlDaemonCommand
+                      AppleSilicon
+                      (Rl.RlStop (Rl.StopRLRun "apple-rl" True))
+                  , "persistent://public/default/rl.host-command.apple-silicon"
+                  )
                 ]
-          fmap daemonSubscriptionName clusterSubscriptions
-            @?= replicate 4 "jitml-service"
-          fmap (unTopicName . daemonSubscriptionTopic) hostSubscriptions
-            @?= [ "persistent://public/default/inference.command.apple-silicon"
-                , "persistent://public/default/training.host-command.apple-silicon"
-                , "persistent://public/default/tune.host-command.apple-silicon"
-                , "persistent://public/default/rl.host-command.apple-silicon"
-                ]
-          fmap daemonSubscriptionName hostSubscriptions @?= replicate 4 "jitml-host"
-          -- Sprint 14.4 — the Apple in-cluster (ForwardToHost) daemon subscribes to
-          -- the inference request topic and forwards each command raw to the host
-          -- daemon; the host Engine publishes the InferenceResult to the reply-topic
-          -- directly, so there is no host reply-event subscription.
-          let appleClusterSubscriptions =
-                daemonSubscriptionsForBootConfig
-                  (BootConfig.defaultBootConfig AppleSilicon BootConfig.Cluster)
-          fmap (unTopicName . daemonSubscriptionTopic) appleClusterSubscriptions
-            @?= [ "persistent://public/default/training.command.apple-silicon"
-                , "persistent://public/default/tune.command.apple-silicon"
-                , "persistent://public/default/rl.command.apple-silicon"
-                , "persistent://public/default/inference.request.apple-silicon"
-                ]
+          traverse_ assertClusterStopForwarded commands
       , testCase "workload placement routes Apple Metal starts to host command topics (Sprint 5.11)" $ do
-          planWorkloadPlacement BootConfig.Cluster WorkloadRl AppleSilicon
-            @?= WorkloadHostCommand (hostWorkloadCommandTopic WorkloadRl AppleSilicon)
-          planWorkloadPlacement BootConfig.Cluster WorkloadTraining LinuxCPU
-            @?= WorkloadClusterJob
           publishRef <- newIORef []
-          let appleRl =
-                Rl.RlStart
-                  Rl.StartRLRun
-                    { Rl.srlExperimentHash = "apple-rl"
-                    , Rl.srlAlgorithm = "PPO"
-                    , Rl.srlEnvironment = "cartpole"
-                    , Rl.srlSubstrate = AppleSilicon
-                    , Rl.srlSeed = 42
-                    , Rl.srlMaxSteps = 200
-                    , Rl.srlEvalEpisodes = 2
-                    }
-              linuxRl =
-                Rl.RlStart
-                  Rl.StartRLRun
-                    { Rl.srlExperimentHash = "linux-rl"
-                    , Rl.srlAlgorithm = "PPO"
-                    , Rl.srlEnvironment = "cartpole"
-                    , Rl.srlSubstrate = LinuxCPU
-                    , Rl.srlSeed = 42
-                    , Rl.srlMaxSteps = 200
-                    , Rl.srlEvalEpisodes = 2
-                    }
-          _ <-
+          let appleStart = syntheticRlStart "apple-rl" AppleSilicon
+              linuxStart = syntheticRlStart "linux-rl" LinuxCPU
+              appleRl = Rl.RlStart appleStart
+              linuxRl = Rl.RlStart linuxStart
+          case planWorkloadPlacement BootConfig.Cluster (RlLaunch appleStart) of
+            Left err -> assertFailure (show err)
+            Right (WorkloadClusterJob _) -> assertFailure "Apple Metal launch was placed in cluster"
+            Right (WorkloadHostCommand spec) -> do
+              hostCommandSpecTopicName spec
+                @?= "persistent://public/default/rl.host-command.apple-silicon"
+              hostCommandSpecPayload spec @?= Rl.renderRlCommand appleRl
+          case planWorkloadPlacement BootConfig.Cluster (RlLaunch linuxStart) of
+            Left err -> assertFailure (show err)
+            Right (WorkloadHostCommand _) -> assertFailure "Linux CPU launch was placed on the host"
+            Right (WorkloadClusterJob spec) -> do
+              clusterJobResource spec @?= KubeResource "job/jitml-rl-linux-rl"
+              assertBool
+                "cluster placement carries its manifest"
+                ("kind: Job" `Text.isInfixOf` clusterJobManifest spec)
+          appleResult <-
             evalStateT
-              (dispatchDomainPayloadForResidency BootConfig.Cluster RlDomain (Rl.renderRlCommand appleRl))
+              (dispatchRlCommand BootConfig.Cluster AppleSilicon appleRl)
               (SyntheticClientState publishRef)
+          assertWorkloadOutcomesSucceeded appleResult
           appleLog <- readIORef publishRef
           appleLog
             @?= ["pulsar:publish:persistent://public/default/rl.host-command.apple-silicon"]
           linuxRef <- newIORef []
-          _ <-
+          linuxResult <-
             evalStateT
-              (dispatchDomainPayloadForResidency BootConfig.Cluster RlDomain (Rl.renderRlCommand linuxRl))
+              (dispatchRlCommand BootConfig.Cluster LinuxCPU linuxRl)
               (SyntheticClientState linuxRef)
+          assertWorkloadOutcomesSucceeded linuxResult
           linuxLog <- readIORef linuxRef
           linuxLog @?= ["kubectl:apply:job/jitml-rl-linux-rl"]
-      , testCase "one-shot daemon HTTP server exposes healthz" $
-          withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (daemonHttpRoutes defaultDaemonRuntime) $ \port -> do
+      , testCase "one-shot daemon HTTP server exposes healthz" $ do
+          control <- newDaemonControl (daemonState defaultDaemonRuntime)
+          withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (daemonHttpRoutes control defaultDaemonRuntime) $ \port -> do
             response <- httpGet port "/healthz"
             assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
             assertBool "health body" ("\r\n\r\nok\n" `isInfixOf` response)
+      , testCase "live readyz follows the shared control state" $ do
+          readyRuntime <- readyLinuxRuntime
+          control <- newDaemonControl (daemonState defaultDaemonRuntime)
+          assertReadyHttpStatus control readyRuntime "503 Service Unavailable"
+          _ <- modifyDaemonState control (const (daemonState readyRuntime))
+          assertReadyHttpStatus control readyRuntime "200 OK"
+          drained <- applyDaemonSignal control DaemonSigterm
+          snapshotDraining drained @?= True
+          assertReadyHttpStatus control readyRuntime "503 Service Unavailable"
+      , testCase "Coordinator readyz requires exact topics, role subscriptions, and probes" $ do
+          let coordinatorBootConfig =
+                (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
+                  { BootConfig.bootActiveRole = BootConfig.Coordinator
+                  }
+              coordinatorRuntime = Runtime.daemonRuntimeForBootConfig coordinatorBootConfig
+              topicObservations =
+                fmap
+                  (\topic -> (PulsarBootstrap.topicName topic, PulsarBootstrap.TopicCreated))
+                  PulsarBootstrap.pulsarTopics
+          fmap
+            Runtime.daemonClientProbeStatusName
+            (Runtime.daemonClientProbeStatuses coordinatorRuntime)
+            @?= [ "minio:list jitml-checkpoints"
+                , "harbor:list library"
+                , "kubectl:get pods"
+                ]
+          topicEvidence <-
+            expectRight
+              ( PulsarBootstrap.refineTopicFamilyEvidence
+                  PulsarBootstrap.pulsarTopics
+                  topicObservations
+              )
+          control <- newDaemonControl (daemonState coordinatorRuntime)
+          daemonStateLabel (daemonState coordinatorRuntime) @?= "starting"
+          RuntimeState.daemonStateDetail (daemonState coordinatorRuntime)
+            @?= "awaiting topic-family"
+          assertReadyHttpStatus control coordinatorRuntime "503 Service Unavailable"
+
+          let reconciledRuntime =
+                coordinatorRuntime
+                  { daemonState =
+                      RuntimeState.recordTopicFamilyReconciled
+                        (PulsarBootstrap.topicFamilyEvidenceTopics topicEvidence)
+                        (daemonState coordinatorRuntime)
+                  }
+          _ <- modifyDaemonState control (const (daemonState reconciledRuntime))
+          RuntimeState.daemonStateDetail (daemonState reconciledRuntime)
+            @?= "awaiting consumer-connections"
+          assertReadyHttpStatus control coordinatorRuntime "503 Service Unavailable"
+
+          let connectedRuntime = connectAllConsumers 1 reconciledRuntime
+          _ <- modifyDaemonState control (const (daemonState connectedRuntime))
+          RuntimeState.daemonStateDetail (daemonState connectedRuntime)
+            @?= "awaiting client-probes"
+          assertReadyHttpStatus control coordinatorRuntime "503 Service Unavailable"
+
+          clientLogRef <- newIORef []
+          readyCoordinator <-
+            evalStateT
+              (Runtime.probeCoordinatorServiceClients connectedRuntime)
+              (SyntheticClientState clientLogRef)
+          daemonReady readyCoordinator @?= True
+          daemonStateLabel (daemonState readyCoordinator) @?= "ready"
+          readIORef clientLogRef
+            >>= ( @?=
+                    [ "minio:list:jitml-checkpoints:daemon-health/"
+                    , "harbor:list:library"
+                    , "kubectl:get:pods"
+                    ]
+                )
+          _ <- modifyDaemonState control (const (daemonState readyCoordinator))
+          assertReadyHttpStatus control coordinatorRuntime "200 OK"
       , testCase
           "daemon runtime summary includes client acquisition and subscription settings (Sprints 5.4/5.5)"
           $ do
@@ -319,19 +737,8 @@ main =
               )
             assertBool "subscription section" ("pulsar_subscriptions:" `Text.isInfixOf` summary)
             assertBool
-              "default training subscription"
-              ( "- persistent://public/default/training.command.linux-cpu as jitml-service"
-                  `Text.isInfixOf` summary
-              )
-            assertBool
               "default inference subscription"
-              ( "- persistent://public/default/inference.request.linux-cpu as jitml-service"
-                  `Text.isInfixOf` summary
-              )
-            assertBool "subscription status section" ("pulsar_subscription_status:" `Text.isInfixOf` summary)
-            assertBool
-              "pending training subscription"
-              ( "- persistent://public/default/training.command.linux-cpu as jitml-service: pending"
+              ( "- persistent://public/default/inference.request.linux-cpu as jitml-engine"
                   `Text.isInfixOf` summary
               )
             assertBool "Apple Metal acquire section" ("apple_metal_acquire:" `Text.isInfixOf` summary)
@@ -355,11 +762,16 @@ main =
                   { daemonAppleMetalAcquireStatus =
                       Runtime.AppleMetalAcquireFailed
                         "apple.metal-runtime=yes apple.metal-bridge=no"
-                  , daemonReady = False
+                  , daemonState =
+                      RuntimeState.recordMetalFailure
+                        "apple.metal-runtime=yes apple.metal-bridge=no"
+                        (daemonState appleRuntime)
                   }
               successSummary = Runtime.renderDaemonRuntimeSummary successRuntime
               failureSummary = Runtime.renderDaemonRuntimeSummary failureRuntime
           daemonAppleMetalAcquireStatus appleRuntime @?= Runtime.AppleMetalAcquirePending
+          daemonStateLabel (daemonState appleRuntime) @?= "starting"
+          daemonReady appleRuntime @?= False
           assertBool
             "successful Apple acquire status"
             ("ok apple.metal-runtime=yes apple.metal-bridge=yes" `Text.isInfixOf` successSummary)
@@ -367,35 +779,126 @@ main =
             "failed Apple acquire status"
             ("failed apple.metal-runtime=yes apple.metal-bridge=no" `Text.isInfixOf` failureSummary)
           endpointStatus (readyz (daemonReady failureRuntime)) @?= 503
-      , testCase "daemon service client interpreter exposes all capability classes (Sprint 5.4)" $ do
-          let action :: ServiceClients.DaemonServiceClient ()
-              action = requiresDaemonCapabilities
+      , testCase "Engine service client exposes only artifact and messaging capabilities (Sprint 12.16)" $ do
+          let action :: ServiceClients.EngineServiceClient ()
+              action = requiresEngineCapabilities
               settings =
-                ServiceClients.daemonClientSettingsForBootConfig
+                ServiceClients.engineClientSettingsForBootConfig
                   (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
-          ServiceClients.runDaemonServiceClient settings action
+              rendered = ServiceClients.renderEngineClientSettings settings
+          ServiceClients.runEngineServiceClient settings action
+          assertBool "Engine keeps its MinIO endpoint" ("minio_endpoint:" `Text.isInfixOf` rendered)
+          assertBool
+            "Engine keeps its Pulsar endpoint"
+            ("pulsar_websocket_endpoint:" `Text.isInfixOf` rendered)
+          assertBool
+            "Engine does not retain Harbor configuration"
+            (not ("harbor" `Text.isInfixOf` Text.toLower rendered))
+          assertBool
+            "Engine does not retain kubectl configuration"
+            (not ("kubectl" `Text.isInfixOf` Text.toLower rendered))
+          assertBool
+            "Engine does not retain the Harbor administrator"
+            (not ("admin" `Text.isInfixOf` Text.toLower rendered))
+          assertBool
+            "Engine does not retain the default Harbor password"
+            (not ("Harbor12345" `Text.isInfixOf` rendered))
+      , testCase "Engine refuses to enter publication after the batch deadline" $ do
+          topic <- expectRight (topicFor TrainingCommandRoute LinuxCPU)
+          command <-
+            case syntheticTrainingCommand "expired-publication" LinuxCPU of
+              TrainingDaemonCommand _ trainingCommand -> pure trainingCommand
+              other -> assertFailure ("expected a training command, got " <> show other)
+          let settings =
+                ServiceClients.engineClientSettingsWithPublicationDeadline 0 $
+                  ServiceClients.engineClientSettingsForBootConfig
+                    (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
+          result <-
+            ServiceClients.runEngineServiceClient settings (pulsarPublish topic command)
+          result
+            @?= Left (SETimeout "inference batch publication deadline expired before publish")
+      , testCase "daemon client settings are projected by active role (Sprint 12.16)" $ do
+          let baseConfig = BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster
+              engineSettings =
+                Runtime.daemonClientSettings
+                  (Runtime.daemonRuntimeForBootConfig baseConfig)
+              coordinatorSettings =
+                Runtime.daemonClientSettings
+                  ( Runtime.daemonRuntimeForBootConfig
+                      baseConfig {BootConfig.bootActiveRole = BootConfig.Coordinator}
+                  )
+              webappSettings =
+                Runtime.daemonClientSettings
+                  ( Runtime.daemonRuntimeForBootConfig
+                      baseConfig
+                        { BootConfig.bootActiveRole = BootConfig.Webapp
+                        , BootConfig.bootWebappPulsarWsUrl = Just "ws://browser.example/ws"
+                        }
+                  )
+              engineRendered = ServiceClients.renderDaemonRoleClientSettings engineSettings
+              webappRendered = ServiceClients.renderDaemonRoleClientSettings webappSettings
+          assertBool
+            "Engine projection is present"
+            (isJust (ServiceClients.engineRoleClientSettings engineSettings))
+          ServiceClients.coordinatorRoleClientSettings engineSettings @?= Nothing
+          assertBool
+            "Coordinator projection is present"
+            (isJust (ServiceClients.coordinatorRoleClientSettings coordinatorSettings))
+          ServiceClients.engineRoleClientSettings coordinatorSettings @?= Nothing
+          ServiceClients.engineRoleClientSettings webappSettings @?= Nothing
+          ServiceClients.coordinatorRoleClientSettings webappSettings @?= Nothing
+          ServiceClients.rolePulsarSettings webappSettings @?= Nothing
+          assertBool
+            "Engine rendering omits Harbor"
+            (not ("harbor" `Text.isInfixOf` Text.toLower engineRendered))
+          assertBool
+            "Engine rendering omits kubectl"
+            (not ("kubectl" `Text.isInfixOf` Text.toLower engineRendered))
+          webappRendered @?= "(browser-only; no daemon clients)\n"
       , testCase "daemon client probe invokes non-Pulsar capability clients (Sprint 5.4)" $ do
           clientLogRef <- newIORef []
+          daemonReady defaultDaemonRuntime @?= False
+          daemonStateLabel (daemonState defaultDaemonRuntime) @?= "starting"
+          let connectedRuntime = connectAllConsumers 1 defaultDaemonRuntime
+          daemonReady connectedRuntime @?= False
           probedRuntime <-
             evalStateT
-              (Runtime.probeDaemonServiceClients defaultDaemonRuntime)
+              (Runtime.probeEngineServiceClients connectedRuntime)
               (SyntheticClientState clientLogRef)
           daemonReady probedRuntime @?= True
+          daemonStateLabel (daemonState probedRuntime) @?= "ready"
           fmap Runtime.daemonClientProbeStatusState (Runtime.daemonClientProbeStatuses probedRuntime)
-            @?= [ Runtime.DaemonClientProbeSucceeded "listed 0 objects"
-                , Runtime.DaemonClientProbeSucceeded "listed 0 images"
-                , Runtime.DaemonClientProbeSucceeded "received 1 lines"
-                ]
+            @?= [Runtime.DaemonClientProbeSucceeded "listed 0 objects"]
           clientLog <- readIORef clientLogRef
           clientLog
-            @?= [ "minio:list:jitml-checkpoints:daemon-health/"
-                , "harbor:list:library"
-                , "kubectl:get:pods"
-                ]
+            @?= ["minio:list:jitml-checkpoints:daemon-health/"]
           let summary = Runtime.renderDaemonRuntimeSummary probedRuntime
           assertBool
-            "successful kubectl probe in summary"
-            ("- kubectl:get pods: ok received 1 lines" `Text.isInfixOf` summary)
+            "successful MinIO probe in summary"
+            ("- minio:list jitml-checkpoints: ok listed 0 objects" `Text.isInfixOf` summary)
+          case Runtime.daemonSubscriptions probedRuntime of
+            [] -> assertFailure "ready runtime has no consumer subscriptions"
+            firstSubscription : _ -> do
+              let disconnectedRuntime =
+                    probedRuntime
+                      { daemonState =
+                          daemonConsumerSessionTransition
+                            firstSubscription
+                            (ConsumerSessionDisconnected "socket lost")
+                            (daemonState probedRuntime)
+                      }
+                  reconnectedRuntime =
+                    disconnectedRuntime
+                      { daemonState =
+                          daemonConsumerSessionTransition
+                            firstSubscription
+                            (ConsumerSessionConnected 2)
+                            (daemonState disconnectedRuntime)
+                      }
+              daemonStateLabel (daemonState disconnectedRuntime) @?= "degraded"
+              daemonReady disconnectedRuntime @?= False
+              daemonStateLabel (daemonState reconnectedRuntime) @?= "ready"
+              daemonReady reconnectedRuntime @?= True
       , testCase "daemon workload effects invoke non-Pulsar clients (Sprint 5.4)" $ do
           clientLogRef <- newIORef []
           let checkpointBlob =
@@ -407,42 +910,39 @@ main =
                   (BucketName "jitml-checkpoints")
                   (ObjectKey "experiments/demo/pointers/latest")
               effects =
-                [ WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes")
-                , UpdateCheckpointPointer latestPointer Nothing "manifest-a"
-                , PromoteWorkloadImage
-                    (ImageRef "library/jitml:build")
-                    (ImageRef "library/jitml:ready")
-                , RunInference
-                    Inference.InferenceRequest
-                      { Inference.irCallId = "call-1"
-                      , Inference.irExperimentHash = "inference-exp"
-                      , Inference.irReplyTopic = "inference.result.linux-cpu"
-                      , Inference.irInput = [1.0, 2.0]
-                      }
-                , ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n"
-                , ReadWorkloadResourceStatus (KubeResource "job/jitml-train")
-                , DeleteWorkloadResource (KubeResource "job/jitml-train")
-                ]
+                SomeWorkloadEffect
+                  (WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes"))
+                  :| [ SomeWorkloadEffect
+                         (UpdateCheckpointPointer latestPointer Nothing "manifest-a")
+                     , SomeWorkloadEffect
+                         ( PromoteWorkloadImage
+                             (ImageRef "library/jitml:build")
+                             (ImageRef "library/jitml:ready")
+                         )
+                     , SomeWorkloadEffect
+                         (ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n")
+                     , SomeWorkloadEffect
+                         (ReadWorkloadResourceStatus (KubeResource "job/jitml-train"))
+                     , SomeWorkloadEffect
+                         (DeleteWorkloadResource (KubeResource "job/jitml-train"))
+                     ]
           results <-
             evalStateT
               (runWorkloadEffects effects)
               (SyntheticClientState clientLogRef)
-          results
-            @?= [ Right (CheckpointBlobWritten (ETag "synthetic-etag"))
-                , Right (CheckpointPointerUpdated (ETag "synthetic-etag"))
-                , Right (WorkloadImagePromoted (ImageRef "library/jitml:ready"))
-                , Left (SETransient "inference: weighted inference runner required")
-                , Right WorkloadResourceApplied
-                , Right (WorkloadResourceStatus "items: []")
-                , Right WorkloadResourceDeleted
-                ]
+          length results @?= 6
+          traverse_ (\outcome -> workloadOutcomeError outcome @?= Nothing) results
+          assertBool
+            "indexed outcomes retain their legal result renderers"
+            ( all
+                (Text.isInfixOf " => " . renderSomeWorkloadOutcome)
+                (NonEmpty.toList results)
+            )
           clientLog <- readIORef clientLogRef
           clientLog
             @?= [ "minio:put-blob-bytes-if-absent"
                 , "minio:cas-pointer"
                 , "harbor:promote"
-                , "minio:read-object"
-                , "minio:read-bytes"
                 , "kubectl:apply:job/jitml-train"
                 , "kubectl:status:job/jitml-train"
                 , "kubectl:delete:job/jitml-train"
@@ -454,75 +954,59 @@ main =
                   (BucketName "jitml-checkpoints")
                   (ObjectKey "experiments/demo/blobs/blob-a")
               imageEffect =
-                PromoteWorkloadImage
-                  (ImageRef "library/jitml:build")
-                  (ImageRef "library/jitml:ready")
-              inferenceEffect =
-                RunInference
-                  Inference.InferenceRequest
-                    { Inference.irCallId = "call-2"
-                    , Inference.irExperimentHash = "inference-exp"
-                    , Inference.irReplyTopic = "inference.result.linux-cpu"
-                    , Inference.irInput = [3.0]
-                    }
+                SomeWorkloadEffect
+                  ( PromoteWorkloadImage
+                      (ImageRef "library/jitml:build")
+                      (ImageRef "library/jitml:ready")
+                  )
               effects =
-                [ WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes")
+                [ SomeWorkloadEffect
+                    (WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes"))
                 , imageEffect
-                , inferenceEffect
-                , ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n"
+                , SomeWorkloadEffect
+                    (ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n")
                 ]
-              renderedPayloads = fmap renderWorkloadEffectPayload effects
-          fmap parseWorkloadEffectPayload renderedPayloads @?= fmap Just effects
+              renderedPayloads = fmap renderSomeEffectPayload effects
+          fmap parseWorkloadEffectPayload renderedPayloads @?= fmap Right effects
           dispatchResults <-
             evalStateT
-              ( traverse
-                  (Runtime.daemonWorkloadDispatcher TrainingDomain (eventIdFromPayload "workload"))
-                  renderedPayloads
-              )
+              (traverse dispatchWorkloadPayload renderedPayloads)
               (SyntheticClientState clientLogRef)
-          dispatchResults
-            @?= [ Right ()
-                , Right ()
-                , Left (SETransient "inference: weighted inference runner required")
-                , Right ()
-                ]
-          ignored <-
+          traverse_ assertWorkloadDispatchOutcome dispatchResults
+          malformed <-
             evalStateT
-              ( Runtime.daemonWorkloadDispatcher
-                  TrainingDomain
-                  (eventIdFromPayload "not-workload")
-                  "kind: UnknownTrainingCommand\n"
-              )
+              (dispatchWorkloadPayload "kind: UnknownTrainingCommand\n")
               (SyntheticClientState clientLogRef)
-          ignored @?= Right ()
+          case malformed of
+            Left _ -> pure ()
+            other -> assertFailure ("expected explicit malformed-workload failure, got " <> show other)
           clientLog <- readIORef clientLogRef
           clientLog
             @?= [ "minio:put-blob-bytes-if-absent"
                 , "harbor:promote"
-                , "minio:read-object"
-                , "minio:read-bytes"
                 , "kubectl:apply:job/jitml-train"
                 ]
       , testCase "daemon workload dispatcher can inject Linux CPU engine inference (Sprint 7.3)" $ do
           clientLogRef <- newIORef []
           let inferenceRequest =
-                Inference.renderInferenceRequest
-                  Inference.InferenceRequest
-                    { Inference.irCallId = "call-engine"
-                    , Inference.irExperimentHash = "inference-exp"
-                    , Inference.irReplyTopic = "inference.result.linux-cpu"
-                    , Inference.irInput = [4.0, 5.0]
-                    }
+                Inference.InferenceRequest
+                  { Inference.irCallId = "call-engine"
+                  , Inference.irExperimentHash = "inference-exp"
+                  , Inference.irReplyTopic = "inference.result.linux-cpu"
+                  , Inference.irInput = [4.0, 5.0]
+                  }
               injectedRunner _eligibleRef manifest input = do
                 recordClientCall ("engine:linux-cpu:" <> Checkpoint.manifestId manifest)
                 pure (Right (fmap (+ 10.0) input))
+              inferenceCommand =
+                InferenceDaemonCommand LinuxCPU (Inference.RunInference inferenceRequest)
+          eventId <- expectDaemonCommandEventId inferenceCommand
           result <-
             evalStateT
               ( Runtime.daemonWorkloadDispatcherWithInference
                   injectedRunner
-                  InferenceDomain
-                  (eventIdFromPayload "inference-request")
-                  inferenceRequest
+                  inferenceCommand
+                  eventId
               )
               (SyntheticClientState clientLogRef)
           result @?= Right ()
@@ -531,84 +1015,115 @@ main =
             @?= [ "minio:read-object"
                 , "minio:read-bytes"
                 , "engine:linux-cpu:inference-exp"
-                , "pulsar:publish:inference.result.linux-cpu"
+                , "pulsar:publish:persistent://public/default/inference.result.linux-cpu"
                 ]
-      , testCase "daemon workload dispatcher maps command envelopes to workload effects (Sprint 5.4)" $ do
+      , testCase "daemon dispatcher pairs Linux Stop resource effects (Sprint 12.16)" $ do
           clientLogRef <- newIORef []
           let trainingStart =
-                Training.renderTrainingCommand $
-                  Training.TrainingStart $
+                Training.TrainingStart $
+                  preparedStartTraining
                     Training.StartTraining
-                      "exp-123"
-                      "experiments/mnist.dhall"
-                      LinuxCPU
-                      11
-                      2
-                      32
+                      { Training.stExperimentHash = "exp-123"
+                      , Training.stDhallObjectKey = "experiments/mnist.dhall"
+                      , Training.stSubstrate = LinuxCPU
+                      , Training.stSeed = 11
+                      , Training.stEpochs = 2
+                      , Training.stBatchSize = 32
+                      , Training.stPlanId = ""
+                      , Training.stResolvedPlan = ""
+                      , Training.stTrainingExamples = 64
+                      , Training.stEvaluationExamples = 16
+                      }
               trainingStop =
-                Training.renderTrainingCommand $
-                  Training.TrainingStop $
-                    Training.StopTraining "exp-123" True
+                Training.TrainingStop $
+                  Training.StopTraining "exp-123" True
               rlStart =
-                Rl.renderRlCommand $
-                  Rl.RlStart $
-                    Rl.StartRLRun
-                      "rl-exp"
-                      "ppo"
-                      "cartpole"
-                      LinuxCPU
-                      7
-                      128
-                      4
+                Rl.RlStart $
+                  Rl.StartRLRun
+                    "rl-exp"
+                    "ppo"
+                    "cartpole"
+                    LinuxCPU
+                    7
+                    128
+                    4
+              rlStop =
+                Rl.RlStop $
+                  Rl.StopRLRun "rl-exp" True
               tuneStart =
-                Tune.renderTuneCommand $
-                  Tune.TuneStart $
+                Tune.TuneStart $
+                  preparedStartSweep
                     Tune.StartSweep
-                      "tune-exp"
-                      "experiments/mnist-tune.dhall"
-                      LinuxCPU
-                      99
-                      3
-                      100
-                      "TPE"
-                      "ASHA"
-                      "Median"
+                      { Tune.ssExperimentHash = "tune-exp"
+                      , Tune.ssDhallObjectKey = "experiments/mnist-tune.dhall"
+                      , Tune.ssSubstrate = LinuxCPU
+                      , Tune.ssSweepSeed = 99
+                      , Tune.ssTrialBudget = 3
+                      , Tune.ssBudgetPerTrial = 100
+                      , Tune.ssSampler = "TPE"
+                      , Tune.ssScheduler = "ASHA"
+                      , Tune.ssPruner = "Median"
+                      , Tune.ssParallelism = 1
+                      , Tune.ssPromotions = 1
+                      , Tune.ssPlanId = ""
+                      , Tune.ssResolvedPlan = ""
+                      }
+              tuneStop =
+                Tune.TuneStop $
+                  Tune.StopSweep "tune-exp"
               inferenceRequest =
-                Inference.renderInferenceRequest
-                  Inference.InferenceRequest
-                    { Inference.irCallId = "call-3"
-                    , Inference.irExperimentHash = "inference-exp"
-                    , Inference.irReplyTopic = "inference.result.linux-cpu"
-                    , Inference.irInput = [4.0, 5.0]
-                    }
+                Inference.InferenceRequest
+                  { Inference.irCallId = "call-3"
+                  , Inference.irExperimentHash = "inference-exp"
+                  , Inference.irReplyTopic = "inference.result.linux-cpu"
+                  , Inference.irInput = [4.0, 5.0]
+                  }
+              trainingStartCommand = TrainingDaemonCommand LinuxCPU trainingStart
+              trainingStopCommand = TrainingDaemonCommand LinuxCPU trainingStop
+              rlStartCommand = RlDaemonCommand LinuxCPU rlStart
+              rlStopCommand = RlDaemonCommand LinuxCPU rlStop
+              tuneStartCommand = TuneDaemonCommand LinuxCPU tuneStart
+              tuneStopCommand = TuneDaemonCommand LinuxCPU tuneStop
+              inferenceCommand =
+                InferenceDaemonCommand LinuxCPU (Inference.RunInference inferenceRequest)
+          trainingStartEventId <- expectDaemonCommandEventId trainingStartCommand
+          trainingStopEventId <- expectDaemonCommandEventId trainingStopCommand
+          rlStartEventId <- expectDaemonCommandEventId rlStartCommand
+          rlStopEventId <- expectDaemonCommandEventId rlStopCommand
+          tuneStartEventId <- expectDaemonCommandEventId tuneStartCommand
+          tuneStopEventId <- expectDaemonCommandEventId tuneStopCommand
+          inferenceEventId <- expectDaemonCommandEventId inferenceCommand
           results <-
             evalStateT
               ( sequence
                   [ Runtime.daemonWorkloadDispatcher
-                      TrainingDomain
-                      (eventIdFromPayload "training-start")
-                      trainingStart
+                      trainingStartCommand
+                      trainingStartEventId
                   , Runtime.daemonWorkloadDispatcher
-                      TrainingDomain
-                      (eventIdFromPayload "training-stop")
-                      trainingStop
+                      trainingStopCommand
+                      trainingStopEventId
                   , Runtime.daemonWorkloadDispatcher
-                      RlDomain
-                      (eventIdFromPayload "rl-start")
-                      rlStart
+                      rlStartCommand
+                      rlStartEventId
                   , Runtime.daemonWorkloadDispatcher
-                      TuneDomain
-                      (eventIdFromPayload "tune-start")
-                      tuneStart
+                      rlStopCommand
+                      rlStopEventId
                   , Runtime.daemonWorkloadDispatcher
-                      InferenceDomain
-                      (eventIdFromPayload "inference-request")
-                      inferenceRequest
+                      tuneStartCommand
+                      tuneStartEventId
+                  , Runtime.daemonWorkloadDispatcher
+                      tuneStopCommand
+                      tuneStopEventId
+                  , Runtime.daemonWorkloadDispatcher
+                      inferenceCommand
+                      inferenceEventId
                   ]
               )
               (SyntheticClientState clientLogRef)
           results
             @?= [ Right ()
+                , Right ()
+                , Right ()
                 , Right ()
                 , Right ()
                 , Right ()
@@ -618,34 +1133,107 @@ main =
           clientLog
             @?= [ "kubectl:apply:job/jitml-train-exp-123"
                 , "kubectl:delete:job/jitml-train-exp-123"
+                , "kubectl:delete:configmap/runconfig-jitml-train-exp-123"
                 , "kubectl:apply:job/jitml-rl-rl-exp"
+                , "kubectl:delete:job/jitml-rl-rl-exp"
+                , "kubectl:delete:configmap/runconfig-jitml-rl-rl-exp"
                 , "kubectl:apply:job/jitml-tune-tune-exp"
+                , "kubectl:delete:job/jitml-tune-tune-exp"
+                , "kubectl:delete:configmap/runconfig-jitml-tune-tune-exp"
                 , "minio:read-object"
                 , "minio:read-bytes"
                 ]
+      , testCase "Linux Stop attempts both deletions when either typed effect fails" $ do
+          traverse_
+            ( \(experimentHash, expectedFailure) -> do
+                clientLogRef <- newIORef []
+                let command =
+                      TrainingDaemonCommand
+                        LinuxCPU
+                        ( Training.TrainingStop
+                            (Training.StopTraining experimentHash True)
+                        )
+                    jobName = "jitml-train-" <> experimentHash
+                eventId <- expectDaemonCommandEventId command
+                result <-
+                  evalStateT
+                    (Runtime.daemonWorkloadDispatcher command eventId)
+                    (SyntheticClientState clientLogRef)
+                result @?= Left expectedFailure
+                readIORef clientLogRef
+                  >>= ( @?=
+                          [ "kubectl:delete:job/" <> jobName
+                          , "kubectl:delete:configmap/runconfig-" <> jobName
+                          ]
+                      )
+            )
+            [
+              ( "fail-job-delete"
+              , SETransient "synthetic Job deletion failure"
+              )
+            ,
+              ( "fail-configmap-delete"
+              , SETransient "synthetic RunConfig deletion failure"
+              )
+            ]
       , testCase "daemon-rendered workload Jobs enforce compute cardinality and CUDA RuntimeClass" $ do
           let trainingCuda =
-                renderTrainingJob
-                  (Training.StartTraining "cuda-train" "experiments/mnist.dhall" LinuxCUDA 11 2 32)
+                either (error . show) id $
+                  renderTrainingJob
+                    ( preparedStartTraining
+                        Training.StartTraining
+                          { Training.stExperimentHash = "cuda-train"
+                          , Training.stDhallObjectKey = "experiments/mnist.dhall"
+                          , Training.stSubstrate = LinuxCUDA
+                          , Training.stSeed = 11
+                          , Training.stEpochs = 2
+                          , Training.stBatchSize = 32
+                          , Training.stPlanId = ""
+                          , Training.stResolvedPlan = ""
+                          , Training.stTrainingExamples = 64
+                          , Training.stEvaluationExamples = 16
+                          }
+                    )
               rlCuda =
                 renderRlJob
                   (Rl.StartRLRun "cuda-rl" "ppo" "cartpole" LinuxCUDA 7 128 4)
               tuneCuda =
-                renderTuneJob
-                  ( Tune.StartSweep
-                      "cuda-tune"
-                      "experiments/mnist-tune.dhall"
-                      LinuxCUDA
-                      99
-                      3
-                      100
-                      "Sobol"
-                      "Fifo"
-                      "NoPruner"
-                  )
+                either (error . show) id $
+                  renderTuneJob
+                    ( preparedStartSweep
+                        Tune.StartSweep
+                          { Tune.ssExperimentHash = "cuda-tune"
+                          , Tune.ssDhallObjectKey = "experiments/mnist-tune.dhall"
+                          , Tune.ssSubstrate = LinuxCUDA
+                          , Tune.ssSweepSeed = 99
+                          , Tune.ssTrialBudget = 3
+                          , Tune.ssBudgetPerTrial = 100
+                          , Tune.ssSampler = "Sobol"
+                          , Tune.ssScheduler = "Fifo"
+                          , Tune.ssPruner = "NoPruner"
+                          , Tune.ssParallelism = 1
+                          , Tune.ssPromotions = 1
+                          , Tune.ssPlanId = ""
+                          , Tune.ssResolvedPlan = ""
+                          }
+                    )
               trainingCpu =
-                renderTrainingJob
-                  (Training.StartTraining "cpu-train" "experiments/mnist.dhall" LinuxCPU 11 2 32)
+                either (error . show) id $
+                  renderTrainingJob
+                    ( preparedStartTraining
+                        Training.StartTraining
+                          { Training.stExperimentHash = "cpu-train"
+                          , Training.stDhallObjectKey = "experiments/mnist.dhall"
+                          , Training.stSubstrate = LinuxCPU
+                          , Training.stSeed = 11
+                          , Training.stEpochs = 2
+                          , Training.stBatchSize = 32
+                          , Training.stPlanId = ""
+                          , Training.stResolvedPlan = ""
+                          , Training.stTrainingExamples = 64
+                          , Training.stEvaluationExamples = 16
+                          }
+                    )
               assertComputeJob label manifest = do
                 assertBool
                   (label <> " labels the pod as numerical compute")
@@ -684,14 +1272,19 @@ main =
           assertComputeJob "rl-cuda" rlCuda
           assertComputeJob "tune-cuda" tuneCuda
           assertBool
-            "tune RunConfig preserves StartSweep sampler"
-            ("sampler = \"Sobol\"" `Text.isInfixOf` tuneCuda)
+            "tune RunConfig carries its derived plan identity"
+            ("planId = \"" `Text.isInfixOf` tuneCuda)
           assertBool
-            "tune RunConfig preserves StartSweep scheduler"
-            ("scheduler = \"Fifo\"" `Text.isInfixOf` tuneCuda)
+            "tune RunConfig carries the canonical resolved plan"
+            ("resolvedPlan = \"transport-version=1|" `Text.isInfixOf` tuneCuda)
           assertBool
-            "tune RunConfig preserves StartSweep pruner"
-            ("pruner = \"NoPruner\"" `Text.isInfixOf` tuneCuda)
+            "tune RunConfig does not reinterpret raw axis fields"
+            ( not
+                ( "sampler = \"" `Text.isInfixOf` tuneCuda
+                    || "scheduler = \"" `Text.isInfixOf` tuneCuda
+                    || "pruner = \"" `Text.isInfixOf` tuneCuda
+                )
+            )
           assertComputeJob "training-cpu" trainingCpu
           assertCudaJob "training" trainingCuda
           assertCudaJob "rl" rlCuda
@@ -699,202 +1292,329 @@ main =
           assertBool
             "linux-cpu workload Jobs do not request the NVIDIA RuntimeClass"
             (not ("runtimeClassName: nvidia" `Text.isInfixOf` trainingCpu))
-      , testCase "daemon acquisition records Pulsar subscription success (Sprint 5.5)" $ do
-          pullRef <- newIORef []
-          ackRef <- newIORef []
-          subscribeRef <- newIORef ([] :: [(Text, Text)])
-          seekRef <- newIORef ([] :: [(Text, Text)])
-          acquiredRuntime <-
+      , testCase "test delivery simulation observes a decision without settling a receipt" $ do
+          broker <- newSyntheticBroker []
+          simulated <-
             evalStateT
-              (Runtime.acquireDaemonSubscriptions defaultDaemonRuntime)
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
-          daemonReady acquiredRuntime @?= True
-          fmap Runtime.daemonSubscriptionStatusState (Runtime.daemonSubscriptionStatuses acquiredRuntime)
-            @?= [ Runtime.DaemonSubscriptionAcquired
-                    (SubscriptionId "persistent://public/default/training.command.linux-cpu\njitml-service")
-                , Runtime.DaemonSubscriptionAcquired
-                    (SubscriptionId "persistent://public/default/tune.command.linux-cpu\njitml-service")
-                , Runtime.DaemonSubscriptionAcquired
-                    (SubscriptionId "persistent://public/default/rl.command.linux-cpu\njitml-service")
-                , Runtime.DaemonSubscriptionAcquired
-                    (SubscriptionId "persistent://public/default/inference.request.linux-cpu\njitml-service")
-                ]
-          subscribeLog <- readIORef subscribeRef
-          length subscribeLog @?= 4
-          let summary = Runtime.renderDaemonRuntimeSummary acquiredRuntime
-          assertBool
-            "acquired training subscription"
-            ( "- persistent://public/default/training.command.linux-cpu as jitml-service: acquired persistent://public/default/training.command.linux-cpu jitml-service"
-                `Text.isInfixOf` summary
-            )
-      , testCase "daemon consumer batch drains acquired subscriptions through router (Sprint 5.5)" $ do
-          pullRef <- newIORef []
-          ackRef <- newIORef []
-          subscribeRef <- newIORef ([] :: [(Text, Text)])
-          seekRef <- newIORef ([] :: [(Text, Text)])
-          acquiredRuntime <-
-            evalStateT
-              (Runtime.acquireDaemonSubscriptions defaultDaemonRuntime)
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
-          modifyIORef'
-            pullRef
-            ( const
-                [ ("training.command.linux-cpu", "payload-a")
-                , ("training.command.linux-cpu", "payload-a")
-                , ("rl.command.linux-cpu", "payload-b")
-                , ("unknown.command.linux-cpu", "payload-c")
-                ]
-            )
-          dispatchRef <- newIORef ([] :: [(EventDomain, Text)])
-          (_, outcomes) <-
-            evalStateT
-              ( Runtime.daemonConsumerBatch
-                  acquiredRuntime
+              ( simulateDeliveryDecisionForTest
+                  "test-session"
                   1
-                  ( \domain _eventId payload ->
-                      liftIO (modifyIORef' dispatchRef ((domain, payload) :))
-                        >> pure (Right ())
+                  "fabricated-delivery"
+                  0
+                  ("synthetic-event" :: Text)
+                  (\_delivery -> pure (done ack ()))
+              )
+              broker
+          case simulated of
+            Left err -> assertFailure (show err)
+            Right (observed, receiptFingerprint) -> do
+              observed @?= ObservedDone ObservedAck ()
+              assertBool "opaque receipt fingerprint is diagnostic only" (not (Text.null receiptFingerprint))
+          readIORef (syntheticSettlementLog broker) >>= (@?= [])
+      , testCase "equal payloads with distinct receipts settle twice but dispatch once" $ do
+          subscription <- trainingDaemonSubscription LinuxCPU
+          let topic = daemonSubscriptionTopicName subscription
+              payload = syntheticTrainingPayload "equal-payload" LinuxCPU
+          broker <-
+            newSyntheticBroker
+              [ syntheticEnvelope topic "delivery-a" 0 payload
+              , syntheticEnvelope topic "delivery-b" 1 payload
+              ]
+          observedRef <- newIORef []
+          dispatchRef <- newIORef ([] :: [EventId])
+          result <-
+            evalStateT
+              ( runConsumerLoop
+                  subscription
+                  (emptyHandlerRouter 16)
+                  2
+                  (recordObservedSession observedRef)
+                  ( \_command eventId -> do
+                      liftIO (modifyIORef' dispatchRef (<> [eventId]))
+                      pure (Right ())
                   )
               )
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
-          length outcomes @?= 4
-          dispatchedCount outcomes @?= 2
+              broker
+          (_, outcomes) <- expectConsumerLoopSuccess result
+          dispatchedCount outcomes @?= 1
           dedupCount outcomes @?= 1
-          skippedCount outcomes @?= 1
-          ackedPayloads <- readIORef ackRef
-          length ackedPayloads @?= 4
-          dispatched <- readIORef dispatchRef
-          length dispatched @?= 2
-      , testCase "daemon consumer batch with zero budget exits without consuming" $ do
-          pullRef <- newIORef []
-          ackRef <- newIORef []
-          subscribeRef <- newIORef ([] :: [(Text, Text)])
-          seekRef <- newIORef ([] :: [(Text, Text)])
-          acquiredRuntime <-
+          dispatches <- readIORef dispatchRef
+          length dispatches @?= 1
+          settlements <- readIORef (syntheticSettlementLog broker)
+          fmap syntheticSettledDisposition settlements @?= [ObservedAck, ObservedAck]
+          assertBool
+            "distinct receipts keep distinct opaque fingerprints"
+            ( case fmap syntheticSettledReceipt settlements of
+                [firstReceipt, secondReceipt] -> firstReceipt /= secondReceipt
+                _ -> False
+            )
+          observed <- readIORef observedRef
+          observed
+            @?= [ ConsumerSessionConnected 1
+                , ConsumerSessionDraining
+                , ConsumerSessionDrained
+                ]
+          cleanup <- readIORef (syntheticCleanupLog broker)
+          cleanup
+            @?= [ "close:persistent://public/default/training.command.linux-cpu:jitml-coordinator"
+                ]
+      , testCase "dispatch failure Nacks without a dedup mark and redelivery dispatches again" $ do
+          subscription <- trainingDaemonSubscription LinuxCPU
+          let topic = daemonSubscriptionTopicName subscription
+              payload = syntheticTrainingPayload "retry-payload" LinuxCPU
+              command = syntheticTrainingCommand "retry-payload" LinuxCPU
+          eventId <- expectDaemonCommandEventId command
+          broker <-
+            newSyntheticBroker
+              [ syntheticEnvelope topic "delivery-failed" 0 payload
+              , syntheticEnvelope topic "delivery-redelivered" 1 payload
+              ]
+          attemptsRef <- newIORef (0 :: Int)
+          result <-
             evalStateT
-              (Runtime.acquireDaemonSubscriptions defaultDaemonRuntime)
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
-          modifyIORef'
-            pullRef
-            (const [("training.command.linux-cpu", "payload-a")])
+              ( runConsumerLoop
+                  subscription
+                  (emptyHandlerRouter 16)
+                  2
+                  (const (pure ()))
+                  ( \_command _eventId -> do
+                      attempts <- liftIO (readIORef attemptsRef)
+                      liftIO (writeIORef attemptsRef (attempts + 1))
+                      if attempts == 0
+                        then pure (Left (SETransient "handler failed"))
+                        else pure (Right ())
+                  )
+              )
+              broker
+          (router, outcomes) <- expectConsumerLoopSuccess result
+          outcomes
+            @?= [ ConsumerError (SETransient "handler failed")
+                , ConsumerDispatched TrainingDomain eventId
+                ]
+          readIORef attemptsRef >>= (@?= 2)
+          dedupCacheKnown eventId (trainingCache router) @?= True
+          settlements <- readIORef (syntheticSettlementLog broker)
+          fmap syntheticSettledDisposition settlements
+            @?= [ ObservedNack (HandlerRejected "transient: handler failed")
+                , ObservedAck
+                ]
+      , testCase "settlement failure surfaces after exactly one handler decision" $ do
+          subscription <- trainingDaemonSubscription LinuxCPU
+          let topic = daemonSubscriptionTopicName subscription
+          broker <-
+            newSyntheticBroker
+              [syntheticEnvelope topic "settlement-fails" 0 (syntheticTrainingPayload "settlement" LinuxCPU)]
+          writeIORef
+            (syntheticSettlementFailure broker)
+            (Just (SETimeout "broker settlement timeout"))
+          result <-
+            evalStateT
+              ( runConsumerLoop
+                  subscription
+                  (emptyHandlerRouter 16)
+                  1
+                  (const (pure ()))
+                  (\_command _eventId -> pure (Right ()))
+              )
+              broker
+          case result of
+            Left failure@(ConsumerSettlementFailure _ (SETimeout "broker settlement timeout")) ->
+              assertBool
+                "settlement failure maps to a typed daemon error"
+                (isJust (consumerOutcomeError (ConsumerSessionError failure)))
+            other -> assertFailure ("expected settlement failure, got " <> show other)
+          settlements <- readIORef (syntheticSettlementLog broker)
+          length settlements @?= 1
+          readIORef (syntheticCleanupLog broker) >>= (@?= [])
+      , testCase "malformed typed delivery fails decode before the handler" $ do
+          subscription <- trainingDaemonSubscription LinuxCPU
+          broker <-
+            newSyntheticBroker
+              [ syntheticEnvelope
+                  (daemonSubscriptionTopicName subscription)
+                  "malformed"
+                  0
+                  "kind: NotTraining\n"
+              ]
+          dispatchRef <- newIORef (0 :: Int)
+          result <-
+            evalStateT
+              ( runConsumerLoop
+                  subscription
+                  (emptyHandlerRouter 16)
+                  1
+                  (const (pure ()))
+                  ( \_command _eventId ->
+                      liftIO (modifyIORef' dispatchRef (+ 1)) >> pure (Right ())
+                  )
+              )
+              broker
+          case result of
+            Left (ConsumerDecodeFailure _) -> pure ()
+            other -> assertFailure ("expected typed decode failure, got " <> show other)
+          readIORef dispatchRef >>= (@?= 0)
+          readIORef (syntheticSettlementLog broker) >>= (@?= [])
+      , testCase "bounded Done drains before return and ownership controls cleanup" $ do
+          subscription <- trainingDaemonSubscription LinuxCPU
+          let topic = daemonSubscriptionTopicName subscription
+          broker <-
+            newSyntheticBroker
+              [ syntheticEnvelope topic "bounded-a" 0 (syntheticTrainingPayload "bounded-a" LinuxCPU)
+              , syntheticEnvelope topic "bounded-b" 0 (syntheticTrainingPayload "bounded-b" LinuxCPU)
+              , syntheticEnvelope topic "bounded-c" 0 (syntheticTrainingPayload "bounded-c" LinuxCPU)
+              ]
+          result <-
+            evalStateT
+              ( runConsumerLoop
+                  subscription
+                  (emptyHandlerRouter 16)
+                  2
+                  (const (pure ()))
+                  (\_command _eventId -> pure (Right ()))
+              )
+              broker
+          (_, outcomes) <- expectConsumerLoopSuccess result
+          length outcomes @?= 2
+          readIORef (syntheticSessionLog broker)
+            >>= ( @?=
+                    [ ConsumerSessionConnected 1
+                    , ConsumerSessionDraining
+                    , ConsumerSessionDrained
+                    ]
+                )
+          pending <- readIORef (syntheticDeliveryQueue broker)
+          fmap syntheticDeliveryId pending @?= ["bounded-c"]
+          ownedTopic <- expectRight (topicFor TrainingCommandRoute LinuxCPU)
+          ownedSubscription <-
+            expectRight
+              (mkSubscription ownedTopic "owned-test" FromEarliest Owned)
+          ownedBroker <-
+            newSyntheticBroker
+              [ syntheticEnvelope
+                  (topicName ownedTopic)
+                  "owned-delivery"
+                  0
+                  (syntheticTrainingPayload "owned" LinuxCPU)
+              ]
+          ownedResult <-
+            evalStateT
+              ( pulsarConsumeUntil
+                  ownedSubscription
+                  (const (pure ()))
+                  (\_delivery -> pure (done ack ()))
+              )
+              ownedBroker
+          ownedResult @?= Right ()
+          readIORef (syntheticCleanupLog ownedBroker)
+            >>= (@?= ["delete:persistent://public/default/training.command.linux-cpu:owned-test"])
+      , testCase "daemon consumer batch with zero budget does not open a session" $ do
+          broker <-
+            newSyntheticBroker
+              [ syntheticEnvelope
+                  "persistent://public/default/training.command.linux-cpu"
+                  "not-consumed"
+                  0
+                  (syntheticTrainingPayload "not-consumed" LinuxCPU)
+              ]
           (_, outcomes) <-
             evalStateT
               ( Runtime.daemonConsumerBatch
-                  acquiredRuntime
+                  defaultDaemonRuntime
                   0
-                  (\_domain _eventId _payload -> pure (Right ()))
+                  (\_command _eventId -> pure (Right ()))
               )
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
+              broker
           outcomes @?= []
-          pendingPayloads <- readIORef pullRef
-          pendingPayloads @?= [("training.command.linux-cpu", "payload-a")]
-          ackedPayloads <- readIORef ackRef
-          ackedPayloads @?= []
+          readIORef (syntheticSessionLog broker) >>= (@?= [])
+          pending <- readIORef (syntheticDeliveryQueue broker)
+          fmap syntheticDeliveryId pending @?= ["not-consumed"]
+      , testCase "default batch capability captures the real monotonic admission time" $ do
+          topic <- expectRight (topicFor TrainingCommandRoute LinuxCPU)
+          subscription <-
+            expectRight
+              (mkSubscription topic "synthetic-batch-clock" FromEarliest Borrowed)
+          policy <- expectRight (InferenceBatch.mkBatchPolicy 1 1_000_000)
+          broker <-
+            newSyntheticBroker
+              [ syntheticEnvelope
+                  (topicName topic)
+                  "batch-clock"
+                  0
+                  (syntheticTrainingPayload "batch-clock" LinuxCPU)
+              ]
+          observedWindow <- newIORef Nothing
+          before <- getMonotonicTimeNSec
+          result <-
+            evalStateT
+              ( pulsarConsumeBatchesUntil
+                  (pure policy)
+                  (const ())
+                  subscription
+                  (const (pure ()))
+                  ( \batch -> do
+                      liftIO (writeIORef observedWindow (Just (deliveryBatchWindow batch)))
+                      pure (doneBatch ack ())
+                  )
+              )
+              broker
+          after <- getMonotonicTimeNSec
+          result @?= Right ()
+          observed <- readIORef observedWindow
+          case observed of
+            Nothing -> assertFailure "default batch handler did not observe a window"
+            Just window -> do
+              let admitted = InferenceBatch.batchWindowAdmissionNanoseconds window
+                  deadline = InferenceBatch.batchWindowDeadlineNanoseconds window
+              assertBool "batch admission predates the test clock" (admitted >= before)
+              assertBool "batch admission exceeds the test clock" (admitted <= after)
+              assertBool "batch deadline does not follow admission" (deadline > toInteger admitted)
       , testCase "consumerLoopExit short-circuits on first PulsarFailed (Sprint 5.5)" $ do
-          -- The lifecycle exit helper walks the outcome list and surfaces
-          -- the first AppError. A clean batch returns Nothing.
+          eventA <- expectDaemonCommandEventId (syntheticTrainingCommand "a" LinuxCPU)
+          eventB <- expectDaemonCommandEventId (syntheticTrainingCommand "b" LinuxCPU)
           let cleanBatch =
-                [ ConsumerDispatched TrainingDomain (eventIdFromPayload "a")
-                , ConsumerDeduplicated TuneDomain (eventIdFromPayload "a")
+                [ ConsumerDispatched TrainingDomain eventA
+                , ConsumerDeduplicated TuneDomain eventA
                 ]
               poisonedBatch =
-                [ ConsumerDispatched TrainingDomain (eventIdFromPayload "a")
+                [ ConsumerDispatched TrainingDomain eventA
                 , ConsumerError (SETimeout "ack budget exhausted")
-                , ConsumerDispatched RlDomain (eventIdFromPayload "b")
+                , ConsumerDispatched RlDomain eventB
                 ]
           Runtime.consumerLoopExit cleanBatch @?= Nothing
           Runtime.consumerLoopExit poisonedBatch
             @?= Just (PulsarFailed "timeout: ack budget exhausted")
-      , testCase "Consumer ack failure surfaces AppError PulsarFailed (Sprint 5.5)" $ do
-          -- A ConsumerError carrying SETimeout/SETransient/SEConflict maps
-          -- to AppError PulsarFailed per the typed exit contract; a clean
-          -- dispatch/dedup outcome returns Nothing.
-          let timeoutOutcome = ConsumerError (SETimeout "ack timeout")
-              transientOutcome = ConsumerError (SETransient "broker hiccup")
-              cleanOutcome = ConsumerDispatched TrainingDomain (eventIdFromPayload "abc")
-              dedupOutcome = ConsumerDeduplicated TuneDomain (eventIdFromPayload "abc")
-          consumerOutcomeError timeoutOutcome
-            @?= Just (PulsarFailed "timeout: ack timeout")
-          consumerOutcomeError transientOutcome
-            @?= Just (PulsarFailed "transient: broker hiccup")
-          consumerOutcomeError cleanOutcome @?= Nothing
-          consumerOutcomeError dedupOutcome @?= Nothing
-      , testCase "Consumer dispatch failure does not poison dedup cache and seeks cursor (Sprint 5.5)" $ do
-          pullRef <- newIORef []
-          ackRef <- newIORef []
-          subscribeRef <- newIORef ([] :: [(Text, Text)])
-          seekRef <- newIORef ([] :: [(Text, Text)])
-          let subscription = SubscriptionId "test-sub"
-              topic = TopicName "training.command.linux-cpu"
-              payload = "payload-fail"
-              eventId = eventIdFromPayload (ByteString.pack "payload-fail")
-              brokerState = SyntheticBrokerState pullRef ackRef subscribeRef seekRef
-          (routerAfterFailure, firstOutcome) <-
-            evalStateT
-              ( consumerStep
-                  subscription
-                  (emptyHandlerRouter 16)
-                  topic
-                  payload
-                  (\_domain _eventId _payload -> pure (Left (SETransient "handler failed")))
-              )
-              brokerState
-          firstOutcome @?= ConsumerError (SETransient "handler failed")
-          dedupCacheKnown eventId (trainingCache routerAfterFailure) @?= False
-          seekLog <- readIORef seekRef
-          seekLog @?= [("test-sub", unEventId eventId)]
-          ackedAfterFailure <- readIORef ackRef
-          ackedAfterFailure @?= []
-          (routerAfterSuccess, secondOutcome) <-
-            evalStateT
-              ( consumerStep
-                  subscription
-                  routerAfterFailure
-                  topic
-                  payload
-                  (\_domain _eventId _payload -> pure (Right ()))
-              )
-              brokerState
-          secondOutcome @?= ConsumerDispatched TrainingDomain eventId
-          dedupCacheKnown eventId (trainingCache routerAfterSuccess) @?= True
-          ackedAfterSuccess <- readIORef ackRef
-          ackedAfterSuccess @?= ["payload-fail"]
-      , testCase "Consumer loop dispatches, dedups, and acks against a synthetic broker" $ do
-          -- Synthetic HasPulsar instance backed by an IORef pull queue +
-          -- an IORef ack log. The Consumer loop reads N events, dedups the
-          -- repeated EventID, and acks each delivery (including dedup hits)
-          -- per the at-least-once contract.
-          pullRef <-
-            newIORef
-              [ ("training.command.linux-cpu", "payload-a")
-              , ("training.command.linux-cpu", "payload-a") -- redelivery
-              , ("rl.command.linux-cpu", "payload-b")
-              , ("inference.request.linux-cpu", "payload-c")
-              ]
-          ackRef <- newIORef ([] :: [Text])
-          subscribeRef <- newIORef ([] :: [(Text, Text)])
-          seekRef <- newIORef ([] :: [(Text, Text)])
-          dispatchRef <- newIORef ([] :: [(EventDomain, Text)])
-          let router0 = emptyHandlerRouter 16
-          (_, outcomes) <-
-            evalStateT
-              ( runConsumerLoop
-                  (SubscriptionId "test-sub")
-                  router0
-                  4
-                  ( \domain _eventId payload ->
-                      liftIO (modifyIORef' dispatchRef ((domain, payload) :))
-                        >> pure (Right ())
-                  )
-              )
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
-          length outcomes @?= 4
-          dispatchedCount outcomes @?= 3
-          dedupCount outcomes @?= 1
-          ackedPayloads <- readIORef ackRef
-          length ackedPayloads @?= 4 -- every delivery (incl. dedup) acked
-          dispatched <- readIORef dispatchRef
-          length dispatched @?= 3
+      , testCase "batch command commits survive cancellation of a later command" $ do
+          let firstCommand = syntheticTrainingCommand "batch-prefix-a" LinuxCPU
+              secondCommand = syntheticTrainingCommand "batch-prefix-b" LinuxCPU
+              cancelledCommand = syntheticTrainingCommand "batch-cancelled" LinuxCPU
+          firstEvent <- expectDaemonCommandEventId firstCommand
+          secondEvent <- expectDaemonCommandEventId secondCommand
+          cancelledEvent <- expectDaemonCommandEventId cancelledCommand
+          routerRef <- newMVar (emptyHandlerRouter 16)
+          _ <- consumerStepCommitted routerRef firstCommand (\_ _ -> pure (Right ()))
+          _ <- consumerStepCommitted routerRef secondCommand (\_ _ -> pure (Right ()))
+          dispatchEntered <- newEmptyMVar
+          neverFinishDispatch <- newEmptyMVar
+          worker <-
+            async $
+              consumerStepCommitted
+                routerRef
+                cancelledCommand
+                ( \_ _ -> do
+                    putMVar dispatchEntered ()
+                    _ <- takeMVar neverFinishDispatch
+                    pure (Right ())
+                )
+          takeMVar dispatchEntered
+          cancel worker
+          cancelled <- waitCatch worker
+          case cancelled of
+            Left _ -> pure ()
+            Right _ -> assertFailure "expected the later batch command to be cancelled"
+          retainedRouter <- readMVar routerRef
+          dedupCacheKnown firstEvent (trainingCache retainedRouter) @?= True
+          dedupCacheKnown secondEvent (trainingCache retainedRouter) @?= True
+          dedupCacheKnown cancelledEvent (trainingCache retainedRouter) @?= False
       , testCase "daemon handler router uses LiveConfig dedup cache size (Sprint 5.5)" $ do
           let router = Runtime.daemonHandlerRouter defaultDaemonRuntime
           dedupCacheCapacity (trainingCache router) @?= 4096
@@ -906,59 +1626,295 @@ main =
           dedupCacheCapacity (inferenceCache router) @?= 4096
           dedupCacheTtlSeconds (inferenceCache router) @?= 3600
       , testCase "dedup cache expires entries at LiveConfig TTL boundary (Sprint 5.5)" $ do
-          let eventId = eventIdFromPayload "payload-a"
-              router0 = emptyHandlerRouterWithTtl 16 5
+          eventId <-
+            expectDaemonCommandEventId (syntheticTrainingCommand "payload-a" LinuxCPU)
+          let router0 = emptyHandlerRouterWithTtl 16 5
               (router1, firstSeen) = routeByKindAt 100 router0 TrainingDomain eventId
               (router2, redeliveryBeforeTtl) = routeByKindAt 104 router1 TrainingDomain eventId
               (_router3, redeliveryAtTtl) = routeByKindAt 105 router2 TrainingDomain eventId
           firstSeen @?= True
           redeliveryBeforeTtl @?= False
           redeliveryAtTtl @?= True
-      , testCase "subscribeDaemonTopics calls the typed HasPulsar boundary (Sprint 5.5)" $ do
-          pullRef <- newIORef []
-          ackRef <- newIORef []
-          subscribeRef <- newIORef ([] :: [(Text, Text)])
-          seekRef <- newIORef ([] :: [(Text, Text)])
-          let subscriptions =
-                take 2 $
-                  daemonSubscriptionsForBootConfig
-                    (BootConfig.defaultBootConfig LinuxCUDA BootConfig.Cluster)
-          results <-
-            evalStateT
-              (subscribeDaemonTopics subscriptions)
-              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
-          length results @?= 2
-          traverse_
-            ( either
-                (const (assertBool "subscription failed" False))
-                (const (pure ()))
-                . snd
-            )
-            results
-          subscribeLog <- readIORef subscribeRef
-          subscribeLog
-            @?= [ ("persistent://public/default/training.command.linux-cuda", "jitml-service")
-                , ("persistent://public/default/tune.command.linux-cuda", "jitml-service")
-                ]
+      , testCase "hot reload resizes dedup caches without losing newest live entries" $ do
+          older <- expectDaemonCommandEventId (syntheticTrainingCommand "older" LinuxCPU)
+          newer <- expectDaemonCommandEventId (syntheticTrainingCommand "newer" LinuxCPU)
+          let router0 = emptyHandlerRouterWithTtl 4 30
+              (router1, _) = routeByKindAt 100 router0 TrainingDomain older
+              (router2, _) = routeByKindAt 101 router1 TrainingDomain newer
+              shrunk = reconfigureHandlerRouterAt 103 1 5 router2
+              expired = reconfigureHandlerRouterAt 106 1 5 shrunk
+          dedupCacheCapacity (trainingCache shrunk) @?= 1
+          dedupCacheTtlSeconds (trainingCache shrunk) @?= 5
+          dedupCacheKnown newer (trainingCache shrunk) @?= True
+          dedupCacheKnown older (trainingCache shrunk) @?= False
+          dedupCacheKnown newer (trainingCache expired) @?= False
       ]
 
--- | A synthetic `HasPulsar` instance that pulls envelopes off an IORef-backed
--- queue and records acks in another IORef. Used only by the Consumer loop
--- dedup-and-ack test above; the production daemon uses a real Pulsar client.
+expectRight :: (Show err) => Either err value -> IO value
+expectRight result =
+  case result of
+    Left err -> ioError (userError (show err))
+    Right value -> pure value
+
+expectSubscriptionPlan :: BootConfig.BootConfig -> IO [DaemonSubscription]
+expectSubscriptionPlan =
+  expectRight . daemonSubscriptionsForBootConfig
+
+assertSubscriptionPlan :: Text -> [Text] -> [DaemonSubscription] -> IO ()
+assertSubscriptionPlan expectedName expectedTopics subscriptions = do
+  let expectedCount = length expectedTopics
+  length subscriptions @?= expectedCount
+  fmap daemonSubscriptionTopicName subscriptions @?= expectedTopics
+  fmap daemonSubscriptionName subscriptions @?= replicate expectedCount expectedName
+  fmap daemonSubscriptionStart subscriptions @?= replicate expectedCount FromEarliest
+  fmap daemonSubscriptionOwnership subscriptions @?= replicate expectedCount Borrowed
+
+connectAllConsumers :: Word64 -> DaemonRuntime -> DaemonRuntime
+connectAllConsumers generation runtime =
+  runtime
+    { daemonState =
+        foldl
+          ( \state subscription ->
+              daemonConsumerSessionTransition
+                subscription
+                (ConsumerSessionConnected generation)
+                state
+          )
+          (daemonState runtime)
+          (Runtime.daemonSubscriptions runtime)
+    }
+
+readyLinuxRuntime :: IO DaemonRuntime
+readyLinuxRuntime = do
+  clientLogRef <- newIORef []
+  evalStateT
+    (Runtime.probeEngineServiceClients (connectAllConsumers 1 defaultDaemonRuntime))
+    (SyntheticClientState clientLogRef)
+
+assertReadyHttpStatus
+  :: DaemonControl
+  -> DaemonRuntime
+  -> String
+  -> IO ()
+assertReadyHttpStatus control runtime expectedStatus =
+  withHttpRoutesOnce
+    (HttpListener "127.0.0.1" 0)
+    (daemonHttpRoutes control runtime)
+    ( \port -> do
+        response <- httpGet port "/readyz"
+        assertBool
+          ("expected readyz HTTP status " <> expectedStatus)
+          (("HTTP/1.1 " <> expectedStatus) `isInfixOf` response)
+    )
+
+syntheticRlStart :: Text -> Substrate -> Rl.StartRLRun
+syntheticRlStart experimentHash substrate =
+  Rl.StartRLRun
+    { Rl.srlExperimentHash = experimentHash
+    , Rl.srlAlgorithm = "PPO"
+    , Rl.srlEnvironment = "cartpole"
+    , Rl.srlSubstrate = substrate
+    , Rl.srlSeed = 42
+    , Rl.srlMaxSteps = 200
+    , Rl.srlEvalEpisodes = 2
+    }
+
+assertWorkloadOutcomesSucceeded
+  :: Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome)
+  -> IO ()
+assertWorkloadOutcomesSucceeded result =
+  case result of
+    Left err -> assertFailure (show err)
+    Right outcomes ->
+      traverse_ (\outcome -> workloadOutcomeError outcome @?= Nothing) outcomes
+
+assertWorkloadDispatchOutcome
+  :: Either WorkloadDecodeError SomeWorkloadOutcome
+  -> IO ()
+assertWorkloadDispatchOutcome result =
+  case result of
+    Left err -> assertFailure (show err)
+    Right outcome -> workloadOutcomeError outcome @?= Nothing
+
+renderSomeEffectPayload :: SomeWorkloadEffect -> Text
+renderSomeEffectPayload (SomeWorkloadEffect effect) =
+  renderWorkloadEffectPayload effect
+
+trainingDaemonSubscription :: Substrate -> IO DaemonSubscription
+trainingDaemonSubscription substrate = do
+  let bootConfig =
+        (BootConfig.defaultBootConfig substrate BootConfig.Cluster)
+          { BootConfig.bootActiveRole = BootConfig.Coordinator
+          }
+  subscriptions <-
+    expectSubscriptionPlan bootConfig
+  case filter ((== TrainingDomain) . daemonSubscriptionDomain) subscriptions of
+    [subscription] -> pure subscription
+    unexpected ->
+      ioError
+        (userError ("expected one training subscription, got " <> show unexpected))
+
+syntheticTrainingPayload :: Text -> Substrate -> Text
+syntheticTrainingPayload experimentHash substrate =
+  daemonCommandPayload (syntheticTrainingCommand experimentHash substrate)
+
+syntheticTrainingCommand :: Text -> Substrate -> DaemonCommand
+syntheticTrainingCommand experimentHash substrate =
+  TrainingDaemonCommand
+    substrate
+    ( Training.TrainingStart
+        ( preparedStartTraining
+            Training.StartTraining
+              { Training.stExperimentHash = experimentHash
+              , Training.stDhallObjectKey = "experiments/synthetic.dhall"
+              , Training.stSubstrate = substrate
+              , Training.stSeed = 7
+              , Training.stEpochs = 2
+              , Training.stBatchSize = 8
+              , Training.stPlanId = ""
+              , Training.stResolvedPlan = ""
+              , Training.stTrainingExamples = 64
+              , Training.stEvaluationExamples = 16
+              }
+        )
+    )
+
+syntheticInferenceCommand :: Substrate -> Text -> DaemonCommand
+syntheticInferenceCommand substrate callId =
+  InferenceDaemonCommand
+    substrate
+    ( Inference.RunInference
+        Inference.InferenceRequest
+          { Inference.irCallId = callId
+          , Inference.irExperimentHash = "inference-model"
+          , Inference.irReplyTopic =
+              "inference.result." <> renderSubstrate substrate
+          , Inference.irInput = [1.0]
+          }
+    )
+
+coordinatorTopicNames :: Substrate -> [Text]
+coordinatorTopicNames substrate =
+  [ "persistent://public/default/training.command." <> renderSubstrate substrate
+  , "persistent://public/default/tune.command." <> renderSubstrate substrate
+  , "persistent://public/default/rl.command." <> renderSubstrate substrate
+  ]
+
+assertUnauthorized :: Either ServiceError () -> IO ()
+assertUnauthorized result =
+  case result of
+    Left (SEUnauthorized _) -> pure ()
+    unexpected -> assertFailure ("expected SEUnauthorized, got " <> show unexpected)
+
+expectDaemonCommandEventId :: DaemonCommand -> IO EventId
+expectDaemonCommandEventId command =
+  case daemonCommandEventId command of
+    Failure errors ->
+      ioError (userError ("expected valid semantic event identity, got " <> show errors))
+    Success eventId -> pure eventId
+
+syntheticEnvelope :: Text -> Text -> Int -> Text -> SyntheticEnvelope
+syntheticEnvelope topic deliveryId redeliveryCount payload =
+  SyntheticEnvelope
+    { syntheticEnvelopeTopic = topic
+    , syntheticSession = "synthetic-session"
+    , syntheticGeneration = 1
+    , syntheticDeliveryId = deliveryId
+    , syntheticRedeliveryCount = redeliveryCount
+    , syntheticPayload = payload
+    }
+
+newSyntheticBroker :: [SyntheticEnvelope] -> IO SyntheticBrokerState
+newSyntheticBroker envelopes =
+  SyntheticBrokerState
+    <$> newIORef envelopes
+    <*> newIORef []
+    <*> newIORef []
+    <*> newIORef []
+    <*> newIORef Nothing
+
+recordObservedSession
+  :: IORef [ConsumerSessionEvent]
+  -> ConsumerSessionEvent
+  -> StateT SyntheticBrokerState IO ()
+recordObservedSession ref event =
+  liftIO (modifyIORef' ref (<> [event]))
+
+expectConsumerLoopSuccess
+  :: Either ConsumerFailure (HandlerRouter, [ConsumerOutcome])
+  -> IO (HandlerRouter, [ConsumerOutcome])
+expectConsumerLoopSuccess =
+  expectRight
+
+firstEnvelopeFor :: Text -> [SyntheticEnvelope] -> Maybe SyntheticEnvelope
+firstEnvelopeFor selectedTopic =
+  firstMatch
+ where
+  firstMatch [] = Nothing
+  firstMatch (envelope : rest)
+    | syntheticEnvelopeTopic envelope == selectedTopic = Just envelope
+    | otherwise = firstMatch rest
+
+takeEnvelopeFor
+  :: Text
+  -> [SyntheticEnvelope]
+  -> Maybe (SyntheticEnvelope, [SyntheticEnvelope])
+takeEnvelopeFor selectedTopic =
+  go []
+ where
+  go _prefix [] = Nothing
+  go prefix (envelope : rest)
+    | syntheticEnvelopeTopic envelope == selectedTopic =
+        Just (envelope, reverse prefix <> rest)
+    | otherwise = go (envelope : prefix) rest
+
+observedDecisionDisposition :: ObservedDecision result -> ObservedDisposition
+observedDecisionDisposition decision =
+  case decision of
+    ObservedContinue disposition -> disposition
+    ObservedDone disposition _ -> disposition
+
+cleanupAction :: SubscriptionOwnership -> Text
+cleanupAction ownership =
+  case ownership of
+    Borrowed -> "close"
+    Owned -> "delete"
+
+data SyntheticEnvelope = SyntheticEnvelope
+  { syntheticEnvelopeTopic :: Text
+  , syntheticSession :: Text
+  , syntheticGeneration :: Word64
+  , syntheticDeliveryId :: Text
+  , syntheticRedeliveryCount :: Int
+  , syntheticPayload :: Text
+  }
+  deriving stock (Eq, Show)
+
+data SyntheticSettlement = SyntheticSettlement
+  { syntheticSettledReceipt :: Text
+  , syntheticSettledDisposition :: ObservedDisposition
+  }
+  deriving stock (Eq, Show)
+
+-- | Persistent receipt-bound test interpreter. It keeps raw wire payloads
+-- until the opaque subscription topic decodes them, then exposes only a
+-- test-namespace 'Delivery'. Settlement records the receipt fingerprint, not a
+-- broker message id.
 data SyntheticBrokerState = SyntheticBrokerState
-  { syntheticPullQueue :: IORef [(Text, Text)]
-  , syntheticAckLog :: IORef [Text]
-  , syntheticSubscribeLog :: IORef [(Text, Text)]
-  , syntheticSeekLog :: IORef [(Text, Text)]
+  { syntheticDeliveryQueue :: IORef [SyntheticEnvelope]
+  , syntheticSettlementLog :: IORef [SyntheticSettlement]
+  , syntheticSessionLog :: IORef [ConsumerSessionEvent]
+  , syntheticCleanupLog :: IORef [Text]
+  , syntheticSettlementFailure :: IORef (Maybe ServiceError)
   }
 
 newtype SyntheticClientState = SyntheticClientState
   { syntheticClientLog :: IORef [Text]
   }
 
-requiresDaemonCapabilities
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m) => m ()
-requiresDaemonCapabilities =
+requiresEngineCapabilities
+  :: (HasMinIO m, HasPulsar m) => m ()
+requiresEngineCapabilities =
   pure ()
 
 recordClientCall :: Text -> StateT SyntheticClientState IO ()
@@ -1021,23 +1977,25 @@ instance HasKubectl (StateT SyntheticClientState IO) where
     pure (Right "items: []")
   kubectlDelete (KubeResource resource) = do
     recordClientCall ("kubectl:delete:" <> resource)
-    pure (Right ())
+    pure $
+      case resource of
+        "job/jitml-train-fail-job-delete" ->
+          Left (SETransient "synthetic Job deletion failure")
+        "configmap/runconfig-jitml-train-fail-configmap-delete" ->
+          Left (SETransient "synthetic RunConfig deletion failure")
+        _ -> Right ()
 
 instance HasPulsar (StateT SyntheticClientState IO) where
-  pulsarPublish (TopicName topic) _payload = do
-    recordClientCall ("pulsar:publish:" <> topic)
+  pulsarPublish topic _event = do
+    recordClientCall ("pulsar:publish:" <> topicName topic)
     pure (Right "synthetic-message-id")
-  pulsarAcknowledge _topic _payload = do
-    recordClientCall "pulsar:ack"
-    pure (Right ())
-  pulsarSubscribe (TopicName topic) subscriptionName = do
-    recordClientCall ("pulsar:subscribe:" <> topic <> ":" <> subscriptionName)
-    pure (Right (SubscriptionId (topic <> "\n" <> subscriptionName)))
-  pulsarSeek (SubscriptionId subscription) eventId = do
-    recordClientCall ("pulsar:seek:" <> subscription <> ":" <> eventId)
-    pure (Right ())
-  pulsarConsume _subscription =
-    pure (Left (SETransient "synthetic client has no pull queue"))
+  pulsarConsumeUntil subscription _observe _handler =
+    pure
+      ( Left
+          ( ConsumerProtocolFailure
+              ("synthetic client has no queue for " <> topicName (subscriptionTopic subscription))
+          )
+      )
 
 syntheticInferenceManifest :: Checkpoint.CheckpointManifest
 syntheticInferenceManifest =
@@ -1063,12 +2021,16 @@ syntheticInferenceManifest =
           (error . Text.unpack)
           id
           ( TrainingBudget.completedTraining
-              TrainingBudget.TrainingBudget
-                { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
-                , TrainingBudget.tbTargetUnits = step
-                , TrainingBudget.tbUnitLabel = "epochs"
-                , TrainingBudget.tbSeed = Nothing
-                }
+              daemonFixturePlanId
+              ( either
+                  (error . Text.unpack)
+                  id
+                  ( TrainingBudget.mkTrainingBudget
+                      TrainingBudget.SupervisedEpochBudget
+                      step
+                      Nothing
+                  )
+              )
               step
               evidence
               observations
@@ -1089,6 +2051,10 @@ syntheticInferenceManifest =
           }
    in Checkpoint.attachCompletedTraining completed manifest
 
+daemonFixturePlanId :: PlanId
+daemonFixturePlanId =
+  either (error . Text.unpack) id (refinePlanIdText (Text.replicate 64 "f"))
+
 convergenceObservationsFixture
   :: [(Text, Double)]
   -> Either Text [TrainingBudget.ConvergenceObservation]
@@ -1097,26 +2063,75 @@ convergenceObservationsFixture =
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")
-  pulsarAcknowledge _ payload = do
+  pulsarConsumeUntil subscription observe handler = do
     state <- get
-    liftIO (modifyIORef' (syntheticAckLog state) (payload :))
-    pure (Right ())
-  pulsarSubscribe (TopicName topic) subscriptionName = do
-    state <- get
-    liftIO (modifyIORef' (syntheticSubscribeLog state) (++ [(topic, subscriptionName)]))
-    pure (Right (SubscriptionId (topic <> "\n" <> subscriptionName)))
-  pulsarSeek (SubscriptionId subscription) eventId = do
-    state <- get
-    liftIO (modifyIORef' (syntheticSeekLog state) (++ [(subscription, eventId)]))
-    pure (Right ())
-  pulsarConsume _ = do
-    state <- get
-    pending <- liftIO (readIORef (syntheticPullQueue state))
-    case pending of
-      [] -> pure (Left (SETransient "synthetic queue exhausted"))
-      (envelope : rest) -> do
-        liftIO (modifyIORef' (syntheticPullQueue state) (const rest))
-        pure (Right envelope)
+    pending <- liftIO (readIORef (syntheticDeliveryQueue state))
+    let selectedTopic = subscriptionTopic subscription
+        selectedTopicName = topicName selectedTopic
+        generation =
+          maybe 1 syntheticGeneration (firstEnvelopeFor selectedTopicName pending)
+        emit event = do
+          liftIO (modifyIORef' (syntheticSessionLog state) (<> [event]))
+          observe event
+        finishCleanup =
+          liftIO $
+            modifyIORef'
+              (syntheticCleanupLog state)
+              ( <>
+                  [ cleanupAction (subscriptionOwnership subscription)
+                      <> ":"
+                      <> selectedTopicName
+                      <> ":"
+                      <> subscriptionName subscription
+                  ]
+              )
+        loop = do
+          envelopes <- liftIO (readIORef (syntheticDeliveryQueue state))
+          case takeEnvelopeFor selectedTopicName envelopes of
+            Nothing ->
+              pure
+                ( Left
+                    (ConsumerProtocolFailure ("synthetic queue exhausted for " <> selectedTopicName))
+                )
+            Just (envelope, rest) -> do
+              liftIO (writeIORef (syntheticDeliveryQueue state) rest)
+              case decodeTopicPayload selectedTopic (syntheticPayload envelope) of
+                Left decodeError -> pure (Left (ConsumerDecodeFailure decodeError))
+                Right event -> do
+                  simulated <-
+                    simulateDeliveryDecisionForTest
+                      (syntheticSession envelope)
+                      (syntheticGeneration envelope)
+                      (syntheticDeliveryId envelope)
+                      (syntheticRedeliveryCount envelope)
+                      event
+                      handler
+                  case simulated of
+                    Left err -> pure (Left (ConsumerProtocolFailure (Text.pack (show err))))
+                    Right (observed, receiptFingerprint) -> do
+                      let disposition = observedDecisionDisposition observed
+                      liftIO $
+                        modifyIORef'
+                          (syntheticSettlementLog state)
+                          (<> [SyntheticSettlement receiptFingerprint disposition])
+                      settlementFailure <-
+                        liftIO (readIORef (syntheticSettlementFailure state))
+                      case settlementFailure of
+                        Just err ->
+                          pure
+                            ( Left
+                                (ConsumerSettlementFailure receiptFingerprint err)
+                            )
+                        Nothing ->
+                          case observed of
+                            ObservedContinue _ -> loop
+                            ObservedDone _ result -> do
+                              emit ConsumerSessionDraining
+                              emit ConsumerSessionDrained
+                              finishCleanup
+                              pure (Right result)
+    emit (ConsumerSessionConnected generation)
+    loop
 
 dispatchedCount :: [ConsumerOutcome] -> Int
 dispatchedCount = length . filter isDispatched
@@ -1130,11 +2145,23 @@ dedupCount = length . filter isDedup
   isDedup (ConsumerDeduplicated _ _) = True
   isDedup _ = False
 
-skippedCount :: [ConsumerOutcome] -> Int
-skippedCount = length . filter isSkipped
- where
-  isSkipped (ConsumerSkippedUnroutable _) = True
-  isSkipped _ = False
+preparedStartSweep :: Tune.StartSweep -> Tune.StartSweep
+preparedStartSweep raw =
+  case PlanCommand.prepareStartSweep raw of
+    Right (prepared, _) -> prepared
+    Left message -> error ("invalid StartSweep test fixture: " <> Text.unpack message)
+
+preparedStartTraining :: Training.StartTraining -> Training.StartTraining
+preparedStartTraining raw =
+  case PlanCommand.prepareStartTraining raw of
+    Right (prepared, _) -> prepared
+    Left message -> error ("invalid StartTraining test fixture: " <> Text.unpack message)
+
+preparedStartAlphaZeroRun :: Rl.StartAlphaZeroRun -> Rl.StartAlphaZeroRun
+preparedStartAlphaZeroRun raw =
+  case PlanCommand.prepareStartAlphaZeroRun raw of
+    Right (prepared, _) -> prepared
+    Left message -> error ("invalid StartAlphaZeroRun test fixture: " <> Text.unpack message)
 
 httpGet :: Int -> String -> IO String
 httpGet port path =

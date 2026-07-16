@@ -1,6 +1,6 @@
 # Phase 30: apple-silicon Product Lane
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md), [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md)
 **Generated sections**: none
@@ -11,7 +11,13 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `30.4`). The existing
+`apple-silicon` attestation predates the validated-plan and exact-evidence
+contract and must be regenerated independently on the Apple host. Sprint `30.4`
+is blocked by Sprint `29.5`. Sprints `30.1`–`30.3` remain Done on their retained
+Metal kernel, device-evidence, and browser surfaces.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
 reopened Apple Metal kernel obligations now close on the Apple Silicon host:
 `./bootstrap/apple-silicon.sh doctor` passed, `jitml internal
 install-metal-bridge` built and probed the fixed host Metal bridge, the rendered
@@ -237,9 +243,67 @@ fresh `linux-cuda` and `linux-cpu` fragments.
   attestation for Phase `31` aggregation — `apple-silicon` plus `linux-cpu` only,
   never `linux-cuda` in the same gate.
 
+## Sprint 30.4: Contract-Driven Apple Lane Revalidation [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Test/RunContract.hs`,
+`src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
+`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
+**Blocked by**: Sprint `29.5`
+**Docs to update**: `../README.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/run_contract.md`,
+`../documents/engineering/apple_silicon_metal_headless_builds.md`,
+`system-components.md`
+
+### Objective
+
+Revalidate the full row-complete workflow contract on the real Apple host and
+replace the `apple-silicon` fragment with journal-derived evidence. This sprint
+owns the Apple-lane portions of
+[Exit Definition](README.md#exit-definition) items `31`, `32`, and `34`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Run every supported Apple product scenario through the validated plan, exact
+  evidence reducer, and scoped lifecycle while preserving host-resident Metal
+  placement.
+- Prove each completed row journal carries the Apple/Metal device witness,
+  host-command placement evidence, exact terminal evidence, trained artifact
+  hash, and measured inference result.
+- Assert no Metal-backed training, RL, or tuning workload Job is created in the
+  cluster; failures retain host-daemon and cluster-forwarder diagnostics.
+- Replace the committed `apple-silicon` fragment only after the complete live
+  lifecycle passes, with explicit failed/not-run cells otherwise.
+- Keep this phase independent of `linux-cuda` execution: validation uses only
+  `apple-silicon` plus the host's `linux-cpu` support surface.
+
+### Validation
+
+```bash
+./bootstrap/apple-silicon.sh up
+./bootstrap/apple-silicon.sh test
+./bootstrap/apple-silicon.sh down
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `29.5` closes in numerical order with the CUDA lane
+  fragment required by downstream aggregation.
+- Execute the real Apple lifecycle and regenerate the lane journal/attestation.
+- Reconfirm host placement, Metal execution, and cleanup before returning this
+  phase to Done.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — contract-driven Apple host/cluster
+  lifecycle and lane-journal evidence.
 - `documents/engineering/apple_silicon_metal_headless_builds.md` — real per-operation
   Metal kernels rendered on demand and compiled in-process by the fixed host
   bridge, replacing the identity-copy and 1x1-degenerate stand-ins.

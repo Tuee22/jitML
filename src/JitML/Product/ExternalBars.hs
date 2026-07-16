@@ -39,7 +39,6 @@ import JitML.Product.Convergence
   , evaluateConvergence
   , mkConvergenceBar
   )
-import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.Training.Budget qualified as TrainingBudget
 
 -- | A convergence bar is self-referential (tautological) when its slack is
@@ -109,15 +108,17 @@ convergenceObservationForMetric metric@(name, _) =
       let observationWithMetricSpecificGate =
             if name == "arena_win_rate"
               then
-                observation
-                  { TrainingBudget.coPassed =
-                      RLConvergence.passesAlphaZeroArena
-                        RLConvergence.alphaZeroArenaThreshold
-                        (TrainingBudget.coMetricValue observation)
-                  }
-              else observation
-      case assertProductBarExternal bar (TrainingBudget.coMetricValue observationWithMetricSpecificGate) of
-        [] -> Right observationWithMetricSpecificGate
+                TrainingBudget.measureCriterionExcluding
+                  name
+                  TrainingBudget.MetricMaximise
+                  (TrainingBudget.coThreshold observation)
+                  0.5
+                  1.0e-12
+                  (TrainingBudget.coMetricValue observation)
+              else Right observation
+      refinedObservation <- observationWithMetricSpecificGate
+      case assertProductBarExternal bar (TrainingBudget.coMetricValue refinedObservation) of
+        [] -> Right refinedObservation
         failures -> Left (Text.intercalate "; " failures)
 
 convergenceObservationsForMetrics
@@ -142,7 +143,8 @@ assertConvergenceObservationsExternal =
             <> " does not match the external bar"
         | TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
             || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
-            || TrainingBudget.coPassed observation /= TrainingBudget.coPassed expected
+            || TrainingBudget.convergencePassed observation
+              /= TrainingBudget.convergencePassed expected
         ]
 
 assertConvergenceObservationsAgainstBar
@@ -159,7 +161,8 @@ assertConvergenceObservationsAgainstBar bar observations =
       | observation <- matchingObservations
       , TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
           || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
-          || TrainingBudget.coPassed observation /= TrainingBudget.coPassed expected
+          || TrainingBudget.convergencePassed observation
+            /= TrainingBudget.convergencePassed expected
       ]
  where
   measured =

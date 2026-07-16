@@ -1,14 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Proto.Rl
-  ( CheckpointDoneRL (..)
+  ( ArenaCompleted (..)
+  , CheckpointDoneRL (..)
+  , CompletedCheckpointDoneRL
+  , ccdrlCheckpoint
+  , ccdrlCompletedTraining
+  , completeCheckpointDoneRL
   , EpisodeDone (..)
   , EvalDone (..)
+  , GenerationCompleted (..)
   , MetricUpdate (..)
   , RlAnimationFrame (..)
   , RlCommand (..)
   , RlEvent (..)
   , RlReplayFrame (..)
+  , StartAlphaZeroRun (..)
   , StartRLRun (..)
   , StopRLRun (..)
   , decodeRlCommandProto
@@ -19,20 +26,20 @@ module JitML.Proto.Rl
   , parseRlEvent
   , renderRlCommand
   , renderRlEvent
-  , rlCommandTopic
-  , rlEventTopic
   )
 where
 
 import Data.ByteString (ByteString)
-import Data.Maybe (mapMaybe)
+import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 
 import JitML.Proto.Wire
-  ( boolField
+  ( ProtoField (..)
+  , ProtoValue (..)
+  , boolField
   , decodeMessage
   , doubleField
   , encodeMessage
@@ -52,6 +59,7 @@ import JitML.Proto.Wire
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 import JitML.Training.Budget
   ( CompletedTraining
+  , completedTrainingObservedUnits
   , decodeCompletedTraining
   , encodeCompletedTraining
   , parseCompletedTraining
@@ -66,6 +74,25 @@ data StartRLRun = StartRLRun
   , srlSeed :: Word64
   , srlMaxSteps :: Word32
   , srlEvalEpisodes :: Word32
+  }
+  deriving stock (Eq, Show)
+
+-- | The AlphaZero command has its own dimensional budget vocabulary. These are
+-- raw wire quantities; semantic positivity and cross-field validation happen
+-- at the resolved-plan boundary before worker execution.
+data StartAlphaZeroRun = StartAlphaZeroRun
+  { sazSubstrate :: Substrate
+  , sazExperimentHash :: Text
+  , sazPlanId :: Text
+  , sazResolvedPlan :: Text
+  , sazGame :: Text
+  , sazGenerations :: Word32
+  , sazSelfPlayGames :: Word32
+  , sazMctsSimulationsPerMove :: Word32
+  , sazMaxPlies :: Word32
+  , sazOptimizerUpdates :: Word32
+  , sazArenaGames :: Word32
+  , sazSeed :: Word64
   }
   deriving stock (Eq, Show)
 
@@ -98,15 +125,54 @@ data CheckpointDoneRL = CheckpointDoneRL
   , cdrlManifestSha :: Text
   , cdrlStep :: Word64
   , cdrlPointerKey :: Text
-  , cdrlCompletedTraining :: Maybe CompletedTraining
   }
   deriving stock (Eq, Show)
+
+-- | An RL checkpoint whose mandatory completion payload has survived raw DTO
+-- refinement. Candidate checkpoints remain a separate event variant.
+data CompletedCheckpointDoneRL = CompletedCheckpointDoneRL
+  { ccdrlCheckpoint :: CheckpointDoneRL
+  , ccdrlCompletedTraining :: CompletedTraining
+  }
+  deriving stock (Eq, Show)
+
+completeCheckpointDoneRL
+  :: CheckpointDoneRL
+  -> CompletedTraining
+  -> Either Text CompletedCheckpointDoneRL
+completeCheckpointDoneRL checkpoint completed = do
+  validateCheckpointDoneRL checkpoint
+  if cdrlStep checkpoint /= completedTrainingObservedUnits completed
+    then Left "RL checkpoint step does not match completed-training observed units"
+    else
+      Right
+        CompletedCheckpointDoneRL
+          { ccdrlCheckpoint = checkpoint
+          , ccdrlCompletedTraining = completed
+          }
 
 data MetricUpdate = MetricUpdate
   { muExperimentHash :: Text
   , muName :: Text
   , muValue :: Double
   , muTimestampNs :: Word64
+  }
+  deriving stock (Eq, Show)
+
+data GenerationCompleted = GenerationCompleted
+  { gcPlanId :: Text
+  , gcExperimentHash :: Text
+  , gcGeneration :: Word32
+  , gcSelfPlayGames :: Word32
+  , gcSamples :: Word64
+  }
+  deriving stock (Eq, Show)
+
+data ArenaCompleted = ArenaCompleted
+  { acPlanId :: Text
+  , acExperimentHash :: Text
+  , acArenaGames :: Word32
+  , acWinRate :: Double
   }
   deriving stock (Eq, Show)
 
@@ -146,22 +212,20 @@ data RlReplayFrame = RlReplayFrame
 data RlCommand
   = RlStart StartRLRun
   | RlStop StopRLRun
+  | RlStartAlphaZero StartAlphaZeroRun
   deriving stock (Eq, Show)
 
 data RlEvent
   = RlEpisode EpisodeDone
   | RlEval EvalDone
   | RlCheckpoint CheckpointDoneRL
+  | RlCompletedCheckpoint CompletedCheckpointDoneRL
   | RlMetric MetricUpdate
   | RlAnimation RlAnimationFrame
   | RlReplay RlReplayFrame
+  | RlGenerationCompleted GenerationCompleted
+  | RlArenaCompleted ArenaCompleted
   deriving stock (Eq, Show)
-
-rlCommandTopic :: Substrate -> Text
-rlCommandTopic substrate = "rl.command." <> renderSubstrate substrate
-
-rlEventTopic :: Substrate -> Text
-rlEventTopic substrate = "rl.event." <> renderSubstrate substrate
 
 renderRlCommand :: RlCommand -> Text
 renderRlCommand command =
@@ -183,30 +247,90 @@ renderRlCommand command =
         , "experiment-hash: " <> srStopExperimentHash e
         , "drain: " <> Text.pack (show (srStopDrain e))
         ]
+    RlStartAlphaZero e ->
+      Text.unlines
+        [ "kind: StartAlphaZeroRun"
+        , "substrate: " <> renderSubstrate (sazSubstrate e)
+        , "experiment-hash: " <> sazExperimentHash e
+        , "plan-id: " <> sazPlanId e
+        , "resolved-plan: " <> sazResolvedPlan e
+        , "game: " <> sazGame e
+        , "generations: " <> Text.pack (show (sazGenerations e))
+        , "self-play-games: " <> Text.pack (show (sazSelfPlayGames e))
+        , "mcts-simulations-per-move: " <> Text.pack (show (sazMctsSimulationsPerMove e))
+        , "max-plies: " <> Text.pack (show (sazMaxPlies e))
+        , "optimizer-updates: " <> Text.pack (show (sazOptimizerUpdates e))
+        , "arena-games: " <> Text.pack (show (sazArenaGames e))
+        , "seed: " <> Text.pack (show (sazSeed e))
+        ]
 
 parseRlCommand :: Text -> Maybe RlCommand
-parseRlCommand payload =
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-   in case value "kind" of
-        Just "StartRLRun" ->
-          RlStart
-            <$> ( StartRLRun
-                    <$> value "experiment-hash"
-                    <*> value "algorithm"
-                    <*> value "environment"
-                    <*> (value "substrate" >>= parseSubstrate)
-                    <*> (value "seed" >>= readText)
-                    <*> (value "max-steps" >>= readText)
-                    <*> (value "eval-episodes" >>= readText)
-                )
-        Just "StopRLRun" ->
-          RlStop
-            <$> ( StopRLRun
-                    <$> value "experiment-hash"
-                    <*> (value "drain" >>= readText)
-                )
-        _ -> Nothing
+parseRlCommand payload = do
+  fields <- traverse parseField (Text.lines payload)
+  kind <- requiredField "kind" fields
+  case kind of
+    "StartRLRun" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "algorithm"
+        , "environment"
+        , "substrate"
+        , "seed"
+        , "max-steps"
+        , "eval-episodes"
+        ]
+        fields
+      RlStart
+        <$> ( StartRLRun
+                <$> requiredField "experiment-hash" fields
+                <*> requiredField "algorithm" fields
+                <*> requiredField "environment" fields
+                <*> (requiredField "substrate" fields >>= parseSubstrate)
+                <*> requiredReadField "seed" fields
+                <*> requiredReadField "max-steps" fields
+                <*> requiredReadField "eval-episodes" fields
+            )
+    "StopRLRun" -> do
+      requireOnlyFields ["kind", "experiment-hash", "drain"] fields
+      RlStop
+        <$> ( StopRLRun
+                <$> requiredField "experiment-hash" fields
+                <*> requiredReadField "drain" fields
+            )
+    "StartAlphaZeroRun" -> do
+      requireOnlyFields
+        [ "kind"
+        , "substrate"
+        , "experiment-hash"
+        , "plan-id"
+        , "resolved-plan"
+        , "game"
+        , "generations"
+        , "self-play-games"
+        , "mcts-simulations-per-move"
+        , "max-plies"
+        , "optimizer-updates"
+        , "arena-games"
+        , "seed"
+        ]
+        fields
+      RlStartAlphaZero
+        <$> ( StartAlphaZeroRun
+                <$> (requiredField "substrate" fields >>= parseSubstrate)
+                <*> requiredField "experiment-hash" fields
+                <*> requiredField "plan-id" fields
+                <*> requiredField "resolved-plan" fields
+                <*> requiredField "game" fields
+                <*> requiredReadField "generations" fields
+                <*> requiredReadField "self-play-games" fields
+                <*> requiredReadField "mcts-simulations-per-move" fields
+                <*> requiredReadField "max-plies" fields
+                <*> requiredReadField "optimizer-updates" fields
+                <*> requiredReadField "arena-games" fields
+                <*> requiredReadField "seed" fields
+            )
+    _ -> Nothing
 
 encodeRlCommandProto :: RlCommand -> ByteString
 encodeRlCommandProto command =
@@ -215,15 +339,22 @@ encodeRlCommandProto command =
       encodeMessage [messageField 1 (encodeStartRLRunProto start)]
     RlStop stop ->
       encodeMessage [messageField 2 (encodeStopRLRunProto stop)]
+    RlStartAlphaZero start ->
+      encodeMessage [messageField 3 (encodeStartAlphaZeroRunProto start)]
 
 decodeRlCommandProto :: ByteString -> Either Text RlCommand
 decodeRlCommandProto bytes = do
   fields <- decodeMessage bytes
-  case (fieldMessage 1 fields, fieldMessage 2 fields) of
-    (Just startBytes, Nothing) ->
+  case fields of
+    [ProtoField 1 (LengthDelimited startBytes)] ->
       RlStart <$> decodeStartRLRunProto startBytes
-    (Nothing, Just stopBytes) ->
+    [ProtoField 2 (LengthDelimited stopBytes)] ->
       RlStop <$> decodeStopRLRunProto stopBytes
+    [ProtoField 3 (LengthDelimited startBytes)] ->
+      RlStartAlphaZero <$> decodeStartAlphaZeroRunProto startBytes
+    [ProtoField fieldNumber _]
+      | fieldNumber `elem` [1, 2, 3] ->
+          Left "RlCommand oneof body has the wrong protobuf wire type"
     _ -> Left "expected exactly one RlCommand oneof field"
 
 encodeRlEventProto :: RlEvent -> ByteString
@@ -235,37 +366,44 @@ encodeRlEventProto event =
       encodeMessage [messageField 2 (encodeEvalDoneProto eval)]
     RlCheckpoint checkpoint ->
       encodeMessage [messageField 3 (encodeCheckpointDoneRLProto checkpoint)]
+    RlCompletedCheckpoint completed ->
+      encodeMessage [messageField 9 (encodeCompletedCheckpointDoneRLProto completed)]
     RlMetric metric ->
       encodeMessage [messageField 4 (encodeMetricUpdateProto metric)]
     RlAnimation frame ->
       encodeMessage [messageField 5 (encodeRlAnimationFrameProto frame)]
     RlReplay frame ->
       encodeMessage [messageField 6 (encodeRlReplayFrameProto frame)]
+    RlGenerationCompleted generation ->
+      encodeMessage [messageField 7 (encodeGenerationCompletedProto generation)]
+    RlArenaCompleted arena ->
+      encodeMessage [messageField 8 (encodeArenaCompletedProto arena)]
 
 decodeRlEventProto :: ByteString -> Either Text RlEvent
 decodeRlEventProto bytes = do
   fields <- decodeMessage bytes
-  let body =
-        ( fieldMessage 1 fields
-        , fieldMessage 2 fields
-        , fieldMessage 3 fields
-        , fieldMessage 4 fields
-        , fieldMessage 5 fields
-        , fieldMessage 6 fields
-        )
-  case body of
-    (Just episodeBytes, Nothing, Nothing, Nothing, Nothing, Nothing) ->
+  case fields of
+    [ProtoField 1 (LengthDelimited episodeBytes)] ->
       RlEpisode <$> decodeEpisodeDoneProto episodeBytes
-    (Nothing, Just evalBytes, Nothing, Nothing, Nothing, Nothing) ->
+    [ProtoField 2 (LengthDelimited evalBytes)] ->
       RlEval <$> decodeEvalDoneProto evalBytes
-    (Nothing, Nothing, Just checkpointBytes, Nothing, Nothing, Nothing) ->
+    [ProtoField 3 (LengthDelimited checkpointBytes)] ->
       RlCheckpoint <$> decodeCheckpointDoneRLProto checkpointBytes
-    (Nothing, Nothing, Nothing, Just metricBytes, Nothing, Nothing) ->
+    [ProtoField 4 (LengthDelimited metricBytes)] ->
       RlMetric <$> decodeMetricUpdateProto metricBytes
-    (Nothing, Nothing, Nothing, Nothing, Just frameBytes, Nothing) ->
+    [ProtoField 5 (LengthDelimited frameBytes)] ->
       RlAnimation <$> decodeRlAnimationFrameProto frameBytes
-    (Nothing, Nothing, Nothing, Nothing, Nothing, Just frameBytes) ->
+    [ProtoField 6 (LengthDelimited frameBytes)] ->
       RlReplay <$> decodeRlReplayFrameProto frameBytes
+    [ProtoField 7 (LengthDelimited generationBytes)] ->
+      RlGenerationCompleted <$> decodeGenerationCompletedProto generationBytes
+    [ProtoField 8 (LengthDelimited arenaBytes)] ->
+      RlArenaCompleted <$> decodeArenaCompletedProto arenaBytes
+    [ProtoField 9 (LengthDelimited completedBytes)] ->
+      RlCompletedCheckpoint <$> decodeCompletedCheckpointDoneRLProto completedBytes
+    [ProtoField fieldNumber _]
+      | fieldNumber `elem` [1 .. 9] ->
+          Left "RlEvent oneof body has the wrong protobuf wire type"
     _ -> Left "expected exactly one RlEvent oneof field"
 
 renderRlEvent :: RlEvent -> Text
@@ -290,18 +428,14 @@ renderRlEvent envelope =
         , "timestamp-ns: " <> Text.pack (show (evTimestampNs e))
         ]
     RlCheckpoint c ->
-      Text.unlines
-        ( [ "kind: CheckpointDoneRL"
-          , "experiment-hash: " <> cdrlExperimentHash c
-          , "manifest-sha: " <> cdrlManifestSha c
-          , "step: " <> Text.pack (show (cdrlStep c))
-          , "pointer-key: " <> cdrlPointerKey c
-          ]
-            <> maybe
-              []
-              (\completed -> ["completed-training: " <> renderCompletedTraining completed])
-              (cdrlCompletedTraining c)
-        )
+      renderCheckpointDoneRL "CheckpointCandidateRL" c []
+    RlCompletedCheckpoint completed ->
+      renderCheckpointDoneRL
+        "CheckpointCompletedRL"
+        (ccdrlCheckpoint completed)
+        [ "completed-training: "
+            <> renderCompletedTraining (ccdrlCompletedTraining completed)
+        ]
     RlMetric m ->
       Text.unlines
         [ "kind: MetricUpdate"
@@ -343,81 +477,222 @@ renderRlEvent envelope =
         , "observation-hash: " <> Text.pack (show (rrfObservationHash f))
         , "timestamp-ns: " <> Text.pack (show (rrfTimestampNs f))
         ]
+    RlGenerationCompleted generation ->
+      Text.unlines
+        [ "kind: GenerationCompleted"
+        , "plan-id: " <> gcPlanId generation
+        , "experiment-hash: " <> gcExperimentHash generation
+        , "generation: " <> Text.pack (show (gcGeneration generation))
+        , "self-play-games: " <> Text.pack (show (gcSelfPlayGames generation))
+        , "samples: " <> Text.pack (show (gcSamples generation))
+        ]
+    RlArenaCompleted arena ->
+      Text.unlines
+        [ "kind: ArenaCompleted"
+        , "plan-id: " <> acPlanId arena
+        , "experiment-hash: " <> acExperimentHash arena
+        , "arena-games: " <> Text.pack (show (acArenaGames arena))
+        , "win-rate: " <> Text.pack (show (acWinRate arena))
+        ]
 
 parseRlEvent :: Text -> Maybe RlEvent
-parseRlEvent payload =
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-   in case value "kind" of
-        Just "EpisodeDone" ->
-          RlEpisode
-            <$> ( EpisodeDone
-                    <$> value "experiment-hash"
-                    <*> (value "episode" >>= readText)
-                    <*> (value "reward" >>= readText)
-                    <*> (value "steps" >>= readText)
-                    <*> (value "timestamp-ns" >>= readText)
-                )
-        Just "EvalDone" ->
-          RlEval
-            <$> ( EvalDone
-                    <$> value "experiment-hash"
-                    <*> (value "epoch" >>= readText)
-                    <*> (value "avg-reward" >>= readText)
-                    <*> (value "std-reward" >>= readText)
-                    <*> (value "timestamp-ns" >>= readText)
-                )
-        Just "CheckpointDoneRL" ->
-          RlCheckpoint
-            <$> ( CheckpointDoneRL
-                    <$> value "experiment-hash"
-                    <*> value "manifest-sha"
-                    <*> (value "step" >>= readText)
-                    <*> value "pointer-key"
-                    <*> pure (value "completed-training" >>= parseCompletedTraining)
-                )
-        Just "MetricUpdate" ->
-          RlMetric
-            <$> ( MetricUpdate
-                    <$> value "experiment-hash"
-                    <*> value "name"
-                    <*> (value "value" >>= readText)
-                    <*> (value "timestamp-ns" >>= readText)
-                )
-        Just "RlAnimationFrame" ->
-          RlAnimation
-            <$> ( RlAnimationFrame
-                    <$> value "experiment-hash"
-                    <*> value "environment"
-                    <*> (value "episode" >>= readText)
-                    <*> (value "step" >>= readText)
-                    <*> (value "reward" >>= readText)
-                    <*> (value "done" >>= readText)
-                    <*> (value "action" >>= readText)
-                    <*> (value "observation" >>= parseDoubleList)
-                    <*> (value "action-probabilities" >>= parseDoubleList)
-                    <*> (value "observation-hash" >>= readText)
-                    <*> (value "replay-cursor" >>= readText)
-                    <*> (value "timestamp-ns" >>= readText)
-                )
-        Just "RlReplayFrame" ->
-          RlReplay
-            <$> ( RlReplayFrame
-                    <$> value "experiment-hash"
-                    <*> value "replay-id"
-                    <*> value "environment"
-                    <*> (value "episode" >>= readText)
-                    <*> (value "step" >>= readText)
-                    <*> (value "action" >>= readText)
-                    <*> (value "reward" >>= readText)
-                    <*> (value "done" >>= readText)
-                    <*> (value "observation" >>= parseDoubleList)
-                    <*> (value "next-observation" >>= parseDoubleList)
-                    <*> (value "policy-version" >>= readText)
-                    <*> (value "observation-hash" >>= readText)
-                    <*> (value "timestamp-ns" >>= readText)
-                )
-        _ -> Nothing
+parseRlEvent payload = do
+  fields <- traverse parseField (Text.lines payload)
+  kind <- requiredField "kind" fields
+  case kind of
+    "EpisodeDone" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "episode"
+        , "reward"
+        , "steps"
+        , "timestamp-ns"
+        ]
+        fields
+      RlEpisode
+        <$> ( EpisodeDone
+                <$> requiredField "experiment-hash" fields
+                <*> requiredReadField "episode" fields
+                <*> requiredFiniteField "reward" fields
+                <*> requiredReadField "steps" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    "EvalDone" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "epoch"
+        , "avg-reward"
+        , "std-reward"
+        , "timestamp-ns"
+        ]
+        fields
+      RlEval
+        <$> ( EvalDone
+                <$> requiredField "experiment-hash" fields
+                <*> requiredReadField "epoch" fields
+                <*> requiredFiniteField "avg-reward" fields
+                <*> requiredFiniteField "std-reward" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    "CheckpointCandidateRL" -> do
+      requireOnlyFields
+        [ "kind"
+        , "protocol-version"
+        , "experiment-hash"
+        , "manifest-sha"
+        , "step"
+        , "pointer-key"
+        ]
+        fields
+      requiredTextProtocolVersion fields
+      checkpoint <-
+        CheckpointDoneRL
+          <$> requiredField "experiment-hash" fields
+          <*> requiredField "manifest-sha" fields
+          <*> requiredReadField "step" fields
+          <*> requiredField "pointer-key" fields
+      eitherToMaybe (validateCheckpointDoneRL checkpoint)
+      pure (RlCheckpoint checkpoint)
+    "CheckpointCompletedRL" -> do
+      requireOnlyFields
+        [ "kind"
+        , "protocol-version"
+        , "experiment-hash"
+        , "manifest-sha"
+        , "step"
+        , "pointer-key"
+        , "completed-training"
+        ]
+        fields
+      requiredTextProtocolVersion fields
+      checkpoint <-
+        CheckpointDoneRL
+          <$> requiredField "experiment-hash" fields
+          <*> requiredField "manifest-sha" fields
+          <*> requiredReadField "step" fields
+          <*> requiredField "pointer-key" fields
+      completed <- requiredField "completed-training" fields >>= parseCompletedTraining
+      RlCompletedCheckpoint
+        <$> eitherToMaybe (completeCheckpointDoneRL checkpoint completed)
+    "MetricUpdate" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "name"
+        , "value"
+        , "timestamp-ns"
+        ]
+        fields
+      RlMetric
+        <$> ( MetricUpdate
+                <$> requiredField "experiment-hash" fields
+                <*> requiredField "name" fields
+                <*> requiredFiniteField "value" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    "RlAnimationFrame" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "environment"
+        , "episode"
+        , "step"
+        , "reward"
+        , "done"
+        , "action"
+        , "observation"
+        , "action-probabilities"
+        , "observation-hash"
+        , "replay-cursor"
+        , "timestamp-ns"
+        ]
+        fields
+      RlAnimation
+        <$> ( RlAnimationFrame
+                <$> requiredField "experiment-hash" fields
+                <*> requiredField "environment" fields
+                <*> requiredReadField "episode" fields
+                <*> requiredReadField "step" fields
+                <*> requiredFiniteField "reward" fields
+                <*> requiredReadField "done" fields
+                <*> requiredReadField "action" fields
+                <*> requiredDoubleListField "observation" fields
+                <*> requiredDoubleListField "action-probabilities" fields
+                <*> requiredReadField "observation-hash" fields
+                <*> requiredReadField "replay-cursor" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    "RlReplayFrame" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "replay-id"
+        , "environment"
+        , "episode"
+        , "step"
+        , "action"
+        , "reward"
+        , "done"
+        , "observation"
+        , "next-observation"
+        , "policy-version"
+        , "observation-hash"
+        , "timestamp-ns"
+        ]
+        fields
+      RlReplay
+        <$> ( RlReplayFrame
+                <$> requiredField "experiment-hash" fields
+                <*> requiredField "replay-id" fields
+                <*> requiredField "environment" fields
+                <*> requiredReadField "episode" fields
+                <*> requiredReadField "step" fields
+                <*> requiredReadField "action" fields
+                <*> requiredFiniteField "reward" fields
+                <*> requiredReadField "done" fields
+                <*> requiredDoubleListField "observation" fields
+                <*> requiredDoubleListField "next-observation" fields
+                <*> requiredReadField "policy-version" fields
+                <*> requiredReadField "observation-hash" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    "GenerationCompleted" -> do
+      requireOnlyFields
+        [ "kind"
+        , "plan-id"
+        , "experiment-hash"
+        , "generation"
+        , "self-play-games"
+        , "samples"
+        ]
+        fields
+      RlGenerationCompleted
+        <$> ( GenerationCompleted
+                <$> requiredField "plan-id" fields
+                <*> requiredField "experiment-hash" fields
+                <*> requiredReadField "generation" fields
+                <*> requiredReadField "self-play-games" fields
+                <*> requiredReadField "samples" fields
+            )
+    "ArenaCompleted" -> do
+      requireOnlyFields
+        [ "kind"
+        , "plan-id"
+        , "experiment-hash"
+        , "arena-games"
+        , "win-rate"
+        ]
+        fields
+      RlArenaCompleted
+        <$> ( ArenaCompleted
+                <$> requiredField "plan-id" fields
+                <*> requiredField "experiment-hash" fields
+                <*> requiredReadField "arena-games" fields
+                <*> requiredFiniteField "win-rate" fields
+            )
+    _ -> Nothing
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =
@@ -434,10 +709,69 @@ renderDoubleList :: [Double] -> Text
 renderDoubleList =
   Text.intercalate "," . fmap (Text.pack . show)
 
+renderCheckpointDoneRL :: Text -> CheckpointDoneRL -> [Text] -> Text
+renderCheckpointDoneRL kind checkpoint extraFields =
+  Text.unlines
+    ( [ "kind: " <> kind
+      , "protocol-version: " <> Text.pack (show protocolVersion)
+      , "experiment-hash: " <> cdrlExperimentHash checkpoint
+      , "manifest-sha: " <> cdrlManifestSha checkpoint
+      , "step: " <> Text.pack (show (cdrlStep checkpoint))
+      , "pointer-key: " <> cdrlPointerKey checkpoint
+      ]
+        <> extraFields
+    )
+
 parseDoubleList :: Text -> Maybe [Double]
 parseDoubleList raw
   | Text.null (Text.strip raw) = Just []
-  | otherwise = traverse readText (Text.splitOn "," raw)
+  | otherwise = traverse readFiniteDouble (Text.splitOn "," raw)
+
+fieldValues :: Text -> [(Text, Text)] -> [Text]
+fieldValues key fields =
+  [value | (candidate, value) <- fields, candidate == key]
+
+uniqueField :: Text -> [(Text, Text)] -> Maybe Text
+uniqueField key fields =
+  case fieldValues key fields of
+    [value] -> Just value
+    _ -> Nothing
+
+requiredField :: Text -> [(Text, Text)] -> Maybe Text
+requiredField key fields = do
+  value <- uniqueField key fields
+  if Text.null value then Nothing else Just value
+
+requiredReadField :: (Read value) => Text -> [(Text, Text)] -> Maybe value
+requiredReadField key fields =
+  requiredField key fields >>= readText
+
+requiredFiniteField :: Text -> [(Text, Text)] -> Maybe Double
+requiredFiniteField key fields =
+  requiredField key fields >>= readFiniteDouble
+
+requiredTextProtocolVersion :: [(Text, Text)] -> Maybe ()
+requiredTextProtocolVersion fields = do
+  version <- requiredReadField "protocol-version" fields
+  if version == protocolVersion then Just () else Nothing
+
+requiredDoubleListField :: Text -> [(Text, Text)] -> Maybe [Double]
+requiredDoubleListField key fields =
+  uniqueField key fields >>= parseDoubleList
+
+readFiniteDouble :: Text -> Maybe Double
+readFiniteDouble encoded = do
+  value <- readText encoded
+  if finiteDouble value then Just value else Nothing
+
+finiteDouble :: Double -> Bool
+finiteDouble value =
+  not (isNaN value || isInfinite value)
+
+requireOnlyFields :: [Text] -> [(Text, Text)] -> Maybe ()
+requireOnlyFields allowed fields
+  | all ((`elem` allowed) . fst) fields = Just ()
+  | otherwise = Nothing
 
 encodeStartRLRunProto :: StartRLRun -> ByteString
 encodeStartRLRunProto start =
@@ -454,16 +788,54 @@ encodeStartRLRunProto start =
 decodeStartRLRunProto :: ByteString -> Either Text StartRLRun
 decodeStartRLRunProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "StartRLRun" [1 .. 7] fields
   StartRLRun
-    <$> require "experiment_hash" (fieldString 1 fields)
-    <*> require "algorithm" (fieldString 2 fields)
-    <*> require "environment" (fieldString 3 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
+    <*> requireNonEmptyProtoString "algorithm" (fieldString 2 fields)
+    <*> requireNonEmptyProtoString "environment" (fieldString 3 fields)
     <*> ( require "substrate" (fieldString 4 fields)
             >>= requireParsed "substrate" parseSubstrate
         )
     <*> require "seed" (fieldWord64 5 fields)
     <*> require "max_steps" (fieldWord32 6 fields)
     <*> require "eval_episodes" (fieldWord32 7 fields)
+
+encodeStartAlphaZeroRunProto :: StartAlphaZeroRun -> ByteString
+encodeStartAlphaZeroRunProto start =
+  encodeMessage
+    [ stringField 1 (renderSubstrate (sazSubstrate start))
+    , stringField 2 (sazExperimentHash start)
+    , stringField 3 (sazPlanId start)
+    , stringField 4 (sazResolvedPlan start)
+    , stringField 5 (sazGame start)
+    , uint32Field 6 (sazGenerations start)
+    , uint32Field 7 (sazSelfPlayGames start)
+    , uint32Field 8 (sazMctsSimulationsPerMove start)
+    , uint32Field 9 (sazMaxPlies start)
+    , uint32Field 10 (sazOptimizerUpdates start)
+    , uint32Field 11 (sazArenaGames start)
+    , uint64Field 12 (sazSeed start)
+    ]
+
+decodeStartAlphaZeroRunProto :: ByteString -> Either Text StartAlphaZeroRun
+decodeStartAlphaZeroRunProto bytes = do
+  fields <- decodeMessage bytes
+  requireExactProtoFields "StartAlphaZeroRun" [1 .. 12] fields
+  StartAlphaZeroRun
+    <$> ( require "substrate" (fieldString 1 fields)
+            >>= requireParsed "substrate" parseSubstrate
+        )
+    <*> requireNonEmptyProtoString "experiment_hash" (fieldString 2 fields)
+    <*> requireNonEmptyProtoString "plan_id" (fieldString 3 fields)
+    <*> requireNonEmptyProtoString "resolved_plan" (fieldString 4 fields)
+    <*> requireNonEmptyProtoString "game" (fieldString 5 fields)
+    <*> require "generations" (fieldWord32 6 fields)
+    <*> require "self_play_games" (fieldWord32 7 fields)
+    <*> require "mcts_simulations_per_move" (fieldWord32 8 fields)
+    <*> require "max_plies" (fieldWord32 9 fields)
+    <*> require "optimizer_updates" (fieldWord32 10 fields)
+    <*> require "arena_games" (fieldWord32 11 fields)
+    <*> require "seed" (fieldWord64 12 fields)
 
 encodeStopRLRunProto :: StopRLRun -> ByteString
 encodeStopRLRunProto stop =
@@ -475,8 +847,9 @@ encodeStopRLRunProto stop =
 decodeStopRLRunProto :: ByteString -> Either Text StopRLRun
 decodeStopRLRunProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "StopRLRun" [1, 2] fields
   StopRLRun
-    <$> require "experiment_hash" (fieldString 1 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
     <*> require "drain" (fieldBool 2 fields)
 
 encodeEpisodeDoneProto :: EpisodeDone -> ByteString
@@ -492,10 +865,11 @@ encodeEpisodeDoneProto episode =
 decodeEpisodeDoneProto :: ByteString -> Either Text EpisodeDone
 decodeEpisodeDoneProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "EpisodeDone" [1 .. 5] fields
   EpisodeDone
-    <$> require "experiment_hash" (fieldString 1 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
     <*> require "episode" (fieldWord32 2 fields)
-    <*> require "reward" (fieldDouble 3 fields)
+    <*> requireFiniteProtoDouble "reward" (fieldDouble 3 fields)
     <*> require "steps" (fieldWord32 4 fields)
     <*> require "timestamp_ns" (fieldWord64 5 fields)
 
@@ -512,39 +886,60 @@ encodeEvalDoneProto eval =
 decodeEvalDoneProto :: ByteString -> Either Text EvalDone
 decodeEvalDoneProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "EvalDone" [1 .. 5] fields
   EvalDone
-    <$> require "experiment_hash" (fieldString 1 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
     <*> require "epoch" (fieldWord32 2 fields)
-    <*> require "avg_reward" (fieldDouble 3 fields)
-    <*> require "std_reward" (fieldDouble 4 fields)
+    <*> requireFiniteProtoDouble "avg_reward" (fieldDouble 3 fields)
+    <*> requireFiniteProtoDouble "std_reward" (fieldDouble 4 fields)
     <*> require "timestamp_ns" (fieldWord64 5 fields)
 
 encodeCheckpointDoneRLProto :: CheckpointDoneRL -> ByteString
 encodeCheckpointDoneRLProto checkpoint =
-  encodeMessage $
+  encodeMessage
     [ stringField 1 (cdrlExperimentHash checkpoint)
     , stringField 2 (cdrlManifestSha checkpoint)
     , uint64Field 3 (cdrlStep checkpoint)
     , stringField 4 (cdrlPointerKey checkpoint)
+    , uint32Field 5 protocolVersion
     ]
-      <> maybe
-        []
-        (\completed -> [messageField 5 (encodeCompletedTraining completed)])
-        (cdrlCompletedTraining checkpoint)
 
 decodeCheckpointDoneRLProto :: ByteString -> Either Text CheckpointDoneRL
 decodeCheckpointDoneRLProto bytes = do
   fields <- decodeMessage bytes
-  completed <-
-    case fieldMessage 5 fields of
-      Nothing -> Right Nothing
-      Just completedBytes -> Just <$> decodeCompletedTraining completedBytes
-  CheckpointDoneRL
-    <$> require "experiment_hash" (fieldString 1 fields)
-    <*> require "manifest_sha" (fieldString 2 fields)
-    <*> require "step" (fieldWord64 3 fields)
-    <*> require "pointer_key" (fieldString 4 fields)
-    <*> pure completed
+  requireExactProtoFields "CheckpointDoneRL" [1 .. 5] fields
+  version <- require "protocol_version" (fieldWord32 5 fields)
+  requireProtocolVersion "CheckpointDoneRL" version
+  checkpoint <-
+    CheckpointDoneRL
+      <$> require "experiment_hash" (fieldString 1 fields)
+      <*> require "manifest_sha" (fieldString 2 fields)
+      <*> require "step" (fieldWord64 3 fields)
+      <*> require "pointer_key" (fieldString 4 fields)
+  validateCheckpointDoneRL checkpoint
+  Right checkpoint
+
+encodeCompletedCheckpointDoneRLProto :: CompletedCheckpointDoneRL -> ByteString
+encodeCompletedCheckpointDoneRLProto completed =
+  encodeMessage
+    [ uint32Field 1 protocolVersion
+    , messageField 2 (encodeCheckpointDoneRLProto (ccdrlCheckpoint completed))
+    , messageField 3 (encodeCompletedTraining (ccdrlCompletedTraining completed))
+    ]
+
+decodeCompletedCheckpointDoneRLProto
+  :: ByteString
+  -> Either Text CompletedCheckpointDoneRL
+decodeCompletedCheckpointDoneRLProto bytes = do
+  fields <- decodeMessage bytes
+  requireExactProtoFields "CompletedCheckpointDoneRL" [1, 2, 3] fields
+  version <- require "protocol_version" (fieldWord32 1 fields)
+  requireProtocolVersion "CompletedCheckpointDoneRL" version
+  checkpointBytes <- require "checkpoint" (fieldMessage 2 fields)
+  completionBytes <- require "completed_training" (fieldMessage 3 fields)
+  checkpoint <- decodeCheckpointDoneRLProto checkpointBytes
+  completed <- decodeCompletedTraining completionBytes
+  completeCheckpointDoneRL checkpoint completed
 
 encodeMetricUpdateProto :: MetricUpdate -> ByteString
 encodeMetricUpdateProto metric =
@@ -558,11 +953,56 @@ encodeMetricUpdateProto metric =
 decodeMetricUpdateProto :: ByteString -> Either Text MetricUpdate
 decodeMetricUpdateProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "MetricUpdate" [1 .. 4] fields
   MetricUpdate
-    <$> require "experiment_hash" (fieldString 1 fields)
-    <*> require "name" (fieldString 2 fields)
-    <*> require "value" (fieldDouble 3 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
+    <*> requireNonEmptyProtoString "name" (fieldString 2 fields)
+    <*> requireFiniteProtoDouble "value" (fieldDouble 3 fields)
     <*> require "timestamp_ns" (fieldWord64 4 fields)
+
+encodeGenerationCompletedProto :: GenerationCompleted -> ByteString
+encodeGenerationCompletedProto generation =
+  encodeMessage
+    [ stringField 1 (gcPlanId generation)
+    , stringField 2 (gcExperimentHash generation)
+    , uint32Field 3 (gcGeneration generation)
+    , uint32Field 4 (gcSelfPlayGames generation)
+    , uint64Field 5 (gcSamples generation)
+    ]
+
+decodeGenerationCompletedProto :: ByteString -> Either Text GenerationCompleted
+decodeGenerationCompletedProto bytes = do
+  fields <- decodeMessage bytes
+  requireExactProtoFields "GenerationCompleted" [1 .. 5] fields
+  GenerationCompleted
+    <$> requireNonEmptyProtoString "plan_id" (fieldString 1 fields)
+    <*> requireNonEmptyProtoString "experiment_hash" (fieldString 2 fields)
+    <*> require "generation" (fieldWord32 3 fields)
+    <*> require "self_play_games" (fieldWord32 4 fields)
+    <*> require "samples" (fieldWord64 5 fields)
+
+encodeArenaCompletedProto :: ArenaCompleted -> ByteString
+encodeArenaCompletedProto arena =
+  encodeMessage
+    [ stringField 1 (acPlanId arena)
+    , stringField 2 (acExperimentHash arena)
+    , uint32Field 3 (acArenaGames arena)
+    , doubleField 4 (acWinRate arena)
+    ]
+
+decodeArenaCompletedProto :: ByteString -> Either Text ArenaCompleted
+decodeArenaCompletedProto bytes = do
+  fields <- decodeMessage bytes
+  requireExactProtoFields "ArenaCompleted" [1 .. 4] fields
+  winRate <- require "win_rate" (fieldDouble 4 fields)
+  if finiteDouble winRate
+    then
+      ArenaCompleted
+        <$> requireNonEmptyProtoString "plan_id" (fieldString 1 fields)
+        <*> requireNonEmptyProtoString "experiment_hash" (fieldString 2 fields)
+        <*> require "arena_games" (fieldWord32 3 fields)
+        <*> pure winRate
+    else Left "invalid protobuf field: win_rate must be finite"
 
 encodeRlAnimationFrameProto :: RlAnimationFrame -> ByteString
 encodeRlAnimationFrameProto frame =
@@ -584,16 +1024,17 @@ encodeRlAnimationFrameProto frame =
 decodeRlAnimationFrameProto :: ByteString -> Either Text RlAnimationFrame
 decodeRlAnimationFrameProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "RlAnimationFrame" [1 .. 12] fields
   RlAnimationFrame
-    <$> require "experiment_hash" (fieldString 1 fields)
-    <*> require "environment" (fieldString 2 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
+    <*> requireNonEmptyProtoString "environment" (fieldString 2 fields)
     <*> require "episode" (fieldWord32 3 fields)
     <*> require "step" (fieldWord32 4 fields)
-    <*> require "reward" (fieldDouble 5 fields)
+    <*> requireFiniteProtoDouble "reward" (fieldDouble 5 fields)
     <*> require "done" (fieldBool 6 fields)
     <*> require "action" (fieldWord32 7 fields)
-    <*> require "observation" (fieldDoubles 8 fields)
-    <*> require "action_probabilities" (fieldDoubles 9 fields)
+    <*> requireFiniteProtoDoubles "observation" (fieldDoubles 8 fields)
+    <*> requireFiniteProtoDoubles "action_probabilities" (fieldDoubles 9 fields)
     <*> require "observation_hash" (fieldWord32 10 fields)
     <*> require "replay_cursor" (fieldWord64 11 fields)
     <*> require "timestamp_ns" (fieldWord64 12 fields)
@@ -619,25 +1060,101 @@ encodeRlReplayFrameProto frame =
 decodeRlReplayFrameProto :: ByteString -> Either Text RlReplayFrame
 decodeRlReplayFrameProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "RlReplayFrame" [1 .. 13] fields
   RlReplayFrame
-    <$> require "experiment_hash" (fieldString 1 fields)
-    <*> require "replay_id" (fieldString 2 fields)
-    <*> require "environment" (fieldString 3 fields)
+    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
+    <*> requireNonEmptyProtoString "replay_id" (fieldString 2 fields)
+    <*> requireNonEmptyProtoString "environment" (fieldString 3 fields)
     <*> require "episode" (fieldWord32 4 fields)
     <*> require "step" (fieldWord32 5 fields)
     <*> require "action" (fieldWord32 6 fields)
-    <*> require "reward" (fieldDouble 7 fields)
+    <*> requireFiniteProtoDouble "reward" (fieldDouble 7 fields)
     <*> require "done" (fieldBool 8 fields)
-    <*> require "observation" (fieldDoubles 9 fields)
-    <*> require "next_observation" (fieldDoubles 10 fields)
+    <*> requireFiniteProtoDoubles "observation" (fieldDoubles 9 fields)
+    <*> requireFiniteProtoDoubles "next_observation" (fieldDoubles 10 fields)
     <*> require "policy_version" (fieldWord64 11 fields)
     <*> require "observation_hash" (fieldWord32 12 fields)
     <*> require "timestamp_ns" (fieldWord64 13 fields)
+
+requireExactProtoFields :: Text -> [Word64] -> [ProtoField] -> Either Text ()
+requireExactProtoFields messageName expected fields
+  | not (null unknown) =
+      Left
+        ( messageName
+            <> " contains unknown protobuf fields: "
+            <> renderFieldNumbers unknown
+        )
+  | length actual /= length (List.nub actual) =
+      Left (messageName <> " contains duplicate protobuf fields")
+  | not (null missing) =
+      Left
+        ( messageName
+            <> " is missing protobuf fields: "
+            <> renderFieldNumbers missing
+        )
+  | otherwise = Right ()
+ where
+  actual = fmap protoFieldNumber fields
+  unknown = filter (`notElem` expected) actual
+  missing = filter (`notElem` actual) expected
+  renderFieldNumbers = Text.intercalate "," . fmap (Text.pack . show)
 
 require :: Text -> Maybe a -> Either Text a
 require fieldName =
   maybe (Left ("missing protobuf field: " <> fieldName)) Right
 
+requireNonEmptyProtoString :: Text -> Maybe Text -> Either Text Text
+requireNonEmptyProtoString fieldName encoded = do
+  value <- require fieldName encoded
+  if Text.null (Text.strip value)
+    then Left ("invalid protobuf field: " <> fieldName <> " must be non-empty")
+    else Right value
+
 requireParsed :: Text -> (a -> Maybe b) -> a -> Either Text b
 requireParsed fieldName parseValue value =
   maybe (Left ("invalid protobuf field: " <> fieldName)) Right (parseValue value)
+
+requireFiniteProtoDouble :: Text -> Maybe Double -> Either Text Double
+requireFiniteProtoDouble fieldName encoded = do
+  value <- require fieldName encoded
+  if finiteDouble value
+    then Right value
+    else Left ("invalid protobuf field: " <> fieldName <> " must be finite")
+
+requireFiniteProtoDoubles :: Text -> Maybe [Double] -> Either Text [Double]
+requireFiniteProtoDoubles fieldName encoded = do
+  values <- require fieldName encoded
+  if all finiteDouble values
+    then Right values
+    else Left ("invalid protobuf field: " <> fieldName <> " must contain only finite values")
+
+protocolVersion :: Word32
+protocolVersion = 1
+
+requireProtocolVersion :: Text -> Word32 -> Either Text ()
+requireProtocolVersion messageName version
+  | version == protocolVersion = Right ()
+  | otherwise =
+      Left
+        ( "unsupported "
+            <> messageName
+            <> " protocol version: "
+            <> Text.pack (show version)
+        )
+
+validateCheckpointDoneRL :: CheckpointDoneRL -> Either Text ()
+validateCheckpointDoneRL checkpoint = do
+  requireNonBlank "experiment_hash" (cdrlExperimentHash checkpoint)
+  requireNonBlank "manifest_sha" (cdrlManifestSha checkpoint)
+  requireNonBlank "pointer_key" (cdrlPointerKey checkpoint)
+  if cdrlStep checkpoint == 0
+    then Left "RL checkpoint step must be positive"
+    else Right ()
+
+requireNonBlank :: Text -> Text -> Either Text ()
+requireNonBlank fieldName value
+  | Text.null (Text.strip value) = Left ("empty field: " <> fieldName)
+  | otherwise = Right ()
+
+eitherToMaybe :: Either error value -> Maybe value
+eitherToMaybe = either (const Nothing) Just

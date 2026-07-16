@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, training_workloads.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, training_workloads.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: numerics.layers, numerics.activations, numerics.spectral, numerics.optimizers, numerics.schedulers, numerics.losses
 
 > **Purpose**: Project-specific numerical-core catalog for jitML — the current
@@ -10,40 +10,29 @@
 > list tree under `dhall/numerics/`, and the generated documentation tables
 > rendered from those sources.
 
-**Real forward path and reopened eligibility gate.** SL training + evaluation
-already run model forward passes through the substrate-selected `MlpDevice`
-(`JitML.SL.Architecture` `forwardOnly` /
-`accuracyArchitectureWithDevice` / `crossEntropyArchitectureWithDevice`), and
-regression reports a real MSE metric. The current audit reopens the broader
-claim: checkpoint/demo inference is complete only when every model-family
-checkpoint is produced by its fixed training budget and inference accepts only
-the `InferenceEligibleCheckpoint` witness defined in
-[training_metrics_and_splits.md](training_metrics_and_splits.md). The numerical
-core owns substrate execution; the development plan owns the reopened
-all-family trained-artifact closure in
-[DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
-and browser consumption in
-[DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
+Phase state, remaining work, blockers, and validation evidence live only in
+[Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status).
+This document owns the numerical representation and execution boundary; it does
+not infer product or substrate-lane closure from catalog coverage or dated pass
+counts.
 
-**Current accelerator lane evidence.** The `linux-cuda` product lane is
-**Done** for Phase `29`: the current-source CUDA publisher produced **55 / 55**
-eligible ProductRows with **0** unsupported rows and **0** errors, ProductRow
-integration passed **56 / 56**, CUDA all/e2e/live gates passed, and Sprint
-`29.4` committed a timing table with **55 / 55** rows faster on `linux-cuda`
-than `linux-cpu`. The backend lane itself is live on the RTX 5090 and passes
-`jitml-backends --linux-cuda` **22 / 22** after the persistent-buffer and
-per-weight batch-gradient update. The executed trainer MLP device path on CUDA
-runs through **hand-written elementwise kernels** in
-`src/JitML/Codegen/MlpCuda.hs` (`jitml_mlp_forward` / `jitml_mlp_forward_batch` /
-`jitml_mlp_grad`) — forward, batched, and gradient — **not** cuBLAS
-`cublasSgemm`. cuBLAS/cuDNN apply only to the separate generated family-kernel
-surface (Conv2D, MHA, and the other Dense/Conv3D/BatchNorm/LayerNorm family
-kernels), not the trainer's MLP seam. The earlier **2026-07-05** figures —
-generated CUDA family kernels calling cuBLAS/cuDNN, 12 SHA-verified dataset
-artifacts in live MinIO, all **55 / 55** ProductRows publishing
-inference-eligible CUDA-lane checkpoints, and `jitml test all --linux-cuda`
-passing **8 / 8** stanzas — are retained only as **dated historical /
-withdrawn** evidence and must not be read as current closure.
+## Execution Boundary
+
+Training and evaluation select a substrate device and run the model's literal
+layer graph through that device. The validated workload plan and the completed
+evidence required around numerical execution are owned by
+[Typed Run Contract](run_contract.md); inference eligibility is owned by
+[Checkpoint Format](checkpoint_format.md) and
+[Product Completion Contract](product_completion_contract.md). A catalog entry
+or a successful forward call alone is not a completion witness.
+
+The CUDA trainer MLP seam uses the generated forward, batched, and gradient
+kernels in `src/JitML/Codegen/MlpCuda.hs`; it is distinct from the generated
+family-kernel surface where Dense/MHA use cuBLAS and convolution and
+normalization families use cuDNN. The oneDNN and Metal implementations retain
+the same separation between the trainer seam, general family kernels, and the
+pure reference algebra. Substrate validation status belongs to the development
+plan, not this architecture document.
 
 ## Catalog Shape
 
@@ -61,44 +50,16 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 
 ## Typed Layer Graph and Autodiff
 
-> **2026-07-05 realness-audit caveat (reopened Phase `23`).** The typed
-> `LayerGraph` IR, the tape/replay autodiff mechanics, the checkpoint topology
-> round-trip, and the oneDNN device seam described below are all in place, **but
-> the per-kind layer math is not real yet.** In
-> `src/JitML/Numerics/LayerGraph.hs`, `runLayerNode` (~line 396) routes *every*
-> parameterized node through `affinePreActivation` (line 523) — a plain dense
-> matmul plus bias — so the parameterized "exotic" kinds `Conv2D`, `Conv3D`,
-> `MultiHeadAttention`, `GeGLU`, patch-embed, `BasicBlock`, and `BottleneckBlock`
-> are all the same dense GEMM with the `LayerKind` tag ignored (the tag is
-> consulted only for the residual add in `residualScale`, line 549, and for the
-> pooling/dropout stubs in `parameterlessForward`, ~line 489). Every parameterless
-> `BatchNorm`/`LayerNorm`/`GroupNorm` node falls through to the `resizeIdentity`
-> no-op (line 504); `Dropout` is a deterministic `* 0.9` rescale; and
-> `MaxPool`/`AvgPool`/`GlobalAvgPool` replicate or average a single value rather
-> than pooling a windowed tensor. The finite-difference and backend-vs-oracle
-> checks described in the rest of this section therefore pass **vacuously** — they
-> compare against a pure oracle that is itself a dense stand-in, so gradient
-> agreement did not prove real convolution, attention, normalization, or pooling,
-> and a "ResNet"/"ViT"/"LeNet" graph trains and infers as a dense stack, not its
-> literal network. Reopened Phase `23`
-> ([DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md](../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md))
-> owns making each kind compute its real forward/backward math. The closure is
-> graded externally on the `linux-cpu` lane by the `jitml-negative-controls`
-> differential suite in
-> [phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
-> (each kind's output must differ from the dense-GEMM output of the same shape on
-> structured input) and by the `jitml-model-convergence` per-model suite in
-> [phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md),
-> under the plan-truth governance of
-> [phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
-> This "everything is a dense GEMM stand-in" description is being remediated on
-> the executed supervised path by Phase `24`
-> ([phase-24-real-supervised-architectures.md](../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md)):
-> the executed SL architecture moved from the un-normalized "bag-of-patches"
-> dense stand-in to a real **MLP-Mixer** — a token-mixing MLP plus **executed
-> LayerNorm** at raised widths — so the ViT and deeper rows train real
-> token-mixing and normalization, not a bare dense stack.
-> The prose that follows is retained as the pre-audit narrative.
+`LayerGraph` is the sole graph representation used by training, checkpointing,
+and graph inference. Parameterized nodes apply kind-specific input transforms
+and backward transforms before their affine projection; convolution nodes lower
+to convolution training primitives on the oneDNN path, attention and gated
+nodes retain their distinct transforms, normalization computes normalized
+outputs, and pooling operates over its defined windows. The pure reference
+algebra and backend checks compare those per-kind semantics rather than treating
+every tag as a dense or identity alias. Historical audit and validation details
+remain in
+[Phase 23](../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md).
 
 Phase `23` adds the executable typed layer-graph surface in
 `src/JitML/Numerics/LayerGraph.hs` and the public pure reverse-mode API in

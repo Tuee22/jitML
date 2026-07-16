@@ -2,13 +2,12 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [training_workloads.md](training_workloads.md), [numerical_core.md](numerical_core.md), [checkpoint_format.md](checkpoint_format.md), [purescript_frontend.md](purescript_frontend.md), [DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md), [DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md), [DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md), [DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [training_workloads.md](training_workloads.md), [numerical_core.md](numerical_core.md), [checkpoint_format.md](checkpoint_format.md), [purescript_frontend.md](purescript_frontend.md), [run_contract.md](run_contract.md), [DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md), [DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md), [DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md), [DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md), [DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
 **Generated sections**: none
 
 > **Purpose**: The single source of truth for jitML's supervised-learning
-> train/test/validation split discipline, fixed-budget learning-completion
-> witness, and convergence/performance metric definitions for SL, RL,
-> AlphaZero, and tuning.
+> train/test/validation split discipline and convergence/performance metric
+> definitions for SL, RL, AlphaZero, and tuning.
 
 ## Invariants
 
@@ -29,32 +28,42 @@
   measured metric clears that independent external bar; keeping the two structurally
   distinct is what forbids a self-referential `threshold = measured` gate.
 - **Fixed terminating budgets.** A model is not trained "until converged."
-  Each canonical model has a pure, reproducible, finite training budget
-  declared before execution. Training must perform exactly that budget unless a
-  typed failure aborts the run; convergence is demonstrated by the metrics at
-  the completed budget.
+  Each canonical model has a pure, reproducible, finite, unit-indexed training
+  plan declared before execution. Training must perform exactly that budget
+  unless a typed failure aborts the run; convergence is demonstrated by the
+  metrics at the completed budget. Budget representation is owned by
+  [Typed Plans and Dimensional Budgets](run_contract.md#typed-plans-and-dimensional-budgets).
+  For supervised work, hidden `SupervisedPlan` binds epochs, training examples,
+  evaluation examples, batch examples, and the derived optimizer-update count;
+  refinement requires
+  `updates = epochs * ceil(trainingExamples / batchExamples)`. Its canonical
+  version-`1` transport determines the `PlanId` used by execution and evidence.
 - **Inference requires completion.** Inference cannot accept a raw manifest,
   random initialization, or partially trained checkpoint. The only pure value
   that may flow into inference is an inference-eligible trained artifact witness
-  minted from a completed budget plus its convergence statistics.
+  refined from completed run evidence plus its convergence statistics.
 
-## Fixed-budget trained-artifact contract
+## Metric Projection into Completed Runs
 
-The pure contract uses three distinct concepts. The fixed-budget and
-completion-witness vocabulary lives in `JitML.Training.Budget`; checkpoint
-eligibility is minted by `JitML.Checkpoint.Format` and enforced by
-`JitML.Checkpoint.Store` before any weight-only inference load.
+The generic planning, evidence-reduction, and completion-witness vocabulary
+lives in [Typed Run Contract](run_contract.md). This document owns the
+training-metric payload projected into that contract. Checkpoint eligibility is
+refined by `JitML.Checkpoint.Format` and enforced by `JitML.Checkpoint.Store`
+before any weight-only inference load.
 
 | Concept | Meaning | Invariant |
 |---|---|---|
-| `TrainingBudget` | A pure declaration of the exact terminating work: epochs / environment steps / self-play generations / tuning trials, seed cohort, and unit label. | Known before execution; no adaptive "keep training until convergence" loop. |
+| `RunPlan kind` | A pure declaration of exact terminating work using unit-indexed quantities and a non-empty seed cohort where required. | Known before execution; no adaptive "keep training until convergence" loop and no stringly unit label. |
+| `SupervisedPlan` | The hidden supervised projection of one `RunPlan`, including exact epoch, train/evaluation-example, batch-example, and derived optimizer-update quantities plus its content-derived `PlanId`. | Producer and worker re-refine the same canonical transport; no primitive worker record, clamp, or default may redefine the budget. |
 | `TrainingEvidence` | The smart-constructed weight-delta witness in `JitML.Product.Evidence`: initial weight hash, final weight hash, positive update count, and dataset SHA observed at read. For product SL rows this SHA is produced by `JitML.SL.Dataset.datasetReadShaForArtifacts` over payloads returned by `fetchVerifiedDatasetArtifactBytes`, after each artifact has matched its pinned SHA and before any decoder receives bytes. | `mkTrainingEvidence` rejects empty hashes, equal initial/final hashes, zero updates, and missing dataset-read provenance. |
-| `CompletedTraining` | The pure witness that the workflow executed the full budget, moved learned state, emitted bar-evaluated convergence observations, and wrote TensorBoard scalar metadata. | Constructed only by `completedTraining` from `TrainingEvidence`; failed, cancelled, partial, skipped, equal-weight, zero-update, smoke-only, or hardcoded-pass runs do not satisfy it. |
-| `InferenceEligibleCheckpoint` | The value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints can consume weights. | Minted only from a manifest carrying `CompletedTraining`, mirrored weight-delta evidence fields, passing convergence observations, and TensorBoard scalar tags. |
+| `CompletedRunEvidence kind` | The opaque result of terminal workload success plus the workload's complete pure evidence contract. | Failed, cancelled, partial, skipped, equal-weight, zero-update, smoke-only, missing-event, or hardcoded-pass runs cannot construct it. |
+| `RawCompletedTraining` | The versioned, deliberately forgeable completion DTO: plan identity, raw budget, repeated observed kind/count/unit, training evidence, raw typed criteria/measurements, and TensorBoard metadata. | It is never proof; decode must re-refine it, and the wire carries no authoritative pass boolean. |
+| `CompletedTraining` | The checkpoint-facing training projection of completed run evidence: originating `PlanId`, exact observed primary budget, moved learned state, a non-empty set of finite bar-evaluated measurements, and TensorBoard metadata. | Its constructor is hidden. Refinement rejects kind/unit mismatch, underrun, overrun, invalid evidence, zero criteria, and any failed criterion. |
+| `InferenceEligibleCheckpoint` | The value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints can consume weights. | Refined only from a manifest whose raw completion payload, mirrored evidence, passing measurements, and artifact identity agree. |
 
 The type boundary is the product requirement: an untrained initialization,
 seed-only demo network, hardcoded fixture checkpoint, or transport-smoke
-checkpoint has no representation as `InferenceEligibleCheckpoint`.
+checkpoint cannot cross refinement as `InferenceEligibleCheckpoint`.
 
 `JitML.Test.RowAssertions` is the executable supervised-row evidence gate used
 by Sprint `24.2`. A row evidence record must carry non-empty and unequal
@@ -85,10 +94,24 @@ The completed checkpoint records:
 - TensorBoard run key and scalar tag prefix;
 - readiness witness for the checkpoint store and inference loader.
 
-Convergence observations are derived by
-`JitML.Product.Convergence.evaluateConvergence` from a `ConvergenceBar` and
-measured metric payload. The removed `completedTrainingFromMetrics` helper can
-no longer mint `coPassed = True` with no threshold.
+Convergence observations are derived by a total evaluator from an independent,
+typed criterion and a finite measured payload. The criterion owns its finite
+threshold and one closed comparison rule: at-least, at-most, or at-least while
+excluding a finite sentinel within a finite non-negative tolerance. A passing
+measurement is an opaque `PassedMeasurement` produced only by evaluating that
+rule. `CompletedTraining` requires `NonEmpty PassedMeasurement`, so an empty
+metric list cannot become a successful completion. The persisted raw
+representation records the criterion inputs but carries no freely
+constructible `passed` boolean or redundant threshold/verdict pair that can
+disagree with the evaluator.
+
+Checkpoint protocol events preserve the same distinction. Training and RL each
+have a candidate checkpoint event without completion and a separate completed
+checkpoint event whose hidden wrapper carries mandatory, re-refined
+`CompletedTraining`. Tuning similarly separates proof-free `SweepFinished`
+from proof-bearing `SweepCompleted`. A candidate remains useful for inspection,
+resume, and telemetry, but it cannot satisfy product completion or inference
+eligibility.
 
 TensorBoard and the PureScript UI consume the same metric names that appear in
 the checkpoint manifest. TensorBoard is the scalar history; the UI is the
@@ -187,43 +210,25 @@ as validation.)
 
 | RL / self-play model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
-| PPO, A2C, TRPO, MaskablePPO, RecurrentPPO | environment steps plus fixed evaluation episodes | median evaluation return per algorithm/environment cohort |
-| DQN, QR-DQN | environment steps plus fixed evaluation episodes | median evaluation return on discrete-action cohorts |
-| DDPG, TD3, SAC, CrossQ, TQC | environment steps plus fixed evaluation episodes | median evaluation return on continuous-control cohorts |
-| ARS | candidate evaluations plus fixed evaluation episodes | median evaluation return and accepted-direction improvement over the seed cohort |
-| HER | goal-conditioned environment steps plus fixed evaluation episodes | goal success rate and median achieved-goal distance |
+| PPO, A2C, TRPO, MaskablePPO, RecurrentPPO | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return per algorithm/environment cohort |
+| DQN, QR-DQN | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return on discrete-action cohorts |
+| DDPG, TD3, SAC, CrossQ, TQC | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return on continuous-control cohorts |
+| ARS | training: candidate evaluations; evaluation: keyed episodes with an episode-step horizon | median evaluation return and accepted-direction improvement over the seed cohort |
+| HER | training: goal-conditioned environment transitions; evaluation: keyed episodes with an episode-step horizon | goal success rate and median achieved-goal distance |
 | AlphaZero Connect 4, Othello, Hex, Gomoku | self-play generations, MCTS simulations per move, and arena games | arena win-rate against the baseline/prior checkpoint plus legal-move rate |
 | Hyperparameter tuning | fixed trial count or fixed scheduler-rung budget | best validation objective at the completed budget plus replayable sampler state |
 
 ## Status
 
-The phase status, sprint schedule, and validation evidence for these
-requirements live in the DEVELOPMENT_PLAN; see
-[DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md). This document
-describes the contract, not the schedule. As of the 2026-06-26 model-runtime
-audit, the fixed-budget trained-artifact witness and all-model convergence
-matrix are reopened work, not closed evidence. The pure
-`TrainingBudget`/`CompletedTraining` representation and shared checkpoint
-loader eligibility gate are implemented, and the SL/RL/tuning completion
-payloads now carry the witness on their command paths. Live all-model
-convergence, infer-before-complete coverage for every surface, and browser
-proof remain open in the DEVELOPMENT_PLAN.
+This document defines metric semantics, not implementation or closure status.
+The current phase state, remaining work, blockers, and validation evidence live
+only in the
+[Development Plan](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
-As of the **2026-07-05 realness audit**, a deeper failure was found behind the
-2026-06-26 reopen: prior closures were graded by self-authored, self-referential
-gates — the convergence bar was in places set equal to the measured value,
-`InferenceEligible` could be minted from a fabricated witness, and the "measured" RL
-reward was a scripted expert-controller rollout rather than the trained policy. The
-anti-fake harness that closes this lives in Phases 32–34.
-[Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md) freezes
-the convergence/performance bars as external literature constants in
-`JitML.Product.ExternalBars` and stands up the `jitml-negative-controls` stanza —
-committed known-fake artifacts (untrained random-init checkpoint, below-bar model,
-scripted-controller RL trace) each gate must reject.
-[Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
-gives every `ProductRow` a `jitml-model-convergence` case that trains from a real
-random init and asserts both a measured convergence metric ≥ its frozen external bar
-and a non-wall-clock inference-performance metric against a committed floor,
-reproduced bit-identically on a same-seed re-run. Both stanzas are `Planned` and
-validated on `linux-cpu` only; until they are green the metric contract above is the
-intended target, not closed evidence.
+## Cross-References
+
+- [Typed Run Contract](run_contract.md)
+- [Training Workloads](training_workloads.md)
+- [Checkpoint Format](checkpoint_format.md)
+- [Product Completion Contract](product_completion_contract.md)
+- [Development Plan](../../DEVELOPMENT_PLAN/README.md)

@@ -4,7 +4,7 @@ metadata:
   name: jitml-service
   namespace: platform
 spec:
-  replicas: {{ if eq .Values.substrate "apple-silicon" }}{{ .Values.appleForwarderReplicas }}{{ else }}{{ .Values.engineReplicas }}{{ end }}
+  replicas: {{ if eq .Values.substrate "apple-silicon" }}0{{ else }}{{ .Values.engineReplicas }}{{ end }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -15,6 +15,8 @@ spec:
       app: jitml-service
   template:
     metadata:
+      annotations:
+        checksum/live-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
       labels:
         app: jitml-service
         jitml.substrate: {{ .Values.substrate | quote }}
@@ -22,7 +24,8 @@ spec:
         jitml.compute: {{ if eq .Values.substrate "apple-silicon" }}"false"{{ else }}"true"{{ end }}
         jitml.compute-scope: service
     spec:
-      serviceAccountName: jitml-service
+      serviceAccountName: jitml-engine
+      automountServiceAccountToken: false
       {{- if eq .Values.substrate "linux-cuda" }}
       runtimeClassName: nvidia
       {{- end }}
@@ -52,6 +55,21 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
           # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlService`).
           resources:
             requests:
@@ -79,3 +97,62 @@ spec:
         - name: service-config
           configMap:
             name: jitml-service-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jitml-coordinator
+  namespace: platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jitml-coordinator
+  template:
+    metadata:
+      annotations:
+        checksum/live-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+      labels:
+        app: jitml-coordinator
+        jitml.substrate: {{ .Values.substrate | quote }}
+        jitml.role: coordinator
+        jitml.compute: "false"
+    spec:
+      serviceAccountName: jitml-coordinator
+      containers:
+        - name: jitml-coordinator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          command: ["jitml"]
+          args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          volumeMounts:
+            - name: service-config
+              mountPath: /etc/jitml
+      volumes:
+        - name: service-config
+          configMap:
+            name: jitml-coordinator-config

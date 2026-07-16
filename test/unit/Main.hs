@@ -3,14 +3,17 @@
 
 module Main where
 
-import Control.Exception (bracket_, finally)
+import Control.Concurrent (newEmptyMVar, putMVar, takeMVar, threadDelay)
+import Control.Exception (IOException, bracket_, finally, try)
+import Control.Exception qualified as Exception
 import Control.Monad qualified
+import Control.Monad.Catch (ExitCase (..))
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Char (isDigit)
 import Data.Foldable (traverse_)
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
@@ -36,15 +39,22 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Info qualified as SystemInfo
+import System.Timeout (timeout)
 import Test.Tasty (defaultMain, testGroup)
+import Test.Tasty.QuickCheck qualified as QuickCheck
 
 import DurableStateTopology (durableStateTopologyTests)
+import ReconcileStamp qualified
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.App
-  ( parseUserIntOptionAtLeast
+  ( alphaZeroArtifactStep
+  , inferenceReplyAppError
+  , matchingInferenceResult
+  , parseUserIntOptionAtLeast
   , rlTrainerEnvironmentCompatibilityError
+  , serviceRoleInvocationError
   )
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
@@ -120,7 +130,7 @@ import JitML.Numerics.Schema
 import JitML.Observability.Grafana qualified as Grafana
 import JitML.Observability.TensorBoard qualified as TensorBoard
 import JitML.Plan.Apply (writePlanFile)
-import JitML.Plan.Plan (buildCommandPlan)
+import JitML.Plan.Plan (PlanId, buildCommandPlan, refinePlanIdText)
 import JitML.Plan.Render (renderPlan)
 import JitML.Prerequisite.Plan
   ( applyPrerequisitePlan
@@ -154,6 +164,7 @@ import JitML.Product.PhaseStatus qualified as PhaseStatus
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Inference qualified as ProtoInference
+import JitML.Proto.Wire qualified as ProtoWire
 import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
@@ -177,17 +188,21 @@ import JitML.RL.Algorithms.Registry qualified as AlgorithmRegistry
 import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
 import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
+import JitML.RL.Algorithms.Trpo qualified as Trpo
 import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.Mcts qualified as Mcts
+import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AsyncBuffer qualified as AsyncBuffer
 import JitML.RL.Buffer qualified as Buffer
 import JitML.RL.ConvergenceThresholds qualified as ConvergenceThresholds
 import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.RL.Simulator qualified as Sim
 import JitML.Routes qualified as Routes
+import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.CatalogSchema (catalogFileSchemas)
 import JitML.Service.DhallSchema
@@ -198,22 +213,67 @@ import JitML.Service.DhallSchema
   , runSchemaDhall
   )
 import JitML.Service.HotReload qualified as HotReload
+import JitML.Service.InferenceReplyScope (runInferenceReplyScope, runInferenceReplyScopeObserved)
 import JitML.Service.LiveConfig qualified as LiveConfig
+import JitML.Service.Retry qualified as ServiceRetry
 import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.WebSocket qualified as WS
 import JitML.Service.Workload qualified as Workload
+import JitML.Sub.Outcome
+  ( ObservedProcessFailure (..)
+  , ObservedProcessOutcome (..)
+  , ProcessAttemptFailure (..)
+  , ProcessDuration (..)
+  , ProcessFailure
+  , ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , mkProcessFailure
+  , observedProcessFailureCommand
+  , observedProcessFailureExitCode
+  , processFailureCommand
+  , processFailureDuration
+  , processFailureExitCode
+  , processFailureStderr
+  , processFailureStdout
+  , processFailureWorkingDirectory
+  , processOutcome
+  , renderProcessOutcome
+  )
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Stream
+  ( defaultSubprocessEnv
+  , observeProcessAction
+  , runStreaming
+  )
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
-import JitML.Test.Report (substrateTestInvocations)
+import JitML.Test.HostWorkloadRegistry qualified as HostWorkloadRegistry
+import JitML.Test.InferenceBatch qualified as InferenceBatch
+import JitML.Test.LiveE2EScope qualified as LiveE2EScope
+import JitML.Test.LivePlan
+  ( LivePlanStep (..)
+  , LiveResourceOwnership (..)
+  , ScopedLivePlan (..)
+  )
+import JitML.Test.PipedProcess qualified as PipedProcess
+import JitML.Test.PulsarBridge qualified as PulsarBridge
+import JitML.Test.PulsarTransport qualified as PulsarTransport
+import JitML.Test.Report qualified as Report
+import JitML.Test.RunContract qualified as RunContractTest
+import JitML.Test.RunPlan qualified as RunPlanTest
+import JitML.Test.RuntimeState qualified as RuntimeStateTest
+import JitML.Test.ScenarioJournal qualified as ScenarioJournal
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
+import JitML.Test.Workload qualified as WorkloadTest
+import JitML.Test.WorkloadContract qualified as WorkloadContractTest
+import JitML.Test.WorkloadPlan qualified as WorkloadPlanTest
 import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.AdminPortals qualified as WebAdminPortals
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Contracts qualified as WebContracts
 import JitML.Work.Envelope qualified as Work
+import ProtocolCodec qualified
 
 newtype CommandSchema = CommandSchema
   { schemaCommands :: [Value]
@@ -243,12 +303,8 @@ completedTestManifest step =
           (error . Text.unpack)
           id
           ( TrainingBudget.completedTraining
-              TrainingBudget.TrainingBudget
-                { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
-                , TrainingBudget.tbTargetUnits = max 1 step
-                , TrainingBudget.tbUnitLabel = "epochs"
-                , TrainingBudget.tbSeed = Nothing
-                }
+              unitFixturePlanId
+              (unitBudget TrainingBudget.SupervisedEpochBudget (max 1 step))
               step
               evidence
               observations
@@ -265,6 +321,18 @@ completedTestManifest step =
           }
    in Checkpoint.attachCompletedTraining completed manifest
 
+unitFixturePlanId :: PlanId
+unitFixturePlanId =
+  either (error . Text.unpack) id (refinePlanIdText (Text.replicate 64 "e"))
+
+unitBudget
+  :: TrainingBudget.BudgetKind -> Word64 -> TrainingBudget.TrainingBudget
+unitBudget kind target =
+  either
+    (error . Text.unpack)
+    id
+    (TrainingBudget.mkTrainingBudget kind target Nothing)
+
 completedTrainingFixture :: Word64 -> TrainingBudget.CompletedTraining
 completedTrainingFixture step =
   case Checkpoint.manifestCompletedTraining (completedTestManifest step) of
@@ -276,6 +344,39 @@ convergenceObservationsFixture
   -> Either Text [TrainingBudget.ConvergenceObservation]
 convergenceObservationsFixture =
   ProductExternalBars.convergenceObservationsForMetrics
+
+canonicalRlUnits :: Text -> Text -> Either Text Word64
+canonicalRlUnits = ProductBudget.canonicalProductRlTargetUnits
+
+assertCanonicalRlBudget
+  :: ProductMatrix.ProductRow state
+  -> Text
+  -> Text
+  -> Assertion
+assertCanonicalRlBudget row algorithm environment =
+  case canonicalRlUnits algorithm environment of
+    Left err -> assertFailure (Text.unpack err)
+    Right expected ->
+      TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row)
+        @?= expected
+
+assertCanonicalRlScheduleIsExact
+  :: ProductMatrix.ProductRow state
+  -> Text
+  -> Text
+  -> Assertion
+assertCanonicalRlScheduleIsExact row algorithm environment =
+  case ProductBudget.canonicalProductRlSchedule algorithm environment of
+    Left err -> assertFailure (Text.unpack err)
+    Right canonical ->
+      ProductBudget.planExactRlTrainingSchedule
+        (ProductBudget.trainerKindForAlgorithm algorithm)
+        environment
+        ProductBudget.productRlDefaultEvaluationEpisodes
+        ProductBudget.productRlDefaultMaxEpisodeSteps
+        Nothing
+        (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
+        @?= Right canonical
 
 readPlanSprintStatuses :: ProductPhaseStatus -> IO [(Text, SprintStatus)]
 readPlanSprintStatuses phase = do
@@ -352,6 +453,19 @@ main =
     testGroup
       "jitml-unit"
       [ durableStateTopologyTests
+      , ReconcileStamp.reconcileStampTests
+      , HostWorkloadRegistry.hostWorkloadRegistryTests
+      , InferenceBatch.inferenceBatchTests
+      , PipedProcess.pipedProcessTests
+      , ProtocolCodec.protocolCodecTests
+      , PulsarBridge.pulsarBridgeTests
+      , PulsarTransport.pulsarTransportTests
+      , RunContractTest.runContractTests
+      , RunPlanTest.runPlanTests
+      , WorkloadContractTest.workloadContractTests
+      , WorkloadPlanTest.workloadPlanTests
+      , RuntimeStateTest.runtimeStateTests
+      , WorkloadTest.workloadTests
       , testCase "registry covers canonical command leaves" $
           leafPaths commandRegistry @?= canonicalLeafPaths
       , testCase "every leaf has an example" $
@@ -521,44 +635,526 @@ main =
                   "invalid --games value: \"0\"; expected an integer >= 1"
               )
       , testCase "substrateTestInvocations builds the right cabal lanes" $ do
-          -- No substrate: one legacy invocation over all targets, with the
-          -- opaque --test-options forwarded verbatim.
-          substrateTestInvocations Nothing ["jitml-unit", "jitml-backends"] Nothing
-            @?= [["test", "jitml-unit", "jitml-backends"]]
-          substrateTestInvocations Nothing ["jitml-backends"] (Just "-p Live")
+          -- No substrate: one exact invocation per target, with the opaque
+          -- --test-options forwarded verbatim.
+          Report.substrateTestInvocations Nothing ["jitml-unit", "jitml-backends"] Nothing
+            @?= [["test", "jitml-unit"], ["test", "jitml-backends"]]
+          Report.substrateTestInvocations Nothing ["jitml-backends"] (Just "-p Live")
             @?= [["test", "jitml-backends", "--test-options", "-p Live"]]
           -- linux-cpu: non-backend stanza runs in full; the partitioned stanza
           -- is restricted to the linux-cpu lane. No -fcuda.
-          substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-backends"] Nothing
+          Report.substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-backends"] Nothing
             @?= [ ["test", "jitml-unit"]
                 , ["test", "jitml-backends", "--test-options", "-p linux-cpu"]
                 ]
           -- linux-cuda: -fcuda on every invocation (one consistent build) and
           -- the backends lane selected with -p linux-cuda.
-          substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-unit", "jitml-backends"] Nothing
+          Report.substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-unit", "jitml-backends"] Nothing
             @?= [ ["test", "-fcuda", "jitml-unit"]
                 , ["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda"]
                 ]
+          -- Invocation order remains identical to target order so each
+          -- transcript is journaled against the stanza that produced it.
+          Report.substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-backends", "jitml-unit"] Nothing
+            @?= [ ["test", "jitml-backends", "--test-options", "-p linux-cpu"]
+                , ["test", "jitml-unit"]
+                ]
           -- A single partitioned stanza omits the (empty) non-backend invocation.
-          substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] Nothing
+          Report.substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] Nothing
             @?= [["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda"]]
           -- A non-backend-only substrate run serializes stanzas, avoiding
           -- Cabal-native parallelism over a shared live cluster/device.
-          substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-e2e"] Nothing
+          Report.substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-e2e"] Nothing
             @?= [ ["test", "jitml-unit"]
                 , ["test", "jitml-e2e"]
                 ]
           -- User --test-options still apply to non-partitioned stanzas under a
           -- substrate flag; otherwise focused live filters such as WorkflowMatrix
           -- accidentally expand to the whole integration suite.
-          substrateTestInvocations
+          Report.substrateTestInvocations
             (Just Substrate.AppleSilicon)
             ["jitml-integration"]
             (Just "-p WorkflowMatrix")
             @?= [["test", "jitml-integration", "--test-options", "-p WorkflowMatrix"]]
           -- User --test-options are appended after the synthesized lane selector.
-          substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] (Just "--num-threads=1")
+          Report.substrateTestInvocations
+            (Just Substrate.LinuxCUDA)
+            ["jitml-backends"]
+            (Just "--num-threads=1")
             @?= [["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda --num-threads=1"]]
+      , testCase "invocation journals derive honest suite status and duration" $ do
+          case mkProcessFailure (ExitFailure 7) fixtureProcessTranscript of
+            Nothing -> assertFailure "failed to construct non-zero process failure"
+            Just failure -> do
+              let successTranscript =
+                    fixtureProcessTranscript
+                      { processTranscriptCommand = "cabal test jitml-unit"
+                      , processTranscriptStdout = "unit passed\n"
+                      , processTranscriptStderr = ""
+                      , processTranscriptDuration = ProcessDuration 100_000_000
+                      }
+                  journal =
+                    Report.appendInvocation
+                      ( Report.appendInvocation
+                          ( Report.appendInvocation
+                              Report.emptyInvocationJournal
+                              (Report.passedInvocation "jitml-unit" successTranscript)
+                          )
+                          (Report.failedInvocation "jitml-integration" failure)
+                      )
+                      ( Report.notRunInvocation
+                          "jitml-e2e"
+                          "cabal test jitml-e2e"
+                          "jitml-integration"
+                          failure
+                      )
+                  result = Report.deriveSuiteResult journal
+                  entries = Report.invocationJournalEntries journal
+                  rendered =
+                    Report.renderReportCardWithKnobs
+                      Report.defaultReportCardKnobs
+                      Report.ReportCard
+                        { Report.reportInvocationJournal = journal
+                        , Report.reportScenarioJournals = []
+                        , Report.reportMeasurements = Report.emptyReportMeasurements
+                        }
+              Report.suitePassed result @?= 1
+              Report.suiteFailed result @?= 1
+              Report.suiteNotRun result @?= 1
+              Report.suiteStatus result @?= Report.SuiteFailed
+              Report.suiteDuration result @?= ProcessDuration 225_000_000
+              Report.firstInvocationFailure journal @?= Just failure
+              case fmap Report.invocationResult entries of
+                [Report.Passed observed, Report.Failed observedFailure, Report.NotRun blocker] -> do
+                  observed @?= successTranscript
+                  observedFailure @?= ObservedProcessExitFailure failure
+                  Report.blockedByStanza blocker @?= "jitml-integration"
+                  Report.blockedByFailure blocker @?= observedFailure
+                observed -> assertFailure ("unexpected invocation journal: " <> show observed)
+              assertBool
+                "failed stanza is not rendered PASS"
+                ("jitml-integration: FAIL" `Text.isInfixOf` rendered)
+              assertBool
+                "fail-fast stanza is NotRun"
+                ("jitml-e2e: NOT-RUN (blocked by jitml-integration)" `Text.isInfixOf` rendered)
+              assertBool
+                "suite duration is evidence-derived"
+                ("duration_nanoseconds: 225000000" `Text.isInfixOf` rendered)
+              assertBool "failed stdout is retained" ("pod-a Running" `Text.isInfixOf` rendered)
+              assertBool "failed stderr is retained" ("kubectl failed" `Text.isInfixOf` rendered)
+      , testCase "runner exceptions remain Failed without fabricated exit evidence" $ do
+          let failure = ObservedProcessAttemptFailure fixtureProcessAttemptFailure
+              journal =
+                Report.appendInvocation
+                  ( Report.appendInvocation
+                      Report.emptyInvocationJournal
+                      (Report.failedObservedInvocation "jitml-e2e-playwright" failure)
+                  )
+                  ( Report.notRunObservedInvocation
+                      "jitml-e2e"
+                      "cabal test jitml-e2e"
+                      "jitml-e2e-playwright"
+                      failure
+                  )
+              suite = Report.deriveSuiteResult journal
+              rendered =
+                Report.renderReportCard
+                  Report.ReportCard
+                    { Report.reportInvocationJournal = journal
+                    , Report.reportScenarioJournals = []
+                    , Report.reportMeasurements = Report.emptyReportMeasurements
+                    }
+          Report.suitePassed suite @?= 0
+          Report.suiteFailed suite @?= 1
+          Report.suiteNotRun suite @?= 1
+          Report.suiteDuration suite @?= ProcessDuration 25_000_000
+          Report.firstInvocationFailure journal @?= Nothing
+          Report.firstObservedInvocationFailure journal @?= Just failure
+          assertBool
+            "no exit status is invented"
+            ( "exit: unavailable" `Text.isInfixOf` rendered
+                && not ("exit: 1" `Text.isInfixOf` rendered)
+            )
+          assertBool
+            "unavailable streams and exception detail are retained"
+            ( "stdout: (unavailable; capture did not complete)" `Text.isInfixOf` rendered
+                && "docker: executable not found" `Text.isInfixOf` rendered
+            )
+      , testCase "observed process attempts rethrow asynchronous exceptions unchanged" $ do
+          observed <-
+            Exception.try
+              ( observeProcessAction
+                  (subprocess "scope-fixture" ["async"])
+                  (Exception.throwIO Exception.ThreadKilled)
+              )
+          (observed :: Either Exception.AsyncException ObservedProcessOutcome)
+            @?= Left Exception.ThreadKilled
+      , testCase "live e2e scope preserves the primary failure and cleans up after diagnostics" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          postBodyRan <- newIORef False
+          let acquire = scopeStep "acquire" "bootstrap"
+              playwright = plannedScopeTest "playwright-live" "playwright"
+              cabal = plannedScopeTest "jitml-e2e" "cabal-e2e"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure $
+                        case livePlanStepName step of
+                          "playwright-live" -> failedScopeOutcome 7 20 step
+                          "diagnostics" -> failedScopeOutcome 8 30 step
+                          "release" -> failedScopeOutcome 9 40 step
+                          _ -> successfulScopeOutcome 10 step
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [playwright, cabal]
+              (modifyIORef' postBodyRan (const True) >> pure (Right ()))
+          readIORef executionOrder
+            >>= (@?= ["acquire", "playwright-live", "diagnostics", "release"])
+          readIORef postBodyRan >>= (@?= False)
+          case LiveE2EScope.liveE2EPrimaryFailure result of
+            Nothing -> assertFailure "Playwright failure was not retained as primary"
+            Just primary -> do
+              LiveE2EScope.liveE2EFailurePhase primary @?= LiveE2EScope.LiveE2ETest
+              LiveE2EScope.liveE2EFailureStep primary @?= "playwright-live"
+              observedProcessFailureExitCode (LiveE2EScope.liveE2EFailureProcess primary)
+                @?= Just (ExitFailure 7)
+          fmap LiveE2EScope.liveE2EFailurePhase (LiveE2EScope.liveE2ESecondaryFailures result)
+            @?= [LiveE2EScope.LiveE2EDiagnostics, LiveE2EScope.LiveE2ERelease]
+          case fmap Report.invocationResult . Report.invocationJournalEntries $
+            LiveE2EScope.liveE2EInvocationJournal result of
+            [Report.Failed observedFailure, Report.NotRun blocker] -> do
+              observedProcessFailureExitCode observedFailure @?= Just (ExitFailure 7)
+              observedProcessFailureCommand observedFailure @?= "scope-fixture playwright"
+              Report.blockedByStanza blocker @?= "live-e2e-test/playwright-live"
+              Report.blockedByFailure blocker @?= observedFailure
+            observed -> assertFailure ("unexpected failed live journal: " <> show observed)
+          Report.suiteDuration
+            (Report.deriveSuiteResult (LiveE2EScope.liveE2EInvocationJournal result))
+            @?= ProcessDuration 20
+          fmap
+            ScenarioJournal.scenarioRecordPhase
+            ( ScenarioJournal.scenarioJournalRecords
+                (LiveE2EScope.liveE2EScenarioJournal result)
+            )
+            @?= [ ScenarioJournal.ScenarioAcquire
+                , ScenarioJournal.ScenarioBody
+                , ScenarioJournal.ScenarioDiagnostics
+                , ScenarioJournal.ScenarioRelease
+                ]
+      , testCase "live e2e runner exceptions are Failed and diagnostics cannot prevent release" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "acquire" "bootstrap"
+              playwright = plannedScopeTest "playwright-live" "playwright"
+              cabal = plannedScopeTest "jitml-e2e" "cabal-e2e"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      case livePlanStepName step of
+                        "playwright-live" ->
+                          Exception.throwIO (userError "playwright launch exploded")
+                        "diagnostics" ->
+                          Exception.throwIO (userError "diagnostics launch exploded")
+                        _ -> pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [playwright, cabal]
+              (pure (Right ()))
+          readIORef executionOrder
+            >>= (@?= ["acquire", "playwright-live", "diagnostics", "release"])
+          primary <-
+            case LiveE2EScope.liveE2EPrimaryFailure result of
+              Nothing -> assertFailure "runner exception was not retained as primary"
+              Just failure -> pure failure
+          case LiveE2EScope.liveE2EFailureProcess primary of
+            ObservedProcessExitFailure _ ->
+              assertFailure "runner exception was rewritten as a process exit"
+            ObservedProcessAttemptFailure failure -> do
+              processAttemptFailureCommand failure @?= "scope-fixture playwright"
+              processAttemptFailureStdout failure @?= Nothing
+              processAttemptFailureStderr failure @?= Nothing
+              assertBool
+                "runner exception detail is retained"
+                ("playwright launch exploded" `Text.isInfixOf` processAttemptFailureException failure)
+          case LiveE2EScope.liveE2ESecondaryFailures result of
+            [diagnosticFailure] -> do
+              LiveE2EScope.liveE2EFailurePhase diagnosticFailure
+                @?= LiveE2EScope.LiveE2EDiagnostics
+              case LiveE2EScope.liveE2EFailureProcess diagnosticFailure of
+                ObservedProcessExitFailure _ ->
+                  assertFailure "diagnostic exception was rewritten as a process exit"
+                ObservedProcessAttemptFailure failure ->
+                  assertBool
+                    "diagnostic exception detail is retained"
+                    ( "diagnostics launch exploded"
+                        `Text.isInfixOf` processAttemptFailureException failure
+                    )
+            observed -> assertFailure ("unexpected diagnostic failures: " <> show observed)
+          let invocationJournal = LiveE2EScope.liveE2EInvocationJournal result
+              suite = Report.deriveSuiteResult invocationJournal
+              rendered =
+                Report.renderReportCard
+                  Report.ReportCard
+                    { Report.reportInvocationJournal = invocationJournal
+                    , Report.reportScenarioJournals =
+                        [LiveE2EScope.liveE2EScenarioJournal result]
+                    , Report.reportMeasurements = Report.emptyReportMeasurements
+                    }
+          Report.suitePassed suite @?= 0
+          Report.suiteFailed suite @?= 1
+          Report.suiteNotRun suite @?= 1
+          case fmap Report.invocationResult (Report.invocationJournalEntries invocationJournal) of
+            [Report.Failed failure, Report.NotRun blocker] -> do
+              Report.blockedByStanza blocker @?= "live-e2e-test/playwright-live"
+              Report.blockedByFailure blocker @?= failure
+              Report.firstObservedInvocationFailure invocationJournal @?= Just failure
+            observed -> assertFailure ("unexpected exception journal: " <> show observed)
+          assertBool
+            "report renders the missing exit status explicitly"
+            ("exit: unavailable" `Text.isInfixOf` rendered)
+          assertBool
+            "report retains both synchronous runner exceptions"
+            ( "playwright launch exploded" `Text.isInfixOf` rendered
+                && "diagnostics launch exploded" `Text.isInfixOf` rendered
+            )
+      , testCase "live e2e asynchronous cancellation retains identity after diagnostics and release" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "acquire" "bootstrap"
+              playwright = plannedScopeTest "playwright-live" "playwright"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      if livePlanStepName step == "playwright-live"
+                        then Exception.throwIO Exception.ThreadKilled
+                        else pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          cancelled <-
+            Exception.try
+              ( LiveE2EScope.runLiveE2EScope
+                  backend
+                  plan
+                  [playwright]
+                  (pure (Right ()))
+              )
+          readIORef executionOrder
+            >>= (@?= ["acquire", "playwright-live", "diagnostics", "release"])
+          case cancelled of
+            Left exception -> exception @?= Exception.ThreadKilled
+            Right _ ->
+              assertFailure "asynchronous cancellation was converted into a scope result"
+      , testCase "live e2e late exceptional exit requires diagnostics after a clean body" $ do
+          LiveE2EScope.liveE2EDiagnosticsRequired
+            (const False)
+            (ExitCaseException (Exception.toException Exception.ThreadKilled))
+            @?= True
+          LiveE2EScope.liveE2EDiagnosticsRequired
+            id
+            (ExitCaseSuccess False)
+            @?= False
+          LiveE2EScope.liveE2EDiagnosticsRequired
+            id
+            ExitCaseAbort
+            @?= True
+      , testCase "live e2e acquire failure blocks tests but still releases partial ownership" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "bootstrap" "bootstrap"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure $
+                        case livePlanStepName step of
+                          "bootstrap" -> failedScopeOutcome 6 11 step
+                          "release" -> failedScopeOutcome 3 13 step
+                          _ -> successfulScopeOutcome 12 step
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure =
+                      (== ExitFailure 3) . processFailureExitCode
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [plannedScopeTest "playwright-live" "playwright", plannedScopeTest "jitml-e2e" "cabal-e2e"]
+              (pure (Right ()))
+          readIORef executionOrder >>= (@?= ["bootstrap", "diagnostics", "release"])
+          fmap LiveE2EScope.liveE2EFailurePhase (LiveE2EScope.liveE2EPrimaryFailure result)
+            @?= Just LiveE2EScope.LiveE2EAcquire
+          LiveE2EScope.liveE2ESecondaryFailures result @?= []
+          case fmap Report.invocationResult . Report.invocationJournalEntries $
+            LiveE2EScope.liveE2EInvocationJournal result of
+            [Report.NotRun firstBlocker, Report.NotRun secondBlocker] -> do
+              Report.blockedByStanza firstBlocker @?= "live-e2e-acquire/bootstrap"
+              Report.blockedByFailure firstBlocker @?= Report.blockedByFailure secondBlocker
+            observed -> assertFailure ("unexpected blocked live journal: " <> show observed)
+          fmap
+            ScenarioJournal.scenarioRecordDisposition
+            ( ScenarioJournal.scenarioJournalRecords
+                (LiveE2EScope.liveE2EScenarioJournal result)
+            )
+            @?= [ ScenarioJournal.ScenarioStepFailed
+                , ScenarioJournal.ScenarioStepSucceeded
+                , ScenarioJournal.ScenarioStepAcceptedNoop
+                ]
+      , testCase "live e2e measurement failure remains primary over diagnostics and release" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "acquire" "bootstrap"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure $
+                        case livePlanStepName step of
+                          "diagnostics" -> failedScopeOutcome 8 30 step
+                          "release" -> failedScopeOutcome 9 40 step
+                          _ -> successfulScopeOutcome 20 step
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [plannedScopeTest "playwright-live" "playwright"]
+              ( do
+                  modifyIORef' executionOrder (<> ["measurements"])
+                  pure (Left "measurement exploded" :: Either Text ())
+              )
+          readIORef executionOrder
+            >>= (@?= ["acquire", "playwright-live", "measurements", "diagnostics", "release"])
+          LiveE2EScope.liveE2EPrimaryFailure result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyFailure result @?= Just "measurement exploded"
+          LiveE2EScope.liveE2EScopeFailure result
+            @?= Just (LiveE2EScope.LiveE2EPostBodyIssue "measurement exploded")
+          fmap LiveE2EScope.liveE2EFailurePhase (LiveE2EScope.liveE2ESecondaryFailures result)
+            @?= [LiveE2EScope.LiveE2EDiagnostics, LiveE2EScope.LiveE2ERelease]
+          let invocationJournal = LiveE2EScope.liveE2EInvocationJournal result
+              suite = Report.deriveSuiteResult invocationJournal
+              issues =
+                ScenarioJournal.scenarioJournalIssues
+                  (LiveE2EScope.liveE2EScenarioJournal result)
+          Report.suitePassed suite @?= 1
+          Report.suiteFailed suite @?= 0
+          Report.suiteNotRun suite @?= 0
+          Report.suiteDuration suite @?= ProcessDuration 20
+          fmap ScenarioJournal.scenarioIssueStep issues @?= ["live-report-measurements"]
+          fmap ScenarioJournal.scenarioIssueDetail issues @?= ["measurement exploded"]
+      , testCase "live e2e release-only failure is retained after a successful body" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "acquire" "bootstrap"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure $
+                        case livePlanStepName step of
+                          "release" -> failedScopeOutcome 9 40 step
+                          _ -> successfulScopeOutcome 20 step
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [plannedScopeTest "playwright-live" "playwright"]
+              (pure (Right ()))
+          readIORef executionOrder
+            >>= (@?= ["acquire", "playwright-live", "release"])
+          LiveE2EScope.liveE2EPrimaryFailure result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyFailure result @?= Nothing
+          case LiveE2EScope.liveE2ESecondaryFailures result of
+            [releaseFailure] -> do
+              LiveE2EScope.liveE2EFailurePhase releaseFailure
+                @?= LiveE2EScope.LiveE2ERelease
+              observedProcessFailureExitCode (LiveE2EScope.liveE2EFailureProcess releaseFailure)
+                @?= Just (ExitFailure 9)
+              LiveE2EScope.liveE2EScopeFailure result
+                @?= Just (LiveE2EScope.LiveE2EProcessFailure releaseFailure)
+            observed -> assertFailure ("unexpected release failures: " <> show observed)
+          let suite =
+                Report.deriveSuiteResult (LiveE2EScope.liveE2EInvocationJournal result)
+          Report.suitePassed suite @?= 1
+          Report.suiteFailed suite @?= 0
+          Report.suiteNotRun suite @?= 0
+          Report.suiteDuration suite @?= ProcessDuration 20
+          fmap
+            ScenarioJournal.scenarioRecordDisposition
+            ( ScenarioJournal.scenarioJournalRecords
+                (LiveE2EScope.liveE2EScenarioJournal result)
+            )
+            @?= [ ScenarioJournal.ScenarioStepSucceeded
+                , ScenarioJournal.ScenarioStepSucceeded
+                , ScenarioJournal.ScenarioStepFailed
+                ]
       , testCase "json renderer is deterministic" $
           renderCommandJson commandRegistry @?= renderCommandJson commandRegistry
       , testCase "json output is non-empty" $
@@ -701,9 +1297,327 @@ main =
       , testCase "reflected BootConfig Dhall schema equals the checked-in file" $ do
           fileText <- Text.IO.readFile "dhall/service/BootConfig.dhall"
           canonicalDhallType fileText @?= Right bootConfigSchema
+      , testCase "BootConfig refinement accepts only documented role/runtime combinations" $ do
+          let linuxCpu = BootConfig.defaultBootConfig Substrate.LinuxCPU BootConfig.Cluster
+              linuxCuda = BootConfig.defaultBootConfig Substrate.LinuxCUDA BootConfig.Cluster
+              appleCluster = BootConfig.defaultBootConfig Substrate.AppleSilicon BootConfig.Cluster
+              appleHost = BootConfig.defaultBootConfig Substrate.AppleSilicon BootConfig.Host
+              coordinator = linuxCpu {BootConfig.bootActiveRole = BootConfig.Coordinator}
+              webapp =
+                linuxCpu
+                  { BootConfig.bootActiveRole = BootConfig.Webapp
+                  , BootConfig.bootWebappPulsarWsUrl = Just "ws://pulsar.example/ws"
+                  }
+          traverse_
+            (\config -> BootConfig.validateBootConfig config @?= Right config)
+            [linuxCpu, linuxCuda, appleCluster, appleHost, coordinator, webapp]
+          BootConfig.validateBootConfig
+            ( linuxCpu
+                { BootConfig.bootResidency = BootConfig.Host
+                , BootConfig.bootHttpListener = Nothing
+                }
+            )
+            @?= Left
+              ( BootConfig.UnsupportedBootRuntime
+                  Substrate.LinuxCPU
+                  BootConfig.Host
+                  BootConfig.SelfInference
+              )
+          BootConfig.validateBootConfig
+            (linuxCpu {BootConfig.bootInferenceMode = BootConfig.ForwardToHost})
+            @?= Left
+              ( BootConfig.UnsupportedBootRuntime
+                  Substrate.LinuxCPU
+                  BootConfig.Cluster
+                  BootConfig.ForwardToHost
+              )
+          BootConfig.validateBootConfig
+            (appleCluster {BootConfig.bootInferenceMode = BootConfig.SelfInference})
+            @?= Left
+              ( BootConfig.UnsupportedBootRuntime
+                  Substrate.AppleSilicon
+                  BootConfig.Cluster
+                  BootConfig.SelfInference
+              )
+          BootConfig.validateBootConfig
+            (appleHost {BootConfig.bootInferenceMode = BootConfig.ForwardToHost})
+            @?= Left
+              ( BootConfig.UnsupportedBootRuntime
+                  Substrate.AppleSilicon
+                  BootConfig.Host
+                  BootConfig.ForwardToHost
+              )
+          BootConfig.validateBootConfig
+            (appleHost {BootConfig.bootActiveRole = BootConfig.Coordinator})
+            @?= Left (BootConfig.HostResidencyRequiresEngine BootConfig.Coordinator)
+          BootConfig.validateBootConfig
+            (linuxCpu {BootConfig.bootHttpListener = Nothing})
+            @?= Left (BootConfig.ClusterResidencyRequiresHttpListener BootConfig.Engine)
+          BootConfig.validateBootConfig
+            (appleHost {BootConfig.bootHttpListener = Just (BootConfig.HttpListener "127.0.0.1" 8080)})
+            @?= Left BootConfig.HostResidencyForbidsHttpListener
+          BootConfig.validateBootConfig
+            (linuxCpu {BootConfig.bootHttpListener = Just (BootConfig.HttpListener "  " 8080)})
+            @?= Left BootConfig.EmptyHttpListenerHost
+          BootConfig.validateBootConfig
+            (linuxCpu {BootConfig.bootHttpListener = Just (BootConfig.HttpListener "127.0.0.1" 0)})
+            @?= Left (BootConfig.HttpListenerPortOutOfRange 0)
+          BootConfig.validateBootConfig
+            (linuxCpu {BootConfig.bootActiveRole = BootConfig.Webapp})
+            @?= Left BootConfig.WebappRequiresPulsarWebSocketUrl
+          BootConfig.validateBootConfig
+            ( webapp
+                { BootConfig.bootWebappPulsarWsUrl = Just " "
+                }
+            )
+            @?= Left BootConfig.WebappRequiresPulsarWebSocketUrl
+          BootConfig.validateBootConfig
+            (linuxCpu {BootConfig.bootWebappPulsarWsUrl = Just "ws://pulsar.example/ws"})
+            @?= Left (BootConfig.NonWebappForbidsPulsarWebSocketUrl BootConfig.Engine)
+      , testCase "BootConfig loader rejects a Dhall-valid but illegal runtime combination" $
+          withSystemTempDirectory "jitml-invalid-boot-config" $ \root -> do
+            let invalid =
+                  (BootConfig.defaultBootConfig Substrate.LinuxCPU BootConfig.Cluster)
+                    { BootConfig.bootInferenceMode = BootConfig.ForwardToHost
+                    }
+                path = root </> "BootConfig.dhall"
+            Text.IO.writeFile path (BootConfig.renderBootConfigDhall invalid)
+            result <- try (BootConfig.loadBootConfig path) :: IO (Either IOException BootConfig.BootConfig)
+            case result of
+              Left err ->
+                assertBool
+                  "loader reports the illegal topology"
+                  ("unsupported BootConfig runtime topology" `isInfixOf` show err)
+              Right loaded ->
+                assertFailure ("illegal BootConfig unexpectedly loaded: " <> show loaded)
+      , testCase "BootConfig loader rejects a Natural listener port before Int conversion" $
+          withSystemTempDirectory "jitml-overflow-boot-config" $ \root -> do
+            let hugePort = "18446744073709559696"
+                valid =
+                  BootConfig.renderBootConfigDhall
+                    (BootConfig.defaultBootConfig Substrate.LinuxCPU BootConfig.Cluster)
+                overflow = Text.replace "port = 8080" ("port = " <> hugePort) valid
+                path = root </> "BootConfig.dhall"
+            Text.IO.writeFile path overflow
+            result <- try (BootConfig.loadBootConfig path) :: IO (Either IOException BootConfig.BootConfig)
+            case result of
+              Left err ->
+                assertBool
+                  "loader preserves and reports the unconverted Natural"
+                  ( ("HTTP listener port must be between 1 and 65535, received " <> Text.unpack hugePort)
+                      `isInfixOf` show err
+                  )
+              Right loaded ->
+                assertFailure ("overflowing BootConfig unexpectedly loaded: " <> show loaded)
+      , testCase "service role selection accepts Coordinator serve and rejects non-Engine consume-once" $ do
+          serviceRoleInvocationError BootConfig.Engine True @?= Nothing
+          serviceRoleInvocationError BootConfig.Webapp False @?= Nothing
+          serviceRoleInvocationError BootConfig.Webapp True
+            @?= Just "service --consume-once is available only when activeRole=Engine"
+          serviceRoleInvocationError BootConfig.Coordinator False @?= Nothing
+          serviceRoleInvocationError BootConfig.Coordinator True
+            @?= Just "service --consume-once is available only when activeRole=Engine"
+      , testCase "inference reply correlation binds call id and experiment hash" $ do
+          let exactReply =
+                ProtoInference.renderInferenceResult
+                  ProtoInference.InferenceResult
+                    { ProtoInference.iresCallId = "call-1"
+                    , ProtoInference.iresExperimentHash = "experiment-1"
+                    , ProtoInference.iresOutput = [0.25, 0.75]
+                    }
+              wrongExperimentReply =
+                ProtoInference.renderInferenceResult
+                  ProtoInference.InferenceResult
+                    { ProtoInference.iresCallId = "call-1"
+                    , ProtoInference.iresExperimentHash = "experiment-2"
+                    , ProtoInference.iresOutput = [1.0]
+                    }
+          matchingInferenceResult "call-1" "experiment-1" exactReply
+            @?= Just [0.25, 0.75]
+          matchingInferenceResult "call-1" "experiment-1" wrongExperimentReply
+            @?= Nothing
+          matchingInferenceResult "call-2" "experiment-1" exactReply
+            @?= Nothing
+      , testCase "live inference reply transport failures are not checkpoint-missing errors" $ do
+          inferenceReplyAppError "experiment-1" "consumer startup timed out"
+            @?= AppError.PulsarFailed
+              "inference request/reply failed for experiment-1: consumer startup timed out"
+      , testCase "inference reply scope joins Owned cleanup and retains its failure beside the primary" $ do
+          workerStarted <- newEmptyMVar
+          neverReply <- newEmptyMVar
+          cleanupFinished <- newIORef False
+          let cleanupFailure =
+                Capabilities.ConsumerCleanupFailure
+                  (ServiceRetry.SETransient "forced owned subscription DELETE failure")
+              consumerAction :: IO (Either Capabilities.ConsumerFailure ())
+              consumerAction =
+                Exception.catch
+                  ( do
+                      putMVar workerStarted ()
+                      _ <- takeMVar neverReply
+                      pure (Right ())
+                  )
+                  handleCancellation
+              handleCancellation :: Exception.SomeAsyncException -> IO (Either Capabilities.ConsumerFailure ())
+              handleCancellation _cancelled = do
+                threadDelay 100000
+                writeIORef cleanupFinished True
+                pure (Left cleanupFailure)
+              primaryAction :: IO (Either Text ())
+              primaryAction = do
+                takeMVar workerStarted
+                pure (Left "inference result: no matching reply")
+          result <-
+            withinUnitDeadline
+              "inference reply scope did not join failing Owned cleanup"
+              (runInferenceReplyScope consumerAction primaryAction)
+          cleanupWasJoined <- readIORef cleanupFinished
+          cleanupWasJoined @?= True
+          case result of
+            Left detail -> do
+              assertBool
+                "primary reply failure was lost"
+                ("inference result: no matching reply" `Text.isInfixOf` detail)
+              assertBool
+                "owned cleanup failure was lost"
+                ("forced owned subscription DELETE failure" `Text.isInfixOf` detail)
+            Right () -> assertFailure "cleanup failure incorrectly returned reply success"
+      , testCase "inference reply scope treats joined clean cancellation as a clean release" $ do
+          workerStarted <- newEmptyMVar
+          neverReply <- newEmptyMVar
+          let consumerAction :: IO (Either Capabilities.ConsumerFailure ())
+              consumerAction = do
+                putMVar workerStarted ()
+                _ <- takeMVar neverReply
+                pure (Right ())
+              primaryAction :: IO (Either Text ())
+              primaryAction = do
+                takeMVar workerStarted
+                pure (Left "inference result: no matching reply")
+          withinUnitDeadline
+            "inference reply scope did not join clean cancellation"
+            (runInferenceReplyScope consumerAction primaryAction)
+            >>= (@?= Left "inference result: no matching reply")
+      , testCase "inference reply scope does not duplicate a natural consumer failure as cleanup" $ do
+          failureReady <- newEmptyMVar
+          allowConsumerReturn <- newEmptyMVar
+          let consumerFailure = Capabilities.ConsumerHandlerFailure "natural reply handler failure"
+              primaryFailure = "inference reply consumer failed: " <> Text.pack (show consumerFailure)
+              consumerAction :: IO (Either Capabilities.ConsumerFailure ())
+              consumerAction = do
+                putMVar failureReady ()
+                takeMVar allowConsumerReturn
+                pure (Left consumerFailure)
+              primaryAction :: IO (Either Text ())
+              primaryAction = do
+                takeMVar failureReady
+                putMVar allowConsumerReturn ()
+                threadDelay 100000
+                pure (Left primaryFailure)
+          withinUnitDeadline
+            "natural inference consumer failure scope did not terminate"
+            (runInferenceReplyScope consumerAction primaryAction)
+            >>= (@?= Left primaryFailure)
+      , testCase "inference reply scope observes cleanup failure and rethrows exceptional primary identity" $ do
+          workerStarted <- newEmptyMVar
+          neverReply <- newEmptyMVar
+          observedReleaseIssues <- newIORef []
+          let cleanupFailure =
+                Capabilities.ConsumerCleanupFailure
+                  (ServiceRetry.SETransient "forced exceptional-exit DELETE failure")
+              consumerAction :: IO (Either Capabilities.ConsumerFailure ())
+              consumerAction =
+                Exception.catch
+                  ( do
+                      putMVar workerStarted ()
+                      _ <- takeMVar neverReply
+                      pure (Right ())
+                  )
+                  handleCancellation
+              handleCancellation :: Exception.SomeAsyncException -> IO (Either Capabilities.ConsumerFailure ())
+              handleCancellation _cancelled = pure (Left cleanupFailure)
+              primaryAction :: IO (Either Text ())
+              primaryAction = do
+                takeMVar workerStarted
+                Exception.throwIO Exception.ThreadKilled
+              observe issue = do
+                modifyIORef' observedReleaseIssues (<> [issue])
+                Exception.throwIO (userError "forced cleanup observer failure")
+              scopedAttempt =
+                Exception.try
+                  (runInferenceReplyScopeObserved observe consumerAction primaryAction)
+                  :: IO (Either Exception.SomeException (Either Text ()))
+          result <-
+            withinUnitDeadline
+              "exceptional inference reply scope did not finish its joined cleanup"
+              scopedAttempt
+          case result of
+            Left exception ->
+              (Exception.fromException exception :: Maybe Exception.AsyncException)
+                @?= Just Exception.ThreadKilled
+            Right value -> assertFailure ("exceptional primary returned normally: " <> show value)
+          observed <- readIORef observedReleaseIssues
+          case observed of
+            [issue] ->
+              assertBool
+                "exceptional release lost its Owned cleanup failure"
+                ("forced exceptional-exit DELETE failure" `Text.isInfixOf` issue)
+            issues -> assertFailure ("unexpected exceptional release observations: " <> show issues)
       , testCase "reflected LiveConfig Dhall schema equals the checked-in file" $ do
           fileText <- Text.IO.readFile "dhall/service/LiveConfig.dhall"
           canonicalDhallType fileText @?= Right liveConfigSchema
+      , testCase "rendered LiveConfig is standalone Dhall and round-trips through the loader" $
+          withSystemTempDirectory "jitml-live-config-roundtrip" $ \root -> do
+            let path = root </> "LiveConfig.dhall"
+            Text.IO.writeFile path (LiveConfig.renderLiveConfigDhall LiveConfig.defaultLiveConfig)
+            loaded <- LiveConfig.loadLiveConfig path
+            loaded @?= LiveConfig.defaultLiveConfig
+      , testCase "LiveConfig loader rejects a huge Natural before Int conversion" $
+          withSystemTempDirectory "jitml-overflow-live-config" $ \root -> do
+            let hugeDeadline = "18446744073709559696"
+                valid = LiveConfig.renderLiveConfigDhall LiveConfig.defaultLiveConfig
+                overflow =
+                  Text.replace
+                    "drainDeadlineSeconds = 30"
+                    ("drainDeadlineSeconds = " <> hugeDeadline)
+                    valid
+                path = root </> "LiveConfig.dhall"
+            Text.IO.writeFile path overflow
+            result <-
+              try (LiveConfig.loadLiveConfig path)
+                :: IO (Either IOException LiveConfig.LiveConfig)
+            case result of
+              Left err -> do
+                assertBool
+                  "loader reports the bounded drain deadline"
+                  ("LiveConfig drainDeadlineSeconds must be at most" `isInfixOf` show err)
+                assertBool
+                  "loader preserves and reports the unconverted Natural"
+                  (("received " <> Text.unpack hugeDeadline) `isInfixOf` show err)
+              Right loaded ->
+                assertFailure ("overflowing LiveConfig unexpectedly loaded: " <> show loaded)
+      , testCase "LiveConfig loader rejects a zero drain deadline" $
+          withSystemTempDirectory "jitml-zero-drain-live-config" $ \root -> do
+            let valid = LiveConfig.renderLiveConfigDhall LiveConfig.defaultLiveConfig
+                zeroDeadline =
+                  Text.replace
+                    "drainDeadlineSeconds = 30"
+                    "drainDeadlineSeconds = 0"
+                    valid
+                path = root </> "LiveConfig.dhall"
+            Text.IO.writeFile path zeroDeadline
+            result <-
+              try (LiveConfig.loadLiveConfig path)
+                :: IO (Either IOException LiveConfig.LiveConfig)
+            case result of
+              Left err ->
+                assertBool
+                  "loader reports the positive drain deadline requirement"
+                  ( "LiveConfig drainDeadlineSeconds must be greater than zero"
+                      `isInfixOf` show err
+                  )
+              Right loaded ->
+                assertFailure ("zero-deadline LiveConfig unexpectedly loaded: " <> show loaded)
       , testCase "reflected RunConfig let-record equals dhall/run/Schema.dhall" $ do
           fileText <- Text.IO.readFile "dhall/run/Schema.dhall"
           canonicalDhallType fileText @?= canonicalDhallType runSchemaDhall
@@ -822,10 +1736,10 @@ main =
               catalogFileSchemas
           mismatches @?= []
       , testCase "Coordinator topic algebra derives the substrate-scoped family" $ do
-          let names = fmap Topology.topicName Topology.coordinatorTopics
-          -- 9 substrate-scoped (workflow,phase) pairs × 3 substrates (27) +
-          -- 4 apple-only internal/host-command legs = 31.
-          length names @?= 31
+          let names = fmap Topology.anyTopicName Topology.coordinatorTopics
+          -- 10 substrate-scoped (workflow,phase) pairs × 3 substrates (30) +
+          -- 4 apple-only internal/host-command legs = 34.
+          length names @?= 34
           mapM_
             ( \t ->
                 assertBool
@@ -834,6 +1748,7 @@ main =
             )
             [ "persistent://public/default/training.command.linux-cpu"
             , "persistent://public/default/gc.event.linux-cuda"
+            , "persistent://public/default/workflow.status.linux-cpu"
             , "persistent://public/default/inference.command.apple-silicon"
             , "persistent://public/default/rl.host-command.apple-silicon"
             ]
@@ -925,7 +1840,7 @@ main =
                 Decode.renderDecodedInference (Decode.DecodedClassification 1 0.5 [0.2, 0.5, 0.3] ["a", "b", "c"])
           assertBool "decoded-kind line" ("decoded-kind: classification" `elem` rendered)
           assertBool "decoded-top-class line" ("decoded-top-class: 1" `elem` rendered)
-      , testCase "Work* callId dedup is a pure effectively-once fold" $ do
+      , testCase "Work* callId semantic dedup is a pure first-seen fold" $ do
           let mk c = case Work.parseWorkCommand Topology.Train Substrate.LinuxCPU c "exp1" Nothing "p" "reply" of
                 Right cmd -> cmd
                 Left _ -> error "unexpected rejection in dedup test"
@@ -933,7 +1848,10 @@ main =
           fmap (Work.unCallId . Work.wcCallId) (Work.dedupByCallId log') @?= ["a", "b", "c"]
       , testCase "AppError render golden covers canonical variants" $ do
           expected <- Text.IO.readFile "test/snapshots/cli/app-error-render.txt"
-          Text.intercalate "---\n" (fmap renderError canonicalErrors) @?= expected
+          case mkProcessFailure (ExitFailure 1) fixtureProcessTranscript of
+            Nothing -> assertFailure "ExitFailure 1 did not construct ProcessFailure"
+            Just failure ->
+              Text.intercalate "---\n" (fmap renderError (canonicalErrors failure)) @?= expected
       , testCase "plan render is deterministic" $
           case buildCommandPlan ["train"] [("experiment-dhall", ["experiments/mnist.dhall"]), ("dry-run", [])] of
             Left message -> assertFailure (show message)
@@ -1064,6 +1982,27 @@ main =
               Tune.tuningPrunerKind (Tune.tuningConfigPruner config) @?= Tune.NoPruner
               Tune.tuningConfigTrials config @?= 2
               Tune.tuningConfigParallelism config @?= 1
+          let implicitParallelism =
+                Overrides.applyOverrides
+                  Overrides.emptyTuningOverrides {Overrides.toTrials = Just 2}
+                  experiment
+          case Tune.tuningExperimentConfig implicitParallelism of
+            Nothing -> assertFailure "expected trial-only override to retain tuning config"
+            Just config -> do
+              Tune.tuningConfigTrials config @?= 2
+              Tune.tuningConfigParallelism config @?= 2
+          let explicitInvalidParallelism =
+                Overrides.applyOverrides
+                  Overrides.emptyTuningOverrides
+                    { Overrides.toTrials = Just 2
+                    , Overrides.toParallelism = Just 8
+                    }
+                  experiment
+          case Tune.tuningExperimentConfig explicitInvalidParallelism of
+            Nothing -> assertFailure "expected explicit parallelism override to retain tuning config"
+            Just config -> do
+              Tune.tuningConfigTrials config @?= 2
+              Tune.tuningConfigParallelism config @?= 8
       , testCase "Sprint 1.12 — empty overrides preserve every Dhall value" $ do
           let empty = Overrides.emptyTuningOverrides
           Overrides.overrideSampler empty Tune.Grid @?= Tune.Grid
@@ -1097,6 +2036,86 @@ main =
                 }
             )
             @?= "cd '/tmp/jit ml' && cabal build all"
+      , testCase "structured subprocess success preserves its complete transcript" $ do
+          outcome <-
+            runStreaming
+              defaultSubprocessEnv
+              (subprocess "/bin/sh" ["-c", "printf success-out; printf success-err >&2"])
+          case outcome of
+            ProcessSucceeded transcript -> do
+              assertOutcomeField
+                "success command"
+                "/bin/sh -c 'printf success-out; printf success-err >&2'"
+                (processTranscriptCommand transcript)
+                outcome
+              assertOutcomeField "success stdout" "success-out" (processTranscriptStdout transcript) outcome
+              assertOutcomeField "success stderr" "success-err" (processTranscriptStderr transcript) outcome
+              assertOutcomeField
+                "success working directory"
+                Nothing
+                (processTranscriptWorkingDirectory transcript)
+                outcome
+              assertOutcomePredicate
+                "elapsed duration is measured"
+                (processDurationNanoseconds (processTranscriptDuration transcript) > 0)
+                outcome
+            ProcessFailed failure ->
+              assertFailure
+                ( "successful fixture returned failure:\n"
+                    <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
+                )
+      , testCase "structured subprocess failure preserves both streams and metadata" $ do
+          let command =
+                (subprocess "/bin/sh" ["-c", "printf failure-out; printf failure-err >&2; exit 7"])
+                  { subprocessWorkingDirectory = Just "."
+                  }
+          outcome <- runStreaming defaultSubprocessEnv command
+          case outcome of
+            ProcessSucceeded transcript ->
+              assertFailure
+                ( "failing fixture returned success:\n"
+                    <> Text.unpack (renderProcessOutcome (ProcessSucceeded transcript))
+                )
+            ProcessFailed failure -> do
+              assertOutcomeField
+                "failure command"
+                "cd . && /bin/sh -c 'printf failure-out; printf failure-err >&2; exit 7'"
+                (processFailureCommand failure)
+                outcome
+              assertOutcomeField "failure exit" (ExitFailure 7) (processFailureExitCode failure) outcome
+              assertOutcomeField "failure stdout" "failure-out" (processFailureStdout failure) outcome
+              assertOutcomeField "failure stderr" "failure-err" (processFailureStderr failure) outcome
+              assertOutcomeField
+                "failure working directory"
+                (Just ".")
+                (processFailureWorkingDirectory failure)
+                outcome
+              assertOutcomePredicate
+                "elapsed duration is measured"
+                (processDurationNanoseconds (processFailureDuration failure) > 0)
+                outcome
+      , testCase "ProcessFailure smart construction rejects ExitSuccess" $
+          mkProcessFailure ExitSuccess fixtureProcessTranscript @?= Nothing
+      , testCase "ProcessFailure smart construction rejects ExitFailure 0" $ do
+          mkProcessFailure (ExitFailure 0) fixtureProcessTranscript @?= Nothing
+          processOutcome (ExitFailure 0) fixtureProcessTranscript
+            @?= ProcessSucceeded fixtureProcessTranscript
+      , QuickCheck.testProperty "ProcessFailure smart construction retains every non-zero exit" $
+          \(QuickCheck.NonZero code) ->
+            fmap processFailureExitCode (mkProcessFailure (ExitFailure code) fixtureProcessTranscript)
+              QuickCheck.=== Just (ExitFailure code)
+      , QuickCheck.testProperty "process outcome success and failure constructors are exclusive" $
+          \(QuickCheck.NonNegative code) ->
+            let selectedExit
+                  | code == 0 = ExitSuccess
+                  | otherwise = ExitFailure code
+             in case processOutcome selectedExit fixtureProcessTranscript of
+                  ProcessSucceeded _ -> selectedExit QuickCheck.=== ExitSuccess
+                  ProcessFailed failure ->
+                    QuickCheck.conjoin
+                      [ selectedExit QuickCheck.=/= ExitSuccess
+                      , processFailureExitCode failure QuickCheck.=== selectedExit
+                      ]
       , testCase "missing prerequisite surfaces typed diagnostic" $ do
           result <- reconcilePrerequisites [syntheticMissingPrerequisite] (NodeId "synthetic.missing")
           case result of
@@ -1489,7 +2508,7 @@ main =
               StrictByteString.writeFile artifactPath (StrictByteString.pack [0x7f, 0x45, 0x4c, 0x46])
               loaded <- Loader.ensureKernelArtifact env engine source sampleCacheHash
               case loaded of
-                Left err -> assertFailure (Text.unpack err)
+                Left err -> assertFailure (Text.unpack (Loader.renderKernelArtifactError err))
                 Right artifact -> do
                   Loader.kernelArtifactHandle artifact @?= handle
                   Loader.kernelArtifactCompiled artifact @?= False
@@ -1518,7 +2537,7 @@ main =
                   artifactPath = Text.unpack (Engine.kernelHandleArtifactPath handle)
               first <- Loader.ensureKernelArtifact env engine source sampleCacheHash
               case first of
-                Left err -> assertFailure (Text.unpack err)
+                Left err -> assertFailure (Text.unpack (Loader.renderKernelArtifactError err))
                 Right artifact -> do
                   Loader.kernelArtifactHandle artifact @?= handle
                   Loader.kernelArtifactCompiled artifact @?= True
@@ -1538,7 +2557,7 @@ main =
                     (not ("swift build" `Text.isInfixOf` Text.toLower (Loader.kernelArtifactCompileCommand artifact)))
               second <- Loader.ensureKernelArtifact env engine source sampleCacheHash
               case second of
-                Left err -> assertFailure (Text.unpack err)
+                Left err -> assertFailure (Text.unpack (Loader.renderKernelArtifactError err))
                 Right artifact ->
                   Loader.kernelArtifactCompiled artifact @?= False
       , testCase "splitmix RNG path is deterministic and CUDA codegen forbids curand" $ do
@@ -2226,8 +3245,12 @@ main =
           "stage-0 bootstrap scripts"
           [ testCase "apple help names the Haskell bootstrap delegation" $ do
               result <- runBootstrapScript Nothing "bootstrap/apple-silicon.sh" ["help"]
-              scriptExit result @?= ExitSuccess
-              assertContains "apple help" "./.build/jitml bootstrap --apple-silicon" (scriptStdout result)
+              assertScriptExit "apple help" ExitSuccess result
+              assertScriptContains
+                "apple help"
+                ScriptStdout
+                "./.build/jitml bootstrap --apple-silicon"
+                result
           , testCase "apple doctor rejects non-macOS hosts" $ do
               withStubCommands [unameStub "Linux" "arm64"] $ \stubDir -> do
                 result <-
@@ -2235,8 +3258,8 @@ main =
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "apple non-macOS diagnostic" "requires macOS" (scriptStderr result)
+                assertScriptExit "apple non-macOS" (ExitFailure 2) result
+                assertScriptContains "apple non-macOS diagnostic" ScriptStderr "requires macOS" result
           , testCase "apple doctor rejects non-arm64 hosts" $ do
               withStubCommands [unameStub "Darwin" "x86_64"] $ \stubDir -> do
                 result <-
@@ -2244,8 +3267,12 @@ main =
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "apple non-arm64 diagnostic" "requires Apple Silicon arm64" (scriptStderr result)
+                assertScriptExit "apple non-arm64" (ExitFailure 2) result
+                assertScriptContains
+                  "apple non-arm64 diagnostic"
+                  ScriptStderr
+                  "requires Apple Silicon arm64"
+                  result
           , testCase "apple doctor reports missing Xcode Command Line Tools" $
               withStubCommands [unameStub "Darwin" "arm64", xcodeSelectUnavailableStub, brewStub] $ \stubDir -> do
                 result <-
@@ -2253,8 +3280,8 @@ main =
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "apple xcode diagnostic" "xcode-select --install" (scriptStderr result)
+                assertScriptExit "apple missing Xcode" (ExitFailure 2) result
+                assertScriptContains "apple xcode diagnostic" ScriptStderr "xcode-select --install" result
           , testCase "apple doctor reports missing Homebrew" $
               withStubCommands [unameStub "Darwin" "arm64", xcodeSelectStub] $ \stubDir -> do
                 result <-
@@ -2262,8 +3289,8 @@ main =
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "apple homebrew diagnostic" "install Homebrew" (scriptStderr result)
+                assertScriptExit "apple missing Homebrew" (ExitFailure 2) result
+                assertScriptContains "apple homebrew diagnostic" ScriptStderr "install Homebrew" result
           , testCase "apple doctor ignores broad package-toolchain gaps" $
               withStubCommands [unameStub "Darwin" "arm64", xcodeSelectStub, brewStub] $ \stubDir -> do
                 result <-
@@ -2271,8 +3298,8 @@ main =
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                scriptExit result @?= ExitSuccess
-                assertContains "apple doctor ok" "stage-0 doctor: ok" (scriptStderr result)
+                assertScriptExit "apple doctor" ExitSuccess result
+                assertScriptContains "apple doctor ok" ScriptStderr "stage-0 doctor: ok" result
           , testCase "apple build prepends compatible Homebrew LLVM for GHC" $
               withSystemTempDirectory "jitml-llvm-prefix" $ \llvmPrefix -> do
                 let llvmBin = llvmPrefix </> "bin"
@@ -2293,8 +3320,8 @@ main =
                         (Just stubDir)
                         "bootstrap/apple-silicon.sh"
                         ["build"]
-                    scriptExit result @?= ExitSuccess
-                    assertContains "apple build llvm path" "using llvm@19" (scriptStderr result)
+                    assertScriptExit "apple build" ExitSuccess result
+                    assertScriptContains "apple build llvm path" ScriptStderr "using llvm@19" result
           , testCase "linux CPU doctor reports missing Docker" $ do
               withStubCommands [] $ \stubDir -> do
                 result <-
@@ -2302,13 +3329,17 @@ main =
                     (Just stubDir)
                     "bootstrap/linux-cpu.sh"
                     ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "linux docker diagnostic" "missing required command 'docker'" (scriptStderr result)
+                assertScriptExit "linux missing Docker" (ExitFailure 2) result
+                assertScriptContains
+                  "linux docker diagnostic"
+                  ScriptStderr
+                  "missing required command 'docker'"
+                  result
           , testCase "linux CPU doctor requires Docker without sudo" $
               withStubCommands [dockerInfoFailureStub] $ \stubDir -> do
                 result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cpu.sh" ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "linux sudo diagnostic" "without sudo" (scriptStderr result)
+                assertScriptExit "linux Docker without sudo" (ExitFailure 2) result
+                assertScriptContains "linux sudo diagnostic" ScriptStderr "without sudo" result
           , testCase "linux CPU doctor ignores non-Docker toolchain gaps" $
               withStubCommands [dockerOkStub] $ \stubDir -> do
                 result <-
@@ -2316,8 +3347,8 @@ main =
                     (Just stubDir)
                     "bootstrap/linux-cpu.sh"
                     ["doctor"]
-                scriptExit result @?= ExitSuccess
-                assertContains "linux cpu doctor ok" "stage-0 doctor: ok" (scriptStderr result)
+                assertScriptExit "linux CPU doctor" ExitSuccess result
+                assertScriptContains "linux cpu doctor ok" ScriptStderr "stage-0 doctor: ok" result
           , testCase "linux CPU up handles absent optional compose env" $
               withStubCommands [dockerOkStub] $ \stubDir -> do
                 result <-
@@ -2325,18 +3356,26 @@ main =
                     (Just stubDir)
                     "bootstrap/linux-cpu.sh"
                     ["up"]
-                scriptExit result @?= ExitSuccess
-                assertContains "linux cpu up doctor ok" "stage-0 doctor: ok" (scriptStderr result)
+                assertScriptExit "linux CPU up" ExitSuccess result
+                assertScriptContains "linux cpu up doctor ok" ScriptStderr "stage-0 doctor: ok" result
           , testCase "linux CUDA doctor reports missing NVIDIA runtime" $
               withStubCommands [dockerWithoutNvidiaRuntimeStub, nvidiaSmiHighCapabilityStub] $ \stubDir -> do
                 result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "cuda runtime diagnostic" "NVIDIA container runtime" (scriptStderr result)
+                assertScriptExit "CUDA runtime doctor" (ExitFailure 2) result
+                assertScriptContains
+                  "cuda runtime diagnostic"
+                  ScriptStderr
+                  "NVIDIA container runtime"
+                  result
           , testCase "linux CUDA doctor reports insufficient compute capability" $
               withStubCommands [dockerWithNvidiaRuntimeStub, nvidiaSmiLowCapabilityStub] $ \stubDir -> do
                 result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"]
-                scriptExit result @?= ExitFailure 2
-                assertContains "cuda capability diagnostic" "compute capability" (scriptStderr result)
+                assertScriptExit "CUDA capability doctor" (ExitFailure 2) result
+                assertScriptContains
+                  "cuda capability diagnostic"
+                  ScriptStderr
+                  "compute capability"
+                  result
           ]
       , testCase "buildEnv uses default dirs" $ do
           env <- buildEnv defaultGlobalFlags
@@ -2362,7 +3401,7 @@ main =
             @?= HotReload.ReloadIgnored "live config unchanged"
           case HotReload.handleSighupReload
             initial
-            LiveConfig.defaultLiveConfig {LiveConfig.liveInferenceBatchSize = 128} of
+            LiveConfig.defaultLiveConfig {LiveConfig.liveDedupCacheSize = 128} of
             HotReload.ReloadIgnored reason -> assertFailure (Text.unpack reason)
             HotReload.ReloadApplied snapshot -> HotReload.snapshotGeneration snapshot @?= 1
       , testCase "service capability classes are named in the local surface" $
@@ -2422,6 +3461,14 @@ main =
             @?= ["connect4", "othello", "hex", "gomoku"]
           AlphaZero.policyHeadSize AlphaZero.connect4Network @?= 7
           AlphaZero.arenaWinRate (AlphaZero.ArenaSummary 3 1 0) @?= 0.75
+      , testCase "AlphaZero artifact step counts completed generations rather than samples" $ do
+          let completedGenerations = 64
+              generatedSamples = 2370
+          assertBool
+            "regression fixture distinguishes generation and sample units"
+            (completedGenerations /= fromIntegral generatedSamples)
+          alphaZeroArtifactStep completedGenerations generatedSamples
+            @?= completedGenerations
       , testCase "classical-control simulators step deterministically with physics" $ do
           -- Cartpole at rest with a right-push starts moving right with
           -- a positive cart acceleration and a small leftward pole lean.
@@ -2652,6 +3699,82 @@ main =
           AlphaZero.connect4LegalMove 2 columnFull @?= False
           AlphaZero.connect4LegalMove 3 columnFull @?= True
           AlphaZero.connect4LegalMove (-1) AlphaZero.initialConnect4 @?= False
+          -- Illegal policy indices are rejected exactly; they are not aliased
+          -- onto the next legal Othello cell.
+          AlphaZero.applyMove 27 AlphaZero.initialOthello @?= AlphaZero.initialOthello
+      , testCase "Othello forced passes preserve replay and the real player to move" $ do
+          let passPosition =
+                List.foldl'
+                  (flip AlphaZero.applyMove)
+                  AlphaZero.initialOthello
+                  [ 19
+                  , 18
+                  , 17
+                  , 20
+                  , 21
+                  , 34
+                  , 45
+                  , 14
+                  , 33
+                  , 42
+                  , 29
+                  , 32
+                  , 7
+                  , 37
+                  , 43
+                  , 52
+                  , 51
+                  , 44
+                  , 59
+                  , 26
+                  , 50
+                  , 49
+                  , 56
+                  , 41
+                  , 24
+                  , 61
+                  , 30
+                  , 25
+                  , 60
+                  , 16
+                  , 48
+                  , 38
+                  , 62
+                  , 10
+                  , 31
+                  , 22
+                  , 8
+                  , 23
+                  , 2
+                  , 3
+                  , 11
+                  , 4
+                  , 5
+                  , 53
+                  , 40
+                  , 47
+                  , 12
+                  , 57
+                  , 54
+                  , 58
+                  , 39
+                  , 46
+                  , 15
+                  , 55
+                  , 63
+                  , 6
+                  , 9
+                  , 13
+                  ]
+              playable = AlphaZero.normaliseForcedPass passPosition
+          AlphaZero.gameOutcome passPosition @?= AlphaZero.GameInProgress
+          AlphaZero.legalMoves passPosition @?= []
+          AlphaZero.gameCurrentPlayer playable @?= -1
+          take 1 (reverse (AlphaZero.gameMoves playable)) @?= [-1]
+          AlphaZero.legalMoves playable @?= [0, 1]
+          AlphaZero.gameMoves (AlphaZero.applyMove 0 passPosition)
+            @?= AlphaZero.gameMoves passPosition
+            <> [-1, 0]
       , testCase "MCTS transposition table de-dupes equivalent move sequences" $ do
           let cfg = Mcts.defaultMctsConfig 7
               table0 = Mcts.emptyTranspositionTable
@@ -2675,7 +3798,7 @@ main =
           let cfg = Mcts.defaultMctsConfig 4
               defaultTree = Mcts.runSearch cfg 17
               biasedTree =
-                Mcts.runSearchWithPrior (\_ -> Mcts.NodeEval [1.0, 2.0, 3.0, 4.0] 0.0 False) cfg 17
+                Mcts.runSearchWithPrior (\_ -> Mcts.NodeEval [1.0, 2.0, 3.0, 4.0] 0.0 False Nothing) cfg 17
               defaultPriors = map Mcts.edgePrior (Mcts.nodeChildren defaultTree)
               biasedPriors = map Mcts.edgePrior (Mcts.nodeChildren biasedTree)
           assertBool
@@ -2684,6 +3807,37 @@ main =
           assertBool
             "biased oracle does not produce uniform priors"
             (any (\p -> abs (p - 0.25) > 0.001) biasedPriors)
+      , testCase "Othello MCTS expands only legal policy actions" $ do
+          let net = PVN.initPolicyValueNet 65 64 16 101
+              cfg = (Mcts.defaultMctsConfig 64) {Mcts.mctsSimulations = 8}
+              tree =
+                Mcts.runSearchWithPrior
+                  (PVN.networkPriorOracle net AlphaZero.initialOthello)
+                  cfg
+                  17
+              expandedActions = map Mcts.edgeAction (Mcts.nodeChildren tree)
+              visitTarget = PVN.mctsVisitDistribution net 8 AlphaZero.initialOthello 17
+              positiveTargetActions =
+                [ action
+                | action <- [0 .. 63]
+                , visitTarget Data.Vector.Unboxed.! action > 0.0
+                ]
+          expandedActions @?= AlphaZero.legalMoves AlphaZero.initialOthello
+          positiveTargetActions @?= AlphaZero.legalMoves AlphaZero.initialOthello
+      , testCase "MCTS preserves value sign when an Othello pass keeps the same player" $ do
+          let cfg =
+                (Mcts.defaultMctsConfig 1)
+                  { Mcts.mctsSimulations = 2
+                  , Mcts.mctsRootDirichletWeight = 0.0
+                  }
+              oracle [] = Mcts.NodeEval [1.0] 0.0 False (Just 1)
+              oracle _ = Mcts.NodeEval [] 1.0 True (Just 1)
+              tree = Mcts.runSearchWithPrior oracle cfg 17
+          case Mcts.nodeChildren tree of
+            [edge] -> Mcts.edgeTotalValue edge @?= 1.0
+            edges ->
+              assertFailure
+                ("expected one forced-pass search edge, got " <> show (length edges))
       , testCase "tuning trial storage and resume summary are deterministic" $ do
           Tune.trialStorageKey "exp-a" 42 @?= "jitml-trials/exp-a/42/transcript.cbor"
           Tune.resumeMatchesFullRun Tune.Sobol 3 8 @?= True
@@ -2708,6 +3862,12 @@ main =
           ByteString.drop (ByteString.length payload - 8) payload
             @?= ByteString.pack [0, 0, 0, 0, 0, 0, 240, 63]
           Checkpoint.decodeJmw1 payload @?= Right [1.0]
+          Checkpoint.decodeJmw1 (Checkpoint.encodeJmw1 [0 / 0])
+            @?= Left ".jmw1 tensor values must be finite"
+      , testCase "checkpoint manifest decoder rejects corrupt CBOR" $ do
+          assertBool
+            "corrupt manifest bytes cannot refine into a checkpoint"
+            (case Checkpoint.decodeManifestCbor "not-cbor" of Left _ -> True; Right _ -> False)
       , testCase "checkpoint manifest CBOR codec is deterministic and canonical ordered" $ do
           let manifest =
                 Checkpoint.emptyManifest
@@ -2730,6 +3890,15 @@ main =
             @?= "jitml-checkpoints/exp-a/manifests/"
             <> Checkpoint.manifestContentSha manifest
             <> ".cbor"
+      , testCase "completed checkpoint CBOR re-encodes to its addressed content hash" $ do
+          let manifest = completedTestManifest 5
+              addressedSha = Checkpoint.manifestContentSha manifest
+              payload = Checkpoint.encodeManifestCbor manifest
+          case Checkpoint.decodeManifestCbor payload of
+            Left err -> assertFailure ("completed manifest failed to decode: " <> Text.unpack err)
+            Right decoded -> do
+              Checkpoint.manifestContentSha decoded @?= addressedSha
+              Checkpoint.encodeManifestCbor decoded @?= payload
       , testCase "inference eligibility requires manifest weight-delta evidence" $ do
           let completedManifest = completedTestManifest 1
               stripped =
@@ -3250,6 +4419,65 @@ main =
                         (ConvergenceThresholds.literatureTarget threshold < 0)
                 )
                 ConvergenceThresholds.cohortThresholds
+          , testCase "ProductRow RL budgets are the shared trainer schedule's exact observed units" $ do
+              mapM_
+                ( \row ->
+                    case ProductMatrix.rowClass row of
+                      ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
+                        assertCanonicalRlBudget row algorithm environment
+                      ProductMatrix.RlGoalConditioned environment ->
+                        assertCanonicalRlBudget row "HER" environment
+                      _ -> pure ()
+                )
+                ProductMatrix.allProductRows
+          , testCase "canonical RL schedules retain convergence floors and indivisible trainer units" $ do
+              canonicalRlUnits "PPO" "cartpole" @?= Right 1_228_800
+              canonicalRlUnits "PPO" "lunar-lander" @?= Right 2_400_000
+              canonicalRlUnits "RecurrentPPO" "key-door-grid" @?= Right 307_200
+              canonicalRlUnits "DQN" "cartpole" @?= Right 50_000
+              canonicalRlUnits "DQN" "mountain-car" @?= Right 120_000
+              canonicalRlUnits "QR-DQN" "key-door-grid" @?= Right 120_000
+              canonicalRlUnits "SAC" "pendulum" @?= Right 4_000
+              canonicalRlUnits "ARS" "cartpole" @?= Right 800_000
+              canonicalRlUnits "HER" "goal-reaching" @?= Right 2_004
+          , testCase "every canonical RL budget is an idempotent exact producer target" $ do
+              mapM_
+                ( \row ->
+                    case ProductMatrix.rowClass row of
+                      ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
+                        assertCanonicalRlScheduleIsExact row algorithm environment
+                      ProductMatrix.RlGoalConditioned environment ->
+                        assertCanonicalRlScheduleIsExact row "HER" environment
+                      _ -> pure ()
+                )
+                ProductMatrix.allProductRows
+          , testCase "unrepresentable RL budget and vector overrides fail before training" $ do
+              case ProductBudget.planExactRlTrainingSchedule
+                "her"
+                "goal-reaching"
+                ProductBudget.productRlDefaultEvaluationEpisodes
+                ProductBudget.productRlDefaultMaxEpisodeSteps
+                Nothing
+                2_000 of
+                Left err ->
+                  assertBool
+                    "HER granularity failure names exact execution"
+                    ("cannot be executed exactly" `Text.isInfixOf` err)
+                Right schedule ->
+                  assertFailure ("unexpected exact HER schedule: " <> show schedule)
+              case ProductBudget.planExactRlTrainingSchedule
+                "ppo"
+                "cartpole"
+                ProductBudget.productRlDefaultEvaluationEpisodes
+                ProductBudget.productRlDefaultMaxEpisodeSteps
+                (Just 7)
+                1_228_800 of
+                Left err ->
+                  assertBool
+                    "vector-width override failure reports the scheduled count"
+                    ("schedules 1229312" `Text.isInfixOf` err)
+                Right schedule ->
+                  assertFailure ("unexpected exact vector schedule: " <> show schedule)
           , testCase "HER and every AlphaZero game have fixed-budget convergence metrics" $ do
               let her = ConvergenceThresholds.herGoalMetric
                   games =
@@ -3293,6 +4521,43 @@ main =
                 (all WorkflowMatrix.modelCellRequiresTrainedArtifact cells)
           , testCase "ProductRow registry satisfies the Sprint 19.1 matrix floor" $
               ProductMatrix.validateProductMatrix ProductMatrix.allProductRows @?= []
+          , testCase "ProductRow filter selects exact known ids for both internal commands" $ do
+              let selected =
+                    fmap
+                      (List.sort . fmap ProductMatrix.rowId)
+                      (ProductMatrix.selectProductRows (Just " DQN/cartpole, PPO/cartpole "))
+              selected @?= Right ["DQN/cartpole", "PPO/cartpole"]
+              fmap (fmap ProductMatrix.rowId) (ProductMatrix.selectProductRows Nothing)
+                @?= Right ProductMatrix.productRowIds
+          , testCase "ProductRow filter rejects every unknown id instead of accepting a valid subset" $
+              ProductMatrix.selectProductRows
+                (Just "PPO/cartpole,PPO.cartpole,DQN.cartpole")
+                @?= Left
+                  "JITML_PRODUCT_ROW_FILTER is invalid: unknown product row ids: PPO.cartpole, DQN.cartpole"
+          , testCase "ProductRow filter rejects duplicate ids before internal work starts" $
+              ProductMatrix.selectProductRows
+                (Just "PPO/cartpole,DQN/cartpole,PPO/cartpole")
+                @?= Left
+                  "JITML_PRODUCT_ROW_FILTER is invalid: duplicate product row ids: PPO/cartpole"
+          , testCase "supervised ProductRows declare the publisher's exact fixed epoch budgets" $ do
+              let supervisedBudgets =
+                    [ (ProductMatrix.rowId row, TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
+                    | row <- ProductMatrix.allProductRows
+                    , ProductMatrix.family row == ProductMatrix.Supervised
+                    ]
+              supervisedBudgets
+                @?= [ ("mnist-shallow-mlp", 10)
+                    , ("mnist-deep-mlp", 10)
+                    , ("mnist-lenet", 10)
+                    , ("fashion-mnist-mlp", 10)
+                    , ("fashion-mnist-resnet", 10)
+                    , ("cifar10-resnet20", 5)
+                    , ("cifar10-resnet56", 5)
+                    , ("cifar100-wide-resnet", 10)
+                    , ("cifar10-vit", 5)
+                    , ("tiny-imagenet-resnet50", 5)
+                    , ("california-housing-mlp", 10)
+                    ]
           , testCase "ProductRow artifact experiment hashes are stable and object-key safe" $ do
               let hashes = fmap ProductMatrix.productRowExperimentHash ProductMatrix.allProductRows
               assertBool
@@ -3589,12 +4854,8 @@ main =
                       )
                   result =
                     TrainingBudget.completedTraining
-                      TrainingBudget.TrainingBudget
-                        { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
-                        , TrainingBudget.tbTargetUnits = 1
-                        , TrainingBudget.tbUnitLabel = "epoch"
-                        , TrainingBudget.tbSeed = Nothing
-                        }
+                      unitFixturePlanId
+                      (unitBudget TrainingBudget.SupervisedEpochBudget 1)
                       1
                       evidence
                       [failedObservation]
@@ -3622,9 +4883,17 @@ main =
                     acceptCompleted = ProductPipeline.modelRefExperimentHash
                     acceptEligible :: ProductPipeline.InferenceEligibleRef -> Text
                     acceptEligible = ProductPipeline.modelRefExperimentHash
+                    completedCheckpoint =
+                      either
+                        (error . show)
+                        id
+                        ( Checkpoint.requireInferenceEligibleCheckpoint
+                            "manifest-sha"
+                            (completedTestManifest 1)
+                        )
                 trainedModel <- ProductPipeline.train startedModel completed
                 acceptCompleted trainedModel @?= "exp1"
-                case ProductPipeline.markInferenceEligible "manifest-sha" trainedModel completed of
+                case ProductPipeline.markInferenceEligible completedCheckpoint trainedModel of
                   Left err -> assertFailure (Text.unpack err)
                   Right eligibleModel -> do
                     acceptEligible eligibleModel @?= "exp1"
@@ -3632,13 +4901,20 @@ main =
                     ProductPipeline.modelRefCompletedTraining eligibleModel @?= Just completed
           , testCase "ModelRef inference eligibility rejects a mismatched completed-training witness" $ do
               let completed = completedTrainingFixture 1
-                  mismatched = completedTrainingFixture 2
                   declaredModel =
                     ProductPipeline.declareModel
                       (ProductPipeline.declareExperiment "exp1")
                   startedModel = ProductPipeline.startTraining declaredModel
                   trainedModel = ProductPipeline.completeTraining startedModel completed
-              ProductPipeline.markInferenceEligible "manifest-sha" trainedModel mismatched
+                  mismatchedCheckpoint =
+                    either
+                      (error . show)
+                      id
+                      ( Checkpoint.requireInferenceEligibleCheckpoint
+                          "manifest-sha"
+                          (completedTestManifest 2)
+                      )
+              ProductPipeline.markInferenceEligible mismatchedCheckpoint trainedModel
                 @?= Left "completed-training witness does not match model reference"
           , testCase "InferenceEligibleCheckpoint mints an inference-only ModelRef" $ do
               let acceptEligible :: ProductPipeline.InferenceEligibleRef -> Text
@@ -3734,8 +5010,8 @@ main =
           [ testCase "enumerates product phases 19 through 34" $ do
               PhaseStatus.productPhaseNumbers @?= [19 .. 34]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
-          , testCase "reports complete only when every product sprint is Done" $ do
-              PhaseStatus.allProductPhasesDone @?= True
+          , testCase "reports incomplete while any product sprint is open" $ do
+              PhaseStatus.allProductPhasesDone @?= False
               assertBool
                 "an all-Done registry satisfies the predicate"
                 ( PhaseStatus.productPhasesDone
@@ -3781,13 +5057,13 @@ main =
         -- render/parse pair.
         testGroup
           "GC reaped event envelope (Sprint 13.7)"
-          [ testCase "gcEventTopic emits a substrate-scoped persistent path" $ do
-              ProtoGc.gcEventTopic Substrate.LinuxCUDA
-                @?= "persistent://public/default/gc.event.linux-cuda"
-              ProtoGc.gcEventTopic Substrate.LinuxCPU
-                @?= "persistent://public/default/gc.event.linux-cpu"
-              ProtoGc.gcEventTopic Substrate.AppleSilicon
-                @?= "persistent://public/default/gc.event.apple-silicon"
+          [ testCase "GC event route emits a substrate-scoped persistent path" $ do
+              fmap Topology.topicName (Topology.topicFor Topology.GcEventRoute Substrate.LinuxCUDA)
+                @?= Right "persistent://public/default/gc.event.linux-cuda"
+              fmap Topology.topicName (Topology.topicFor Topology.GcEventRoute Substrate.LinuxCPU)
+                @?= Right "persistent://public/default/gc.event.linux-cpu"
+              fmap Topology.topicName (Topology.topicFor Topology.GcEventRoute Substrate.AppleSilicon)
+                @?= Right "persistent://public/default/gc.event.apple-silicon"
           , testCase "GcReapedEvent round-trips through proto3-compatible bytes" $ do
               let envelope =
                     ProtoGc.GcReapedEvent
@@ -3795,7 +5071,7 @@ main =
                       , ProtoGc.gcEventManifestSha = "sha256:reaped"
                       , ProtoGc.gcEventReapedBlobShas = ["blob-a", "blob-b"]
                       , ProtoGc.gcEventStepAtReap = 42
-                      , ProtoGc.gcEventSubstrate = "linux-cuda"
+                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
                       , ProtoGc.gcEventTimestampNs = 1_700_000_000_000_000_000
                       }
               ProtoGc.decodeGcReapedEventProto (ProtoGc.encodeGcReapedEventProto envelope)
@@ -3807,11 +5083,11 @@ main =
                       , ProtoGc.gcEventManifestSha = "sha256:text"
                       , ProtoGc.gcEventReapedBlobShas = ["blob-x"]
                       , ProtoGc.gcEventStepAtReap = 7
-                      , ProtoGc.gcEventSubstrate = "linux-cpu"
+                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
                       , ProtoGc.gcEventTimestampNs = 1
                       }
               ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
-                @?= Just envelope
+                @?= Right envelope
           , testCase "GcReapedEvent with no reaped blobs round-trips" $ do
               let envelope =
                     ProtoGc.GcReapedEvent
@@ -3819,13 +5095,118 @@ main =
                       , ProtoGc.gcEventManifestSha = "sha256:lonely"
                       , ProtoGc.gcEventReapedBlobShas = []
                       , ProtoGc.gcEventStepAtReap = 0
-                      , ProtoGc.gcEventSubstrate = "apple-silicon"
+                      , ProtoGc.gcEventSubstrate = Substrate.AppleSilicon
                       , ProtoGc.gcEventTimestampNs = 0
                       }
               ProtoGc.decodeGcReapedEventProto (ProtoGc.encodeGcReapedEventProto envelope)
                 @?= Right envelope
               ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
-                @?= Just envelope
+                @?= Right envelope
+          , testCase "GcReapedEvent text decoder rejects structural and scalar defects" $ do
+              let envelope =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventExperimentHash = "exp-strict"
+                      , ProtoGc.gcEventManifestSha = "sha256:strict"
+                      , ProtoGc.gcEventReapedBlobShas = ["blob-a", "blob-b"]
+                      , ProtoGc.gcEventStepAtReap = 9
+                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                      , ProtoGc.gcEventTimestampNs = 10
+                      }
+                  validPayload = ProtoGc.renderGcReapedEvent envelope
+                  withoutManifest =
+                    Text.unlines
+                      ( filter
+                          (not . Text.isPrefixOf "manifest-sha:")
+                          (Text.lines validPayload)
+                      )
+                  rejectedPayloads =
+                    [ ("unknown field", validPayload <> "unexpected: value\n")
+                    , ("duplicate field", validPayload <> "manifest-sha: sha256:duplicate\n")
+                    , ("malformed line", Text.replace "step-at-reap: 9" "step-at-reap 9" validPayload)
+                    , ("missing field", withoutManifest)
+                    , ("empty field", Text.replace "experiment-hash: exp-strict" "experiment-hash: " validPayload)
+                    , ("malformed number", Text.replace "step-at-reap: 9" "step-at-reap: nine" validPayload)
+                    , ("noncanonical substrate", Text.replace "substrate: linux-cpu" "substrate: cpu" validPayload)
+                    , ("empty blob member", Text.replace "blob-a,blob-b" "blob-a,,blob-b" validPayload)
+                    ]
+              traverse_
+                ( \(label, rejectedPayload) ->
+                    case ProtoGc.parseGcReapedEvent rejectedPayload of
+                      Left _ -> pure ()
+                      Right decoded ->
+                        assertFailure
+                          (label <> " unexpectedly decoded as " <> show decoded)
+                )
+                rejectedPayloads
+          , testCase
+              "GcReapedEvent protobuf decoder rejects unknown, duplicate, malformed, missing, and empty fields"
+              $ do
+                let envelope =
+                      ProtoGc.GcReapedEvent
+                        { ProtoGc.gcEventExperimentHash = "exp-proto-strict"
+                        , ProtoGc.gcEventManifestSha = "sha256:proto-strict"
+                        , ProtoGc.gcEventReapedBlobShas = ["blob-a"]
+                        , ProtoGc.gcEventStepAtReap = 11
+                        , ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
+                        , ProtoGc.gcEventTimestampNs = 12
+                        }
+                    validBytes = ProtoGc.encodeGcReapedEventProto envelope
+                    requiredFields substrateField =
+                      [ ProtoWire.stringField 1 "exp-proto-strict"
+                      , ProtoWire.stringField 2 "sha256:proto-strict"
+                      , ProtoWire.stringField 3 "blob-a"
+                      , ProtoWire.uint64Field 4 11
+                      , ProtoWire.stringField 5 substrateField
+                      , ProtoWire.uint64Field 6 12
+                      ]
+                    rejectedBytes =
+                      [ validBytes <> ProtoWire.encodeMessage [ProtoWire.stringField 7 "unknown"]
+                      , validBytes <> ProtoWire.encodeMessage [ProtoWire.stringField 1 "duplicate"]
+                      , ProtoWire.encodeMessage
+                          ( ProtoWire.stringField 4 "eleven"
+                              : filter ((/= 4) . ProtoWire.protoFieldNumber) (requiredFields "linux-cuda")
+                          )
+                      , ProtoWire.encodeMessage
+                          (filter ((/= 2) . ProtoWire.protoFieldNumber) (requiredFields "linux-cuda"))
+                      , ProtoWire.encodeMessage
+                          ( ProtoWire.stringField 1 ""
+                              : filter ((/= 1) . ProtoWire.protoFieldNumber) (requiredFields "linux-cuda")
+                          )
+                      , ProtoWire.encodeMessage (requiredFields "cuda")
+                      ]
+                traverse_
+                  ( \rejectedPayload ->
+                      case ProtoGc.decodeGcReapedEventProto rejectedPayload of
+                        Left _ -> pure ()
+                        Right decoded ->
+                          assertFailure
+                            ("invalid protobuf unexpectedly decoded as " <> show decoded)
+                  )
+                  rejectedBytes
+          , testCase "GcEventRoute rejects an envelope from another substrate lane" $ do
+              let linuxEnvelope =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventExperimentHash = "exp-route"
+                      , ProtoGc.gcEventManifestSha = "sha256:route"
+                      , ProtoGc.gcEventReapedBlobShas = []
+                      , ProtoGc.gcEventStepAtReap = 1
+                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                      , ProtoGc.gcEventTimestampNs = 2
+                      }
+                  cudaEnvelope =
+                    linuxEnvelope
+                      { ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
+                      }
+              case Topology.topicFor Topology.GcEventRoute Substrate.LinuxCPU of
+                Left err -> assertFailure ("failed to resolve GC event route: " <> show err)
+                Right topic -> do
+                  Topology.decodeTopicPayload topic (ProtoGc.renderGcReapedEvent linuxEnvelope)
+                    @?= Right linuxEnvelope
+                  case Topology.decodeTopicPayload topic (ProtoGc.renderGcReapedEvent cudaEnvelope) of
+                    Left _ -> pure ()
+                    Right decoded ->
+                      assertFailure
+                        ("cross-lane GC event unexpectedly decoded as " <> show decoded)
           ]
       , -- Sprint 13.13 — minimal RFC 6455 WebSocket primitives.
         testGroup
@@ -4106,11 +5487,48 @@ main =
           [ testCase "trpoSurrogate is -mean(ratio * advantage)" $
               -- ratio = exp(0) = 1, adv = 1, term = 1, mean = 1, loss = -1
               TrpoLoss.trpoSurrogate [0.0] [0.0] [1.0] @?= (-1.0)
-          , testCase "trpoKlConstraintSatisfied accepts step within delta" $ do
-              -- KL = mean(old - new) = mean(0 - 0) = 0 ≤ 0.01
-              TrpoLoss.trpoKlConstraintSatisfied 0.01 [0.0] [0.0] @?= True
-              -- KL = mean(0 - (-1)) = 1 > 0.01
-              TrpoLoss.trpoKlConstraintSatisfied 0.01 [0.0] [-1.0] @?= False
+          , testCase "categorical KL uses every action probability" $ do
+              let actual =
+                    TrpoLoss.categoricalKlDivergence
+                      [[0.5, 0.5]]
+                      [[0.75, 0.25]]
+                  expected = 0.14384103622589042
+              assertBool ("unexpected exact KL: " <> show actual) (abs (actual - expected) < 1.0e-15)
+          , testCase "categorical KL handles legal-action masks and ignores zero old mass" $ do
+              let maskedKl =
+                    TrpoLoss.categoricalKlDivergence
+                      [[0.0, 0.2, 0.8]]
+                      [[0.0, 1.0 / 3.0, 2.0 / 3.0]]
+                  expected = 0.04369212068196553
+                  oldWithTwoIllegal = [[0.2, 0.0, 0.0, 0.8]]
+                  illegalMassA = [[0.3, 0.1, 0.0, 0.6]]
+                  illegalMassB = [[0.3, 0.0, 0.1, 0.6]]
+              assertBool ("unexpected masked exact KL: " <> show maskedKl) (abs (maskedKl - expected) < 1.0e-15)
+              TrpoLoss.categoricalKlDivergence oldWithTwoIllegal illegalMassA
+                @?= TrpoLoss.categoricalKlDivergence oldWithTwoIllegal illegalMassB
+          , testCase "TRPO KL and surrogate validation fail closed" $ do
+              let nan = 0.0 / 0.0
+                  infinity = 1.0 / 0.0
+                  rejectedConstraints =
+                    [ TrpoLoss.trpoKlConstraintSatisfied 0.01 [] []
+                    , TrpoLoss.trpoKlConstraintSatisfied 0.01 [[0.5, 0.5]] []
+                    , TrpoLoss.trpoKlConstraintSatisfied 0.01 [[0.5, 0.5]] [[1.0]]
+                    , TrpoLoss.trpoKlConstraintSatisfied 0.01 [[0.5, 0.5]] [[1.0, 0.0]]
+                    , TrpoLoss.trpoKlConstraintSatisfied 0.01 [[0.5, 0.5]] [[nan, 0.5]]
+                    , TrpoLoss.trpoKlConstraintSatisfied infinity [[0.5, 0.5]] [[0.5, 0.5]]
+                    , TrpoLoss.trpoKlConstraintSatisfied 0.01 [[0.0, 0.0]] [[0.0, 0.0]]
+                    ]
+                  rejectedSurrogates =
+                    [ TrpoLoss.trpoSurrogate [] [] []
+                    , TrpoLoss.trpoSurrogate [0.0] [] [1.0]
+                    , TrpoLoss.trpoSurrogate [0.0] [nan] [1.0]
+                    , TrpoLoss.trpoSurrogate [0.0] [infinity] [1.0]
+                    ]
+              assertBool "malformed/non-finite KL input was accepted" (not (or rejectedConstraints))
+              assertBool "malformed/non-finite surrogate did not fail closed" (all isInfinite rejectedSurrogates)
+          , testCase "trpoKlConstraintSatisfied applies the exact categorical threshold" $ do
+              TrpoLoss.trpoKlConstraintSatisfied 0.15 [[0.5, 0.5]] [[0.75, 0.25]] @?= True
+              TrpoLoss.trpoKlConstraintSatisfied 0.10 [[0.5, 0.5]] [[0.75, 0.25]] @?= False
           ]
       , -- Sprint 13.8 — MaskablePPO action masking.
         testGroup
@@ -4321,6 +5739,460 @@ main =
               resultB <- PpoTrainer.trainPpoOnCartpole smallConfig
               fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultA)
                 @?= fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultB)
+          , testCase "TRPO defaults match the catalog trust-region target" $ do
+              PpoTrainer.ppoKlTarget PpoTrainer.defaultPpoTrainConfig @?= 0.01
+              PpoTrainer.ppoTrpoCriticUpdates PpoTrainer.defaultPpoTrainConfig @?= 10
+              PpoTrainer.ppoTrpoCriticLearningRate PpoTrainer.defaultPpoTrainConfig @?= 1.0e-3
+              fmap
+                AlgorithmCommon.hyperValue
+                ( find
+                    ((== "max-kl") . AlgorithmCommon.hyperName)
+                    Trpo.trpoHyperparameters
+                )
+                @?= Just "0.01"
+              fmap
+                AlgorithmCommon.hyperValue
+                ( find
+                    ((== "cg-damping") . AlgorithmCommon.hyperName)
+                    Trpo.trpoHyperparameters
+                )
+                @?= Just "0.1"
+              fmap
+                AlgorithmCommon.hyperValue
+                ( find
+                    ((== "critic-updates") . AlgorithmCommon.hyperName)
+                    Trpo.trpoHyperparameters
+                )
+                @?= Just "10"
+              fmap
+                AlgorithmCommon.hyperValue
+                ( find
+                    ((== "value-learning-rate") . AlgorithmCommon.hyperName)
+                    Trpo.trpoHyperparameters
+                )
+                @?= Just "0.001"
+          , testCase "pure TRPO ignores PPO epochs and performs configured critic passes" $ do
+              let config =
+                    PpoTrainer.defaultPpoTrainConfig
+                      { PpoTrainer.ppoHiddenUnits = 4
+                      , PpoTrainer.ppoActionCount = 2
+                      , PpoTrainer.ppoObsSize = 4
+                      , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
+                      }
+                  params = PpoTrainer.initialPpoParams config
+                  adam = Mlp.adamInit (Mlp.MlpShape 4 4 3)
+                  observationRows =
+                    [ ([0.0, 0.0, 0.0, 0.0], 0, 1.0)
+                    , ([0.2, -0.1, 0.3, -0.2], 1, -0.5)
+                    , ([-0.4, 0.1, -0.2, 0.5], 0, 0.75)
+                    , ([0.6, -0.3, 0.2, -0.1], 1, -1.25)
+                    ]
+                  batch = fmap (mkTrpoStep config params) observationRows
+                  oneEpoch = config {PpoTrainer.ppoEpochsPerUpdate = 1}
+                  manyEpochs = config {PpoTrainer.ppoEpochsPerUpdate = 17}
+                  resultOne@(paramsOne, adamOne) = PpoTrainer.ppoUpdate oneEpoch params adam batch
+                  resultMany = PpoTrainer.ppoUpdate manyEpochs params adam batch
+              resultMany @?= resultOne
+              Mlp.adamStep_ adamOne
+                @?= PpoTrainer.ppoTrpoCriticUpdates config
+              assertBool "TRPO update was vacuous" (paramsOne /= params)
+          , testCase "TRPO critic passes recompute finite gradients and reduce value MSE" $ do
+              let config =
+                    smallTrpoConfig
+                      { PpoTrainer.ppoMiniBatchSize = 2
+                      , PpoTrainer.ppoTrpoCriticUpdates = 10
+                      , PpoTrainer.ppoTrpoCriticLearningRate = 0.01
+                      }
+                  params = PpoTrainer.initialPpoParams config
+                  adam = Mlp.adamInit (Mlp.paramShape params)
+                  rows =
+                    [ ([0.0, 0.0, 0.0, 0.0], 0, 0.8)
+                    , ([0.2, -0.1, 0.3, -0.2], 1, -0.6)
+                    , ([-0.4, 0.1, -0.2, 0.5], 0, 0.4)
+                    , ([0.6, -0.3, 0.2, -0.1], 1, -0.2)
+                    ]
+                  batch =
+                    [ let (step, _, _) = mkTrpoStep config params (observation, action, 0.0)
+                       in (step, 0.0, target)
+                    | (observation, action, target) <- rows
+                    ]
+                  initialMse = trpoValueMse config params batch
+                  result@(updated, updatedAdam) = PpoTrainer.ppoUpdate config params adam batch
+                  repeated = PpoTrainer.ppoUpdate config params adam batch
+                  finalMse = trpoValueMse config updated batch
+              repeated @?= result
+              Mlp.adamStep_ updatedAdam @?= 20
+              assertBool "TRPO critic produced non-finite value MSE" (not (isNaN finalMse || isInfinite finalMse))
+              assertBool
+                ("TRPO critic did not reduce value MSE: " <> show initialMse <> " -> " <> show finalMse)
+                (finalMse < initialMse)
+          , testCase "TRPO rejects invalid critic fitting configuration and Adam variance" $ do
+              let params = PpoTrainer.initialPpoParams smallTrpoConfig
+                  adam = Mlp.adamInit (Mlp.paramShape params)
+                  sample@(step, advantage, target) =
+                    mkTrpoStep smallTrpoConfig params ([0.2, -0.1, 0.3, -0.4], 0, 1.0)
+                  batch = [sample]
+                  invalidConfigs =
+                    [ smallTrpoConfig {PpoTrainer.ppoTrpoCriticUpdates = 0}
+                    , smallTrpoConfig {PpoTrainer.ppoMiniBatchSize = 0}
+                    , smallTrpoConfig {PpoTrainer.ppoTrpoCriticLearningRate = 0.0}
+                    ]
+                  negativeVariance =
+                    adam
+                      { Mlp.adamV = constantGradientLike params (-0.1)
+                      }
+                  staleBatch =
+                    [
+                      ( step
+                          { PpoTrainer.rsPolicy = Data.Vector.Unboxed.fromList [0.9, 0.1]
+                          , PpoTrainer.rsLogProb = log 0.9
+                          }
+                      , advantage
+                      , target
+                      )
+                    ]
+              map
+                (\config -> PpoTrainer.ppoUpdate config params adam batch)
+                invalidConfigs
+                @?= replicate (length invalidConfigs) (params, adam)
+              PpoTrainer.trpoCriticStep
+                smallTrpoConfig
+                params
+                negativeVariance
+                (constantGradientLike params 0.25)
+                @?= (params, negativeVariance)
+              PpoTrainer.ppoUpdate smallTrpoConfig params adam staleBatch
+                @?= (params, adam)
+          , testCase "device TRPO ignores PPO epochs" $ do
+              let runWithEpochs epochs = do
+                    gradientCalls <- newIORef (0 :: Int)
+                    let referenceBatchGradient = mlpdBatchGradient pureReferenceMlpDevice
+                        countingDevice =
+                          pureReferenceMlpDevice
+                            { mlpdBatchGradient = \params batch -> do
+                                modifyIORef' gradientCalls (+ 1)
+                                referenceBatchGradient params batch
+                            }
+                        smallConfig =
+                          PpoTrainer.defaultPpoTrainConfig
+                            { PpoTrainer.ppoSeed = 29
+                            , PpoTrainer.ppoHiddenUnits = 4
+                            , PpoTrainer.ppoVectorEnvCount = 1
+                            , PpoTrainer.ppoRolloutSteps = 4
+                            , PpoTrainer.ppoNumIterations = 1
+                            , PpoTrainer.ppoEpochsPerUpdate = epochs
+                            , PpoTrainer.ppoMiniBatchSize = 4
+                            , PpoTrainer.ppoMaxEpisodeSteps = 10
+                            , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
+                            }
+                    result <-
+                      PpoTrainer.trainOnPolicyOnDeviceWithEnvironment
+                        countingDevice
+                        (Sim.SomeSimulatedEnvironment Sim.cartPoleEnvironment)
+                        PpoTrainer.VariantTRPO
+                        smallConfig
+                    calls <- readIORef gradientCalls
+                    pure (calls, fmap PpoTrainer.resultFinalParams result)
+              oneEpoch <- runWithEpochs 1
+              manyEpochs <- runWithEpochs 17
+              oneEpoch @?= manyEpochs
+          , testCase "device TRPO recomputes every critic minibatch and matches the pure reference" $ do
+              let config =
+                    smallTrpoConfig
+                      { PpoTrainer.ppoMiniBatchSize = 2
+                      , PpoTrainer.ppoTrpoCriticUpdates = 3
+                      , PpoTrainer.ppoTrpoCriticLearningRate = 0.01
+                      }
+                  params = PpoTrainer.initialPpoParams config
+                  adam = Mlp.adamInit (Mlp.paramShape params)
+                  rows =
+                    [ ([0.0, 0.0, 0.0, 0.0], 0, 10.0)
+                    , ([0.2, -0.1, 0.3, -0.2], 1, -10.0)
+                    , ([-0.4, 0.1, -0.2, 0.5], 0, 8.0)
+                    , ([0.6, -0.3, 0.2, -0.1], 1, -8.0)
+                    ]
+                  batch =
+                    [ let (step, _, _) = mkTrpoStep config params (observation, action, 0.0)
+                       in (step, 0.0, target)
+                    | (observation, action, target) <- rows
+                    ]
+                  actionCount = PpoTrainer.ppoActionCount config
+                  expectedCriticCalls =
+                    PpoTrainer.ppoTrpoCriticUpdates config
+                      * ( (length batch + PpoTrainer.ppoMiniBatchSize config - 1)
+                            `div` PpoTrainer.ppoMiniBatchSize config
+                        )
+                  referenceGradient = mlpdBatchGradient pureReferenceMlpDevice
+              kindsRef <- newIORef ([] :: [Text])
+              criticParamsRef <- newIORef ([] :: [Mlp.MlpParams])
+              let recordingDevice =
+                    pureReferenceMlpDevice
+                      { mlpdBatchGradient = \current pairs -> do
+                          let kind = trpoGradientCallKind actionCount pairs
+                          modifyIORef' kindsRef (<> [kind])
+                          Control.Monad.when (kind == "critic") $
+                            modifyIORef' criticParamsRef (<> [current])
+                          referenceGradient current pairs
+                      }
+                  expected = PpoTrainer.ppoUpdate config params adam batch
+              actual <-
+                PpoTrainer.ppoUpdateDevice recordingDevice config params adam batch
+              actual @?= Right expected
+              case actual of
+                Left err -> assertFailure (Text.unpack err)
+                Right (_, actualAdam) -> Mlp.adamStep_ actualAdam @?= expectedCriticCalls
+              kinds <- readIORef kindsRef
+              criticSnapshots <- readIORef criticParamsRef
+              length (filter (== "actor-or-fisher") kinds) @?= 1
+              length (filter (== "critic") kinds) @?= expectedCriticCalls
+              assertBool
+                "unexpected mixed or malformed TRPO gradient call"
+                (all (`elem` ["actor-or-fisher", "critic"]) kinds)
+              assertBool
+                "critic callback did not receive freshly updated parameters"
+                ( and
+                    ( zipWith
+                        (\before after -> maxParameterDifference before after > 0.0)
+                        criticSnapshots
+                        ( case criticSnapshots of
+                            [] -> []
+                            _ : remainingSnapshots -> remainingSnapshots
+                        )
+                    )
+                )
+          , testCase "device TRPO propagates an injected mid-critic failure" $ do
+              let config =
+                    smallTrpoConfig
+                      { PpoTrainer.ppoMiniBatchSize = 2
+                      , PpoTrainer.ppoTrpoCriticUpdates = 3
+                      , PpoTrainer.ppoTrpoCriticLearningRate = 0.01
+                      }
+                  params = PpoTrainer.initialPpoParams config
+                  adam = Mlp.adamInit (Mlp.paramShape params)
+                  rows =
+                    [ ([0.0, 0.0, 0.0, 0.0], 0, 1.0, 10.0)
+                    , ([0.2, -0.1, 0.3, -0.2], 1, -0.5, -10.0)
+                    , ([-0.4, 0.1, -0.2, 0.5], 0, 0.75, 8.0)
+                    , ([0.6, -0.3, 0.2, -0.1], 1, -1.25, -8.0)
+                    ]
+                  batch =
+                    [ let (step, _, _) = mkTrpoStep config params (observation, action, advantage)
+                       in (step, advantage, target)
+                    | (observation, action, advantage, target) <- rows
+                    ]
+                  actionCount = PpoTrainer.ppoActionCount config
+                  referenceGradient = mlpdBatchGradient pureReferenceMlpDevice
+              kindsRef <- newIORef ([] :: [Text])
+              criticCallsRef <- newIORef (0 :: Int)
+              let failingDevice =
+                    pureReferenceMlpDevice
+                      { mlpdBatchGradient = \current pairs -> do
+                          let kind = trpoGradientCallKind actionCount pairs
+                          modifyIORef' kindsRef (<> [kind])
+                          if kind == "critic"
+                            then do
+                              modifyIORef' criticCallsRef (+ 1)
+                              call <- readIORef criticCallsRef
+                              if call == 3
+                                then pure (Left "injected TRPO mid-critic failure")
+                                else referenceGradient current pairs
+                            else referenceGradient current pairs
+                      }
+              assertLeftContains
+                "injected TRPO mid-critic failure"
+                (PpoTrainer.ppoUpdateDevice failingDevice config params adam batch)
+              criticCalls <- readIORef criticCallsRef
+              kinds <- readIORef kindsRef
+              criticCalls @?= 3
+              assertBool
+                "test did not exercise actor Fisher calls"
+                (length (filter (== "actor-or-fisher") kinds) > 1)
+              assertBool
+                "unexpected mixed or malformed TRPO gradient call"
+                (all (`elem` ["actor-or-fisher", "critic"]) kinds)
+          , testCase "TRPO critic preserves every actor parameter despite stale Adam moments" $ do
+              let config =
+                    PpoTrainer.defaultPpoTrainConfig
+                      { PpoTrainer.ppoHiddenUnits = 4
+                      , PpoTrainer.ppoActionCount = 2
+                      , PpoTrainer.ppoObsSize = 4
+                      , PpoTrainer.ppoLearningRate = 0.01
+                      , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
+                      }
+                  params = PpoTrainer.initialPpoParams config
+                  fullGradient = constantGradientLike params 0.25
+                  staleAdam =
+                    Mlp.AdamState
+                      { Mlp.adamStep_ = 7
+                      , Mlp.adamM = constantGradientLike params 0.4
+                      , Mlp.adamV = constantGradientLike params 0.3
+                      }
+                  (updated, updatedAdam) =
+                    PpoTrainer.trpoCriticStep config params staleAdam fullGradient
+                  hiddenCount = 4
+                  policyWeightCount = 2 * hiddenCount
+                  observation = Data.Vector.Unboxed.fromList [0.2, -0.1, 0.3, -0.4]
+                  oldPolicy =
+                    Mlp.pvPolicy
+                      (Mlp.policyValueForwardWith Mlp.LinearValueHead params 2 observation)
+                  newPolicy =
+                    Mlp.pvPolicy
+                      (Mlp.policyValueForwardWith Mlp.LinearValueHead updated 2 observation)
+                  actorMomentsZero moment =
+                    Data.Vector.Unboxed.all (== 0.0) (Mlp.gradW1 moment)
+                      && Data.Vector.Unboxed.all (== 0.0) (Mlp.gradB1 moment)
+                      && Data.Vector.Unboxed.all (== 0.0) (Data.Vector.Unboxed.take policyWeightCount (Mlp.gradW2 moment))
+                      && Data.Vector.Unboxed.all (== 0.0) (Data.Vector.Unboxed.take 2 (Mlp.gradB2 moment))
+              Mlp.paramW1 updated @?= Mlp.paramW1 params
+              Mlp.paramB1 updated @?= Mlp.paramB1 params
+              Data.Vector.Unboxed.take policyWeightCount (Mlp.paramW2 updated)
+                @?= Data.Vector.Unboxed.take policyWeightCount (Mlp.paramW2 params)
+              Data.Vector.Unboxed.take 2 (Mlp.paramB2 updated)
+                @?= Data.Vector.Unboxed.take 2 (Mlp.paramB2 params)
+              newPolicy @?= oldPolicy
+              assertBool
+                "critic did not update its value-only row/bias"
+                ( Data.Vector.Unboxed.drop policyWeightCount (Mlp.paramW2 updated)
+                    /= Data.Vector.Unboxed.drop policyWeightCount (Mlp.paramW2 params)
+                    || Data.Vector.Unboxed.drop 2 (Mlp.paramB2 updated)
+                      /= Data.Vector.Unboxed.drop 2 (Mlp.paramB2 params)
+                )
+              assertBool "critic left actor first moments populated" (actorMomentsZero (Mlp.adamM updatedAdam))
+              assertBool "critic left actor second moments populated" (actorMomentsZero (Mlp.adamV updatedAdam))
+          , testCase "TRPO line search accepts only a strict finite-KL improvement and otherwise rolls back" $ do
+              let config = smallTrpoConfig
+                  params = PpoTrainer.initialPpoParams config
+                  adam = Mlp.adamInit (Mlp.paramShape params)
+                  batch = [mkTrpoStep config params ([0.2, -0.1, 0.3, -0.4], 0, 1.0)]
+                  direction = policyBiasGradient config batch params
+                  (accepted, _) =
+                    PpoTrainer.trpoLineSearchUpdate config batch params adam direction
+                  zeroAdvantage = [(step, 0.0, target) | (step, _, target) <- batch]
+                  (strictRollback, _) =
+                    PpoTrainer.trpoLineSearchUpdate config zeroAdvantage params adam direction
+                  staleBatch =
+                    [ ( step
+                          { PpoTrainer.rsPolicy = Data.Vector.Unboxed.fromList [0.9, 0.1]
+                          , PpoTrainer.rsLogProb = log 0.9
+                          }
+                      , advantage
+                      , target
+                      )
+                    | (step, advantage, target) <- batch
+                    ]
+                  (staleRollback, _) =
+                    PpoTrainer.trpoLineSearchUpdate config staleBatch params adam direction
+                  oldPolicies = trpoPolicies batch
+                  acceptedPolicies = trpoPoliciesAt config accepted batch
+                  oldLogProbs = [PpoTrainer.rsLogProb step | (step, _, _) <- batch]
+                  acceptedLogProbs = selectedLogProbs config accepted batch
+                  advantages = [advantage | (_, advantage, _) <- batch]
+                  exactKl =
+                    TrpoLoss.categoricalKlDivergence oldPolicies acceptedPolicies
+                  oldLoss = TrpoLoss.trpoSurrogate oldLogProbs oldLogProbs advantages
+                  acceptedLoss = TrpoLoss.trpoSurrogate oldLogProbs acceptedLogProbs advantages
+              assertBool "valid TRPO direction was not accepted" (accepted /= params)
+              assertBool "accepted TRPO KL was non-finite" (not (isNaN exactKl || isInfinite exactKl))
+              assertBool "accepted TRPO KL exceeded its target" (exactKl <= PpoTrainer.ppoKlTarget config)
+              assertBool "accepted TRPO surrogate was not a strict improvement" (acceptedLoss < oldLoss)
+              strictRollback @?= params
+              staleRollback @?= params
+          , testCase "TRPO Fisher is advantage-independent, PSD, and matches finite-difference KL curvature" $ do
+              let config = smallTrpoConfig {PpoTrainer.ppoTrpoCgDamping = 0.0}
+                  params = PpoTrainer.initialPpoParams config
+                  rows =
+                    [ ([0.0, 0.0, 0.0, 0.0], 0, 1.0)
+                    , ([0.2, -0.1, 0.3, -0.2], 1, -0.5)
+                    , ([-0.4, 0.1, -0.2, 0.5], 0, 0.75)
+                    ]
+                  batch = fmap (mkTrpoStep config params) rows
+                  differentAdvantages =
+                    [(step, advantage * 100.0 - 17.0, target) | (step, advantage, target) <- batch]
+                  direction = deterministicGradientLike params
+                  productA =
+                    PpoTrainer.trpoFisherVectorProduct config batch params direction
+                  productB =
+                    PpoTrainer.trpoFisherVectorProduct config differentAdvantages params direction
+                  curvature = gradientDotForTest direction productA
+                  epsilon = 1.0e-4
+                  plusParams = addGradientToParams epsilon direction params
+                  minusParams = addGradientToParams (-epsilon) direction params
+                  oldPolicies = trpoPolicies batch
+                  plusKl =
+                    TrpoLoss.categoricalKlDivergence oldPolicies (trpoPoliciesAt config plusParams batch)
+                  minusKl =
+                    TrpoLoss.categoricalKlDivergence oldPolicies (trpoPoliciesAt config minusParams batch)
+                  finiteDifferenceCurvature = (plusKl + minusKl) / (epsilon * epsilon)
+              productB @?= productA
+              assertBool "TRPO Fisher product contains a non-finite value" (gradientAllFinite productA)
+              assertBool ("TRPO Fisher curvature was negative: " <> show curvature) (curvature >= -1.0e-12)
+              assertBool
+                ( "TRPO Fisher/finite-difference curvature mismatch: analytic="
+                    <> show curvature
+                    <> " finite-difference="
+                    <> show finiteDifferenceCurvature
+                )
+                (abs (curvature - finiteDifferenceCurvature) < 1.0e-5)
+          , testCase "device TRPO CG truncates late curvature loss but rejects an invalid first direction" $ do
+              let params = PpoTrainer.initialPpoParams smallTrpoConfig
+                  rhs = deterministicGradientLike params
+              fisherCalls <- newIORef (0 :: Int)
+              let finitePrecisionFisher direction = do
+                    modifyIORef' fisherCalls (+ 1)
+                    call <- readIORef fisherCalls
+                    pure . Right $
+                      if call == 2
+                        then mapGradientForTest negate direction
+                        else positiveDiagonalGradientForTest direction
+              truncated <-
+                PpoTrainer.conjugateGradientSolveDevice
+                  10
+                  finitePrecisionFisher
+                  rhs
+              solution <- either (assertFailure . Text.unpack) pure truncated
+              calls <- readIORef fisherCalls
+              calls @?= 2
+              assertBool "truncated CG solution was non-finite" (gradientAllFinite solution)
+              assertBool
+                "truncated CG discarded its finite first iterate"
+                (gradientDotForTest solution solution > 0.0)
+              assertLeftContains
+                "curvature is not positive"
+                ( PpoTrainer.conjugateGradientSolveDevice
+                    10
+                    (pure . Right . mapGradientForTest negate)
+                    rhs
+                )
+          , testCase "device TRPO line search makes a non-vacuous safe move and fails closed" $ do
+              let config = smallTrpoConfig
+                  params = PpoTrainer.initialPpoParams config
+                  adam = Mlp.adamInit (Mlp.paramShape params)
+                  batch = [mkTrpoStep config params ([0.2, -0.1, 0.3, -0.4], 0, 1.0)]
+                  direction = policyBiasGradient config batch params
+                  (pureAccepted, _) =
+                    PpoTrainer.trpoLineSearchUpdate config batch params adam direction
+              actual <-
+                PpoTrainer.trpoLineSearchUpdateDevice
+                  pureReferenceMlpDevice
+                  config
+                  batch
+                  params
+                  direction
+              deviceAccepted <- either (assertFailure . Text.unpack) pure actual
+              assertBool "pure TRPO reference did not move" (pureAccepted /= params)
+              assertBool "device TRPO did not move" (deviceAccepted /= params)
+              assertBool
+                "pure/device TRPO line-search results diverged"
+                (maxParameterDifference pureAccepted deviceAccepted < 1.0e-5)
+              assertLeftContains
+                "TRPO device line-search forward failed"
+                ( PpoTrainer.trpoLineSearchUpdateDevice
+                    (failingForwardBatchDevice "TRPO device line-search forward failed")
+                    config
+                    batch
+                    params
+                    direction
+                )
           ]
       , testGroup
           "DQN trainer (Sprint 13.8 off-policy seam)"
@@ -5068,6 +6940,238 @@ failingInputGradientDevice message =
     { mlpdInputGradientBatch = \_ _ -> pure (Left message)
     }
 
+trpoGradientCallKind
+  :: Int
+  -> [(Data.Vector.Unboxed.Vector Double, Data.Vector.Unboxed.Vector Double)]
+  -> Text
+trpoGradientCallKind actionCount pairs
+  | null pairs = "malformed"
+  | any ((/= actionCount + 1) . Data.Vector.Unboxed.length . snd) pairs = "malformed"
+  | all ((== 0.0) . (Data.Vector.Unboxed.! actionCount) . snd) pairs =
+      "actor-or-fisher"
+  | all
+      ( Data.Vector.Unboxed.all (== 0.0)
+          . Data.Vector.Unboxed.take actionCount
+          . snd
+      )
+      pairs =
+      "critic"
+  | otherwise = "mixed"
+
+mkTrpoStep
+  :: PpoTrainer.PpoTrainConfig
+  -> Mlp.MlpParams
+  -> ([Double], Int, Double)
+  -> (PpoTrainer.RolloutStep, Double, Double)
+mkTrpoStep config params (observationValues, action, advantage) =
+  let observation = Data.Vector.Unboxed.fromList observationValues
+      output =
+        Mlp.policyValueForwardWith
+          Mlp.LinearValueHead
+          params
+          (PpoTrainer.ppoActionCount config)
+          observation
+      probability = Mlp.pvPolicy output Data.Vector.Unboxed.! action
+   in ( PpoTrainer.RolloutStep
+          { PpoTrainer.rsObs = observation
+          , PpoTrainer.rsAction = action
+          , PpoTrainer.rsLogProb = log probability
+          , PpoTrainer.rsValue = Mlp.pvValue output
+          , PpoTrainer.rsReward = 0.0
+          , PpoTrainer.rsDone = False
+          , PpoTrainer.rsPolicy = Mlp.pvPolicy output
+          , PpoTrainer.rsActionMask = Nothing
+          , PpoTrainer.rsRecurrentState = Data.Vector.Unboxed.empty
+          }
+      , advantage
+      , 0.0
+      )
+
+gradientVector :: Int -> Double -> Data.Vector.Unboxed.Vector Double
+gradientVector size scale =
+  Data.Vector.Unboxed.generate
+    size
+    (\index -> scale * fromIntegral ((index `mod` 7) - 3))
+
+smallTrpoConfig :: PpoTrainer.PpoTrainConfig
+smallTrpoConfig =
+  PpoTrainer.defaultPpoTrainConfig
+    { PpoTrainer.ppoSeed = 31
+    , PpoTrainer.ppoHiddenUnits = 4
+    , PpoTrainer.ppoActionCount = 2
+    , PpoTrainer.ppoObsSize = 4
+    , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
+    }
+
+constantGradientLike :: Mlp.MlpParams -> Double -> Mlp.MlpGradient
+constantGradientLike params value =
+  Mlp.MlpGradient
+    { Mlp.gradW1 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramW1 params)) value
+    , Mlp.gradB1 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramB1 params)) value
+    , Mlp.gradW2 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramW2 params)) value
+    , Mlp.gradB2 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramB2 params)) value
+    }
+
+deterministicGradientLike :: Mlp.MlpParams -> Mlp.MlpGradient
+deterministicGradientLike params =
+  Mlp.MlpGradient
+    { Mlp.gradW1 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramW1 params)) 0.01
+    , Mlp.gradB1 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramB1 params)) 0.02
+    , Mlp.gradW2 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramW2 params)) 0.015
+    , Mlp.gradB2 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramB2 params)) 0.025
+    }
+
+mapGradientForTest :: (Double -> Double) -> Mlp.MlpGradient -> Mlp.MlpGradient
+mapGradientForTest f gradient =
+  Mlp.MlpGradient
+    { Mlp.gradW1 = Data.Vector.Unboxed.map f (Mlp.gradW1 gradient)
+    , Mlp.gradB1 = Data.Vector.Unboxed.map f (Mlp.gradB1 gradient)
+    , Mlp.gradW2 = Data.Vector.Unboxed.map f (Mlp.gradW2 gradient)
+    , Mlp.gradB2 = Data.Vector.Unboxed.map f (Mlp.gradB2 gradient)
+    }
+
+positiveDiagonalGradientForTest :: Mlp.MlpGradient -> Mlp.MlpGradient
+positiveDiagonalGradientForTest gradient =
+  Mlp.MlpGradient
+    { Mlp.gradW1 = diagonal 0 (Mlp.gradW1 gradient)
+    , Mlp.gradB1 = diagonal 1 (Mlp.gradB1 gradient)
+    , Mlp.gradW2 = diagonal 2 (Mlp.gradW2 gradient)
+    , Mlp.gradB2 = diagonal 3 (Mlp.gradB2 gradient)
+    }
+ where
+  diagonal offset =
+    Data.Vector.Unboxed.imap
+      (\index value -> (1.0 + 0.25 * fromIntegral ((index + offset) `mod` 5)) * value)
+
+policyBiasGradient
+  :: PpoTrainer.PpoTrainConfig
+  -> [(PpoTrainer.RolloutStep, Double, Double)]
+  -> Mlp.MlpParams
+  -> Mlp.MlpGradient
+policyBiasGradient config batch params =
+  case batch of
+    [] -> constantGradientLike params 0.0
+    ((step, advantage, _) : _) ->
+      let actionCount = PpoTrainer.ppoActionCount config
+          action = PpoTrainer.rsAction step
+          policy = PpoTrainer.rsPolicy step
+          policyBias =
+            Data.Vector.Unboxed.generate
+              actionCount
+              ( \index ->
+                  let indicator = if index == action then 1.0 else 0.0
+                   in negate (advantage * (indicator - policy Data.Vector.Unboxed.! index))
+              )
+       in (constantGradientLike params 0.0)
+            { Mlp.gradB2 = policyBias Data.Vector.Unboxed.++ Data.Vector.Unboxed.singleton 0.0
+            }
+
+trpoPolicies :: [(PpoTrainer.RolloutStep, Double, Double)] -> [[Double]]
+trpoPolicies = fmap (Data.Vector.Unboxed.toList . PpoTrainer.rsPolicy . firstStep)
+ where
+  firstStep (step, _, _) = step
+
+trpoValueMse
+  :: PpoTrainer.PpoTrainConfig
+  -> Mlp.MlpParams
+  -> [(PpoTrainer.RolloutStep, Double, Double)]
+  -> Double
+trpoValueMse config params batch =
+  sum squaredErrors / fromIntegral (max 1 (length squaredErrors))
+ where
+  squaredErrors =
+    [ let predicted =
+            Mlp.pvValue
+              ( Mlp.policyValueForwardWith
+                  Mlp.LinearValueHead
+                  params
+                  (PpoTrainer.ppoActionCount config)
+                  (PpoTrainer.rsObs step)
+              )
+       in (predicted - target) ^ (2 :: Int)
+    | (step, _, target) <- batch
+    ]
+
+trpoPoliciesAt
+  :: PpoTrainer.PpoTrainConfig
+  -> Mlp.MlpParams
+  -> [(PpoTrainer.RolloutStep, Double, Double)]
+  -> [[Double]]
+trpoPoliciesAt config params =
+  fmap
+    ( \(step, _, _) ->
+        Data.Vector.Unboxed.toList
+          ( Mlp.pvPolicy
+              ( Mlp.policyValueForwardWith
+                  Mlp.LinearValueHead
+                  params
+                  (PpoTrainer.ppoActionCount config)
+                  (PpoTrainer.rsObs step)
+              )
+          )
+    )
+
+selectedLogProbs
+  :: PpoTrainer.PpoTrainConfig
+  -> Mlp.MlpParams
+  -> [(PpoTrainer.RolloutStep, Double, Double)]
+  -> [Double]
+selectedLogProbs config params =
+  fmap
+    ( \(step, _, _) ->
+        let policy =
+              Mlp.pvPolicy
+                ( Mlp.policyValueForwardWith
+                    Mlp.LinearValueHead
+                    params
+                    (PpoTrainer.ppoActionCount config)
+                    (PpoTrainer.rsObs step)
+                )
+         in log (policy Data.Vector.Unboxed.! PpoTrainer.rsAction step)
+    )
+
+gradientDotForTest :: Mlp.MlpGradient -> Mlp.MlpGradient -> Double
+gradientDotForTest left right =
+  Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradW1 left) (Mlp.gradW1 right))
+    + Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradB1 left) (Mlp.gradB1 right))
+    + Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradW2 left) (Mlp.gradW2 right))
+    + Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradB2 left) (Mlp.gradB2 right))
+
+gradientAllFinite :: Mlp.MlpGradient -> Bool
+gradientAllFinite gradient =
+  all
+    (Data.Vector.Unboxed.all (\value -> not (isNaN value || isInfinite value)))
+    [ Mlp.gradW1 gradient
+    , Mlp.gradB1 gradient
+    , Mlp.gradW2 gradient
+    , Mlp.gradB2 gradient
+    ]
+
+addGradientToParams :: Double -> Mlp.MlpGradient -> Mlp.MlpParams -> Mlp.MlpParams
+addGradientToParams scale gradient params =
+  params
+    { Mlp.paramW1 = addScaled (Mlp.paramW1 params) (Mlp.gradW1 gradient)
+    , Mlp.paramB1 = addScaled (Mlp.paramB1 params) (Mlp.gradB1 gradient)
+    , Mlp.paramW2 = addScaled (Mlp.paramW2 params) (Mlp.gradW2 gradient)
+    , Mlp.paramB2 = addScaled (Mlp.paramB2 params) (Mlp.gradB2 gradient)
+    }
+ where
+  addScaled =
+    Data.Vector.Unboxed.zipWith (\value change -> value + scale * change)
+
+maxParameterDifference :: Mlp.MlpParams -> Mlp.MlpParams -> Double
+maxParameterDifference left right =
+  maximum
+    ( 0.0
+        : concatMap
+          Data.Vector.Unboxed.toList
+          [ Data.Vector.Unboxed.zipWith (\a b -> abs (a - b)) (Mlp.paramW1 left) (Mlp.paramW1 right)
+          , Data.Vector.Unboxed.zipWith (\a b -> abs (a - b)) (Mlp.paramB1 left) (Mlp.paramB1 right)
+          , Data.Vector.Unboxed.zipWith (\a b -> abs (a - b)) (Mlp.paramW2 left) (Mlp.paramW2 right)
+          , Data.Vector.Unboxed.zipWith (\a b -> abs (a - b)) (Mlp.paramB2 left) (Mlp.paramB2 right)
+          ]
+    )
+
 fastDqnDeviceConfig :: DqnTrainer.DqnTrainConfig
 fastDqnDeviceConfig =
   DqnTrainer.defaultDqnTrainConfig
@@ -5174,13 +7278,33 @@ renderedRuntimeSourcePayload kernelSpec kind substrate =
       substrate
       Cache.defaultTuningChoice
 
-canonicalErrors :: [AppError]
-canonicalErrors =
+assertOutcomeField :: (Eq a, Show a) => String -> a -> a -> ProcessOutcome -> Assertion
+assertOutcomeField label expected actual outcome
+  | actual == expected = pure ()
+  | otherwise =
+      assertFailure
+        ( label
+            <> ": expected "
+            <> show expected
+            <> ", got "
+            <> show actual
+            <> " in:\n"
+            <> Text.unpack (renderProcessOutcome outcome)
+        )
+
+assertOutcomePredicate :: String -> Bool -> ProcessOutcome -> Assertion
+assertOutcomePredicate _ True _ = pure ()
+assertOutcomePredicate label False outcome =
+  assertFailure (label <> ":\n" <> Text.unpack (renderProcessOutcome outcome))
+
+canonicalErrors :: ProcessFailure -> [AppError]
+canonicalErrors fixtureProcessFailure =
   [ AppError.PrerequisiteUnmet
       "ghc-9.12.4"
       "GHC 9.12.4 is required."
       (Just "ghcup install ghc 9.12.4")
-  , AppError.SubprocessFailed "kubectl get pods" (ExitFailure 1) "kubectl failed"
+  , AppError.SubprocessFailed fixtureProcessFailure
+  , AppError.SubprocessAttemptFailed fixtureProcessAttemptFailure
   , AppError.MinIOFailed "bucket unavailable"
   , AppError.PulsarFailed "broker unavailable"
   , AppError.HarborFailed "registry unavailable"
@@ -5209,8 +7333,67 @@ canonicalErrors =
   , AppError.CheckpointWriteConflict "latest pointer etag changed"
   , AppError.InferenceCheckpointMissing "abc123"
   , AppError.InferenceManifestShaMismatch "abc123" "deadbeef"
+  , AppError.TrainingPrerequisiteUnmet "dataset staging is incomplete"
   , AppError.ReconcilerNoop "docs generate: no changes"
   ]
+
+fixtureProcessTranscript :: ProcessTranscript
+fixtureProcessTranscript =
+  ProcessTranscript
+    { processTranscriptCommand = "kubectl get pods"
+    , processTranscriptStdout = "pod-a Running\n"
+    , processTranscriptStderr = "kubectl failed"
+    , processTranscriptWorkingDirectory = Just "/work/jitML"
+    , processTranscriptDuration = ProcessDuration 125_000_000
+    }
+
+fixtureProcessAttemptFailure :: ProcessAttemptFailure
+fixtureProcessAttemptFailure =
+  ProcessAttemptFailure
+    { processAttemptFailureCommand = "docker run playwright"
+    , processAttemptFailureStdout = Nothing
+    , processAttemptFailureStderr = Nothing
+    , processAttemptFailureWorkingDirectory = Just "/work/jitML"
+    , processAttemptFailureDuration = ProcessDuration 25_000_000
+    , processAttemptFailureException = "docker: executable not found"
+    }
+
+scopeStep :: Text -> Text -> LivePlanStep
+scopeStep name commandLabel =
+  LivePlanStep
+    { livePlanStepName = name
+    , livePlanStepCommand = subprocess "scope-fixture" [commandLabel]
+    }
+
+plannedScopeTest :: Text -> Text -> LiveE2EScope.PlannedTestInvocation
+plannedScopeTest stanza commandLabel =
+  LiveE2EScope.PlannedTestInvocation
+    { LiveE2EScope.plannedTestStanza = stanza
+    , LiveE2EScope.plannedTestCommand = subprocess "scope-fixture" [commandLabel]
+    }
+
+successfulScopeOutcome :: Word64 -> LivePlanStep -> ProcessOutcome
+successfulScopeOutcome duration step =
+  processOutcome ExitSuccess (scopeTranscript duration step)
+
+failedScopeOutcome :: Int -> Word64 -> LivePlanStep -> ProcessOutcome
+failedScopeOutcome exitCode duration step =
+  processOutcome
+    (ExitFailure exitCode)
+    ( (scopeTranscript duration step)
+        { processTranscriptStderr = livePlanStepName step <> " failed\n"
+        }
+    )
+
+scopeTranscript :: Word64 -> LivePlanStep -> ProcessTranscript
+scopeTranscript duration step =
+  ProcessTranscript
+    { processTranscriptCommand = renderSubprocess (livePlanStepCommand step)
+    , processTranscriptStdout = livePlanStepName step <> " stdout\n"
+    , processTranscriptStderr = ""
+    , processTranscriptWorkingDirectory = Just "/work/jitML"
+    , processTranscriptDuration = ProcessDuration duration
+    }
 
 assertParseSuccess :: ([String], ParsedCommand) -> Assertion
 assertParseSuccess (args, expected) =
@@ -5219,10 +7402,8 @@ assertParseSuccess (args, expected) =
     Failure _ -> assertFailure ("parse failed for " <> show args)
     CompletionInvoked _ -> assertFailure ("completion invoked for " <> show args)
 
-data ScriptResult = ScriptResult
-  { scriptExit :: ExitCode
-  , scriptStdout :: String
-  , scriptStderr :: String
+newtype ScriptResult = ScriptResult
+  { scriptOutcome :: ProcessOutcome
   }
   deriving stock (Eq, Show)
 
@@ -5236,13 +7417,7 @@ runBootstrapScript pathPrefix script args = do
           , subprocessWorkingDirectory = Just "."
           , subprocessStdin = Nothing
           }
-  (exitCode, stdoutText, stderrText) <- runStreaming defaultSubprocessEnv process
-  pure
-    ScriptResult
-      { scriptExit = exitCode
-      , scriptStdout = Text.unpack stdoutText
-      , scriptStderr = Text.unpack stderrText
-      }
+  ScriptResult <$> runStreaming defaultSubprocessEnv process
  where
   commandDirArgs =
     case pathPrefix of
@@ -5278,6 +7453,36 @@ assertContains label needle haystack =
   assertBool
     (label <> " did not contain " <> show needle <> " in:\n" <> haystack)
     (needle `isInfixOf` haystack)
+
+data ScriptStream
+  = ScriptStdout
+  | ScriptStderr
+
+assertScriptExit :: String -> ExitCode -> ScriptResult -> Assertion
+assertScriptExit label expected (ScriptResult outcome) =
+  assertOutcomeField label expected (scriptOutcomeExitCode outcome) outcome
+
+assertScriptContains :: String -> ScriptStream -> String -> ScriptResult -> Assertion
+assertScriptContains label stream needle (ScriptResult outcome)
+  | needle `isInfixOf` scriptStreamText stream outcome = pure ()
+  | otherwise =
+      assertFailure
+        ( label
+            <> " did not contain "
+            <> show needle
+            <> " in:\n"
+            <> Text.unpack (renderProcessOutcome outcome)
+        )
+
+scriptOutcomeExitCode :: ProcessOutcome -> ExitCode
+scriptOutcomeExitCode (ProcessSucceeded _) = ExitSuccess
+scriptOutcomeExitCode (ProcessFailed failure) = processFailureExitCode failure
+
+scriptStreamText :: ScriptStream -> ProcessOutcome -> String
+scriptStreamText ScriptStdout (ProcessSucceeded transcript) = Text.unpack (processTranscriptStdout transcript)
+scriptStreamText ScriptStdout (ProcessFailed failure) = Text.unpack (processFailureStdout failure)
+scriptStreamText ScriptStderr (ProcessSucceeded transcript) = Text.unpack (processTranscriptStderr transcript)
+scriptStreamText ScriptStderr (ProcessFailed failure) = Text.unpack (processFailureStderr failure)
 
 xcodeSelectStub :: (FilePath, String)
 xcodeSelectStub =
@@ -5412,6 +7617,13 @@ dockerInfoFailureStub =
       , "exit 0"
       ]
   )
+
+withinUnitDeadline :: String -> IO value -> IO value
+withinUnitDeadline label action = do
+  completed <- timeout 5_000_000 action
+  case completed of
+    Just value -> pure value
+    Nothing -> assertFailure label >> error "unreachable"
 
 dockerWithNvidiaRuntimeStub :: (FilePath, String)
 dockerWithNvidiaRuntimeStub =

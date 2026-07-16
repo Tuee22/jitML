@@ -21,11 +21,25 @@
 > and the inference request/result protobuf byte contract. Sprint `10.6`
 > reopens this surface for architecture-aware model-family manifests,
 > preprocessing/output decoders, replay pointers, and no-caveat checkpoint
-> reload across every runtime family.
+> reload across every runtime family. Sprint `10.12` adds the canonical
+> supervised worker plan plus the versioned raw-to-refined completion and
+> completed-checkpoint boundary.
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-29; re-closed 2026-06-30 for Sprint `10.11`).
+✅ **Done** (reopened 2026-07-12; re-closed 2026-07-14 for Sprint
+`10.12`). Supervised command, Linux worker, and Apple host paths consume one
+canonical versioned `SupervisedPlan` and matching `PlanId`; the mounted
+`TrainingRunConfig` contains no primitive training budget. Completion and
+checkpoint bytes decode through versioned raw DTOs and pure refinement before
+they can produce hidden `CompletedTraining` / `CompletedCheckpoint` values.
+Candidate checkpoint events remain proof-free, while completed events carry a
+mandatory refined proof. Sprints `10.1`–`10.11` remain Done on their retained
+checkpoint and inference surfaces. Traditional-RL plan compilation remains a
+downstream Sprint `25.4` obligation, and the resource-safe live interpreter
+remains Sprint `12.16`; neither is a Phase `10` blocker.
+
+**Historical retained closure.** ✅ **Done** (reopened 2026-06-29; re-closed 2026-06-30 for Sprint `10.11`).
 Checkpoint manifests, readiness, TensorBoard metadata, and inference
 eligibility for fixed-budget trained artifacts remain historically validated,
 and local checkpoint object-key validation now returns typed failures before
@@ -174,7 +188,19 @@ inference and checkpoint comparison.
 
 ### Current Implementation Scope
 
-The worktree implements a `CheckpointManifest`, `TensorBlob`, optimizer/RNG
+The worktree implements the hidden, versioned `SupervisedPlan` boundary with
+positive epoch, training-example, evaluation-example, batch-example, and
+derived optimizer-update quantities. `TrainingRunConfig` carries only the
+canonical resolved transport, its `PlanId`, and the operational Pulsar
+endpoint; worker load re-refines the transport and rejects identity or
+canonicalization drift before effects. `TrainingBudget`, finite convergence
+measurements, passed criteria, `CompletedTraining`, and `CompletedCheckpoint`
+hide their proof constructors. Versioned completion/checkpoint DTOs are
+re-refined on decode, legacy manifests remain inspectable candidates without
+becoming inference eligible, and completed Training/RL/Tune protocol variants
+carry mandatory proof rather than `Maybe CompletedTraining`.
+
+The worktree also implements a `CheckpointManifest`, `TensorBlob`, optimizer/RNG
 blob metadata, split-blob object-key renderers, pointer-CAS decisions,
 `manifestPointer`, deterministic `encodeManifestCbor` / `decodeManifestCbor`
 / `manifestContentSha`, and binary `encodeJmw1` encoder with `JMW1` magic, CBOR
@@ -202,16 +228,15 @@ inline demo networks.
 
 ## Phase Summary
 
-This phase currently delivers the local checkpoint manifest, split-blob key,
-pointer-CAS, deterministic manifest CBOR, local write-once object store, latest
-pointer read path, and inference summary helpers. The target persistence layer
-still uses MinIO bucket `jitml-checkpoints`, write-once blobs, If-Match CAS
-pointers, and the split-blob `.jmw1` binary format; the standalone live MinIO
-capability path is available through `JitML.Service.MinIOSubprocess`, while the
-checkpoint store still needs live wiring. The live implementation proceeds
-storage-outward: conditional checkpoint writes/reads first, then
-inference from checkpoint, then training persistence, then tuning/resume
-semantics.
+This phase delivers the local and `HasMinIO` checkpoint manifest, split-blob
+keys, pointer CAS, deterministic versioned manifest CBOR, write-once object
+store, latest-pointer read path, weighted inference loaders, canonical
+supervised worker plan, and non-forgeable completion/checkpoint proof boundary.
+MinIO bucket `jitml-checkpoints` retains write-once blobs, If-Match CAS
+pointers, and the split-blob `.jmw1` binary format. Candidate and legacy
+manifests remain inspectable and resumable, but inference eligibility exists
+only as a refined `CompletedCheckpoint` whose plan identity, exact budget,
+finite passing measurements, training evidence, and manifest step agree.
 
 ## Sprint 10.1: Storage Layout and Split-Blob Schema ✅
 
@@ -707,8 +732,9 @@ validate` from [../README.md](../README.md).
 - **Landed and validated host-native.** `JitML.Work.Envelope` defines the
   `Work*` family (`WorkCommand`/`WorkEvent`/`WorkResult`/`WorkStatus`) correlated
   by `CallId`, the **parse-don't-validate** wire boundary (`parseWorkCommand` →
-  typed `WorkRejection`), and the producer-side `dedupByCallId` pure fold
-  (effectively-once). The **readiness gate** is enforced in the types: `ArtifactRef`
+  typed `WorkRejection`), and the producer-side `dedupByCallId` pure fold, which
+  suppresses duplicate semantic results without changing the broker's
+  at-least-once guarantee. The **readiness gate** is enforced in the types: `ArtifactRef`
   is opaque and obtainable only via `mintArtifactRef` (`Just` iff checkpoint
   manifest `step ≥ 1`), with `readinessSentinelKey` naming the `.ready` witness —
   so "infer over an untrained model" is unrepresentable (`parseWorkCommand Infer`
@@ -718,8 +744,9 @@ validate` from [../README.md](../README.md).
   inference run` CLI (`inferenceForSubstrate`), and the daemon consumer all route
   through it. The "Triplicated inference path" ledger row moved to `Completed`.
 - `cabal build lib:jitml` warning-clean (`-Wall`); `jitml-unit` **206 / 206**
-  (three new `Work*` cases: readiness gate, typed-rejection parse, effectively-once
-  dedup), `jitml-daemon-lifecycle` **35 / 35** (behavior-preserving).
+  (three new `Work*` cases: readiness gate, typed-rejection parse, and
+  call-ID semantic dedup), `jitml-daemon-lifecycle` **35 / 35**
+  (behavior-preserving).
 - **Container gates pass authoritatively.** `docker compose build jitml` exits `0`
   with the baked `jitml check-code` layer clean (fourmolu + hlint + warning-clean
   `-fcuda` build) on the full Phase `5`+`10` change set; and against the built
@@ -741,22 +768,28 @@ validate` from [../README.md](../README.md).
   demo panels and the CLI become thin publishers). Wiring the live
   coordinator-written `.ready` sentinel into the Engine readiness path (the pure
   gate + `ArtifactRef` minting are landed and tested) likewise lands with the
-  Coordinator-role serve path in Phase `15`.
+  Coordinator-role serve path in Sprint `12.16`.
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/checkpoint_format.md` — current local
+- `../documents/engineering/run_contract.md` — refined completion evidence and
+  completed-checkpoint contract.
+- `../documents/engineering/checkpoint_format.md` — current local
   `CheckpointManifest`, manifest CBOR codec/content hash, binary `.jmw1`
   encoder, manifest pointer, local checkpoint object store, `HasMinIO`
   snapshot writer, latest-pointer inference helper, and inference summary
   helper; target split-blob layout, live MinIO write protocols, typed advance
   predicates, retention reconciler, inference protobuf byte contract, and real
   inference-only read path.
-- `documents/engineering/determinism_contract.md` — same-substrate bit-
+- `../documents/engineering/training_metrics_and_splits.md` — supervised-plan
+  budget units, finite completion criteria, and measured-pass requirements.
+- `../documents/engineering/training_workloads.md` — canonical resolved-plan
+  transport and candidate-versus-completed workload events.
+- `../documents/engineering/determinism_contract.md` — same-substrate bit-
   equality contract, cross-substrate tolerance methodology, GC determinism.
-- `documents/engineering/daemon_architecture.md` — `InferenceHandler`
+- `../documents/engineering/daemon_architecture.md` — `InferenceHandler`
   lifecycle.
 
 **Product docs to create/update:**
@@ -985,6 +1018,88 @@ validation failures through typed command paths instead of `error`.
   passed **77 / 77**, including the spawned-binary `jitml internal gc
   ../escape` `InvalidConfig` regression and **19 / 19** `Live` cases.
 - `docker compose run --rm jitml jitml check-code` passed (`check-code: ok`).
+
+### Remaining Work
+
+- None.
+
+## Sprint 10.12: Refined Checkpoint and Completion Proofs [✅ Done]
+
+**Status**: Done (reopened 2026-07-12; re-closed 2026-07-14)
+**Implementation**: `src/JitML/Plan/{Plan,Workload,Command}.hs`,
+`src/JitML/Training/Budget.hs`,
+`src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`,
+`src/JitML/Proto/Training.hs`, `src/JitML/Proto/Rl.hs`,
+`src/JitML/Proto/Tune.hs`, `src/JitML/Service/{RunConfig,Workload}.hs`,
+`src/JitML/Run/WorkloadContract.hs`, `src/JitML/App.hs`,
+`test/unit/{Main,ProtocolCodec}.hs`
+**Docs to update**: `README.md`, `00-overview.md`, `../README.md`,
+`../documents/engineering/checkpoint_format.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make completion and checkpoint eligibility proof-bearing values that can be
+created only by refining raw data against a validated plan and passing measured
+criteria. Make supervised workers consume the same canonical resolved plan and
+`PlanId` produced by the command boundary, without reconstructing primitive
+budgets. This sprint owns the supervised-plan portion of
+[Exit Definition](README.md#exit-definition) item `30` and the
+checkpoint/completion portion of item `31`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Define the resolved supervised plan with positive, unit-indexed training and
+  evaluation budgets, canonical versioned transport, and derived `PlanId`.
+- Serialize only that plan and identity into `TrainingRunConfig`; re-refine at
+  worker load and reject missing, malformed, non-canonical, version-incompatible,
+  or identity-mismatched transports before effects.
+- Retire primitive supervised worker fields and command/Dhall reinterpretation
+  once all local, Linux worker, and Apple host paths consume the resolved plan.
+- Decode versioned raw checkpoint and completion DTOs, then re-run smart
+  constructors; generic deserialization cannot mint proof values directly.
+- Replace redundant `goal`, optional threshold, and stored `passed` fields with
+  a typed criterion plus a finite measurement; a hidden `PassedMeasurement`
+  constructor is produced only by evaluation.
+- Require a non-empty collection of passing measured criteria and exact
+  plan-budget completion before constructing `CompletedTraining`.
+- Split candidate/partial checkpoint events from completed checkpoint events;
+  remove terminal events that carry `Maybe CompletedTraining`.
+- Keep raw manifests inspectable and resumable while inference eligibility
+  accepts only the refined completed-checkpoint type.
+- Add corrupt-CBOR, non-finite, unit-mismatch, incomplete-budget, missing-
+  criterion, and forged-pass regressions.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
+docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu
+docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Validation Evidence (2026-07-14)
+
+- `jitml-unit --linux-cpu` passed **411 / 411** in **37.11s**; its focused
+  `ProtocolCodec` group passed **12 / 12**.
+- `jitml-sl-canonicals --linux-cpu` passed **31 / 31** in **286.64s**.
+- `jitml-rl-canonicals --linux-cpu` passed **40 / 40** in **224.50s**.
+- `jitml-hyperparameter --linux-cpu` passed **21 / 21** in **0.23s**.
+- The rebuilt `jitml:local` image passed its embedded strict build and
+  `check-code`; the public container gates then passed with `docs check: ok`
+  and `check-code: ok`.
+- Rule-M deterministic scans found **0** backward dependency edges across 45
+  formal references, **0** dual-accelerator gates across 284 validation
+  sections, and **0** accelerator invocations across the 20 validation
+  sections in aggregation phases `17`, `18`, and `31`.
 
 ### Remaining Work
 

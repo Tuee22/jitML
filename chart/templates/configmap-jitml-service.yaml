@@ -17,10 +17,38 @@ data:
     , webappPulsarWsUrl = None Text
     }
   LiveConfig.dhall: |
-    { logLevel = Info
-    , retryPolicy = ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
+    { logLevel = < Debug | Info | Warn | Error >.Info
+    , retryPolicy = < Once | LinearN : { attempts : Natural, delayMillis : Natural } | ExponentialN : { attempts : Natural, baseMillis : Natural, capMillis : Natural } | RetryUntil : { deadlineMillis : Natural } >.ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
     , inferenceBatchSize = 64
-    , inferenceMaxLatencyMillis = 25
+    , inferenceMaxLatencyMillis = 5000
+    , dedupCacheSize = 4096
+    , dedupCacheTtlSeconds = 3600
+    , drainDeadlineSeconds = 30
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jitml-coordinator-config
+  namespace: platform
+data:
+  BootConfig.dhall: |
+    { activeRole = < Engine | Coordinator | Webapp >.Coordinator
+    , substrate = "linux-cpu"
+    , residency = < Cluster | Host >.Cluster
+    , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
+    , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
+    , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
+    , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
+    , harborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
+    , httpListener = Some { host = "0.0.0.0", port = 8080 }
+    , webappPulsarWsUrl = None Text
+    }
+  LiveConfig.dhall: |
+    { logLevel = < Debug | Info | Warn | Error >.Info
+    , retryPolicy = < Once | LinearN : { attempts : Natural, delayMillis : Natural } | ExponentialN : { attempts : Natural, baseMillis : Natural, capMillis : Natural } | RetryUntil : { deadlineMillis : Natural } >.ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
+    , inferenceBatchSize = 64
+    , inferenceMaxLatencyMillis = 5000
     , dedupCacheSize = 4096
     , dedupCacheTtlSeconds = 3600
     , drainDeadlineSeconds = 30

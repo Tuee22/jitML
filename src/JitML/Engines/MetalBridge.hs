@@ -2,9 +2,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Engines.MetalBridge
-  ( fixedMetalBridgePathCandidates
+  ( MetalBridgeInstallError (..)
+  , fixedMetalBridgePathCandidates
   , installFixedMetalBridge
   , probeFixedMetalBridge
+  , renderMetalBridgeInstallError
   , runMetalMlpBackward
   , runMetalMlpBatchGradient
   , runMetalMlpForward
@@ -26,11 +28,15 @@ import Foreign.Ptr (FunPtr, Ptr, nullPtr)
 import Foreign.Storable (peekElemOff, poke)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (lookupEnv)
-import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.Info qualified as SystemInfo
 import System.Posix.DynamicLinker (RTLDFlags (RTLD_NOW), dlsym, withDL)
 
+import JitML.Sub.Outcome
+  ( ProcessFailure
+  , ProcessOutcome (..)
+  , renderProcessFailure
+  )
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 
@@ -174,14 +180,20 @@ fixedMetalBridgePathCandidates = do
          , ".build/host/apple-silicon/libjitml-metal-bridge.dylib"
          ]
 
-installFixedMetalBridge :: IO (Either Text FilePath)
+data MetalBridgeInstallError
+  = MetalBridgeUnsupported Text
+  | MetalBridgeBuildFailed ProcessFailure
+  | MetalBridgeProbeFailed Text
+  deriving stock (Eq, Show)
+
+installFixedMetalBridge :: IO (Either MetalBridgeInstallError FilePath)
 installFixedMetalBridge
   | SystemInfo.os /= "darwin" =
-      pure (Left "fixed Metal bridge can only be built on macOS")
+      pure (Left (MetalBridgeUnsupported "fixed Metal bridge can only be built on macOS"))
   | otherwise = do
       createDirectoryIfMissing True fixedMetalBridgeDir
       Text.IO.writeFile fixedMetalBridgeSourcePath fixedMetalBridgeSource
-      (exitCode, _stdoutText, stderrText) <-
+      outcome <-
         runStreaming
           defaultSubprocessEnv
           ( subprocess
@@ -198,15 +210,20 @@ installFixedMetalBridge
               , Text.pack defaultFixedMetalBridgePath
               ]
           )
-      case exitCode of
-        ExitSuccess -> do
+      case outcome of
+        ProcessSucceeded _ -> do
           ok <- probeBridgeAt defaultFixedMetalBridgePath
           pure $
             if ok
               then Right defaultFixedMetalBridgePath
-              else Left "fixed Metal bridge built but its probe symbol failed"
-        ExitFailure _ ->
-          pure (Left ("fixed Metal bridge build failed: " <> stderrText))
+              else Left (MetalBridgeProbeFailed "fixed Metal bridge built but its probe symbol failed")
+        ProcessFailed failure ->
+          pure (Left (MetalBridgeBuildFailed failure))
+
+renderMetalBridgeInstallError :: MetalBridgeInstallError -> Text
+renderMetalBridgeInstallError (MetalBridgeUnsupported message) = message
+renderMetalBridgeInstallError (MetalBridgeBuildFailed failure) = renderProcessFailure failure
+renderMetalBridgeInstallError (MetalBridgeProbeFailed message) = message
 
 probeFixedMetalBridge :: IO Bool
 probeFixedMetalBridge = do

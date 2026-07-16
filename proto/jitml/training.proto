@@ -12,6 +12,10 @@ message StartTraining {
   uint64 seed = 4;
   uint32 epochs = 5;
   uint32 batch_size = 6;
+  string plan_id = 7;           // sha256 of the canonical resolved plan
+  string resolved_plan = 8;     // canonical versioned supervised-plan transport
+  uint32 training_examples = 9; // exact examples consumed per epoch
+  uint32 evaluation_examples = 10; // exact held-out examples evaluated
 }
 
 message StopTraining {
@@ -28,6 +32,8 @@ message EpochCompleted {
   uint64 timestamp_ns = 5;
 }
 
+// A persisted candidate remains inspectable/resumable but does not claim that
+// the plan budget and convergence criteria completed.
 message CheckpointDone {
   string experiment_hash = 1;
   string manifest_sha = 2;
@@ -37,6 +43,16 @@ message CheckpointDone {
   string trial_sha = 6;
   string run_uuid = 7;
   repeated ScalarMetric metrics_at_step = 8;
+  uint32 protocol_version = 9;
+}
+
+// Completion is a distinct wire variant with a mandatory versioned raw
+// completion DTO. Consumers re-refine those bytes before minting the opaque
+// CompletedTraining value.
+message CompletedCheckpointDone {
+  uint32 protocol_version = 1;
+  CheckpointDone checkpoint = 2;
+  bytes completed_training = 3;
 }
 
 message ScalarMetric {
@@ -65,5 +81,6 @@ message TrainingEvent {
     EpochCompleted epoch       = 1;
     CheckpointDone checkpoint  = 2;
     TrainingFailed failure     = 3;
+    CompletedCheckpointDone completed_checkpoint = 4;
   }
 }

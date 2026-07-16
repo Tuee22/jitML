@@ -46,28 +46,16 @@ let InferenceSelector : Type =
       }
 
 let TrainingRunConfig : Type =
-      { experimentHash : Text
-      , substrate : Text
-      , seed : Natural
-      , epochs : Natural
-      , batchSize : Natural
-      , pulsarWsUrl : Text
-      , slTrainLimit : Optional Natural
-      , slEpochs : Optional Natural
-      , slTestLimit : Optional Natural
-      }
+      { planId : Text, resolvedPlan : Text, pulsarWsUrl : Text }
 
 let TuneRunConfig : Type =
-      { experimentHash : Text
-      , substrate : Text
-      , sweepSeed : Natural
-      , trialBudget : Natural
-      , budgetPerTrial : Natural
-      , sampler : Text
-      , scheduler : Text
-      , pruner : Text
+      { planId : Text
+      , resolvedPlan : Text
       , pulsarWsUrl : Text
       }
+
+let AlphaZeroRunConfig : Type =
+      { planId : Text, resolvedPlan : Text, pulsarWsUrl : Text }
 
 let RlRunConfig : Type =
       { experimentHash : Text
@@ -87,5 +75,6 @@ in  { TrainingEvidence = TrainingEvidence
     , InferenceSelector = InferenceSelector
     , TrainingRunConfig = TrainingRunConfig
     , TuneRunConfig = TuneRunConfig
+    , AlphaZeroRunConfig = AlphaZeroRunConfig
     , RlRunConfig = RlRunConfig
     }

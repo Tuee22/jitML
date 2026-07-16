@@ -1,9 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Service.Clients
-  ( DaemonClientSettings (..)
+  ( EngineClientSettings
+  , EngineServiceClient
+  , engineClientSettingsForBootConfig
+  , engineClientSettingsWithPublicationDeadline
+  , engineMinIOSettings
+  , enginePulsarSettings
+  , renderEngineClientSettings
+  , runEngineServiceClient
+  , DaemonRoleClientSettings
+  , coordinatorRoleClientSettings
+  , daemonRoleClientSettingsForBootConfig
+  , engineRoleClientSettings
+  , renderDaemonRoleClientSettings
+  , rolePulsarSettings
+  , DaemonClientSettings (..)
   , DaemonServiceClient (..)
-  , daemonClientSettingsForBootConfig
+  , coordinatorClientSettingsForBootConfig
   , renderDaemonClientSettings
   , runDaemonServiceClient
   , runDaemonHarborClient
@@ -18,10 +32,12 @@ import Data.Text qualified as Text
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
+import GHC.Clock (getMonotonicTimeNSec)
 
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , Residency (..)
+  , Role (..)
   )
 import JitML.Service.Capabilities
   ( HasHarbor (..)
@@ -34,6 +50,7 @@ import JitML.Service.HarborSubprocess
   , HarborSubprocess
   , runHarborSubprocess
   )
+import JitML.Service.InferenceBatch (batchDeadlineExpiredAt)
 import JitML.Service.KubectlSubprocess
   ( KubectlSettings (..)
   , KubectlSubprocess
@@ -53,6 +70,7 @@ import JitML.Service.PulsarWebSocketSubprocess
   , pulsarSettingsForEndpoint
   , runPulsarWebSocketSubprocess
   )
+import JitML.Service.Retry (ServiceError (..))
 
 data DaemonClientSettings = DaemonClientSettings
   { daemonMinIOSettings :: MinIOSettings
@@ -61,6 +79,39 @@ data DaemonClientSettings = DaemonClientSettings
   , daemonKubectlSettings :: KubectlSettings
   }
   deriving stock (Eq, Show)
+
+-- | Capability-minimal settings retained by an Engine process. The
+-- constructor is private: Engine startup can project only MinIO and Pulsar and
+-- cannot recover Harbor credentials or kubectl configuration from this value.
+data EngineClientSettings = EngineClientSettings
+  { engineMinIOSettings :: MinIOSettings
+  , enginePulsarSettings :: PulsarWebSocketSettings
+  , enginePublicationDeadlineNanoseconds :: Maybe Integer
+  }
+  deriving stock (Eq, Show)
+
+-- | Closed, role-projected settings retained by 'DaemonRuntime'. Webapp owns
+-- no daemon client settings; its browser Pulsar endpoint stays in the Webapp
+-- serve path. Constructors remain private so callers cannot attach Coordinator
+-- credentials to an Engine runtime.
+data DaemonRoleClientSettings
+  = EngineRoleClientSettings EngineClientSettings
+  | CoordinatorRoleClientSettings DaemonClientSettings
+  | WebappRoleClientSettings
+  deriving stock (Eq, Show)
+
+-- | Opaque Engine interpreter. Deliberately has no 'HasHarbor' or 'HasKubectl'
+-- instance, so orchestration effects cannot type-check in the Engine path.
+newtype EngineServiceClient a = EngineServiceClient
+  { unEngineServiceClient :: ReaderT EngineClientSettings IO a
+  }
+  deriving newtype
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadReader EngineClientSettings
+    )
 
 newtype DaemonServiceClient a = DaemonServiceClient
   { unDaemonServiceClient :: ReaderT DaemonClientSettings IO a
@@ -73,8 +124,156 @@ newtype DaemonServiceClient a = DaemonServiceClient
     , MonadReader DaemonClientSettings
     )
 
-daemonClientSettingsForBootConfig :: BootConfig -> DaemonClientSettings
-daemonClientSettingsForBootConfig bootConfig =
+engineClientSettingsForBootConfig :: BootConfig -> EngineClientSettings
+engineClientSettingsForBootConfig bootConfig =
+  EngineClientSettings
+    { engineMinIOSettings = minioSettingsForBootConfig bootConfig
+    , enginePulsarSettings = pulsarSettingsForBootConfig bootConfig
+    , enginePublicationDeadlineNanoseconds = Nothing
+    }
+
+-- | Scope an Engine dispatch to one transport-owned publication deadline.
+-- MinIO reads and device execution may consume the budget, but the final
+-- Pulsar side effect is never entered after the captured monotonic fence.
+engineClientSettingsWithPublicationDeadline
+  :: Integer
+  -> EngineClientSettings
+  -> EngineClientSettings
+engineClientSettingsWithPublicationDeadline deadline settings =
+  settings {enginePublicationDeadlineNanoseconds = Just deadline}
+
+runEngineServiceClient
+  :: EngineClientSettings
+  -> EngineServiceClient a
+  -> IO a
+runEngineServiceClient settings action =
+  runReaderT (unEngineServiceClient action) settings
+
+runEngineMinIOAction :: MinIOSubprocess a -> EngineServiceClient a
+runEngineMinIOAction action = do
+  settings <- ask
+  liftIO (runMinIOSubprocess (engineMinIOSettings settings) action)
+
+runEnginePulsarAction
+  :: PulsarWebSocketSubprocess a
+  -> EngineServiceClient a
+runEnginePulsarAction action = do
+  settings <- ask
+  liftIO (runPulsarWebSocketSubprocess (enginePulsarSettings settings) action)
+
+instance HasMinIO EngineServiceClient where
+  minioPutIfAbsent ref payload =
+    runEngineMinIOAction (minioPutIfAbsent ref payload)
+  minioReadObject ref =
+    runEngineMinIOAction (minioReadObject ref)
+  minioReadBytes ref =
+    runEngineMinIOAction (minioReadBytes ref)
+  putBlobIfAbsent ref payload =
+    runEngineMinIOAction (putBlobIfAbsent ref payload)
+  putBlobBytesIfAbsent ref payload =
+    runEngineMinIOAction (putBlobBytesIfAbsent ref payload)
+  casPointer ref expected payload =
+    runEngineMinIOAction (casPointer ref expected payload)
+  listObjects bucket prefix =
+    runEngineMinIOAction (listObjects bucket prefix)
+  deleteObject ref =
+    runEngineMinIOAction (deleteObject ref)
+
+instance HasPulsar EngineServiceClient where
+  pulsarPublish topic payload = do
+    settings <- ask
+    deadlineResult <- liftIO (enginePublicationDeadlineResult settings)
+    case deadlineResult of
+      Left err -> pure (Left err)
+      Right () -> runEnginePulsarAction (pulsarPublish topic payload)
+  pulsarConsumeUntil subscription observe handler = do
+    settings <- ask
+    liftIO $
+      runPulsarWebSocketSubprocess (enginePulsarSettings settings) $
+        pulsarConsumeUntil
+          subscription
+          (liftIO . runEngineServiceClient settings . observe)
+          (liftIO . runEngineServiceClient settings . handler)
+  pulsarConsumeBatchesUntil readPolicy compatibilityKey subscription observe handler = do
+    settings <- ask
+    liftIO $
+      runPulsarWebSocketSubprocess (enginePulsarSettings settings) $
+        pulsarConsumeBatchesUntil
+          (liftIO (runEngineServiceClient settings readPolicy))
+          compatibilityKey
+          subscription
+          (liftIO . runEngineServiceClient settings . observe)
+          (liftIO . runEngineServiceClient settings . handler)
+
+enginePublicationDeadlineResult :: EngineClientSettings -> IO (Either ServiceError ())
+enginePublicationDeadlineResult settings =
+  case enginePublicationDeadlineNanoseconds settings of
+    Nothing -> pure (Right ())
+    Just deadline -> do
+      now <- getMonotonicTimeNSec
+      pure $
+        if batchDeadlineExpiredAt now deadline
+          then Left (SETimeout "inference batch publication deadline expired before publish")
+          else Right ()
+
+renderEngineClientSettings :: EngineClientSettings -> Text
+renderEngineClientSettings settings =
+  Text.unlines
+    [ "minio_endpoint: " <> minioEndpoint minioSettings
+    , "minio_request_path_prefix: "
+        <> renderMaybeEmpty (minioRequestPathPrefix minioSettings)
+    , "pulsar_websocket_endpoint: "
+        <> pulsarWebSocketEndpoint pulsarSettings
+    ]
+ where
+  minioSettings = engineMinIOSettings settings
+  pulsarSettings = enginePulsarSettings settings
+
+daemonRoleClientSettingsForBootConfig :: BootConfig -> DaemonRoleClientSettings
+daemonRoleClientSettingsForBootConfig bootConfig =
+  case bootActiveRole bootConfig of
+    Engine ->
+      EngineRoleClientSettings (engineClientSettingsForBootConfig bootConfig)
+    Coordinator ->
+      CoordinatorRoleClientSettings (coordinatorClientSettingsForBootConfig bootConfig)
+    Webapp -> WebappRoleClientSettings
+
+engineRoleClientSettings
+  :: DaemonRoleClientSettings
+  -> Maybe EngineClientSettings
+engineRoleClientSettings roleSettings =
+  case roleSettings of
+    EngineRoleClientSettings settings -> Just settings
+    CoordinatorRoleClientSettings _settings -> Nothing
+    WebappRoleClientSettings -> Nothing
+
+coordinatorRoleClientSettings
+  :: DaemonRoleClientSettings
+  -> Maybe DaemonClientSettings
+coordinatorRoleClientSettings roleSettings =
+  case roleSettings of
+    EngineRoleClientSettings _settings -> Nothing
+    CoordinatorRoleClientSettings settings -> Just settings
+    WebappRoleClientSettings -> Nothing
+
+rolePulsarSettings
+  :: DaemonRoleClientSettings
+  -> Maybe PulsarWebSocketSettings
+rolePulsarSettings roleSettings =
+  case roleSettings of
+    EngineRoleClientSettings settings -> Just (enginePulsarSettings settings)
+    CoordinatorRoleClientSettings settings -> Just (daemonPulsarSettings settings)
+    WebappRoleClientSettings -> Nothing
+
+renderDaemonRoleClientSettings :: DaemonRoleClientSettings -> Text
+renderDaemonRoleClientSettings roleSettings =
+  case roleSettings of
+    EngineRoleClientSettings settings -> renderEngineClientSettings settings
+    CoordinatorRoleClientSettings settings -> renderDaemonClientSettings settings
+    WebappRoleClientSettings -> "(browser-only; no daemon clients)\n"
+
+coordinatorClientSettingsForBootConfig :: BootConfig -> DaemonClientSettings
+coordinatorClientSettingsForBootConfig bootConfig =
   DaemonClientSettings
     { daemonMinIOSettings = minioSettingsForBootConfig bootConfig
     , daemonPulsarSettings = pulsarSettingsForBootConfig bootConfig
@@ -149,14 +348,24 @@ instance HasMinIO DaemonServiceClient where
 instance HasPulsar DaemonServiceClient where
   pulsarPublish topic payload =
     runDaemonPulsarAction (pulsarPublish topic payload)
-  pulsarAcknowledge topic payload =
-    runDaemonPulsarAction (pulsarAcknowledge topic payload)
-  pulsarSubscribe topic subscription =
-    runDaemonPulsarAction (pulsarSubscribe topic subscription)
-  pulsarConsume subscription =
-    runDaemonPulsarAction (pulsarConsume subscription)
-  pulsarSeek subscription eventId =
-    runDaemonPulsarAction (pulsarSeek subscription eventId)
+  pulsarConsumeUntil subscription observe handler = do
+    settings <- ask
+    liftIO $
+      runDaemonPulsarClient settings $
+        pulsarConsumeUntil
+          subscription
+          (liftIO . runDaemonServiceClient settings . observe)
+          (liftIO . runDaemonServiceClient settings . handler)
+  pulsarConsumeBatchesUntil readPolicy compatibilityKey subscription observe handler = do
+    settings <- ask
+    liftIO $
+      runDaemonPulsarClient settings $
+        pulsarConsumeBatchesUntil
+          (liftIO (runDaemonServiceClient settings readPolicy))
+          compatibilityKey
+          subscription
+          (liftIO . runDaemonServiceClient settings . observe)
+          (liftIO . runDaemonServiceClient settings . handler)
 
 instance HasHarbor DaemonServiceClient where
   harborImageExists image =
@@ -186,6 +395,7 @@ renderDaemonClientSettings settings =
     [ "minio_endpoint: " <> minioEndpoint minioSettings
     , "minio_request_path_prefix: " <> renderMaybeEmpty (minioRequestPathPrefix minioSettings)
     , "pulsar_websocket_endpoint: " <> pulsarWebSocketEndpoint pulsarSettings
+    , "pulsar_admin_endpoint: " <> pulsarAdminEndpoint pulsarSettings
     , "harbor_registry: " <> harborRegistry harborSettings
     , "harbor_api_base_url: " <> harborApiBaseUrl harborSettings
     , "kubectl_kubeconfig: " <> renderKubectlKubeconfig kubectlSettings
@@ -214,12 +424,24 @@ minioSettingsForBootConfig bootConfig =
 pulsarSettingsForBootConfig :: BootConfig -> PulsarWebSocketSettings
 pulsarSettingsForBootConfig bootConfig =
   case bootResidency bootConfig of
-    Host -> pulsarSettingsForEndpoint (bootPulsarServiceUrl bootConfig)
+    Host ->
+      (pulsarSettingsForEndpoint (bootPulsarServiceUrl bootConfig))
+        { pulsarAdminEndpoint = pulsarAdminV2Endpoint (bootPulsarAdminUrl bootConfig)
+        }
     Cluster ->
       PulsarWebSocketSettings
         { pulsarNodeBinary = "node"
         , pulsarWebSocketEndpoint = "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
+        , pulsarAdminEndpoint = pulsarAdminV2Endpoint (bootPulsarAdminUrl bootConfig)
         }
+
+pulsarAdminV2Endpoint :: Text -> Text
+pulsarAdminV2Endpoint rawEndpoint
+  | "/admin/v2" `Text.isSuffixOf` endpoint = endpoint
+  | "/admin" `Text.isSuffixOf` endpoint = endpoint <> "/v2"
+  | otherwise = endpoint <> "/admin/v2"
+ where
+  endpoint = stripTrailingSlash rawEndpoint
 
 harborSettingsForBootConfig :: BootConfig -> HarborSettings
 harborSettingsForBootConfig bootConfig =

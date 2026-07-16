@@ -13,13 +13,17 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Exit (ExitCode (..))
 
 import JitML.Service.Capabilities
   ( HasKubectl (..)
   , KubeResource (..)
   )
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Sub.Outcome
+  ( ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , renderProcessFailure
+  )
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 
@@ -123,36 +127,26 @@ instance HasKubectl KubectlSubprocess where
 
 invoke :: Text -> Subprocess -> KubectlSubprocess (Either ServiceError ())
 invoke tag cmd = do
-  (exitCode, _stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv cmd)
-  case exitCode of
-    ExitSuccess -> pure (Right ())
-    ExitFailure code ->
+  outcome <- liftIO (runStreaming defaultSubprocessEnv cmd)
+  case outcome of
+    ProcessSucceeded _ -> pure (Right ())
+    ProcessFailed failure ->
       pure
         ( Left
             ( SETransient
-                ( tag
-                    <> ": exit "
-                    <> Text.pack (show code)
-                    <> ": "
-                    <> stderrText
-                )
+                (tag <> ": " <> renderProcessFailure failure)
             )
         )
 
 invokeText :: Text -> Subprocess -> KubectlSubprocess (Either ServiceError Text)
 invokeText tag cmd = do
-  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv cmd)
-  case exitCode of
-    ExitSuccess -> pure (Right stdoutText)
-    ExitFailure code ->
+  outcome <- liftIO (runStreaming defaultSubprocessEnv cmd)
+  case outcome of
+    ProcessSucceeded transcript -> pure (Right (processTranscriptStdout transcript))
+    ProcessFailed failure ->
       pure
         ( Left
             ( SETransient
-                ( tag
-                    <> ": exit "
-                    <> Text.pack (show code)
-                    <> ": "
-                    <> stderrText
-                )
+                (tag <> ": " <> renderProcessFailure failure)
             )
         )

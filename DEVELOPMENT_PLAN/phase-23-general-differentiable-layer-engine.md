@@ -1,6 +1,6 @@
 # Phase 23: General Differentiable Layer Engine
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/numerical_core.md](../documents/engineering/numerical_core.md), [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
 **Generated sections**: none
@@ -88,40 +88,14 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-Current validation: `jitml-unit --linux-cpu` passed 269 / 269 on
-2026-07-02. `docs check` and `check-code` are part of the final Sprint `23.1`
-closure gate and passed after the status/docs update. The 2026-07-05 realness
-audit superseded this closure: those checks passed against a per-kind oracle
-that is itself a dense stand-in, so gradient agreement was vacuous.
-
-### Closure Evidence
-
-The typed IR, the tape/replay autodiff mechanics, and the finite-difference
-gradient check are in place, but the per-kind forward/backward math is fake, so
-the owned obligation "each layer node contributes a real forward and a real
-gradient" is unmet:
-
-- `runLayerNode` (`src/JitML/Numerics/LayerGraph.hs`, ~line 408) must compute
-  each kind's real math instead of routing every parameterized node through the
-  dense `affinePreActivation` (~line 523): real 2D/3D convolution for
-  `Conv2D`/`Conv3D`, scaled dot-product attention for `MultiHeadAttention`, the
-  gated GeGLU projection, real patch extraction for patch-embed, and the real
-  two-branch residual math for `BasicBlock`/`BottleneckBlock`.
-- `parameterlessForward`/`parameterlessBackward` must stop being
-  identity/`* 0.9`/replicate stubs: `BatchNorm`/`LayerNorm`/`GroupNorm` compute
-  real normalization over their statistics, `Dropout` applies a real seeded
-  mask, and `MaxPool`/`AvgPool`/`GlobalAvgPool` pool over real windows.
-- The finite-difference check is re-derived against the real per-kind backward,
-  not the dense stand-in.
-
-**Negative-control validation.** A differential test proves each kind is not a
-dense matmul: on structured input, a `Conv2D`/`Conv3D`/attention/pool node's
-output differs from the dense-GEMM output of the same shape (a fake that
-reintroduces `affinePreActivation` for those kinds is rejected). This case is
-owned by the `jitml-negative-controls` stanza in
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
-and gradients are checked against the real per-kind oracle on the `linux-cpu`
-lane.
+The initial 2026-07-02 validation was withdrawn by the 2026-07-05 realness
+audit because its oracle shared the dense stand-in. The 2026-07-06 reclosure
+replaced that stand-in with kind-specific forward/backward transforms,
+normalization, pooling, attention/gating, patch, and residual semantics and
+reran the unit and canonical-SL gates recorded in [Phase State](#phase-state).
+The cross-row mutation proof is now a separate downstream contract obligation
+owned by Phase `32`; it does not turn the retired dense alias into current
+Phase `23` state.
 
 ## Sprint 23.2: oneDNN Layer Kernels for Training [✅ Done]
 
@@ -164,37 +138,12 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-Current validation: `jitml-backends --linux-cpu` passed 24 / 24 on
-2026-07-02, including the LayerGraph oneDNN backend-vs-oracle and device
-evidence test. `jitml-unit --linux-cpu` passed 269 / 269 on 2026-07-02, and
-`jitml check-code` passed after the status/docs update. The 2026-07-05 realness
-audit superseded this closure: the backend was compared against the dense
-stand-in oracle, so agreement did not prove real convolution.
-
-### Closure Evidence
-
-The generated training ABI and the pure-vs-backend evidence harness exist, but
-because the pure oracle is a dense-stack stand-in (Sprint `23.1`) and the
-`Conv2D`/`Conv3D` kernels lower to a flat 1x1 channel projection, the
-backend-vs-oracle agreement is vacuous and the owned obligation "`Conv2D` and
-`Conv3D` execute real `convolution_forward`/`convolution_backward_data`/
-`convolution_backward_weights` primitives" is unmet:
-
-- `src/JitML/Codegen/OneDnn.hs` and `src/JitML/Numerics/LayerGraphOneDnn.hs`
-  must lower each parameterized kind to the oneDNN primitive that computes its
-  real math — real spatial convolution (not a 1x1/matmul-equivalent
-  projection), attention, GeGLU, and pooling — so the device executes the
-  kind's true update-critical operations.
-- The backend-vs-pure-oracle test compares against the real per-kind oracle
-  from the reopened Sprint `23.1`, not the dense stand-in.
-
-**Negative-control validation.** The differential negative control (backend
-`Conv2D` output differs from the dense-GEMM output of the same shape on
-structured input, and oneDNN conv-backward gradients differ from dense backprop)
-runs on the `linux-cpu` lane and is owned by the `jitml-negative-controls`
-stanza in
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md).
-`libdnnl` absence continues to fail the lane up front.
+The initial 2026-07-02 backend comparison was withdrawn when the audit found
+that its reference shared the same dense approximation. The 2026-07-06
+reclosure moved Conv2D/Conv3D update-critical work through real oneDNN
+convolution training primitives and compared the backend against the corrected
+per-kind reference algebra. The retained validation is summarized in
+[Phase State](#phase-state); absence of `libdnnl` still fails the lane up front.
 
 ## Sprint 23.3: Layer-Graph Checkpoints + Inference [✅ Done]
 
@@ -241,38 +190,17 @@ Current validation: `jitml-unit --linux-cpu` passed 270 / 270 on 2026-07-02,
 including the LayerGraph checkpoint topology round-trip. The targeted
 `jitml-integration` graph checkpoint inference case passed when run directly
 with `cabal test jitml-integration --test-show-details=direct --test-options='-p loadInferenceCheckpointWithWeights'`.
-`jitml docs check` and `jitml check-code` both pass after the Sprint `23.3`
+`jitml docs check` and `jitml check-code` both passed after the Sprint `23.3`
 implementation/docs update. After rebuilding `jitml:local` with Dockerfile
 `check-code: ok`, deleting and recreating the `jitml-linux-cpu` Kind cluster,
 and running `jitml cluster up --substrate linux-cpu` with
 `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1`, `jitml cluster status` reported every
 component ready and `docker compose run --rm jitml jitml test jitml-integration
---linux-cpu` passed all 79 / 79 tests on 2026-07-02. The 2026-07-05 realness
-audit superseded this closure: topology round-trip is real, but the restored
-graph infers through the fake per-kind forward, so it does not infer as its
-literal network.
-
-### Closure Evidence
-
-Checkpoint topology/tensor round-trip and pre-completion inference rejection are
-in place, but because the graph-forward runner uses the fake per-kind math
-(Sprints `23.1`/`23.2`), the owned obligation "a trained
-deep/ResNet/ViT/LeNet artifact infers as its literal network" is unmet — such an
-artifact currently infers as a dense stack:
-
-- `runLayerGraphForwardOneDnn` (consumed by
-  `src/JitML/Engines/LayerGraphCheckpoint.hs` and
-  `src/JitML/Engines/Local.hs`) runs the real per-kind forward once Sprints
-  `23.1`/`23.2` land it, so the stored graph infers as its literal network.
-
-**Negative-control validation.** A per-model inference negative control proves a
-restored ResNet/ViT/LeNet checkpoint's output differs from a dense stack of the
-same shapes on structured input; the negative-control primitives are owned by
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
-(`jitml-negative-controls`), and per-model measured convergence/inference is
-graded by the `jitml-model-convergence` suite in
-[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md).
-Both run on the `linux-cpu` lane.
+--linux-cpu` passed all 79 / 79 tests on 2026-07-02. The realness audit then
+withdrew the inference claim until Sprints `23.1`/`23.2` corrected the per-kind
+forward path. The 2026-07-06 reclosure made restored graph inference consume
+those corrected semantics; Phase `32`/`33` now own the additional journal-bound
+negative-control and per-model evidence gates.
 
 ## Documentation Requirements
 

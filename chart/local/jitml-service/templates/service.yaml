@@ -6,7 +6,8 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: jitml-service
+    app: jitml-coordinator
+    jitml.role: coordinator
   ports:
     - name: http
       port: 8080

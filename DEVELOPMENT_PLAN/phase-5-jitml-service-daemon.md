@@ -13,18 +13,32 @@
 [../README.md](../README.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the current `jitml service` daemon surface — the
-> registered CLI entrypoint, Dhall `BootConfig` / `LiveConfig` renderers,
-> lifecycle, endpoint, logging, retry, payload-hash deduplication, SIGHUP
-> reload decisions, capability-class boundaries, and stateless `Deployment`
-> rendering — while deriving daemon client acquisition settings from
-> `BootConfig`, routing local workload effects through the acquired
-> capability classes, and keeping the remaining long-lived Pulsar runtime
-> effects explicit as target validation.
+> **Purpose**: Own the current `jitml service` daemon surface: its registered
+> CLI entrypoint, Dhall `BootConfig` / `LiveConfig`, lifecycle and endpoints,
+> capability interpreters, opaque receipt-bound persistent Pulsar delivery,
+> strict command decoding, indexed workload effects, evidence-derived
+> readiness, graceful drain, placement, retry, and stateless deployment.
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-30 by Sprint `5.17`). Mounted worker
+✅ **Done** (reopened and re-closed 2026-07-12 for Sprint `5.18`). The daemon
+uses opaque receipt-bound delivery, interpreter-owned total settlement,
+strict typed command decoding, non-empty kind-indexed workload effects, and a
+closed evidence-carrying runtime state. Engine/Webapp signal behavior, atomic
+last-good live reload, configured drain deadlines, and fail-closed Apple Stops
+are exercised by actual processes. Validation passed from the exact
+`jitml:local` image (manifest-list digest
+`cc838ac85c6864952aed04d2922829908a8d18d39860839424e4a2e60da36b0d`):
+`jitml-unit` **343 / 343**, `jitml-daemon-lifecycle` **41 / 41**, the
+Phase-`5`-owned `jitml-integration` scope **81 / 81** (**19 / 19** Live), a
+clean `linux-cpu` bootstrap **130**-step phased rollout, `jitml docs check`, and
+`jitml check-code`. Sprints `5.1`–`5.17` remain Done on their retained daemon
+surfaces. Operational structured logging, shared live-workflow interpretation,
+live Coordinator serving, and successful keyed Apple host cancellation remain
+Sprint `12.16` obligations; plan-bound semantic event identity remains Sprint
+`8.16`.
+
+**Historical retained closure.** ✅ **Done** (re-closed 2026-06-30 by Sprint `5.17`). Mounted worker
 `RunConfig.dhall` is authoritative: if the file exists but fails to decode, the
 worker exits through `InvalidConfig` before dataset fetch, trial selection,
 environment steps, checkpoint writes, or Pulsar publication. Env/default
@@ -38,7 +52,7 @@ RunConfig exists. Validation passed `jitml-unit` 239/239, `jitml-daemon-lifecycl
 (`JitML.Project.Config`) now declares the logical Pulsar topic family, and a
 `jitml-unit` anti-drift test holds `JitML.Coordinator.Topology`'s per-substrate
 routing exactly consistent with it (`topologyLogicalNames jitmlTopology` equals the
-registry's 13 `MessageTopic` names), so the registry is the single declared source
+registry's then-current 13 `MessageTopic` names), so the registry is the single declared source
 and the two cannot silently diverge. Validated: `jitml-unit` 218/218. All prior
 Sprints `5.1`–`5.14` remain `✅ Done`; the prior closure history follows.
 
@@ -55,9 +69,9 @@ Dhall schema for every daemon config surface (Sprint `5.12`, `JitML.Service.Dhal
 warning-clean `-fcuda` build) and **in-container** `jitml docs check: ok`
 (`docker run` against the built `jitml:local`), plus `jitml-unit` **206 / 206** and
 `jitml-daemon-lifecycle` **35 / 35** on the apple-silicon host lane. The
-**live** pieces are forward ownership-transfers: the Coordinator topic
-reconcile-at-startup to Phase `15`, and live multi-role (Coordinator/Webapp pod)
-serving to Phases `11`/`15`. (This shared host's Docker image store is
+**live** Coordinator reconcile/readiness and multi-role serving are forward
+ownership-transfers to Sprint `12.16`; Phase `5` fails the unsupported
+Coordinator role closed and never lets it inherit Engine compute. (This shared host's Docker image store is
 intermittently non-persisting — `docker compose run` can force a rebuild that OOMs
 under the `-M2G` cap — so the in-container validation is run via `docker compose
 build` + `docker run` against the persisted image rather than `docker compose
@@ -110,7 +124,7 @@ The phase owns
 [Exit Definition](README.md#exit-definition) item 2 (`jitml service` is
 the canonical long-running daemon, parameterised by Dhall `BootConfig` /
 `LiveConfig`, hot-reloadable via SIGHUP, exposing `/healthz` / `/readyz` /
-`/metrics`, emitting structured JSON logs on stderr, processing Pulsar
+`/metrics`, retaining the typed structured-log renderer, and processing Pulsar
 events at-least-once with the typed retry policy). **Implemented and validated**:
 Sprints `5.1`, `5.2`, `5.3`, `5.4`, and `5.5` close the daemon entry point, the
 BootConfig / LiveConfig ADTs and Dhall renderers, the in-binary HTTP listener
@@ -118,28 +132,29 @@ serving the three endpoints, the structured JSON logger wired through the
 listener, the POSIX `SIGHUP` → reload-generation and `SIGINT` /
 `SIGTERM` → graceful-drain-and-readiness-drop wiring, and the
 `ServiceError` → `AppError` retry-classification mapping. The typed
-capability classes now carry the full current method set
+capability classes carry the current typed method set
 (`HasMinIO.{minioPutIfAbsent,minioReadObject,minioReadBytes,putBlobIfAbsent,putBlobBytesIfAbsent,casPointer,listObjects,deleteObject}`,
-`HasPulsar.{pulsarPublish,pulsarAcknowledge,pulsarSubscribe,pulsarConsume,pulsarSeek}`,
+`HasPulsar.{pulsarPublish,pulsarConsumeUntil}` with opaque receipt-bound
+deliveries and interpreter-owned settlement,
 `HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,harborPullImage,harborListImages}`,
 `HasKubectl.{kubectlApply,kubectlStatus,kubectlGet,kubectlDelete}`) with
-`ETag` and `SubscriptionId` newtypes. The Consumer dispatcher
+`ETag` plus hidden-constructor typed topic/subscription values. The Consumer dispatcher
 (`EventDomain`, `HandlerRouter`, `routeByKind`) and the per-domain
-LRU `DedupCache` are checked in. `JitML.Service.Clients` now derives
-daemon-owned MinIO, Pulsar WebSocket, Harbor, and kubectl subprocess settings
-from the loaded `BootConfig`; its `DaemonServiceClient` interpreter exposes
-all four capability classes from that one settings record. `DaemonRuntime`
-carries the `DaemonClientSettings` record plus the BootConfig-derived Pulsar
-subscription plan plus startup subscription-acquisition state in its dry-run
-summary. `jitml service` now opens the derived Pulsar WebSocket consumer
-endpoint for each planned startup subscription through `DaemonServiceClient`
-before serving and records whether each subscription was acquired.
+LRU `DedupCache` are checked in. `JitML.Service.Clients` derives a closed
+role-projected settings value from the loaded `BootConfig`: Engine retains an
+opaque MinIO/Pulsar-only interpreter, Coordinator retains the full
+MinIO/Pulsar/Harbor/kubectl interpreter, and Webapp retains no daemon clients.
+`DaemonRuntime` carries only that projection plus the BootConfig-derived Pulsar
+subscription plan and startup subscription-acquisition state in its dry-run
+summary. `jitml service` opens each role-derived Pulsar WebSocket subscription
+through the matching role interpreter before serving and records whether it was
+acquired.
 `JitML.Service.Runtime.daemonConsumerBatch` threads acquired subscription
 statuses through the LiveConfig-sized handler router in a bounded local batch.
-`JitML.Service.Runtime.probeDaemonServiceClients` crosses the acquired
-non-Pulsar capability boundaries with read-only MinIO list, Harbor list, and
-kubectl get probes before the daemon serves, records `client_probe_status`, and
-drops readiness on probe failure. `JitML.Service.Workload` now runs typed
+`JitML.Service.Runtime.probeEngineServiceClients` crosses only the Engine MinIO
+boundary, while `probeCoordinatorServiceClients` crosses MinIO, Harbor, and
+kubectl before serving; both record `client_probe_status` and drop readiness on
+required probe failure. `JitML.Service.Workload` runs typed
 mutating workload effects through those same capability classes: checkpoint
 blob writes, checkpoint pointer CAS, Harbor image promotion, kubectl
 apply/status/delete, and RunInference result publication. It also renders and
@@ -149,9 +164,9 @@ parses byte-faithful
 the runner so the consumer can execute them before ack. The same dispatcher now
 maps parsed `JitML.Proto.{Training,Rl,Tune}` start/stop command envelopes into
 typed Kubernetes Job apply/delete workload effects before ack.
-`jitml service --consume-once <n>` runs a bounded acquired-subscription batch
-through the same BootConfig-derived `DaemonServiceClient` settings and renders
-the dispatch / dedup / ack outcome list before exiting.
+`jitml service --consume-once <n>` runs an Engine-only bounded subscription
+batch through `EngineServiceClient`, joins Apple host handles registered by the
+batch, and renders the dispatch / dedup / ack outcome list before exiting.
 The normal `jitml service` serve path now starts one held-open WebSocket
 consumer worker per acquired subscription, shares a `LiveConfig`-sized
 `HandlerRouter` across those workers for process-lifetime deduplication,
@@ -248,93 +263,76 @@ build-VM acquire path.
 
 ### Current Implementation Scope
 
-The worktree implements `BootConfig` / `LiveConfig` ADTs, Dhall
-renderers, the `BootConfig` Dhall loader consumed by `jitml service --config`,
-lifecycle phase data, hot-reload decision data, pure endpoint-response
-rendering, pure JSON log rendering, service error/retry helpers, payload-hash
-deduplication, capability-class definitions, and chart ConfigMap/Deployment
-rendering, including the service account/RBAC and single-node-safe rolling
-update strategy, the POSIX
-signal/control surface in `src/JitML/Service/Signal.hs`, and the
-low-level in-binary HTTP runtime in
-`src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
-`/metrics`. `src/JitML/Service/Clients.hs` derives daemon client settings
-from the loaded `BootConfig`: in-cluster daemons use the internal MinIO,
-Harbor API, broker WebSocket, and in-cluster service-account kubectl
-credentials, while the Apple host daemon splits the routed edge URLs into the
-root endpoint plus the `/minio/s3` and `/pulsar/ws` request paths and uses the
-repo-local kubeconfig. `SIGHUP` increments the reload
-generation; `SIGINT` and
-`SIGTERM` begin graceful drain and drop readiness. The filesystem-backed
-`HasMinIO` instance, live HTTP-backed `JitML.Service.MinIOSubprocess`
-instance, routed `JitML.Service.PulsarWebSocketSubprocess` one-shot and
-held-open worker surfaces,
-Docker/curl-backed `JitML.Service.HarborSubprocess` instance, and
-subprocess-backed `HasKubectl` instance are checked in and covered locally /
-behind the live path. `JitML.Service.Clients.DaemonServiceClient` is the
-daemon-owned interpreter that delegates all four capability classes to those
-subprocess settings. `JitML.Service.Runtime.probeDaemonServiceClients` invokes
-the acquired MinIO, Harbor, and kubectl clients through read-only list/get
-operations and records their status in the daemon runtime summary before
-serving; 2026-05-20 live Linux CPU validation confirms those probes pass from
-the running pod. `src/JitML/Service/Workload.hs` defines the current typed
-workload-effect runner for mutating daemon effects: checkpoint blob
-write, checkpoint pointer CAS, Harbor image promotion, kubectl
-apply/status/delete, and RunInference result publication.
-`src/JitML/Service/Runtime.hs` exposes
-`daemonWorkloadDispatcher`, which parses rendered `WorkloadEffect` payloads and
-routes them through that runner from the consumer dispatcher contract; it also
-maps parsed Training/RL/Tune start/stop command envelopes into Kubernetes Job
-apply/delete workload effects. `jitml service --consume-once <n>` executes a
-bounded consumer batch with that dispatcher through the acquired daemon clients
-and exits after rendering the outcome list. 2026-05-21 live Linux CPU
-validation runs that mode from the `jitml-service` pod, consumes one message
-from each acquired Training, Tune, RL, and Inference subscription, dispatches
-before ack, and applies the command-derived Training, Tune, and RL Job shapes
-through the service account. A second 2026-05-21 live run consumes
-`WriteCheckpointBlob` workload-effect payloads through that same path and reads
-the written objects back from MinIO. A third 2026-05-21 live run consumes
-`PromoteWorkloadImage` workload-effect payloads through that same path and
-verifies the promoted same-repository Harbor tag through the in-cluster Harbor
-API. The same service-pod path now handles `RunInference` requests through the
-MinIO latest-checkpoint read path and publishes `InferenceResult` through
-Pulsar before ack.
-The Consumer
-surface also derives the daemon subscription set from `BootConfig`: clustered
-daemons subscribe to the substrate-scoped training, tune, RL, and inference
-request command topics, while the Apple host daemon subscribes only to
-`inference.command.apple-silicon`; `domainFor` accepts both bare topic names
-and live broker names under `persistent://public/default/`. Pulsar topic
-bootstrap creates the matching substrate-scoped family before the daemon
-subscribes. `JitML.Service.Runtime.acquireDaemonSubscriptions` crosses the
-daemon-owned `HasPulsar.pulsarSubscribe` boundary from that plan; the
-WebSocket-backed instance opens the routed consumer endpoint with
-`receiverQueueSize=0` as a startup subscription probe, records per-topic
-`DaemonSubscriptionStatus` values, and makes `/readyz` false if any startup
-subscription acquisition fails.
-`JitML.Service.Runtime.daemonConsumerBatch` uses acquired subscription IDs and
-the `LiveConfig` dedup cache size/TTL to run a bounded `runConsumerLoop` batch
-against the typed dispatcher surface. The normal `jitml service` serve path
-starts per-acquired-subscription held-open WebSocket workers that retain one
-shared `HandlerRouter` for the daemon process lifetime, dispatch through
-`daemonWorkloadDispatcher`, ack each broker message through the open worker
-pipe after the dispatcher succeeds, and negative-ack dispatch failures through
-the same worker pipe while the HTTP listener remains active.
-2026-05-21 live Linux CPU validation proves that normal service path consumes a
-`RunInference` request and publishes the expected `InferenceResult`. The same
-date validates duplicate payload deduplication and dispatch-failure
-negative-ack redelivery against that held-open client. 2026-05-23 live Linux CUDA
-validation on a GPU host (NVIDIA GeForce RTX 5090, CUDA 12.8) creates
-`jitml-linux-cuda`, loads `jitml:local`, applies `RuntimeClass/nvidia`,
-renders the local jitml-service chart with `substrate=linux-cuda`, rolls out
-the actual `Deployment/jitml-service` to `Running` on
-`jitml-linux-cuda-control-plane` with `runtimeClassName: nvidia`,
-`NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=compute,utility`,
-and required pod anti-affinity; `nvidia-smi -L` inside the service container
-reports the RTX 5090, `/healthz` returns `ok`, and `/metrics` serves the
-Prometheus surface. The
-Apple host live validation now runs the generated host Dhall through the routed
-edge and acquires the `inference.command.apple-silicon` subscription.
+The worktree implements the typed one-binary Engine / Coordinator / Webapp role
+model selected by Dhall `BootConfig`, with hot-reloadable `LiveConfig`,
+in-binary `/healthz`, `/readyz`, and `/metrics`, a structured-log renderer,
+retry classification, POSIX signal control, BootConfig-derived MinIO/Pulsar/
+Harbor/kubectl settings, and read-only client probes. The stateless deployment
+keeps durable state in MinIO and Pulsar and preserves the one-numerical-worker-
+per-node placement invariant.
+
+The operational structured stderr logger, dynamic log filtering, service retry
+scheduler, inference batching, and latency-SLO controls are owned by Sprint
+`12.16`. Phase `5` retains their pure domain/rendering types where useful but
+does not call an unwired renderer or accept inert LiveConfig fields.
+
+`BootConfig` is refined before runtime construction: only the documented
+Linux-cluster and Apple cluster/host topology triples are accepted; host
+residency is Engine-only; listener ownership and port bounds are checked before
+numeric conversion; and only Webapp owns a non-empty Pulsar WebSocket URL.
+Role selection is exhaustive. Engine alone receives compute subscriptions and
+the dispatcher has a second role guard; Webapp constructs no Engine runtime;
+Coordinator currently fails closed rather than computing while its live
+topic-reconcile/readiness serve loop remains an explicit downstream ownership
+transfer.
+
+`JitML.Coordinator.Topology` is the sole protocol-routing owner. Its validated
+topology derives 34 physical topics (ten substrate-scoped routes across three
+substrates plus four Apple-only routes) from 14 logical durable-state topic
+names. Hidden constructors expose only protocol-indexed `Topic event` values
+and validated `Subscription event` values. Daemon subscriptions are
+`Borrowed`; only explicitly `Owned` ephemeral subscriptions are deleted by
+scoped cleanup.
+
+`HasPulsar` exposes typed publication and `pulsarConsumeUntil`. The persistent
+WebSocket interpreter yields opaque decoded `Delivery event` values containing
+an opaque broker receipt, obtains one `ConsumerDecision` carrying exactly one
+`Disposition`, and performs Ack or Nack internally. Broker message ids remain
+private to the Node bridge. The bridge keeps a bounded live-receipt table,
+confirms settlement before pruning a receipt, resends pending settlement before
+requesting more work after reconnect, drains on terminal decisions, and retains
+typed process transcripts on transport failures. Cleanup preserves the primary
+consumer failure and deletes only owned subscriptions.
+
+Strict protocol decoders reject malformed, duplicate, unknown, missing, empty,
+non-finite, and cross-lane fields before handlers run. The consumer wraps decoded
+Training, Tune, RL, and Inference commands in the closed `DaemonCommand` sum;
+dispatch and workflow-status projection consume that value without reparsing raw
+payload text. Payload SHA-256 remains the temporary semantic deduplication key
+until Sprint `8.16`; it is never broker delivery identity.
+
+`JitML.Service.Workload` represents legal daemon programs as non-empty,
+kind-indexed `WorkloadEffect kind` values whose result type is determined by the
+effect kind. Typed placement rejects a command whose consumed lane disagrees
+with its requested substrate, and host-versus-cluster variants carry the handle
+required by that placement. The raw mounted `RunConfig` compatibility boundary
+still belongs to Sprints `8.16` and `9.17`; Sprint `5.18` does not claim a
+resolved `RunPlan` or `PlanId`.
+
+Apple host-resident Training/Tune/RL Starts execute only through the closed host
+action planner. Stops currently fail closed and Nack at both the cluster and
+host boundaries because no keyed cancellable host handle exists; they cannot
+delete a nonexistent in-cluster Job or project false success. Sprint `12.16`
+owns supervised host handles and successful Stop behavior.
+
+`JitML.Service.RuntimeState` derives readiness from the evidence carried by the
+closed `Starting`, `Ready`, `Degraded`, and `Draining` states; there is no
+independent readiness Boolean. Normal service startup creates one persistent
+worker per derived subscription. SIGINT/SIGTERM enters `Draining`, keeps
+`/readyz` observable as `503`, cancels idle workers, lets each in-flight handler
+return and settle its terminal decision, and applies the configured deadline
+before forced cancellation and listener shutdown. `jitml service --consume-once
+<n>` uses the same typed interpreter for bounded validation.
 
 ## Phase Summary
 
@@ -413,19 +411,22 @@ Dhall schema files, renderers, and the local SIGHUP reload-decision surface.
     `./.build/runtime/cluster-publication.json`)
   - `httpListener : Maybe HttpListener` (none when `residency = Host`)
 - `LiveConfig` carries:
-  - `logLevel : LogLevel`
-  - `retryPolicy : RetryPolicy`
-  - `inferenceBatchSize`, `inferenceMaxLatencyMillis`
   - `dedupCacheSize`, `dedupCacheTtlSeconds`
   - `drainDeadlineSeconds`
+- LiveConfig contains only operational hot fields. Dynamic log filtering,
+  service retry, inference batching, and latency-SLO control are owned by Sprint
+  `12.16`; Phase `5` does not accept inert fields and report them as applied.
 - `JitML.Service.HotReload` models the local reload snapshot and SIGHUP reload
   decision: unchanged `LiveConfig` is ignored, changed `LiveConfig` increments
   the generation.
 - `JitML.Service.Signal` wires POSIX `SIGHUP`, `SIGINT`, and `SIGTERM` into the
-  daemon control surface: `SIGHUP` increments the reload generation, while
-  `SIGINT` / `SIGTERM` begin graceful drain and make `/readyz` report not ready.
-  Restart-required field changes (i.e., any `BootConfig` field) remain modelled
-  as `AppError InvalidConfig` so the orchestrator restarts the pod.
+  daemon control surface. SIGHUP rereads both configs, ignores unchanged or
+  malformed LiveConfig while retaining the last-good snapshot, and increments
+  generation only after a valid changed LiveConfig is atomically applied.
+  Reloaded dedup bounds reconfigure live routers and the latest drain deadline
+  governs shutdown. Any changed or malformed BootConfig is restart-required:
+  readiness drops, work drains, and `AppError InvalidConfig` asks the
+  orchestrator to restart. `SIGINT` / `SIGTERM` begin the same graceful drain.
 - The Dhall schemas at `dhall/service/{BootConfig,LiveConfig}.dhall` are
   present and match the renderers; the `BootConfig` loader uses `Dhall.inputFile`
   and rejects unknown substrate text before building the daemon runtime.
@@ -439,9 +440,12 @@ Dhall schema files, renderers, and the local SIGHUP reload-decision surface.
    `jitml-integration` also verifies the checked-in service ConfigMap carries
    the current `LiveConfig` fields including `dedupCacheSize` and
    `dedupCacheTtlSeconds`.
-3. `jitml-unit` exercises the local hot-reload decision surface.
-4. `jitml-daemon-lifecycle` exercises signal-to-action mapping and readiness
-   drop on drain.
+3. `jitml-unit` exercises the pure reload decision and checked Natural-to-Int
+   configuration boundary.
+4. `jitml-daemon-lifecycle` exercises signal-to-action mapping, atomic
+   generation changes, live router resize/TTL pruning, and an actual compiled
+   service across unchanged, changed, malformed-live, and restart-required
+   BootConfig SIGHUP cases.
 
 ## Sprint 5.3: `/healthz` / `/readyz` / `/metrics` and Structured Logging ✅
 
@@ -469,12 +473,14 @@ local HTTP route server that the daemon serves in-process.
   scrape config from Sprint `4.5`. Metrics include per-topic consumer lag,
   per-bucket PUT/GET latency histograms, JIT cache hit/miss counts, Lifecycle
   phase counters.
-- `Logger` writes structured JSON on stderr with fields `ts`, `level`, `msg`,
-  `lifecyclePhase`, `daemonId`, plus typed event payload. `LogLevel` is hot-
-  reloadable.
-- `RecoverableError` vs `FatalError` classification: recoverable kinds are
-  retried via the `RetryPolicy` (Sprint `5.4`); fatal kinds emit a structured
-  diagnostic and exit `2`.
+- `Logger` renders structured JSON values with fields `ts`, `level`, `msg`,
+  `lifecyclePhase`, `daemonId`, plus typed event payload. The operational stderr
+  sink and dynamic filter are Sprint `12.16` obligations and are not claimed by
+  this pure-renderer sprint.
+- `RecoverableError` vs `FatalError` classification maps service failures into
+  typed application errors. Sprint `5.4` retains the pure `RetryPolicy`
+  interpreter; Sprint `12.16` owns its production daemon reader and structured
+  fatal diagnostics.
 
 ### Validation
 
@@ -487,6 +493,11 @@ local HTTP route server that the daemon serves in-process.
 ## Sprint 5.4: `RetryPolicy` and Service Error Surface ✅
 
 **Status**: Done
+**Historical API note**: The method-level split Pulsar acquisition/consume/ack
+surface below records the Sprint `5.4` closure at that date. Sprint `5.18`
+supersedes it with opaque typed subscriptions and
+`HasPulsar.pulsarConsumeUntil`; the retained MinIO/Harbor/kubectl and retry
+surfaces remain current.
 **Implementation**: `src/JitML/Service/Retry.hs`,
 `src/JitML/Service/Capabilities.hs`,
 `src/JitML/Service/Clients.hs`,
@@ -502,23 +513,24 @@ class surface per doctrine `Capability Classes and Service Errors`.
 
 - `RetryPolicy` ADT with named strategies (`Once`, `LinearN k delayMs`,
   `ExponentialN k baseMs cap`, `RetryUntil deadline`). `retryServiceAction
-  :: RetryPolicy -> (env -> IO a) -> env -> IO (Either AppError a)` is the
-  single retry harness.
+  :: RetryPolicy -> (env -> IO (Either ServiceError a)) -> env -> IO (Either
+  AppError a)` is the pure retry harness.
 - Service-error kinds: `SEConflict` (retryable; from `If-Match`/`If-None-
   Match` `412`), `SEUnauthorized` (fatal), `SETimeout` (retryable per
   policy), `SETransient` (retryable per policy).
 - `HasMinIO`, `HasPulsar`, `HasHarbor`, and `HasKubectl` define the typed
   action boundaries used by later live service clients.
-- `JitML.Service.Clients.DaemonServiceClient` is the daemon-owned interpreter
-  that exposes all four capability classes from the loaded
-  `DaemonClientSettings` record.
+- `JitML.Service.Clients` closes client acquisition over the daemon role:
+  Engine receives the MinIO/Pulsar-only `EngineServiceClient`, Coordinator
+  receives the all-capability `DaemonServiceClient` backed by
+  `DaemonClientSettings`, and Webapp receives no service client.
 - `JitML.Service.Workload` provides the local typed runner for mutating
   daemon effects: checkpoint blob write, checkpoint pointer CAS, Harbor image
   promotion, kubectl apply/status/delete, and RunInference result publication.
 - `JitML.Service.Runtime.daemonWorkloadDispatcher` parses rendered
   byte-faithful `WorkloadEffect` payloads and routes them through that runner
   before the consumer ack path returns success.
-- The same dispatcher maps the current text `StartTraining` / `StopTraining`,
+- On Linux lanes, the same dispatcher maps the current text `StartTraining` / `StopTraining`,
   `StartRLRun` / `StopRLRun`, and `StartSweep` / `StopSweep` command envelopes
   into typed Kubernetes Job apply/delete workload effects before ack.
 - `JitML.Proto.Inference` renders/parses and proto3-byte-round-trips the
@@ -559,20 +571,20 @@ class surface per doctrine `Capability Classes and Service Errors`.
 5. `jitml-daemon-lifecycle` verifies the daemon runtime summary exposes the
    `client_acquisition` section with the derived MinIO and Pulsar endpoints and
    the `pulsar_subscriptions` section with the BootConfig-derived topic plan.
-6. `jitml-daemon-lifecycle` verifies
-   `JitML.Service.Runtime.acquireDaemonSubscriptions` crosses the typed
-   `HasPulsar.pulsarSubscribe` boundary, records acquired subscription status,
-   and keeps the daemon ready when every planned subscription is acquired.
-   `jitml-integration` verifies the WebSocket-backed subscribe probe targets the
-   same routed consumer endpoint as the one-shot consumer with
-   `receiverQueueSize=0` for acquisition.
-7. `jitml-daemon-lifecycle` verifies `DaemonServiceClient` satisfies all four
-   capability-class constraints, and `jitml service` uses that combined
-   interpreter for startup subscription acquisition.
-8. `jitml-daemon-lifecycle` verifies
-   `JitML.Service.Runtime.probeDaemonServiceClients` invokes the acquired
-   non-Pulsar clients through MinIO list, Harbor list, and `kubectl get pods`
-   boundaries and records `client_probe_status` in the daemon summary.
+6. Historical pre-Sprint-`5.18` `jitml-daemon-lifecycle` validation verified
+   the split subscription-acquisition boundary and recorded acquisition status.
+   The current runtime instead derives the same typed subscription plan and
+   obtains connection evidence from each persistent `pulsarConsumeUntil`
+   session before readiness can be constructed.
+7. `jitml-daemon-lifecycle` verifies the closed role projection: Engine uses
+   the MinIO/Pulsar-only `EngineServiceClient`, Coordinator uses the
+   all-capability `DaemonServiceClient`, and Webapp receives no service-client
+   settings.
+8. `jitml-daemon-lifecycle` verifies the role-specific runtime probes:
+   `probeEngineServiceClients` crosses only the MinIO boundary, while
+   `probeCoordinatorServiceClients` invokes MinIO list, Harbor list, and
+   `kubectl get pods` exactly once each and records `client_probe_status` in
+   the daemon summary.
 9. Live Linux CPU validation on 2026-05-20 rolls the real `jitml-service` pod
    with service account/RBAC, confirms `client_probe_status` reports MinIO
    `jitml-checkpoints`, Harbor `library`, and in-cluster `kubectl get pods` as
@@ -630,6 +642,12 @@ Sprint `5.6`.
 ## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ✅
 
 **Status**: Done
+**Historical API note**: The one-shot and caller-settled worker methods below
+record the Sprint `5.5` validation surface at that date. Sprint `5.18`
+supersedes them with receipt-bearing deliveries and interpreter-owned
+settlement. Payload-hash semantic deduplication remained only until Sprint
+`8.16`; that downstream sprint replaces it with plan-bound semantic identity.
+The Sprint `5.5` bullets below remain a dated record.
 **Implementation**: `src/JitML/Service/Consumer.hs`,
 `src/JitML/Service/PulsarWebSocketSubprocess.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -643,27 +661,32 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 
 ### Deliverables
 
-- Current `eventIdFromPayload` derives a SHA-256 payload hash and
+- Historically, `eventIdFromPayload` derived a SHA-256 payload hash and
   `processAtLeastOnce` keeps first-seen event IDs in deterministic order.
 - Current `daemonSubscriptionsForBootConfig` derives the substrate-scoped
   command topic plan from `BootConfig`:
   `training.command.<mode>`, `tune.command.<mode>`, `rl.command.<mode>`, and
-  `inference.request.<mode>` for clustered daemons, plus only
-  `inference.command.apple-silicon` for the Apple host daemon.
-- Current `subscribeDaemonTopics` crosses the typed `HasPulsar.pulsarSubscribe`
-  boundary and returns one result per planned daemon subscription.
-- Target `EventID` is the doctrine-typed deduplication key, derived from the protobuf
-  message hash. The daemon does not trust client-supplied IDs.
+  `inference.request.<mode>` for clustered Engine daemons, plus
+  `inference.command.apple-silicon` and the Training/Tune/RL host-command routes
+  for the Apple host Engine. Non-Engine roles never acquire compute
+  subscriptions.
+- The retired `subscribeDaemonTopics` helper crossed the split
+  `HasPulsar.pulsarSubscribe` boundary and returned one result per planned
+  subscription. Sprint `5.18` replaces it with persistent scoped consumption.
+- The historical compatibility `EventID` was derived from the protobuf message
+  hash and did not trust client-supplied IDs. Sprint `8.16` replaces it with
+  plan-bound semantic identity; a payload hash is not the target identity.
 - Target dispatcher routes by event kind to the per-domain handler (training,
   tune, RL, inference). Per-handler `dedupCache :: TVar (LRUSet EventID)`
-  provides at-least-once → effectively-once for the duration the entry stays
-  cached. Cache size and TTL are `LiveConfig` knobs.
-- Acks are explicit; failure to ack within the `RetryPolicy` budget surfaces
-  `AppError PulsarFailed`.
-- The routed WebSocket subprocess consume path records broker message ids
-  without pre-acking; `pulsarAcknowledge` sends the recorded id after the
-  dispatcher returns success.
-- `JitML.Service.PulsarWebSocketSubprocess.runPulsarConsumerWorker` starts a
+  suppresses repeated handler effects while an entry stays cached. Cache size
+  and TTL are `LiveConfig` knobs; broker delivery remains at-least-once.
+- Historically, acks were explicit and failure to ack within the `RetryPolicy`
+  budget surfaced `AppError PulsarFailed`; the receipt-bound interpreter now
+  owns and applies one settlement for each returned handler decision. This is
+  settlement ownership, not an exactly-once broker-delivery guarantee.
+- The retired routed WebSocket subprocess path recorded broker message ids and
+  sent them through a separate `pulsarAcknowledge` call after dispatch success.
+- The retired `JitML.Service.PulsarWebSocketSubprocess.runPulsarConsumerWorker` started a
   held-open broker consumer WebSocket, streams decoded deliveries to the parent
   process, and accepts explicit broker message ids back over stdin for
   post-dispatch ack plus explicit negative-ack commands for dispatch failures.
@@ -677,7 +700,8 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 1. `cabal test jitml-daemon-lifecycle` verifies identical payloads produce
    the same event id.
 2. `processAtLeastOnce` collapses repeated event ids in deterministic order.
-3. `cabal test jitml-daemon-lifecycle` verifies `domainFor` accepts live
+3. Historical pre-Sprint-`5.18` `cabal test jitml-daemon-lifecycle` validation
+   verified `domainFor` accepted live
    fully-qualified broker topic names under `persistent://public/default/`,
    verifies the BootConfig-derived daemon subscription set for clustered and
    Apple-host daemons, and verifies `subscribeDaemonTopics` calls
@@ -689,31 +713,33 @@ deduplication key is the protobuf message hash and is opaque to the broker.
    subscription statuses through the LiveConfig-sized `HandlerRouter`, dispatches
    fresh events, deduplicates redelivered payload hashes, and acks every
    delivery against the synthetic broker. The same suite verifies a failed
-   handler dispatch does not insert the event id into the dedup cache, calls
-   `HasPulsar.pulsarSeek`, and allows the next redelivery to dispatch.
+   handler dispatch did not insert the event id into the dedup cache and allowed
+   the next redelivery to dispatch.
    `jitml-integration` verifies the WebSocket-backed subscribe probe renders the
    routed consumer endpoint used for actual broker acquisition with
-   `receiverQueueSize=0`, so acquisition does not prefetch pending work.
-4. `cabal test jitml-integration` verifies `JitML.Cluster.PulsarBootstrap`
-   registers the matching 31-topic derived family and rejects retired
+   `receiverQueueSize=0`, so acquisition did not prefetch pending work. Sprint
+   `5.18` supersedes the split subscribe/seek/ack surface with one persistent
+   receipt-bound interpreter.
+4. Historical `cabal test jitml-integration` validation verified
+   `JitML.Cluster.PulsarBootstrap` registered the then-current 31-topic derived
+   family and rejected retired
    `*.cluster` / `*.host` topic names.
 5. Live Linux CPU validation on 2026-05-20 confirmed the live broker had the
    then-current 26-topic substrate-scoped family and the standalone routed
    WebSocket path published/consumed on
    `persistent://public/default/training.command.linux-cpu`, the same current
    topic family the daemon subscription plan targets.
-6. `cabal test jitml-integration` verifies the routed WebSocket consume script
-   records broker message ids without acknowledging before dispatcher success,
-   verifies the explicit acknowledge command sends the recorded id, and verifies
-   the held-open worker command renders the routed consumer endpoint, streams
-   decoded payloads to the parent process, only acks when the parent writes a
-   broker message id, and renders the explicit `negativeAcknowledge` command
-   used for dispatch-failure redelivery.
-7. Live Linux CPU validation on 2026-05-21 publishes the same `RunInference`
+6. Historical `cabal test jitml-integration` validation covered the retired
+   split WebSocket consume/ack worker. Sprint `5.18` replaces that surface with
+   the persistent bridge whose parent returns one typed disposition and whose
+   interpreter alone settles the private broker receipt.
+7. Historical live Linux CPU validation on 2026-05-21 published the same `RunInference`
    payload twice to the running held-open daemon worker and consumes exactly one
    matching `InferenceResult` from `inference.result.linux-cpu`, proving the
    process-lifetime `HandlerRouter` dedup cache is populated by live broker
    deliveries and duplicate payload hashes are acked as idempotent no-ops.
+   This is retained historical evidence; current semantic identity is
+   plan/kind/key-derived and current settlement is receipt-bound.
 8. Live Linux CPU validation on 2026-05-21 rolls the real `jitml-service`
    Deployment to the rebuilt image where normal `jitml service` startup
    creates held-open consumer workers,
@@ -999,6 +1025,8 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 
 **Engineering docs to create/update:**
 
+- `documents/engineering/run_contract.md` — receipt-bound delivery, total
+  disposition, and daemon lifecycle state.
 - `documents/engineering/daemon_architecture.md` — full daemon shape:
   Lifecycle, BootConfig / LiveConfig, hot reload, `/healthz` / `/readyz` /
   `/metrics`, structured logging, capability classes, retry policy, at-least-
@@ -1013,10 +1041,19 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 - `documents/engineering/cluster_topology.md` — Deployment-not-StatefulSet
   rationale, anti-affinity, host hostPath mount of `./.build/`, and the
   warning that hostPath does not make Apple Metal executable in Linux pods.
+- `documents/engineering/pulsar_ml_workflow.md` — shared normative role/topic
+  contract and project-local specialization boundary; jitML receipt mechanics
+  remain in `run_contract.md`.
+- `documents/engineering/unit_testing_policy.md` — daemon-lifecycle coverage
+  for opaque settlement, role/Apple-stop boundaries, adjacent LiveConfig,
+  actual-process SIGHUP decisions, configured deadlines, cleanup, and
+  Engine/Webapp SIGTERM drain.
 
 **Product docs to create/update:**
 
-- None.
+- `README.md` — the 34-topic family, current receipt-bound daemon behavior,
+  and an explicit distinction between implemented settlement and downstream
+  typed-plan/evidence targets.
 
 **Cross-references to add:**
 
@@ -1231,7 +1268,7 @@ Environment` from [../README.md](../README.md).
 **Status**: Done (convergence config-schema surface; validated host-native +
 container `check-code`)
 **Implementation**: `src/JitML/Service/DhallSchema.hs` (new),
-`src/JitML/Service/Retry.hs` (`retryPolicyDecoder`),
+`src/JitML/Service/Retry.hs` (typed retry policy values/rendering),
 `src/JitML/Service/LiveConfig.hs` (`liveConfigDecoder`/`loadLiveConfig`),
 `src/JitML/Service/BootConfig.hs` (export `rawBootConfigDecoder`),
 `src/JitML/Service/RunConfig.hs`, `test/unit/Main.hs`,
@@ -1302,8 +1339,8 @@ exe:jitml` clean, `jitml-unit` catalog-parity case PASS, `jitml docs check: ok`.
   config surface's Dhall type **off the live decoder** via `Dhall.expected`
   (`reflectedSchemaText`), so the schema cannot drift from the `FromDhall` types.
   To reflect `LiveConfig` (which previously had no decoder, only a renderer), a
-  `liveConfigDecoder` + `retryPolicyDecoder` + `logLevelDecoder` + `loadLiveConfig`
-  were added — making SIGHUP hot-reload able to read the real config file.
+  `liveConfigDecoder` + `loadLiveConfig` were added — making SIGHUP hot-reload
+  read the real operational config file through checked numeric refinement.
 - The `jitml internal dhall-schema [--config NAME]` leaf is registered in the
   command registry and prints `configSchemas`; `jitml docs generate` regenerated
   the CLI mirror (`documents/cli/commands.md`,
@@ -1416,16 +1453,16 @@ Mutation as a Single Command` and `Subprocesses as Typed Values` from
 - Repoint the `jitml bootstrap` rollout's topic-create step at the `Topology`
   descriptor's reconcile entrypoint (it already runs over the derived
   `coordinatorTopics` via `runPulsarTopicCreatesIO`; the explicit
-  Coordinator-role reconcile-at-startup is the live piece owned by Phase `15`).
+  Coordinator-role reconcile-at-startup is the live piece owned by Sprint
+  `12.16`).
 - Run the container `jitml docs check` / `jitml check-code` gate, align
   `cluster_topology.md`, and move the "Hardcoded Pulsar topic list" ledger row to
-  `Completed` (the live coordinator reconcile during bootstrap is owned by Phase
-  `15`).
+  `Completed` (the live coordinator reconcile is owned by Sprint `12.16`).
 
 ## Sprint 5.14: One-Binary Engine / Coordinator / Webapp Role Model ✅
 
-**Status**: Done (role model + lifecycle skeleton surface; live multi-role serving
-owned by Phases `11`/`15`)
+**Status**: Done (role model + lifecycle skeleton surface; live Coordinator
+reconcile/readiness and multi-role serving owned by Sprint `12.16`)
 **Depends-On**: Sprint `5.12` (reflected schema carries `activeRole`), Sprint
 `5.13` (Coordinator role owns the topic algebra)
 **Implementation**: `src/JitML/Service/RoleLifecycle.hs` (new),
@@ -1467,7 +1504,7 @@ from [../README.md](../README.md).
   phase order for every role; `activeRole = Engine` is the BootConfig default and
   the only compute role.
 - Live multi-role rollout (Coordinator pod + Engine pod(s) + Webapp pod) is owned
-  downstream by Phases `11`/`15`; this sprint closes on the offline skeleton +
+  downstream by Sprint `12.16`; this sprint closes on the offline skeleton +
   role-selection proof per standards rule M(b).
 - `docker compose run --rm jitml jitml docs check` and `jitml check-code`.
 
@@ -1502,9 +1539,11 @@ from [../README.md](../README.md).
 
 ### Remaining Work
 
-- Route the live serve path through role-specific `acquire`/`serve`/`drain`
-  callbacks (Coordinator topic reconcile, Webapp websocket fan-out) — the live
-  multi-role serving is owned downstream by Phases `11`/`15`.
+None. The retained role model is complete: Engine computes, Webapp serves
+without constructing an Engine runtime, and the unsupported Coordinator fails
+closed. Live Coordinator acquire/serve/drain reconciliation is an explicit
+downstream ownership transfer to Sprint `12.16`, not Sprint `5.14` Remaining
+Work.
 
 ## Sprint 5.15: Reconcile the Pulsar Topic Family with the `StoreRegistry` [✅ Done]
 
@@ -1630,6 +1669,106 @@ configuration error instead of silently running a default or env-derived workloa
   passed **77 / 77**, including **19 / 19** live cases against the `linux-cpu`
   cluster publication.
 - `docker compose run --rm jitml jitml check-code` passed (`check-code: ok`).
+
+### Remaining Work
+
+- None.
+
+## Sprint 5.18: Receipt-Bound Delivery and Total Settlement [✅ Done]
+
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Service/{BootConfig,LiveConfig,Retry}.hs`,
+`src/JitML/Service/Capabilities.hs`,
+`src/JitML/Service/Pulsar/{Internal,Bridge}.hs`,
+`src/JitML/Service/PulsarWebSocketSubprocess.hs`,
+`src/JitML/Service/Consumer.hs`, `src/JitML/Service/Runtime.hs`,
+`src/JitML/Service/RuntimeState.hs`, `src/JitML/Sub/Piped.hs`,
+`src/JitML/Coordinator/Topology.hs`, `src/JitML/Proto/{Training,Tune,Rl,Inference,Gc}.hs`,
+`src/JitML/Test/{PulsarBridge,PulsarTransport,RuntimeState,Workload}.hs`,
+`test/daemon-lifecycle/{Main,SigtermRegression}.hs`, `test/integration/Main.hs`,
+`test/unit/ProtocolCodec.hs`
+**Docs to update**: `../README.md`,
+`../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/pulsar_ml_workflow.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`,
+`../documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+Make broker delivery identity, decoding, and settlement one typed operation so
+acknowledging the wrong delivery, acknowledging twice, or forgetting settlement
+cannot be expressed by a handler. This sprint owns the daemon portion of
+[Exit Definition](README.md#exit-definition) item `32`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- The validated Coordinator topology derives all 34 physical routes from 14
+  logical names and exposes hidden-constructor `Topic event` and `Subscription
+  event` values rather than raw topic/subscription identifiers.
+- A persistent scoped `pulsarConsumeUntil` interpreter yields an opaque decoded
+  `Delivery event` containing its broker receipt. A handler returns a
+  `ConsumerDecision` carrying exactly one `Disposition`; the interpreter alone
+  applies Ack or Nack, reconnects, drains, and cleans up owned resources.
+- Broker message ids and the bounded live-receipt map remain private to the
+  bridge. Payload/newline values are neither delivery identity nor a settlement
+  key, and the public split consume/ack capability surface does not exist.
+- Training, Tune, RL, Inference, and GC route decoders reject unknown,
+  duplicate, malformed, missing, empty, non-finite, and cross-lane fields. The
+  closed `DaemonCommand` value reaches dispatch and status projection without a
+  second raw-payload parse.
+- Non-empty kind-indexed workload programs pair every `WorkloadEffect kind`
+  with only its legal result. Typed placement rejects consumed/requested lane
+  disagreement and carries the handle required by each placement variant.
+- Closed `Starting`, `Ready`, `Degraded`, and `Draining` daemon states carry
+  readiness evidence. SIGTERM keeps `/readyz` observable as `503` while an
+  in-flight handler completes and settles, then enforces the configured drain
+  deadline before listener and worker cleanup.
+- Piped consumer failures retain the exact structured process outcome and
+  cleanup failure context without replacing the primary failure.
+- BootConfig refinement rejects impossible residency/inference/role/listener
+  combinations before runtime construction. Only Engine acquires compute
+  subscriptions; Webapp runs under the shared signal scope; unsupported
+  Coordinator startup fails closed.
+- The adjacent operational LiveConfig loads before startup. Actual Engine and
+  Webapp processes distinguish unchanged, valid changed, malformed-live, and
+  immutable-Boot SIGHUP outcomes; active dedup bounds and shutdown use the
+  atomic last-good snapshot. Unsupported no-op logging/retry/batching/SLO
+  fields are absent until Sprint `12.16` supplies their readers.
+- Apple Training/Tune/RL Stops fail closed and Nack at host and cluster
+  boundaries without deleting a nonexistent Job, publishing false status, or
+  marking dedup. Sprint `12.16` owns keyed host handles and successful Stops.
+- Redelivery, equal payloads with distinct receipts, strict decode, handler and
+  settlement failure, reconnect ordering, asynchronous drain, scoped ownership,
+  receipt-table pruning, Apple stop routing, hot reload, configured drain
+  deadlines, orphan-free forced cleanup, and actual Engine/Webapp signals are
+  covered.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu --test-options='-p !/ProductRow/'
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+The integration selector runs exactly **81** cases: all 62 non-ProductRow
+cases plus all 19 Live cases. It excludes only the **56** downstream
+`ProductRow integration matrix (Sprint 28.1)` cases (one coverage meta-case and
+55 artifact-backed rows), which cannot acquire a backward dependency into this
+strict-chain sprint. Phase `28` retains and must pass that 56-case gate; the
+selector neither skips nor marks those cases passed.
+
+Closure evidence (2026-07-12): `jitml-unit` passed **343 / 343**;
+`jitml-daemon-lifecycle` passed **41 / 41**; the selector above passed **81 /
+81** in **1184.07s**, including **19 / 19** Live cases. Focused diagnosis also
+passed receipt-bound redelivery **1 / 1** and StartTraining placement/dedup **2
+/ 2** on a clean broker. A fresh `linux-cpu` bootstrap executed **130** phased
+steps, and both `jitml docs check` and `jitml check-code` returned success.
 
 ### Remaining Work
 

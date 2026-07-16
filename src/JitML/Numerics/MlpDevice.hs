@@ -46,6 +46,7 @@ import JitML.Engines.Engine (Engine (..), KernelHandle (..))
 import JitML.Engines.Loader
   ( ensureKernelArtifact
   , kernelArtifactHandle
+  , renderKernelArtifactError
   , withKernelSymbol
   )
 import JitML.Engines.MetalBridge qualified as MetalBridge
@@ -303,7 +304,7 @@ mlpForwardWith spec env params input
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
         Right artifact -> do
           let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
           withKernelSymbol path "jitml_mlp_forward" $ \symbol -> do
@@ -376,7 +377,7 @@ mlpBackwardWith spec env params fwd dLdy = do
     else do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
         Right artifact -> do
           let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
           withKernelSymbol path "jitml_mlp_backward" $ \symbol -> do
@@ -459,7 +460,7 @@ mlpForwardBatchWith spec env params inputs
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
         Right artifact -> do
           let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
           withKernelSymbol path "jitml_mlp_forward_batch" $ \symbol -> do
@@ -525,7 +526,7 @@ mlpBatchGradientWith spec env params batch
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
         Right artifact -> do
           let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
           withKernelSymbol path "jitml_mlp_batch_gradient" $ \symbol -> do
@@ -613,7 +614,7 @@ mlpInputGradientBatchWith spec env params batch
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
         Right artifact -> do
           let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
           withKernelSymbol path "jitml_mlp_input_gradient_batch" $ \symbol -> do
@@ -658,7 +659,7 @@ ensureMlpMetadata spec env = do
   result <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
   pure $
     case result of
-      Left err -> Left (mbsTag spec <> " compile failed: " <> err)
+      Left err -> Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err)
       Right _artifact -> Right ()
 
 mlpGradientFromBridgeResult

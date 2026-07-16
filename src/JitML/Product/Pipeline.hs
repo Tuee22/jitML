@@ -22,7 +22,8 @@ where
 import Data.Text (Text)
 
 import JitML.Checkpoint.Format
-  ( InferenceEligibleCheckpoint
+  ( CompletedCheckpoint
+  , InferenceEligibleCheckpoint
   , eligibleCheckpointCompletedTraining
   , eligibleCheckpointManifest
   , eligibleCheckpointManifestSha
@@ -31,8 +32,6 @@ import JitML.Checkpoint.Format
 import JitML.Product.Matrix (ModelState (..))
 import JitML.Training.Budget
   ( CompletedTraining
-  , completedTrainingMetrics
-  , convergencePassed
   )
 
 newtype Experiment (state :: ModelState) = Experiment
@@ -85,22 +84,19 @@ completeTraining ref completed =
     }
 
 markInferenceEligible
-  :: Text
+  :: CompletedCheckpoint
   -> ModelRef 'TrainingCompleted
-  -> CompletedTraining
   -> Either Text InferenceEligibleRef
-markInferenceEligible manifestSha ref completed
+markInferenceEligible eligible ref
   | modelRefCompletedTraining ref /= Just completed =
       Left "completed-training witness does not match model reference"
-  | not (all convergencePassed (completedTrainingMetrics completed)) =
-      Left "completed-training witness has failed convergence"
+  | modelRefExperimentHash ref /= manifestExperiment manifest =
+      Left "completed checkpoint does not match model experiment"
   | otherwise =
-      Right
-        ModelRef
-          { modelRefExperimentHash = modelRefExperimentHash ref
-          , modelRefManifestSha = Just manifestSha
-          , modelRefCompletedTraining = Just completed
-          }
+      Right (inferenceEligibleModelRef eligible)
+ where
+  manifest = eligibleCheckpointManifest eligible
+  completed = eligibleCheckpointCompletedTraining eligible
 
 inferenceEligibleModelRef :: InferenceEligibleCheckpoint -> InferenceEligibleRef
 inferenceEligibleModelRef eligible =

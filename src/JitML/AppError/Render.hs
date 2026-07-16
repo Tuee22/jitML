@@ -7,9 +7,12 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Exit (ExitCode (..))
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Sub.Outcome
+  ( renderProcessAttemptFailure
+  , renderProcessFailure
+  )
 
 renderError :: AppError -> Text
 renderError (PrerequisiteUnmet nodeId description remedyHint) =
@@ -19,12 +22,10 @@ renderError (PrerequisiteUnmet nodeId description remedyHint) =
       ]
         <> maybe [] (\hint -> ["remedy: " <> hint]) remedyHint
     )
-renderError (SubprocessFailed command exitCode stderrText) =
-  Text.unlines
-    [ "subprocess failed: " <> command
-    , "exit: " <> exitCodeText exitCode
-    , "stderr: " <> emptyAsNone stderrText
-    ]
+renderError (SubprocessFailed failure) =
+  "subprocess failed:\n" <> renderProcessFailure failure
+renderError (SubprocessAttemptFailed failure) =
+  "subprocess attempt failed:\n" <> renderProcessAttemptFailure failure
 renderError (MinIOFailed message) =
   renderSingle "minio failed" message
 renderError (PulsarFailed message) =
@@ -67,15 +68,6 @@ renderError (ReconcilerNoop message) =
 renderSingle :: Text -> Text -> Text
 renderSingle label message =
   Text.unlines [label <> ": " <> message]
-
-emptyAsNone :: Text -> Text
-emptyAsNone value
-  | Text.null value = "(none)"
-  | otherwise = value
-
-exitCodeText :: ExitCode -> Text
-exitCodeText ExitSuccess = "0"
-exitCodeText (ExitFailure code) = Text.pack (show code)
 
 ensureFinalNewline :: Text -> Text
 ensureFinalNewline value

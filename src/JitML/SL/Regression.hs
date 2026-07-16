@@ -47,6 +47,7 @@ data RegressionConfig = RegressionConfig
   , regInputs :: !Int
   , regHidden :: !Int
   , regEpochs :: !Int
+  , regBatchSize :: !Int
   , regLearningRate :: !Double
   }
   deriving stock (Eq, Show)
@@ -58,6 +59,7 @@ defaultRegressionConfig =
     , regInputs = 8
     , regHidden = 32
     , regEpochs = 100
+    , regBatchSize = 128
     , regLearningRate = 1.0e-3
     }
 
@@ -183,10 +185,10 @@ trainRegressorWithDevice device config dataset
           params0 = mlpInit shape (regSeed config)
           adam0 = adamInit shape
           adamConfig = defaultAdamConfig {adamLearningRate = regLearningRate config}
-          inputs = fmap regressionFeatures dataset
-          targets = fmap regressionTarget dataset
-          batchN = length dataset
-          stepEpoch (params, adam) = do
+          stepBatch (params, adam) batch = do
+            let inputs = fmap regressionFeatures batch
+                targets = fmap regressionTarget batch
+                batchN = length batch
             fwdE <- mlpdForwardBatch device params inputs
             case fwdE of
               Left err -> pure (Left err)
@@ -198,6 +200,14 @@ trainRegressorWithDevice device config dataset
                   Right summedGrad ->
                     let meanGrad = scaleMlpGradient (1.0 / fromIntegral batchN) summedGrad
                      in pure (Right (adamStep adamConfig adam params meanGrad))
+          stepEpoch state =
+            foldM
+              ( \acc batch -> case acc of
+                  Left err -> pure (Left err)
+                  Right current -> stepBatch current batch
+              )
+              (Right state)
+              (nonEmptyChunks (regBatchSize config) dataset)
           runEpoch acc _epoch = case acc of
             Left err -> pure (Left err)
             Right state -> stepEpoch state
@@ -212,6 +222,12 @@ trainRegressorWithDevice device config dataset
                   }
           mseE <- meanSquaredErrorWithDevice device trained dataset
           pure (fmap (trained,) mseE)
+
+nonEmptyChunks :: Int -> [a] -> [[a]]
+nonEmptyChunks size values =
+  case splitAt (max 1 size) values of
+    ([], _) -> []
+    (chunk, rest) -> chunk : nonEmptyChunks size rest
 
 predictRegressorWithDevice
   :: MlpDevice -> TrainedRegressor -> Vector Double -> IO (Either Text.Text Double)

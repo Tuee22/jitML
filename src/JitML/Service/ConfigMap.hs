@@ -2,6 +2,7 @@
 
 module JitML.Service.ConfigMap
   ( renderServiceConfigMap
+  , renderServiceConfigMaps
   , renderServiceDeployment
   , renderServiceRBAC
   )
@@ -10,7 +11,11 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import JitML.Service.BootConfig (BootConfig, bootSubstrate, renderBootConfigDhall)
+import JitML.Service.BootConfig
+  ( BootConfig (..)
+  , Role (Coordinator)
+  , renderBootConfigDhall
+  )
 import JitML.Service.LiveConfig (LiveConfig, renderLiveConfigDhall)
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
 
@@ -29,8 +34,37 @@ renderServiceConfigMap bootConfig liveConfig =
     <> Text.unlines ["  LiveConfig.dhall: |"]
     <> indentBlock (renderLiveConfigDhall liveConfig)
 
+renderServiceConfigMaps :: BootConfig -> LiveConfig -> Text
+renderServiceConfigMaps engineBootConfig liveConfig =
+  renderServiceConfigMap engineBootConfig liveConfig
+    <> "---\n"
+    <> renderCoordinatorConfigMap
+      (engineBootConfig {bootActiveRole = Coordinator})
+      liveConfig
+
+renderCoordinatorConfigMap :: BootConfig -> LiveConfig -> Text
+renderCoordinatorConfigMap bootConfig liveConfig =
+  Text.unlines
+    [ "apiVersion: v1"
+    , "kind: ConfigMap"
+    , "metadata:"
+    , "  name: jitml-coordinator-config"
+    , "  namespace: platform"
+    , "data:"
+    , "  BootConfig.dhall: |"
+    ]
+    <> indentBlock (renderBootConfigDhall bootConfig)
+    <> Text.unlines ["  LiveConfig.dhall: |"]
+    <> indentBlock (renderLiveConfigDhall liveConfig)
+
 renderServiceDeployment :: Substrate -> Text
 renderServiceDeployment substrate =
+  renderEngineDeployment substrate
+    <> "---\n"
+    <> renderCoordinatorDeployment substrate
+
+renderEngineDeployment :: Substrate -> Text
+renderEngineDeployment substrate =
   Text.unlines $
     [ "apiVersion: apps/v1"
     , "kind: Deployment"
@@ -49,6 +83,8 @@ renderServiceDeployment substrate =
     , "      app: jitml-service"
     , "  template:"
     , "    metadata:"
+    , "      annotations:"
+    , "        checksum/live-config: {{ include (print $.Template.BasePath \"/configmap-jitml-service.yaml\") . | sha256sum | quote }}"
     , "      labels:"
     , "        app: jitml-service"
     , "        jitml.substrate: " <> renderSubstrate substrate
@@ -56,7 +92,8 @@ renderServiceDeployment substrate =
     , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
     , "        jitml.compute-scope: service"
     , "    spec:"
-    , "      serviceAccountName: jitml-service"
+    , "      serviceAccountName: jitml-engine"
+    , "      automountServiceAccountToken: false"
     ]
       <> runtimeClassLines
       <> clusterComputePlacementLines substrate
@@ -66,6 +103,21 @@ renderServiceDeployment substrate =
          , "          imagePullPolicy: IfNotPresent"
          , "          command: [\"jitml\"]"
          , "          args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]"
+         , "          readinessProbe:"
+         , "            httpGet:"
+         , "              path: /readyz"
+         , "              port: 8080"
+         , "          startupProbe:"
+         , "            httpGet:"
+         , "              path: /healthz"
+         , "              port: 8080"
+         , "            periodSeconds: 5"
+         , "            timeoutSeconds: 2"
+         , "            failureThreshold: 60"
+         , "          livenessProbe:"
+         , "            httpGet:"
+         , "              path: /healthz"
+         , "              port: 8080"
          ]
       <> nvidiaEnvLines
       <> [ "          volumeMounts:"
@@ -99,8 +151,64 @@ renderServiceDeployment substrate =
         , "              value: compute,utility"
         ]
 
+renderCoordinatorDeployment :: Substrate -> Text
+renderCoordinatorDeployment substrate =
+  Text.unlines
+    [ "apiVersion: apps/v1"
+    , "kind: Deployment"
+    , "metadata:"
+    , "  name: jitml-coordinator"
+    , "  namespace: platform"
+    , "spec:"
+    , "  replicas: 1"
+    , "  strategy:"
+    , "    type: Recreate"
+    , "  selector:"
+    , "    matchLabels:"
+    , "      app: jitml-coordinator"
+    , "  template:"
+    , "    metadata:"
+    , "      annotations:"
+    , "        checksum/live-config: {{ include (print $.Template.BasePath \"/configmap-jitml-service.yaml\") . | sha256sum | quote }}"
+    , "      labels:"
+    , "        app: jitml-coordinator"
+    , "        jitml.substrate: " <> renderSubstrate substrate
+    , "        jitml.role: coordinator"
+    , "        jitml.compute: \"false\""
+    , "    spec:"
+    , "      serviceAccountName: jitml-coordinator"
+    , "      containers:"
+    , "        - name: jitml-coordinator"
+    , "          image: jitml:local"
+    , "          imagePullPolicy: IfNotPresent"
+    , "          command: [\"jitml\"]"
+    , "          args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]"
+    , "          readinessProbe:"
+    , "            httpGet:"
+    , "              path: /readyz"
+    , "              port: 8080"
+    , "          startupProbe:"
+    , "            httpGet:"
+    , "              path: /healthz"
+    , "              port: 8080"
+    , "            periodSeconds: 5"
+    , "            timeoutSeconds: 2"
+    , "            failureThreshold: 60"
+    , "          livenessProbe:"
+    , "            httpGet:"
+    , "              path: /healthz"
+    , "              port: 8080"
+    , "          volumeMounts:"
+    , "            - name: service-config"
+    , "              mountPath: /etc/jitml"
+    , "      volumes:"
+    , "        - name: service-config"
+    , "          configMap:"
+    , "            name: jitml-coordinator-config"
+    ]
+
 serviceReplicaCount :: Substrate -> Int
-serviceReplicaCount AppleSilicon = 1
+serviceReplicaCount AppleSilicon = 0
 serviceReplicaCount LinuxCPU = 3
 serviceReplicaCount LinuxCUDA = 3
 
@@ -150,30 +258,45 @@ renderServiceRBAC =
     [ "apiVersion: v1"
     , "kind: ServiceAccount"
     , "metadata:"
-    , "  name: jitml-service"
+    , "  name: jitml-engine"
+    , "  namespace: platform"
+    , "---"
+    , "apiVersion: v1"
+    , "kind: ServiceAccount"
+    , "metadata:"
+    , "  name: jitml-coordinator"
     , "  namespace: platform"
     , "---"
     , "apiVersion: rbac.authorization.k8s.io/v1"
     , "kind: Role"
     , "metadata:"
-    , "  name: jitml-service"
+    , "  name: jitml-coordinator"
     , "  namespace: platform"
     , "rules:"
-    , "  - apiGroups: [\"*\"]"
-    , "    resources: [\"*\"]"
+    , "  - apiGroups: [\"batch\"]"
+    , "    resources: [\"jobs\"]"
     , "    verbs: [\"get\", \"list\", \"watch\", \"create\", \"update\", \"patch\", \"delete\"]"
+    , "  - apiGroups: [\"\"]"
+    , "    resources: [\"configmaps\"]"
+    , "    verbs: [\"get\", \"list\", \"watch\", \"create\", \"update\", \"patch\", \"delete\"]"
+    , "  - apiGroups: [\"\"]"
+    , "    resources: [\"pods\"]"
+    , "    verbs: [\"get\", \"list\", \"watch\"]"
+    , "  - apiGroups: [\"\"]"
+    , "    resources: [\"pods/exec\"]"
+    , "    verbs: [\"create\"]"
     , "---"
     , "apiVersion: rbac.authorization.k8s.io/v1"
     , "kind: RoleBinding"
     , "metadata:"
-    , "  name: jitml-service"
+    , "  name: jitml-coordinator"
     , "  namespace: platform"
     , "subjects:"
     , "  - kind: ServiceAccount"
-    , "    name: jitml-service"
+    , "    name: jitml-coordinator"
     , "    namespace: platform"
     , "roleRef:"
     , "  apiGroup: rbac.authorization.k8s.io"
     , "  kind: Role"
-    , "  name: jitml-service"
+    , "  name: jitml-coordinator"
     ]

@@ -2,27 +2,31 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../../README.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md
+**Referenced by**: README.md, ../../README.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, run_contract.md
 **Generated sections**: none
 
-> **Purpose**: The cross-project contract — shared verbatim with the `infernix`
-> sister project — for ML workflows (training and inference) over Pulsar: the
+> **Purpose**: The shared normative cross-project contract, specialized locally
+> by jitML and its `infernix` sister project, for ML workflows (training and
+> inference) over Pulsar: the
 > three-role split (Engine / Coordinator / Webapp), the derived topic algebra,
 > the `Work*` envelope family, the artifact + readiness contract, the
-> websocket snapshot/patch surface, and the coordination primitives. jitML and
-> `infernix` both implement this shape so the two projects stay convergent rather
-> than diverging into two incompatible rewrites.
+> websocket snapshot/patch surface, and the coordination primitives. This is the
+> converged target both projects adopt; each project records any current
+> implementation gap and its owning forward sprint rather than claiming that a
+> retained compatibility role already satisfies the target.
 
 ## Why this contract exists
 
 jitML (JIT-compiled, multi-substrate **training + inference**) and `infernix`
 (Pulsar-driven model **inference serving**) are converging on one Pulsar-based
 ML-workflow shape. This document is the authoritative, **project-neutral**
-contract; the identical text lives at `documents/architecture/pulsar_ml_workflow.md`
-in `infernix`. Where a project specializes the contract, it does so only in the
-project-specific surfaces noted inline (substrate identifiers, kernel codegen,
-topic namespace), never by diverging from the role split, envelope family, or
-phasing rules.
+contract. The sibling lives at
+`documents/architecture/pulsar_ml_workflow.md` in `infernix`; each repository
+adds project-local detail for substrate identifiers, kernel codegen, topology,
+and delivery mechanics. Changes to the shared role, envelope, or phasing
+invariants require a synchronized sibling-project update. jitML-specific
+receipt and evidence rules live in [Typed Run Contract](run_contract.md), not in
+the shared invariant text.
 
 ## The three roles
 
@@ -37,6 +41,15 @@ separate per-role executables). Every role runs the same lifecycle skeleton —
 | **Coordinator** | cluster only | **Owns Pulsar topic lifecycle**; batching, fan-in/fan-out, routing; **readiness gating** (derivation/training completion → serveable) | Pulsar + MinIO + cluster API |
 | **Webapp** | cluster | **Thin websocket server** for the browser; work dispatch + result/event streaming + static-artifact serving; **no ML compute** | **Pulsar + MinIO only** + browser (websocket) |
 
+**jitML specialization.** Linux clusters run three Engine replicas for
+inference compute and one non-compute Coordinator for Training/Tune/RL placement
+and cluster orchestration. The Coordinator alone owns Harbor/kubectl probes and
+the namespace-scoped Job/`pods/exec` RBAC; Engine retains only MinIO plus its
+typed compute subscription. On `apple-silicon`, the cluster Engine Deployment
+has zero replicas, the Coordinator forwards all four domains, and the host
+Engine consumes inference plus Training/Tune/RL host commands. Webapp has no
+compute subscription on any lane.
+
 Invariants:
 
 - The **Engine is the only role that computes.** No inference or training runs in
@@ -47,9 +60,11 @@ Invariants:
   result. (This is why the Apple in-pod-Metal problem does not exist under this
   shape: the webapp publishes `inference.request.<lane>`; engine residency/forwarding
   is an internal Engine/Coordinator concern.)
-- The **Coordinator owns topic lifecycle.** Topics are created/validated/torn down
-  by the coordinator from a typed topology descriptor — never auto-created
-  implicitly and never hardcoded in a static list.
+- The **Coordinator owns topic lifecycle.** At acquire it creates or observes
+  every topic derived from the validated topology, rejects duplicate, missing,
+  or unexpected observations, and records opaque exact-family evidence before
+  consumer connections can make readiness true. Topics are never hardcoded in
+  a static list.
 
 ## Topic algebra
 
@@ -119,10 +134,47 @@ unrepresentable in the domain.
   result-bridge, readiness/bootstrap): stable subscription name = ownership,
   process-qualified consumer name = replica observability. HA with no external
   consensus system.
-- **Producer-side broker dedup** keyed by `callId` → at-least-once becomes
-  effectively-once; the dedup decision stays a pure fold over the work log.
+- **Producer-side semantic dedup** keyed by `callId` is a pure first-seen fold
+  over the work log. It makes duplicate commands idempotent at that semantic
+  boundary; it does not change Pulsar's at-least-once delivery contract into an
+  atomic or globally exactly-once broker guarantee.
 - **Single-flight / batching** expressed as pure reducers over the work log
   (testable offline without a broker).
+
+jitML specializes delivery settlement with opaque broker receipts and derives a
+semantic `EventId` from the refined plan, command kind, and logical key; the two
+identities never alias. Its inference consumer reads a positive batch-size and
+latency snapshot at first admission, groups compatible `RunInference` requests
+by experiment/checkpoint and input width, and retains every hidden receipt.
+Collection closes on size/compatibility or at the sparse cutoff
+`admission + min(1 ms, latency / 10)`; the distinct captured
+handler/publication-entry deadline remains `admission + latency`. This sends an
+under-capacity batch to Engine with most of its SLO intact without extending the
+captured window.
+
+Daemon dispatch commits semantic dedup state per command. A later cancellation
+restores only that command's in-progress transition, so earlier successful
+commands survive a whole-batch Nack and do not repeat their effects on
+redelivery. If the handler does not return before timeout, the transport cancels
+it and Nacks the admitted receipts. Engine refuses to enter a Pulsar publication
+after the captured deadline. A decision that does return is never
+retroactively Nacked by a later clock sample because publication may already be
+externally visible; broker acknowledgement or publication completion is not
+guaranteed by the deadline. Commanded and drain-race settlements must flush and
+be confirmed before `Drained`.
+
+The jitML inference CLI never computes. It opens one `Owned`, `FromLatest` reply
+cursor, publishes the typed request to Engine, and waits for the correlated
+result only when both `callId` and experiment hash match. Release cancels and
+joins the short-lived consumer before a bounded, cancellation-safe subscription
+`DELETE`. Settlement, drain/protocol, bridge-process, and cleanup failures
+observed during cancellation remain typed; only a fully successful drain and
+cleanup rethrows the original asynchronous-cancellation identity. Product Tune
+evidence likewise comes from the registered `ProductRow` and Catalog
+schedule—TPE/ASHA/`MedianPruner`, `128` trials, seed `1729`, `6` optimizer
+updates per trial, parallelism `1`, target `1.0`, slack `0.05`—and a reduced
+transport/lifecycle smoke cannot mint completion. See
+[Typed Run Contract → Delivery and Settlement](run_contract.md#delivery-and-settlement).
 
 ## Configuration and roles
 
@@ -131,6 +183,10 @@ unrepresentable in the domain.
 - **Reflected Dhall schema**: the binary emits the schema its decoders accept
   (so the schema cannot drift from the types). This is the convention both repos
   adopt.
+- Each role receives a separate ConfigMap, ServiceAccount, subscription plan,
+  probe set, and capability profile. `service --consume-once` remains an
+  Engine-only diagnostic and cannot be used to make Coordinator or Webapp
+  inherit Engine dispatch.
 
 ## Phasing rules (both repos)
 
@@ -164,7 +220,8 @@ A project conforms to this contract when all hold:
       `.ready` sentinel is written last.
 - [ ] The browser receives snapshot + patch frames over websocket; inference is
       asynchronous to the browser.
-- [ ] Failover subscriptions + producer dedup provide HA and effectively-once.
+- [ ] Failover subscriptions provide HA; semantic dedup makes redelivery
+      idempotent while broker delivery remains at-least-once.
 - [ ] The binary emits its own (reflected) Dhall schema.
 - [ ] Every phase obeys forward-only DAG + single-accelerator-per-phase.
 
@@ -174,6 +231,8 @@ A project conforms to this contract when all hold:
 - [../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md)
 - [../../DEVELOPMENT_PLAN/development_plan_standards.md](../../DEVELOPMENT_PLAN/development_plan_standards.md)
 - [../../README.md](../../README.md)
+- [run_contract.md](run_contract.md) — jitML-specific refinement, evidence,
+  settlement, lifecycle, interpreter, and journal specialization
 
 > Engineering docs that elaborate this contract's jitML-specific surfaces
 > (`daemon_architecture.md`, `cluster_topology.md`, `training_workloads.md`,

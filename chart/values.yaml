@@ -73,7 +73,9 @@ pulsar:
     replicaCount: 3
   broker:
     replicaCount: 3
+    restartPodsOnConfigMapChange: true
     configData:
+      brokerDeleteInactiveTopicsEnabled: "false"
       webSocketServiceEnabled: "true"
   proxy:
     replicaCount: 3

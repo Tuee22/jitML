@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific bit-determinism contract for jitML — the per-
@@ -32,6 +32,35 @@ contract holds across:
 - hyperparameter-trial selection (sampler state is reproducible),
 - checkpoint recovery (the `.jmw1` decode + manifest reload restore identical
   state).
+
+## Run-Protocol Determinism
+
+The raw-to-validated workflow boundary is specified by
+[Typed Run Contract](run_contract.md). Canonical plan encoding produces the same
+`PlanId` for the same resolved inputs. Semantic event IDs derive from the plan,
+event kind, and event key rather than broker arrival order or a client-supplied
+payload hash.
+
+Evidence reducers are pure folds over exact keyed collections. Permuting valid
+delivery order or replaying an identical event produces the same progress and
+completed evidence; conflicting duplicates and gaps are typed violations. The
+deterministic evidence projection excludes broker receipts, wall-clock timing,
+process duration, and cleanup timestamps. Those remain observable journal data
+but are not inputs to numerical results, plan identity, checkpoint hashes, or
+same-substrate equality assertions.
+
+Tuning and AlphaZero make that identity boundary concrete. Their raw commands
+refine to canonical version-`1` `TuningPlan` / `AlphaZeroPlan` transports whose
+`PlanId` covers the selected axes, game, substrate/placement, seed cohort, and
+every dimension-specific budget. Local execution, Linux worker mounts, and
+Apple host commands consume the same plan. Tuning schedules deterministic
+parallel cohorts from the resolved width, gives every trial an explicit
+pruned/promoted disposition, and requires the sweep's promoted count to equal
+the plan. Tuning completion is keyed by the exact zero-based trial range plus
+one sweep result; AlphaZero completion is
+keyed by the exact zero-based generation range plus one arena result. Delivery
+permutation therefore cannot change which trials or generations satisfy the
+run, and worker count or arrival order cannot silently change the budget.
 
 ## Per-Substrate Floating-Point Semantics
 
@@ -212,7 +241,10 @@ For SL training, full-run bit-equality holds.
 
 For AlphaZero self-play, per-game bit-equality holds: two same-substrate,
 same-seed runs of Connect 4, Othello, Hex, and Gomoku produce identical
-self-play game sequences and MCTS visit-count vectors. The checkpoint evidence
+self-play game sequences and legal-action-masked MCTS visit-count vectors.
+Othello forced passes are explicit deterministic transcript events, and MCTS
+value backup changes perspective only when the player to move actually changes.
+The checkpoint evidence
 for each game records deterministic initial/final policy-value network hashes,
 the self-play generation count, and an arena win-rate observation that clears
 `JitML.RL.ConvergenceThresholds.alphaZeroArenaThreshold`; replay compares fresh
@@ -332,6 +364,7 @@ with-expert vs without) in-run, consistent with the snapshot policy in
 - [../../README.md → Bit-determinism contract](../../README.md#bit-determinism-contract)
 - [jit_codegen_architecture.md](jit_codegen_architecture.md)
 - [checkpoint_format.md](checkpoint_format.md)
+- [run_contract.md](run_contract.md)
 - [../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md](../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
 - [../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md) — `jitml-negative-controls` gate and the metamorphic/differential discipline

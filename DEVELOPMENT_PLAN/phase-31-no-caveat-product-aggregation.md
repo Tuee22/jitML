@@ -1,6 +1,6 @@
 # Phase 31: No-Caveat Product Aggregation
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -11,7 +11,13 @@
 
 ## Phase State
 
-✅ **Done** (2026-07-11). The prior 2026-07-05 aggregation consumed three
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `31.3`). The current
+aggregation joins report fragments that predate scenario journals and the exact
+run-evidence contract. Sprint `31.3` is blocked by Sprints `29.5` and `30.4` and
+remains a `linux-cpu`-only join. Sprints `31.1`–`31.2` remain Done on their
+retained historical aggregation surface.
+
+**Historical retained closure.** ✅ **Done** (2026-07-11). The prior 2026-07-05 aggregation consumed three
 **withdrawn** per-lane attestations (`linux-cpu`/`linux-cuda`/`apple-silicon`,
 55 rows each) whose row evidence was not backed by real training, real
 inference, or real kernel dispatch. Current `linux-cpu` model-realness, Apple
@@ -143,8 +149,8 @@ merged report card, and the legacy ledger is empty.
 - `jitml test all --live --linux-cpu` passes with every product-matrix `rowId`
   present in the merged report card and no row reduced to a representative smoke
   check.
-- All eighteen [README.md → Exit Definition](../README.md#exit-definition) items
-  pass against the merged report card, and
+- All then-current eighteen [README.md → Exit Definition](README.md#exit-definition)
+  items pass against the merged report card, and
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) holds zero
   `Pending Removal` entries.
 - `jitml docs check` continues to reject product-closure language until the typed
@@ -193,9 +199,64 @@ docker compose run --rm jitml cabal run exe:jitml -- check-code
 Result: `jitml-unit --linux-cpu` passed **278 / 278**, `docs check: ok`, and
 `check-code: ok`.
 
+## Sprint 31.3: Journal-Derived Product Aggregation [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Test/Report.hs`,
+`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`,
+`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`,
+`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
+**Blocked by**: Sprints `29.5` and `30.4`
+**Docs to update**: `../README.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`
+
+### Objective
+
+Join the three committed lane journals into one product result without
+reconstructing evidence from prose, test ids, or post-hoc probes. This sprint
+owns the aggregation portion of
+[Exit Definition](README.md#exit-definition) item `34`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Decode and validate each committed lane fragment as a versioned scenario
+  journal whose rows carry matching `rowId`, `PlanId`, artifact identity,
+  substrate, and completed evidence.
+- Join the three fragments by product-row identity and fail on missing,
+  duplicated, mismatched, failed, or not-run cells.
+- Derive all aggregate counts and report measurements from the joined typed
+  results; no prose table or hand-edited total can manufacture coverage.
+- Keep aggregation `linux-cpu` only and consume the committed accelerator
+  fragments without rerunning either accelerator.
+- Emit the merged report and closure input consumed by the external-truth and
+  status-governance phases.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprints `29.5` and `30.4` publish refreshed contract-driven lane
+  fragments; Sprint `28.4` supplies the refreshed `linux-cpu` fragment.
+- Implement typed journal decode/join and regenerate the aggregate report.
+- Retire post-hoc/prose-fragment aggregation only after the join rejects all
+  negative fixtures and the CPU-only validation passes.
+
 ## Documentation Requirements
 
 **Engineering docs updated:**
+- `documents/engineering/run_contract.md` — typed lane-journal validation and
+  CPU-only product aggregation.
 - `documents/engineering/product_completion_contract.md` — record the final
   merged-evidence closure state and the Phase `19`–`34` validation boundary.
 - `documents/engineering/unit_testing_policy.md` — ownership of the attestation

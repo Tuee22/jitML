@@ -6,26 +6,52 @@ export function openWebSocket(path) {
   return function (callback) {
     return function (onFailure) {
       return function () {
+        var active = true;
+        var ws = null;
         try {
           var loc = window.location;
           var proto = loc.protocol === "https:" ? "wss:" : "ws:";
           var url = proto + "//" + loc.host + path;
-          var ws = new WebSocket(url);
+          ws = new WebSocket(url);
           ws.onmessage = function (event) {
-            callback(String(event.data))();
+            if (active) {
+              callback(String(event.data))();
+            }
           };
           ws.onerror = function () {
-            onFailure("websocket error: " + path)();
+            if (active) {
+              onFailure("websocket error: " + path)();
+            }
           };
           ws.onclose = function (event) {
-            if (!event.wasClean) {
+            if (active && !event.wasClean) {
               onFailure("websocket closed: " + path)();
             }
           };
         } catch (e) {
-          onFailure(String(e && e.message ? e.message : e))();
+          if (active) {
+            onFailure(String(e && e.message ? e.message : e))();
+          }
         }
-        return {};
+        return function () {
+          if (!active) {
+            return {};
+          }
+          active = false;
+          if (ws !== null) {
+            ws.onmessage = null;
+            ws.onerror = null;
+            ws.onclose = null;
+            if (ws.readyState === 0 || ws.readyState === 1) {
+              try {
+                ws.close(1000, "component disposed");
+              } catch (_closeError) {
+                // The server-side peer watcher still observes abrupt teardown.
+              }
+            }
+          }
+          return {};
+        };
       };
     };
   };

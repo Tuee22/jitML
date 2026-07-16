@@ -1,6 +1,6 @@
 # Phase 21: Type-State DSL & Inference Eligibility
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/durable_state_dsl.md](../documents/engineering/durable_state_dsl.md)
 **Generated sections**: none
@@ -11,7 +11,13 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `21.4`). Product rows and
+model references still carry phase-independent optional fields, allowing
+contradictory state payloads even though selected transitions use phantom tags.
+Sprint `21.4` is blocked by Sprint `19.4`. Sprints `21.1`–`21.3` remain Done on
+their retained inference-eligibility surface.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
 self-referential inference-eligibility defects are removed: product convergence
 bars now come from frozen external constants in `JitML.Product.ExternalBars`,
 `InferenceEligible` decode re-checks completed metrics against those bars, the
@@ -243,9 +249,69 @@ Closed by the [Phase 32](phase-32-external-truth-realness-harness.md)
 negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrained
 random-init checkpoint is rejected at decode.
 
+## Sprint 21.4: Phase-Specific Product Evidence Payloads [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Product/Matrix.hs`,
+`src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`,
+`src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`,
+`test/unit/Main.hs`
+**Blocked by**: Sprint `19.4`
+**Docs to update**: `../README.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/checkpoint_format.md`,
+`../documents/engineering/durable_state_dsl.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Store only the payload legal for each product lifecycle state, so contradictory
+optional evidence cannot be constructed even inside the module. This sprint
+owns the product type-state portions of
+[Exit Definition](README.md#exit-definition) items `30` and `31`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Replace phase-independent records containing `Maybe` evidence with GADT or
+  data-family constructors whose payload is specific to `Declared`, `Running`,
+  `Completed`, and `InferenceEligible` states.
+- Hide constructors for product rows, model references, training evidence,
+  passing measurements, and eligibility proofs; expose total smart constructors
+  and legal state transitions only.
+- Remove redundant fields whose values are derivable from the state witness,
+  including stored completion/pass booleans and optional manifests in completed
+  states.
+- Decode raw Haskell/Dhall/browser DTOs into validation errors or a legal state;
+  no decoder constructs a proof-bearing value directly.
+- Add compile-time legal-path fixtures and runtime negative tests for every
+  invalid transition and mismatched plan/evidence pair.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `19.4` supplies the kind-indexed product descriptor and
+  evidence projection.
+- Replace optional state payloads and migrate product/checkpoint consumers.
+- Remove the legacy phase-independent record constructors after decode adapters
+  and negative controls pass.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — phase-specific product evidence
+  payloads and legal workflow transitions.
 - `documents/engineering/checkpoint_format.md` — evidence manifest fields
   (`initialWeightHash`, `finalWeightHash`, `updateCount`, `datasetShaAtRead`).
 - `documents/engineering/training_metrics_and_splits.md` — per-row numeric

@@ -431,24 +431,24 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   Family](system-components.md#pulsar-topic-family) and renders the
   idempotent `/pulsar/bin/pulsar-admin topics list` / `topics create`
   commands executed from `pulsar-toolset-0` after the phased bootstrap rollout.
-  The registered family is derived from `JitML.Coordinator.Topology`: nine
+  The registered family is derived from `JitML.Coordinator.Topology`: ten
   substrate-scoped workflow/phase topics per substrate plus the Apple-only
   `inference.command.apple-silicon` forward topic and host-command topics.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
   `/pulsar/ws` rewrites to `/ws` and now targets `pulsar-broker:8080`, the
   broker HTTP service that owns the embedded WebSocket endpoint.
-- `JitML.Service.PulsarWebSocketSubprocess` is the live one-shot WebSocket
+- `JitML.Service.PulsarWebSocketSubprocess` is the live persistent WebSocket
   `HasPulsar` interpreter for the routed local edge. It publishes with Node's
   WebSocket constructor, with an `undici.WebSocket` fallback for older Node
-  runtimes. The current `jitml:local` image carries Node.js `22.16.0`,
-  opens consumers at the broker
-  WebSocket endpoint, consumes one payload, and acknowledges on that same
-  WebSocket session before closing.
+  runtimes. The current `jitml:local` image carries Node.js `22.16.0`. Opaque
+  typed subscriptions yield receipt-bearing deliveries, and the scoped
+  interpreter applies exactly one handler disposition before it requests more
+  work or drains. Sprint `5.18` supersedes the historical one-shot surface.
 
 ### Validation
 
 1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the typed topic-command
-   surface; `jitml-integration` asserts the 31-topic derived family and rejects
+   surface; `jitml-integration` asserts the 34-topic derived family and rejects
    the retired `*.cluster` / `*.host` topics.
 2. The route registry includes `/pulsar/admin` and `/pulsar/ws`.
 3. Live Linux CPU validation on 2026-05-18 reaches Ready Pulsar components and
@@ -463,7 +463,7 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
    exists in `public/default`.
 6. Live Linux CPU validation on 2026-05-20 reconciled the then-current 26-topic
    substrate-scoped family into `jitml-linux-cpu` through `pulsar-toolset-0`.
-   The current tree now derives 31 topics from `JitML.Coordinator.Topology`; the
+   The current tree now derives 34 topics from `JitML.Coordinator.Topology`; the
    live bootstrap creates that derived set.
 7. Live Linux CPU validation on 2026-05-19 opens a routed WebSocket consumer at
    `ws://127.0.0.1:9091/pulsar/ws/v2/consumer/...`, publishes through the
@@ -511,14 +511,14 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   `/ws` and targets `pulsar-broker:8080`, which serves `/ws/v2/producer/...`
   and `/ws/v2/consumer/...`.
 - `JitML.Service.PulsarWebSocketSubprocess` validates the routed
-  publish/consume path through the `HasPulsar` class. It is a one-shot
-  subprocess interpreter: `pulsarConsume` opens a consumer, reads one message,
-  acknowledges it on that same WebSocket session, and closes. Its Node script
-  uses `globalThis.WebSocket` when present and `require('undici').WebSocket`
-  otherwise, so the path remains compatible with older Node runtimes while
-  current `jitml:local` carries Node.js `22.16.0`. The daemon's long-lived
-  at-least-once cursor, explicit post-dispatch ack, duplicate-payload dedup,
-  and dispatch-failure negative-ack redelivery are validated by Sprint `5.5`.
+  publish/consume path through the `HasPulsar` class. Sprint `5.18` supersedes
+  the dated one-shot implementation described by Sprint `4.4`: the current
+  interpreter keeps a persistent connection, keeps broker message ids private,
+  settles each opaque receipt from one handler disposition, reconnects without
+  accepting new work ahead of pending settlement, and drains before scoped
+  cleanup. Its Node script uses `globalThis.WebSocket` when present and
+  `require('undici').WebSocket` otherwise, so the path remains compatible with
+  older Node runtimes while current `jitml:local` carries Node.js `22.16.0`.
 
 ## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 
@@ -621,10 +621,10 @@ writes the CBOR checkpoint sidecar at
 - `TbCheckpointMarker` CBOR sidecar (`tcmStep`, `tcmEpoch`, `tcmManifestSha`,
   `tcmExperimentSha`, `tcmTrialSha`, `tcmRunUuid`, `tcmMetricsAtStep`)
   written on every `CheckpointDone`.
-- `JitML.Observability.TbSidecar.dispatchCheckpointPayload` parses rendered
-  `CheckpointDone` envelopes, converts them to `TbCheckpointMarker`, and
-  `JitML.Service.Runtime.daemonTensorBoardDispatcher` wires the side effect
-  into the daemon dispatcher contract before Pulsar ack.
+- `JitML.Observability.TbSidecar.checkpointDoneToMarker` converts an already
+  decoded typed `CheckpointDone` event to `TbCheckpointMarker`, and
+  `dispatchCheckpointDone` writes that typed marker. There is no parallel raw
+  payload parser or raw daemon dispatcher.
 - HTTPRoute for `/tensorboard` routes the TensorBoard Service through the
   single Envoy Gateway listener (Sprint `3.4`).
 
@@ -660,9 +660,9 @@ writes the CBOR checkpoint sidecar at
    the writer prepends `brain.Event:2`, flushes a TFRecord shard through
    `putBlobBytesIfAbsent`, increments `tbwsShardSeq`, and treats duplicate
    `(writer-id, shard-seq)` writes as idempotent success.
-9. `jitml-integration` validates `Runtime.daemonTensorBoardDispatcher` from a
-   rendered `Training.CheckpointDone` payload through `TbSidecar` into the
-   canonical CBOR sidecar key before ack.
+9. `jitml-integration` validates typed `Training.CheckpointDone` →
+   `checkpointDoneToMarker` → `dispatchCheckpointDone` through `TbSidecar`
+   into the canonical CBOR sidecar key with no raw-payload reparse.
 10. Live Linux CPU validation on 2026-05-19 writes a Haskell-encoded scalar
     shard through routed `JitML.Service.MinIOSubprocess` at
     `http://127.0.0.1:9091/minio/s3`; TensorBoard's routed scalars API reports
@@ -765,7 +765,9 @@ Values`.
   emits the reduced replicas + a `resources` block.
 - `JitML.Cluster.Readiness` (MinIO bucket readiness) and
   `JitML.Cluster.PulsarBootstrap` (topic create) replace their `sh -c` retry loops
-  with typed Haskell over leaf `subprocess` values using `RetryPolicy`.
+  with bounded typed Haskell over leaf `subprocess` outcomes. The loops retain
+  explicit attempt/delay constants; they do not use or claim the daemon
+  `RetryPolicy` reader.
 
 ### Validation
 

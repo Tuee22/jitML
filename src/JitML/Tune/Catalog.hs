@@ -12,6 +12,7 @@ module JitML.Tune.Catalog
   , TuningPruner (..)
   , TuningSampler (..)
   , TuningScheduler (..)
+  , TrialExecution (..)
   , TrialObjectiveResult (..)
   , TrialTranscript (..)
   , ashaPromotedTrialIndices
@@ -31,16 +32,22 @@ module JitML.Tune.Catalog
   , trialObjectiveResult
   , trialObjectiveResultWithDevice
   , trialObjectiveResults
+  , trialObjectiveResultsForBudget
   , trialObjectiveResultsForConfig
   , trialObjectiveResultsForAxes
   , trialObjectiveResultsWithDevice
+  , trialObjectiveResultsWithDeviceForBudget
   , trialObjectiveResultsWithDeviceForConfig
   , trialObjectiveResultsWithDeviceForAxes
   , trialStorageKey
+  , trialExecutions
+  , tuningObjectiveOptimizerUpdates
+  , tuningObjectiveParallelism
   )
 where
 
 import Codec.Serialise (Serialise)
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception.Safe (displayException, tryAny)
 import Data.List qualified as List
 import Data.Text (Text)
@@ -147,6 +154,16 @@ data TrialObjectiveResult = TrialObjectiveResult
   }
   deriving stock (Eq, Show)
 
+-- | The complete terminal disposition of one planned trial.  Results are
+-- never filtered out: a tuning execution emits one terminal record for every
+-- zero-based trial key, while pruning and promotion remain independent facts.
+data TrialExecution = TrialExecution
+  { trialExecutionResult :: !TrialObjectiveResult
+  , trialExecutionPruned :: !Bool
+  , trialExecutionPromoted :: !Bool
+  }
+  deriving stock (Eq, Show)
+
 samplerCatalog :: [Sampler]
 samplerCatalog =
   [ Grid
@@ -192,12 +209,46 @@ deterministicTrialsWithDevice device sampler count =
 
 trialObjectiveResults :: Sampler -> Int -> [TrialObjectiveResult]
 trialObjectiveResults sampler count =
-  go [] [0 .. count - 1]
+  case trialObjectiveResultsForBudget
+    sampler
+    tuningObjectiveParallelism
+    tuningObjectiveOptimizerUpdates
+    count of
+    Left err -> error (Text.unpack err)
+    Right results -> results
+
+-- | Execution shape used by the registered tuning ProductRow publisher.
+-- Keep live completion fixtures on these values so they exercise the same real
+-- objective schedule instead of a smaller smoke budget that cannot satisfy the
+-- binding convergence criterion.
+tuningObjectiveParallelism :: Int
+tuningObjectiveParallelism = 1
+
+tuningObjectiveOptimizerUpdates :: Int
+tuningObjectiveOptimizerUpdates = 6
+
+-- | Execute the exact trial/update budget in deterministic cohorts no wider
+-- than the resolved parallelism.  Adaptive samplers observe every completed
+-- earlier cohort; trials in the same cohort intentionally share that prefix,
+-- matching concurrent scheduling semantics.
+trialObjectiveResultsForBudget
+  :: Sampler
+  -> Int
+  -> Int
+  -> Int
+  -> Either Text [TrialObjectiveResult]
+trialObjectiveResultsForBudget sampler parallelism updates count = do
+  validateExecutionBudget parallelism updates count
+  Right (go [] [0 .. count - 1])
  where
   go _ [] = []
-  go history (trialIndex : rest) =
-    let result = trialObjectiveResultFromHistory sampler trialIndex history
-     in result : go (history <> [result]) rest
+  go history remaining =
+    let (cohort, rest) = splitAt parallelism remaining
+        results =
+          fmap
+            (\trialIndex -> trialObjectiveResultFromHistoryForUpdates sampler updates trialIndex history)
+            cohort
+     in results <> go (history <> results) rest
 
 trialObjectiveResultsForConfig :: TuningConfig -> Int -> [TrialObjectiveResult]
 trialObjectiveResultsForConfig config =
@@ -212,15 +263,36 @@ trialObjectiveResultsForAxes sampler scheduler pruner count =
 
 trialObjectiveResultsWithDevice
   :: MlpDevice -> Sampler -> Int -> IO (Either Text [TrialObjectiveResult])
-trialObjectiveResultsWithDevice device sampler count =
-  go [0 .. count - 1] []
+trialObjectiveResultsWithDevice device sampler =
+  trialObjectiveResultsWithDeviceForBudget
+    device
+    sampler
+    tuningObjectiveParallelism
+    tuningObjectiveOptimizerUpdates
+
+trialObjectiveResultsWithDeviceForBudget
+  :: MlpDevice
+  -> Sampler
+  -> Int
+  -> Int
+  -> Int
+  -> IO (Either Text [TrialObjectiveResult])
+trialObjectiveResultsWithDeviceForBudget device sampler parallelism updates count =
+  case validateExecutionBudget parallelism updates count of
+    Left err -> pure (Left err)
+    Right () -> go [] [0 .. count - 1]
  where
-  go [] acc = pure (Right (reverse acc))
-  go (trialIndex : rest) acc = do
-    result <- trialObjectiveResultWithDeviceFromHistory device sampler trialIndex (reverse acc)
-    case result of
+  go history [] = pure (Right history)
+  go history remaining = do
+    let (cohort, rest) = splitAt parallelism remaining
+    cohortResults <-
+      mapConcurrently
+        ( \trialIndex -> trialObjectiveResultWithDeviceFromHistoryForUpdates device sampler updates trialIndex history
+        )
+        cohort
+    case sequence cohortResults of
       Left err -> pure (Left err)
-      Right value -> go rest (value : acc)
+      Right results -> go (history <> results) rest
 
 trialObjectiveResultsWithDeviceForConfig
   :: MlpDevice -> TuningConfig -> Int -> IO (Either Text [TrialObjectiveResult])
@@ -251,6 +323,46 @@ applySchedulerAndPruner scheduler pruner results =
           (\result -> trialResultIndex result `elem` promoted)
           unpruned
    in if null selected then take 1 (List.sortOn (negate . trialResultObjective) results) else selected
+
+-- | Classify a complete trial cohort without dropping terminal evidence.
+-- Promotion count is exact: if scheduler/pruner semantics leave too few
+-- eligible trials, execution fails closed instead of silently underpromoting.
+trialExecutions
+  :: Scheduler
+  -> Pruner
+  -> Int
+  -> [TrialObjectiveResult]
+  -> Either Text [TrialExecution]
+trialExecutions scheduler pruner promotionCount results
+  | promotionCount <= 0 = Left "tuning promotion count must be positive"
+  | promotionCount > length promotionCandidates =
+      Left
+        ( "tuning plan requests "
+            <> Text.pack (show promotionCount)
+            <> " promotions, but scheduler/pruner semantics produced only "
+            <> Text.pack (show (length promotionCandidates))
+            <> " eligible trials"
+        )
+  | otherwise =
+      Right
+        [ TrialExecution
+            { trialExecutionResult = result
+            , trialExecutionPruned = trialResultIndex result `elem` prunedIndices
+            , trialExecutionPromoted = trialResultIndex result `elem` promotedIndices
+            }
+        | result <- results
+        ]
+ where
+  prunedIndices = medianPrunedTrialIndices pruner results
+  unpruned = filter ((`notElem` prunedIndices) . trialResultIndex) results
+  promotionCandidates =
+    case scheduler of
+      Fifo -> unpruned
+      SuccessiveHalving -> objectiveRanked unpruned
+      Hyperband -> objectiveRanked unpruned
+      ASHA -> objectiveRanked unpruned
+  promotedIndices = fmap trialResultIndex (take promotionCount promotionCandidates)
+  objectiveRanked = List.sortOn (negate . trialResultObjective)
 
 ashaPromotedTrialIndices :: Scheduler -> [TrialObjectiveResult] -> [Int]
 ashaPromotedTrialIndices scheduler results =
@@ -324,8 +436,17 @@ trialObjectiveResult sampler trialIndex =
   trialObjectiveResultFromHistory sampler trialIndex []
 
 trialObjectiveResultFromHistory :: Sampler -> Int -> [TrialObjectiveResult] -> TrialObjectiveResult
-trialObjectiveResultFromHistory sampler trialIndex history =
-  let config = sampledClassifierConfig sampler trialIndex history
+trialObjectiveResultFromHistory sampler =
+  trialObjectiveResultFromHistoryForUpdates sampler tuningObjectiveOptimizerUpdates
+
+trialObjectiveResultFromHistoryForUpdates
+  :: Sampler
+  -> Int
+  -> Int
+  -> [TrialObjectiveResult]
+  -> TrialObjectiveResult
+trialObjectiveResultFromHistoryForUpdates sampler updates trialIndex history =
+  let config = sampledClassifierConfigForUpdates sampler updates trialIndex history
    in case pureTuningObjective config of
         Right (objective, initialWeights, weights) ->
           TrialObjectiveResult
@@ -345,7 +466,22 @@ trialObjectiveResultWithDevice device sampler trialIndex = do
 trialObjectiveResultWithDeviceFromHistory
   :: MlpDevice -> Sampler -> Int -> [TrialObjectiveResult] -> IO (Either Text TrialObjectiveResult)
 trialObjectiveResultWithDeviceFromHistory device sampler trialIndex history = do
-  let config = sampledClassifierConfig sampler trialIndex history
+  trialObjectiveResultWithDeviceFromHistoryForUpdates
+    device
+    sampler
+    tuningObjectiveOptimizerUpdates
+    trialIndex
+    history
+
+trialObjectiveResultWithDeviceFromHistoryForUpdates
+  :: MlpDevice
+  -> Sampler
+  -> Int
+  -> Int
+  -> [TrialObjectiveResult]
+  -> IO (Either Text TrialObjectiveResult)
+trialObjectiveResultWithDeviceFromHistoryForUpdates device sampler updates trialIndex history = do
+  let config = sampledClassifierConfigForUpdates sampler updates trialIndex history
   result <- trainTuningObjective device config
   pure $
     fmap
@@ -401,8 +537,13 @@ tuningObjectiveProblem = CanonicalProblem "tune-dense" "synthetic" "Dense" 0
 -- search space directly; TPE and the evolutionary samplers condition later
 -- choices on the best prior objective, so the stream is adaptive while still
 -- replayable from the transcript prefix.
-sampledClassifierConfig :: Sampler -> Int -> [TrialObjectiveResult] -> Classifier.ClassifierConfig
-sampledClassifierConfig sampler trialIndex history =
+sampledClassifierConfigForUpdates
+  :: Sampler
+  -> Int
+  -> Int
+  -> [TrialObjectiveResult]
+  -> Classifier.ClassifierConfig
+sampledClassifierConfigForUpdates sampler updates trialIndex history =
   let base = adaptiveBase sampler trialIndex history
       lrChoices = [1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2]
       hiddenChoices = [4, 8, 12, 16]
@@ -411,9 +552,17 @@ sampledClassifierConfig sampler trialIndex history =
         , Classifier.clfInputs = 2
         , Classifier.clfHidden = selectHidden sampler base hiddenChoices history
         , Classifier.clfClasses = 2
-        , Classifier.clfEpochs = 6
+        , Classifier.clfEpochs = updates
         , Classifier.clfLearningRate = selectLearningRate sampler base lrChoices history
         }
+
+validateExecutionBudget :: Int -> Int -> Int -> Either Text ()
+validateExecutionBudget parallelism updates count
+  | parallelism <= 0 = Left "tuning parallelism must be positive"
+  | updates <= 0 = Left "tuning per-trial optimizer-update budget must be positive"
+  | count <= 0 = Left "tuning trial budget must be positive"
+  | parallelism > count = Left "tuning parallelism exceeds the trial budget"
+  | otherwise = Right ()
 
 adaptiveBase :: Sampler -> Int -> [TrialObjectiveResult] -> Int
 adaptiveBase sampler trialIndex history

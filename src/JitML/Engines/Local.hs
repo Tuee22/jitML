@@ -48,6 +48,7 @@ import JitML.Engines.Loader
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
+  , renderKernelArtifactError
   , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
@@ -214,7 +215,7 @@ runLinuxCpuKernel env source hash input = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("linux-cpu compile failed: " <> err))
+      pure (Left ("linux-cpu compile failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = Text.unpack (kernelHandleArtifactPath handle)
@@ -266,7 +267,7 @@ runLinuxCpuWeightedKernel env source hash input weights = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("linux-cpu weighted compile failed: " <> err))
+      pure (Left ("linux-cpu weighted compile failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = Text.unpack (kernelHandleArtifactPath handle)

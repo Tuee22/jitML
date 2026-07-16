@@ -7,9 +7,9 @@ module JitML.Proto.Inference
   , CheckpointCompareResult (..)
   , InferenceRequest (..)
   , InferenceResult (..)
+  , InferenceCommand (..)
   , ListCheckpointsCommand (..)
   , LoadTranscriptCommand (..)
-  , appleInferenceCommandTopic
   , parseAdversarialMoveCommand
   , parseCheckpointCompareCommand
   , parseListCheckpointsCommand
@@ -24,12 +24,12 @@ module JitML.Proto.Inference
   , decodeInferenceResultProto
   , encodeInferenceRequestProto
   , encodeInferenceResultProto
-  , inferenceRequestTopic
-  , inferenceResultTopic
   , parseInferenceInput
+  , parseInferenceCommand
   , parseInferenceRequest
   , parseInferenceResult
   , renderInferenceInput
+  , renderInferenceCommand
   , renderInferenceRequest
   , renderInferenceResult
   )
@@ -49,7 +49,6 @@ import JitML.Proto.Wire
   , packedDoubleField
   , stringField
   )
-import JitML.Substrate (Substrate, renderSubstrate)
 
 data InferenceRequest = InferenceRequest
   { irCallId :: Text
@@ -140,17 +139,17 @@ data LoadTranscriptCommand = LoadTranscriptCommand
   }
   deriving stock (Eq, Show)
 
-inferenceRequestTopic :: Substrate -> Text
-inferenceRequestTopic substrate =
-  "inference.request." <> renderSubstrate substrate
-
-inferenceResultTopic :: Substrate -> Text
-inferenceResultTopic substrate =
-  "inference.result." <> renderSubstrate substrate
-
-appleInferenceCommandTopic :: Text
-appleInferenceCommandTopic =
-  "inference.command.apple-silicon"
+-- | The closed command family carried by the inference request and Apple host
+-- command routes. Keeping the wire alternatives in one sum lets the topology
+-- bind a single decoder to @Topic InferenceCommand@; a caller cannot attach a
+-- training (or arbitrary text) decoder to that topic.
+data InferenceCommand
+  = RunInference InferenceRequest
+  | CompareCheckpoints CheckpointCompareCommand
+  | SelectAdversarialMove AdversarialMoveCommand
+  | ListCheckpoints ListCheckpointsCommand
+  | LoadTranscript LoadTranscriptCommand
+  deriving stock (Eq, Show)
 
 renderInferenceRequest :: InferenceRequest -> Text
 renderInferenceRequest request =
@@ -164,10 +163,36 @@ renderInferenceRequest request =
 
 parseInferenceRequest :: Text -> Maybe InferenceRequest
 parseInferenceRequest payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "RunInference" <- value "kind"
-  inferenceRequestFromFields value
+  fields <- parseCommandFields payload
+  "RunInference" <- requiredCommandField "kind" fields
+  inferenceRequestFromFields fields
+
+-- | Decode exactly one member of the inference command family. Each member has
+-- a distinct @kind@ discriminator, so the alternatives are disjoint.
+parseInferenceCommand :: Text -> Maybe InferenceCommand
+parseInferenceCommand payload = do
+  fields <- parseCommandFields payload
+  kind <- requiredCommandField "kind" fields
+  case kind of
+    "RunInference" -> RunInference <$> inferenceRequestFromFields fields
+    "CheckpointCompareCommand" ->
+      CompareCheckpoints <$> checkpointCompareCommandFromFields fields
+    "AdversarialMoveCommand" ->
+      SelectAdversarialMove <$> adversarialMoveCommandFromFields fields
+    "ListCheckpointsCommand" ->
+      ListCheckpoints <$> listCheckpointsCommandFromFields fields
+    "LoadTranscriptCommand" ->
+      LoadTranscript <$> loadTranscriptCommandFromFields fields
+    _ -> Nothing
+
+renderInferenceCommand :: InferenceCommand -> Text
+renderInferenceCommand command =
+  case command of
+    RunInference request -> renderInferenceRequest request
+    CompareCheckpoints request -> renderCheckpointCompareCommand request
+    SelectAdversarialMove request -> renderAdversarialMoveCommand request
+    ListCheckpoints request -> renderListCheckpointsCommand request
+    LoadTranscript request -> renderLoadTranscriptCommand request
 
 encodeInferenceRequestProto :: InferenceRequest -> ByteString
 encodeInferenceRequestProto request =
@@ -187,13 +212,16 @@ decodeInferenceRequestProto bytes = do
     <*> require "reply_topic" (fieldString 3 fields)
     <*> require "input" (fieldDoubles 4 fields)
 
-inferenceRequestFromFields :: (Text -> Maybe Text) -> Maybe InferenceRequest
-inferenceRequestFromFields value =
+inferenceRequestFromFields :: [(Text, Text)] -> Maybe InferenceRequest
+inferenceRequestFromFields fields = do
+  requireOnlyCommandFields
+    ["kind", "call-id", "experiment-hash", "reply-topic", "input"]
+    fields
   InferenceRequest
-    <$> value "call-id"
-    <*> value "experiment-hash"
-    <*> value "reply-topic"
-    <*> (value "input" >>= parseInferenceInput)
+    <$> requiredCommandField "call-id" fields
+    <*> requiredCommandField "experiment-hash" fields
+    <*> requiredCommandField "reply-topic" fields
+    <*> (uniqueCommandField "input" fields >>= parseInferenceInput)
 
 -- | Sprint 11.10 — parse the daemon's @renderInferenceResult@ reply text (the
 -- inference @WorkResult@) so the CLI / Webapp publisher can render the streamed
@@ -230,15 +258,27 @@ renderCheckpointCompareCommand command =
 
 parseCheckpointCompareCommand :: Text -> Maybe CheckpointCompareCommand
 parseCheckpointCompareCommand payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "CheckpointCompareCommand" <- value "kind"
+  fields <- parseCommandFields payload
+  "CheckpointCompareCommand" <- requiredCommandField "kind" fields
+  checkpointCompareCommandFromFields fields
+
+checkpointCompareCommandFromFields :: [(Text, Text)] -> Maybe CheckpointCompareCommand
+checkpointCompareCommandFromFields fields = do
+  requireOnlyCommandFields
+    [ "kind"
+    , "call-id"
+    , "baseline-experiment-hash"
+    , "candidate-experiment-hash"
+    , "reply-topic"
+    , "input"
+    ]
+    fields
   CheckpointCompareCommand
-    <$> value "call-id"
-    <*> value "baseline-experiment-hash"
-    <*> value "candidate-experiment-hash"
-    <*> value "reply-topic"
-    <*> (value "input" >>= parseInferenceInput)
+    <$> requiredCommandField "call-id" fields
+    <*> requiredCommandField "baseline-experiment-hash" fields
+    <*> requiredCommandField "candidate-experiment-hash" fields
+    <*> requiredCommandField "reply-topic" fields
+    <*> (uniqueCommandField "input" fields >>= parseInferenceInput)
 
 renderCheckpointCompareResult :: CheckpointCompareResult -> Text
 renderCheckpointCompareResult result =
@@ -269,18 +309,33 @@ renderAdversarialMoveCommand command =
 
 parseAdversarialMoveCommand :: Text -> Maybe AdversarialMoveCommand
 parseAdversarialMoveCommand payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "AdversarialMoveCommand" <- value "kind"
+  fields <- parseCommandFields payload
+  "AdversarialMoveCommand" <- requiredCommandField "kind" fields
+  adversarialMoveCommandFromFields fields
+
+adversarialMoveCommandFromFields :: [(Text, Text)] -> Maybe AdversarialMoveCommand
+adversarialMoveCommandFromFields fields = do
+  requireOnlyCommandFields
+    [ "kind"
+    , "call-id"
+    , "game"
+    , "experiment-hash"
+    , "reply-topic"
+    , "moves"
+    , "human-is-player"
+    , "simulations-per-move"
+    , "input"
+    ]
+    fields
   AdversarialMoveCommand
-    <$> value "call-id"
-    <*> value "game"
-    <*> value "experiment-hash"
-    <*> value "reply-topic"
-    <*> (value "moves" >>= parseIntList)
-    <*> (value "human-is-player" >>= readText)
-    <*> (value "simulations-per-move" >>= readText)
-    <*> (value "input" >>= parseInferenceInput)
+    <$> requiredCommandField "call-id" fields
+    <*> requiredCommandField "game" fields
+    <*> requiredCommandField "experiment-hash" fields
+    <*> requiredCommandField "reply-topic" fields
+    <*> (uniqueCommandField "moves" fields >>= parseIntList)
+    <*> requiredCommandReadField "human-is-player" fields
+    <*> requiredCommandReadField "simulations-per-move" fields
+    <*> (uniqueCommandField "input" fields >>= parseInferenceInput)
 
 renderListCheckpointsCommand :: ListCheckpointsCommand -> Text
 renderListCheckpointsCommand command =
@@ -292,12 +347,16 @@ renderListCheckpointsCommand command =
 
 parseListCheckpointsCommand :: Text -> Maybe ListCheckpointsCommand
 parseListCheckpointsCommand payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "ListCheckpointsCommand" <- value "kind"
+  fields <- parseCommandFields payload
+  "ListCheckpointsCommand" <- requiredCommandField "kind" fields
+  listCheckpointsCommandFromFields fields
+
+listCheckpointsCommandFromFields :: [(Text, Text)] -> Maybe ListCheckpointsCommand
+listCheckpointsCommandFromFields fields = do
+  requireOnlyCommandFields ["kind", "call-id", "reply-topic"] fields
   ListCheckpointsCommand
-    <$> value "call-id"
-    <*> value "reply-topic"
+    <$> requiredCommandField "call-id" fields
+    <*> requiredCommandField "reply-topic" fields
 
 renderLoadTranscriptCommand :: LoadTranscriptCommand -> Text
 renderLoadTranscriptCommand command =
@@ -310,13 +369,19 @@ renderLoadTranscriptCommand command =
 
 parseLoadTranscriptCommand :: Text -> Maybe LoadTranscriptCommand
 parseLoadTranscriptCommand payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "LoadTranscriptCommand" <- value "kind"
+  fields <- parseCommandFields payload
+  "LoadTranscriptCommand" <- requiredCommandField "kind" fields
+  loadTranscriptCommandFromFields fields
+
+loadTranscriptCommandFromFields :: [(Text, Text)] -> Maybe LoadTranscriptCommand
+loadTranscriptCommandFromFields fields = do
+  requireOnlyCommandFields
+    ["kind", "call-id", "transcript-id", "reply-topic"]
+    fields
   LoadTranscriptCommand
-    <$> value "call-id"
-    <*> value "transcript-id"
-    <*> value "reply-topic"
+    <$> requiredCommandField "call-id" fields
+    <*> requiredCommandField "transcript-id" fields
+    <*> requiredCommandField "reply-topic" fields
 
 renderAdversarialMoveResult :: AdversarialMoveResult -> Text
 renderAdversarialMoveResult result =
@@ -365,7 +430,34 @@ renderInferenceInput =
 parseInferenceInput :: Text -> Maybe [Double]
 parseInferenceInput value
   | Text.null (Text.strip value) = Just []
-  | otherwise = traverse (readText . Text.strip) (Text.splitOn "," value)
+  | otherwise = traverse (readFiniteDouble . Text.strip) (Text.splitOn "," value)
+
+parseCommandFields :: Text -> Maybe [(Text, Text)]
+parseCommandFields = traverse parseField . Text.lines
+
+uniqueCommandField :: Text -> [(Text, Text)] -> Maybe Text
+uniqueCommandField key fields =
+  case [value | (candidate, value) <- fields, candidate == key] of
+    [value] -> Just value
+    _ -> Nothing
+
+requiredCommandField :: Text -> [(Text, Text)] -> Maybe Text
+requiredCommandField key fields = do
+  value <- uniqueCommandField key fields
+  if Text.null value then Nothing else Just value
+
+requiredCommandReadField
+  :: (Read value)
+  => Text
+  -> [(Text, Text)]
+  -> Maybe value
+requiredCommandReadField key fields =
+  requiredCommandField key fields >>= readText
+
+requireOnlyCommandFields :: [Text] -> [(Text, Text)] -> Maybe ()
+requireOnlyCommandFields allowed fields
+  | all ((`elem` allowed) . fst) fields = Just ()
+  | otherwise = Nothing
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =
@@ -377,6 +469,11 @@ parseField line =
 readText :: (Read a) => Text -> Maybe a
 readText =
   readMaybe . Text.unpack
+
+readFiniteDouble :: Text -> Maybe Double
+readFiniteDouble encoded = do
+  value <- readText encoded
+  if isNaN value || isInfinite value then Nothing else Just value
 
 require :: Text -> Maybe a -> Either Text a
 require fieldName =

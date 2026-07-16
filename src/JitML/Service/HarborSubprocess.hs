@@ -24,7 +24,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import System.Directory (createDirectoryIfMissing)
-import System.Exit (ExitCode (..))
 
 import JitML.Service.Capabilities
   ( ETag (..)
@@ -32,6 +31,13 @@ import JitML.Service.Capabilities
   , ImageRef (..)
   )
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Sub.Outcome
+  ( ProcessFailure
+  , ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , processFailureStderr
+  , renderProcessFailure
+  )
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 
@@ -376,30 +382,25 @@ invokeUnit tag command = do
 
 invokeText :: Text -> Subprocess -> HarborSubprocess (Either ServiceError Text)
 invokeText tag command = do
-  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
-  case exitCode of
-    ExitSuccess -> pure (Right stdoutText)
-    ExitFailure code ->
+  outcome <- liftIO (runStreaming defaultSubprocessEnv command)
+  case outcome of
+    ProcessSucceeded transcript -> pure (Right (processTranscriptStdout transcript))
+    ProcessFailed failure ->
       pure
         ( Left
             ( classifyHarborFailure
                 tag
-                code
-                stderrText
+                failure
             )
         )
 
-classifyHarborFailure :: Text -> Int -> Text -> ServiceError
-classifyHarborFailure tag code stderrText
+classifyHarborFailure :: Text -> ProcessFailure -> ServiceError
+classifyHarborFailure tag failure
   | "unauthorized" `Text.isInfixOf` lowerStderr || "401" `Text.isInfixOf` stderrText =
       SEUnauthorized rendered
   | otherwise =
       SETransient rendered
  where
+  stderrText = processFailureStderr failure
   lowerStderr = Text.toLower stderrText
-  rendered =
-    tag
-      <> ": exit "
-      <> Text.pack (show code)
-      <> ": "
-      <> stderrText
+  rendered = tag <> ": " <> renderProcessFailure failure

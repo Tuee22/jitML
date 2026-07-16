@@ -20,6 +20,17 @@
 
 ## Phase Status
 
+✅ **Done** (reopened and re-closed 2026-07-16 for Sprint `2.9`). A
+retained-cluster reconcile exposed that the typed replacement for the former
+shell branch ran `kind create cluster` unconditionally. Sprint `2.9` restores
+the existence check and branch as typed Haskell, recovers the persisted edge
+coordinate before materialization, and fails closed before mutation when that
+coordinate cannot be trusted. Validation passed the bootstrap dry-run, focused
+Kind recovery/materialization integration **12 / 12**, strict `-Werror` build,
+`jitml docs check`, `jitml check-code`, Fourmolu, HLint, and
+`git diff --check`. Phase `3` Sprint `3.7` subsequently exercised this branch
+through the binding two-run live reconcile and exit-`3` no-op proof.
+
 ✅ **Done** (reopened 2026-06-23 for Sprint `2.15`, **re-closed 2026-06-24** —
 durable-state Dhall DSL foundation). Sprint `2.15` adds the closed, self-validating `jitml.dhall`
 durable-state config and its `jitml project init` generator:
@@ -106,16 +117,17 @@ their live exercise is owned by Phase `15`.
 
 ### Current Implementation Scope
 
-This phase owns prerequisite planning, cache discipline, and bootstrap file
-materialization. The current `jitml cluster up` implementation still
-materializes repo-local Kind, chart, Dhall, service, and publication files, then
-prints reconciliation summaries or exits `3` when the materialized files are
-already current; Phase `3` Sprint `3.7` owns reconciling that lower-level command
-with the live lifecycle contract documented by `CommandSpec`. `jitml bootstrap
---<substrate>` materializes the files and then executes the live bootstrap runner
-that drives typed `kind` / `helm` subprocesses. Sprint `2.12` re-closed this
-phase's Apple-specific prerequisite/cache surface by replacing the core Tart
-prerequisite with fixed-bridge prerequisites and `.metal.json` cache entries.
+This phase owns prerequisite planning, cache discipline, bootstrap file
+materialization, and the typed retained-Kind discovery/recovery branch that
+hands stable cluster coordinates to the Phase `3` live coordinator. Both
+`jitml cluster up --substrate <s>` and `jitml bootstrap --<substrate>` proceed
+from materialization into the live Kind/Helm/image/readiness reconcile; neither
+supported command is file-only. Exit code `3` means the full live convergence
+gate is already satisfied, including the reconcile stamp plus exact release,
+readiness, topic, node-image, and app-image evidence, not merely that generated
+files are current. Sprint `2.12` re-closed this phase's Apple-specific
+prerequisite/cache surface by replacing the core Tart prerequisite with
+fixed-bridge prerequisites and `.metal.json` cache entries.
 
 ## Phase Summary
 
@@ -134,8 +146,8 @@ The current Haskell bootstrap owns generated Dhall under `./.build/conf/`, Kind
 metadata and cluster publication under `./.build/`, platform-service chart input
 materialization, the cluster `jitml-service` ConfigMap / Deployment renderers,
 Apple host Dhall materialization, and Linux in-cluster-only configuration
-rendering. Harbor-first image rollout, Helm apply, and live daemon launch remain
-target apply behavior.
+rendering. It then enters the Phase `3` live coordinator for the Harbor-first
+image rollout, Helm apply, readiness measurement, and live publication.
 The populated `prerequisiteRegistry` covers lazy Homebrew/package remediation via
 typed predicates, typed remediation actions, pure plan rendering, effectful apply,
 and postcondition validation. The typed cache layer now owns the
@@ -393,8 +405,8 @@ compose wrappers over that image: headless `jitml` for bootstrap/code-quality
 and non-GPU command runs, plus GPU-enabled `jitml-cuda` for direct live CUDA
 validation. Substrate is a runtime Dhall choice — there is no `jitml-linux-cpu`,
 `jitml-linux-cuda`, etc. tag dimension. Target Harbor upload is owned by
-`jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb; the current
-command materializes bootstrap inputs only.
+`jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb; after
+materialization the supported command enters the live Phase `3` reconcile.
 
 ### Deliverables
 
@@ -414,11 +426,12 @@ command materializes bootstrap inputs only.
 - `linux-cpu.sh` and `linux-cuda.sh` enter the image through
   `docker compose run --rm jitml ...`; Compose builds `jitml:local`
   automatically when needed.
-- Current `jitml bootstrap --<substrate>` materializes the repo-local bootstrap
-  files and reports no-op materialization with exit code `3`. The live Phase `3`
-  apply path builds `jitml:local`, retags it as `jitml-demo:local`, and loads
-  those tags explicitly into Kind; live Harbor image push/pull is owned by the
-  Phase `4` platform-service and Phase `5` daemon capability work.
+- `jitml bootstrap --<substrate>` materializes the repo-local bootstrap inputs
+  and then executes the live Phase `3` apply path, which builds `jitml:local`,
+  retags it as `jitml-demo:local`, and loads both tags explicitly into Kind.
+  Exit code `3` is reserved for full live convergence. Harbor registry
+  push/pull remains owned by the Phase `4` platform-service and Phase `5`
+  daemon capability work.
 - Current `jitml build --dry-run` renders `/opt/build/jitml`, selected tuning
   metadata, engine metadata, generated-source locations, and the typed compile
   subprocess for the selected substrate. Non-dry-run `jitml build` now routes
@@ -438,8 +451,10 @@ command materializes bootstrap inputs only.
 
 ### Target Integration Notes
 
-- Full live `jitml bootstrap --linux-cpu` Harbor tagging/push and cluster-daemon
-  rollout remain target apply behavior owned by the cluster/service phases.
+- Full live `jitml bootstrap --linux-cpu` / `jitml cluster up --substrate
+  linux-cpu` reconciliation is exercised by Phase `3` Sprint `3.7` through the
+  local image build/load path. Harbor registry push/pull remains owned by the
+  platform-service and daemon capability phases.
 - The container-exclusive style-tools bootstrap and image-build Haskell
   code-quality gate are closed by Sprint `1.4`; Sprint `2.4` owns only the
   one-Dockerfile / one-compose-service image shape.
@@ -636,9 +651,9 @@ Effects`.
   4 GiB reserve).
 - Historical Phase `2` validation:
   `docker compose run --rm jitml jitml cluster up --substrate linux-cpu`
-  materialized `./.build/conf/cluster/Resources.dhall` from the `dhall/cluster/`
-  source. Phase `3` Sprint `3.7` owns the stricter live lifecycle contract for
-  that command.
+  materialized `./.build/conf/cluster/Resources.dhall` from the
+  `dhall/cluster/` source. Phase `3` Sprint `3.7` subsequently validated the
+  stricter live lifecycle contract for that command.
 - `cabal test jitml-unit` passes; `cabal test jitml-integration` failures are
   isolated to pre-existing live-cluster Sprint 13.x tests (Pulsar timeouts —
   no cluster up).
@@ -652,18 +667,20 @@ Effects`.
   cap are owned by Phase `4` Sprint `4.8` (and the PV-layout change by Phase `3`
   Sprint `3.2`).
 
-## Sprint 2.9: Reconciler `sh -c` Control-Flow → Typed Haskell ✅
+## Sprint 2.9: Reconciler `sh -c` Control-Flow → Typed Haskell [✅ Done]
 
-**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 15 Sprint 15.1)
+**Status**: Done (re-closed 2026-07-16 after retained-cluster reconciliation
+restored the missing typed Kind existence branch)
 **Implementation**: `src/JitML/Cluster/Helm.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/haskell_code_guide.md`, `legacy-tracking-for-deletion.md`
 
 ### Objective
 
 Replace the embedded `sh -c` control-flow in the bootstrap reconciler with typed
-multi-step Haskell, reusing the `RetryPolicy` value (Sprint `5.4`). Implements
-doctrine `Subprocesses as Typed Values` and `Retry Policy as First-Class Values`;
-the removed shell is tracked in the legacy ledger.
+multi-step Haskell and bounded typed retry/poll recursion. Implements doctrine
+`Subprocesses as Typed Values`; the removed shell is tracked in the legacy
+ledger. This sprint does not claim the daemon's Sprint `5.4` `RetryPolicy`
+configuration reader.
 
 ### Deliverables
 
@@ -672,16 +689,21 @@ the removed shell is tracked in the legacy ledger.
   (`src/JitML/Bootstrap.hs`) express their existence checks, branching, and
   command-substitution as typed Haskell over leaf `subprocess` values instead of
   `sh -c` strings.
-- The retry/poll loops use `JitML.Service.Retry.RetryPolicy`, not shell
-  `for`/`sleep`.
+- The retry/poll loops are bounded typed-Haskell recursion over exact leaf
+  subprocess outcomes, not shell `for`/`sleep`. Their explicit attempt/delay
+  constants are reconciler-local; this sprint does not claim the daemon
+  `RetryPolicy` reader.
 
 ### Validation
 
 - `jitml bootstrap --<substrate> --dry-run` renders the equivalent typed plan.
-- Live (owned by Phase `15`): bootstrap converges and a forced topic/bucket
-  not-ready path retries and succeeds exactly as the prior shell loops did.
+- Focused Kind recovery/materialization integration covers clean creation,
+  retained-cluster recovery, and fail-closed existence/probe failures.
+- Phase `3` Sprint `3.7` exercises the retained branch through two exact live
+  `linux-cpu` reconciles: the first converges and the second returns the
+  documented exit code `3` without mutating retained state.
 
-### Current Validation State
+### Historical Validation State (2026-05-29)
 
 - The 4 sh -c blocks (`kindCreate`, `kindDelete`, `helmDependencyBuild`,
   `postgresSchemaGrant`) are now typed: `JitML.Cluster.Helm` exposes typed
@@ -698,11 +720,14 @@ the removed shell is tracked in the legacy ledger.
   (`live phased rollout wires the explicit Kind image load phase`,
   `cluster down uses ... Kind delete subprocess`) pass against the typed forms.
 - `jitml docs check` and `jitml bootstrap --linux-cpu --dry-run` exit `0`.
+- The 2026-07-16 retained-Kind closure passes the expanded focused
+  recovery/materialization suite **12 / 12**, strict warning-clean builds,
+  Haskell lint, and the downstream Phase `3` two-run live acceptance.
 
 ### Remaining Work
 
-- Live re-validation of the converted reconciler steps is owned by Phase `15`
-  Sprint `15.1`'s Remaining Work.
+- None. Phase `3` Sprint `3.7` completed the binding two-run retained-cluster
+  and exit-`3` live validation on 2026-07-16.
 
 ## Sprint 2.10: Retire the Tart Prerequisite and `jitml internal vm` Commands ✅
 

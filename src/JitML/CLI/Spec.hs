@@ -345,6 +345,7 @@ rlCommand =
             , value "seed" Nothing "word64" False "Self-play seed."
             , value "game" Nothing "game" False "AlphaZero game (connect4, othello, hex, or gomoku)."
             , value "games" Nothing "n" False "Number of self-play games."
+            , value "generations" Nothing "n" False "Number of self-play training generations."
             , value "sims" Nothing "n" False "MCTS simulations per move."
             , value "max-plies" Nothing "n" False "Maximum plies per self-play game."
             , value "updates" Nothing "n" False "Policy/value gradient updates."

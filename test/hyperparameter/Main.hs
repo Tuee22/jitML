@@ -16,22 +16,34 @@ import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
+import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Proto.Tune
   ( StartSweep (..)
   , StopSweep (..)
-  , SweepDone (..)
+  , SweepFinished (..)
   , TrialFinished (..)
   , TrialStarted (..)
   , TuneCommand (..)
   , TuneEvent (..)
+  , completeSweep
   , decodeTuneCommandProto
   , decodeTuneEventProto
   , encodeTuneCommandProto
   , encodeTuneEventProto
   , parseTuneCommand
+  , parseTuneEvent
   , renderTuneCommand
+  , renderTuneEvent
+  )
+import JitML.Proto.Wire
+  ( ProtoField (..)
+  , ProtoValue (..)
+  , decodeMessage
+  , encodeMessage
+  , messageField
+  , stringField
   )
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
@@ -54,9 +66,14 @@ import JitML.Tune.Catalog
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
+  , trialExecutionPromoted
+  , trialExecutionPruned
+  , trialExecutionResult
+  , trialExecutions
   , trialObjectiveResult
   , trialObjectiveResults
   , trialObjectiveResultsForAxes
+  , trialObjectiveResultsForBudget
   , trialResultIndex
   , trialResultObjective
   , trialResultWeights
@@ -80,12 +97,8 @@ completedTrainingFixture experimentHash observedUnits metrics =
     (error . Text.unpack)
     id
     ( TrainingBudget.completedTraining
-        TrainingBudget.TrainingBudget
-          { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
-          , TrainingBudget.tbTargetUnits = max 1 observedUnits
-          , TrainingBudget.tbUnitLabel = "trials"
-          , TrainingBudget.tbSeed = Nothing
-          }
+        fixturePlanId
+        (budgetFixture (max 1 observedUnits))
         observedUnits
         (trainingEvidenceFixture experimentHash observedUnits)
         (convergenceObservationsFixture metrics)
@@ -95,6 +108,17 @@ completedTrainingFixture experimentHash observedUnits metrics =
           , TrainingBudget.tbrScalarTags = fmap fst metrics
           }
     )
+
+budgetFixture :: Word64 -> TrainingBudget.TrainingBudget
+budgetFixture target =
+  either
+    (error . Text.unpack)
+    id
+    (TrainingBudget.mkTrainingBudget TrainingBudget.TuningTrialBudget target Nothing)
+
+fixturePlanId :: Plan.PlanId
+fixturePlanId =
+  either (error . Text.unpack) id (Plan.refinePlanIdText (Text.replicate 64 "b"))
 
 trainingEvidenceFixture :: Text -> Word64 -> ProductEvidence.TrainingEvidence
 trainingEvidenceFixture experimentHash observedUnits =
@@ -204,6 +228,44 @@ main =
                 )
                 filtered
             )
+      , testCase "resolved execution keeps full coverage and exact promotion counts" $ do
+          let raw = trialObjectiveResults TPE 8
+              pruned = medianPrunedTrialIndices MedianPruner raw
+          executions <-
+            case trialExecutions ASHA MedianPruner 2 raw of
+              Left err -> assertFailure (Text.unpack err) >> fail "unreachable"
+              Right values -> pure values
+          fmap (trialResultIndex . trialExecutionResult) executions @?= [0 .. 7]
+          length (filter trialExecutionPruned executions) @?= length pruned
+          length (filter trialExecutionPromoted executions) @?= 2
+          assertBool
+            "pruned trials are never promoted"
+            ( all
+                (\execution -> not (trialExecutionPruned execution && trialExecutionPromoted execution))
+                executions
+            )
+          case trialExecutions ASHA MedianPruner (8 - length pruned + 1) raw of
+            Left _ -> pure ()
+            Right _ -> assertFailure "underfilled promotion frontier unexpectedly succeeded"
+      , testCase "resolved parallelism and per-trial update budget affect real execution" $ do
+          sequential <-
+            case trialObjectiveResultsForBudget TPE 1 1 4 of
+              Left err -> assertFailure (Text.unpack err) >> fail "unreachable"
+              Right values -> pure values
+          concurrent <-
+            case trialObjectiveResultsForBudget TPE 4 1 4 of
+              Left err -> assertFailure (Text.unpack err) >> fail "unreachable"
+              Right values -> pure values
+          twoUpdates <-
+            case trialObjectiveResultsForBudget TPE 1 2 4 of
+              Left err -> assertFailure (Text.unpack err) >> fail "unreachable"
+              Right values -> pure values
+          assertBool
+            "parallel cohorts change adaptive sampler history"
+            (fmap trialResultWeights sequential /= fmap trialResultWeights concurrent)
+          assertBool
+            "per-trial optimizer updates change trained weights"
+            (fmap trialResultWeights sequential /= fmap trialResultWeights twoUpdates)
       , testCase "resume decode failures keep ResumeOutcome Eq/Show total (Sprint 9.15)" $ do
           let outcome =
                 TuneResume.ResumeOutcome
@@ -306,19 +368,23 @@ main =
           "report-card knobs drive the full canonical sampler × scheduler × pruner sweep (Sprint 13.10)"
           assertCanonicalGridResume
       , testCase "tune command envelopes parse after render" $ do
-          let start =
-                TuneStart
-                  StartSweep
-                    { ssExperimentHash = "sha256:mnist-tune"
-                    , ssDhallObjectKey = "experiments/mnist-tune.dhall"
-                    , ssSubstrate = LinuxCUDA
-                    , ssSweepSeed = 42
-                    , ssTrialBudget = 64
-                    , ssBudgetPerTrial = 1000
-                    , ssSampler = "TPE"
-                    , ssScheduler = "ASHA"
-                    , ssPruner = "MedianPruner"
-                    }
+          let startEvent =
+                StartSweep
+                  { ssExperimentHash = "sha256:mnist-tune"
+                  , ssDhallObjectKey = "experiments/mnist-tune.dhall"
+                  , ssSubstrate = LinuxCUDA
+                  , ssSweepSeed = 42
+                  , ssTrialBudget = 64
+                  , ssBudgetPerTrial = 1000
+                  , ssSampler = "TPE"
+                  , ssScheduler = "ASHA"
+                  , ssPruner = "MedianPruner"
+                  , ssParallelism = 4
+                  , ssPromotions = 2
+                  , ssPlanId = "plan:mnist-tune"
+                  , ssResolvedPlan = "resolved-plan-v1:mnist-tune"
+                  }
+              start = TuneStart startEvent
               stop =
                 TuneStop
                   StopSweep
@@ -328,45 +394,120 @@ main =
           parseTuneCommand (renderTuneCommand stop) @?= Just stop
           decodeTuneCommandProto (encodeTuneCommandProto start) @?= Right start
           decodeTuneCommandProto (encodeTuneCommandProto stop) @?= Right stop
+          parseTuneCommand
+            (Text.replace "parallelism: 4" "parallelism: 0" (renderTuneCommand start))
+            @?= Nothing
+          parseTuneCommand
+            (Text.replace "promotions: 2" "promotions: 0" (renderTuneCommand start))
+            @?= Nothing
+          parseTuneCommand
+            (Text.replace "plan-id: plan:mnist-tune" "plan-id: " (renderTuneCommand start))
+            @?= Nothing
+          parseTuneCommand
+            ( Text.replace
+                "resolved-plan: resolved-plan-v1:mnist-tune"
+                "resolved-plan: "
+                (renderTuneCommand start)
+            )
+            @?= Nothing
+          decodeTuneCommandProto
+            (encodeTuneCommandProto (TuneStart (startEvent {ssParallelism = 0})))
+            @?= Left "non-positive protobuf field: parallelism"
+          decodeTuneCommandProto
+            (encodeTuneCommandProto (TuneStart (startEvent {ssPromotions = 0})))
+            @?= Left "non-positive protobuf field: promotions"
+          decodeTuneCommandProto
+            (encodeTuneCommandProto (TuneStart (startEvent {ssPlanId = ""})))
+            @?= Left "empty protobuf field: plan_id"
+          decodeTuneCommandProto
+            (encodeTuneCommandProto (TuneStart (startEvent {ssResolvedPlan = " \t"})))
+            @?= Left "empty protobuf field: resolved_plan"
           parseTuneCommand "kind: UnknownTuneCommand\n" @?= Nothing
       , testCase "tune event envelopes round-trip through proto3-compatible bytes" $ do
-          let started =
-                TuneTrialStarted
-                  TrialStarted
-                    { tsExperimentHash = "sha256:mnist-tune"
-                    , tsTrial = 7
-                    , tsTrialSeed = 4242
-                    , tsParametersJson = "{\"lr\":0.001}"
-                    , tsTimestampNs = 123456789
-                    }
-              finished =
-                TuneTrialFinished
-                  TrialFinished
-                    { tfTuneExperimentHash = "sha256:mnist-tune"
-                    , tfTuneTrial = 7
-                    , tfTuneObjective = 0.875
-                    , tfTunePruned = False
-                    , tfTuneTranscriptObjectKey = "trials/mnist-tune/7/transcript"
-                    , tfTuneTimestampNs = 223456789
-                    }
-              done =
-                TuneSweepDone
-                  SweepDone
-                    { sdExperimentHash = "sha256:mnist-tune"
-                    , sdTrialsCompleted = 8
-                    , sdTrialsPruned = 1
-                    , sdBestObjective = 0.9375
-                    , sdCompletedTraining =
-                        Just
-                          ( completedTrainingFixture
-                              "sha256:mnist-tune"
-                              8
-                              [("best_objective", 0.9375)]
-                          )
-                    }
-          decodeTuneEventProto (encodeTuneEventProto started) @?= Right started
-          decodeTuneEventProto (encodeTuneEventProto finished) @?= Right finished
-          decodeTuneEventProto (encodeTuneEventProto done) @?= Right done
+          let eventPlanId = Plan.planIdText fixturePlanId
+              completedTraining =
+                completedTrainingFixture
+                  "sha256:mnist-tune"
+                  8
+                  [("best_objective", 0.9375)]
+              startedEvent =
+                TrialStarted
+                  { tsExperimentHash = "sha256:mnist-tune"
+                  , tsPlanId = eventPlanId
+                  , tsTrial = 7
+                  , tsTrialSeed = 4242
+                  , tsParametersJson = "{\"lr\":0.001}"
+                  , tsTimestampNs = 123456789
+                  }
+              finishedEvent =
+                TrialFinished
+                  { tfTuneExperimentHash = "sha256:mnist-tune"
+                  , tfTunePlanId = eventPlanId
+                  , tfTuneTrial = 7
+                  , tfTuneObjective = 0.875
+                  , tfTunePruned = False
+                  , tfTuneTranscriptObjectKey = "trials/mnist-tune/7/transcript"
+                  , tfTuneTimestampNs = 223456789
+                  }
+              sweepFinished =
+                SweepFinished
+                  { sfExperimentHash = "sha256:mnist-tune"
+                  , sfPlanId = eventPlanId
+                  , sfTrialsCompleted = 8
+                  , sfTrialsPruned = 1
+                  , sfTrialsPromoted = 2
+                  , sfBestObjective = 0.9375
+                  }
+              sweepCompleted =
+                either (error . Text.unpack) id (completeSweep sweepFinished completedTraining)
+              started = TuneTrialStarted startedEvent
+              finished = TuneTrialFinished finishedEvent
+              sweepCandidate = TuneSweepFinished sweepFinished
+              completed = TuneSweepCompleted sweepCompleted
+              events = [started, finished, sweepCandidate, completed]
+          mapM_
+            ( \event -> do
+                let encoded = encodeTuneEventProto event
+                parseTuneEvent (renderTuneEvent event) @?= Just event
+                decodeTuneEventProto encoded @?= Right event
+                fmap encodeTuneEventProto (decodeTuneEventProto encoded) @?= Right encoded
+            )
+            events
+          let renderedPlanId = "plan-id: " <> eventPlanId <> "\n"
+              withoutPlanId = Text.replace renderedPlanId ""
+              duplicatePlanId = Text.replace renderedPlanId (renderedPlanId <> "plan-id: other\n")
+          mapM_
+            ( \event -> do
+                parseTuneEvent (withoutPlanId (renderTuneEvent event)) @?= Nothing
+                parseTuneEvent (duplicatePlanId (renderTuneEvent event)) @?= Nothing
+            )
+            events
+          decodeTuneEventProto
+            (encodeTuneEventProto (TuneTrialStarted (startedEvent {tsPlanId = ""})))
+            @?= Left "empty protobuf field: plan_id"
+          decodeTuneEventProto
+            (encodeTuneEventProto (TuneTrialFinished (finishedEvent {tfTunePlanId = " \t"})))
+            @?= Left "empty protobuf field: plan_id"
+          decodeTuneEventProto
+            (encodeTuneEventProto (TuneSweepFinished (sweepFinished {sfPlanId = ""})))
+            @?= Left "empty protobuf field: plan_id"
+          case decodeMessage (encodeTuneEventProto started) of
+            Right [outer@(ProtoField 1 (LengthDelimited startedBytes))] -> do
+              decodeTuneEventProto (encodeMessage [outer, outer])
+                @?= Left "expected exactly one TuneEvent oneof field"
+              decodeTuneEventProto (encodeMessage [outer, stringField 99 "unknown"])
+                @?= Left "expected exactly one TuneEvent oneof field"
+              case decodeMessage startedBytes of
+                Right startedFields -> do
+                  let planFields = filter ((== 6) . protoFieldNumber) startedFields
+                  decodeTuneEventProto
+                    (encodeMessage [messageField 1 (encodeMessage (startedFields <> planFields))])
+                    @?= Left "unexpected or duplicate protobuf fields in TrialStarted"
+                  decodeTuneEventProto
+                    (encodeMessage [messageField 1 (encodeMessage (startedFields <> [stringField 99 "unknown"]))])
+                    @?= Left "unexpected or duplicate protobuf fields in TrialStarted"
+                other -> assertFailure ("failed to decode TrialStarted protobuf body: " <> show other)
+            other -> assertFailure ("failed to decode TuneEvent protobuf envelope: " <> show other)
       , testCase "Sprint 1.12 — every catalog axis round-trips through CLI override decode" $ do
           -- Every sampler in the catalog decodes via its show-name through
           -- the CLI override parser; the resolver lifts that value into a

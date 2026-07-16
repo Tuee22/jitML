@@ -39,7 +39,7 @@ import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Engine (engineForSubstrate)
-import JitML.Engines.Loader (KernelArtifact, ensureKernelArtifact)
+import JitML.Engines.Loader (KernelArtifact, KernelArtifactError (..), ensureKernelArtifact)
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.MetalLocal qualified as MetalLocal
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
@@ -281,7 +281,7 @@ ensureKernelArtifactWithBenchmarkTuning
   -> Cache.Kind
   -> Cache.ToolchainFingerprint
   -> [Float]
-  -> IO (Either Text KernelArtifact)
+  -> IO (Either KernelArtifactError KernelArtifact)
 ensureKernelArtifactWithBenchmarkTuning env substrate =
   ensureKernelArtifactWithBenchmarkTuningWithRunner
     env
@@ -296,11 +296,11 @@ ensureKernelArtifactWithBenchmarkTuningWithRunner
   -> Cache.Kind
   -> Cache.ToolchainFingerprint
   -> [Float]
-  -> IO (Either Text KernelArtifact)
+  -> IO (Either KernelArtifactError KernelArtifact)
 ensureKernelArtifactWithBenchmarkTuningWithRunner env substrate runner kernelSpec kind fingerprint input = do
   tuned <- ensureTuningSelection env substrate runner kernelSpec kind fingerprint input
   case tuned of
-    Left err -> pure (Left err)
+    Left err -> pure (Left (KernelArtifactSemanticError err))
     Right plan ->
       ensureKernelArtifact
         env
@@ -324,7 +324,7 @@ ensureKernelArtifactWithWeightedBenchmarkTuning
   -> Cache.ToolchainFingerprint
   -> [Float]
   -> [Float]
-  -> IO (Either Text KernelArtifact)
+  -> IO (Either KernelArtifactError KernelArtifact)
 ensureKernelArtifactWithWeightedBenchmarkTuning env kernelSpec kind fingerprint input weights = do
   let runner runnerEnv runnerSpec runnerKind runnerInput =
         linuxCpuWeightedBenchmarkCandidateRunner

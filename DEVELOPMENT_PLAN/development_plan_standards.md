@@ -59,7 +59,9 @@ repository end state — one Haskell CLI driving three substrates (`apple-silico
 daemon as the single Pulsar-subscribed worker, deterministic JIT-compiled execution
 on each substrate, supervised and reinforcement learning training pipelines including
 AlphaZero-style self-play, and a PureScript frontend driven from generated browser
-contracts.
+contracts. Every workload crosses a raw-to-validated `RunPlan` boundary, executes
+through a pure protocol/evidence contract plus one resource-safe interpreter, and
+publishes reports derived from append-only execution journals.
 
 - Every phase assumes the previous phase has already closed.
 - The plan flows from documentation topology to the CLI surface, to bootstrap
@@ -117,7 +119,7 @@ project management summaries.
 ### C. Honest Completion Tracking
 
 Status describes reality against the project's Exit Definition, not against an
-intermediate scaffold layer. The Exit Definition is the eighteen-item list in
+intermediate scaffold layer. The Exit Definition is the numbered list in
 [README.md → Exit Definition](README.md#exit-definition). Each sprint owns a
 subset of those Exit Definition obligations; that subset is named in the
 sprint's `### Objective` and `### Deliverables` blocks.
@@ -231,6 +233,30 @@ all-model demo-rendering ownership, per-model integration/e2e ownership,
 linux-cuda product-lane ownership, apple-silicon product-lane ownership, and
 final no-caveat aggregation ownership each live in one place only.
 
+The 2026-07-12 typed-run-contract audit reopens existing owners instead of adding
+a Phase `35`. The strict forward chain is Sprint `1.18` (structured process
+outcomes) → `5.18` (receipt-bound delivery) → `8.16` (validated plans and
+contract algebra) → `9.17` (Tune/AlphaZero resolved-plan adoption) → `10.12`
+(refined checkpoint completion) → `12.16` (shared live-workflow interpreter) →
+`19.4` → `21.4` → `25.4` → `28.4` → `29.5` → `30.4` → `31.3` → `32.4` →
+`33.3` → `34.3`. Untouched phases remain Done on their retained surfaces, but
+the overall product handoff is incomplete until this chain closes. Sprints
+`29.5` and `30.4` independently refresh the `linux-cuda` and
+`apple-silicon` evidence; Sprint `31.3` aggregates their committed journals on
+`linux-cpu` without re-running an accelerator.
+
+The 2026-07-16 retained-cluster audit additionally reopened Sprint `2.9` and
+Sprint `3.7` after the typed bootstrap migration proved to have dropped its
+Kind existence branch. Sprint `2.9` has re-closed on the typed retained-cluster
+recovery branch, and Sprint `3.7` has re-closed after two supported
+`linux-cpu` reconciles proved durable topic convergence, retained identity,
+exact image authority, publication/stamp stability, and the steady-state
+exit-`3` no-op result. The numerical open suffix is now
+`12.16 → 19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 →
+33.3 → 34.3`. The completed `2.9 → 3.7` insertion remains forward-only before
+the Active Phase `12` gate and does not reopen or invalidate unrelated closed
+owners.
+
 The closure phases form a **forward chain** (renumbered 2026-06-16 per the
 forward-DAG doctrine in rule M): Phase `13` owns the full no-caveat model runtime
 (consuming the reopened Phases `8`–`10`), Phase `14` owns the browser product
@@ -282,6 +308,9 @@ for:
 - per-substrate JIT source renderers, generated-on-demand codegen artefacts, and
   content-addressed cache layout
 - training-workload surfaces (SL loops, RL framework, RL catalog, AlphaZero, tuning)
+- validated kind-indexed run plans, dimensional budgets, protocol event/evidence
+  reducers, receipt-bound broker delivery, lifecycle state, scenario journals,
+  structured process/suite outcomes, and report projections
 - checkpoint format and inference-only read path
 - frontend bundle and generated browser-contract surfaces
 - test stanzas, lint matrix, and ephemeral-cluster infrastructure surfaces
@@ -407,8 +436,8 @@ Environment`, `Long-Running Daemons in the Same Binary`, `Reconcilers: Idempoten
 Mutation as a Single Command`, `At-Least-Once Event Processing`, `Capability Classes
 and Service Errors`, `Retry Policy as First-Class Values`, `Lint, Format, and
 Code-Quality Stack`, `Generated Artifacts → The generated-section registry`,
-`Test Organization`, `Output Rules`, `Error Handling`, `Toolchain pinning`, `Project
-Structure`).
+`Test Organization`, `Output Rules`, `Error Handling`, `Typed Run Contracts`,
+`Toolchain pinning`, `Project Structure`).
 
 - Governed engineering docs under `documents/engineering/` referenced from the
   README's `Referenced by` line must defer to the README for the patterns it owns
@@ -521,8 +550,15 @@ Product closure status is derived from executable evidence, not from narrative
 prose. A phase or sprint in the product chain may be marked `Done` only when its
 validation stanza(s), docs check, and code-quality gate have passed in the
 container lane named by that phase. The standing realness gate consists of
-`jitml-negative-controls`, `jitml-model-convergence`, the product phase-status
-guard in `jitml-unit`, `jitml docs check`, and `jitml check-code`.
+`jitml-negative-controls`, `jitml-model-convergence`, typed-run-contract reducer
+negative controls, the product phase-status guard in `jitml-unit`, exact
+per-lane scenario journals, `jitml docs check`, and `jitml check-code`.
+
+Closure evidence is the structured result of the execution it claims. A later
+probe, declared target list, hand-maintained status literal, or reconstructed
+pass count cannot substitute for an invocation transcript or completed scenario
+journal. Fail-fast targets remain `NotRun`; unavailable measurements carry a
+reason; failed process evidence retains both output streams.
 
 `README.md → Closure Status` stays thin: it names the current status, the
 validation commands and pass counts, and links to the historical audit narrative

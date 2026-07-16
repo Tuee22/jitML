@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
@@ -11,18 +11,13 @@
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
-**Current audit status (2026-07-06).** Browser product closure is complete for
-the Phase `19`–`34` product chain. Phase `27` replaced product-path seeded demo
-proof with ProductRow artifact selectors produced by
-`jitml internal train-and-publish-product-rows`, wired row-specific renderers to
-checkpoint-summary metadata, and added fail-closed browser guards for missing,
-invalid, partial, untrained, unsupported, and `*-demo-weights` artifacts. Phase
-`28` closed row-complete live Playwright coverage and the `linux-cpu` report
-card, Phase `30` refreshed the Apple lane fragment, Phase `31` aggregates
-the committed CPU/CUDA/Apple row evidence, and Phases `32`–`34` keep the product
-claim tied to negative controls and per-model convergence. A static generated model list or
-seeded fixture checkpoint is not product evidence; the binding browser contract
-lives in [product_completion_contract.md](product_completion_contract.md).
+Phase state, remaining work, blockers, and validation evidence live only in
+[Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status).
+A static generated model list, declared workflow status, or seeded fixture
+checkpoint is not product evidence. The binding browser bar lives in
+[Product Completion Contract](product_completion_contract.md); the run state and
+evidence projected into browser contracts come from
+[Typed Run Contract](run_contract.md).
 
 ## Stack
 
@@ -125,9 +120,9 @@ adversarial games with legal move handling, MCTS/value/policy details, and
 interactive replay; exposes tuning sweep controls/frontiers tied to real trial
 state; and shows the completed-budget/convergence-statistics payload attached
 to each selected checkpoint. Playwright proves those behaviors through the
-explicit live `jitml-e2e` orchestration path; the 2026-06-26 `linux-cpu` run
-closed this target for the baseline, with CUDA and Apple reruns owned by
-downstream phases.
+explicit live `jitml-e2e` orchestration path and the same completed-evidence
+journal consumed by Haskell integration assertions. The development plan owns
+current lane validation status.
 
 ## Browser-Contract ADTs
 
@@ -143,9 +138,13 @@ is an active `trackingGeneratedPaths` entry; hand edits fail
 `error`. `CheckpointSummary` carries only Engine-listed inference-eligible
 artifacts and includes the row id, manifest SHA, step, model family, tensor
 count, eligibility string, completed-budget rendering, convergence-metric
-rendering, and TensorBoard prefix. The browser contract therefore receives the
-same `CompletedTraining`/checkpoint eligibility state that the Haskell loader
-enforces, instead of inferring readiness from seeded or smoke manifests.
+rendering, and TensorBoard prefix. The browser contract therefore receives a
+projection of the same refined completed evidence that the Haskell loader
+enforces, instead of inferring readiness from seeded or smoke manifests. Browser
+records are wire/view DTOs, not proof-bearing domain values: `eligible` and
+`done` are rendered only from opaque backend witnesses, and decoding those text
+states cannot manufacture completion. See
+[Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
 `ModelMatrixRow` carries the generated `experimentHash` and `demoPanel` for each
 ProductRow, and the default panel requests use the stable `product-row-*`
 artifact namespaces rather than legacy seeded demo hashes. The checkpoint panel
@@ -211,7 +210,7 @@ and adversarial multi-game replay payloads.
 
 ## Panels
 
-Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth. Admin backends stay as top-level routed links rather than iframes. Grafana, Prometheus, TensorBoard, Harbor, MinIO, and Pulsar each own authentication, CSP, websocket/base-path behavior, and internal navigation; the consistent jitML UI is the generated portal directory and shared chrome, not an embedded frame around each upstream console.
+Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. `Panels.Stream.subscribeStream` builds each browser WebSocket as a cleanup-bearing `Halogen.Subscription` emitter: disposal clears the JS callbacks and closes a connecting or open socket before the next route mounts. The server retains an independent read-side peer watcher for full-page navigation, tab closure, and other teardown that bypasses Halogen disposal. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth. Admin backends stay as top-level routed links rather than iframes. Grafana, Prometheus, TensorBoard, Harbor, MinIO, and Pulsar each own authentication, CSP, websocket/base-path behavior, and internal navigation; the consistent jitML UI is the generated portal directory and shared chrome, not an embedded frame around each upstream console.
 
 `Panels.Api.requestText` is the dependency-free text request bridge used by the
 REST panels. MNIST, generic tensor inference, CIFAR/ImageNet, checkpoint
@@ -234,12 +233,13 @@ controls over the local move transcript.
 The training, RL, and tuning panels post generated
 workflow command envelopes to `/api/runs/<run-id>/command`, parse
 `WorkflowCommandAck`, and render generated `WorkflowStatus` records for
-queued/running/failed/done browser state. The server route fails with `503`
+queued/running/failed/done browser state. Those states are read-only projections
+of the validated plan and evidence journal; the frontend neither derives
+completion from event arrival order nor sends a status value back as evidence.
+The server route fails with `503`
 when no live publication exists; with a publication it resolves the browser
 `substrate: live` token to the publication substrate and publishes valid
-start/stop envelopes to the matching daemon command topic. Live-backed
-cross-session status reconciliation and all-model checkpoint eligibility are
-validated for the `linux-cpu` baseline. The training
+start/stop envelopes to the matching daemon command topic. The training
 panel renders the latest throughput/device/checkpoint and
 TensorBoard fields from `TrainingEventFrame` plus a window-normalized
 throughput-telemetry sparkline; the RL panel parses both
@@ -340,27 +340,20 @@ covers the smoke shell plus the eight current panel hashes:
 - Training / Tune: load the streaming metric panels through the live edge
   route.
 
-Sprint `12.13` / Phase `14` replaced the original reachability matrix with a
-broader product matrix, and the 2026-06-26 fixed-budget audit re-closed that
-target on `linux-cpu`: Phase `14.4` covers every documented model family with
-completed `InferenceEligibleCheckpoint` artifacts, visible convergence/
-completion state, negative infer-before-complete checks, RL animations from
-trained policies, adversarial-game boards from trained policy/value checkpoints,
-transcript replay, tuning controls, and TensorBoard/checkpoint links. Phase
-`29` then passed the row-complete live Playwright product matrix on the
-published `linux-cuda` edge: `jitml test jitml-e2e --live --linux-cuda`
-selected edge `:9092`, rendered every ProductRow artifact-backed selector as
-eligible, and passed **71 / 71** browser tests including **55 / 55**
-row-specific `e2e.product.*` cases.
+The product matrix covers every documented model family with refined
+`InferenceEligibleCheckpoint` artifacts, visible completion/convergence
+projections, negative infer-before-complete checks, RL animations from trained
+policies, adversarial-game boards from trained policy/value checkpoints,
+transcript replay, tuning controls, and TensorBoard/checkpoint links. Current
+lane validation evidence belongs in the development plan, not this architecture
+document.
 
-Playwright execution runs through the typed `Subprocess` boundary on the
-explicit live orchestration path; it belongs to the doctrine's
+Playwright execution runs through a structured process result on the explicit
+live orchestration path and attaches its transcript to the scenario journal; it
+belongs to the doctrine's
 Ephemeral-Cluster Infrastructure test category and does not have its own Cabal
 stanza. Static route/API scaffold checks stay in the local Haskell e2e and
 PureScript lint targets.
-The 2026-07-05 CUDA-machine run used
-`mcr.microsoft.com/playwright:v1.49.1-noble` with host networking against the
-published `linux-cuda` edge and passed **71 / 71**.
 The local PureScript smoke suite is `purescript-spec` executed through
 `spec-node` by `spago test`; Playwright remains live-only and separate from the
 default Cabal matrix.
@@ -372,6 +365,7 @@ default Cabal matrix.
 - [../../README.md → Envoy Gateway API: a single localhost socket](../../README.md#envoy-gateway-api-a-single-localhost-socket) (`src/JitML/Routes.hs` is the upstream source for the generated `Generated.AdminPortals` artifact; the routes-published-at-the-edge table in that section is rendered from the same registry)
 - [cluster_topology.md → Routes Published at the Edge](cluster_topology.md#routes-published-at-the-edge) (the canonical regenerated table)
 - [daemon_architecture.md](daemon_architecture.md)
+- [run_contract.md](run_contract.md)
 - [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
 - [../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md)

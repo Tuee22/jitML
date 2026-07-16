@@ -14,8 +14,12 @@ import Control.Exception qualified as Exception
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Exit (ExitCode (..))
 
+import JitML.Sub.Outcome
+  ( ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , renderProcessFailure
+  )
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
@@ -96,19 +100,16 @@ probePkgConfig packageName = do
   result <- runSubprocessSafely command
   pure $
     case result of
-      Right (ExitSuccess, stdoutText, _stderrText) ->
-        case parsePkgConfigVersion stdoutText of
+      Right (ProcessSucceeded transcript) ->
+        case parsePkgConfigVersion (processTranscriptStdout transcript) of
           Just version ->
             (packageName, Just version, renderSubprocess command <> ": " <> version)
           Nothing ->
             (packageName, Nothing, renderSubprocess command <> ": empty version")
-      Right (ExitFailure code, _stdoutText, stderrText) ->
+      Right (ProcessFailed failure) ->
         ( packageName
         , Nothing
-        , renderSubprocess command
-            <> ": exit "
-            <> Text.pack (show code)
-            <> renderStderr stderrText
+        , renderSubprocess command <> ": " <> renderProcessFailure failure
         )
       Left err ->
         (packageName, Nothing, renderSubprocess command <> ": " <> err)
@@ -120,15 +121,12 @@ probeHeader headerPath = do
   result <- runSubprocessSafely command
   pure $
     case result of
-      Right (ExitSuccess, _stdoutText, _stderrText) ->
+      Right (ProcessSucceeded _) ->
         (headerPath, True, renderSubprocess command <> ": readable")
-      Right (ExitFailure code, _stdoutText, stderrText) ->
+      Right (ProcessFailed failure) ->
         ( headerPath
         , False
-        , renderSubprocess command
-            <> ": exit "
-            <> Text.pack (show code)
-            <> renderStderr stderrText
+        , renderSubprocess command <> ": " <> renderProcessFailure failure
         )
       Left err ->
         (headerPath, False, renderSubprocess command <> ": " <> err)
@@ -140,14 +138,13 @@ probeLdconfig = do
   result <- runSubprocessSafely command
   pure $
     case result of
-      Right (ExitSuccess, stdoutText, _stderrText) -> Right stdoutText
-      Right (ExitFailure code, _stdoutText, stderrText) ->
-        Left ("exit " <> Text.pack (show code) <> renderStderr stderrText)
+      Right (ProcessSucceeded transcript) -> Right (processTranscriptStdout transcript)
+      Right (ProcessFailed failure) -> Left (renderProcessFailure failure)
       Left err -> Left err
  where
   command = subprocess "ldconfig" ["-p"]
 
-runSubprocessSafely :: Subprocess -> IO (Either Text (ExitCode, Text, Text))
+runSubprocessSafely :: Subprocess -> IO (Either Text ProcessOutcome)
 runSubprocessSafely command =
   (Right <$> runStreaming defaultSubprocessEnv command)
     `Exception.catch` \(err :: Exception.SomeException) ->
@@ -170,12 +167,6 @@ renderPkgConfigProbeResult (_packageName, _version, message) =
 renderHeaderProbeResult :: (Text, Bool, Text) -> Text
 renderHeaderProbeResult (_headerPath, _visible, message) =
   message
-
-renderStderr :: Text -> Text
-renderStderr stderrText =
-  case Text.strip stderrText of
-    "" -> ""
-    stripped -> ": " <> stripped
 
 renderBool :: Bool -> Text
 renderBool True = "yes"

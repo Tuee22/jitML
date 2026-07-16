@@ -3,45 +3,91 @@
 module JitML.Service.Runtime
   ( DaemonRuntime (..)
   , AppleMetalAcquireStatus (..)
+  , AppleHostWorkloadStopMode (..)
+  , AppleHostWorkloadAction (..)
+  , WorkflowStatusProjectionMode (..)
   , DaemonClientProbeState (..)
   , DaemonClientProbeStatus (..)
-  , DaemonSubscriptionState (..)
-  , DaemonSubscriptionStatus (..)
-  , acquireDaemonSubscriptions
+  , daemonReady
+  , daemonConsumerSessionTransition
   , daemonConsumerBatch
   , consumerLoopExit
   , daemonHandlerRouter
-  , daemonTensorBoardDispatcher
   , daemonWorkloadDispatcher
   , daemonWorkloadDispatcherForwardingInference
   , daemonWorkloadDispatcherHostingAppleInference
   , daemonWorkloadDispatcherWithInference
   , daemonWorkloadDispatcherWithWeightedInference
+  , appleHostWorkloadActionKey
+  , executeAppleHostWorkloadStart
+  , executeAppleHostWorkloadStop
+  , planAppleHostWorkloadAction
+  , applyWorkflowStatusProjectionResult
+  , workflowStatusProjectionMode
+  , validateDaemonWorkloadDispatchRole
+  , validateDaemonCommandDispatchRole
   , daemonHttpRoutes
+  , daemonRuntimeForConfigs
   , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
-  , probeDaemonServiceClients
+  , probeCoordinatorServiceClients
+  , probeEngineServiceClients
   , renderConsumerOutcomes
   , renderDaemonRuntimeSummary
   , runtimeAfterSignal
+  , runDaemonWithReloadAndDrain
   , serveDaemon
+  , serveDaemonWithDrain
+  , serveDaemonWithReloadAndDrain
   , serveDaemonOnce
   )
 where
 
-import Control.Concurrent (myThreadId, threadDelay, throwTo)
-import Control.Exception (AsyncException (..), catch, throwIO)
+import Control.Concurrent
+  ( modifyMVar_
+  , newEmptyMVar
+  , newMVar
+  , takeMVar
+  , threadDelay
+  , tryPutMVar
+  )
+import Control.Concurrent.Async (waitEitherCatch, withAsync)
+import Control.Exception (throwIO)
 import Control.Monad (forever, void)
 import Control.Monad.IO.Class (MonadIO)
+import Data.Either (fromRight)
+import Data.Foldable (asum)
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import Data.Foldable (asum)
-
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format (CheckpointManifest)
-import JitML.Observability.TbSidecar qualified as TbSidecar
+import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
+import JitML.Coordinator.Topology
+  ( ProtocolRoute (InferenceHostCommandRoute, InferenceRequestRoute)
+  , Topic
+  , topicFor
+  )
 import JitML.Product.Pipeline qualified as ProductPipeline
+import JitML.Proto.Inference (InferenceCommand)
+import JitML.Proto.Rl
+  ( RlCommand (..)
+  , StartAlphaZeroRun (..)
+  , StartRLRun (..)
+  , StopRLRun (..)
+  )
+import JitML.Proto.Training
+  ( StartTraining (..)
+  , StopTraining (..)
+  , TrainingCommand (..)
+  )
+import JitML.Proto.Tune
+  ( StartSweep (..)
+  , StopSweep (..)
+  , TuneCommand (..)
+  )
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , HttpListener (..)
@@ -53,7 +99,7 @@ import JitML.Service.BootConfig
   )
 import JitML.Service.Capabilities
   ( BucketName (..)
-  , ETag
+  , ConsumerSessionEvent (..)
   , HasHarbor
   , HasKubectl
   , HasMinIO
@@ -61,29 +107,31 @@ import JitML.Service.Capabilities
   , ImageRef
   , KubeResource (..)
   , ObjectRef
-  , SubscriptionId (..)
-  , TopicName (..)
   , harborListImages
   , kubectlGet
   , listObjects
   , pulsarPublish
   )
 import JitML.Service.Clients
-  ( DaemonClientSettings
-  , daemonClientSettingsForBootConfig
-  , renderDaemonClientSettings
+  ( DaemonRoleClientSettings
+  , daemonRoleClientSettingsForBootConfig
+  , renderDaemonRoleClientSettings
   )
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
-  , DaemonSubscription (..)
+  , DaemonCommand (..)
+  , DaemonSubscription
   , EventDomain (..)
-  , EventId (..)
+  , EventId
   , HandlerRouter
   , consumerOutcomeError
+  , daemonCommandDomain
+  , daemonSubscriptionName
+  , daemonSubscriptionTopicName
   , daemonSubscriptionsForBootConfig
   , emptyHandlerRouterWithTtl
+  , eventIdText
   , runConsumerLoop
-  , subscribeDaemonTopics
   )
 import JitML.Service.Endpoints
   ( EndpointResponse (..)
@@ -92,6 +140,19 @@ import JitML.Service.Endpoints
   , metrics
   , readyz
   , renderEndpointResponse
+  )
+import JitML.Service.HostWorkloadRegistry
+  ( HostWorkloadFamily (..)
+  , HostWorkloadKey
+  , HostWorkloadOutcome (..)
+  , HostWorkloadRegistry
+  , HostWorkloadRegistryError
+  , drainHostWorkloadForEvent
+  , joinedHostWorkloadOutcome
+  , refineHostWorkloadKey
+  , renderHostWorkloadRegistryError
+  , startHostWorkload
+  , stopHostWorkloadForEvent
   )
 import JitML.Service.Http (HttpRoute (..), serveHttpRoutes, serveHttpRoutesOnce)
 import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
@@ -110,12 +171,28 @@ import JitML.Service.RoleLifecycle
   , roleLabel
   , roleProfile
   )
+import JitML.Service.RuntimeState
+  ( DaemonState
+  , beginDaemonDrain
+  , daemonStateDetail
+  , daemonStateLabel
+  , daemonStateReady
+  , initialDaemonStateWithTopicFamily
+  , recordClientProbeFailure
+  , recordClientProbesSucceeded
+  , recordConsumerConnected
+  , recordConsumerDisconnected
+  , recordRuntimeFailure
+  )
 import JitML.Service.Signal
-  ( DaemonSignal
+  ( DaemonControl
+  , DaemonControlSnapshot (snapshotDaemonState)
+  , DaemonSignal (..)
   , DaemonSignalAction (..)
   , applyDaemonSignal
   , daemonSignalAction
-  , newDaemonControl
+  , newDaemonControlWithLiveConfig
+  , readDaemonControl
   , renderDaemonSignal
   , renderDaemonSignalAction
   , signalPlan
@@ -124,20 +201,15 @@ import JitML.Service.Signal
 import JitML.Service.Workload qualified as Workload
 import JitML.Substrate (Substrate (..))
 
-import JitML.Proto.Inference
-  ( appleInferenceCommandTopic
-  )
-
 data DaemonRuntime = DaemonRuntime
   { daemonBootConfig :: BootConfig
   , daemonLiveConfig :: LiveConfig
   , daemonAppleMetalAcquireStatus :: AppleMetalAcquireStatus
-  , daemonClientSettings :: DaemonClientSettings
+  , daemonClientSettings :: DaemonRoleClientSettings
   , daemonClientProbeStatuses :: [DaemonClientProbeStatus]
   , daemonSubscriptions :: [DaemonSubscription]
-  , daemonSubscriptionStatuses :: [DaemonSubscriptionStatus]
   , daemonMetrics :: MetricsSnapshot
-  , daemonReady :: Bool
+  , daemonState :: DaemonState
   }
   deriving stock (Eq, Show)
 
@@ -147,6 +219,229 @@ data AppleMetalAcquireStatus
   | AppleMetalAcquireSucceeded Text
   | AppleMetalAcquireFailed Text
   deriving stock (Eq, Show)
+
+-- | A host-Apple command that has a real executable effect. Training, Tune,
+-- and RL Starts are registered under their action key before execution. Stops
+-- carry the same refined key plus their cancel-or-drain intent and can only be
+-- acknowledged after the registry returns the corresponding joined receipt.
+-- AlphaZero belongs to the RL family.
+data AppleHostWorkloadStopMode
+  = CancelAppleHostWorkload
+  | DrainAppleHostWorkload
+  deriving stock (Eq, Show)
+
+data AppleHostWorkloadAction
+  = RunAppleHostTraining StartTraining
+  | RunAppleHostTune StartSweep
+  | RunAppleHostRl StartRLRun
+  | RunAppleHostAlphaZero StartAlphaZeroRun
+  | StopAppleHostWorkload AppleHostWorkloadStopMode HostWorkloadKey
+  | RunAppleHostInference InferenceCommand
+  deriving stock (Eq, Show)
+
+-- | Decide whether command dispatch may ignore workflow-status publication.
+-- The Apple Coordinator must not project a Stop that it only forwarded, while
+-- the host Engine may acknowledge a Stop only after its joined terminal state
+-- has been published. Every other projection remains a best-effort overlay.
+data WorkflowStatusProjectionMode
+  = SkipWorkflowStatusProjection
+  | BestEffortWorkflowStatusProjection
+  | RequireWorkflowStatusProjection
+  deriving stock (Eq, Show)
+
+workflowStatusProjectionMode
+  :: BootConfig
+  -> DaemonCommand
+  -> WorkflowStatusProjectionMode
+workflowStatusProjectionMode bootConfig command
+  | commandIsStop command
+  , bootActiveRole bootConfig == Coordinator
+  , bootSubstrate bootConfig == AppleSilicon =
+      SkipWorkflowStatusProjection
+  | commandIsStop command
+  , bootActiveRole bootConfig == Engine
+  , bootSubstrate bootConfig == AppleSilicon
+  , bootResidency bootConfig == Host =
+      RequireWorkflowStatusProjection
+  | otherwise = BestEffortWorkflowStatusProjection
+
+-- | Apply the acknowledgement policy to a completed publication attempt.
+-- Required terminal evidence preserves the exact failure; overlay publication
+-- failures are deliberately ignored.
+applyWorkflowStatusProjectionResult
+  :: WorkflowStatusProjectionMode
+  -> Either ServiceError ()
+  -> Either ServiceError ()
+applyWorkflowStatusProjectionResult mode publicationResult =
+  case mode of
+    RequireWorkflowStatusProjection -> publicationResult
+    SkipWorkflowStatusProjection -> Right ()
+    BestEffortWorkflowStatusProjection -> Right ()
+
+commandIsStop :: DaemonCommand -> Bool
+commandIsStop command =
+  case command of
+    TrainingDaemonCommand _ (TrainingStop _) -> True
+    TuneDaemonCommand _ (TuneStop _) -> True
+    RlDaemonCommand _ (RlStop _) -> True
+    _ -> False
+
+-- | Refine a decoded daemon command to the closed set the Apple host can
+-- execute. Workload identities are refined before any effect can start.
+planAppleHostWorkloadAction
+  :: DaemonCommand
+  -> Either ServiceError AppleHostWorkloadAction
+planAppleHostWorkloadAction command =
+  case command of
+    TrainingDaemonCommand _ (TrainingStart start) -> do
+      _ <- plannedHostWorkloadKey TrainingWorkload (stExperimentHash start)
+      Right (RunAppleHostTraining start)
+    TrainingDaemonCommand _ (TrainingStop stop) -> do
+      key <- plannedHostWorkloadKey TrainingWorkload (stopExperimentHash stop)
+      Right
+        ( StopAppleHostWorkload
+            (if stopDrain stop then DrainAppleHostWorkload else CancelAppleHostWorkload)
+            key
+        )
+    TuneDaemonCommand _ (TuneStart start) -> do
+      _ <- plannedHostWorkloadKey TuneWorkload (ssExperimentHash start)
+      Right (RunAppleHostTune start)
+    TuneDaemonCommand _ (TuneStop stop) ->
+      StopAppleHostWorkload CancelAppleHostWorkload
+        <$> plannedHostWorkloadKey TuneWorkload (ssStopExperimentHash stop)
+    RlDaemonCommand _ (RlStart start) -> do
+      _ <- plannedHostWorkloadKey RlWorkload (srlExperimentHash start)
+      Right (RunAppleHostRl start)
+    RlDaemonCommand _ (RlStartAlphaZero start) -> do
+      _ <- plannedHostWorkloadKey RlWorkload (sazExperimentHash start)
+      Right (RunAppleHostAlphaZero start)
+    RlDaemonCommand _ (RlStop stop) -> do
+      key <- plannedHostWorkloadKey RlWorkload (srStopExperimentHash stop)
+      Right
+        ( StopAppleHostWorkload
+            (if srStopDrain stop then DrainAppleHostWorkload else CancelAppleHostWorkload)
+            key
+        )
+    InferenceDaemonCommand _ inference ->
+      Right (RunAppleHostInference inference)
+
+-- | Recover the registry key for an executable workload action. Inference is
+-- deliberately outside this registry because it is request-scoped rather than
+-- a long-lived host workload.
+appleHostWorkloadActionKey
+  :: AppleHostWorkloadAction
+  -> Either HostWorkloadRegistryError (Maybe HostWorkloadKey)
+appleHostWorkloadActionKey action =
+  case action of
+    RunAppleHostTraining start ->
+      Just <$> refineHostWorkloadKey TrainingWorkload (stExperimentHash start)
+    RunAppleHostTune start ->
+      Just <$> refineHostWorkloadKey TuneWorkload (ssExperimentHash start)
+    RunAppleHostRl start ->
+      Just <$> refineHostWorkloadKey RlWorkload (srlExperimentHash start)
+    RunAppleHostAlphaZero start ->
+      Just <$> refineHostWorkloadKey RlWorkload (sazExperimentHash start)
+    StopAppleHostWorkload _mode key -> Right (Just key)
+    RunAppleHostInference _inference -> Right Nothing
+
+-- | Register one planned Apple-host Start before its real action can execute.
+-- A missing registry, a non-Start action, or an invalid key fails closed and
+-- leaves the supplied action untouched. The registry's gated worker makes the
+-- handle visible before releasing the action, so a concurrent Stop can never
+-- race an unregistered workload.
+executeAppleHostWorkloadStart
+  :: Maybe HostWorkloadRegistry
+  -> AppleHostWorkloadAction
+  -> IO ()
+  -> IO (Either ServiceError ())
+executeAppleHostWorkloadStart Nothing _action _workload =
+  pure
+    ( Left
+        ( SEConflict
+            "host workload Start requires the persistent Apple host registry"
+        )
+    )
+executeAppleHostWorkloadStart (Just registry) action workload =
+  case appleHostWorkloadStartKey action of
+    Left registryError ->
+      pure (Left (SEConflict (renderHostWorkloadRegistryError registryError)))
+    Right Nothing ->
+      pure (Left (SEConflict "host workload Start action has no registry key"))
+    Right (Just key) -> do
+      registered <- startHostWorkload registry key workload
+      pure $
+        case registered of
+          Left registryError ->
+            Left (SEConflict (renderHostWorkloadRegistryError registryError))
+          Right _receipt -> Right ()
+
+appleHostWorkloadStartKey
+  :: AppleHostWorkloadAction
+  -> Either HostWorkloadRegistryError (Maybe HostWorkloadKey)
+appleHostWorkloadStartKey action =
+  case action of
+    RunAppleHostTraining {} -> appleHostWorkloadActionKey action
+    RunAppleHostTune {} -> appleHostWorkloadActionKey action
+    RunAppleHostRl {} -> appleHostWorkloadActionKey action
+    RunAppleHostAlphaZero {} -> appleHostWorkloadActionKey action
+    StopAppleHostWorkload {} -> Right Nothing
+    RunAppleHostInference {} -> Right Nothing
+
+-- | Execute the production Apple-host Stop decision against the persistent
+-- keyed registry. A cancel must observe the cancellation tombstone; a drain
+-- must observe natural success. The event-bound registry operation retains a
+-- successful joined receipt for same-event redelivery after a required status
+-- publication failure, while a distinct event sees the terminal tombstone.
+executeAppleHostWorkloadStop
+  :: Maybe HostWorkloadRegistry
+  -> EventId
+  -> AppleHostWorkloadStopMode
+  -> HostWorkloadKey
+  -> IO (Either ServiceError ())
+executeAppleHostWorkloadStop Nothing _eventId _mode _key =
+  pure
+    ( Left
+        ( SEConflict
+            "host workload Stop requires the persistent Apple host registry"
+        )
+    )
+executeAppleHostWorkloadStop (Just registry) eventId mode key = do
+  stopped <- stopOperation registry eventId key
+  pure $
+    case stopped of
+      Left registryError ->
+        Left (SEConflict (renderHostWorkloadRegistryError registryError))
+      Right joined
+        | joinedHostWorkloadOutcome joined == expectedOutcome -> Right ()
+        | otherwise ->
+            Left
+              ( SEConflict
+                  ( "host workload Stop joined with an unexpected outcome: "
+                      <> Text.pack (show (joinedHostWorkloadOutcome joined))
+                  )
+              )
+ where
+  (stopOperation, expectedOutcome) =
+    case mode of
+      CancelAppleHostWorkload ->
+        (stopHostWorkloadForEvent, HostWorkloadCancelled)
+      DrainAppleHostWorkload ->
+        (drainHostWorkloadForEvent, HostWorkloadSucceeded)
+
+plannedHostWorkloadKey
+  :: HostWorkloadFamily
+  -> Text
+  -> Either ServiceError HostWorkloadKey
+plannedHostWorkloadKey family experimentHash =
+  case refineHostWorkloadKey family experimentHash of
+    Left registryError ->
+      Left
+        ( SEConflict
+            ( "host Apple workload key refinement failed: "
+                <> renderHostWorkloadRegistryError registryError
+            )
+        )
+    Right key -> Right key
 
 data DaemonClientProbeState
   = DaemonClientProbePending
@@ -160,86 +455,123 @@ data DaemonClientProbeStatus = DaemonClientProbeStatus
   }
   deriving stock (Eq, Show)
 
-data DaemonSubscriptionState
-  = DaemonSubscriptionPending
-  | DaemonSubscriptionAcquired SubscriptionId
-  | DaemonSubscriptionFailed ServiceError
-  deriving stock (Eq, Show)
-
-data DaemonSubscriptionStatus = DaemonSubscriptionStatus
-  { daemonSubscriptionStatusSubscription :: DaemonSubscription
-  , daemonSubscriptionStatusState :: DaemonSubscriptionState
-  }
-  deriving stock (Eq, Show)
-
 defaultDaemonRuntime :: DaemonRuntime
 defaultDaemonRuntime =
   daemonRuntimeForBootConfig (defaultBootConfig LinuxCPU Cluster)
 
 daemonRuntimeForBootConfig :: BootConfig -> DaemonRuntime
 daemonRuntimeForBootConfig bootConfig =
-  let subscriptions = daemonSubscriptionsForBootConfig bootConfig
+  daemonRuntimeForConfigs bootConfig defaultLiveConfig
+
+daemonRuntimeForConfigs :: BootConfig -> LiveConfig -> DaemonRuntime
+daemonRuntimeForConfigs bootConfig liveConfig =
+  let subscriptionResult = daemonSubscriptionsForBootConfig bootConfig
+      subscriptions = fromRight [] subscriptionResult
+      initialState =
+        initialDaemonStateWithTopicFamily
+          (appleMetalRequired bootConfig)
+          (expectedTopicFamily bootConfig)
+          ( case subscriptionResult of
+              Left err -> ["invalid-subscription-plan:" <> Text.pack (show err)]
+              Right _ -> fmap daemonSubscriptionTopicName subscriptions
+          )
+          (daemonClientProbeNames bootConfig)
+      plannedState =
+        case subscriptionResult of
+          Left err -> recordRuntimeFailure (Text.pack (show err)) initialState
+          Right _ -> initialState
    in DaemonRuntime
         { daemonBootConfig = bootConfig
-        , daemonLiveConfig = defaultLiveConfig
+        , daemonLiveConfig = liveConfig
         , daemonAppleMetalAcquireStatus = appleMetalAcquireInitialStatus bootConfig
-        , daemonClientSettings = daemonClientSettingsForBootConfig bootConfig
-        , daemonClientProbeStatuses = pendingClientProbeStatuses
+        , daemonClientSettings = daemonRoleClientSettingsForBootConfig bootConfig
+        , daemonClientProbeStatuses = pendingClientProbeStatuses bootConfig
         , daemonSubscriptions = subscriptions
-        , daemonSubscriptionStatuses = pendingSubscriptionStatuses subscriptions
         , daemonMetrics = MetricsSnapshot 0 1 0
-        , daemonReady = True
+        , daemonState = plannedState
         }
 
-acquireDaemonSubscriptions :: (HasPulsar m) => DaemonRuntime -> m DaemonRuntime
-acquireDaemonSubscriptions runtime = do
-  results <- subscribeDaemonTopics (daemonSubscriptions runtime)
-  let statuses = fmap subscriptionResultStatus results
-  pure
-    runtime
-      { daemonSubscriptionStatuses = statuses
-      , daemonReady = all subscriptionAcquired statuses
-      }
+-- | Engine acquire probes only its MinIO artifact capability. This narrower
+-- signature is what allows the production Engine interpreter to omit Harbor
+-- and kubectl instances entirely.
+probeEngineServiceClients
+  :: (HasMinIO m)
+  => DaemonRuntime
+  -> m DaemonRuntime
+probeEngineServiceClients runtime = do
+  minioResult <- listObjects daemonProbeBucket daemonProbePrefix
+  pure (applyClientProbeStatuses [minioProbeStatus minioResult] runtime)
 
-probeDaemonServiceClients
+-- | Coordinator acquire owns the cluster-orchestration probes.
+probeCoordinatorServiceClients
   :: (HasHarbor m, HasKubectl m, HasMinIO m)
   => DaemonRuntime
   -> m DaemonRuntime
-probeDaemonServiceClients runtime = do
+probeCoordinatorServiceClients runtime = do
   minioResult <- listObjects daemonProbeBucket daemonProbePrefix
   harborResult <- harborListImages daemonProbeHarborProject
   kubectlResult <- kubectlGet daemonProbeKubeResource
-  let statuses =
+  pure
+    ( applyClientProbeStatuses
         [ minioProbeStatus minioResult
         , harborProbeStatus harborResult
         , kubectlProbeStatus kubectlResult
         ]
-  pure
-    runtime
-      { daemonClientProbeStatuses = statuses
-      , daemonReady = daemonReady runtime && all clientProbeSucceeded statuses
-      }
+        runtime
+    )
 
-pendingSubscriptionStatuses :: [DaemonSubscription] -> [DaemonSubscriptionStatus]
-pendingSubscriptionStatuses =
-  fmap (`DaemonSubscriptionStatus` DaemonSubscriptionPending)
+applyClientProbeStatuses
+  :: [DaemonClientProbeStatus]
+  -> DaemonRuntime
+  -> DaemonRuntime
+applyClientProbeStatuses statuses runtime =
+  runtime
+    { daemonClientProbeStatuses = statuses
+    , daemonState =
+        case firstFailedClientProbe statuses of
+          Just (probe, err) ->
+            recordClientProbeFailure probe (renderServiceError err) (daemonState runtime)
+          Nothing ->
+            recordClientProbesSucceeded
+              (fmap daemonClientProbeStatusName statuses)
+              (daemonState runtime)
+    }
 
-pendingClientProbeStatuses :: [DaemonClientProbeStatus]
-pendingClientProbeStatuses =
-  fmap (`DaemonClientProbeStatus` DaemonClientProbePending) daemonClientProbeNames
+pendingClientProbeStatuses :: BootConfig -> [DaemonClientProbeStatus]
+pendingClientProbeStatuses bootConfig =
+  fmap
+    (`DaemonClientProbeStatus` DaemonClientProbePending)
+    (daemonClientProbeNames bootConfig)
 
-daemonClientProbeNames :: [Text]
-daemonClientProbeNames =
-  [ "minio:list jitml-checkpoints"
-  , "harbor:list library"
-  , "kubectl:get pods"
-  ]
+daemonClientProbeNames :: BootConfig -> [Text]
+daemonClientProbeNames bootConfig =
+  case bootActiveRole bootConfig of
+    Engine -> ["minio:list jitml-checkpoints"]
+    Coordinator ->
+      [ "minio:list jitml-checkpoints"
+      , "harbor:list library"
+      , "kubectl:get pods"
+      ]
+    Webapp -> []
+
+expectedTopicFamily :: BootConfig -> [Text]
+expectedTopicFamily bootConfig =
+  case bootActiveRole bootConfig of
+    Coordinator -> fmap PulsarBootstrap.topicName PulsarBootstrap.pulsarTopics
+    Engine -> []
+    Webapp -> []
 
 appleMetalAcquireInitialStatus :: BootConfig -> AppleMetalAcquireStatus
 appleMetalAcquireInitialStatus bootConfig =
   case (bootSubstrate bootConfig, bootInferenceMode bootConfig) of
     (AppleSilicon, SelfInference) -> AppleMetalAcquirePending
     _ -> AppleMetalAcquireNotRequired
+
+appleMetalRequired :: BootConfig -> Bool
+appleMetalRequired bootConfig =
+  case (bootSubstrate bootConfig, bootInferenceMode bootConfig) of
+    (AppleSilicon, SelfInference) -> True
+    _ -> False
 
 daemonProbeBucket :: BucketName
 daemonProbeBucket = BucketName "jitml-checkpoints"
@@ -278,62 +610,130 @@ kubectlProbeStatus result =
           ("received " <> Text.pack (show (length (Text.lines output))) <> " lines")
       Left err -> DaemonClientProbeFailed err
 
-subscriptionResultStatus
-  :: (DaemonSubscription, Either ServiceError SubscriptionId) -> DaemonSubscriptionStatus
-subscriptionResultStatus (subscription, result) =
-  DaemonSubscriptionStatus
-    { daemonSubscriptionStatusSubscription = subscription
-    , daemonSubscriptionStatusState =
-        case result of
-          Right subscriptionId -> DaemonSubscriptionAcquired subscriptionId
-          Left err -> DaemonSubscriptionFailed err
-    }
-
-subscriptionAcquired :: DaemonSubscriptionStatus -> Bool
-subscriptionAcquired status =
-  case daemonSubscriptionStatusState status of
-    DaemonSubscriptionAcquired _ -> True
-    _ -> False
-
-clientProbeSucceeded :: DaemonClientProbeStatus -> Bool
-clientProbeSucceeded status =
+firstFailedClientProbe
+  :: [DaemonClientProbeStatus]
+  -> Maybe (Text, ServiceError)
+firstFailedClientProbe [] = Nothing
+firstFailedClientProbe (status : rest) =
   case daemonClientProbeStatusState status of
-    DaemonClientProbeSucceeded _ -> True
-    _ -> False
+    DaemonClientProbeFailed err -> Just (daemonClientProbeStatusName status, err)
+    _ -> firstFailedClientProbe rest
 
-daemonHttpRoutes :: DaemonRuntime -> [HttpRoute]
-daemonHttpRoutes runtime =
+daemonReady :: DaemonRuntime -> Bool
+daemonReady =
+  daemonStateReady . daemonState
+
+daemonConsumerSessionTransition
+  :: DaemonSubscription
+  -> ConsumerSessionEvent
+  -> DaemonState
+  -> DaemonState
+daemonConsumerSessionTransition subscription sessionEvent state =
+  case sessionEvent of
+    ConsumerSessionConnected generation ->
+      recordConsumerConnected topic generation state
+    ConsumerSessionDisconnected detail ->
+      recordConsumerDisconnected topic detail state
+    ConsumerSessionDraining ->
+      recordConsumerDisconnected topic "consumer session is draining" state
+    ConsumerSessionDrained ->
+      recordConsumerDisconnected topic "consumer session drained" state
+ where
+  topic = daemonSubscriptionTopicName subscription
+
+daemonHttpRoutes :: DaemonControl -> DaemonRuntime -> [HttpRoute]
+daemonHttpRoutes control runtime =
   [ textRoute "GET" "/healthz" healthz
-  , textRoute "GET" "/readyz" (readyz (daemonReady runtime))
+  , liveReadyRoute control
   , textRoute "GET" "/metrics" (metrics (daemonMetrics runtime))
   , textRoute "GET" "/" (EndpointResponse 200 "jitml-service\n")
   ]
 
-serveDaemon :: DaemonRuntime -> IO ()
-serveDaemon runtime = do
-  control <- newDaemonControl (daemonReady runtime)
-  mainThread <- myThreadId
-  let handleSignal signal = do
-        _snapshot <- applyDaemonSignal control signal
-        case daemonSignalAction signal of
-          BeginGracefulDrain -> throwTo mainThread UserInterrupt
-          ReloadLiveConfig -> pure ()
-  withDaemonSignalHandlers handleSignal $
-    runDaemon
-      `catch` handleDaemonInterrupt
+serveDaemon :: DaemonControl -> DaemonRuntime -> IO ()
+serveDaemon control runtime =
+  serveDaemonWithDrain control runtime (pure ())
+
+-- | Serve live endpoints until a termination signal begins graceful drain.
+-- Readiness changes atomically in the signal callback, while the listener stays
+-- up for the supplied drain action so orchestrators can observe @/readyz = 503@
+-- throughout in-flight settlement. The listener closes only after draining
+-- completes (or the serving thread fails).
+serveDaemonWithDrain :: DaemonControl -> DaemonRuntime -> IO () -> IO ()
+serveDaemonWithDrain control runtime drainAction =
+  void
+    ( serveDaemonWithReloadAndDrain
+        control
+        runtime
+        (pure Nothing)
+        drainAction
+    )
+
+-- | Serve until a termination signal or a reload result requiring restart.
+-- SIGHUP work is serialized outside the POSIX state transition: only the
+-- supplied reload action may apply a new LiveConfig generation. A typed reload
+-- failure requests the same graceful drain as SIGTERM and is returned after
+-- the listener has remained up for that drain, allowing the caller to render a
+-- non-zero 'AppError'.
+serveDaemonWithReloadAndDrain
+  :: DaemonControl
+  -> DaemonRuntime
+  -> IO (Maybe AppError)
+  -> IO ()
+  -> IO (Maybe AppError)
+serveDaemonWithReloadAndDrain control runtime =
+  runDaemonWithReloadAndDrain control runDaemon
  where
   runDaemon =
     case runtimeListener runtime of
-      Just listener -> serveHttpRoutes listener (daemonHttpRoutes runtime)
+      Just listener -> serveHttpRoutes listener (daemonHttpRoutes control runtime)
       Nothing -> forever (threadDelay maxBound)
 
-  handleDaemonInterrupt UserInterrupt = pure ()
-  handleDaemonInterrupt exception = throwIO exception
+-- | Apply the daemon's reload/drain signal contract around an arbitrary
+-- role-specific server. Leaving the structured async scope cancels and joins
+-- the server after the drain action, so Webapp and Engine share identical
+-- POSIX lifecycle semantics without sharing HTTP route implementations.
+runDaemonWithReloadAndDrain
+  :: DaemonControl
+  -> IO ()
+  -> IO (Maybe AppError)
+  -> IO ()
+  -> IO (Maybe AppError)
+runDaemonWithReloadAndDrain control runDaemon reloadAction drainAction = do
+  drainRequested <- newEmptyMVar
+  reloadLock <- newMVar ()
+  let handleSignal signal = do
+        _snapshot <- applyDaemonSignal control signal
+        case daemonSignalAction signal of
+          BeginGracefulDrain -> void (tryPutMVar drainRequested Nothing)
+          ReloadLiveConfig ->
+            modifyMVar_ reloadLock $ \() -> do
+              reloadFailure <- reloadAction
+              case reloadFailure of
+                Nothing -> pure ()
+                Just appError -> do
+                  _ <- applyDaemonSignal control DaemonSigterm
+                  void (tryPutMVar drainRequested (Just appError))
+              pure ()
+  withDaemonSignalHandlers handleSignal $
+    withAsync runDaemon $ \server ->
+      withAsync (takeMVar drainRequested) $ \drainWaiter -> do
+        firstFinished <- waitEitherCatch server drainWaiter
+        case firstFinished of
+          Left (Left exception) -> throwIO exception
+          Left (Right ()) -> pure Nothing
+          Right (Left exception) -> throwIO exception
+          Right (Right reloadFailure) -> do
+            drainAction
+            pure reloadFailure
 
 serveDaemonOnce :: DaemonRuntime -> IO ()
-serveDaemonOnce runtime =
+serveDaemonOnce runtime = do
+  control <-
+    newDaemonControlWithLiveConfig
+      (daemonState runtime)
+      (daemonLiveConfig runtime)
   case runtimeListener runtime of
-    Just listener -> serveHttpRoutesOnce listener (daemonHttpRoutes runtime)
+    Just listener -> serveHttpRoutesOnce listener (daemonHttpRoutes control runtime)
     Nothing -> pure ()
 
 -- | Sprint 5.14 — surface the selected one-binary role and its capability
@@ -367,17 +767,18 @@ renderDaemonRuntimeSummary runtime =
     , "apple_metal_acquire:"
     , indentText (renderAppleMetalAcquireStatus (daemonAppleMetalAcquireStatus runtime))
     , "client_acquisition:"
-    , indentText (renderDaemonClientSettings (daemonClientSettings runtime))
+    , indentText (renderDaemonRoleClientSettings (daemonClientSettings runtime))
     , "client_probe_status:"
     , indentText (renderDaemonClientProbeStatuses (daemonClientProbeStatuses runtime))
     , "pulsar_subscriptions:"
     , indentText (renderDaemonSubscriptions (daemonSubscriptions runtime))
-    , "pulsar_subscription_status:"
-    , indentText (renderDaemonSubscriptionStatuses (daemonSubscriptionStatuses runtime))
+    , "daemon_state:"
+    , indentText
+        (daemonStateLabel (daemonState runtime) <> " " <> daemonStateDetail (daemonState runtime))
     , "http_listener:"
     , indentText (renderMaybeListener (runtimeListener runtime))
     , "routes:"
-    , indentText (renderRoutes (runtimeListener runtime) (daemonHttpRoutes runtime))
+    , indentText (renderRouteNames (runtimeListener runtime))
     , "healthz:"
     , indentText (renderEndpointResponse healthz)
     , "readyz:"
@@ -398,7 +799,7 @@ runtimeAfterSignal :: DaemonRuntime -> DaemonSignal -> DaemonRuntime
 runtimeAfterSignal runtime signal =
   case daemonSignalAction signal of
     ReloadLiveConfig -> runtime
-    BeginGracefulDrain -> runtime {daemonReady = False}
+    BeginGracefulDrain -> runtime {daemonState = beginDaemonDrain (daemonState runtime)}
 
 runtimeListener :: DaemonRuntime -> Maybe HttpListener
 runtimeListener runtime =
@@ -413,19 +814,26 @@ textRoute method path response =
     , httpRouteHandler = \_request -> pure response
     }
 
+liveReadyRoute :: DaemonControl -> HttpRoute
+liveReadyRoute control =
+  HttpRoute
+    { httpRouteMethod = "GET"
+    , httpRoutePath = "/readyz"
+    , httpRouteContentType = "text/plain; charset=utf-8"
+    , httpRouteHandler = \_request -> do
+        snapshot <- readDaemonControl control
+        pure (readyz (daemonStateReady (snapshotDaemonState snapshot)))
+    }
+
 renderMaybeListener :: Maybe HttpListener -> Text
 renderMaybeListener Nothing = "(none)"
 renderMaybeListener (Just listener) =
   listenerHost listener <> ":" <> Text.pack (show (listenerPort listener))
 
-renderRoutes :: Maybe HttpListener -> [HttpRoute] -> Text
-renderRoutes Nothing _ = "(none)"
-renderRoutes (Just _) routes =
-  "- " <> Text.intercalate "\n- " (fmap renderRoute routes)
-
-renderRoute :: HttpRoute -> Text
-renderRoute route =
-  httpRouteMethod route <> " " <> httpRoutePath route
+renderRouteNames :: Maybe HttpListener -> Text
+renderRouteNames Nothing = "(none)"
+renderRouteNames (Just _) =
+  "- GET /healthz\n- GET /readyz\n- GET /metrics\n- GET /"
 
 renderDaemonSubscriptions :: [DaemonSubscription] -> Text
 renderDaemonSubscriptions [] = "(none)\n"
@@ -435,36 +843,9 @@ renderDaemonSubscriptions subscriptions =
 renderDaemonSubscription :: DaemonSubscription -> Text
 renderDaemonSubscription subscription =
   "- "
-    <> unTopicName (daemonSubscriptionTopic subscription)
+    <> daemonSubscriptionTopicName subscription
     <> " as "
     <> daemonSubscriptionName subscription
-
-renderDaemonSubscriptionStatuses :: [DaemonSubscriptionStatus] -> Text
-renderDaemonSubscriptionStatuses [] = "(none)\n"
-renderDaemonSubscriptionStatuses statuses =
-  Text.unlines (fmap renderDaemonSubscriptionStatus statuses)
-
-renderDaemonSubscriptionStatus :: DaemonSubscriptionStatus -> Text
-renderDaemonSubscriptionStatus status =
-  "- "
-    <> unTopicName (daemonSubscriptionTopic subscription)
-    <> " as "
-    <> daemonSubscriptionName subscription
-    <> ": "
-    <> renderDaemonSubscriptionState (daemonSubscriptionStatusState status)
- where
-  subscription = daemonSubscriptionStatusSubscription status
-
-renderDaemonSubscriptionState :: DaemonSubscriptionState -> Text
-renderDaemonSubscriptionState DaemonSubscriptionPending = "pending"
-renderDaemonSubscriptionState (DaemonSubscriptionAcquired subscriptionId) =
-  "acquired " <> renderSubscriptionId subscriptionId
-renderDaemonSubscriptionState (DaemonSubscriptionFailed err) =
-  "failed " <> renderServiceError err
-
-renderSubscriptionId :: SubscriptionId -> Text
-renderSubscriptionId (SubscriptionId value) =
-  Text.replace "\n" " " value
 
 renderServiceError :: ServiceError -> Text
 renderServiceError (SEConflict message) = "conflict: " <> message
@@ -517,13 +898,13 @@ renderConsumerOutcome :: ConsumerOutcome -> Text
 renderConsumerOutcome outcome =
   case outcome of
     ConsumerDispatched domain eventId ->
-      "dispatched " <> renderEventDomain domain <> " " <> unEventId eventId
+      "dispatched " <> renderEventDomain domain <> " " <> eventIdText eventId
     ConsumerDeduplicated domain eventId ->
-      "deduplicated " <> renderEventDomain domain <> " " <> unEventId eventId
-    ConsumerSkippedUnroutable topic ->
-      "skipped-unroutable " <> topic
+      "deduplicated " <> renderEventDomain domain <> " " <> eventIdText eventId
     ConsumerError err ->
       "error " <> renderServiceError err
+    ConsumerSessionError failure ->
+      "session-error " <> Text.pack (show failure)
 
 renderEventDomain :: EventDomain -> Text
 renderEventDomain domain =
@@ -539,80 +920,106 @@ daemonHandlerRouter runtime =
     (liveDedupCacheSize (daemonLiveConfig runtime))
     (liveDedupCacheTtlSeconds (daemonLiveConfig runtime))
 
+-- | Defense in depth for the two command-consuming roles. The more specific
+-- command-domain check below prevents either role from inheriting the other's
+-- effects.
+validateDaemonWorkloadDispatchRole :: DaemonRuntime -> Either ServiceError ()
+validateDaemonWorkloadDispatchRole runtime =
+  case bootActiveRole (daemonBootConfig runtime) of
+    Engine -> Right ()
+    Coordinator -> Right ()
+    Webapp ->
+      Left
+        ( SEUnauthorized
+            ( "workload dispatch requires activeRole=Engine or Coordinator, received "
+                <> roleLabel Webapp
+            )
+        )
+
+validateDaemonCommandDispatchRole
+  :: DaemonRuntime
+  -> DaemonCommand
+  -> Either ServiceError ()
+validateDaemonCommandDispatchRole runtime command = do
+  validateDaemonWorkloadDispatchRole runtime
+  case ( bootActiveRole bootConfig
+       , bootSubstrate bootConfig
+       , bootResidency bootConfig
+       , command
+       ) of
+    (Engine, AppleSilicon, Host, _) -> Right ()
+    (Engine, LinuxCPU, Cluster, InferenceDaemonCommand _ _) -> Right ()
+    (Engine, LinuxCUDA, Cluster, InferenceDaemonCommand _ _) -> Right ()
+    (Coordinator, AppleSilicon, Cluster, _) -> Right ()
+    (Coordinator, _, Cluster, TrainingDaemonCommand _ _) -> Right ()
+    (Coordinator, _, Cluster, TuneDaemonCommand _ _) -> Right ()
+    (Coordinator, _, Cluster, RlDaemonCommand _ _) -> Right ()
+    (role, _, _, _) ->
+      Left
+        ( SEUnauthorized
+            ( "command domain "
+                <> renderEventDomain (daemonCommandDomain command)
+                <> " is not owned by activeRole="
+                <> roleLabel role
+            )
+        )
+ where
+  bootConfig = daemonBootConfig runtime
+
 daemonConsumerBatch
   :: (HasPulsar m, MonadIO m)
   => DaemonRuntime
   -> Int
   -- ^ Number of envelopes to pull per acquired subscription.
-  -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
+  -> (DaemonCommand -> EventId -> m (Either ServiceError ()))
   -> m (HandlerRouter, [ConsumerOutcome])
 daemonConsumerBatch runtime budget dispatch =
-  go (daemonHandlerRouter runtime) [] acquiredSubscriptions
+  go (daemonHandlerRouter runtime) [] (daemonSubscriptions runtime)
  where
-  acquiredSubscriptions =
-    foldMap acquiredSubscriptionId (daemonSubscriptionStatuses runtime)
-
   go router outcomes [] =
     pure (router, outcomes)
   go router outcomes (subscription : rest)
     | budget <= 0 =
         go router outcomes rest
     | otherwise = do
-        (router', batchOutcomes) <-
-          runConsumerLoop subscription router budget dispatch
-        go router' (outcomes <> batchOutcomes) rest
-
-acquiredSubscriptionId :: DaemonSubscriptionStatus -> [SubscriptionId]
-acquiredSubscriptionId status =
-  case daemonSubscriptionStatusState status of
-    DaemonSubscriptionAcquired subscriptionId -> [subscriptionId]
-    _ -> []
-
-daemonTensorBoardDispatcher
-  :: (HasMinIO m)
-  => EventDomain
-  -> EventId
-  -> Text
-  -> m (Either ServiceError ())
-daemonTensorBoardDispatcher domain _eventId payload = do
-  sideEffect <- TbSidecar.dispatchTensorBoardSideEffect domain payload
-  pure (sideEffectToUnit sideEffect)
-
-sideEffectToUnit :: Maybe (Either ServiceError ETag) -> Either ServiceError ()
-sideEffectToUnit result =
-  case result of
-    Nothing -> Right ()
-    Just (Right _) -> Right ()
-    Just (Left err) -> Left err
+        batchResult <-
+          runConsumerLoop subscription router budget (const (pure ())) dispatch
+        case batchResult of
+          Left failure ->
+            go router (outcomes <> [ConsumerSessionError failure]) rest
+          Right (router', batchOutcomes) ->
+            go router' (outcomes <> batchOutcomes) rest
 
 daemonWorkloadDispatcher
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => EventDomain
+  => DaemonCommand
   -> EventId
-  -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcher domain _eventId payload = do
-  effectResult <- Workload.dispatchWorkloadPayload payload
-  case effectResult of
-    Just result ->
-      pure (workloadEffectToUnit (Just result))
-    Nothing ->
-      workloadEffectsToUnit <$> Workload.dispatchDomainPayload domain payload
+daemonWorkloadDispatcher command _eventId =
+  case command of
+    TrainingDaemonCommand substrate training ->
+      workloadOutcomesToUnit <$> Workload.dispatchTrainingCommand Cluster substrate training
+    TuneDaemonCommand substrate tune ->
+      workloadOutcomesToUnit <$> Workload.dispatchTuneCommand Cluster substrate tune
+    RlDaemonCommand substrate rl ->
+      workloadOutcomesToUnit <$> Workload.dispatchRlCommand Cluster substrate rl
+    InferenceDaemonCommand substrate inference ->
+      dispatchTypedInference substrate inference Workload.dispatchInferenceCommandForTopic
 
 daemonWorkloadDispatcherWithInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasMinIO m, HasPulsar m)
   => (ProductPipeline.InferenceEligibleRef -> CheckpointManifest -> [Double] -> m (Either Text [Double]))
-  -> EventDomain
+  -> DaemonCommand
   -> EventId
-  -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcherWithInference runInference domain _eventId payload = do
-  effectResult <- Workload.dispatchWorkloadPayloadWithInference runInference payload
-  case effectResult of
-    Just result ->
-      pure (workloadEffectToUnit (Just result))
-    Nothing ->
-      workloadEffectsToUnit <$> Workload.dispatchDomainPayloadWithInference runInference domain payload
+daemonWorkloadDispatcherWithInference runInference command _eventId =
+  case command of
+    InferenceDaemonCommand substrate inference ->
+      dispatchTypedInference
+        substrate
+        inference
+        (Workload.dispatchInferenceCommandForTopicWithInference runInference)
+    _nonInference -> rejectEngineNonInference command
 
 -- | Sprint 13.11 — daemon dispatch variant that threads the weighted inference
 -- callback (`InferenceEligibleRef -> CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
@@ -621,40 +1028,40 @@ daemonWorkloadDispatcherWithInference runInference domain _eventId payload = do
 -- `daemonWorkloadDispatcherForRuntime` whenever the loaded `BootConfig`
 -- requests `SelfInference` on `LinuxCPU` or `LinuxCUDA`.
 daemonWorkloadDispatcherWithWeightedInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasMinIO m, HasPulsar m)
   => ( ProductPipeline.InferenceEligibleRef
        -> CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]
        -> m (Either Text [Double])
      )
-  -> EventDomain
+  -> DaemonCommand
   -> EventId
-  -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcherWithWeightedInference runInference domain _eventId payload = do
-  effectResult <- Workload.dispatchWorkloadPayloadWithWeightedInference runInference payload
-  case effectResult of
-    Just result ->
-      pure (workloadEffectToUnit (Just result))
-    Nothing ->
-      workloadEffectsToUnit
-        <$> Workload.dispatchDomainPayloadWithWeightedInference runInference domain payload
+daemonWorkloadDispatcherWithWeightedInference runInference command _eventId =
+  case command of
+    InferenceDaemonCommand substrate inference ->
+      dispatchTypedInference
+        substrate
+        inference
+        (Workload.dispatchInferenceCommandForTopicWithWeightedInference runInference)
+    _nonInference -> rejectEngineNonInference command
 
 -- | Sprint 14.4 / Sprint 16.11 — cluster-side `ForwardToHost` inference dispatch.
 -- Metal cannot run in-pod, so the in-cluster daemon does not compute: it bridges
 -- the client `inference.request.apple-silicon` topic to the host daemon's
--- `inference.command.apple-silicon` topic by forwarding the raw `RunInference`
--- payload unchanged (the values model of the Pulsar ML-Workflow convergence). The
+-- `inference.command.apple-silicon` topic by publishing the already-decoded
+-- typed inference command through that route's canonical encoder. The
 -- host-native Apple daemon is the Engine for `apple-silicon`: it consumes the
 -- forwarded `RunInference`, runs the Metal weighted kernel, and publishes the
 -- `InferenceResult` (inline output values) to the request's reply-topic
 -- (`inference.result.apple-silicon`) directly, where the `jitml inference run` CLI
 -- and the Webapp panels read it. The `inference.request` topic carries
 -- `RunInference`, `CheckpointCompareCommand`, and `AdversarialMoveCommand` (the
--- demo's compare / connect4 panels); forwarding EVERY inference-domain command raw
--- (rather than only `RunInference`) is what lets the host Engine's
--- `dispatchDomainPayloadWithWeightedInference` parse each and publish the matching
+-- demo's compare / connect4 panels); forwarding every typed inference-domain
+-- command (rather than only `RunInference`) is what lets the host Engine's
+-- `dispatchInferenceCommandForTopicWithWeightedInference` retains the consumed
+-- typed input topic and publishes the matching
 -- `InferenceResult` / `CheckpointCompareResult` / `AdversarialMoveResult` to the
 -- request's reply-topic, where the CLI and the Webapp's `/api/ws/inference` stream
 -- read it. Non-inference domains (training / tune / rl) still route to the standard
@@ -662,51 +1069,85 @@ daemonWorkloadDispatcherWithWeightedInference runInference domain _eventId paylo
 -- Metal-backed work.
 daemonWorkloadDispatcherForwardingInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => EventDomain
+  => DaemonCommand
   -> EventId
-  -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcherForwardingInference domain eventId payload
-  | domain == InferenceDomain =
-      void <$> pulsarPublish (TopicName appleInferenceCommandTopic) payload
-  | otherwise =
-      daemonWorkloadDispatcher domain eventId payload
+daemonWorkloadDispatcherForwardingInference command eventId =
+  case command of
+    InferenceDaemonCommand substrate inference ->
+      case topicFor InferenceHostCommandRoute substrate of
+        Left err -> pure (Left (SETransient (Text.pack (show err))))
+        Right topic -> void <$> pulsarPublish topic inference
+    _ -> daemonWorkloadDispatcher command eventId
 
 -- | Sprint 14.4 — host-native Apple daemon dispatch. The host daemon is the
 -- Engine for `apple-silicon`: it consumes the cluster-forwarded inference command
--- off `inference.command.apple-silicon` (a raw `RunInference` /
+-- off `inference.command.apple-silicon` (a typed `RunInference` /
 -- `CheckpointCompareCommand` / `AdversarialMoveCommand`), runs the Metal weighted
 -- kernel, and publishes the matching `InferenceResult` / `CheckpointCompareResult`
 -- / `AdversarialMoveResult` to the request's reply-topic directly (the converged
 -- values model). This is an alias for the weighted self-inference dispatcher.
 daemonWorkloadDispatcherHostingAppleInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasMinIO m, HasPulsar m)
   => ( ProductPipeline.InferenceEligibleRef
        -> CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]
        -> m (Either Text [Double])
      )
-  -> EventDomain
+  -> DaemonCommand
   -> EventId
-  -> Text
   -> m (Either ServiceError ())
 daemonWorkloadDispatcherHostingAppleInference =
   daemonWorkloadDispatcherWithWeightedInference
 
-workloadEffectToUnit
-  :: Maybe (Either ServiceError Workload.WorkloadEffectResult)
-  -> Either ServiceError ()
-workloadEffectToUnit result =
-  case result of
-    Nothing -> Right ()
-    Just (Right _) -> Right ()
-    Just (Left err) -> Left err
+rejectEngineNonInference
+  :: (Applicative m)
+  => DaemonCommand
+  -> m (Either ServiceError ())
+rejectEngineNonInference command =
+  pure
+    ( Left
+        ( SEUnauthorized
+            ( "Engine inference dispatcher cannot execute "
+                <> renderEventDomain (daemonCommandDomain command)
+                <> " orchestration"
+            )
+        )
+    )
 
-workloadEffectsToUnit
-  :: [Either ServiceError Workload.WorkloadEffectResult] -> Either ServiceError ()
-workloadEffectsToUnit [] = Right ()
-workloadEffectsToUnit (result : rest) =
+dispatchTypedInference
+  :: (Monad m)
+  => Substrate
+  -> InferenceCommand
+  -> ( Topic InferenceCommand
+       -> InferenceCommand
+       -> m (Either Workload.WorkloadDecodeError (NonEmpty Workload.SomeWorkloadOutcome))
+     )
+  -> m (Either ServiceError ())
+dispatchTypedInference substrate command dispatch =
+  case topicFor InferenceRequestRoute substrate of
+    Left topicError ->
+      pure
+        (Left (SETransient ("inference input topic resolution failed: " <> Text.pack (show topicError))))
+    Right inputTopic ->
+      workloadOutcomesToUnit <$> dispatch inputTopic command
+
+workloadOutcomesToUnit
+  :: Either Workload.WorkloadDecodeError (NonEmpty Workload.SomeWorkloadOutcome)
+  -> Either ServiceError ()
+workloadOutcomesToUnit result =
   case result of
-    Left err -> Left err
-    Right _ -> workloadEffectsToUnit rest
+    Left decodeError ->
+      Left (SETransient ("workload decode failed: " <> Text.pack (show decodeError)))
+    Right outcomes ->
+      case firstWorkloadOutcomeError (NonEmpty.toList outcomes) of
+        Nothing -> Right ()
+        Just err -> Left err
+
+firstWorkloadOutcomeError :: [Workload.SomeWorkloadOutcome] -> Maybe ServiceError
+firstWorkloadOutcomeError [] = Nothing
+firstWorkloadOutcomeError (outcome : rest) =
+  case Workload.workloadOutcomeError outcome of
+    Just err -> Just err
+    Nothing -> firstWorkloadOutcomeError rest

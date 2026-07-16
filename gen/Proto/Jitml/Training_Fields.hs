@@ -39,6 +39,19 @@ checkpoint ::
    Data.ProtoLens.Field.HasField s "checkpoint" a) =>
   Lens.Family2.LensLike' f s a
 checkpoint = Data.ProtoLens.Field.field @"checkpoint"
+completedCheckpoint ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "completedCheckpoint" a) =>
+  Lens.Family2.LensLike' f s a
+completedCheckpoint
+  = Data.ProtoLens.Field.field @"completedCheckpoint"
+completedTraining ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "completedTraining" a) =>
+  Lens.Family2.LensLike' f s a
+completedTraining = Data.ProtoLens.Field.field @"completedTraining"
 dhallObjectKey ::
   forall f s a.
   (Prelude.Functor f,
@@ -72,6 +85,13 @@ errorText ::
    Data.ProtoLens.Field.HasField s "errorText" a) =>
   Lens.Family2.LensLike' f s a
 errorText = Data.ProtoLens.Field.field @"errorText"
+evaluationExamples ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "evaluationExamples" a) =>
+  Lens.Family2.LensLike' f s a
+evaluationExamples
+  = Data.ProtoLens.Field.field @"evaluationExamples"
 experimentHash ::
   forall f s a.
   (Prelude.Functor f,
@@ -106,6 +126,13 @@ maybe'checkpoint ::
    Data.ProtoLens.Field.HasField s "maybe'checkpoint" a) =>
   Lens.Family2.LensLike' f s a
 maybe'checkpoint = Data.ProtoLens.Field.field @"maybe'checkpoint"
+maybe'completedCheckpoint ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "maybe'completedCheckpoint" a) =>
+  Lens.Family2.LensLike' f s a
+maybe'completedCheckpoint
+  = Data.ProtoLens.Field.field @"maybe'completedCheckpoint"
 maybe'epoch ::
   forall f s a.
   (Prelude.Functor f,
@@ -136,12 +163,29 @@ metricsAtStep ::
    Data.ProtoLens.Field.HasField s "metricsAtStep" a) =>
   Lens.Family2.LensLike' f s a
 metricsAtStep = Data.ProtoLens.Field.field @"metricsAtStep"
+planId ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "planId" a) =>
+  Lens.Family2.LensLike' f s a
+planId = Data.ProtoLens.Field.field @"planId"
 pointerKey ::
   forall f s a.
   (Prelude.Functor f,
    Data.ProtoLens.Field.HasField s "pointerKey" a) =>
   Lens.Family2.LensLike' f s a
 pointerKey = Data.ProtoLens.Field.field @"pointerKey"
+protocolVersion ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "protocolVersion" a) =>
+  Lens.Family2.LensLike' f s a
+protocolVersion = Data.ProtoLens.Field.field @"protocolVersion"
+resolvedPlan ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "resolvedPlan" a) =>
+  Lens.Family2.LensLike' f s a
+resolvedPlan = Data.ProtoLens.Field.field @"resolvedPlan"
 runUuid ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "runUuid" a) =>
@@ -184,6 +228,12 @@ timestampNs ::
    Data.ProtoLens.Field.HasField s "timestampNs" a) =>
   Lens.Family2.LensLike' f s a
 timestampNs = Data.ProtoLens.Field.field @"timestampNs"
+trainingExamples ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "trainingExamples" a) =>
+  Lens.Family2.LensLike' f s a
+trainingExamples = Data.ProtoLens.Field.field @"trainingExamples"
 trialSha ::
   forall f s a.
   (Prelude.Functor f,

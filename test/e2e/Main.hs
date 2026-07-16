@@ -4,12 +4,15 @@ module Main where
 
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket, finally)
+import Control.Monad (replicateM_, when)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Foldable (traverse_)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Word (Word64)
 import Network.Socket
   ( AddrInfo (..)
   , Socket
@@ -23,7 +26,6 @@ import Network.Socket
   )
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (findExecutable)
-import System.Exit (ExitCode (..))
 import System.Timeout (timeout)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -40,26 +42,48 @@ import JitML.Service.Http
   , withHttpRoutesWithWebSockets
   )
 import JitML.Storage.Buckets (bucketNames)
+import JitML.Sub.Outcome
+  ( ProcessDuration (..)
+  , ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , renderProcessOutcome
+  )
+import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (subprocess)
+import JitML.Sub.Subprocess (subprocess, subprocessArguments)
 import JitML.Substrate (Substrate (..), allSubstrates)
-import JitML.Test.LivePlan (liveE2EPlan, liveE2EPlanFor, renderLivePlan)
+import JitML.Test.LiveE2EScope qualified as LiveE2EScope
+import JitML.Test.LivePlan
+  ( LivePlanStep (..)
+  , LiveResourceOwnership (..)
+  , ScopedLivePlan (..)
+  , liveE2EPlan
+  , liveE2EPlanFor
+  , renderLivePlan
+  )
 import JitML.Test.Report
   ( ProductRowReportEvidence (..)
   , ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
   , aggregateProductLaneAttestations
+  , appendInvocation
   , defaultReportCardKnobs
+  , deriveSuiteResult
+  , emptyInvocationJournal
   , emptyReportMeasurements
   , loadAggregatedProductLaneAttestations
   , parseReportCardKnobs
+  , passedInvocation
   , productLaneAttestationFailures
   , productRowReportCoverageFailures
   , renderProductRowReportEvidence
   , renderReportCard
   , reportStanzas
+  , suiteDuration
+  , suitePassed
   )
+import JitML.Test.ScenarioJournal qualified as ScenarioJournal
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
 import JitML.Web.Bundle (demoRoutePath, demoRoutes)
 import JitML.Web.Contracts (apiEndpoints)
@@ -217,19 +241,36 @@ main =
           assertBool
             "uses typed webapp config"
             ("mountPath: /etc/jitml" `Text.isInfixOf` deployment)
+          assertBool
+            "Webapp does not receive a Kubernetes API token"
+            ("automountServiceAccountToken: false" `Text.isInfixOf` deployment)
+          assertBool
+            "Webapp does not request the NVIDIA RuntimeClass"
+            (not ("runtimeClassName: nvidia" `Text.isInfixOf` deployment))
+          assertBool
+            "Webapp does not request visible NVIDIA devices"
+            (not ("NVIDIA_VISIBLE_DEVICES" `Text.isInfixOf` deployment))
+          assertBool
+            "Webapp does not request NVIDIA driver capabilities"
+            (not ("NVIDIA_DRIVER_CAPABILITIES" `Text.isInfixOf` deployment))
       , testCase "service deployment starts the jitml daemon binary" $ do
           deployment <- Text.IO.readFile "chart/templates/deployment-jitml-service.yaml"
           assertBool "jitml command" ("command: [\"jitml\"]" `Text.isInfixOf` deployment)
           assertBool
             "explicit service config arg"
             ("args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]" `Text.isInfixOf` deployment)
+          Text.count "automountServiceAccountToken: false" deployment @?= 1
       , testCase "report card renders aggregate suite summary" $ do
           let passed = length reportStanzas
-              rendered = renderReportCard (ReportCard passed 0 0 emptyReportMeasurements)
+              rendered = renderReportCard (passedReportCard emptyReportMeasurements)
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
           assertBool "report card passed count" (("passed: " <> show passed) `isInfixOf` Text.unpack rendered)
+          assertBool "report card suite status" ("status: passed" `isInfixOf` Text.unpack rendered)
           assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
           assertBool "report card lists actual stanzas" ("jitml-unit: PASS" `isInfixOf` Text.unpack rendered)
+          assertBool
+            "report card derives a non-zero duration"
+            ("duration_nanoseconds: 10000000" `isInfixOf` Text.unpack rendered)
           assertBool
             "report card lists e2e stanza"
             ("jitml-e2e: PASS" `isInfixOf` Text.unpack rendered)
@@ -240,7 +281,7 @@ main =
                   , measuredDaemonHealthz = Just MeasurementUnavailable
                   , measuredBrowserProductMatrix = Just MeasurementUnavailable
                   }
-              rendered = renderReportCard (ReportCard (length reportStanzas) 0 0 measurements)
+              rendered = renderReportCard (passedReportCard measurements)
           assertBool "measurements block" ("measurements:" `isInfixOf` Text.unpack rendered)
           assertBool
             "available measurement"
@@ -369,6 +410,72 @@ main =
             "playwright/playwright.config.ts" `Text.isInfixOf` livePlanText
           assertBool "live plan is substrate parametrized" $
             "jitml bootstrap --linux-cuda" `Text.isInfixOf` renderLivePlan (liveE2EPlanFor LinuxCUDA)
+      , testCase "live e2e scope retains lifecycle evidence without counting it as tests" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = e2eScopeStep "bootstrap" 10
+              playwright = e2ePlannedTest "playwright-live" 20
+              cabal = e2ePlannedTest "jitml-e2e" 30
+              diagnostics = e2eScopeStep "diagnostics" 35
+              release = e2eScopeStep "release" 40
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure (ProcessSucceeded (e2eScopeTranscript step))
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [playwright, cabal]
+              ( do
+                  modifyIORef' executionOrder (<> ["measurements"])
+                  pure (Right emptyReportMeasurements)
+              )
+          readIORef executionOrder
+            >>= (@?= ["bootstrap", "playwright-live", "jitml-e2e", "measurements", "release"])
+          LiveE2EScope.liveE2EScopeFailure result @?= Nothing
+          let invocationJournal = LiveE2EScope.liveE2EInvocationJournal result
+              suite = deriveSuiteResult invocationJournal
+              scenarioJournal = LiveE2EScope.liveE2EScenarioJournal result
+              rendered =
+                renderReportCard
+                  ReportCard
+                    { reportInvocationJournal = invocationJournal
+                    , reportScenarioJournals = [scenarioJournal]
+                    , reportMeasurements = emptyReportMeasurements
+                    }
+          suitePassed suite @?= 2
+          suiteDuration suite @?= ProcessDuration 50
+          fmap ScenarioJournal.scenarioRecordPhase (ScenarioJournal.scenarioJournalRecords scenarioJournal)
+            @?= [ ScenarioJournal.ScenarioAcquire
+                , ScenarioJournal.ScenarioBody
+                , ScenarioJournal.ScenarioBody
+                , ScenarioJournal.ScenarioRelease
+                ]
+          assertBool
+            "scenario lifecycle is rendered"
+            ("scenario_journals:" `Text.isInfixOf` rendered && "step: release" `Text.isInfixOf` rendered)
+          assertBool
+            "scenario lifecycle retains rendered subprocess commands"
+            ( "command: e2e-scope-fixture 10" `Text.isInfixOf` rendered
+                && "command: e2e-scope-fixture 40" `Text.isInfixOf` rendered
+            )
+          assertBool
+            "body transcript has one report projection"
+            ("transcript: invocation_journal/playwright-live" `Text.isInfixOf` rendered)
+          assertBool
+            "suite duration excludes acquire/release durations"
+            ("duration_nanoseconds: 50" `Text.isInfixOf` rendered)
       , testCase "one-shot demo HTTP server serves the API index" $
           withHttpRoutesOnce (HttpListener "127.0.0.1" 0) demoHttpRoutes $ \port -> do
             response <- httpGet port "/api"
@@ -413,6 +520,44 @@ main =
                       assertBool "HTTP body" ("fast" `isInfixOf` response)
               )
                 `finally` putMVar release ()
+      , testCase "quiet WebSocket peer close cancels and releases every bridge handler" $ do
+          started <- newEmptyMVar
+          blocked <- newEmptyMVar
+          released <- newEmptyMVar
+          activeHandlers <- newIORef (0 :: Int)
+          let wsRoutes =
+                [ WebSocketRoute
+                    { webSocketRoutePath = "/api/ws"
+                    , webSocketRouteHandler = \_writeFrame -> do
+                        modifyIORef' activeHandlers (+ 1)
+                        putMVar started ()
+                        takeMVar blocked
+                          `finally` do
+                            modifyIORef' activeHandlers (subtract 1)
+                            putMVar released ()
+                    }
+                ]
+              closeFrame = ByteString.pack "\136\128\0\0\0\0"
+              exerciseConnection port =
+                bracket (openWebSocketClient port "/api/ws") close $ \client -> do
+                  handshake <- timeout 2000000 (ByteString.unpack <$> recv client 4096)
+                  case handshake of
+                    Nothing -> assertFailure "timed out waiting for WebSocket upgrade"
+                    Just response ->
+                      assertBool "WebSocket 101" ("HTTP/1.1 101 Switching Protocols" `isInfixOf` response)
+                  handlerStarted <- timeout 2000000 (takeMVar started)
+                  case handlerStarted of
+                    Nothing -> assertFailure "WebSocket route handler did not start"
+                    Just () -> pure ()
+                  sendAll client closeFrame
+                  handlerReleased <- timeout 2000000 (takeMVar released)
+                  case handlerReleased of
+                    Nothing -> assertFailure "quiet WebSocket close did not release the route handler"
+                    Just () -> pure ()
+                  active <- readIORef activeHandlers
+                  active @?= 0
+          withHttpRoutesWithWebSockets (HttpListener "127.0.0.1" 0) [] wsRoutes $ \port ->
+            replicateM_ 5 (exerciseConnection port)
       , testCase "demo server serves the compiled Halogen bundle when present (Sprint 11.5)" $ do
           -- Read the browser-loadable bundle entry; if the Docker/web
           -- build has produced it, the demo routes include the
@@ -513,22 +658,29 @@ main =
                 Nothing ->
                   assertFailure "docker is absent; post-teardown no-leak check cannot run"
                 Just _ -> do
-                  (dockerExitCode, _dockerStdout, dockerStderr) <-
-                    runStreaming defaultSubprocessEnv (subprocess "docker" ["info"])
-                  case dockerExitCode of
-                    ExitSuccess -> do
-                      (exitCode, stdoutText, _stderr) <-
+                  dockerOutcome <- runStreaming defaultSubprocessEnv (subprocess "docker" ["info"])
+                  case dockerOutcome of
+                    ProcessSucceeded _ -> do
+                      kindOutcome <-
                         runStreaming defaultSubprocessEnv (subprocess "kind" ["get", "clusters"])
-                      assertBool
-                        "kind get clusters exits zero"
-                        (case exitCode of ExitSuccess -> True; _ -> False)
-                      assertBool
-                        "no jitml-e2e-* clusters survive"
-                        (not ("jitml-e2e-" `Text.isInfixOf` stdoutText))
-                    _ ->
+                      case kindOutcome of
+                        ProcessFailed _ ->
+                          assertFailure
+                            ( "kind get clusters failed:\n"
+                                <> Text.unpack (renderProcessOutcome kindOutcome)
+                            )
+                        ProcessSucceeded transcript ->
+                          when
+                            ("jitml-e2e-" `Text.isInfixOf` processTranscriptStdout transcript)
+                            ( assertFailure
+                                ( "jitml-e2e-* clusters survived teardown:\n"
+                                    <> Text.unpack (renderProcessOutcome kindOutcome)
+                                )
+                            )
+                    ProcessFailed _ ->
                       assertFailure
-                        ( "Docker context is unavailable; post-teardown no-leak check cannot run: "
-                            <> Text.unpack dockerStderr
+                        ( "Docker context is unavailable; post-teardown no-leak check cannot run:\n"
+                            <> Text.unpack (renderProcessOutcome dockerOutcome)
                         )
       ]
 
@@ -614,6 +766,63 @@ fieldItemCount key payload =
           | Text.null (Text.strip raw) -> 0
           | otherwise -> length (Text.splitOn "," raw)
         _ -> -1
+
+passedReportCard :: ReportMeasurements -> ReportCard
+passedReportCard measurements =
+  ReportCard
+    { reportInvocationJournal =
+        foldl'
+          appendInvocation
+          emptyInvocationJournal
+          (fmap passedReportInvocation reportStanzas)
+    , reportScenarioJournals = []
+    , reportMeasurements = measurements
+    }
+ where
+  passedReportInvocation stanza =
+    passedInvocation
+      stanza
+      ProcessTranscript
+        { processTranscriptCommand = "cabal test " <> stanza
+        , processTranscriptStdout = stanza <> " passed\n"
+        , processTranscriptStderr = ""
+        , processTranscriptWorkingDirectory = Just "/work/jitML"
+        , processTranscriptDuration = ProcessDuration 1_000_000
+        }
+
+e2eScopeStep :: Text -> Word64 -> LivePlanStep
+e2eScopeStep name duration =
+  LivePlanStep
+    { livePlanStepName = name
+    , livePlanStepCommand =
+        subprocess "e2e-scope-fixture" [Text.pack (show duration)]
+    }
+
+e2ePlannedTest :: Text -> Word64 -> LiveE2EScope.PlannedTestInvocation
+e2ePlannedTest stanza duration =
+  LiveE2EScope.PlannedTestInvocation
+    { LiveE2EScope.plannedTestStanza = stanza
+    , LiveE2EScope.plannedTestCommand =
+        subprocess "e2e-scope-fixture" [Text.pack (show duration)]
+    }
+
+e2eScopeTranscript :: LivePlanStep -> ProcessTranscript
+e2eScopeTranscript step =
+  ProcessTranscript
+    { processTranscriptCommand = renderSubprocess (livePlanStepCommand step)
+    , processTranscriptStdout = livePlanStepName step <> " passed\n"
+    , processTranscriptStderr = ""
+    , processTranscriptWorkingDirectory = Just "/work/jitML"
+    , processTranscriptDuration = ProcessDuration (scopeDuration step)
+    }
+ where
+  scopeDuration value =
+    case subprocessArguments (livePlanStepCommand value) of
+      [raw] ->
+        case reads (Text.unpack raw) of
+          [(duration, "")] -> duration
+          _ -> 0
+      _ -> 0
 
 completeProductRowReportEvidence
   :: ProductMatrix.ProductRow state

@@ -12,8 +12,8 @@ where
 import Control.Exception qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Exit (ExitCode (..))
 
+import JitML.Sub.Outcome (ProcessOutcome (..), ProcessTranscript (..), renderProcessFailure)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 
@@ -62,13 +62,13 @@ tryDarwinSysctl =
     `Control.Exception.catch` \(_ :: Control.Exception.SomeException) -> pure Nothing
  where
   probeDarwin = do
-    (exitCode, stdoutText, _) <-
-      runStreaming defaultSubprocessEnv (subprocess "sysctl" ["-a"])
-    case exitCode of
-      ExitFailure _ ->
-        Control.Exception.throwIO (userError "sysctl probe failed")
-      ExitSuccess ->
-        pure (cpuFeaturesFromDarwinSysctl stdoutText)
+    outcome <- runStreaming defaultSubprocessEnv (subprocess "sysctl" ["-a"])
+    case outcome of
+      ProcessFailed failure ->
+        Control.Exception.throwIO
+          (userError (Text.unpack ("sysctl probe failed:\n" <> renderProcessFailure failure)))
+      ProcessSucceeded transcript ->
+        pure (cpuFeaturesFromDarwinSysctl (processTranscriptStdout transcript))
 
 tryLinuxCpuinfo :: IO (Maybe CpuFeatures)
 tryLinuxCpuinfo =
@@ -76,13 +76,13 @@ tryLinuxCpuinfo =
     `Control.Exception.catch` \(_ :: Control.Exception.SomeException) -> pure Nothing
  where
   probeLinux = do
-    (exitCode, stdoutText, _) <-
-      runStreaming defaultSubprocessEnv (subprocess "cat" ["/proc/cpuinfo"])
-    case exitCode of
-      ExitFailure _ ->
-        Control.Exception.throwIO (userError "cpuinfo probe failed")
-      ExitSuccess ->
-        pure (cpuFeaturesFromLinuxCpuinfo stdoutText)
+    outcome <- runStreaming defaultSubprocessEnv (subprocess "cat" ["/proc/cpuinfo"])
+    case outcome of
+      ProcessFailed failure ->
+        Control.Exception.throwIO
+          (userError (Text.unpack ("cpuinfo probe failed:\n" <> renderProcessFailure failure)))
+      ProcessSucceeded transcript ->
+        pure (cpuFeaturesFromLinuxCpuinfo (processTranscriptStdout transcript))
 
 cpuFeaturesFromDarwinSysctl :: Text -> CpuFeatures
 cpuFeaturesFromDarwinSysctl sysctlText =

@@ -1,6 +1,6 @@
 # Phase 34: Plan-Truth Governance
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md), [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md), [../README.md](../README.md), [../documents/documentation_standards.md](../documents/documentation_standards.md)
 **Generated sections**: none
@@ -11,7 +11,13 @@
 
 ## Phase State
 
-✅ **Done**. The git history shows the closure narrative was rewritten in 95 of
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `34.3`). Phase and suite
+status still depend on a hand-maintained registry, post-run probes, and report
+projections rather than the structured process and scenario journals that
+produced the evidence. Sprint `34.3` is blocked by Sprint `33.3`. Sprints
+`34.1`–`34.2` remain Done on their retained governance surface.
+
+**Historical retained closure.** ✅ **Done**. The git history shows the closure narrative was rewritten in 95 of
 109 commits while faking recurred — effort flowed into *asserting* done, not
 *achieving* it. This phase changes what "Done" is graded against and who grades it, so
 the cycle cannot repeat. It depends on Phases `32`–`33` (the evidence they produce is
@@ -92,9 +98,67 @@ docker compose run --rm jitml jitml check-code
 
 - Added rule N; archived the historical narrative; thinned `Closure Status`.
 
+## Sprint 34.3: Journal-Derived Status and Reporting [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Product/PhaseStatus.hs`,
+`src/JitML/Docs/Check.hs`, `src/JitML/Lint/Docs.hs`,
+`src/JitML/Test/Report.hs`, `test/unit/Main.hs`
+**Blocked by**: Sprint `33.3`
+**Docs to update**: `../README.md`, `README.md`, `00-overview.md`,
+`development_plan_standards.md`, `../documents/documentation_standards.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Derive suite, lane, phase, and product status from the structured process and
+scenario journals that produced the evidence. This sprint owns the remaining
+[Exit Definition](README.md#exit-definition) items `33` and `34`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Replace the hand-maintained provisional phase/sprint registry with a projection
+  over versioned validation evidence and explicit unmet/blocked obligations.
+- Represent report measurements as
+  `NotRequested | Unavailable reason | Available evidence`; remove overlapping
+  `Maybe` fields and unavailable sentinels.
+- Derive suite counts from `Passed | Failed | NotRun` invocation results and
+  lane/product counts from validated scenario journals.
+- Remove post-test probes that manufacture a second measurement path; reports
+  are projections of execution evidence already captured by the interpreter.
+- Make closure claims fail whenever required journals are missing, stale,
+  mismatched, failed, or incomplete, even if prose/status literals say Done.
+- Keep the live `Closure Status` narrative thin and point it to the derived
+  evidence and outstanding sprint chain.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `33.3` emits contract-derived per-model evidence for the
+  standing status gate.
+- Replace the literal status registry, ambiguous measurements, post-run probes,
+  and fabricated counts with journal projections.
+- Re-run the complete standing evidence gate before restoring any product
+  closure claim.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — journal-derived suite, lane, and
+  phase status projection.
 - `documents/documentation_standards.md` — the evidence-derived status discipline and
   the thin-plan rule.
 

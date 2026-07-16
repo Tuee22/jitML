@@ -14,14 +14,14 @@ import Prelude
 
 import Effect (Effect)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Class (liftEffect)
 import Halogen as H
 import Halogen.Subscription as HS
 
 -- | Open a WebSocket to `path` (resolved against the current page origin,
 -- | upgrading `http`→`ws` / `https`→`wss`) and invoke the callbacks with
--- | text-frame payloads or connection failures.
-foreign import openWebSocket :: String -> (String -> Effect Unit) -> (String -> Effect Unit) -> Effect Unit
+-- | text-frame payloads or connection failures. The returned cleanup closes
+-- | the socket and detaches its callbacks.
+foreign import openWebSocket :: String -> (String -> Effect Unit) -> (String -> Effect Unit) -> Effect (Effect Unit)
 
 -- | Subscribe the calling component to a `/api/ws/<domain>` stream. Each
 -- | received frame payload is mapped to a typed `Action` via `toAction`
@@ -34,10 +34,9 @@ subscribeStream
   -> (String -> action)
   -> H.HalogenM state action slots output m Unit
 subscribeStream path toAction toFailure = do
-  io <- liftEffect HS.create
-  _ <- H.subscribe io.emitter
-  liftEffect
-    ( openWebSocket path
-        (\payload -> HS.notify io.listener (toAction payload))
-        (\message -> HS.notify io.listener (toFailure message))
-    )
+  _ <-
+    H.subscribe $ HS.makeEmitter \notify ->
+      openWebSocket path
+        (notify <<< toAction)
+        (notify <<< toFailure)
+  pure unit

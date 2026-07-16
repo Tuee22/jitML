@@ -4,12 +4,13 @@
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
 module Proto.Jitml.Training (
-        CheckpointDone(), EpochCompleted(), ScalarMetric(),
-        StartTraining(), StopTraining(), TrainingCommand(),
+        CheckpointDone(), CompletedCheckpointDone(), EpochCompleted(),
+        ScalarMetric(), StartTraining(), StopTraining(), TrainingCommand(),
         TrainingCommand'Body(..), _TrainingCommand'Start,
         _TrainingCommand'Stop, TrainingEvent(), TrainingEvent'Body(..),
         _TrainingEvent'Epoch, _TrainingEvent'Checkpoint,
-        _TrainingEvent'Failure, TrainingFailed()
+        _TrainingEvent'Failure, _TrainingEvent'CompletedCheckpoint,
+        TrainingFailed()
     ) where
 import qualified Data.ProtoLens.Runtime.Control.DeepSeq as Control.DeepSeq
 import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Prism as Data.ProtoLens.Prism
@@ -37,7 +38,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.experimentHash' @:: Lens' CheckpointDone Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.manifestSha' @:: Lens' CheckpointDone Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.step' @:: Lens' CheckpointDone Data.Word.Word64@
@@ -46,7 +47,8 @@ import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
          * 'Proto.Jitml.Training_Fields.trialSha' @:: Lens' CheckpointDone Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.runUuid' @:: Lens' CheckpointDone Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.metricsAtStep' @:: Lens' CheckpointDone [ScalarMetric]@
-         * 'Proto.Jitml.Training_Fields.vec'metricsAtStep' @:: Lens' CheckpointDone (Data.Vector.Vector ScalarMetric)@ -}
+         * 'Proto.Jitml.Training_Fields.vec'metricsAtStep' @:: Lens' CheckpointDone (Data.Vector.Vector ScalarMetric)@
+         * 'Proto.Jitml.Training_Fields.protocolVersion' @:: Lens' CheckpointDone Data.Word.Word32@ -}
 data CheckpointDone
   = CheckpointDone'_constructor {_CheckpointDone'experimentHash :: !Data.Text.Text,
                                  _CheckpointDone'manifestSha :: !Data.Text.Text,
@@ -56,6 +58,7 @@ data CheckpointDone
                                  _CheckpointDone'trialSha :: !Data.Text.Text,
                                  _CheckpointDone'runUuid :: !Data.Text.Text,
                                  _CheckpointDone'metricsAtStep :: !(Data.Vector.Vector ScalarMetric),
+                                 _CheckpointDone'protocolVersion :: !Data.Word.Word32,
                                  _CheckpointDone'_unknownFields :: !Data.ProtoLens.FieldSet}
   deriving stock (Prelude.Eq, Prelude.Ord)
 instance Prelude.Show CheckpointDone where
@@ -129,6 +132,13 @@ instance Data.ProtoLens.Field.HasField CheckpointDone "vec'metricsAtStep" (Data.
            _CheckpointDone'metricsAtStep
            (\ x__ y__ -> x__ {_CheckpointDone'metricsAtStep = y__}))
         Prelude.id
+instance Data.ProtoLens.Field.HasField CheckpointDone "protocolVersion" Data.Word.Word32 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _CheckpointDone'protocolVersion
+           (\ x__ y__ -> x__ {_CheckpointDone'protocolVersion = y__}))
+        Prelude.id
 instance Data.ProtoLens.Message CheckpointDone where
   messageName _ = Data.Text.pack "jitml.training.CheckpointDone"
   packedMessageDescriptor _
@@ -142,7 +152,8 @@ instance Data.ProtoLens.Message CheckpointDone where
       \\ENQepoch\CAN\ENQ \SOH(\rR\ENQepoch\DC2\ESC\n\
       \\ttrial_sha\CAN\ACK \SOH(\tR\btrialSha\DC2\EM\n\
       \\brun_uuid\CAN\a \SOH(\tR\arunUuid\DC2D\n\
-      \\SImetrics_at_step\CAN\b \ETX(\v2\FS.jitml.training.ScalarMetricR\rmetricsAtStep"
+      \\SImetrics_at_step\CAN\b \ETX(\v2\FS.jitml.training.ScalarMetricR\rmetricsAtStep\DC2)\n\
+      \\DLEprotocol_version\CAN\t \SOH(\rR\SIprotocolVersion"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
     = let
@@ -215,6 +226,15 @@ instance Data.ProtoLens.Message CheckpointDone where
                  Data.ProtoLens.Unpacked
                  (Data.ProtoLens.Field.field @"metricsAtStep")) ::
               Data.ProtoLens.FieldDescriptor CheckpointDone
+        protocolVersion__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "protocol_version"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"protocolVersion")) ::
+              Data.ProtoLens.FieldDescriptor CheckpointDone
       in
         Data.Map.fromList
           [(Data.ProtoLens.Tag 1, experimentHash__field_descriptor),
@@ -224,7 +244,8 @@ instance Data.ProtoLens.Message CheckpointDone where
            (Data.ProtoLens.Tag 5, epoch__field_descriptor),
            (Data.ProtoLens.Tag 6, trialSha__field_descriptor),
            (Data.ProtoLens.Tag 7, runUuid__field_descriptor),
-           (Data.ProtoLens.Tag 8, metricsAtStep__field_descriptor)]
+           (Data.ProtoLens.Tag 8, metricsAtStep__field_descriptor),
+           (Data.ProtoLens.Tag 9, protocolVersion__field_descriptor)]
   unknownFields
     = Lens.Family2.Unchecked.lens
         _CheckpointDone'_unknownFields
@@ -239,6 +260,7 @@ instance Data.ProtoLens.Message CheckpointDone where
          _CheckpointDone'trialSha = Data.ProtoLens.fieldDefault,
          _CheckpointDone'runUuid = Data.ProtoLens.fieldDefault,
          _CheckpointDone'metricsAtStep = Data.Vector.Generic.empty,
+         _CheckpointDone'protocolVersion = Data.ProtoLens.fieldDefault,
          _CheckpointDone'_unknownFields = []}
   parseMessage
     = let
@@ -342,6 +364,16 @@ instance Data.ProtoLens.Message CheckpointDone where
                                        (Data.ProtoLens.Encoding.Growing.append
                                           mutable'metricsAtStep y)
                                 loop x v
+                        72
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          Prelude.fromIntegral
+                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
+                                       "protocol_version"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"protocolVersion") y x)
+                                  mutable'metricsAtStep
                         wire
                           -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
                                         wire
@@ -479,8 +511,22 @@ instance Data.ProtoLens.Message CheckpointDone where
                                                 Data.ProtoLens.encodeMessage _v))
                                      (Lens.Family2.view
                                         (Data.ProtoLens.Field.field @"vec'metricsAtStep") _x))
-                                  (Data.ProtoLens.Encoding.Wire.buildFieldSet
-                                     (Lens.Family2.view Data.ProtoLens.unknownFields _x)))))))))
+                                  ((Data.Monoid.<>)
+                                     (let
+                                        _v
+                                          = Lens.Family2.view
+                                              (Data.ProtoLens.Field.field @"protocolVersion") _x
+                                      in
+                                        if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                            Data.Monoid.mempty
+                                        else
+                                            (Data.Monoid.<>)
+                                              (Data.ProtoLens.Encoding.Bytes.putVarInt 72)
+                                              ((Prelude..)
+                                                 Data.ProtoLens.Encoding.Bytes.putVarInt
+                                                 Prelude.fromIntegral _v))
+                                     (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                                        (Lens.Family2.view Data.ProtoLens.unknownFields _x))))))))))
 instance Control.DeepSeq.NFData CheckpointDone where
   rnf
     = \ x__
@@ -501,9 +547,232 @@ instance Control.DeepSeq.NFData CheckpointDone where
                                (Control.DeepSeq.deepseq
                                   (_CheckpointDone'runUuid x__)
                                   (Control.DeepSeq.deepseq
-                                     (_CheckpointDone'metricsAtStep x__) ()))))))))
+                                     (_CheckpointDone'metricsAtStep x__)
+                                     (Control.DeepSeq.deepseq
+                                        (_CheckpointDone'protocolVersion x__) ())))))))))
 {- | Fields :
-     
+
+         * 'Proto.Jitml.Training_Fields.protocolVersion' @:: Lens' CompletedCheckpointDone Data.Word.Word32@
+         * 'Proto.Jitml.Training_Fields.checkpoint' @:: Lens' CompletedCheckpointDone CheckpointDone@
+         * 'Proto.Jitml.Training_Fields.maybe'checkpoint' @:: Lens' CompletedCheckpointDone (Prelude.Maybe CheckpointDone)@
+         * 'Proto.Jitml.Training_Fields.completedTraining' @:: Lens' CompletedCheckpointDone Data.ByteString.ByteString@ -}
+data CompletedCheckpointDone
+  = CompletedCheckpointDone'_constructor {_CompletedCheckpointDone'protocolVersion :: !Data.Word.Word32,
+                                          _CompletedCheckpointDone'checkpoint :: !(Prelude.Maybe CheckpointDone),
+                                          _CompletedCheckpointDone'completedTraining :: !Data.ByteString.ByteString,
+                                          _CompletedCheckpointDone'_unknownFields :: !Data.ProtoLens.FieldSet}
+  deriving stock (Prelude.Eq, Prelude.Ord)
+instance Prelude.Show CompletedCheckpointDone where
+  showsPrec _ __x __s
+    = Prelude.showChar
+        '{'
+        (Prelude.showString
+           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
+instance Data.ProtoLens.Field.HasField CompletedCheckpointDone "protocolVersion" Data.Word.Word32 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _CompletedCheckpointDone'protocolVersion
+           (\ x__ y__
+              -> x__ {_CompletedCheckpointDone'protocolVersion = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField CompletedCheckpointDone "checkpoint" CheckpointDone where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _CompletedCheckpointDone'checkpoint
+           (\ x__ y__ -> x__ {_CompletedCheckpointDone'checkpoint = y__}))
+        (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage)
+instance Data.ProtoLens.Field.HasField CompletedCheckpointDone "maybe'checkpoint" (Prelude.Maybe CheckpointDone) where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _CompletedCheckpointDone'checkpoint
+           (\ x__ y__ -> x__ {_CompletedCheckpointDone'checkpoint = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField CompletedCheckpointDone "completedTraining" Data.ByteString.ByteString where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _CompletedCheckpointDone'completedTraining
+           (\ x__ y__
+              -> x__ {_CompletedCheckpointDone'completedTraining = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message CompletedCheckpointDone where
+  messageName _
+    = Data.Text.pack "jitml.training.CompletedCheckpointDone"
+  packedMessageDescriptor _
+    = "\n\
+      \\ETBCompletedCheckpointDone\DC2)\n\
+      \\DLEprotocol_version\CAN\SOH \SOH(\rR\SIprotocolVersion\DC2>\n\
+      \\n\
+      \checkpoint\CAN\STX \SOH(\v2\RS.jitml.training.CheckpointDoneR\n\
+      \checkpoint\DC2-\n\
+      \\DC2completed_training\CAN\ETX \SOH(\fR\DC1completedTraining"
+  packedFileDescriptor _ = packedFileDescriptor
+  fieldsByTag
+    = let
+        protocolVersion__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "protocol_version"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"protocolVersion")) ::
+              Data.ProtoLens.FieldDescriptor CompletedCheckpointDone
+        checkpoint__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "checkpoint"
+              (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
+                 Data.ProtoLens.FieldTypeDescriptor CheckpointDone)
+              (Data.ProtoLens.OptionalField
+                 (Data.ProtoLens.Field.field @"maybe'checkpoint")) ::
+              Data.ProtoLens.FieldDescriptor CompletedCheckpointDone
+        completedTraining__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "completed_training"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.BytesField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.ByteString.ByteString)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"completedTraining")) ::
+              Data.ProtoLens.FieldDescriptor CompletedCheckpointDone
+      in
+        Data.Map.fromList
+          [(Data.ProtoLens.Tag 1, protocolVersion__field_descriptor),
+           (Data.ProtoLens.Tag 2, checkpoint__field_descriptor),
+           (Data.ProtoLens.Tag 3, completedTraining__field_descriptor)]
+  unknownFields
+    = Lens.Family2.Unchecked.lens
+        _CompletedCheckpointDone'_unknownFields
+        (\ x__ y__ -> x__ {_CompletedCheckpointDone'_unknownFields = y__})
+  defMessage
+    = CompletedCheckpointDone'_constructor
+        {_CompletedCheckpointDone'protocolVersion = Data.ProtoLens.fieldDefault,
+         _CompletedCheckpointDone'checkpoint = Prelude.Nothing,
+         _CompletedCheckpointDone'completedTraining = Data.ProtoLens.fieldDefault,
+         _CompletedCheckpointDone'_unknownFields = []}
+  parseMessage
+    = let
+        loop ::
+          CompletedCheckpointDone
+          -> Data.ProtoLens.Encoding.Bytes.Parser CompletedCheckpointDone
+        loop x
+          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
+               if end then
+                   do (let missing = []
+                       in
+                         if Prelude.null missing then
+                             Prelude.return ()
+                         else
+                             Prelude.fail
+                               ((Prelude.++)
+                                  "Missing required fields: "
+                                  (Prelude.show (missing :: [Prelude.String]))))
+                      Prelude.return
+                        (Lens.Family2.over
+                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
+               else
+                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                      case tag of
+                        8 -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          Prelude.fromIntegral
+                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
+                                       "protocol_version"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"protocolVersion") y x)
+                        18
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.isolate
+                                             (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
+                                       "checkpoint"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"checkpoint") y x)
+                        26
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getBytes
+                                             (Prelude.fromIntegral len))
+                                       "completed_training"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"completedTraining") y x)
+                        wire
+                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
+                                        wire
+                                loop
+                                  (Lens.Family2.over
+                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
+      in
+        (Data.ProtoLens.Encoding.Bytes.<?>)
+          (do loop Data.ProtoLens.defMessage) "CompletedCheckpointDone"
+  buildMessage
+    = \ _x
+        -> (Data.Monoid.<>)
+             (let
+                _v
+                  = Lens.Family2.view
+                      (Data.ProtoLens.Field.field @"protocolVersion") _x
+              in
+                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                    Data.Monoid.mempty
+                else
+                    (Data.Monoid.<>)
+                      (Data.ProtoLens.Encoding.Bytes.putVarInt 8)
+                      ((Prelude..)
+                         Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral _v))
+             ((Data.Monoid.<>)
+                (case
+                     Lens.Family2.view
+                       (Data.ProtoLens.Field.field @"maybe'checkpoint") _x
+                 of
+                   Prelude.Nothing -> Data.Monoid.mempty
+                   (Prelude.Just _v)
+                     -> (Data.Monoid.<>)
+                          (Data.ProtoLens.Encoding.Bytes.putVarInt 18)
+                          ((Prelude..)
+                             (\ bs
+                                -> (Data.Monoid.<>)
+                                     (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                        (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                     (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                             Data.ProtoLens.encodeMessage _v))
+                ((Data.Monoid.<>)
+                   (let
+                      _v
+                        = Lens.Family2.view
+                            (Data.ProtoLens.Field.field @"completedTraining") _x
+                    in
+                      if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                          Data.Monoid.mempty
+                      else
+                          (Data.Monoid.<>)
+                            (Data.ProtoLens.Encoding.Bytes.putVarInt 26)
+                            ((\ bs
+                                -> (Data.Monoid.<>)
+                                     (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                        (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                     (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                               _v))
+                   (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                      (Lens.Family2.view Data.ProtoLens.unknownFields _x))))
+instance Control.DeepSeq.NFData CompletedCheckpointDone where
+  rnf
+    = \ x__
+        -> Control.DeepSeq.deepseq
+             (_CompletedCheckpointDone'_unknownFields x__)
+             (Control.DeepSeq.deepseq
+                (_CompletedCheckpointDone'protocolVersion x__)
+                (Control.DeepSeq.deepseq
+                   (_CompletedCheckpointDone'checkpoint x__)
+                   (Control.DeepSeq.deepseq
+                      (_CompletedCheckpointDone'completedTraining x__) ())))
+{- | Fields :
+
          * 'Proto.Jitml.Training_Fields.experimentHash' @:: Lens' EpochCompleted Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.epoch' @:: Lens' EpochCompleted Data.Word.Word32@
          * 'Proto.Jitml.Training_Fields.loss' @:: Lens' EpochCompleted Prelude.Double@
@@ -786,7 +1055,7 @@ instance Control.DeepSeq.NFData EpochCompleted where
                          (_EpochCompleted'validationLoss x__)
                          (Control.DeepSeq.deepseq (_EpochCompleted'timestampNs x__) ())))))
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.tag' @:: Lens' ScalarMetric Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.value' @:: Lens' ScalarMetric Prelude.Double@ -}
 data ScalarMetric
@@ -936,13 +1205,17 @@ instance Control.DeepSeq.NFData ScalarMetric where
                 (_ScalarMetric'tag x__)
                 (Control.DeepSeq.deepseq (_ScalarMetric'value x__) ()))
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.experimentHash' @:: Lens' StartTraining Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.dhallObjectKey' @:: Lens' StartTraining Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.substrate' @:: Lens' StartTraining Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.seed' @:: Lens' StartTraining Data.Word.Word64@
          * 'Proto.Jitml.Training_Fields.epochs' @:: Lens' StartTraining Data.Word.Word32@
-         * 'Proto.Jitml.Training_Fields.batchSize' @:: Lens' StartTraining Data.Word.Word32@ -}
+         * 'Proto.Jitml.Training_Fields.batchSize' @:: Lens' StartTraining Data.Word.Word32@
+         * 'Proto.Jitml.Training_Fields.planId' @:: Lens' StartTraining Data.Text.Text@
+         * 'Proto.Jitml.Training_Fields.resolvedPlan' @:: Lens' StartTraining Data.Text.Text@
+         * 'Proto.Jitml.Training_Fields.trainingExamples' @:: Lens' StartTraining Data.Word.Word32@
+         * 'Proto.Jitml.Training_Fields.evaluationExamples' @:: Lens' StartTraining Data.Word.Word32@ -}
 data StartTraining
   = StartTraining'_constructor {_StartTraining'experimentHash :: !Data.Text.Text,
                                 _StartTraining'dhallObjectKey :: !Data.Text.Text,
@@ -950,6 +1223,10 @@ data StartTraining
                                 _StartTraining'seed :: !Data.Word.Word64,
                                 _StartTraining'epochs :: !Data.Word.Word32,
                                 _StartTraining'batchSize :: !Data.Word.Word32,
+                                _StartTraining'planId :: !Data.Text.Text,
+                                _StartTraining'resolvedPlan :: !Data.Text.Text,
+                                _StartTraining'trainingExamples :: !Data.Word.Word32,
+                                _StartTraining'evaluationExamples :: !Data.Word.Word32,
                                 _StartTraining'_unknownFields :: !Data.ProtoLens.FieldSet}
   deriving stock (Prelude.Eq, Prelude.Ord)
 instance Prelude.Show StartTraining where
@@ -999,6 +1276,34 @@ instance Data.ProtoLens.Field.HasField StartTraining "batchSize" Data.Word.Word3
            _StartTraining'batchSize
            (\ x__ y__ -> x__ {_StartTraining'batchSize = y__}))
         Prelude.id
+instance Data.ProtoLens.Field.HasField StartTraining "planId" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _StartTraining'planId
+           (\ x__ y__ -> x__ {_StartTraining'planId = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField StartTraining "resolvedPlan" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _StartTraining'resolvedPlan
+           (\ x__ y__ -> x__ {_StartTraining'resolvedPlan = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField StartTraining "trainingExamples" Data.Word.Word32 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _StartTraining'trainingExamples
+           (\ x__ y__ -> x__ {_StartTraining'trainingExamples = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField StartTraining "evaluationExamples" Data.Word.Word32 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _StartTraining'evaluationExamples
+           (\ x__ y__ -> x__ {_StartTraining'evaluationExamples = y__}))
+        Prelude.id
 instance Data.ProtoLens.Message StartTraining where
   messageName _ = Data.Text.pack "jitml.training.StartTraining"
   packedMessageDescriptor _
@@ -1010,7 +1315,12 @@ instance Data.ProtoLens.Message StartTraining where
       \\EOTseed\CAN\EOT \SOH(\EOTR\EOTseed\DC2\SYN\n\
       \\ACKepochs\CAN\ENQ \SOH(\rR\ACKepochs\DC2\GS\n\
       \\n\
-      \batch_size\CAN\ACK \SOH(\rR\tbatchSize"
+      \batch_size\CAN\ACK \SOH(\rR\tbatchSize\DC2\ETB\n\
+      \\aplan_id\CAN\a \SOH(\tR\ACKplanId\DC2#\n\
+      \\rresolved_plan\CAN\b \SOH(\tR\fresolvedPlan\DC2+\n\
+      \\DC1training_examples\CAN\t \SOH(\rR\DLEtrainingExamples\DC2/\n\
+      \\DC3evaluation_examples\CAN\n\
+      \ \SOH(\rR\DC2evaluationExamples"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
     = let
@@ -1066,6 +1376,41 @@ instance Data.ProtoLens.Message StartTraining where
                  Data.ProtoLens.Optional
                  (Data.ProtoLens.Field.field @"batchSize")) ::
               Data.ProtoLens.FieldDescriptor StartTraining
+        planId__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "plan_id"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"planId")) ::
+              Data.ProtoLens.FieldDescriptor StartTraining
+        resolvedPlan__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "resolved_plan"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"resolvedPlan")) ::
+              Data.ProtoLens.FieldDescriptor StartTraining
+        trainingExamples__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "training_examples"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"trainingExamples")) ::
+              Data.ProtoLens.FieldDescriptor StartTraining
+        evaluationExamples__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "evaluation_examples"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"evaluationExamples")) ::
+              Data.ProtoLens.FieldDescriptor StartTraining
       in
         Data.Map.fromList
           [(Data.ProtoLens.Tag 1, experimentHash__field_descriptor),
@@ -1073,7 +1418,11 @@ instance Data.ProtoLens.Message StartTraining where
            (Data.ProtoLens.Tag 3, substrate__field_descriptor),
            (Data.ProtoLens.Tag 4, seed__field_descriptor),
            (Data.ProtoLens.Tag 5, epochs__field_descriptor),
-           (Data.ProtoLens.Tag 6, batchSize__field_descriptor)]
+           (Data.ProtoLens.Tag 6, batchSize__field_descriptor),
+           (Data.ProtoLens.Tag 7, planId__field_descriptor),
+           (Data.ProtoLens.Tag 8, resolvedPlan__field_descriptor),
+           (Data.ProtoLens.Tag 9, trainingExamples__field_descriptor),
+           (Data.ProtoLens.Tag 10, evaluationExamples__field_descriptor)]
   unknownFields
     = Lens.Family2.Unchecked.lens
         _StartTraining'_unknownFields
@@ -1086,6 +1435,10 @@ instance Data.ProtoLens.Message StartTraining where
          _StartTraining'seed = Data.ProtoLens.fieldDefault,
          _StartTraining'epochs = Data.ProtoLens.fieldDefault,
          _StartTraining'batchSize = Data.ProtoLens.fieldDefault,
+         _StartTraining'planId = Data.ProtoLens.fieldDefault,
+         _StartTraining'resolvedPlan = Data.ProtoLens.fieldDefault,
+         _StartTraining'trainingExamples = Data.ProtoLens.fieldDefault,
+         _StartTraining'evaluationExamples = Data.ProtoLens.fieldDefault,
          _StartTraining'_unknownFields = []}
   parseMessage
     = let
@@ -1154,6 +1507,40 @@ instance Data.ProtoLens.Message StartTraining where
                                        "batch_size"
                                 loop
                                   (Lens.Family2.set (Data.ProtoLens.Field.field @"batchSize") y x)
+                        58
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "plan_id"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"planId") y x)
+                        66
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "resolved_plan"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"resolvedPlan") y x)
+                        72
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          Prelude.fromIntegral
+                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
+                                       "training_examples"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"trainingExamples") y x)
+                        80
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          Prelude.fromIntegral
+                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
+                                       "evaluation_examples"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"evaluationExamples") y x)
                         wire
                           -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
                                         wire
@@ -1250,8 +1637,74 @@ instance Data.ProtoLens.Message StartTraining where
                                      ((Prelude..)
                                         Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral
                                         _v))
-                            (Data.ProtoLens.Encoding.Wire.buildFieldSet
-                               (Lens.Family2.view Data.ProtoLens.unknownFields _x)))))))
+                            ((Data.Monoid.<>)
+                               (let
+                                  _v = Lens.Family2.view (Data.ProtoLens.Field.field @"planId") _x
+                                in
+                                  if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                      Data.Monoid.mempty
+                                  else
+                                      (Data.Monoid.<>)
+                                        (Data.ProtoLens.Encoding.Bytes.putVarInt 58)
+                                        ((Prelude..)
+                                           (\ bs
+                                              -> (Data.Monoid.<>)
+                                                   (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                                      (Prelude.fromIntegral
+                                                         (Data.ByteString.length bs)))
+                                                   (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                                           Data.Text.Encoding.encodeUtf8 _v))
+                               ((Data.Monoid.<>)
+                                  (let
+                                     _v
+                                       = Lens.Family2.view
+                                           (Data.ProtoLens.Field.field @"resolvedPlan") _x
+                                   in
+                                     if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                         Data.Monoid.mempty
+                                     else
+                                         (Data.Monoid.<>)
+                                           (Data.ProtoLens.Encoding.Bytes.putVarInt 66)
+                                           ((Prelude..)
+                                              (\ bs
+                                                 -> (Data.Monoid.<>)
+                                                      (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                                         (Prelude.fromIntegral
+                                                            (Data.ByteString.length bs)))
+                                                      (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                                              Data.Text.Encoding.encodeUtf8 _v))
+                                  ((Data.Monoid.<>)
+                                     (let
+                                        _v
+                                          = Lens.Family2.view
+                                              (Data.ProtoLens.Field.field @"trainingExamples") _x
+                                      in
+                                        if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                            Data.Monoid.mempty
+                                        else
+                                            (Data.Monoid.<>)
+                                              (Data.ProtoLens.Encoding.Bytes.putVarInt 72)
+                                              ((Prelude..)
+                                                 Data.ProtoLens.Encoding.Bytes.putVarInt
+                                                 Prelude.fromIntegral _v))
+                                     ((Data.Monoid.<>)
+                                        (let
+                                           _v
+                                             = Lens.Family2.view
+                                                 (Data.ProtoLens.Field.field @"evaluationExamples")
+                                                 _x
+                                         in
+                                           if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                               Data.Monoid.mempty
+                                           else
+                                               (Data.Monoid.<>)
+                                                 (Data.ProtoLens.Encoding.Bytes.putVarInt 80)
+                                                 ((Prelude..)
+                                                    Data.ProtoLens.Encoding.Bytes.putVarInt
+                                                    Prelude.fromIntegral _v))
+                                        (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                                           (Lens.Family2.view
+                                              Data.ProtoLens.unknownFields _x)))))))))))
 instance Control.DeepSeq.NFData StartTraining where
   rnf
     = \ x__
@@ -1267,9 +1720,18 @@ instance Control.DeepSeq.NFData StartTraining where
                          (_StartTraining'seed x__)
                          (Control.DeepSeq.deepseq
                             (_StartTraining'epochs x__)
-                            (Control.DeepSeq.deepseq (_StartTraining'batchSize x__) ()))))))
+                            (Control.DeepSeq.deepseq
+                               (_StartTraining'batchSize x__)
+                               (Control.DeepSeq.deepseq
+                                  (_StartTraining'planId x__)
+                                  (Control.DeepSeq.deepseq
+                                     (_StartTraining'resolvedPlan x__)
+                                     (Control.DeepSeq.deepseq
+                                        (_StartTraining'trainingExamples x__)
+                                        (Control.DeepSeq.deepseq
+                                           (_StartTraining'evaluationExamples x__) ()))))))))))
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.experimentHash' @:: Lens' StopTraining Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.drain' @:: Lens' StopTraining Prelude.Bool@ -}
 data StopTraining
@@ -1425,7 +1887,7 @@ instance Control.DeepSeq.NFData StopTraining where
                 (_StopTraining'experimentHash x__)
                 (Control.DeepSeq.deepseq (_StopTraining'drain x__) ()))
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.maybe'body' @:: Lens' TrainingCommand (Prelude.Maybe TrainingCommand'Body)@
          * 'Proto.Jitml.Training_Fields.maybe'start' @:: Lens' TrainingCommand (Prelude.Maybe StartTraining)@
          * 'Proto.Jitml.Training_Fields.start' @:: Lens' TrainingCommand StartTraining@
@@ -1648,14 +2110,16 @@ _TrainingCommand'Stop
               (TrainingCommand'Stop p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.maybe'body' @:: Lens' TrainingEvent (Prelude.Maybe TrainingEvent'Body)@
          * 'Proto.Jitml.Training_Fields.maybe'epoch' @:: Lens' TrainingEvent (Prelude.Maybe EpochCompleted)@
          * 'Proto.Jitml.Training_Fields.epoch' @:: Lens' TrainingEvent EpochCompleted@
          * 'Proto.Jitml.Training_Fields.maybe'checkpoint' @:: Lens' TrainingEvent (Prelude.Maybe CheckpointDone)@
          * 'Proto.Jitml.Training_Fields.checkpoint' @:: Lens' TrainingEvent CheckpointDone@
          * 'Proto.Jitml.Training_Fields.maybe'failure' @:: Lens' TrainingEvent (Prelude.Maybe TrainingFailed)@
-         * 'Proto.Jitml.Training_Fields.failure' @:: Lens' TrainingEvent TrainingFailed@ -}
+         * 'Proto.Jitml.Training_Fields.failure' @:: Lens' TrainingEvent TrainingFailed@
+         * 'Proto.Jitml.Training_Fields.maybe'completedCheckpoint' @:: Lens' TrainingEvent (Prelude.Maybe CompletedCheckpointDone)@
+         * 'Proto.Jitml.Training_Fields.completedCheckpoint' @:: Lens' TrainingEvent CompletedCheckpointDone@ -}
 data TrainingEvent
   = TrainingEvent'_constructor {_TrainingEvent'body :: !(Prelude.Maybe TrainingEvent'Body),
                                 _TrainingEvent'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -1669,7 +2133,8 @@ instance Prelude.Show TrainingEvent where
 data TrainingEvent'Body
   = TrainingEvent'Epoch !EpochCompleted |
     TrainingEvent'Checkpoint !CheckpointDone |
-    TrainingEvent'Failure !TrainingFailed
+    TrainingEvent'Failure !TrainingFailed |
+    TrainingEvent'CompletedCheckpoint !CompletedCheckpointDone
   deriving stock (Prelude.Show, Prelude.Eq, Prelude.Ord)
 instance Data.ProtoLens.Field.HasField TrainingEvent "maybe'body" (Prelude.Maybe TrainingEvent'Body) where
   fieldOf _
@@ -1753,6 +2218,32 @@ instance Data.ProtoLens.Field.HasField TrainingEvent "failure" TrainingFailed wh
                       _otherwise -> Prelude.Nothing)
               (\ _ y__ -> Prelude.fmap TrainingEvent'Failure y__))
            (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage))
+instance Data.ProtoLens.Field.HasField TrainingEvent "maybe'completedCheckpoint" (Prelude.Maybe CompletedCheckpointDone) where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _TrainingEvent'body (\ x__ y__ -> x__ {_TrainingEvent'body = y__}))
+        (Lens.Family2.Unchecked.lens
+           (\ x__
+              -> case x__ of
+                   (Prelude.Just (TrainingEvent'CompletedCheckpoint x__val))
+                     -> Prelude.Just x__val
+                   _otherwise -> Prelude.Nothing)
+           (\ _ y__ -> Prelude.fmap TrainingEvent'CompletedCheckpoint y__))
+instance Data.ProtoLens.Field.HasField TrainingEvent "completedCheckpoint" CompletedCheckpointDone where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _TrainingEvent'body (\ x__ y__ -> x__ {_TrainingEvent'body = y__}))
+        ((Prelude..)
+           (Lens.Family2.Unchecked.lens
+              (\ x__
+                 -> case x__ of
+                      (Prelude.Just (TrainingEvent'CompletedCheckpoint x__val))
+                        -> Prelude.Just x__val
+                      _otherwise -> Prelude.Nothing)
+              (\ _ y__ -> Prelude.fmap TrainingEvent'CompletedCheckpoint y__))
+           (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage))
 instance Data.ProtoLens.Message TrainingEvent where
   messageName _ = Data.Text.pack "jitml.training.TrainingEvent"
   packedMessageDescriptor _
@@ -1762,7 +2253,8 @@ instance Data.ProtoLens.Message TrainingEvent where
       \\n\
       \checkpoint\CAN\STX \SOH(\v2\RS.jitml.training.CheckpointDoneH\NULR\n\
       \checkpoint\DC2:\n\
-      \\afailure\CAN\ETX \SOH(\v2\RS.jitml.training.TrainingFailedH\NULR\afailureB\ACK\n\
+      \\afailure\CAN\ETX \SOH(\v2\RS.jitml.training.TrainingFailedH\NULR\afailure\DC2\\\n\
+      \\DC4completed_checkpoint\CAN\EOT \SOH(\v2'.jitml.training.CompletedCheckpointDoneH\NULR\DC3completedCheckpointB\ACK\n\
       \\EOTbody"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
@@ -1791,11 +2283,20 @@ instance Data.ProtoLens.Message TrainingEvent where
               (Data.ProtoLens.OptionalField
                  (Data.ProtoLens.Field.field @"maybe'failure")) ::
               Data.ProtoLens.FieldDescriptor TrainingEvent
+        completedCheckpoint__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "completed_checkpoint"
+              (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
+                 Data.ProtoLens.FieldTypeDescriptor CompletedCheckpointDone)
+              (Data.ProtoLens.OptionalField
+                 (Data.ProtoLens.Field.field @"maybe'completedCheckpoint")) ::
+              Data.ProtoLens.FieldDescriptor TrainingEvent
       in
         Data.Map.fromList
           [(Data.ProtoLens.Tag 1, epoch__field_descriptor),
            (Data.ProtoLens.Tag 2, checkpoint__field_descriptor),
-           (Data.ProtoLens.Tag 3, failure__field_descriptor)]
+           (Data.ProtoLens.Tag 3, failure__field_descriptor),
+           (Data.ProtoLens.Tag 4, completedCheckpoint__field_descriptor)]
   unknownFields
     = Lens.Family2.Unchecked.lens
         _TrainingEvent'_unknownFields
@@ -1848,6 +2349,15 @@ instance Data.ProtoLens.Message TrainingEvent where
                                              (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
                                        "failure"
                                 loop (Lens.Family2.set (Data.ProtoLens.Field.field @"failure") y x)
+                        34
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.isolate
+                                             (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
+                                       "completed_checkpoint"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"completedCheckpoint") y x)
                         wire
                           -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
                                         wire
@@ -1893,6 +2403,16 @@ instance Data.ProtoLens.Message TrainingEvent where
                                   (Data.ProtoLens.Encoding.Bytes.putVarInt
                                      (Prelude.fromIntegral (Data.ByteString.length bs)))
                                   (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                          Data.ProtoLens.encodeMessage v)
+                (Prelude.Just (TrainingEvent'CompletedCheckpoint v))
+                  -> (Data.Monoid.<>)
+                       (Data.ProtoLens.Encoding.Bytes.putVarInt 34)
+                       ((Prelude..)
+                          (\ bs
+                             -> (Data.Monoid.<>)
+                                  (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                     (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                  (Data.ProtoLens.Encoding.Bytes.putBytes bs))
                           Data.ProtoLens.encodeMessage v))
              (Data.ProtoLens.Encoding.Wire.buildFieldSet
                 (Lens.Family2.view Data.ProtoLens.unknownFields _x))
@@ -1906,6 +2426,8 @@ instance Control.DeepSeq.NFData TrainingEvent'Body where
   rnf (TrainingEvent'Epoch x__) = Control.DeepSeq.rnf x__
   rnf (TrainingEvent'Checkpoint x__) = Control.DeepSeq.rnf x__
   rnf (TrainingEvent'Failure x__) = Control.DeepSeq.rnf x__
+  rnf (TrainingEvent'CompletedCheckpoint x__)
+    = Control.DeepSeq.rnf x__
 _TrainingEvent'Epoch ::
   Data.ProtoLens.Prism.Prism' TrainingEvent'Body EpochCompleted
 _TrainingEvent'Epoch
@@ -1933,8 +2455,17 @@ _TrainingEvent'Failure
          -> case p__ of
               (TrainingEvent'Failure p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
+_TrainingEvent'CompletedCheckpoint ::
+  Data.ProtoLens.Prism.Prism' TrainingEvent'Body CompletedCheckpointDone
+_TrainingEvent'CompletedCheckpoint
+  = Data.ProtoLens.Prism.prism'
+      TrainingEvent'CompletedCheckpoint
+      (\ p__
+         -> case p__ of
+              (TrainingEvent'CompletedCheckpoint p__val) -> Prelude.Just p__val
+              _otherwise -> Prelude.Nothing)
 {- | Fields :
-     
+
          * 'Proto.Jitml.Training_Fields.experimentHash' @:: Lens' TrainingFailed Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.errorCode' @:: Lens' TrainingFailed Data.Text.Text@
          * 'Proto.Jitml.Training_Fields.errorText' @:: Lens' TrainingFailed Data.Text.Text@
@@ -2189,7 +2720,7 @@ instance Control.DeepSeq.NFData TrainingFailed where
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
-    \\DC4jitml/training.proto\DC2\SOjitml.training\"\203\SOH\n\
+    \\DC4jitml/training.proto\DC2\SOjitml.training\"\231\STX\n\
     \\rStartTraining\DC2'\n\
     \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2(\n\
     \\DLEdhall_object_key\CAN\STX \SOH(\tR\SOdhallObjectKey\DC2\FS\n\
@@ -2197,7 +2728,12 @@ packedFileDescriptor
     \\EOTseed\CAN\EOT \SOH(\EOTR\EOTseed\DC2\SYN\n\
     \\ACKepochs\CAN\ENQ \SOH(\rR\ACKepochs\DC2\GS\n\
     \\n\
-    \batch_size\CAN\ACK \SOH(\rR\tbatchSize\"M\n\
+    \batch_size\CAN\ACK \SOH(\rR\tbatchSize\DC2\ETB\n\
+    \\aplan_id\CAN\a \SOH(\tR\ACKplanId\DC2#\n\
+    \\rresolved_plan\CAN\b \SOH(\tR\fresolvedPlan\DC2+\n\
+    \\DC1training_examples\CAN\t \SOH(\rR\DLEtrainingExamples\DC2/\n\
+    \\DC3evaluation_examples\CAN\n\
+    \ \SOH(\rR\DC2evaluationExamples\"M\n\
     \\fStopTraining\DC2'\n\
     \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\DC4\n\
     \\ENQdrain\CAN\STX \SOH(\bR\ENQdrain\"\175\SOH\n\
@@ -2206,7 +2742,7 @@ packedFileDescriptor
     \\ENQepoch\CAN\STX \SOH(\rR\ENQepoch\DC2\DC2\n\
     \\EOTloss\CAN\ETX \SOH(\SOHR\EOTloss\DC2'\n\
     \\SIvalidation_loss\CAN\EOT \SOH(\SOHR\SOvalidationLoss\DC2!\n\
-    \\ftimestamp_ns\CAN\ENQ \SOH(\EOTR\vtimestampNs\"\165\STX\n\
+    \\ftimestamp_ns\CAN\ENQ \SOH(\EOTR\vtimestampNs\"\208\STX\n\
     \\SOCheckpointDone\DC2'\n\
     \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2!\n\
     \\fmanifest_sha\CAN\STX \SOH(\tR\vmanifestSha\DC2\DC2\n\
@@ -2216,7 +2752,14 @@ packedFileDescriptor
     \\ENQepoch\CAN\ENQ \SOH(\rR\ENQepoch\DC2\ESC\n\
     \\ttrial_sha\CAN\ACK \SOH(\tR\btrialSha\DC2\EM\n\
     \\brun_uuid\CAN\a \SOH(\tR\arunUuid\DC2D\n\
-    \\SImetrics_at_step\CAN\b \ETX(\v2\FS.jitml.training.ScalarMetricR\rmetricsAtStep\"6\n\
+    \\SImetrics_at_step\CAN\b \ETX(\v2\FS.jitml.training.ScalarMetricR\rmetricsAtStep\DC2)\n\
+    \\DLEprotocol_version\CAN\t \SOH(\rR\SIprotocolVersion\"\179\SOH\n\
+    \\ETBCompletedCheckpointDone\DC2)\n\
+    \\DLEprotocol_version\CAN\SOH \SOH(\rR\SIprotocolVersion\DC2>\n\
+    \\n\
+    \checkpoint\CAN\STX \SOH(\v2\RS.jitml.training.CheckpointDoneR\n\
+    \checkpoint\DC2-\n\
+    \\DC2completed_training\CAN\ETX \SOH(\fR\DC1completedTraining\"6\n\
     \\fScalarMetric\DC2\DLE\n\
     \\ETXtag\CAN\SOH \SOH(\tR\ETXtag\DC2\DC4\n\
     \\ENQvalue\CAN\STX \SOH(\SOHR\ENQvalue\"\154\SOH\n\
@@ -2230,21 +2773,22 @@ packedFileDescriptor
     \\SITrainingCommand\DC25\n\
     \\ENQstart\CAN\SOH \SOH(\v2\GS.jitml.training.StartTrainingH\NULR\ENQstart\DC22\n\
     \\EOTstop\CAN\STX \SOH(\v2\FS.jitml.training.StopTrainingH\NULR\EOTstopB\ACK\n\
-    \\EOTbody\"\205\SOH\n\
+    \\EOTbody\"\171\STX\n\
     \\rTrainingEvent\DC26\n\
     \\ENQepoch\CAN\SOH \SOH(\v2\RS.jitml.training.EpochCompletedH\NULR\ENQepoch\DC2@\n\
     \\n\
     \checkpoint\CAN\STX \SOH(\v2\RS.jitml.training.CheckpointDoneH\NULR\n\
     \checkpoint\DC2:\n\
-    \\afailure\CAN\ETX \SOH(\v2\RS.jitml.training.TrainingFailedH\NULR\afailureB\ACK\n\
-    \\EOTbodyJ\174\DC3\n\
-    \\ACK\DC2\EOT\NUL\NULD\SOH\n\
+    \\afailure\CAN\ETX \SOH(\v2\RS.jitml.training.TrainingFailedH\NULR\afailure\DC2\\\n\
+    \\DC4completed_checkpoint\CAN\EOT \SOH(\v2'.jitml.training.CompletedCheckpointDoneH\NULR\DC3completedCheckpointB\ACK\n\
+    \\EOTbodyJ\142\ESC\n\
+    \\ACK\DC2\EOT\NUL\NULU\SOH\n\
     \\b\n\
     \\SOH\f\DC2\ETX\NUL\NUL\DC2\n\
     \\b\n\
     \\SOH\STX\DC2\ETX\STX\NUL\ETB\n\
     \\156\SOH\n\
-    \\STX\EOT\NUL\DC2\EOT\a\NUL\SO\SOH\SUB\143\SOH Envelope sent on the substrate-scoped command topic\n\
+    \\STX\EOT\NUL\DC2\EOT\a\NUL\DC2\SOH\SUB\143\SOH Envelope sent on the substrate-scoped command topic\n\
     \ `training.command.<mode>` to drive an SL training run via the daemon's\n\
     \ TrainingHandler.\n\
     \\n\
@@ -2306,264 +2850,349 @@ packedFileDescriptor
     \\ENQ\EOT\NUL\STX\ENQ\SOH\DC2\ETX\r\t\DC3\n\
     \\f\n\
     \\ENQ\EOT\NUL\STX\ENQ\ETX\DC2\ETX\r\SYN\ETB\n\
+    \4\n\
+    \\EOT\EOT\NUL\STX\ACK\DC2\ETX\SO\STX\NAK\"' sha256 of the canonical resolved plan\n\
+    \\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\ACK\ENQ\DC2\ETX\SO\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\ACK\SOH\DC2\ETX\SO\t\DLE\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\ACK\ETX\DC2\ETX\SO\DC3\DC4\n\
+    \<\n\
+    \\EOT\EOT\NUL\STX\a\DC2\ETX\SI\STX\ESC\"/ canonical versioned supervised-plan transport\n\
+    \\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\a\ENQ\DC2\ETX\SI\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\a\SOH\DC2\ETX\SI\t\SYN\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\a\ETX\DC2\ETX\SI\EM\SUB\n\
+    \0\n\
+    \\EOT\EOT\NUL\STX\b\DC2\ETX\DLE\STX\US\"# exact examples consumed per epoch\n\
+    \\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\b\ENQ\DC2\ETX\DLE\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\b\SOH\DC2\ETX\DLE\t\SUB\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\b\ETX\DC2\ETX\DLE\GS\RS\n\
+    \0\n\
+    \\EOT\EOT\NUL\STX\t\DC2\ETX\DC1\STX\"\"# exact held-out examples evaluated\n\
+    \\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\t\ENQ\DC2\ETX\DC1\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\t\SOH\DC2\ETX\DC1\t\FS\n\
+    \\f\n\
+    \\ENQ\EOT\NUL\STX\t\ETX\DC2\ETX\DC1\US!\n\
     \\n\
     \\n\
-    \\STX\EOT\SOH\DC2\EOT\DLE\NUL\DC3\SOH\n\
+    \\STX\EOT\SOH\DC2\EOT\DC4\NUL\ETB\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\SOH\SOH\DC2\ETX\DLE\b\DC4\n\
+    \\ETX\EOT\SOH\SOH\DC2\ETX\DC4\b\DC4\n\
     \\v\n\
-    \\EOT\EOT\SOH\STX\NUL\DC2\ETX\DC1\STX\GS\n\
+    \\EOT\EOT\SOH\STX\NUL\DC2\ETX\NAK\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\ENQ\DC2\ETX\DC1\STX\b\n\
+    \\ENQ\EOT\SOH\STX\NUL\ENQ\DC2\ETX\NAK\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\SOH\DC2\ETX\DC1\t\CAN\n\
+    \\ENQ\EOT\SOH\STX\NUL\SOH\DC2\ETX\NAK\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\ETX\DC2\ETX\DC1\ESC\FS\n\
+    \\ENQ\EOT\SOH\STX\NUL\ETX\DC2\ETX\NAK\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\SOH\STX\SOH\DC2\ETX\DC2\STX\DC3\n\
+    \\EOT\EOT\SOH\STX\SOH\DC2\ETX\SYN\STX\DC3\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\SOH\ENQ\DC2\ETX\DC2\STX\ACK\n\
+    \\ENQ\EOT\SOH\STX\SOH\ENQ\DC2\ETX\SYN\STX\ACK\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\SOH\SOH\DC2\ETX\DC2\t\SO\n\
+    \\ENQ\EOT\SOH\STX\SOH\SOH\DC2\ETX\SYN\t\SO\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\SOH\ETX\DC2\ETX\DC2\DC1\DC2\n\
+    \\ENQ\EOT\SOH\STX\SOH\ETX\DC2\ETX\SYN\DC1\DC2\n\
     \=\n\
-    \\STX\EOT\STX\DC2\EOT\SYN\NUL\FS\SOH\SUB1 Envelopes published on `training.event.<mode>`.\n\
+    \\STX\EOT\STX\DC2\EOT\SUB\NUL \SOH\SUB1 Envelopes published on `training.event.<mode>`.\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\STX\SOH\DC2\ETX\SYN\b\SYN\n\
+    \\ETX\EOT\STX\SOH\DC2\ETX\SUB\b\SYN\n\
     \\v\n\
-    \\EOT\EOT\STX\STX\NUL\DC2\ETX\ETB\STX\GS\n\
+    \\EOT\EOT\STX\STX\NUL\DC2\ETX\ESC\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\NUL\ENQ\DC2\ETX\ETB\STX\b\n\
+    \\ENQ\EOT\STX\STX\NUL\ENQ\DC2\ETX\ESC\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\NUL\SOH\DC2\ETX\ETB\t\CAN\n\
+    \\ENQ\EOT\STX\STX\NUL\SOH\DC2\ETX\ESC\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\NUL\ETX\DC2\ETX\ETB\ESC\FS\n\
+    \\ENQ\EOT\STX\STX\NUL\ETX\DC2\ETX\ESC\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\STX\STX\SOH\DC2\ETX\CAN\STX\DC3\n\
+    \\EOT\EOT\STX\STX\SOH\DC2\ETX\FS\STX\DC3\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\SOH\ENQ\DC2\ETX\CAN\STX\b\n\
+    \\ENQ\EOT\STX\STX\SOH\ENQ\DC2\ETX\FS\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\SOH\SOH\DC2\ETX\CAN\t\SO\n\
+    \\ENQ\EOT\STX\STX\SOH\SOH\DC2\ETX\FS\t\SO\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\SOH\ETX\DC2\ETX\CAN\DC1\DC2\n\
+    \\ENQ\EOT\STX\STX\SOH\ETX\DC2\ETX\FS\DC1\DC2\n\
     \\v\n\
-    \\EOT\EOT\STX\STX\STX\DC2\ETX\EM\STX\DC2\n\
+    \\EOT\EOT\STX\STX\STX\DC2\ETX\GS\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\STX\ENQ\DC2\ETX\EM\STX\b\n\
+    \\ENQ\EOT\STX\STX\STX\ENQ\DC2\ETX\GS\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\STX\SOH\DC2\ETX\EM\t\r\n\
+    \\ENQ\EOT\STX\STX\STX\SOH\DC2\ETX\GS\t\r\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\STX\ETX\DC2\ETX\EM\DLE\DC1\n\
+    \\ENQ\EOT\STX\STX\STX\ETX\DC2\ETX\GS\DLE\DC1\n\
     \\v\n\
-    \\EOT\EOT\STX\STX\ETX\DC2\ETX\SUB\STX\GS\n\
+    \\EOT\EOT\STX\STX\ETX\DC2\ETX\RS\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\ETX\ENQ\DC2\ETX\SUB\STX\b\n\
+    \\ENQ\EOT\STX\STX\ETX\ENQ\DC2\ETX\RS\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\ETX\SOH\DC2\ETX\SUB\t\CAN\n\
+    \\ENQ\EOT\STX\STX\ETX\SOH\DC2\ETX\RS\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\ETX\ETX\DC2\ETX\SUB\ESC\FS\n\
+    \\ENQ\EOT\STX\STX\ETX\ETX\DC2\ETX\RS\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\STX\STX\EOT\DC2\ETX\ESC\STX\SUB\n\
+    \\EOT\EOT\STX\STX\EOT\DC2\ETX\US\STX\SUB\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\EOT\ENQ\DC2\ETX\ESC\STX\b\n\
+    \\ENQ\EOT\STX\STX\EOT\ENQ\DC2\ETX\US\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\EOT\SOH\DC2\ETX\ESC\t\NAK\n\
+    \\ENQ\EOT\STX\STX\EOT\SOH\DC2\ETX\US\t\NAK\n\
     \\f\n\
-    \\ENQ\EOT\STX\STX\EOT\ETX\DC2\ETX\ESC\CAN\EM\n\
+    \\ENQ\EOT\STX\STX\EOT\ETX\DC2\ETX\US\CAN\EM\n\
+    \\143\SOH\n\
+    \\STX\EOT\ETX\DC2\EOT$\NUL.\SOH\SUB\130\SOH A persisted candidate remains inspectable/resumable but does not claim that\n\
+    \ the plan budget and convergence criteria completed.\n\
     \\n\
     \\n\
-    \\STX\EOT\ETX\DC2\EOT\RS\NUL'\SOH\n\
     \\n\
-    \\n\
-    \\ETX\EOT\ETX\SOH\DC2\ETX\RS\b\SYN\n\
+    \\ETX\EOT\ETX\SOH\DC2\ETX$\b\SYN\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\NUL\DC2\ETX\US\STX\GS\n\
+    \\EOT\EOT\ETX\STX\NUL\DC2\ETX%\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ENQ\DC2\ETX\US\STX\b\n\
+    \\ENQ\EOT\ETX\STX\NUL\ENQ\DC2\ETX%\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX\US\t\CAN\n\
+    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX%\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX\US\ESC\FS\n\
+    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX%\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\SOH\DC2\ETX \STX\SUB\n\
+    \\EOT\EOT\ETX\STX\SOH\DC2\ETX&\STX\SUB\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\ENQ\DC2\ETX \STX\b\n\
+    \\ENQ\EOT\ETX\STX\SOH\ENQ\DC2\ETX&\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\SOH\DC2\ETX \t\NAK\n\
+    \\ENQ\EOT\ETX\STX\SOH\SOH\DC2\ETX&\t\NAK\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\ETX\DC2\ETX \CAN\EM\n\
+    \\ENQ\EOT\ETX\STX\SOH\ETX\DC2\ETX&\CAN\EM\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\STX\DC2\ETX!\STX\DC2\n\
+    \\EOT\EOT\ETX\STX\STX\DC2\ETX'\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\STX\ENQ\DC2\ETX!\STX\b\n\
+    \\ENQ\EOT\ETX\STX\STX\ENQ\DC2\ETX'\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\STX\SOH\DC2\ETX!\t\r\n\
+    \\ENQ\EOT\ETX\STX\STX\SOH\DC2\ETX'\t\r\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\STX\ETX\DC2\ETX!\DLE\DC1\n\
+    \\ENQ\EOT\ETX\STX\STX\ETX\DC2\ETX'\DLE\DC1\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\ETX\DC2\ETX\"\STX\EM\n\
+    \\EOT\EOT\ETX\STX\ETX\DC2\ETX(\STX\EM\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ETX\ENQ\DC2\ETX\"\STX\b\n\
+    \\ENQ\EOT\ETX\STX\ETX\ENQ\DC2\ETX(\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ETX\SOH\DC2\ETX\"\t\DC4\n\
+    \\ENQ\EOT\ETX\STX\ETX\SOH\DC2\ETX(\t\DC4\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ETX\ETX\DC2\ETX\"\ETB\CAN\n\
+    \\ENQ\EOT\ETX\STX\ETX\ETX\DC2\ETX(\ETB\CAN\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\EOT\DC2\ETX#\STX\DC3\n\
+    \\EOT\EOT\ETX\STX\EOT\DC2\ETX)\STX\DC3\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\EOT\ENQ\DC2\ETX#\STX\b\n\
+    \\ENQ\EOT\ETX\STX\EOT\ENQ\DC2\ETX)\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\EOT\SOH\DC2\ETX#\t\SO\n\
+    \\ENQ\EOT\ETX\STX\EOT\SOH\DC2\ETX)\t\SO\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\EOT\ETX\DC2\ETX#\DC1\DC2\n\
+    \\ENQ\EOT\ETX\STX\EOT\ETX\DC2\ETX)\DC1\DC2\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\ENQ\DC2\ETX$\STX\ETB\n\
+    \\EOT\EOT\ETX\STX\ENQ\DC2\ETX*\STX\ETB\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ENQ\ENQ\DC2\ETX$\STX\b\n\
+    \\ENQ\EOT\ETX\STX\ENQ\ENQ\DC2\ETX*\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ENQ\SOH\DC2\ETX$\t\DC2\n\
+    \\ENQ\EOT\ETX\STX\ENQ\SOH\DC2\ETX*\t\DC2\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ENQ\ETX\DC2\ETX$\NAK\SYN\n\
+    \\ENQ\EOT\ETX\STX\ENQ\ETX\DC2\ETX*\NAK\SYN\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\ACK\DC2\ETX%\STX\SYN\n\
+    \\EOT\EOT\ETX\STX\ACK\DC2\ETX+\STX\SYN\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ACK\ENQ\DC2\ETX%\STX\b\n\
+    \\ENQ\EOT\ETX\STX\ACK\ENQ\DC2\ETX+\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ACK\SOH\DC2\ETX%\t\DC1\n\
+    \\ENQ\EOT\ETX\STX\ACK\SOH\DC2\ETX+\t\DC1\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ACK\ETX\DC2\ETX%\DC4\NAK\n\
+    \\ENQ\EOT\ETX\STX\ACK\ETX\DC2\ETX+\DC4\NAK\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\a\DC2\ETX&\STX,\n\
+    \\EOT\EOT\ETX\STX\a\DC2\ETX,\STX,\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\a\EOT\DC2\ETX&\STX\n\
+    \\ENQ\EOT\ETX\STX\a\EOT\DC2\ETX,\STX\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\a\ACK\DC2\ETX&\v\ETB\n\
+    \\ENQ\EOT\ETX\STX\a\ACK\DC2\ETX,\v\ETB\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\a\SOH\DC2\ETX&\CAN'\n\
+    \\ENQ\EOT\ETX\STX\a\SOH\DC2\ETX,\CAN'\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\a\ETX\DC2\ETX&*+\n\
-    \\n\
-    \\n\
-    \\STX\EOT\EOT\DC2\EOT)\NUL,\SOH\n\
-    \\n\
-    \\n\
-    \\ETX\EOT\EOT\SOH\DC2\ETX)\b\DC4\n\
+    \\ENQ\EOT\ETX\STX\a\ETX\DC2\ETX,*+\n\
     \\v\n\
-    \\EOT\EOT\EOT\STX\NUL\DC2\ETX*\STX\DC1\n\
+    \\EOT\EOT\ETX\STX\b\DC2\ETX-\STX\RS\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\NUL\ENQ\DC2\ETX*\STX\b\n\
+    \\ENQ\EOT\ETX\STX\b\ENQ\DC2\ETX-\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\NUL\SOH\DC2\ETX*\t\f\n\
+    \\ENQ\EOT\ETX\STX\b\SOH\DC2\ETX-\t\EM\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\NUL\ETX\DC2\ETX*\SI\DLE\n\
-    \\v\n\
-    \\EOT\EOT\EOT\STX\SOH\DC2\ETX+\STX\DC3\n\
-    \\f\n\
-    \\ENQ\EOT\EOT\STX\SOH\ENQ\DC2\ETX+\STX\b\n\
-    \\f\n\
-    \\ENQ\EOT\EOT\STX\SOH\SOH\DC2\ETX+\t\SO\n\
-    \\f\n\
-    \\ENQ\EOT\EOT\STX\SOH\ETX\DC2\ETX+\DC1\DC2\n\
+    \\ENQ\EOT\ETX\STX\b\ETX\DC2\ETX-\FS\GS\n\
+    \\184\SOH\n\
+    \\STX\EOT\EOT\DC2\EOT3\NUL7\SOH\SUB\171\SOH Completion is a distinct wire variant with a mandatory versioned raw\n\
+    \ completion DTO. Consumers re-refine those bytes before minting the opaque\n\
+    \ CompletedTraining value.\n\
     \\n\
     \\n\
-    \\STX\EOT\ENQ\DC2\EOT.\NUL3\SOH\n\
+    \\n\
+    \\ETX\EOT\EOT\SOH\DC2\ETX3\b\US\n\
+    \\v\n\
+    \\EOT\EOT\EOT\STX\NUL\DC2\ETX4\STX\RS\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\NUL\ENQ\DC2\ETX4\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\NUL\SOH\DC2\ETX4\t\EM\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\NUL\ETX\DC2\ETX4\FS\GS\n\
+    \\v\n\
+    \\EOT\EOT\EOT\STX\SOH\DC2\ETX5\STX \n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\SOH\ACK\DC2\ETX5\STX\DLE\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\SOH\SOH\DC2\ETX5\DC1\ESC\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\SOH\ETX\DC2\ETX5\RS\US\n\
+    \\v\n\
+    \\EOT\EOT\EOT\STX\STX\DC2\ETX6\STX\US\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\STX\ENQ\DC2\ETX6\STX\a\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\STX\SOH\DC2\ETX6\b\SUB\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\STX\ETX\DC2\ETX6\GS\RS\n\
     \\n\
     \\n\
-    \\ETX\EOT\ENQ\SOH\DC2\ETX.\b\SYN\n\
+    \\STX\EOT\ENQ\DC2\EOT9\NUL<\SOH\n\
+    \\n\
+    \\n\
+    \\ETX\EOT\ENQ\SOH\DC2\ETX9\b\DC4\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\NUL\DC2\ETX/\STX\GS\n\
+    \\EOT\EOT\ENQ\STX\NUL\DC2\ETX:\STX\DC1\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\NUL\ENQ\DC2\ETX/\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\NUL\ENQ\DC2\ETX:\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\NUL\SOH\DC2\ETX/\t\CAN\n\
+    \\ENQ\EOT\ENQ\STX\NUL\SOH\DC2\ETX:\t\f\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\NUL\ETX\DC2\ETX/\ESC\FS\n\
+    \\ENQ\EOT\ENQ\STX\NUL\ETX\DC2\ETX:\SI\DLE\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\SOH\DC2\ETX0\STX\CAN\n\
+    \\EOT\EOT\ENQ\STX\SOH\DC2\ETX;\STX\DC3\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\SOH\ENQ\DC2\ETX0\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\SOH\ENQ\DC2\ETX;\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\SOH\SOH\DC2\ETX0\t\DC3\n\
+    \\ENQ\EOT\ENQ\STX\SOH\SOH\DC2\ETX;\t\SO\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\SOH\ETX\DC2\ETX0\SYN\ETB\n\
+    \\ENQ\EOT\ENQ\STX\SOH\ETX\DC2\ETX;\DC1\DC2\n\
+    \\n\
+    \\n\
+    \\STX\EOT\ACK\DC2\EOT>\NULC\SOH\n\
+    \\n\
+    \\n\
+    \\ETX\EOT\ACK\SOH\DC2\ETX>\b\SYN\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\STX\DC2\ETX1\STX\CAN\n\
+    \\EOT\EOT\ACK\STX\NUL\DC2\ETX?\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\STX\ENQ\DC2\ETX1\STX\b\n\
+    \\ENQ\EOT\ACK\STX\NUL\ENQ\DC2\ETX?\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\STX\SOH\DC2\ETX1\t\DC3\n\
+    \\ENQ\EOT\ACK\STX\NUL\SOH\DC2\ETX?\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\STX\ETX\DC2\ETX1\SYN\ETB\n\
+    \\ENQ\EOT\ACK\STX\NUL\ETX\DC2\ETX?\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\ETX\DC2\ETX2\STX\SUB\n\
+    \\EOT\EOT\ACK\STX\SOH\DC2\ETX@\STX\CAN\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\ETX\ENQ\DC2\ETX2\STX\b\n\
+    \\ENQ\EOT\ACK\STX\SOH\ENQ\DC2\ETX@\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\ETX\SOH\DC2\ETX2\t\NAK\n\
+    \\ENQ\EOT\ACK\STX\SOH\SOH\DC2\ETX@\t\DC3\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\ETX\ETX\DC2\ETX2\CAN\EM\n\
+    \\ENQ\EOT\ACK\STX\SOH\ETX\DC2\ETX@\SYN\ETB\n\
+    \\v\n\
+    \\EOT\EOT\ACK\STX\STX\DC2\ETXA\STX\CAN\n\
+    \\f\n\
+    \\ENQ\EOT\ACK\STX\STX\ENQ\DC2\ETXA\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\ACK\STX\STX\SOH\DC2\ETXA\t\DC3\n\
+    \\f\n\
+    \\ENQ\EOT\ACK\STX\STX\ETX\DC2\ETXA\SYN\ETB\n\
+    \\v\n\
+    \\EOT\EOT\ACK\STX\ETX\DC2\ETXB\STX\SUB\n\
+    \\f\n\
+    \\ENQ\EOT\ACK\STX\ETX\ENQ\DC2\ETXB\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\ACK\STX\ETX\SOH\DC2\ETXB\t\NAK\n\
+    \\f\n\
+    \\ENQ\EOT\ACK\STX\ETX\ETX\DC2\ETXB\CAN\EM\n\
     \8\n\
-    \\STX\EOT\ACK\DC2\EOT6\NUL;\SOH\SUB, Discriminated union for the command topic.\n\
+    \\STX\EOT\a\DC2\EOTF\NULK\SOH\SUB, Discriminated union for the command topic.\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\ACK\SOH\DC2\ETX6\b\ETB\n\
+    \\ETX\EOT\a\SOH\DC2\ETXF\b\ETB\n\
     \\f\n\
-    \\EOT\EOT\ACK\b\NUL\DC2\EOT7\STX:\ETX\n\
+    \\EOT\EOT\a\b\NUL\DC2\EOTG\STXJ\ETX\n\
     \\f\n\
-    \\ENQ\EOT\ACK\b\NUL\SOH\DC2\ETX7\b\f\n\
+    \\ENQ\EOT\a\b\NUL\SOH\DC2\ETXG\b\f\n\
     \\v\n\
-    \\EOT\EOT\ACK\STX\NUL\DC2\ETX8\EOT\FS\n\
+    \\EOT\EOT\a\STX\NUL\DC2\ETXH\EOT\FS\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\NUL\ACK\DC2\ETX8\EOT\DC1\n\
+    \\ENQ\EOT\a\STX\NUL\ACK\DC2\ETXH\EOT\DC1\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\NUL\SOH\DC2\ETX8\DC2\ETB\n\
+    \\ENQ\EOT\a\STX\NUL\SOH\DC2\ETXH\DC2\ETB\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\NUL\ETX\DC2\ETX8\SUB\ESC\n\
+    \\ENQ\EOT\a\STX\NUL\ETX\DC2\ETXH\SUB\ESC\n\
     \\v\n\
-    \\EOT\EOT\ACK\STX\SOH\DC2\ETX9\EOT\FS\n\
+    \\EOT\EOT\a\STX\SOH\DC2\ETXI\EOT\FS\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\SOH\ACK\DC2\ETX9\EOT\DLE\n\
+    \\ENQ\EOT\a\STX\SOH\ACK\DC2\ETXI\EOT\DLE\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\SOH\SOH\DC2\ETX9\DC2\SYN\n\
+    \\ENQ\EOT\a\STX\SOH\SOH\DC2\ETXI\DC2\SYN\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\SOH\ETX\DC2\ETX9\SUB\ESC\n\
+    \\ENQ\EOT\a\STX\SOH\ETX\DC2\ETXI\SUB\ESC\n\
     \6\n\
-    \\STX\EOT\a\DC2\EOT>\NULD\SOH\SUB* Discriminated union for the event topic.\n\
+    \\STX\EOT\b\DC2\EOTN\NULU\SOH\SUB* Discriminated union for the event topic.\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\a\SOH\DC2\ETX>\b\NAK\n\
+    \\ETX\EOT\b\SOH\DC2\ETXN\b\NAK\n\
     \\f\n\
-    \\EOT\EOT\a\b\NUL\DC2\EOT?\STXC\ETX\n\
+    \\EOT\EOT\b\b\NUL\DC2\EOTO\STXT\ETX\n\
     \\f\n\
-    \\ENQ\EOT\a\b\NUL\SOH\DC2\ETX?\b\f\n\
+    \\ENQ\EOT\b\b\NUL\SOH\DC2\ETXO\b\f\n\
     \\v\n\
-    \\EOT\EOT\a\STX\NUL\DC2\ETX@\EOT#\n\
+    \\EOT\EOT\b\STX\NUL\DC2\ETXP\EOT#\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\NUL\ACK\DC2\ETX@\EOT\DC2\n\
+    \\ENQ\EOT\b\STX\NUL\ACK\DC2\ETXP\EOT\DC2\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\NUL\SOH\DC2\ETX@\DC3\CAN\n\
+    \\ENQ\EOT\b\STX\NUL\SOH\DC2\ETXP\DC3\CAN\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\NUL\ETX\DC2\ETX@!\"\n\
+    \\ENQ\EOT\b\STX\NUL\ETX\DC2\ETXP!\"\n\
     \\v\n\
-    \\EOT\EOT\a\STX\SOH\DC2\ETXA\EOT#\n\
+    \\EOT\EOT\b\STX\SOH\DC2\ETXQ\EOT#\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\SOH\ACK\DC2\ETXA\EOT\DC2\n\
+    \\ENQ\EOT\b\STX\SOH\ACK\DC2\ETXQ\EOT\DC2\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\SOH\SOH\DC2\ETXA\DC3\GS\n\
+    \\ENQ\EOT\b\STX\SOH\SOH\DC2\ETXQ\DC3\GS\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\SOH\ETX\DC2\ETXA!\"\n\
+    \\ENQ\EOT\b\STX\SOH\ETX\DC2\ETXQ!\"\n\
     \\v\n\
-    \\EOT\EOT\a\STX\STX\DC2\ETXB\EOT#\n\
+    \\EOT\EOT\b\STX\STX\DC2\ETXR\EOT#\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\STX\ACK\DC2\ETXB\EOT\DC2\n\
+    \\ENQ\EOT\b\STX\STX\ACK\DC2\ETXR\EOT\DC2\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\STX\SOH\DC2\ETXB\DC3\SUB\n\
+    \\ENQ\EOT\b\STX\STX\SOH\DC2\ETXR\DC3\SUB\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\STX\ETX\DC2\ETXB!\"b\ACKproto3"
+    \\ENQ\EOT\b\STX\STX\ETX\DC2\ETXR!\"\n\
+    \\v\n\
+    \\EOT\EOT\b\STX\ETX\DC2\ETXS\EOT5\n\
+    \\f\n\
+    \\ENQ\EOT\b\STX\ETX\ACK\DC2\ETXS\EOT\ESC\n\
+    \\f\n\
+    \\ENQ\EOT\b\STX\ETX\SOH\DC2\ETXS\FS0\n\
+    \\f\n\
+    \\ENQ\EOT\b\STX\ETX\ETX\DC2\ETXS34b\ACKproto3"

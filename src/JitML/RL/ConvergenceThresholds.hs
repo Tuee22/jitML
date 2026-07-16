@@ -48,13 +48,18 @@ module JitML.RL.ConvergenceThresholds
 where
 
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Word (Word64)
 
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.Training.Budget
   ( BudgetKind (..)
-  , ConvergenceObservation (..)
+  , ConvergenceObservation
   , MetricGoal (..)
-  , TrainingBudget (..)
+  , TrainingBudget
+  , measureCriterion
+  , measureCriterionExcluding
+  , mkTrainingBudget
   )
 
 -- | Literature-anchored convergence threshold for one (algorithm, environment)
@@ -187,13 +192,11 @@ fixedBudgetRlConvergenceRows =
       , fbrBudget = rlBudget algorithm environment
       , fbrThreshold = threshold
       , fbrConvergenceMetric =
-          ConvergenceObservation
-            { coMetricName = "median_final_reward"
-            , coMetricValue = literatureTarget threshold
-            , coMetricGoal = MetricMaximise
-            , coThreshold = Just (literatureTarget threshold - slack threshold)
-            , coPassed = passesConvergence threshold (literatureTarget threshold)
-            }
+          staticObservation
+            "median_final_reward"
+            MetricMaximise
+            (literatureTarget threshold - slack threshold)
+            (literatureTarget threshold)
       }
   | ((algorithm, environment), threshold) <- cohortThresholds
   ]
@@ -203,41 +206,29 @@ herGoalMetric =
   HerGoalMetric
     { hgmEnvironment = "goal-reaching"
     , hgmBudget =
-        TrainingBudget
-          { tbKind = RlEnvironmentStepBudget
-          , tbTargetUnits = 2_000
-          , tbUnitLabel = "goal-conditioned-env-steps"
-          , tbSeed = Nothing
-          }
+        staticBudget
+          RlEnvironmentStepBudget
+          (canonicalRlBudgetUnits "HER" "goal-reaching")
+          Nothing
     , hgmSuccessRate =
-        ConvergenceObservation
-          { coMetricName = "goal_success_rate"
-          , coMetricValue = 0.90
-          , coMetricGoal = MetricMaximise
-          , coThreshold = Just 0.85
-          , coPassed = True
-          }
+        staticObservation "goal_success_rate" MetricMaximise 0.85 0.90
     , hgmAchievedGoalDistance =
-        ConvergenceObservation
-          { coMetricName = "achieved_goal_distance"
-          , coMetricValue = 0.04
-          , coMetricGoal = MetricMinimise
-          , coThreshold = Just 0.05
-          , coPassed = True
-          }
+        staticObservation "achieved_goal_distance" MetricMinimise 0.05 0.04
     }
 
 rlBudget :: Text -> Text -> TrainingBudget
 rlBudget algorithm environment =
-  TrainingBudget
-    { tbKind = RlEnvironmentStepBudget
-    , tbTargetUnits = rlBudgetUnits algorithm environment
-    , tbUnitLabel = "env-steps"
-    , tbSeed = Nothing
-    }
+  staticBudget RlEnvironmentStepBudget (rlBudgetUnits algorithm environment) Nothing
 
 rlBudgetUnits :: Text -> Text -> Word64
-rlBudgetUnits _algorithm _environment = 2_000
+rlBudgetUnits = canonicalRlBudgetUnits
+
+canonicalRlBudgetUnits :: Text -> Text -> Word64
+canonicalRlBudgetUnits algorithm environment =
+  either
+    (error . Text.unpack)
+    id
+    (ProductBudget.canonicalProductRlTargetUnits algorithm environment)
 
 -- | Sprint 9.13 — AlphaZero convergence is a deliberate __non-return__ metric:
 -- the trained network's __arena win rate__ against the baseline opponent, not
@@ -289,28 +280,16 @@ alphaZeroGameRow game =
    in AlphaZeroGameConvergenceRow
         { azgGame = game
         , azgBudget =
-            TrainingBudget
-              { tbKind = AlphaZeroSelfPlayBudget
-              , tbTargetUnits = alphaZeroGenerationBudget game
-              , tbUnitLabel = "self-play-generations"
-              , tbSeed = Nothing
-              }
+            staticBudget AlphaZeroSelfPlayBudget (alphaZeroGenerationBudget game) Nothing
         , azgArenaWinRate =
-            ConvergenceObservation
-              { coMetricName = "arena_win_rate"
-              , coMetricValue = azTargetWinRate threshold
-              , coMetricGoal = MetricMaximise
-              , coThreshold = Just (azTargetWinRate threshold - azSlack threshold)
-              , coPassed = passesAlphaZeroArena threshold (azTargetWinRate threshold)
-              }
+            staticExcludedObservation
+              "arena_win_rate"
+              (azTargetWinRate threshold - azSlack threshold)
+              0.5
+              1.0e-12
+              (azTargetWinRate threshold)
         , azgLegalMoveRate =
-            ConvergenceObservation
-              { coMetricName = "legal_move_rate"
-              , coMetricValue = 1.0
-              , coMetricGoal = MetricMaximise
-              , coThreshold = Just 1.0
-              , coPassed = True
-              }
+            staticObservation "legal_move_rate" MetricMaximise 1.0 1.0
         , azgMctsSimulationsPerMove = simulations
         }
 
@@ -331,3 +310,29 @@ alphaZeroSimulationBudget game =
     "hex" -> 256
     "gomoku" -> 256
     _ -> 128
+
+-- These values are module-owned literals.  Routing them through the public
+-- refinement boundary keeps the canonical tables on the same finite-value
+-- path as measurements decoded from the wire.
+staticObservation :: Text -> MetricGoal -> Double -> Double -> ConvergenceObservation
+staticObservation name goal threshold value =
+  either (error . Text.unpack) id (measureCriterion name goal threshold value)
+
+staticBudget :: BudgetKind -> Word64 -> Maybe Word64 -> TrainingBudget
+staticBudget kind target seed =
+  either (error . Text.unpack) id (mkTrainingBudget kind target seed)
+
+staticExcludedObservation
+  :: Text -> Double -> Double -> Double -> Double -> ConvergenceObservation
+staticExcludedObservation name threshold excluded tolerance value =
+  either
+    (error . Text.unpack)
+    id
+    ( measureCriterionExcluding
+        name
+        MetricMaximise
+        threshold
+        excluded
+        tolerance
+        value
+    )

@@ -49,6 +49,7 @@ allProductPhaseStatuses =
       [ sprint "19.1" "Product Matrix Authority" Done
       , sprint "19.2" "Phase Status Registry" Done
       , sprint "19.3" "Status Truth Enforcement" Done
+      , sprint "19.4" "Product Registry Plan and Evidence Projection" Blocked
       ]
   , productPhase
       20
@@ -64,6 +65,7 @@ allProductPhaseStatuses =
       [ sprint "21.1" "Non-Fabricable Training Evidence" Done
       , sprint "21.2" "Type-State Pipeline (Haskell)" Done
       , sprint "21.3" "Dhall Boundary & Fail-Closed Decode" Done
+      , sprint "21.4" "Phase-Specific Product Evidence Payloads" Blocked
       ]
   , productPhase
       22
@@ -96,6 +98,7 @@ allProductPhaseStatuses =
       [ sprint "25.1" "Real Environments" Done
       , sprint "25.2" "Distinct Algorithms" Done
       , sprint "25.3" "Per-Row Convergence and Evidence" Done
+      , sprint "25.4" "Dimensionally Correct RL Plans and Evidence" Blocked
       ]
   , productPhase
       26
@@ -119,6 +122,7 @@ allProductPhaseStatuses =
       [ sprint "28.1" "Row-Keyed Integration Matrix" Done
       , sprint "28.2" "Row-Complete Playwright" Done
       , sprint "28.3" "linux-cpu Report Card" Done
+      , sprint "28.4" "Contract-Driven Per-Row Live Execution" Blocked
       ]
   , productPhase
       29
@@ -128,6 +132,7 @@ allProductPhaseStatuses =
       , sprint "29.2" "CUDA Row Device Evidence" Done
       , sprint "29.3" "CUDA Integration, E2E, and Attestation" Done
       , sprint "29.4" "GPU Performance and Persistent Device Buffers" Done
+      , sprint "29.5" "Contract-Driven CUDA Lane Revalidation" Blocked
       ]
   , productPhase
       30
@@ -136,6 +141,7 @@ allProductPhaseStatuses =
       [ sprint "30.1" "Real Metal Kernels" Done
       , sprint "30.2" "Metal Row Device Evidence" Done
       , sprint "30.3" "Apple Integration, E2E, and Attestation" Done
+      , sprint "30.4" "Contract-Driven Apple Lane Revalidation" Blocked
       ]
   , productPhase
       31
@@ -143,6 +149,7 @@ allProductPhaseStatuses =
       "DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md"
       [ sprint "31.1" "Attestation Join" Done
       , sprint "31.2" "No-Caveat Closure" Done
+      , sprint "31.3" "Journal-Derived Product Aggregation" Blocked
       ]
   , productPhase
       32
@@ -151,6 +158,7 @@ allProductPhaseStatuses =
       [ sprint "32.1" "Negative-Control Suite" Done
       , sprint "32.2" "External Bars, No-Self-Referential-Gate Lint, Provenance Binding" Done
       , sprint "32.3" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
+      , sprint "32.4" "RunContract Negative Controls and Properties" Blocked
       ]
   , productPhase
       33
@@ -158,6 +166,7 @@ allProductPhaseStatuses =
       "DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md"
       [ sprint "33.1" "Per-Model Measured Convergence" Done
       , sprint "33.2" "Inference-Performance & Determinism" Done
+      , sprint "33.3" "Contract-Driven Per-Model Evidence" Blocked
       ]
   , productPhase
       34
@@ -165,6 +174,7 @@ allProductPhaseStatuses =
       "DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md"
       [ sprint "34.1" "Evidence-Derived Closure Guard" Done
       , sprint "34.2" "Standing Adversarial Audit & Thin Plan" Done
+      , sprint "34.3" "Journal-Derived Status and Reporting" Blocked
       ]
   ]
 

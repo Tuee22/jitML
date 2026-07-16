@@ -1,6 +1,6 @@
 # Phase 32: External-Truth Realness Harness & Negative-Control Gate
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md), [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -13,7 +13,13 @@
 
 ## Phase State
 
-✅ **Done**. This phase exists because the 2026-07-05 realness audit found that
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `32.4`). The standing
+negative controls do not yet cover invalid plans, incomplete/conflicting event
+sets, non-finite measurements, settlement failures, or lifecycle arrival-order
+permutations. Sprint `32.4` is blocked by Sprint `31.3`. Sprints `32.1`–`32.3`
+remain Done on their retained external-bar and anti-scaffold surfaces.
+
+**Historical retained closure.** ✅ **Done**. This phase exists because the 2026-07-05 realness audit found that
 every prior product closure was graded by self-authored, self-referential gates
 (convergence bar set equal to the measured value; `InferenceEligible` minted from a
 fabricated witness; scaffold lint a denylist of the previous iteration's fossil
@@ -136,9 +142,65 @@ docker compose run --rm jitml jitml check-code
 
 - Implemented the type split and behavioral lint.
 
+## Sprint 32.4: `RunContract` Negative Controls and Properties [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Test/NegativeControls.hs`,
+`src/JitML/Test/RunContract.hs`, `test/negative-controls/Main.hs`,
+`test/unit/Main.hs`
+**Blocked by**: Sprint `31.3`
+**Docs to update**: `../README.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`
+
+### Objective
+
+Prove that the validated-plan and evidence contract rejects every known illegal
+state and remains total under event reordering and redelivery. This sprint owns
+the adversarial portions of
+[Exit Definition](README.md#exit-definition) items `31` and `32`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Add known-invalid raw requests for zero/negative quantities, empty identities,
+  incompatible algorithm/environment pairs, dimension mismatches, and invalid
+  resolved-plan versions.
+- Add event fixtures for gaps, conflicting duplicates, wrong `PlanId`, malformed
+  payloads, non-finite measurements, missing terminal events, and completion
+  before the declared budget.
+- Property-test permutation invariance for independent events, idempotence for
+  identical redelivery, deterministic rejection of conflicting duplicates, and
+  exact missing-evidence diagnostics.
+- Exercise successful and failed settlement, timeout, cleanup failure, workload-
+  terminal-before-evidence, and evidence-before-workload-terminal orderings.
+- Require every product workflow contract to register at least one negative
+  control; accepting any known-invalid fixture fails the standing stanza.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `31.3` produces the versioned journal and aggregate
+  evidence boundary graded by these controls.
+- Add the invalid-plan, invalid-evidence, settlement, lifecycle-order, and
+  reducer property suites.
+- Make contract-negative coverage mandatory for every product row/workflow.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — invalid-plan/evidence controls and
+  reducer/lifecycle properties.
 - `documents/engineering/product_completion_contract.md` — negative controls,
   external bars, and provenance binding become the binding definition of "complete".
 - `documents/engineering/unit_testing_policy.md` — ownership of the

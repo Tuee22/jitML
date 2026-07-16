@@ -603,7 +603,8 @@ partial live)**:
   codecs, `gc.event.<substrate>` topic added to
   the derived `JitML.Cluster.PulsarBootstrap.pulsarTopics` family
   (historically 26 → 29 before later Apple host-command additions brought the
-  current derived family to 31), `JitML.App.publishGcReapedEvents` wired into
+  then-current derived family to 31; Sprint `5.18`'s `workflow.status` routes
+  bring the current family to 34), `JitML.App.publishGcReapedEvents` wired into
   `runInternalGc` after the live reaper, 4 new `jitml-unit`
   envelope round-trip tests.
 - Sprint `15.12` typed inference `AppError` variants:
@@ -635,8 +636,9 @@ not in the listed bundles, confirmed by `pulsar-admin topics create
 persistent://public/default/training.command.apple-silicon` returning
   `HTTP 409 "This topic already exists"`. The then-expanded 29-topic family
   including the 3 new `gc.event.<substrate>` entries was therefore present after
-  rollout; the current topology later grows to 31 topics via Apple host-command
-  additions. The retry-loop fix in
+  rollout; the topology later grew to 31 topics via Apple host-command
+  additions, and Sprint `5.18` brings the current family to 34 with the three
+  substrate-scoped `workflow.status` routes. The retry-loop fix in
 `pulsarTopicCreateSubprocess` re-validated. The full `Live` cohort of
 `jitml-integration` (9 cases) passes against the cluster:
 
@@ -1010,7 +1012,8 @@ NVIDIA container toolkit (`nvidia-container-runtime`, `libnvidia-ml.so.1`,
   `inference.command.apple-silicon`, `inference.event.apple-silicon`,
   `inference.result.linux-cuda` — existed with `ownerBroker =
   pulsar-broker-0`. The current topology has removed the Apple `inference.event`
-  refs-RPC topic and derives 31 topics.
+  refs-RPC topic and then derived 31 topics; Sprint `5.18` adds three
+  `workflow.status` routes, so the current derived family contains 34 topics.
 - Teardown: `jitml cluster down` (typed `Helm.kindDeleteSubprocess`)
   exited `0` with the message
   `cluster down: jitml-linux-cuda deleted; ./.build and ./.data
@@ -1356,8 +1359,9 @@ Event Processing` and `Retry Policy as First-Class Values` from
   SHA-256 of the published payload — evidence that
   `HandlerRouter.routeByKindAt` skipped dispatch on the second
   consume. The eventId is derived locally via
-  `JitML.Service.Consumer.eventIdFromPayload` so the assertion does
-  not depend on any other test infrastructure.
+  the then-current `JitML.Service.Consumer.eventIdFromPayload` so the assertion
+  did not depend on any other test infrastructure. Sprint `8.16` supersedes
+  this dated validation helper with plan/kind/key-derived semantic identity.
 - New helpers `daemonLogByteSize` and `daemonLogTailSinceBytes` in
   `test/integration/Main.hs` shell out to `kubectl logs
   deploy/jitml-service` through the typed `runStreaming` boundary
@@ -2171,7 +2175,8 @@ the typed `Subprocess` boundary, asserts the stdout reports
   topic is registered in the derived `JitML.Cluster.PulsarBootstrap.pulsarTopics`
   family. At that checkpoint the topic family size grew from 26 to 29
   (`gc.event.<substrate>` added); later Apple host-command additions brought the
-  current topology to 31.
+  then-current topology to 31; Sprint `5.18` subsequently brings the current
+  family to 34 with `workflow.status.<substrate>`.
 - `proto/jitml/gc.proto` describes the same envelope for cross-binding
   use through `proto-lens`.
 - `JitML.App.runInternalGc` now invokes
@@ -2191,8 +2196,9 @@ the typed `Subprocess` boundary, asserts the stdout reports
 - `jitml-integration` updated the "Pulsar bootstrap registers the
   substrate-scoped topic family" assertion to the then-current 29 topics with
   the three new `gc.event.<substrate>` entries (47/47 non-Live integration
-  tests passed). The current assertion is 31 topics after the host-command
-  additions.
+  tests passed). The assertion later became 31 topics after the host-command
+  additions and is now 34 after Sprint `5.18` adds the three
+  `workflow.status.<substrate>` routes.
 
 ### Live Validation Note (2026-05-26, gc.event publish stream)
 
@@ -2526,9 +2532,11 @@ Double-DQN variant:
   `VariantRecurrentPPO`) selects the surrogate term:
   - PPO / MaskablePPO / RecurrentPPO clip the surrogate;
   - A2C / TRPO use the unclipped policy-gradient ratio;
-  - TRPO additionally enforces a per-epoch KL trust-region gate
-    (`ppoKlTarget`) that stops the update once the approximate KL
-    between the rollout policy and the updated policy is exceeded.
+  - At this historical landing point TRPO additionally enforced a per-epoch
+    approximate-KL gate. Sprint `12.16` supersedes that implementation:
+    `nEpochs` is ignored for TRPO, and each rollout receives one
+    natural-gradient actor step accepted only by the exact categorical
+    `ppoKlTarget` trust region, followed by one isolated value-head update.
   `trainOnPolicyOnCartpole variant config` runs any of the five.
 - `jitml-rl-canonicals` adds "every on-policy variant trains and
   improves on cartpole" — A2C / TRPO / MaskablePPO / RecurrentPPO each
@@ -4210,6 +4218,12 @@ satisfying standards rule M's single-accelerator-per-phase invariant.
   `linux-cuda`); after
   `jitml internal seed-demo-checkpoints`, all five panels serve real
   checkpoint-backed results and the live Playwright spec passes **11/11**.
+- **Current role-boundary supersession (Sprint `12.16`).** The Webapp no longer
+  executes checkpoint inference in-process: it publishes through Pulsar to the
+  CUDA Engine. The historical Webapp GPU workaround above is therefore removed
+  from the current chart; `jitml-demo` requests no NVIDIA RuntimeClass/device
+  environment or Kubernetes API token, while the CUDA Engine and worker Jobs
+  retain the lane's real GPU attachment.
 - **Real defects fixed (all in the worktree):** the `jitml-unit` registry golden
   (`test/unit/Main.hs`), the demo `linux-cuda` GPU/memory gap (chart), and the
   `measureBrowserProductMatrix` report-card stub (now a live endpoint probe in

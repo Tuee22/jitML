@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md), [DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md](../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md), [DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md), [DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md), [DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md](../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md)
+**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md), [DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md](../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md), [DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md), [DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md), [DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md), [DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md](../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md)
 **Generated sections**: none
 
 > **Purpose**: The closed, self-validating `jitml.dhall` durable-state config — the single declared source for jitML's MinIO buckets, Pulsar topic family, and retention — where illegal topologies are Dhall typecheck failures.
@@ -81,6 +81,20 @@ and final weight hashes must be present and different, `updateCount` must be
 positive, and `datasetShaAtRead` must be present. Declared, partial,
 synthetic, seeded-demo, and failed-convergence selectors therefore report a
 typed decode failure before any checkpoint or inference IO runs.
+
+## Resolved Worker Plan Mounts
+
+`dhall/run/Schema.dhall` also reflects the tuning and AlphaZero worker mount
+boundary. `TuneRunConfig` and `AlphaZeroRunConfig` contain `planId`,
+`resolvedPlan`, and `pulsarWsUrl`; sampler/scheduler/pruner and numerical budget
+fields are not duplicated in those mounted records. Dhall validates the record
+shape, while `JitML.Plan.Command` / `JitML.Plan.Workload` own the facts Dhall
+cannot prove: supported plan version, positive unit-indexed quantities,
+canonical transport, plan identity, closed tuning axes/game, substrate
+placement, and equality with the originating raw command. A decode or semantic
+mismatch fails before trial, game, checkpoint, or publication effects. A
+Kubernetes Tune or AlphaZero worker also fails closed when the required mount is
+absent; only a non-worker developer invocation may construct a local plan.
 
 ## The honest static-vs-runtime boundary
 

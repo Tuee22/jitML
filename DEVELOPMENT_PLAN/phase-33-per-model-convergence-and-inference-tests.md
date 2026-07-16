@@ -1,6 +1,6 @@
 # Phase 33: Per-Model Convergence & Inference-Performance Tests
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md), [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md), [../README.md](../README.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -13,7 +13,13 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-10). The widened supervised architecture regime,
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `33.3`). The per-model
+suite does not yet consume opaque completed run evidence or structurally
+distinguish ordered training iterations from the keyed final evaluation set.
+Sprint `33.3` is blocked by Sprint `32.4`. Sprints `33.1`–`33.2` remain Done on
+their retained measured-model surface.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-10). The widened supervised architecture regime,
 vectorized RL regime, and row-specific convergence/performance floors are again
 covered by the standing per-model measurement suite. The validation run
 `docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu`
@@ -118,9 +124,63 @@ docker compose run --rm jitml jitml check-code
   `docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu`
   passed **111 / 111** on 2026-07-10.
 
+## Sprint 33.3: Contract-Driven Per-Model Evidence [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Test/RowAssertions.hs`,
+`src/JitML/Test/RunContract.hs`, `test/model-convergence/Main.hs`,
+`src/JitML/Product/ExternalBars.hs`
+**Blocked by**: Sprint `32.4`
+**Docs to update**: `../README.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`
+
+### Objective
+
+Make every per-model convergence and inference-performance assertion consume an
+opaque completed run-evidence value produced by the same plan and contract used
+in live execution. This sprint owns the per-model portion of
+[Exit Definition](README.md#exit-definition) item `31`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Drive every row from a validated plan and accept only
+  `CompletedRunEvidence rowKind` from its exact contract.
+- For RL, keep ordered learning-iteration summaries distinct from the exact
+  keyed final `EvaluationSet`; neither may be substituted for the other.
+- Require a validated non-empty seed cohort, finite per-seed measurements, exact
+  seed coverage, and the independent external convergence criterion.
+- Bind inference-performance measurement to the completed artifact and plan
+  identity used by training, rather than reading an unrelated latest artifact.
+- Preserve within-substrate deterministic rerun assertions while making missing,
+  duplicate, or cross-plan evidence a typed failure.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `32.4` establishes the contract's adversarial acceptance
+  boundary.
+- Migrate all per-model assertions to completed run evidence and separate RL
+  learning/evaluation observations.
+- Revalidate every ProductRow before returning this phase to Done.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — contract-derived per-model
+  completion, learning-curve, and final-evaluation evidence.
 - `documents/engineering/training_metrics_and_splits.md` — the per-model measured
   convergence + inference-performance contract at the widened + vectorized regime;
   RL reward is a trained-policy rollout, re-measured at the new model sizes.

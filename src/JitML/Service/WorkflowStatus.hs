@@ -9,25 +9,24 @@
 -- @workflow.status.<substrate>@ topic as 'WorkflowStatus' text frames, which the
 -- browser workflow panel renders live off @/api/ws/workflow@.
 --
--- The projection is a pure text transform ('workflowStatusFrameForCommand' /
--- 'workflowStatusFrameForEvent'); the daemon publishes the produced frame to
--- 'workflowStatusTopic'. A 'Nothing' result means the payload carried no
+-- The projection is a pure transform over the decoded daemon command; the
+-- daemon publishes the produced frame via
+-- the validated Coordinator topology. A 'Nothing' result means the payload carried no
 -- status-bearing transition (it is left for the existing per-domain handlers).
 module JitML.Service.WorkflowStatus
   ( WorkflowStatusFrame (..)
   , renderWorkflowStatusFrame
-  , workflowStatusFrameForCommand
-  , workflowStatusFrameForEvent
-  , workflowStatusTopic
+  , workflowStatusFrameForDaemonCommand
   )
 where
 
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import JitML.Service.Consumer (EventDomain (..))
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Proto.Rl qualified as Rl
+import JitML.Proto.Training qualified as Training
+import JitML.Proto.Tune qualified as Tune
+import JitML.Service.Consumer (DaemonCommand (..), EventDomain (..))
 
 -- | The reconciled per-run workflow status the projector republishes. @runId@
 -- is the run's experiment hash; @status@ is one of queued / running / done /
@@ -38,12 +37,6 @@ data WorkflowStatusFrame = WorkflowStatusFrame
   , wsfDetail :: Text
   }
   deriving stock (Eq, Show)
-
--- | The Pulsar topic suffix the projector publishes onto and the workflow panel
--- streams off (via the @/api/ws/workflow@ bridge).
-workflowStatusTopic :: Substrate -> Text
-workflowStatusTopic substrate =
-  "workflow.status." <> renderSubstrate substrate
 
 -- | Render a 'WorkflowStatusFrame' as the text payload the
 -- @Generated.Contracts.parseWorkflowStatus@ parser decodes (@panel@ /
@@ -58,61 +51,46 @@ renderWorkflowStatusFrame frame =
     , "detail: " <> Text.replace "\n" " " (wsfDetail frame)
     ]
 
--- | Project an observed @<domain>.command.<substrate>@ envelope into a reconciled
--- status frame: a @Start*@ command transitions the run to @queued@, a @Stop*@
--- command transitions it to @done@. Other payloads yield 'Nothing'.
-workflowStatusFrameForCommand :: EventDomain -> Text -> Maybe WorkflowStatusFrame
-workflowStatusFrameForCommand domain payload = do
-  let value key = lookup key (parseFields payload)
-  kind <- value "kind"
-  experimentHash <- value "experiment-hash"
-  status <- commandStatus kind
-  pure
-    WorkflowStatusFrame
-      { wsfRunId = experimentHash
-      , wsfStatus = status
-      , wsfDetail = renderEventDomainLabel domain <> " " <> kind
-      }
+-- | Project one already-decoded daemon command into the reconciled workflow
+-- status stream. Inference commands have no workflow lifecycle transition.
+workflowStatusFrameForDaemonCommand :: DaemonCommand -> Maybe WorkflowStatusFrame
+workflowStatusFrameForDaemonCommand command =
+  case command of
+    TrainingDaemonCommand _substrate training ->
+      case training of
+        Training.TrainingStart start ->
+          Just (commandFrame TrainingDomain (Training.stExperimentHash start) "queued" "StartTraining")
+        Training.TrainingStop stop ->
+          Just (commandFrame TrainingDomain (Training.stopExperimentHash stop) "done" "StopTraining")
+    TuneDaemonCommand _substrate tune ->
+      case tune of
+        Tune.TuneStart start ->
+          Just (commandFrame TuneDomain (Tune.ssExperimentHash start) "queued" "StartSweep")
+        Tune.TuneStop stop ->
+          Just (commandFrame TuneDomain (Tune.ssStopExperimentHash stop) "done" "StopSweep")
+    RlDaemonCommand _substrate rl ->
+      case rl of
+        Rl.RlStart start ->
+          Just (commandFrame RlDomain (Rl.srlExperimentHash start) "queued" "StartRLRun")
+        Rl.RlStartAlphaZero start ->
+          Just
+            ( commandFrame
+                RlDomain
+                (Rl.sazExperimentHash start)
+                "queued"
+                "StartAlphaZeroRun"
+            )
+        Rl.RlStop stop ->
+          Just (commandFrame RlDomain (Rl.srStopExperimentHash stop) "done" "StopRLRun")
+    InferenceDaemonCommand _substrate _inference -> Nothing
 
--- | Project an observed @<domain>.event.<substrate>@ progress event into a
--- reconciled status frame: progress events transition the run to @running@,
--- failure events to @failed@, completion events to @done@.
-workflowStatusFrameForEvent :: EventDomain -> Text -> Maybe WorkflowStatusFrame
-workflowStatusFrameForEvent domain payload = do
-  let value key = lookup key (parseFields payload)
-  kind <- value "kind"
-  experimentHash <- value "experiment-hash"
-  status <- eventStatus kind
-  pure
-    WorkflowStatusFrame
-      { wsfRunId = experimentHash
-      , wsfStatus = status
-      , wsfDetail = renderEventDomainLabel domain <> " " <> kind
-      }
-
-commandStatus :: Text -> Maybe Text
-commandStatus kind =
-  case kind of
-    "StartTraining" -> Just "queued"
-    "StartRLRun" -> Just "queued"
-    "StartSweep" -> Just "queued"
-    "StopTraining" -> Just "done"
-    "StopRLRun" -> Just "done"
-    "StopSweep" -> Just "done"
-    _ -> Nothing
-
-eventStatus :: Text -> Maybe Text
-eventStatus kind =
-  case kind of
-    "EpochCompleted" -> Just "running"
-    "RlEpisode" -> Just "running"
-    "TuneTrial" -> Just "running"
-    "CheckpointDone" -> Just "done"
-    "SweepDone" -> Just "done"
-    "TrainingFailed" -> Just "failed"
-    "RlFailed" -> Just "failed"
-    "SweepFailed" -> Just "failed"
-    _ -> Nothing
+commandFrame :: EventDomain -> Text -> Text -> Text -> WorkflowStatusFrame
+commandFrame domain experimentHash status kind =
+  WorkflowStatusFrame
+    { wsfRunId = experimentHash
+    , wsfStatus = status
+    , wsfDetail = renderEventDomainLabel domain <> " " <> kind
+    }
 
 renderEventDomainLabel :: EventDomain -> Text
 renderEventDomainLabel domain =
@@ -121,13 +99,3 @@ renderEventDomainLabel domain =
     TuneDomain -> "tune"
     RlDomain -> "rl"
     InferenceDomain -> "inference"
-
-parseFields :: Text -> [(Text, Text)]
-parseFields =
-  mapMaybe parseField . Text.lines
- where
-  parseField line =
-    let (key, rest) = Text.breakOn ":" line
-     in if Text.null rest
-          then Nothing
-          else Just (Text.strip key, Text.strip (Text.drop 1 rest))

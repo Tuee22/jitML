@@ -1,39 +1,53 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module JitML.Service.Workload
   ( LoadedWeightTensor
-  , WorkloadKind (..)
+  , WorkloadEffectKind (..)
   , WorkloadEffect (..)
   , WorkloadEffectResult (..)
+  , SomeWorkloadEffect (..)
+  , SomeWorkloadOutcome (..)
+  , WorkloadDecodeError (..)
+  , ClusterJobSpec (..)
+  , HostCommandSpec
+  , InferenceResultTarget
+  , WorkloadLaunch (..)
   , WorkloadPlacement (..)
-  , dispatchDomainPayload
-  , dispatchDomainPayloadForResidency
-  , dispatchDomainPayloadWithInference
-  , dispatchDomainPayloadWithPlacement
-  , dispatchDomainPayloadWithWeightedInference
+  , buildInferenceWorkloadEffectsForTopic
+  , buildRlWorkloadEffects
+  , buildTrainingWorkloadEffects
+  , buildTuneWorkloadEffects
+  , dispatchInferenceCommandForTopic
+  , dispatchInferenceCommandForTopicWithInference
+  , dispatchInferenceCommandForTopicWithWeightedInference
+  , dispatchRlCommand
+  , dispatchTrainingCommand
+  , dispatchTuneCommand
   , dispatchWorkloadPayload
-  , dispatchWorkloadPayloadWithInference
-  , dispatchWorkloadPayloadWithWeightedInference
-  , hostWorkloadCommandTopic
+  , hostCommandSpecPayload
+  , hostCommandSpecTopicName
+  , inferenceResultTargetSubstrate
+  , inferenceResultTargetTopicName
   , parseWorkloadEffectPayload
   , planWorkloadPlacement
   , renderRlJob
+  , renderAlphaZeroJob
   , renderTrainingJob
   , renderTuneJob
   , rlTrainerForAlgorithm
   , renderWorkloadEffect
   , renderWorkloadEffectPayload
   , renderWorkloadEffectResult
-  , runInferenceRequest
-  , runInferenceRequestWith
-  , runInferenceRequestWithWeightedInference
+  , renderSomeWorkloadEffect
+  , renderSomeWorkloadOutcome
   , checkpointSummaries
   , checkpointSummariesForRow
   , renderCheckpointListResult
   , renderCheckpointListResultWithSelectors
-  , runListCheckpointsRequest
-  , runLoadTranscriptRequest
   , seededDemoExperimentHashes
   , runWorkloadEffect
   , runWorkloadEffectWithInference
@@ -41,6 +55,9 @@ module JitML.Service.Workload
   , runWorkloadEffects
   , runWorkloadEffectsWithInference
   , runWorkloadEffectsWithWeightedInference
+  , someWorkloadEffectKind
+  , workloadEffectKind
+  , workloadOutcomeError
   )
 where
 
@@ -55,9 +72,12 @@ import Data.Char
   , isHexDigit
   , toLower
   )
-import Data.Maybe (mapMaybe)
+import Data.Either.Combinators (mapLeft)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 
 import JitML.Checkpoint.Format
   ( CheckpointManifest (..)
@@ -68,12 +88,37 @@ import JitML.Checkpoint.Format
   )
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Coordinator.Topology
+  ( InferenceResultMessage
+  , ProtocolRoute (..)
+  , Topic
+  , decodeTopicPayload
+  , encodeTopicPayload
+  , mkInferenceResultMessage
+  , resolveTopic
+  , topicFor
+  , topicName
+  , topicSubstrate
+  )
 import JitML.Inference.AdversarialMove
   ( AdversarialMoveOutcome (..)
   , adversarialRuntimeInput
   , computeAdversarialMove
   )
 import JitML.Inference.Decode qualified as Decode
+import JitML.Plan.Command qualified as PlanCommand
+import JitML.Plan.Plan (planIdText)
+import JitML.Plan.Workload
+  ( AlphaZeroPlan
+  , SupervisedPlan
+  , TuningPlan
+  , alphaZeroPlanId
+  , renderAlphaZeroPlanTransport
+  , renderSupervisedPlanTransport
+  , renderTuningPlanTransport
+  , supervisedPlanId
+  , tuningPlanId
+  )
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Inference
@@ -81,38 +126,32 @@ import JitML.Proto.Inference
   , AdversarialMoveResult (..)
   , CheckpointCompareCommand (..)
   , CheckpointCompareResult (..)
+  , InferenceCommand
   , InferenceRequest (..)
   , InferenceResult (..)
   , ListCheckpointsCommand (..)
   , LoadTranscriptCommand (..)
-  , parseAdversarialMoveCommand
-  , parseCheckpointCompareCommand
-  , parseInferenceInput
-  , parseInferenceRequest
-  , parseListCheckpointsCommand
-  , parseLoadTranscriptCommand
   , renderAdversarialMoveResult
   , renderCheckpointCompareResult
   , renderInferenceRequest
   , renderInferenceResult
   )
+import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl
   ( RlCommand (..)
+  , StartAlphaZeroRun (..)
   , StartRLRun (..)
   , StopRLRun (..)
-  , parseRlCommand
   )
 import JitML.Proto.Training
   ( StartTraining (..)
   , StopTraining (..)
   , TrainingCommand (..)
-  , parseTrainingCommand
   )
 import JitML.Proto.Tune
   ( StartSweep (..)
   , StopSweep (..)
   , TuneCommand (..)
-  , parseTuneCommand
   )
 import JitML.Service.BootConfig (Residency (..))
 import JitML.Service.Capabilities
@@ -126,14 +165,14 @@ import JitML.Service.Capabilities
   , KubeResource (..)
   , ObjectKey (..)
   , ObjectRef (..)
-  , TopicName (..)
   )
-import JitML.Service.Consumer (EventDomain (..))
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.RunConfig
-  ( RlRunConfig (..)
+  ( AlphaZeroRunConfig (..)
+  , RlRunConfig (..)
   , TrainingRunConfig (..)
   , TuneRunConfig (..)
+  , renderAlphaZeroRunConfigDhall
   , renderRlRunConfigDhall
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
@@ -143,7 +182,12 @@ import JitML.Service.Transcript
   , readTranscriptRecord
   , writeTranscriptRecord
   )
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateRuntimeClass)
+import JitML.Substrate
+  ( Substrate (..)
+  , parseSubstrate
+  , renderSubstrate
+  , substrateRuntimeClass
+  )
 import JitML.Training.Budget
   ( ConvergenceObservation
   , coMetricName
@@ -168,52 +212,222 @@ type WeightedInferenceRunner m =
   -> [Double]
   -> m (Either Text [Double])
 
-data WorkloadKind
-  = WorkloadInference
-  | WorkloadTraining
-  | WorkloadTune
-  | WorkloadRl
+-- | Closed effect indices. A constructor of 'WorkloadEffect' fixes one of
+-- these indices, and 'WorkloadEffectResult' uses the same index. It is
+-- therefore impossible to pair, for example, a kubectl status effect with an
+-- image-promotion result.
+data WorkloadEffectKind
+  = CheckpointBlobWrite
+  | CheckpointPointerUpdate
+  | WorkloadImagePromotion
+  | InferenceCommandExecution
+  | HostCommandPublication
+  | WorkloadResourceApplication
+  | WorkloadResourceStatusRead
+  | WorkloadResourceDeletion
+  deriving stock (Eq, Show)
+
+data WorkloadEffect (kind :: WorkloadEffectKind) where
+  WriteCheckpointBlob
+    :: ObjectRef
+    -> ByteString
+    -> WorkloadEffect 'CheckpointBlobWrite
+  UpdateCheckpointPointer
+    :: ObjectRef
+    -> Maybe ETag
+    -> Text
+    -> WorkloadEffect 'CheckpointPointerUpdate
+  PromoteWorkloadImage
+    :: ImageRef
+    -> ImageRef
+    -> WorkloadEffect 'WorkloadImagePromotion
+  RunInference
+    :: InferenceResultTarget
+    -> InferenceRequest
+    -> WorkloadEffect 'InferenceCommandExecution
+  CompareInferenceCheckpoints
+    :: InferenceResultTarget
+    -> CheckpointCompareCommand
+    -> WorkloadEffect 'InferenceCommandExecution
+  RunAdversarialMove
+    :: InferenceResultTarget
+    -> AdversarialMoveCommand
+    -> WorkloadEffect 'InferenceCommandExecution
+  ListInferenceCheckpoints
+    :: InferenceResultTarget
+    -> ListCheckpointsCommand
+    -> WorkloadEffect 'InferenceCommandExecution
+  LoadInferenceTranscript
+    :: InferenceResultTarget
+    -> LoadTranscriptCommand
+    -> WorkloadEffect 'InferenceCommandExecution
+  PublishHostWorkloadCommand
+    :: HostCommandSpec
+    -> WorkloadEffect 'HostCommandPublication
+  ApplyWorkloadResource
+    :: KubeResource
+    -> Text
+    -> WorkloadEffect 'WorkloadResourceApplication
+  ReadWorkloadResourceStatus
+    :: KubeResource
+    -> WorkloadEffect 'WorkloadResourceStatusRead
+  DeleteWorkloadResource
+    :: KubeResource
+    -> WorkloadEffect 'WorkloadResourceDeletion
+
+deriving stock instance Eq (WorkloadEffect kind)
+deriving stock instance Show (WorkloadEffect kind)
+
+data WorkloadEffectResult (kind :: WorkloadEffectKind) where
+  CheckpointBlobWritten
+    :: ETag
+    -> WorkloadEffectResult 'CheckpointBlobWrite
+  CheckpointPointerUpdated
+    :: ETag
+    -> WorkloadEffectResult 'CheckpointPointerUpdate
+  WorkloadImagePromoted
+    :: ImageRef
+    -> WorkloadEffectResult 'WorkloadImagePromotion
+  InferenceResultPublished
+    :: Text
+    -> WorkloadEffectResult 'InferenceCommandExecution
+  HostWorkloadCommandPublished
+    :: Text
+    -> WorkloadEffectResult 'HostCommandPublication
+  WorkloadResourceApplied
+    :: WorkloadEffectResult 'WorkloadResourceApplication
+  WorkloadResourceStatus
+    :: Text
+    -> WorkloadEffectResult 'WorkloadResourceStatusRead
+  WorkloadResourceDeleted
+    :: WorkloadEffectResult 'WorkloadResourceDeletion
+
+deriving stock instance Eq (WorkloadEffectResult kind)
+deriving stock instance Show (WorkloadEffectResult kind)
+
+-- | Existential wrapper for a heterogeneous, non-empty effect program.
+data SomeWorkloadEffect where
+  SomeWorkloadEffect :: WorkloadEffect kind -> SomeWorkloadEffect
+
+instance Eq SomeWorkloadEffect where
+  left == right = renderWorkloadEffectPayloadForSome left == renderWorkloadEffectPayloadForSome right
+
+instance Show SomeWorkloadEffect where
+  show = Text.unpack . renderSomeWorkloadEffect
+
+-- | The effect witness is retained beside its indexed outcome, so even a
+-- failure still records which result type was expected.
+data SomeWorkloadOutcome where
+  SomeWorkloadOutcome
+    :: WorkloadEffect kind
+    -> Either ServiceError (WorkloadEffectResult kind)
+    -> SomeWorkloadOutcome
+
+instance Show SomeWorkloadOutcome where
+  show = Text.unpack . renderSomeWorkloadOutcome
+
+data WorkloadDecodeError
+  = InvalidWorkloadEffectPayload Text
+  | WorkloadCommandSubstrateMismatch Substrate Substrate
+  | WorkloadTopologyError Text
+  | WorkloadPlanError Text
+  deriving stock (Eq, Show)
+
+-- | Complete cluster placement evidence. Applying a placement never has to
+-- reconstruct either the resource identity or its manifest later.
+data ClusterJobSpec = ClusterJobSpec
+  { clusterJobResource :: KubeResource
+  , clusterJobManifest :: Text
+  }
+  deriving stock (Eq, Show)
+
+-- | Existential typed host command. The topic and event share the same hidden
+-- event parameter; arbitrary text cannot be paired with a typed topic.
+data HostCommandSpec where
+  HostCommandSpec :: Topic event -> event -> HostCommandSpec
+
+instance Eq HostCommandSpec where
+  left == right =
+    hostCommandSpecTopicName left == hostCommandSpecTopicName right
+      && hostCommandSpecPayload left == hostCommandSpecPayload right
+
+instance Show HostCommandSpec where
+  show spec =
+    "HostCommandSpec "
+      <> show (hostCommandSpecTopicName spec)
+      <> " "
+      <> show (hostCommandSpecPayload spec)
+
+-- | The result route refined against the substrate of the consumed typed
+-- inference-command topic. Its constructor is private, so daemon effects can
+-- only obtain it through 'buildInferenceWorkloadEffectsForTopic'.
+newtype InferenceResultTarget = InferenceResultTarget
+  { inferenceResultTargetTopic :: Topic InferenceResultMessage
+  }
+  deriving stock (Eq, Show)
+
+data WorkloadLaunch
+  = TrainingLaunch StartTraining
+  | ResolvedTrainingLaunch StartTraining SupervisedPlan
+  | TuneLaunch StartSweep TuningPlan
+  | RlLaunch StartRLRun
+  | AlphaZeroLaunch StartAlphaZeroRun AlphaZeroPlan
   deriving stock (Eq, Show)
 
 data WorkloadPlacement
-  = WorkloadClusterJob
-  | WorkloadHostCommand TopicName
+  = WorkloadClusterJob ClusterJobSpec
+  | WorkloadHostCommand HostCommandSpec
   deriving stock (Eq, Show)
 
-data WorkloadEffect
-  = WriteCheckpointBlob ObjectRef ByteString
-  | UpdateCheckpointPointer ObjectRef (Maybe ETag) Text
-  | PromoteWorkloadImage ImageRef ImageRef
-  | RunInference InferenceRequest
-  | PublishHostWorkloadCommand TopicName Text
-  | ApplyWorkloadResource KubeResource Text
-  | ReadWorkloadResourceStatus KubeResource
-  | DeleteWorkloadResource KubeResource
-  deriving stock (Eq, Show)
+hostCommandSpecTopicName :: HostCommandSpec -> Text
+hostCommandSpecTopicName (HostCommandSpec topic _) = topicName topic
 
-data WorkloadEffectResult
-  = CheckpointBlobWritten ETag
-  | CheckpointPointerUpdated ETag
-  | WorkloadImagePromoted ImageRef
-  | InferenceResultPublished Text
-  | HostWorkloadCommandPublished TopicName
-  | WorkloadResourceApplied
-  | WorkloadResourceStatus Text
-  | WorkloadResourceDeleted
-  deriving stock (Eq, Show)
+hostCommandSpecPayload :: HostCommandSpec -> Text
+hostCommandSpecPayload (HostCommandSpec topic event) = encodeTopicPayload topic event
+
+inferenceResultTargetTopicName :: InferenceResultTarget -> Text
+inferenceResultTargetTopicName = topicName . inferenceResultTargetTopic
+
+inferenceResultTargetSubstrate :: InferenceResultTarget -> Substrate
+inferenceResultTargetSubstrate = topicSubstrate . inferenceResultTargetTopic
+
+workloadEffectKind :: WorkloadEffect kind -> WorkloadEffectKind
+workloadEffectKind effect =
+  case effect of
+    WriteCheckpointBlob {} -> CheckpointBlobWrite
+    UpdateCheckpointPointer {} -> CheckpointPointerUpdate
+    PromoteWorkloadImage {} -> WorkloadImagePromotion
+    RunInference {} -> InferenceCommandExecution
+    CompareInferenceCheckpoints {} -> InferenceCommandExecution
+    RunAdversarialMove {} -> InferenceCommandExecution
+    ListInferenceCheckpoints {} -> InferenceCommandExecution
+    LoadInferenceTranscript {} -> InferenceCommandExecution
+    PublishHostWorkloadCommand {} -> HostCommandPublication
+    ApplyWorkloadResource {} -> WorkloadResourceApplication
+    ReadWorkloadResourceStatus {} -> WorkloadResourceStatusRead
+    DeleteWorkloadResource {} -> WorkloadResourceDeletion
+
+someWorkloadEffectKind :: SomeWorkloadEffect -> WorkloadEffectKind
+someWorkloadEffectKind (SomeWorkloadEffect effect) = workloadEffectKind effect
+
+workloadOutcomeError :: SomeWorkloadOutcome -> Maybe ServiceError
+workloadOutcomeError (SomeWorkloadOutcome _ result) =
+  case result of
+    Left err -> Just err
+    Right _ -> Nothing
 
 runWorkloadEffect
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => WorkloadEffect
-  -> m (Either ServiceError WorkloadEffectResult)
+  => WorkloadEffect kind
+  -> m (Either ServiceError (WorkloadEffectResult kind))
 runWorkloadEffect =
   runWorkloadEffectWithInference defaultCheckpointInference
 
 runWorkloadEffectWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => InferenceRunner m
-  -> WorkloadEffect
-  -> m (Either ServiceError WorkloadEffectResult)
+  -> WorkloadEffect kind
+  -> m (Either ServiceError (WorkloadEffectResult kind))
 runWorkloadEffectWithInference runInference effect =
   case effect of
     WriteCheckpointBlob ref payload ->
@@ -222,10 +436,19 @@ runWorkloadEffectWithInference runInference effect =
       fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
-    RunInference request ->
-      fmap InferenceResultPublished <$> runInferenceRequestWith runInference request
-    PublishHostWorkloadCommand topic payload ->
-      fmap (const (HostWorkloadCommandPublished topic)) <$> pulsarPublish topic payload
+    RunInference target request ->
+      fmap InferenceResultPublished <$> runInferenceRequestWithTarget target runInference request
+    CompareInferenceCheckpoints _ _ ->
+      pure (Left (SETransient "checkpoint compare requires a weighted inference runner"))
+    RunAdversarialMove _ _ ->
+      pure (Left (SETransient "adversarial move requires a weighted inference runner"))
+    ListInferenceCheckpoints target command ->
+      fmap InferenceResultPublished <$> runListCheckpointsRequestWithTarget target command
+    LoadInferenceTranscript target command ->
+      fmap InferenceResultPublished <$> runLoadTranscriptRequestWithTarget target command
+    PublishHostWorkloadCommand spec ->
+      fmap (const (HostWorkloadCommandPublished (hostCommandSpecTopicName spec)))
+        <$> publishHostCommand spec
     ApplyWorkloadResource resource manifest ->
       fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
     ReadWorkloadResourceStatus resource ->
@@ -235,180 +458,456 @@ runWorkloadEffectWithInference runInference effect =
 
 runWorkloadEffects
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => [WorkloadEffect]
-  -> m [Either ServiceError WorkloadEffectResult]
+  => NonEmpty SomeWorkloadEffect
+  -> m (NonEmpty SomeWorkloadOutcome)
 runWorkloadEffects =
   runWorkloadEffectsWithInference defaultCheckpointInference
 
 runWorkloadEffectsWithInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => InferenceRunner m
-  -> [WorkloadEffect]
-  -> m [Either ServiceError WorkloadEffectResult]
+  -> NonEmpty SomeWorkloadEffect
+  -> m (NonEmpty SomeWorkloadOutcome)
 runWorkloadEffectsWithInference runInference =
-  traverse (runWorkloadEffectWithInference runInference)
+  traverse (runSomeWorkloadEffectWithInference runInference)
+
+runSomeWorkloadEffectWithInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => InferenceRunner m
+  -> SomeWorkloadEffect
+  -> m SomeWorkloadOutcome
+runSomeWorkloadEffectWithInference runInference (SomeWorkloadEffect effect) =
+  SomeWorkloadOutcome effect <$> runWorkloadEffectWithInference runInference effect
 
 dispatchWorkloadPayload
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Text
-  -> m (Maybe (Either ServiceError WorkloadEffectResult))
-dispatchWorkloadPayload =
-  dispatchWorkloadPayloadWithInference defaultCheckpointInference
-
-dispatchWorkloadPayloadWithInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => InferenceRunner m
-  -> Text
-  -> m (Maybe (Either ServiceError WorkloadEffectResult))
-dispatchWorkloadPayloadWithInference runInference payload =
+  -> m (Either WorkloadDecodeError SomeWorkloadOutcome)
+dispatchWorkloadPayload payload =
   case parseWorkloadEffectPayload payload of
-    Nothing -> pure Nothing
-    Just effect -> Just <$> runWorkloadEffectWithInference runInference effect
+    Left err -> pure (Left err)
+    Right effect ->
+      Right <$> runSomeWorkloadEffectWithInference defaultCheckpointInference effect
 
-dispatchDomainPayload
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => EventDomain
-  -> Text
-  -> m [Either ServiceError WorkloadEffectResult]
-dispatchDomainPayload =
-  dispatchDomainPayloadWithInference defaultCheckpointInference
-
-dispatchDomainPayloadWithInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => InferenceRunner m
-  -> EventDomain
-  -> Text
-  -> m [Either ServiceError WorkloadEffectResult]
-dispatchDomainPayloadWithInference runInference domain payload =
-  case domain of
-    InferenceDomain ->
-      case parseInferenceRequest payload of
-        Nothing -> pure []
-        Just request ->
-          fmap (pure . fmap InferenceResultPublished) (runInferenceRequestWith runInference request)
-    _ ->
-      runWorkloadEffectsWithInference runInference (workloadEffectsForDomainPayload domain payload)
-
-workloadEffectsForDomainPayload :: EventDomain -> Text -> [WorkloadEffect]
-workloadEffectsForDomainPayload =
-  workloadEffectsForDomainPayloadForResidency Cluster
-
-workloadEffectsForDomainPayloadForResidency
-  :: Residency -> EventDomain -> Text -> [WorkloadEffect]
-workloadEffectsForDomainPayloadForResidency residency domain payload =
-  case domain of
-    TrainingDomain ->
-      maybe [] (trainingCommandEffects residency payload) (parseTrainingCommand payload)
-    TuneDomain ->
-      maybe [] (tuneCommandEffects residency payload) (parseTuneCommand payload)
-    RlDomain ->
-      maybe [] (rlCommandEffects residency payload) (parseRlCommand payload)
-    InferenceDomain ->
-      maybe [] (pure . RunInference) (parseInferenceRequest payload)
-
-dispatchDomainPayloadForResidency
+dispatchTrainingCommand
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Residency
-  -> EventDomain
-  -> Text
-  -> m [Either ServiceError WorkloadEffectResult]
-dispatchDomainPayloadForResidency residency domain payload =
-  runWorkloadEffects (workloadEffectsForDomainPayloadForResidency residency domain payload)
+  -> Substrate
+  -> TrainingCommand
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+dispatchTrainingCommand residency substrate command =
+  runBuiltWorkloadEffects (buildTrainingWorkloadEffects residency substrate command)
 
-dispatchDomainPayloadWithPlacement
+dispatchTuneCommand
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Residency
-  -> EventDomain
-  -> Text
-  -> m [Either ServiceError WorkloadEffectResult]
-dispatchDomainPayloadWithPlacement =
-  dispatchDomainPayloadForResidency
+  -> Substrate
+  -> TuneCommand
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+dispatchTuneCommand residency substrate command =
+  runBuiltWorkloadEffects (buildTuneWorkloadEffects residency substrate command)
 
-trainingCommandEffects :: Residency -> Text -> TrainingCommand -> [WorkloadEffect]
-trainingCommandEffects residency payload command =
-  case command of
-    TrainingStart start ->
-      case planWorkloadPlacement residency WorkloadTraining (stSubstrate start) of
-        WorkloadClusterJob ->
-          let resource = KubeResource ("job/" <> workloadName "jitml-train" (stExperimentHash start))
-           in [ApplyWorkloadResource resource (renderTrainingJob start)]
-        WorkloadHostCommand topic ->
-          [PublishHostWorkloadCommand topic payload]
-    TrainingStop stop ->
-      [ DeleteWorkloadResource
-          (KubeResource ("job/" <> workloadName "jitml-train" (stopExperimentHash stop)))
-      ]
+dispatchRlCommand
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => Residency
+  -> Substrate
+  -> RlCommand
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+dispatchRlCommand residency substrate command =
+  runBuiltWorkloadEffects (buildRlWorkloadEffects residency substrate command)
 
-tuneCommandEffects :: Residency -> Text -> TuneCommand -> [WorkloadEffect]
-tuneCommandEffects residency payload command =
-  case command of
-    TuneStart start ->
-      case planWorkloadPlacement residency WorkloadTune (ssSubstrate start) of
-        WorkloadClusterJob ->
-          let resource = KubeResource ("job/" <> workloadName "jitml-tune" (ssExperimentHash start))
-           in [ApplyWorkloadResource resource (renderTuneJob start)]
-        WorkloadHostCommand topic ->
-          [PublishHostWorkloadCommand topic payload]
-    TuneStop stop ->
-      [ DeleteWorkloadResource
-          (KubeResource ("job/" <> workloadName "jitml-tune" (ssStopExperimentHash stop)))
-      ]
+runBuiltWorkloadEffects
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+runBuiltWorkloadEffects result =
+  case result of
+    Left err -> pure (Left err)
+    Right effects -> Right <$> runWorkloadEffects effects
 
-rlCommandEffects :: Residency -> Text -> RlCommand -> [WorkloadEffect]
-rlCommandEffects residency payload command =
-  case command of
-    RlStart start ->
-      case planWorkloadPlacement residency WorkloadRl (srlSubstrate start) of
-        WorkloadClusterJob ->
-          let resource = KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
-           in [ApplyWorkloadResource resource (renderRlJob start)]
-        WorkloadHostCommand topic ->
-          [PublishHostWorkloadCommand topic payload]
-    RlStop stop ->
-      [ DeleteWorkloadResource
-          (KubeResource ("job/" <> workloadName "jitml-rl" (srStopExperimentHash stop)))
-      ]
-
-planWorkloadPlacement :: Residency -> WorkloadKind -> Substrate -> WorkloadPlacement
-planWorkloadPlacement residency kind substrate =
-  case (residency, kind, substrate) of
-    (Cluster, WorkloadTraining, AppleSilicon) ->
-      WorkloadHostCommand (hostWorkloadCommandTopic WorkloadTraining AppleSilicon)
-    (Cluster, WorkloadTune, AppleSilicon) ->
-      WorkloadHostCommand (hostWorkloadCommandTopic WorkloadTune AppleSilicon)
-    (Cluster, WorkloadRl, AppleSilicon) ->
-      WorkloadHostCommand (hostWorkloadCommandTopic WorkloadRl AppleSilicon)
-    _ -> WorkloadClusterJob
-
-hostWorkloadCommandTopic :: WorkloadKind -> Substrate -> TopicName
-hostWorkloadCommandTopic kind substrate =
-  TopicName $
-    "persistent://public/default/"
-      <> hostWorkloadCommandPrefix kind
-      <> "."
-      <> renderSubstrate substrate
-
-hostWorkloadCommandPrefix :: WorkloadKind -> Text
-hostWorkloadCommandPrefix kind =
-  case kind of
-    WorkloadTraining -> "training.host-command"
-    WorkloadTune -> "tune.host-command"
-    WorkloadRl -> "rl.host-command"
-    WorkloadInference -> "inference.command"
-
-runInferenceRequest
+dispatchInferenceCommandForTopic
   :: (HasMinIO m, HasPulsar m)
-  => InferenceRequest
+  => Topic InferenceCommand
+  -> InferenceCommand
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+dispatchInferenceCommandForTopic =
+  dispatchInferenceCommandForTopicWithInference defaultCheckpointInference
+
+dispatchInferenceCommandForTopicWithInference
+  :: (HasMinIO m, HasPulsar m)
+  => InferenceRunner m
+  -> Topic InferenceCommand
+  -> InferenceCommand
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+dispatchInferenceCommandForTopicWithInference runInference inputTopic command =
+  case inferenceCommandEffectForTopic inputTopic command of
+    Left err -> pure (Left err)
+    Right effect -> do
+      result <- runInferenceCommandEffectWithInference runInference effect
+      pure (Right (SomeWorkloadOutcome effect result :| []))
+
+dispatchInferenceCommandForTopicWithWeightedInference
+  :: (HasMinIO m, HasPulsar m)
+  => WeightedInferenceRunner m
+  -> Topic InferenceCommand
+  -> InferenceCommand
+  -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
+dispatchInferenceCommandForTopicWithWeightedInference runInference inputTopic command =
+  case inferenceCommandEffectForTopic inputTopic command of
+    Left err -> pure (Left err)
+    Right effect -> do
+      result <- runInferenceCommandEffectWithWeightedInference runInference effect
+      pure (Right (SomeWorkloadOutcome effect result :| []))
+
+runInferenceCommandEffectWithInference
+  :: (HasMinIO m, HasPulsar m)
+  => InferenceRunner m
+  -> WorkloadEffect 'InferenceCommandExecution
+  -> m (Either ServiceError (WorkloadEffectResult 'InferenceCommandExecution))
+runInferenceCommandEffectWithInference runInference effect =
+  case effect of
+    RunInference target request ->
+      fmap InferenceResultPublished <$> runInferenceRequestWithTarget target runInference request
+    CompareInferenceCheckpoints _target _command ->
+      pure (Left (SETransient "checkpoint compare requires a weighted inference runner"))
+    RunAdversarialMove _target _command ->
+      pure (Left (SETransient "adversarial move requires a weighted inference runner"))
+    ListInferenceCheckpoints target command ->
+      fmap InferenceResultPublished <$> runListCheckpointsRequestWithTarget target command
+    LoadInferenceTranscript target command ->
+      fmap InferenceResultPublished <$> runLoadTranscriptRequestWithTarget target command
+
+runInferenceCommandEffectWithWeightedInference
+  :: (HasMinIO m, HasPulsar m)
+  => WeightedInferenceRunner m
+  -> WorkloadEffect 'InferenceCommandExecution
+  -> m (Either ServiceError (WorkloadEffectResult 'InferenceCommandExecution))
+runInferenceCommandEffectWithWeightedInference runInference effect =
+  case effect of
+    RunInference target request ->
+      fmap InferenceResultPublished
+        <$> runInferenceRequestWithWeightedInferenceTo target runInference request
+    CompareInferenceCheckpoints target command ->
+      fmap InferenceResultPublished
+        <$> runCheckpointCompareRequestWithWeightedInference target runInference command
+    RunAdversarialMove target command ->
+      fmap InferenceResultPublished
+        <$> runAdversarialMoveRequestWithWeightedInference target runInference command
+    ListInferenceCheckpoints target command ->
+      fmap InferenceResultPublished <$> runListCheckpointsRequestWithTarget target command
+    LoadInferenceTranscript target command ->
+      fmap InferenceResultPublished <$> runLoadTranscriptRequestWithTarget target command
+
+buildTrainingWorkloadEffects
+  :: Residency
+  -> Substrate
+  -> TrainingCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+buildTrainingWorkloadEffects residency substrate command = do
+  validateTrainingCommandSubstrate substrate command
+  trainingCommandEffects residency substrate command
+
+trainingCommandEffects
+  :: Residency
+  -> Substrate
+  -> TrainingCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+trainingCommandEffects residency substrate command =
+  case command of
+    TrainingStart start -> do
+      plan <- firstPlanError (PlanCommand.validateStartTraining start)
+      placement <- planWorkloadPlacement residency (ResolvedTrainingLaunch start plan)
+      pure (placementEffect placement :| [])
+    TrainingStop stop
+      | residency == Cluster && substrate == AppleSilicon ->
+          (:| []) . placementEffect . WorkloadHostCommand
+            <$> mkHostCommandSpec TrainingHostCommandRoute AppleSilicon (TrainingStop stop)
+      | otherwise ->
+          pure (clusterWorkloadStopEffects "jitml-train" (stopExperimentHash stop))
+
+buildTuneWorkloadEffects
+  :: Residency
+  -> Substrate
+  -> TuneCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+buildTuneWorkloadEffects residency substrate command = do
+  validateTuneCommandSubstrate substrate command
+  tuneCommandEffects residency substrate command
+
+tuneCommandEffects
+  :: Residency
+  -> Substrate
+  -> TuneCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+tuneCommandEffects residency substrate command =
+  case command of
+    TuneStart start -> do
+      plan <- firstPlanError (PlanCommand.validateStartSweep start)
+      placement <- planWorkloadPlacement residency (TuneLaunch start plan)
+      pure (placementEffect placement :| [])
+    TuneStop stop
+      | residency == Cluster && substrate == AppleSilicon ->
+          (:| []) . placementEffect . WorkloadHostCommand
+            <$> mkHostCommandSpec TuneHostCommandRoute AppleSilicon (TuneStop stop)
+      | otherwise ->
+          pure (clusterWorkloadStopEffects "jitml-tune" (ssStopExperimentHash stop))
+
+buildRlWorkloadEffects
+  :: Residency
+  -> Substrate
+  -> RlCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+buildRlWorkloadEffects residency substrate command = do
+  validateRlCommandSubstrate substrate command
+  rlCommandEffects residency substrate command
+
+rlCommandEffects
+  :: Residency
+  -> Substrate
+  -> RlCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+rlCommandEffects residency substrate command =
+  case command of
+    RlStart start -> do
+      placement <- planWorkloadPlacement residency (RlLaunch start)
+      pure (placementEffect placement :| [])
+    RlStartAlphaZero start -> do
+      plan <- firstPlanError (PlanCommand.validateStartAlphaZeroRun start)
+      placement <- planWorkloadPlacement residency (AlphaZeroLaunch start plan)
+      pure (placementEffect placement :| [])
+    RlStop stop
+      | residency == Cluster && substrate == AppleSilicon ->
+          (:| []) . placementEffect . WorkloadHostCommand
+            <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStop stop)
+      | otherwise ->
+          pure (clusterWorkloadStopEffects "jitml-rl" (srStopExperimentHash stop))
+
+-- | A cluster Start applies one manifest containing both the Job and its
+-- derived per-run RunConfig ConfigMap. Stop retains that ownership boundary as
+-- two indexed deletion effects, so the interpreter attempts both resources
+-- and reports their typed outcomes independently.
+clusterWorkloadStopEffects :: Text -> Text -> NonEmpty SomeWorkloadEffect
+clusterWorkloadStopEffects workloadPrefix experimentHash =
+  let jobName = workloadName workloadPrefix experimentHash
+      deleteResource resource =
+        SomeWorkloadEffect (DeleteWorkloadResource (KubeResource resource))
+   in deleteResource ("job/" <> jobName)
+        :| [deleteResource ("configmap/runconfig-" <> jobName)]
+
+validateTrainingCommandSubstrate
+  :: Substrate
+  -> TrainingCommand
+  -> Either WorkloadDecodeError ()
+validateTrainingCommandSubstrate consumed command =
+  case command of
+    TrainingStart start -> requireCommandSubstrate consumed (stSubstrate start)
+    TrainingStop _stop -> Right ()
+
+validateTuneCommandSubstrate
+  :: Substrate
+  -> TuneCommand
+  -> Either WorkloadDecodeError ()
+validateTuneCommandSubstrate consumed command =
+  case command of
+    TuneStart start -> requireCommandSubstrate consumed (ssSubstrate start)
+    TuneStop _stop -> Right ()
+
+validateRlCommandSubstrate
+  :: Substrate
+  -> RlCommand
+  -> Either WorkloadDecodeError ()
+validateRlCommandSubstrate consumed command =
+  case command of
+    RlStart start -> requireCommandSubstrate consumed (srlSubstrate start)
+    RlStartAlphaZero start -> requireCommandSubstrate consumed (sazSubstrate start)
+    RlStop _stop -> Right ()
+
+firstPlanError :: Either Text value -> Either WorkloadDecodeError value
+firstPlanError = mapLeft WorkloadPlanError
+
+requireCommandSubstrate
+  :: Substrate
+  -> Substrate
+  -> Either WorkloadDecodeError ()
+requireCommandSubstrate consumed requested
+  | consumed == requested = Right ()
+  | otherwise = Left (WorkloadCommandSubstrateMismatch consumed requested)
+
+-- | Daemon inference builder. The command's reply address is refined only
+-- against the lane fixed by the consumed input topic. A valid address from a
+-- different substrate is therefore an explicit topology error before any
+-- effect is run.
+buildInferenceWorkloadEffectsForTopic
+  :: Topic InferenceCommand
+  -> InferenceCommand
+  -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
+buildInferenceWorkloadEffectsForTopic inputTopic command = do
+  effect <- inferenceCommandEffectForTopic inputTopic command
+  pure (SomeWorkloadEffect effect :| [])
+
+inferenceCommandEffectForTopic
+  :: Topic InferenceCommand
+  -> InferenceCommand
+  -> Either WorkloadDecodeError (WorkloadEffect 'InferenceCommandExecution)
+inferenceCommandEffectForTopic inputTopic command = do
+  resultTopic <-
+    case resolveTopic
+      InferenceResultRoute
+      (topicSubstrate inputTopic)
+      (inferenceCommandReplyTopic command) of
+      Left err -> Left (WorkloadTopologyError (Text.pack (show err)))
+      Right topic -> Right topic
+  let target = InferenceResultTarget resultTopic
+  pure (inferenceCommandEffect target command)
+
+inferenceCommandEffect
+  :: InferenceResultTarget
+  -> InferenceCommand
+  -> WorkloadEffect 'InferenceCommandExecution
+inferenceCommandEffect target command =
+  case command of
+    Inference.RunInference request -> RunInference target request
+    Inference.CompareCheckpoints request -> CompareInferenceCheckpoints target request
+    Inference.SelectAdversarialMove request -> RunAdversarialMove target request
+    Inference.ListCheckpoints request -> ListInferenceCheckpoints target request
+    Inference.LoadTranscript request -> LoadInferenceTranscript target request
+
+inferenceCommandReplyTopic :: InferenceCommand -> Text
+inferenceCommandReplyTopic command =
+  case command of
+    Inference.RunInference request -> irReplyTopic request
+    Inference.CompareCheckpoints request -> cccReplyTopic request
+    Inference.SelectAdversarialMove request -> amcReplyTopic request
+    Inference.ListCheckpoints request -> lccReplyTopic request
+    Inference.LoadTranscript request -> ltcReplyTopic request
+
+placementEffect :: WorkloadPlacement -> SomeWorkloadEffect
+placementEffect placement =
+  case placement of
+    WorkloadClusterJob spec ->
+      SomeWorkloadEffect (ApplyWorkloadResource (clusterJobResource spec) (clusterJobManifest spec))
+    WorkloadHostCommand spec ->
+      SomeWorkloadEffect (PublishHostWorkloadCommand spec)
+
+planWorkloadPlacement
+  :: Residency
+  -> WorkloadLaunch
+  -> Either WorkloadDecodeError WorkloadPlacement
+planWorkloadPlacement residency launch =
+  case launch of
+    TrainingLaunch start -> do
+      plan <- firstPlanError (PlanCommand.validateStartTraining start)
+      planWorkloadPlacement residency (ResolvedTrainingLaunch start plan)
+    ResolvedTrainingLaunch start plan
+      | residency == Cluster && stSubstrate start == AppleSilicon ->
+          WorkloadHostCommand
+            <$> mkHostCommandSpec TrainingHostCommandRoute AppleSilicon (TrainingStart start)
+      | otherwise ->
+          Right
+            ( WorkloadClusterJob
+                ClusterJobSpec
+                  { clusterJobResource =
+                      KubeResource ("job/" <> workloadName "jitml-train" (stExperimentHash start))
+                  , clusterJobManifest = renderResolvedTrainingJob start plan
+                  }
+            )
+    TuneLaunch start plan
+      | residency == Cluster && ssSubstrate start == AppleSilicon ->
+          WorkloadHostCommand
+            <$> mkHostCommandSpec TuneHostCommandRoute AppleSilicon (TuneStart start)
+      | otherwise ->
+          Right
+            ( WorkloadClusterJob
+                ClusterJobSpec
+                  { clusterJobResource =
+                      KubeResource ("job/" <> workloadName "jitml-tune" (ssExperimentHash start))
+                  , clusterJobManifest = renderResolvedTuneJob start plan
+                  }
+            )
+    RlLaunch start
+      | residency == Cluster && srlSubstrate start == AppleSilicon ->
+          WorkloadHostCommand
+            <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStart start)
+      | otherwise ->
+          Right
+            ( WorkloadClusterJob
+                ClusterJobSpec
+                  { clusterJobResource =
+                      KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
+                  , clusterJobManifest = renderRlJob start
+                  }
+            )
+    AlphaZeroLaunch start plan
+      | residency == Cluster && sazSubstrate start == AppleSilicon ->
+          WorkloadHostCommand
+            <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStartAlphaZero start)
+      | otherwise ->
+          Right
+            ( WorkloadClusterJob
+                ClusterJobSpec
+                  { clusterJobResource =
+                      KubeResource ("job/" <> workloadName "jitml-alphazero" (sazExperimentHash start))
+                  , clusterJobManifest = renderResolvedAlphaZeroJob start plan
+                  }
+            )
+
+mkHostCommandSpec
+  :: ProtocolRoute event
+  -> Substrate
+  -> event
+  -> Either WorkloadDecodeError HostCommandSpec
+mkHostCommandSpec route substrate event =
+  (`HostCommandSpec` event) <$> topicOrWorkloadError route substrate
+
+topicOrWorkloadError
+  :: ProtocolRoute event
+  -> Substrate
+  -> Either WorkloadDecodeError (Topic event)
+topicOrWorkloadError route substrate =
+  case topicFor route substrate of
+    Left err -> Left (WorkloadTopologyError (Text.pack (show err)))
+    Right topic -> Right topic
+
+publishHostCommand
+  :: (HasPulsar m)
+  => HostCommandSpec
   -> m (Either ServiceError Text)
-runInferenceRequest =
-  runInferenceRequestWith defaultCheckpointInference
+publishHostCommand (HostCommandSpec topic event) = pulsarPublish topic event
 
-runInferenceRequestWith
+publishInferenceResultTo
+  :: (HasPulsar m)
+  => InferenceResultTarget
+  -> Text
+  -> Text
+  -> m (Either ServiceError Text)
+publishInferenceResultTo target rawTopic payload =
+  case resolveTopic
+    InferenceResultRoute
+    (inferenceResultTargetSubstrate target)
+    rawTopic of
+    Left err ->
+      pure
+        ( Left
+            ( SETransient
+                ("inference reply topic does not match its typed target: " <> Text.pack (show err))
+            )
+        )
+    Right resolved
+      | resolved /= inferenceResultTargetTopic target ->
+          pure (Left (SETransient "inference reply topic changed after typed refinement"))
+      | otherwise ->
+          case mkInferenceResultMessage payload of
+            Left err ->
+              pure (Left (SETransient ("invalid inference result payload: " <> err)))
+            Right message -> pulsarPublish (inferenceResultTargetTopic target) message
+
+runInferenceRequestWithTarget
   :: (HasMinIO m, HasPulsar m)
-  => InferenceRunner m
+  => InferenceResultTarget
+  -> InferenceRunner m
   -> InferenceRequest
   -> m (Either ServiceError Text)
-runInferenceRequestWith runInference request = do
+runInferenceRequestWithTarget target runInference request = do
   result <-
     CheckpointStore.loadInferenceCheckpointWith
       runInference
@@ -418,8 +917,9 @@ runInferenceRequestWith runInference request = do
     Left err ->
       pure (Left (SETransient ("inference: " <> err)))
     Right output ->
-      pulsarPublish
-        (TopicName (irReplyTopic request))
+      publishInferenceResultTo
+        target
+        (irReplyTopic request)
         ( renderInferenceResult
             InferenceResult
               { iresCallId = irCallId request
@@ -443,12 +943,12 @@ defaultCheckpointInference _modelRef _manifest _input =
 -- from `.jmw1` blobs, so the daemon path needs to read them through
 -- `loadInferenceCheckpointWithWeights` instead of the unweighted summary path.
 -- These functions mirror the unweighted variants but plumb the weighted
--- callback through `runInferenceRequestWithWeightedInference`.
+-- callback through the typed, target-bound inference effect runner.
 runWorkloadEffectWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WeightedInferenceRunner m
-  -> WorkloadEffect
-  -> m (Either ServiceError WorkloadEffectResult)
+  -> WorkloadEffect kind
+  -> m (Either ServiceError (WorkloadEffectResult kind))
 runWorkloadEffectWithWeightedInference runInference effect =
   case effect of
     WriteCheckpointBlob ref payload ->
@@ -457,11 +957,22 @@ runWorkloadEffectWithWeightedInference runInference effect =
       fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
-    RunInference request ->
+    RunInference target request ->
       fmap InferenceResultPublished
-        <$> runInferenceRequestWithWeightedInference runInference request
-    PublishHostWorkloadCommand topic payload ->
-      fmap (const (HostWorkloadCommandPublished topic)) <$> pulsarPublish topic payload
+        <$> runInferenceRequestWithWeightedInferenceTo target runInference request
+    CompareInferenceCheckpoints target command ->
+      fmap InferenceResultPublished
+        <$> runCheckpointCompareRequestWithWeightedInference target runInference command
+    RunAdversarialMove target command ->
+      fmap InferenceResultPublished
+        <$> runAdversarialMoveRequestWithWeightedInference target runInference command
+    ListInferenceCheckpoints target command ->
+      fmap InferenceResultPublished <$> runListCheckpointsRequestWithTarget target command
+    LoadInferenceTranscript target command ->
+      fmap InferenceResultPublished <$> runLoadTranscriptRequestWithTarget target command
+    PublishHostWorkloadCommand spec ->
+      fmap (const (HostWorkloadCommandPublished (hostCommandSpecTopicName spec)))
+        <$> publishHostCommand spec
     ApplyWorkloadResource resource manifest ->
       fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
     ReadWorkloadResourceStatus resource ->
@@ -472,74 +983,26 @@ runWorkloadEffectWithWeightedInference runInference effect =
 runWorkloadEffectsWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WeightedInferenceRunner m
-  -> [WorkloadEffect]
-  -> m [Either ServiceError WorkloadEffectResult]
+  -> NonEmpty SomeWorkloadEffect
+  -> m (NonEmpty SomeWorkloadOutcome)
 runWorkloadEffectsWithWeightedInference runInference =
-  traverse (runWorkloadEffectWithWeightedInference runInference)
+  traverse (runSomeWorkloadEffectWithWeightedInference runInference)
 
-dispatchWorkloadPayloadWithWeightedInference
+runSomeWorkloadEffectWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WeightedInferenceRunner m
-  -> Text
-  -> m (Maybe (Either ServiceError WorkloadEffectResult))
-dispatchWorkloadPayloadWithWeightedInference runInference payload =
-  case parseWorkloadEffectPayload payload of
-    Nothing -> pure Nothing
-    Just effect -> Just <$> runWorkloadEffectWithWeightedInference runInference effect
+  -> SomeWorkloadEffect
+  -> m SomeWorkloadOutcome
+runSomeWorkloadEffectWithWeightedInference runInference (SomeWorkloadEffect effect) =
+  SomeWorkloadOutcome effect <$> runWorkloadEffectWithWeightedInference runInference effect
 
-dispatchDomainPayloadWithWeightedInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => WeightedInferenceRunner m
-  -> EventDomain
-  -> Text
-  -> m [Either ServiceError WorkloadEffectResult]
-dispatchDomainPayloadWithWeightedInference runInference domain payload =
-  case domain of
-    InferenceDomain ->
-      -- Sprint 11.10 — one inference lane carries three command kinds: a single
-      -- inference, a checkpoint compare (two inferences + delta), and an
-      -- adversarial move (inference + MCTS). All compute in the Engine.
-      case parseInferenceRequest payload of
-        Just request ->
-          fmap
-            (pure . fmap InferenceResultPublished)
-            (runInferenceRequestWithWeightedInference runInference request)
-        Nothing ->
-          case parseCheckpointCompareCommand payload of
-            Just command ->
-              fmap
-                (pure . fmap InferenceResultPublished)
-                (runCheckpointCompareRequestWithWeightedInference runInference command)
-            Nothing ->
-              case parseAdversarialMoveCommand payload of
-                Just command ->
-                  fmap
-                    (pure . fmap InferenceResultPublished)
-                    (runAdversarialMoveRequestWithWeightedInference runInference command)
-                Nothing ->
-                  case parseListCheckpointsCommand payload of
-                    Just command ->
-                      fmap
-                        (pure . fmap InferenceResultPublished)
-                        (runListCheckpointsRequest command)
-                    Nothing ->
-                      case parseLoadTranscriptCommand payload of
-                        Just command ->
-                          fmap
-                            (pure . fmap InferenceResultPublished)
-                            (runLoadTranscriptRequest command)
-                        Nothing -> pure []
-    _ ->
-      runWorkloadEffectsWithWeightedInference
-        runInference
-        (workloadEffectsForDomainPayload domain payload)
-
-runInferenceRequestWithWeightedInference
+runInferenceRequestWithWeightedInferenceTo
   :: (HasMinIO m, HasPulsar m)
-  => WeightedInferenceRunner m
+  => InferenceResultTarget
+  -> WeightedInferenceRunner m
   -> InferenceRequest
   -> m (Either ServiceError Text)
-runInferenceRequestWithWeightedInference runInference request = do
+runInferenceRequestWithWeightedInferenceTo target runInference request = do
   -- Sprint 11.10 — the Engine decodes the output (the manifest's output decoder)
   -- and appends the typed `decoded-*` lines to the `WorkResult` so the browser
   -- panels render the decoded value without computing.
@@ -552,8 +1015,9 @@ runInferenceRequestWithWeightedInference runInference request = do
     Left err ->
       pure (Left (SETransient ("inference: " <> err)))
     Right (output, decoded) ->
-      pulsarPublish
-        (TopicName (irReplyTopic request))
+      publishInferenceResultTo
+        target
+        (irReplyTopic request)
         ( renderInferenceResult
             InferenceResult
               { iresCallId = irCallId request
@@ -567,10 +1031,11 @@ runInferenceRequestWithWeightedInference runInference request = do
 -- compute the delta in the daemon, then publish one 'CheckpointCompareResult'.
 runCheckpointCompareRequestWithWeightedInference
   :: (HasMinIO m, HasPulsar m)
-  => WeightedInferenceRunner m
+  => InferenceResultTarget
+  -> WeightedInferenceRunner m
   -> CheckpointCompareCommand
   -> m (Either ServiceError Text)
-runCheckpointCompareRequestWithWeightedInference runInference command = do
+runCheckpointCompareRequestWithWeightedInference target runInference command = do
   baseline <-
     CheckpointStore.loadInferenceCheckpointDecodedWithWeights
       runInference
@@ -586,8 +1051,9 @@ runCheckpointCompareRequestWithWeightedInference runInference command = do
     (_, Left err) -> pure (Left (SETransient ("compare candidate: " <> err)))
     (Right (baselineOutput, _), Right (candidateOutput, _)) ->
       let deltas = absoluteDeltas baselineOutput candidateOutput
-       in pulsarPublish
-            (TopicName (cccReplyTopic command))
+       in publishInferenceResultTo
+            target
+            (cccReplyTopic command)
             ( renderCheckpointCompareResult
                 CheckpointCompareResult
                   { ccrCallId = cccCallId command
@@ -605,10 +1071,11 @@ runCheckpointCompareRequestWithWeightedInference runInference command = do
 -- 'AdversarialMoveResult'.
 runAdversarialMoveRequestWithWeightedInference
   :: (HasMinIO m, HasPulsar m)
-  => WeightedInferenceRunner m
+  => InferenceResultTarget
+  -> WeightedInferenceRunner m
   -> AdversarialMoveCommand
   -> m (Either ServiceError Text)
-runAdversarialMoveRequestWithWeightedInference runInference command = do
+runAdversarialMoveRequestWithWeightedInference target runInference command = do
   let runtimeInput =
         adversarialRuntimeInput
           (amcGame command)
@@ -662,8 +1129,9 @@ runAdversarialMoveRequestWithWeightedInference runInference command = do
             case persisted of
               Right (key, _etag) -> key
               Left _ -> synthesizedId
-      pulsarPublish
-        (TopicName (amcReplyTopic command))
+      publishInferenceResultTo
+        target
+        (amcReplyTopic command)
         ( renderAdversarialMoveResult
             AdversarialMoveResult
               { amrCallId = amcCallId command
@@ -693,13 +1161,14 @@ productRowCheckpointTargets =
 -- | Checkpoint browse as an Engine job: for each product-row artifact
 -- namespace, list manifests from the `jitml-checkpoints` MinIO bucket and
 -- publish a single `CheckpointList` frame summarising eligible manifests plus
--- per-row selector state on the command's reply topic.
-runListCheckpointsRequest
+-- per-row selector state on the typed result target retained by the effect.
+runListCheckpointsRequestWithTarget
   :: (HasMinIO m, HasPulsar m)
-  => ListCheckpointsCommand
+  => InferenceResultTarget
+  -> ListCheckpointsCommand
   -> m (Either ServiceError Text)
-runListCheckpointsRequest command = do
-  let substrate = substrateFromInferenceResultTopic (lccReplyTopic command)
+runListCheckpointsRequestWithTarget target command = do
+  let substrate = Just (inferenceResultTargetSubstrate target)
   listings <-
     traverse
       ( \(experimentHash, row) -> do
@@ -709,8 +1178,9 @@ runListCheckpointsRequest command = do
       productRowCheckpointTargets
   let summaries = concatMap productCheckpointSummaries listings
       selectors = fmap productRowSelectorLine listings
-  pulsarPublish
-    (TopicName (lccReplyTopic command))
+  publishInferenceResultTo
+    target
+    (lccReplyTopic command)
     (renderCheckpointListResultWithSelectors (lccCallId command) selectors summaries)
 
 data ProductRowCheckpointResult = ProductRowCheckpointResult
@@ -770,10 +1240,6 @@ productRowSelectorLine result =
 productRowSelectorState :: [Text] -> Text
 productRowSelectorState [] = "training-required"
 productRowSelectorState _ = "eligible"
-
-substrateFromInferenceResultTopic :: Text -> Maybe Substrate
-substrateFromInferenceResultTopic topic =
-  Text.stripPrefix "inference.result." (Text.strip topic) >>= parseSubstrate
 
 productRowUnsupportedReason :: Maybe Substrate -> ProductMatrix.ProductRow state -> Maybe Text
 productRowUnsupportedReason _ row =
@@ -902,12 +1368,13 @@ checkpointSelectorState _ = "ready"
 -- | Sprint 14.1 (Feature B) — transcript replay as an Engine job: read the
 -- persisted transcript record from the `jitml-transcripts` MinIO bucket keyed
 -- by the command's transcript id and publish a `TranscriptReplay` frame on the
--- reply topic.
-runLoadTranscriptRequest
+-- typed result target retained by the effect.
+runLoadTranscriptRequestWithTarget
   :: (HasMinIO m, HasPulsar m)
-  => LoadTranscriptCommand
+  => InferenceResultTarget
+  -> LoadTranscriptCommand
   -> m (Either ServiceError Text)
-runLoadTranscriptRequest command = do
+runLoadTranscriptRequestWithTarget target command = do
   record <- readTranscriptRecord (ltcTranscriptId command)
   -- A missing/unreadable transcript is terminal, not retryable: always publish a
   -- reply (an empty replay on failure) so the consumer acks rather than
@@ -923,8 +1390,9 @@ runLoadTranscriptRequest command = do
               , transcriptMoves = []
               , transcriptAnalysis = "transcript unavailable: " <> err
               }
-  pulsarPublish
-    (TopicName (ltcReplyTopic command))
+  publishInferenceResultTo
+    target
+    (ltcReplyTopic command)
     (renderTranscriptReplayResult (ltcCallId command) (ltcTranscriptId command) transcript)
 
 renderTranscriptReplayResult :: Text -> Text -> TranscriptRecord -> Text
@@ -954,35 +1422,30 @@ meanOrZero :: [Double] -> Double
 meanOrZero [] = 0.0
 meanOrZero values = sum values / fromIntegral (length values)
 
--- | Sprint 5.7 — render a typed 'TrainingRunConfig' from a 'StartTraining'
--- envelope. SL caps are left absent here: the worker uses sensible defaults
--- when the RunConfig leaves them as @None@.
-trainingRunConfigFor :: StartTraining -> TrainingRunConfig
-trainingRunConfigFor start =
+-- | Render only the canonical plan identity/transport and operational broker
+-- endpoint.  Primitive command values never cross the worker mount boundary.
+trainingRunConfigFor :: SupervisedPlan -> TrainingRunConfig
+trainingRunConfigFor plan =
   TrainingRunConfig
-    { trcExperimentHash = stExperimentHash start
-    , trcSubstrate = renderSubstrateText (stSubstrate start)
-    , trcSeed = fromIntegral (stSeed start)
-    , trcEpochs = fromIntegral (stEpochs start)
-    , trcBatchSize = fromIntegral (stBatchSize start)
+    { trcPlanId = planIdText (supervisedPlanId plan)
+    , trcResolvedPlan = renderSupervisedPlanTransport plan
     , trcPulsarWsUrl = inClusterPulsarWsUrl
-    , trcSlTrainLimit = Nothing
-    , trcSlEpochs = Nothing
-    , trcSlTestLimit = Nothing
     }
 
-tuneRunConfigFor :: StartSweep -> TuneRunConfig
-tuneRunConfigFor start =
+tuneRunConfigFor :: TuningPlan -> TuneRunConfig
+tuneRunConfigFor plan =
   TuneRunConfig
-    { turcExperimentHash = ssExperimentHash start
-    , turcSubstrate = renderSubstrateText (ssSubstrate start)
-    , turcSweepSeed = fromIntegral (ssSweepSeed start)
-    , turcTrialBudget = fromIntegral (ssTrialBudget start)
-    , turcBudgetPerTrial = fromIntegral (ssBudgetPerTrial start)
-    , turcSampler = ssSampler start
-    , turcScheduler = ssScheduler start
-    , turcPruner = ssPruner start
+    { turcPlanId = planIdText (tuningPlanId plan)
+    , turcResolvedPlan = renderTuningPlanTransport plan
     , turcPulsarWsUrl = inClusterPulsarWsUrl
+    }
+
+alphaZeroRunConfigFor :: AlphaZeroPlan -> AlphaZeroRunConfig
+alphaZeroRunConfigFor plan =
+  AlphaZeroRunConfig
+    { azrcPlanId = planIdText (alphaZeroPlanId plan)
+    , azrcResolvedPlan = renderAlphaZeroPlanTransport plan
+    , azrcPulsarWsUrl = inClusterPulsarWsUrl
     }
 
 rlRunConfigFor :: StartRLRun -> RlRunConfig
@@ -1000,23 +1463,33 @@ rlRunConfigFor start =
     , rlcPulsarWsUrl = inClusterPulsarWsUrl
     }
 
-renderTrainingJob :: StartTraining -> Text
-renderTrainingJob start =
+renderTrainingJob :: StartTraining -> Either WorkloadDecodeError Text
+renderTrainingJob start = do
+  plan <- firstPlanError (PlanCommand.validateStartTraining start)
+  pure (renderResolvedTrainingJob start plan)
+
+renderResolvedTrainingJob :: StartTraining -> SupervisedPlan -> Text
+renderResolvedTrainingJob start plan =
   renderJobWithRunConfig
     (stSubstrate start)
     "training"
     (workloadName "jitml-train" (stExperimentHash start))
     ["train", stDhallObjectKey start]
-    (renderTrainingRunConfigDhall (trainingRunConfigFor start))
+    (renderTrainingRunConfigDhall (trainingRunConfigFor plan))
 
-renderTuneJob :: StartSweep -> Text
-renderTuneJob start =
+renderTuneJob :: StartSweep -> Either WorkloadDecodeError Text
+renderTuneJob start = do
+  plan <- firstPlanError (PlanCommand.validateStartSweep start)
+  pure (renderResolvedTuneJob start plan)
+
+renderResolvedTuneJob :: StartSweep -> TuningPlan -> Text
+renderResolvedTuneJob start plan =
   renderJobWithRunConfig
     (ssSubstrate start)
     "tune"
     (workloadName "jitml-tune" (ssExperimentHash start))
     ["tune", ssDhallObjectKey start]
-    (renderTuneRunConfigDhall (tuneRunConfigFor start))
+    (renderTuneRunConfigDhall (tuneRunConfigFor plan))
 
 renderRlJob :: StartRLRun -> Text
 renderRlJob start =
@@ -1027,33 +1500,19 @@ renderRlJob start =
     ["rl", "train", srlExperimentHash start]
     (renderRlRunConfigDhall (rlRunConfigFor start))
 
--- | Sprint 5.7 — kept for the alternate code path that still wants an
--- env-driven Job manifest (no current callers). The daemon path now uses
--- 'renderJobWithRunConfig'. Retained as the simple Job renderer so the
--- typed JSON envelope path can fall back to it if needed.
-_renderRlJobLegacyEnv :: StartRLRun -> Text
-_renderRlJobLegacyEnv start =
-  renderJob
-    (srlSubstrate start)
+renderAlphaZeroJob :: StartAlphaZeroRun -> Either WorkloadDecodeError Text
+renderAlphaZeroJob start = do
+  plan <- firstPlanError (PlanCommand.validateStartAlphaZeroRun start)
+  pure (renderResolvedAlphaZeroJob start plan)
+
+renderResolvedAlphaZeroJob :: StartAlphaZeroRun -> AlphaZeroPlan -> Text
+renderResolvedAlphaZeroJob start plan =
+  renderJobWithRunConfig
+    (sazSubstrate start)
     "rl"
-    (workloadName "jitml-rl" (srlExperimentHash start))
-    ["rl", "train", srlExperimentHash start]
-    [ ("JITML_EXPERIMENT_HASH", srlExperimentHash start)
-    , ("JITML_ALGORITHM", srlAlgorithm start)
-    , ("JITML_ENVIRONMENT", srlEnvironment start)
-    , ("JITML_SUBSTRATE", renderSubstrateText (srlSubstrate start))
-    , ("JITML_SEED", Text.pack (show (srlSeed start)))
-    , ("JITML_MAX_STEPS", Text.pack (show (srlMaxSteps start)))
-    , ("JITML_EVAL_EPISODES", Text.pack (show (srlEvalEpisodes start)))
-    , -- Sprint 13.8 / 20.1 — route each catalog algorithm to its real
-      -- network-backed trainer in the worker (PPO/A2C/TRPO/MaskablePPO/
-      -- RecurrentPPO on-policy, DQN/QR-DQN/DDPG/TD3/SAC/CrossQ/TQC
-      -- off-policy, ARS gradient-free, HER goal-conditioned). Unknown
-      -- algorithm names become unknown trainer selectors and fail closed
-      -- inside the worker before publication.
-      ("JITML_RL_TRAINER", rlTrainerForAlgorithm (srlAlgorithm start))
-    , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
-    ]
+    (workloadName "jitml-alphazero" (sazExperimentHash start))
+    ["rl", "alphazero", "self-play"]
+    (renderAlphaZeroRunConfigDhall (alphaZeroRunConfigFor plan))
 
 -- | The in-cluster Pulsar WebSocket endpoint a daemon-dispatched worker
 -- Job uses to publish completion events back to the broker. A Job pod
@@ -1088,41 +1547,6 @@ rlTrainerForAlgorithm algorithm =
     _ ->
       let stripped = Text.toLower (Text.strip algorithm)
        in if Text.null stripped then "unknown" else stripped
-
-renderJob :: Substrate -> Text -> Text -> [Text] -> [(Text, Text)] -> Text
-renderJob substrate component name args envVars =
-  Text.unlines $
-    [ "apiVersion: batch/v1"
-    , "kind: Job"
-    , "metadata:"
-    , "  name: " <> name
-    , "  labels:"
-    , "    app.kubernetes.io/name: jitml"
-    , "    app.kubernetes.io/component: " <> component
-    , "spec:"
-    , "  template:"
-    , "    metadata:"
-    , "      labels:"
-    , "        app.kubernetes.io/name: jitml"
-    , "        app.kubernetes.io/component: " <> component
-    , "        jitml.substrate: " <> renderSubstrate substrate
-    , "        jitml.role: engine"
-    , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
-    , "        jitml.compute-scope: workload"
-    , "    spec:"
-    , "      restartPolicy: Never"
-    ]
-      <> renderRuntimeClassLines substrate
-      <> clusterComputePlacementLines substrate
-      <> [ "      containers:"
-         , "        - name: " <> component
-         , "          image: jitml:local"
-         , "          command:"
-         , "            - " <> yamlString "jitml"
-         , "          args:"
-         ]
-      <> fmap (("            - " <>) . yamlString) args
-      <> renderContainerEnvLines (nvidiaEnvVars substrate <> envVars)
 
 renderRuntimeClassLines :: Substrate -> [Text]
 renderRuntimeClassLines substrate =
@@ -1289,7 +1713,7 @@ renderSubstrateText :: Substrate -> Text
 renderSubstrateText =
   renderSubstrate
 
-renderWorkloadEffectPayload :: WorkloadEffect -> Text
+renderWorkloadEffectPayload :: WorkloadEffect kind -> Text
 renderWorkloadEffectPayload effect =
   Text.unlines $
     [ "kind: WorkloadEffect"
@@ -1297,57 +1721,209 @@ renderWorkloadEffectPayload effect =
     ]
       <> workloadEffectFields effect
 
-parseWorkloadEffectPayload :: Text -> Maybe WorkloadEffect
+renderWorkloadEffectPayloadForSome :: SomeWorkloadEffect -> Text
+renderWorkloadEffectPayloadForSome (SomeWorkloadEffect effect) =
+  renderWorkloadEffectPayload effect
+
+parseWorkloadEffectPayload
+  :: Text
+  -> Either WorkloadDecodeError SomeWorkloadEffect
 parseWorkloadEffectPayload payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "WorkloadEffect" <- value "kind"
-  effectTag <- value "effect"
+  fields <- parseWorkloadFields payload
+  requireExactValue "kind" "WorkloadEffect" fields
+  effectTag <- requireWorkloadField "effect" fields
   case effectTag of
     "WriteCheckpointBlob" -> do
-      ref <- objectRefFromFields value
-      payloadBytes <- value "payload-hex" >>= hexDecodeText
-      pure (WriteCheckpointBlob ref payloadBytes)
+      requireOnlyWorkloadFields
+        ["kind", "effect", "bucket", "key", "payload-hex"]
+        fields
+      ref <- objectRefFromFields fields
+      encoded <- requireWorkloadField "payload-hex" fields
+      bytes <-
+        maybe
+          (Left (InvalidWorkloadEffectPayload "payload-hex is not valid hexadecimal"))
+          Right
+          (hexDecodeText encoded)
+      pure (SomeWorkloadEffect (WriteCheckpointBlob ref bytes))
     "UpdateCheckpointPointer" -> do
-      ref <- objectRefFromFields value
-      pointerPayload <- value "payload"
-      let expected = ETag <$> value "expected-etag"
-      pure (UpdateCheckpointPointer ref expected pointerPayload)
+      requireOnlyWorkloadFields
+        ["kind", "effect", "bucket", "key", "expected-etag", "payload-text-hex"]
+        fields
+      ref <- objectRefFromFields fields
+      pointerPayload <- requireHexTextField "payload-text-hex" fields
+      let expected = ETag <$> lookup "expected-etag" fields
+      pure (SomeWorkloadEffect (UpdateCheckpointPointer ref expected pointerPayload))
     "PromoteWorkloadImage" -> do
-      source <- ImageRef <$> value "source-image"
-      target <- ImageRef <$> value "target-image"
-      pure (PromoteWorkloadImage source target)
-    "RunInference" -> do
-      callId <- value "call-id"
-      experimentHash <- value "experiment-hash"
-      replyTopic <- value "reply-topic"
-      input <- value "input" >>= parseInferenceInput
-      pure
-        ( RunInference
-            InferenceRequest
-              { irCallId = callId
-              , irExperimentHash = experimentHash
-              , irReplyTopic = replyTopic
-              , irInput = input
-              }
-        )
+      requireOnlyWorkloadFields
+        ["kind", "effect", "source-image", "target-image"]
+        fields
+      source <- ImageRef <$> requireWorkloadField "source-image" fields
+      target <- ImageRef <$> requireWorkloadField "target-image" fields
+      pure (SomeWorkloadEffect (PromoteWorkloadImage source target))
+    "RunInference" -> inferenceEffectRequiresTypedInputTopic
+    "CompareInferenceCheckpoints" -> inferenceEffectRequiresTypedInputTopic
+    "RunAdversarialMove" -> inferenceEffectRequiresTypedInputTopic
+    "ListInferenceCheckpoints" -> inferenceEffectRequiresTypedInputTopic
+    "LoadInferenceTranscript" -> inferenceEffectRequiresTypedInputTopic
     "PublishHostWorkloadCommand" -> do
-      topic <- TopicName <$> value "topic"
-      hostPayload <- value "payload"
-      pure (PublishHostWorkloadCommand topic (Text.replace "\\n" "\n" hostPayload))
+      requireOnlyWorkloadFields
+        ["kind", "effect", "topic", "payload-text-hex"]
+        fields
+      rawTopic <- requireWorkloadField "topic" fields
+      hostPayload <- requireHexTextField "payload-text-hex" fields
+      spec <- decodeHostCommandSpec rawTopic hostPayload
+      pure (SomeWorkloadEffect (PublishHostWorkloadCommand spec))
     "ApplyWorkloadResource" -> do
-      resource <- KubeResource <$> value "resource"
-      manifest <- value "manifest"
-      pure (ApplyWorkloadResource resource (Text.replace "\\n" "\n" manifest))
+      requireOnlyWorkloadFields
+        ["kind", "effect", "resource", "manifest-text-hex"]
+        fields
+      resource <- KubeResource <$> requireWorkloadField "resource" fields
+      manifest <- requireHexTextField "manifest-text-hex" fields
+      pure (SomeWorkloadEffect (ApplyWorkloadResource resource manifest))
     "ReadWorkloadResourceStatus" -> do
-      resource <- KubeResource <$> value "resource"
-      pure (ReadWorkloadResourceStatus resource)
+      requireOnlyWorkloadFields ["kind", "effect", "resource"] fields
+      resource <- KubeResource <$> requireWorkloadField "resource" fields
+      pure (SomeWorkloadEffect (ReadWorkloadResourceStatus resource))
     "DeleteWorkloadResource" -> do
-      resource <- KubeResource <$> value "resource"
-      pure (DeleteWorkloadResource resource)
-    _ -> Nothing
+      requireOnlyWorkloadFields ["kind", "effect", "resource"] fields
+      resource <- KubeResource <$> requireWorkloadField "resource" fields
+      pure (SomeWorkloadEffect (DeleteWorkloadResource resource))
+    unknown -> Left (InvalidWorkloadEffectPayload ("unknown effect tag: " <> unknown))
 
-renderWorkloadEffect :: WorkloadEffect -> Text
+inferenceEffectRequiresTypedInputTopic
+  :: Either WorkloadDecodeError SomeWorkloadEffect
+inferenceEffectRequiresTypedInputTopic =
+  Left
+    ( InvalidWorkloadEffectPayload
+        "inference effects require a typed input topic"
+    )
+
+parseWorkloadFields
+  :: Text
+  -> Either WorkloadDecodeError [(Text, Text)]
+parseWorkloadFields payload = do
+  fields <-
+    maybe
+      (Left (InvalidWorkloadEffectPayload "every line must be a key/value field"))
+      Right
+      (traverse parseField (Text.lines payload))
+  case duplicateFieldName fields of
+    Nothing -> Right fields
+    Just duplicate ->
+      Left (InvalidWorkloadEffectPayload ("duplicate field: " <> duplicate))
+
+duplicateFieldName :: [(Text, Text)] -> Maybe Text
+duplicateFieldName fields =
+  case [ key
+       | (key, _) <- fields
+       , length (filter ((== key) . fst) fields) > 1
+       ] of
+    [] -> Nothing
+    duplicate : _ -> Just duplicate
+
+requireWorkloadField
+  :: Text
+  -> [(Text, Text)]
+  -> Either WorkloadDecodeError Text
+requireWorkloadField key fields =
+  case lookup key fields of
+    Nothing -> Left (InvalidWorkloadEffectPayload ("missing field: " <> key))
+    Just value -> Right value
+
+requireExactValue
+  :: Text
+  -> Text
+  -> [(Text, Text)]
+  -> Either WorkloadDecodeError ()
+requireExactValue key expected fields = do
+  actual <- requireWorkloadField key fields
+  if actual == expected
+    then Right ()
+    else
+      Left
+        ( InvalidWorkloadEffectPayload
+            ("expected " <> key <> "=" <> expected <> ", got " <> actual)
+        )
+
+requireOnlyWorkloadFields
+  :: [Text]
+  -> [(Text, Text)]
+  -> Either WorkloadDecodeError ()
+requireOnlyWorkloadFields allowed fields =
+  case filter (`notElem` allowed) (fmap fst fields) of
+    [] -> Right ()
+    unknown : _ ->
+      Left (InvalidWorkloadEffectPayload ("unknown field: " <> unknown))
+
+requireHexTextField
+  :: Text
+  -> [(Text, Text)]
+  -> Either WorkloadDecodeError Text
+requireHexTextField key fields = do
+  encoded <- requireWorkloadField key fields
+  bytes <-
+    maybe
+      (Left (InvalidWorkloadEffectPayload (key <> " is not valid hexadecimal")))
+      Right
+      (hexDecodeText encoded)
+  case Text.Encoding.decodeUtf8' bytes of
+    Left _ -> Left (InvalidWorkloadEffectPayload (key <> " is not valid UTF-8"))
+    Right value -> Right value
+
+decodeHostCommandSpec
+  :: Text
+  -> Text
+  -> Either WorkloadDecodeError HostCommandSpec
+decodeHostCommandSpec rawTopic payload =
+  case parseSubstrate (Text.takeWhileEnd (/= '.') (Text.strip rawTopic)) of
+    Nothing -> invalidTopic
+    Just substrate ->
+      case candidates substrate of
+        [] -> invalidTopic
+        candidate : _ -> candidate
+ where
+  invalidTopic =
+    Left
+      ( InvalidWorkloadEffectPayload
+          ("host command topic is outside the registered topology: " <> rawTopic)
+      )
+  candidates substrate =
+    catMaybes
+      [ decodeHostRoute TrainingHostCommandRoute rawTopic payload substrate
+      , decodeHostRoute TuneHostCommandRoute rawTopic payload substrate
+      , decodeHostRoute RlHostCommandRoute rawTopic payload substrate
+      , decodeHostRoute InferenceHostCommandRoute rawTopic payload substrate
+      ]
+
+decodeHostRoute
+  :: ProtocolRoute event
+  -> Text
+  -> Text
+  -> Substrate
+  -> Maybe (Either WorkloadDecodeError HostCommandSpec)
+decodeHostRoute route rawTopic payload substrate =
+  case resolveTopic route substrate rawTopic of
+    Left _ -> Nothing
+    Right topic ->
+      Just $
+        case decodeTopicPayload topic payload of
+          Left err ->
+            Left
+              ( InvalidWorkloadEffectPayload
+                  ("host command payload failed its topic codec: " <> Text.pack (show err))
+              )
+          Right event -> Right (HostCommandSpec topic event)
+
+renderSomeWorkloadEffect :: SomeWorkloadEffect -> Text
+renderSomeWorkloadEffect (SomeWorkloadEffect effect) = renderWorkloadEffect effect
+
+renderSomeWorkloadOutcome :: SomeWorkloadOutcome -> Text
+renderSomeWorkloadOutcome (SomeWorkloadOutcome effect result) =
+  renderWorkloadEffect effect
+    <> " => "
+    <> either (Text.pack . show) renderWorkloadEffectResult result
+
+renderWorkloadEffect :: WorkloadEffect kind -> Text
 renderWorkloadEffect effect =
   case effect of
     WriteCheckpointBlob ref _ ->
@@ -1359,10 +1935,18 @@ renderWorkloadEffect effect =
         <> maybe "(none)" unETag expected
     PromoteWorkloadImage source target ->
       "harbor:promote-image " <> unImageRef source <> " -> " <> unImageRef target
-    RunInference request ->
+    RunInference _ request ->
       "inference:run " <> irCallId request <> " -> " <> irReplyTopic request
-    PublishHostWorkloadCommand (TopicName topic) _ ->
-      "pulsar:publish-host-workload " <> topic
+    CompareInferenceCheckpoints _ command ->
+      "inference:compare " <> cccCallId command <> " -> " <> cccReplyTopic command
+    RunAdversarialMove _ command ->
+      "inference:adversarial " <> amcCallId command <> " -> " <> amcReplyTopic command
+    ListInferenceCheckpoints _ command ->
+      "inference:list-checkpoints " <> lccCallId command <> " -> " <> lccReplyTopic command
+    LoadInferenceTranscript _ command ->
+      "inference:load-transcript " <> ltcCallId command <> " -> " <> ltcReplyTopic command
+    PublishHostWorkloadCommand spec ->
+      "pulsar:publish-host-workload " <> hostCommandSpecTopicName spec
     ApplyWorkloadResource resource _ ->
       "kubectl:apply " <> unKubeResource resource
     ReadWorkloadResourceStatus resource ->
@@ -1370,7 +1954,7 @@ renderWorkloadEffect effect =
     DeleteWorkloadResource resource ->
       "kubectl:delete " <> unKubeResource resource
 
-renderWorkloadEffectResult :: WorkloadEffectResult -> Text
+renderWorkloadEffectResult :: WorkloadEffectResult kind -> Text
 renderWorkloadEffectResult result =
   case result of
     CheckpointBlobWritten etag ->
@@ -1381,7 +1965,7 @@ renderWorkloadEffectResult result =
       "workload-image-promoted " <> unImageRef image
     InferenceResultPublished messageId ->
       "inference-result-published " <> messageId
-    HostWorkloadCommandPublished (TopicName topic) ->
+    HostWorkloadCommandPublished topic ->
       "host-workload-command-published " <> topic
     WorkloadResourceApplied ->
       "workload-resource-applied"
@@ -1396,19 +1980,23 @@ renderObjectRef ref =
       ObjectKey key = objectKey ref
    in bucket <> "/" <> key
 
-workloadEffectTag :: WorkloadEffect -> Text
+workloadEffectTag :: WorkloadEffect kind -> Text
 workloadEffectTag effect =
   case effect of
     WriteCheckpointBlob _ _ -> "WriteCheckpointBlob"
     UpdateCheckpointPointer {} -> "UpdateCheckpointPointer"
     PromoteWorkloadImage _ _ -> "PromoteWorkloadImage"
-    RunInference _ -> "RunInference"
-    PublishHostWorkloadCommand _ _ -> "PublishHostWorkloadCommand"
+    RunInference _ _ -> "RunInference"
+    CompareInferenceCheckpoints _ _ -> "CompareInferenceCheckpoints"
+    RunAdversarialMove _ _ -> "RunAdversarialMove"
+    ListInferenceCheckpoints _ _ -> "ListInferenceCheckpoints"
+    LoadInferenceTranscript _ _ -> "LoadInferenceTranscript"
+    PublishHostWorkloadCommand _ -> "PublishHostWorkloadCommand"
     ApplyWorkloadResource _ _ -> "ApplyWorkloadResource"
     ReadWorkloadResourceStatus _ -> "ReadWorkloadResourceStatus"
     DeleteWorkloadResource _ -> "DeleteWorkloadResource"
 
-workloadEffectFields :: WorkloadEffect -> [Text]
+workloadEffectFields :: WorkloadEffect kind -> [Text]
 workloadEffectFields effect =
   case effect of
     WriteCheckpointBlob ref payload ->
@@ -1417,31 +2005,47 @@ workloadEffectFields effect =
     UpdateCheckpointPointer ref expected payload ->
       objectRefFields ref
         <> maybe [] (\etag -> ["expected-etag: " <> unETag etag]) expected
-        <> ["payload: " <> payload]
+        <> ["payload-text-hex: " <> hexEncodeText (Text.Encoding.encodeUtf8 payload)]
     PromoteWorkloadImage source target ->
       [ "source-image: " <> unImageRef source
       , "target-image: " <> unImageRef target
       ]
-    RunInference request ->
-      dropKindLine (renderInferenceRequest request)
-    PublishHostWorkloadCommand (TopicName topic) payload ->
-      [ "topic: " <> topic
-      , "payload: " <> Text.replace "\n" "\\n" payload
+    RunInference target request ->
+      [ "result-topic: " <> inferenceResultTargetTopicName target
+      , "command-text-hex: " <> hexEncodeText (Text.Encoding.encodeUtf8 (renderInferenceRequest request))
+      ]
+    CompareInferenceCheckpoints target command ->
+      [ "result-topic: " <> inferenceResultTargetTopicName target
+      , "command-text-hex: "
+          <> hexEncodeText (Text.Encoding.encodeUtf8 (Inference.renderCheckpointCompareCommand command))
+      ]
+    RunAdversarialMove target command ->
+      [ "result-topic: " <> inferenceResultTargetTopicName target
+      , "command-text-hex: "
+          <> hexEncodeText (Text.Encoding.encodeUtf8 (Inference.renderAdversarialMoveCommand command))
+      ]
+    ListInferenceCheckpoints target command ->
+      [ "result-topic: " <> inferenceResultTargetTopicName target
+      , "command-text-hex: "
+          <> hexEncodeText (Text.Encoding.encodeUtf8 (Inference.renderListCheckpointsCommand command))
+      ]
+    LoadInferenceTranscript target command ->
+      [ "result-topic: " <> inferenceResultTargetTopicName target
+      , "command-text-hex: "
+          <> hexEncodeText (Text.Encoding.encodeUtf8 (Inference.renderLoadTranscriptCommand command))
+      ]
+    PublishHostWorkloadCommand spec ->
+      [ "topic: " <> hostCommandSpecTopicName spec
+      , "payload-text-hex: " <> hexEncodeText (Text.Encoding.encodeUtf8 (hostCommandSpecPayload spec))
       ]
     ApplyWorkloadResource resource manifest ->
       [ "resource: " <> unKubeResource resource
-      , "manifest: " <> Text.replace "\n" "\\n" manifest
+      , "manifest-text-hex: " <> hexEncodeText (Text.Encoding.encodeUtf8 manifest)
       ]
     ReadWorkloadResourceStatus resource ->
       ["resource: " <> unKubeResource resource]
     DeleteWorkloadResource resource ->
       ["resource: " <> unKubeResource resource]
-
-dropKindLine :: Text -> [Text]
-dropKindLine value =
-  case Text.lines value of
-    [] -> []
-    _kindLine : rest -> rest
 
 objectRefFields :: ObjectRef -> [Text]
 objectRefFields ref =
@@ -1451,11 +2055,14 @@ objectRefFields ref =
       , "key: " <> key
       ]
 
-objectRefFromFields :: (Text -> Maybe Text) -> Maybe ObjectRef
-objectRefFromFields value = do
-  bucket <- BucketName <$> value "bucket"
-  key <- ObjectKey <$> value "key"
-  pure (ObjectRef bucket key)
+objectRefFromFields
+  :: [(Text, Text)]
+  -> Either WorkloadDecodeError ObjectRef
+objectRefFromFields fields =
+  ObjectRef
+    . BucketName
+    <$> requireWorkloadField "bucket" fields
+    <*> (ObjectKey <$> requireWorkloadField "key" fields)
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =

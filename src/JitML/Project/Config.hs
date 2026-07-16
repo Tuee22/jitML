@@ -551,6 +551,7 @@ defaultProjectConfig =
     , topic "training.host-command"
     , topic "tune.host-command"
     , topic "rl.host-command"
+    , topic "workflow.status"
     ]
   checkpointsStore = bucket "checkpoints" "jitml-checkpoints" 4096 (LastN 5)
   trainingEventTopic = topic "training.event"

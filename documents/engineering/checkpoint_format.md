@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md, numerical_core.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
@@ -24,13 +24,22 @@ object-key validation returns data, not bottoms. `objectPathForKey` /
 propagate that result; and user-facing commands such as local `jitml internal gc
 --experiment-hash ...` report `InvalidConfig` instead of terminating.
 
+**Refined completion boundary (Sprint 10.12):** checkpoint CBOR is a versioned
+`RawCheckpointEnvelope` containing a forgeable `RawCheckpointManifest` and,
+when present, a versioned `RawCompletedTraining`. Decoding re-refines every raw
+field before a domain manifest exists. `CompletedCheckpoint` and its retained
+inference-facing alias `InferenceEligibleCheckpoint` have hidden constructors;
+a decoded candidate manifest cannot mint either value.
+
 **Real trained weights only.** Checkpoint payloads carry weights produced by the
 declared training workflow with correct per-tensor shapes; synthetic,
 zero-padded, byte-identical-across-models, randomly initialized, or untrained
 weight payloads are prohibited. The 2026-06-26 audit reopened the demo and
 all-model runtime closure because seeded and smoke checkpoints are not enough:
-inference must require the trained-artifact witness defined in
-[training_metrics_and_splits.md](training_metrics_and_splits.md).
+inference must require a trained-artifact witness refined from completed run
+evidence. See
+[Typed Run Contract](run_contract.md) and
+[Training Metrics and Data Splits](training_metrics_and_splits.md).
 
 **Self-describing checkpoints (the 10.9 → 14.3 shape contract).** A weight checkpoint is
 self-describing: the manifest's `ArchitectureMetadata` records input/output `TensorSpec`s
@@ -85,13 +94,15 @@ A checkpoint manifest can be loaded for inspection at any step, but only an
 demo inference routes, RL evaluation/rollout, or AlphaZero game endpoints. That
 value is minted only when all of the following are true:
 
-- the manifest carries a `CompletedTraining` witness built from a
-  `TrainingBudget`;
+- the raw completion payload refines into opaque `CompletedTraining`, including
+  its exact unit-indexed budget and originating `PlanId`;
+- the manifest carries that same `PlanId`; a missing identity or mismatch is a
+  typed eligibility error;
 - the manifest mirrors the witness's `initialWeightHash`, `finalWeightHash`,
   positive `updateCount`, and `datasetShaAtRead`, and those fields match the
   witness exactly;
-- the completed observed units meet the declared fixed budget and do not exceed
-  the manifest step;
+- the completed observed units equal the declared fixed-budget target exactly,
+  and the manifest step equals that observed count exactly;
 - required convergence-statistics fields are present and pass the model's metric
   predicate;
 - the checkpoint payload includes real model weights and the model-family weight
@@ -100,7 +111,11 @@ value is minted only when all of the following are true:
   literal layer graph's parameter tensors and the declared input/output specs;
 - TensorBoard scalar metadata exists for the same run and metric prefix.
 
-This is a shared loader boundary, not a best-effort runtime convention:
+This is a shared loader boundary, not a best-effort runtime convention. CBOR
+decoding yields a versioned raw manifest; semantic refinement revalidates its
+completion payload, finite measurements, evidence identity, and mirrored
+fields. Generic deserialization never constructs `CompletedTraining` or
+`InferenceEligibleCheckpoint` directly. Then
 `decodeInferenceEligibleManifestCbor`, `loadInferenceCheckpointWith`,
 `loadInferenceCheckpointWithWeights`, and the Engine-decoded weighted path
 reject partially trained, smoke-test, randomly initialized, hardcoded,
@@ -111,6 +126,12 @@ substrate runner. On success, the loaders convert the validated
 the inference, demo, checkpoint-compare, and adversarial-move runners alongside
 the weight-only manifest. Raw manifest listing and manifest reads remain
 available for inspection, resume, and GC.
+Decoder-only support for pre-10.12 manifests preserves the same boundary. The
+legacy stored verdict is recomputed from a typed finite criterion and checked
+for contradiction, then discarded. Because the legacy wire has no canonical
+`PlanId`, its completion payload is stripped from the returned domain manifest;
+the result remains an inspectable/resumable candidate and can never become
+`InferenceEligibleCheckpoint`.
 The browser checkpoint-list selector uses the same eligibility boundary:
 incomplete manifests can be inspected by lower-level tooling, but they are
 omitted from `CheckpointSummary` rows served to model-selection panels. When no
@@ -122,8 +143,8 @@ synthetic artifact.
 ## No-Caveat Checkpoint Target
 
 The weighted checkpoint path is real for the implemented MLP-family payloads,
-but the no-caveat target is broader. Sprint `10.10` adds the manifest
-metadata needed by every model family that the runtime trains: Dense, DeepDense,
+but the no-caveat target is broader. The manifest carries the metadata needed
+by every model family that the runtime trains: Dense, DeepDense,
 Conv2D, residual, wide-residual, ResNet-50, VisionTransformer, RL policies,
 AlphaZero policy/value nets, and tuning trial checkpoints. The manifest carries
 architecture metadata, preprocessing metadata, output-decoding metadata, replay
@@ -152,7 +173,8 @@ jitml-checkpoints/
 ```
 
 `experiment-hash = sha256(resolved-dhall || substrate-fingerprint)`.
-`manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
+`manifest-sha = sha256(canonical-cbor(RawCheckpointEnvelope))`, where the raw
+payload is the canonical projection of the refined domain manifest.
 
 Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
 `latestPointerKey`, `bestPointerKey`, `trialPointerKey`, deterministic
@@ -209,8 +231,8 @@ fixed-budget completion witness, convergence statistics, TensorBoard metric
 prefix, canonical-ordered checkpoint parts, metrics, and parent manifest SHA
 for linear history. Same `If-None-Match: *` write protocol.
 
-The manifest's SHA is the canonical *checkpoint id* used by Pulsar
-`CheckpointDone` events, RPC envelopes, and `--resume <checkpoint-id>`.
+The manifest's SHA is the canonical *checkpoint id* used by candidate and
+completed checkpoint events, RPC envelopes, and `--resume <checkpoint-id>`.
 
 ### `pointers/*` — The Only Mutable Objects
 
@@ -277,6 +299,8 @@ data CheckpointManifest = CheckpointManifest
   , cmSchemaVersion  :: !Word32
   , cmParts          :: ![CheckpointPart]
   , cmMetrics        :: ![(Text, Double)]
+  , cmPlanId         :: !(Maybe PlanId)
+  , cmCompleted      :: !(Maybe CompletedTraining)
   , cmParentManifest :: !(Maybe Hash32)
   }
 
@@ -285,8 +309,29 @@ data CheckpointPart = CheckpointPart
   , cpBlobSha :: !Hash32
   , cpBytes   :: !Word64
   , cpFormat  :: !PartFormat
+}
+```
+
+The CBOR boundary does not serialize that proof-bearing domain record
+directly. Its persisted shape is explicitly raw and versioned:
+
+```haskell
+data RawCheckpointEnvelope = RawCheckpointEnvelope
+  { rawCheckpointVersion :: !Word64
+  , rawCheckpointPayload :: !RawCheckpointManifest
+  }
+
+data RawCheckpointManifest = RawCheckpointManifest
+  { rawManifestPlanId            :: !(Maybe Text)
+  , rawManifestCompletedTraining :: !(Maybe RawCompletedTraining)
+  -- candidate checkpoint metadata, blobs, metrics, evidence mirrors, lineage
   }
 ```
+
+The optional fields make candidate and partial checkpoints representable for
+inspection and resume. They do not make completion optional in the proof type:
+only successful refinement plus the eligibility checks can construct hidden
+`CompletedCheckpoint`.
 
 The Haskell `CheckpointManifest` in `src/JitML/Checkpoint/Format.hs` carries the
 implemented local shape: manifest id, experiment hash, model-family identifier,
@@ -303,17 +348,24 @@ and `SubstrateArtifact` are part of the serialized manifest contract.
 order by `optimizerKind`, RNG order by `rngStreamId`, metrics by name,
 architecture input/output specs by name, preprocessing inputs by name,
 weight-layout tensors by name, output decoders by name, and artifact pointers
-by their identity fields; `decodeManifestCbor` round-trips that representation,
-and `manifestContentSha` hashes the deterministic CBOR bytes. The richer target
+by their identity fields; the format decoder round-trips a versioned raw
+representation, semantic refinement constructs the domain manifest, and
+`manifestContentSha` hashes the deterministic CBOR bytes. The richer target
 shape above still documents the full runtime contract for wall-clock telemetry,
 epoch, substrate, schema version, and generalized part roles. `cmWallClockNs`
 is telemetry only and is never an input to any content hash.
 
-Completed manifests are populated through `attachCompletedTraining`, which
-mirrors the `CompletedTraining` witness's smart-constructed weight-delta
-evidence into the manifest fields. `requireInferenceEligibleCheckpoint` rejects
-a manifest that has a completed-training witness but lacks mirrored evidence,
-carries invalid evidence, or has evidence that differs from the witness.
+Completed manifests are populated only from opaque completion evidence; the
+checkpoint projection writes the completion `PlanId` into the manifest and
+mirrors its smart-constructed weight-delta evidence into the raw fields.
+`RawCompletedTraining` itself is versioned and re-refines its budget kind,
+target, observed kind/count/unit, typed finite criteria, non-empty passing
+measurements, and training evidence while retaining the TensorBoard metadata.
+The persisted form contains no authoritative pass boolean; eligibility later
+requires TensorBoard scalar tags. `requireInferenceEligibleCheckpoint`
+rejects a manifest that lacks mirrored evidence, carries invalid/non-finite
+evidence, names another plan, differs from the completed witness, or whose
+manifest step is not exactly the completed observed budget.
 For product supervised rows, `manifestDatasetShaAtRead` is the observed digest
 from the verified dataset read boundary: image/label or archive bytes are
 fetched through `JitML.SL.Dataset.fetchVerifiedDatasetArtifactBytes`, checked
@@ -516,6 +568,7 @@ order differ across substrates) per
 - [../../README.md → Concurrency model](../../README.md#concurrency-model)
 - [determinism_contract.md](determinism_contract.md)
 - [training_workloads.md](training_workloads.md)
+- [run_contract.md](run_contract.md)
 - [../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md)
 - [../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
 - [../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md](../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md)

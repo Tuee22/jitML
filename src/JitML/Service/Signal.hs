@@ -6,19 +6,26 @@ module JitML.Service.Signal
   , DaemonSignal (..)
   , DaemonSignalAction (..)
   , applyDaemonSignal
+  , applyDaemonLiveConfig
   , daemonSignalAction
+  , modifyDaemonState
   , newDaemonControl
+  , newDaemonControlWithLiveConfig
   , readDaemonControl
   , renderDaemonSignal
   , renderDaemonSignalAction
   , signalPlan
+  , snapshotDraining
+  , snapshotLiveConfig
+  , snapshotReloadGeneration
+  , snapshotReady
   , withDaemonSignalHandlers
   )
 where
 
 import Control.Exception (bracket)
 import Data.Foldable (traverse_)
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import System.Posix.Signals
   ( Handler (Catch)
@@ -27,6 +34,22 @@ import System.Posix.Signals
   , sigHUP
   , sigINT
   , sigTERM
+  )
+
+import JitML.Service.HotReload
+  ( LiveConfigSnapshot
+  , ReloadDecision (..)
+  , handleSighupReload
+  , initialSnapshot
+  , snapshotConfig
+  , snapshotGeneration
+  )
+import JitML.Service.LiveConfig (LiveConfig, defaultLiveConfig)
+import JitML.Service.RuntimeState
+  ( DaemonState
+  , beginDaemonDrain
+  , daemonStateDraining
+  , daemonStateReady
   )
 
 data DaemonSignal
@@ -40,48 +63,85 @@ data DaemonSignalAction
   | BeginGracefulDrain
   deriving stock (Eq, Show)
 
-data DaemonControl = DaemonControl
-  { controlReady :: IORef Bool
-  , controlDraining :: IORef Bool
-  , controlReloadGeneration :: IORef Int
+newtype DaemonControl = DaemonControl
+  { daemonControlSnapshotRef :: IORef DaemonControlSnapshot
   }
 
+-- | One atomic control snapshot.  Readiness and draining are projections of
+-- the closed daemon state, never independently writable flags.
 data DaemonControlSnapshot = DaemonControlSnapshot
-  { snapshotReady :: Bool
-  , snapshotDraining :: Bool
-  , snapshotReloadGeneration :: Int
+  { snapshotDaemonState :: DaemonState
+  , snapshotLiveConfigState :: LiveConfigSnapshot
   }
   deriving stock (Eq, Show)
 
-newDaemonControl :: Bool -> IO DaemonControl
-newDaemonControl ready = do
-  readyRef <- newIORef ready
-  drainingRef <- newIORef False
-  reloadRef <- newIORef 0
-  pure
-    DaemonControl
-      { controlReady = readyRef
-      , controlDraining = drainingRef
-      , controlReloadGeneration = reloadRef
-      }
+newDaemonControl :: DaemonState -> IO DaemonControl
+newDaemonControl initialState =
+  newDaemonControlWithLiveConfig initialState defaultLiveConfig
+
+newDaemonControlWithLiveConfig :: DaemonState -> LiveConfig -> IO DaemonControl
+newDaemonControlWithLiveConfig initialState liveConfig =
+  DaemonControl
+    <$> newIORef
+      DaemonControlSnapshot
+        { snapshotDaemonState = initialState
+        , snapshotLiveConfigState = initialSnapshot liveConfig
+        }
 
 applyDaemonSignal :: DaemonControl -> DaemonSignal -> IO DaemonControlSnapshot
-applyDaemonSignal control signal = do
-  case daemonSignalAction signal of
-    ReloadLiveConfig ->
-      atomicModifyIORef' (controlReloadGeneration control) $ \generation ->
-        (generation + 1, ())
-    BeginGracefulDrain -> do
-      writeIORef (controlReady control) False
-      writeIORef (controlDraining control) True
-  readDaemonControl control
+applyDaemonSignal control signal =
+  atomicModifyIORef' (daemonControlSnapshotRef control) $ \snapshot ->
+    let next =
+          case daemonSignalAction signal of
+            -- Receipt of SIGHUP is only a request. Generation changes belong
+            -- to a successfully decoded, changed LiveConfig applied through
+            -- 'applyDaemonLiveConfig'.
+            ReloadLiveConfig -> snapshot
+            BeginGracefulDrain ->
+              snapshot
+                { snapshotDaemonState = beginDaemonDrain (snapshotDaemonState snapshot)
+                }
+     in (next, next)
+
+applyDaemonLiveConfig :: DaemonControl -> LiveConfig -> IO ReloadDecision
+applyDaemonLiveConfig control nextConfig =
+  atomicModifyIORef' (daemonControlSnapshotRef control) $ \snapshot ->
+    let decision = handleSighupReload (snapshotLiveConfigState snapshot) nextConfig
+        nextSnapshot =
+          case decision of
+            ReloadIgnored _reason -> snapshot
+            ReloadApplied liveSnapshot ->
+              snapshot {snapshotLiveConfigState = liveSnapshot}
+     in (nextSnapshot, decision)
+
+modifyDaemonState
+  :: DaemonControl
+  -> (DaemonState -> DaemonState)
+  -> IO DaemonControlSnapshot
+modifyDaemonState control transition =
+  atomicModifyIORef' (daemonControlSnapshotRef control) $ \snapshot ->
+    let next = snapshot {snapshotDaemonState = transition (snapshotDaemonState snapshot)}
+     in (next, next)
 
 readDaemonControl :: DaemonControl -> IO DaemonControlSnapshot
-readDaemonControl control =
-  DaemonControlSnapshot
-    <$> readIORef (controlReady control)
-    <*> readIORef (controlDraining control)
-    <*> readIORef (controlReloadGeneration control)
+readDaemonControl =
+  readIORef . daemonControlSnapshotRef
+
+snapshotReady :: DaemonControlSnapshot -> Bool
+snapshotReady =
+  daemonStateReady . snapshotDaemonState
+
+snapshotDraining :: DaemonControlSnapshot -> Bool
+snapshotDraining =
+  daemonStateDraining . snapshotDaemonState
+
+snapshotLiveConfig :: DaemonControlSnapshot -> LiveConfig
+snapshotLiveConfig =
+  snapshotConfig . snapshotLiveConfigState
+
+snapshotReloadGeneration :: DaemonControlSnapshot -> Int
+snapshotReloadGeneration =
+  snapshotGeneration . snapshotLiveConfigState
 
 daemonSignalAction :: DaemonSignal -> DaemonSignalAction
 daemonSignalAction DaemonSighup = ReloadLiveConfig

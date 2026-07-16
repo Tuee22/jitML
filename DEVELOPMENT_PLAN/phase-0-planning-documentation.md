@@ -282,7 +282,7 @@ per standards rule L.
     `plain`, `--color auto|always|never`, `--no-color`.
   - **Error Handling**: single `AppError` ADT, `renderError :: AppError ->
     Text`, forbidden `print`, `exitFailure`, direct terminal formatting outside
-    the output layer. The audit confirms the canonical 17-variant list from
+    the output layer. The audit confirms the canonical 20-variant list from
     [system-components.md → CLI Doctrine
     Components](system-components.md#cli-doctrine-components) is named in
     [phase-1-haskell-cli-surface.md → Sprint
@@ -291,8 +291,9 @@ per standards rule L.
     `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`, `InvalidConfig`,
     `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`, `JitCacheMiss`,
     `JitToolchainDrift`, `CheckpointFormatUnsupported`,
-    `CheckpointWriteConflict`, `ReconcilerNoop`. Exit code `3` for
-    `ReconcilerNoop`.
+    `CheckpointWriteConflict`, `InferenceCheckpointMissing`,
+    `InferenceManifestShaMismatch`, `TrainingPrerequisiteUnmet`,
+    `ReconcilerNoop`. Exit code `3` for `ReconcilerNoop`.
   - **Capability Classes and Service Errors**: `HasMinIO`, `HasPulsar`,
     `HasHarbor`, `HasKubectl`. Service errors `SEConflict`, `SEUnauthorized`,
     `SETimeout`, `SETransient`.

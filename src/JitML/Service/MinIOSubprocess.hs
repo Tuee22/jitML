@@ -27,7 +27,6 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.Encoding.Error qualified as TextErr
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
-import System.Exit (ExitCode (..))
 import System.IO (hClose, openTempFile)
 
 import JitML.Service.Capabilities
@@ -38,6 +37,11 @@ import JitML.Service.Capabilities
   , ObjectRef (..)
   )
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Sub.Outcome
+  ( ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , renderProcessFailure
+  )
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 
@@ -295,13 +299,12 @@ invokeCurl
   -> FilePath
   -> MinIOSubprocess (Either ServiceError (ByteString.ByteString, Text))
 invokeCurl tag successCodes missingMode command bodyPath = do
-  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
+  outcome <- liftIO (runStreaming defaultSubprocessEnv command)
   body <- liftIO (ByteString.readFile bodyPath)
-  let status = Text.strip stdoutText
-  case exitCode of
-    ExitFailure code ->
-      pure (Left (SETransient (tag <> ": curl exit " <> Text.pack (show code) <> ": " <> stderrText)))
-    ExitSuccess
+  case outcome of
+    ProcessFailed failure ->
+      pure (Left (SETransient (tag <> ": " <> renderProcessFailure failure)))
+    ProcessSucceeded transcript
       | status `elem` successCodes ->
           pure (Right (body, status))
       | status == "412" ->
@@ -312,6 +315,8 @@ invokeCurl tag successCodes missingMode command bodyPath = do
           pure (Left (SEUnauthorized (tag <> ": HTTP " <> status)))
       | otherwise ->
           pure (Left (SETransient (tag <> ": HTTP " <> status <> ": " <> decodeBody body)))
+     where
+      status = Text.strip (processTranscriptStdout transcript)
 
 readSavedEtag :: Text -> FilePath -> MinIOSubprocess (Either ServiceError ETag)
 readSavedEtag tag etagPath = do

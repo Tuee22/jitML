@@ -10,16 +10,12 @@ spec:
       app: jitml-demo
   template:
     metadata:
+      annotations:
+        checksum/live-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
       labels:
         app: jitml-demo
     spec:
-      {{- if eq .Values.substrate "linux-cuda" }}
-      # Sprint 15.20 kept the linux-cuda Webapp deployment in the GPU/runtime
-      # scheduling envelope that was live-validated for the product matrix. The
-      # Webapp role itself publishes WorkCommands; the Engine remains the only
-      # role that compiles and dispatches CUDA kernels.
-      runtimeClassName: nvidia
-      {{- end }}
+      automountServiceAccountToken: false
       containers:
         - name: jitml-demo
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -45,13 +41,6 @@ spec:
               cpu: "2"
               memory: 3Gi
               {{- end }}
-          {{- if eq .Values.substrate "linux-cuda" }}
-          env:
-            - name: NVIDIA_VISIBLE_DEVICES
-              value: all
-            - name: NVIDIA_DRIVER_CAPABILITIES
-              value: compute,utility
-          {{- end }}
           volumeMounts:
             - name: webapp-config
               mountPath: /etc/jitml

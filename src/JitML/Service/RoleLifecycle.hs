@@ -6,10 +6,11 @@
 -- Exit@). The one @jitml service@ binary runs as exactly one 'Role'
 -- ('JitML.Service.BootConfig.Role') selected by typed Dhall @activeRole@; this
 -- module owns the /pure/ per-role capability profile that distinguishes the
--- role-specific @Acquire@/@Serve@/@Drain@ behaviour. The live role-specific
--- serving (Coordinator topic reconcile, Webapp websocket fan-out) is wired by
--- Phases @11@/@15@. See @documents/engineering/pulsar_ml_workflow.md@ → /The
--- three roles/ + /Configuration and roles/.
+-- role-specific @Acquire@/@Serve@/@Drain@ behaviour. Webapp websocket fan-out,
+-- Coordinator topic reconciliation/orchestration, and Engine compute execute
+-- through disjoint command plans. See
+-- @documents/engineering/pulsar_ml_workflow.md@ → /The three roles/ +
+-- /Configuration and roles/.
 module JitML.Service.RoleLifecycle
   ( RoleProfile (..)
   , roleProfile
@@ -31,7 +32,8 @@ import JitML.Service.Lifecycle (LifecyclePhase, lifecyclePlan)
 data RoleProfile = RoleProfile
   { profileRole :: Role
   , profileComputes :: Bool
-  -- ^ Runs ML compute (training + inference). Engine only.
+  -- ^ Runs substrate ML compute. Engine only; Coordinator places workloads but
+  -- does not execute their kernels.
   , profileOwnsTopics :: Bool
   -- ^ Owns the derived topic-algebra reconcile + readiness gating. Coordinator
   -- only.

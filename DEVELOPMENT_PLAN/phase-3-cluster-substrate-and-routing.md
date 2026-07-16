@@ -20,16 +20,26 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-30 by Sprint `3.7`). The cluster lifecycle surface
-now matches the CLI/plan contract: `jitml cluster up --substrate <s>` materializes
-the selected substrate files and then executes the live Kind/Helm/image
-build-load/readiness rollout, writes a cluster publication only after live
-readiness is observed, and records `evidence: live-readiness` in that
-publication. `jitml cluster status` fails closed for missing, corrupt, or
+✅ **Done** (reopened and re-closed 2026-07-16 for Sprint `3.7`). The retained
+`linux-cpu` acceptance ran the exact supported `jitml cluster up --substrate
+linux-cpu` command twice. The first invocation retained the edge port, four Kind
+nodes, and 20 PVCs while executing 157 live steps in 2692 seconds and exiting
+`0`; the second proved exact convergence in 58 seconds and exited `3` without
+mutation. The durable proof observed all 34 authoritative Pulsar topics through
+read-only per-topic stats for more than 60 seconds, with inactive-topic deletion
+disabled in both rendered and broker-runtime configuration and with zero broker
+restarts or expected-topic deletions.
+
+✅ **Earlier closure history** (2026-06-30, Sprint `3.7`). The cluster lifecycle
+surface matched the CLI/plan contract: `jitml cluster up --substrate <s>`
+materialized the selected substrate files and then executed the live
+Kind/Helm/image build-load/readiness rollout, wrote a cluster publication only
+after live readiness was observed, and recorded `evidence: live-readiness` in
+that publication. `jitml cluster status` failed closed for missing, corrupt, or
 locally materialized/default publications without live evidence; it no longer
-synthesizes a ready Apple Silicon default. Validation on `linux-cpu` ran the live
-107-step `cluster up`, `jitml cluster status`, and `jitml-integration` 77/77
-including 19/19 `Live` cases. Prior closure history follows.
+synthesized a ready Apple Silicon default. Validation on `linux-cpu` ran the
+live 107-step `cluster up`, `jitml cluster status`, and `jitml-integration`
+77/77 including 19/19 `Live` cases. Prior closure history follows.
 
 ✅ **Done** (re-closed 2026-05-29; Sprint `3.2`'s right-sized PV layout
 (MinIO `4→1`, Pulsar `3→1`, Postgres `3→1`) landed in `JitML.Cluster.Storage` and
@@ -74,16 +84,38 @@ stay closed; the live exercise of the new PV layout is owned by Phase `15`.
 
 The worktree implements typed renderers for Kind config, manual PVs,
 storage class, Gateway/GatewayClass/EnvoyProxy, HTTPRoutes, cluster
-publication, bootstrap file materialization, and the live lower-level
+publication, port-aware bootstrap file materialization, and the live lower-level
 `jitml cluster up` reconciler. `jitml cluster up --substrate <s>` and `jitml
-bootstrap --<substrate>` both materialize the files and then call
-`JitML.Bootstrap.liveExecutePhasedRollout`; there is no process environment gate
-for local Kind/Helm work. The live rollout runs the typed `kind`, Helm, Docker
-build / explicit Kind image-load, and Pulsar-topic subprocesses, rewrites the
-live Kind/Gateway inputs from the selected edge-port
-lease, patches the Apple host Dhall from the resulting publication, and writes
+bootstrap --<substrate>` both call `JitML.Bootstrap.liveExecutePhasedRollout`;
+the live coordinator recovers or leases the edge port before materialization,
+then classifies the retained cluster through the versioned
+`JitML.Cluster.ReconcileStamp` authority plus exact release, readiness, topic,
+node-image, and app-image evidence. An exact match returns the reconciler no-op
+disposition without invalidating or rewriting the live publication. Drift first
+writes an evidence-free recovery publication and then runs the typed `kind`,
+Helm, Docker build / explicit Kind image-load, and Pulsar-topic subprocesses,
+rewrites the live Kind/Gateway inputs from the selected edge-port lease, patches
+the Apple host Dhall from the resulting publication, and writes
 `./.build/runtime/cluster-publication.json` with that leased port plus component
-status measured from live Helm release status. It applies the repo-owned
+status measured from live Helm release status. A successful reconcile writes
+`./.build/runtime/cluster-reconcile-stamp.json` only after the live publication;
+the stamp binds its schema version, substrate, edge port, deterministic
+desired-input fingerprint, and each repo-app tag's top-level OCI descriptor
+digest (not its platform-manifest or config digest). Per-node evidence compares
+each containerd target digest with that desired OCI identity and requires one
+uniform non-empty config ID for the tag across all expected nodes; app rollout
+evidence compares every pod's config image ID with that uniform live config ID.
+Topic evidence derives the exact 34 fully qualified topic names from the typed
+route/workflow authorities and requires one JSON object from a read-only
+`pulsar-admin topics stats <topic>` probe for each; namespace listing is never
+convergence authority. `JitML.Cluster.PulsarBootstrap` implements the bounded
+per-topic retry, while `chart/values/pulsar.yaml` and the umbrella
+`chart/values.yaml` disable inactive-topic deletion and opt the broker
+StatefulSet into ConfigMap-checksum rollouts so retained brokers actually adopt
+that setting.
+
+The same complete evidence gate runs after a mutating rollout, before the live
+publication and reconcile stamp are accepted. The rollout applies the repo-owned
 foundation and edge manifests through explicit `kubectl apply -f` subprocesses.
 `jitml cluster down` deletes the Kind cluster named by the publication file and
 marks the preserved publication components `stopped`; a second down run exits
@@ -472,11 +504,13 @@ assumptions.
 - None. Live HA substrate revalidation is tracked by Phase `15` Sprint `15.22`
   and Phase `16` Sprint `16.14`.
 
-## Sprint 3.7: Live Cluster Lifecycle and Publication Truth ✅
+## Sprint 3.7: Live Cluster Lifecycle and Publication Truth [✅ Done]
 
-**Status**: Done (closed 2026-06-30)
+**Status**: Done (reopened and re-closed 2026-07-16)
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Bootstrap.hs`,
-`src/JitML/Cluster/Publication.hs`, `src/JitML/Plan/Plan.hs`,
+`src/JitML/Cluster/Publication.hs`, `src/JitML/Cluster/ReconcileStamp.hs`,
+`src/JitML/Cluster/PulsarBootstrap.hs`, `chart/values/pulsar.yaml`,
+`chart/values.yaml`, `src/JitML/Plan/Plan.hs`,
 `src/JitML/CLI/Spec.hs`, generated command docs after code changes
 **Docs to update**: `README.md`, `documents/engineering/cluster_topology.md`,
 `documents/engineering/daemon_architecture.md`, `system-components.md`,
@@ -491,40 +525,63 @@ missing, corrupt, or default-local publication data.
 
 ### Deliverables
 
-- Either implement `jitml cluster up --substrate <s>` as the lower-level live
-  Kind/Helm reconciler described by `CommandSpec` and `Plan.Plan`
+- `jitml cluster up --substrate <s>` is the lower-level live Kind/Helm
+  reconciler described by `CommandSpec` and `Plan.Plan`
   (`materialize-substrate` → dependency build → Kind create/export → image
-  build/load → Helm/apply/readiness → measured publication), or narrow the
-  generated command descriptions and plan steps from code so `cluster up` is
-  explicitly file-only and not a live lifecycle command.
-- Stop writing a ready `defaultPublication` from file materialization alone.
-  Publications that claim component readiness are written only after live
-  readiness has been observed.
-- Make `jitml cluster status` fail closed or report `unknown/not-ready` when
+  build/load → Helm/apply/readiness → measured publication); it is not a
+  file-only lifecycle command.
+- A ready `defaultPublication` is never written from file materialization
+  alone. Publications that claim component readiness are written only after
+  live readiness has been observed.
+- `jitml cluster status` fails closed or reports `unknown/not-ready` when
   `./.build/runtime/cluster-publication.json` is missing, corrupt, or locally
-  materialized without live evidence. It must not fall back to an Apple Silicon
+  materialized without live evidence. It does not fall back to an Apple Silicon
   ready default.
-- Keep `jitml bootstrap --<substrate>` as the canonical full-stack entrypoint;
-  if it delegates to `cluster up`, the delegation must preserve the staged image,
-  Dhall, Apple host patching, and measured publication semantics.
-- Regenerate `README.md`, `documents/cli/commands.md`, manpages, and completions
-  from `CommandSpec` if command descriptions or plan steps change.
+- `jitml bootstrap --<substrate>` remains the canonical full-stack entrypoint
+  and preserves staged image, Dhall, Apple host patching, and measured
+  publication semantics.
+- Kind/Gateway/Envoy inputs are materialized from the recovered retained-cluster
+  port before convergence classification. A versioned desired-state stamp is
+  persisted only after successful live publication; exact non-vacuous release,
+  readiness, topic, node-image, and app-image evidence maps an exact match to
+  exit `3` without mutating cluster or publication state.
+- Each stamp binds its schema version, substrate, recovered edge port,
+  deterministic desired-input fingerprint, and top-level host OCI descriptor
+  for each repo-app tag. Every expected node/tag containerd target matches that
+  descriptor, each tag has one uniform node config digest, and every ready app
+  Pod reports that exact config digest.
+- All 34 authoritative Pulsar topics are probed with exact read-only per-topic
+  `stats` commands, and only JSON objects are accepted. Direct and umbrella Pulsar
+  values set `brokerDeleteInactiveTopicsEnabled: "false"` and
+  `restartPodsOnConfigMapChange: true`, preventing inactive deletion and
+  rolling retained brokers when the rendered policy changes.
+- `README.md`, `documents/cli/commands.md`, manpages, and completions remain
+  generated from `CommandSpec`.
 
 ### Validation
 
-- `docker compose run --rm jitml jitml cluster up --substrate linux-cpu` executed
-  the live lower-level rollout, created/reconciled Kind, applied the Helm/local
-  workload phases, loaded `jitml:local` / `jitml-demo:local`, reached ready
-  component health, and wrote `cluster-publication.json` with
-  `evidence: live-readiness`.
-- `docker compose run --rm jitml jitml cluster status` read that publication and
-  reported the live edge, Pulsar, MinIO, and component health fields.
-- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
-  passed **77 / 77**, including **19 / 19** `Live` cases and the spawned-binary
-  missing/corrupt/no-live-evidence `cluster status` fail-closed regressions.
-- `docker compose build jitml --progress plain` passed with embedded
-  `check-code: ok`; the shared `docs check` gate is rerun by the final handoff
-  after all reopened plan/docs updates land.
+- The first exact `docker compose run -T --rm jitml jitml cluster up
+  --substrate linux-cpu` invocation exited `0` after 157 live steps in 2692
+  seconds, retaining edge `127.0.0.1:9091`, all four Kind nodes, and all 20 PVCs
+  while reconciling nine Helm releases, five repo-app Pods, and three Pulsar
+  brokers.
+- All 34 exact read-only `pulsar-admin topics stats <topic>` probes returned one
+  JSON object after the reconcile and again after more than 60 seconds. The
+  broker ConfigMap and all three live broker runtimes reported
+  `brokerDeleteInactiveTopicsEnabled=false`; broker restart counts and
+  expected-topic inactivity-deletion log matches were both zero.
+- Host and all eight node/tag image rows agreed on top-level OCI descriptor
+  `sha256:87b478abc5aade79b613386a9ad7c4a77a145b7cf3d54391ca4f1fa8d11013b0`.
+  Every node/tag row and all five app Pods agreed on config digest
+  `sha256:43238c272a7d54ac2c2212d211f209d1b991385c21e8badd4283710580d6f227`.
+- The second identical command exited `3` in 58 seconds. Publication, stamp,
+  edge, four-node set, 20-PVC set, nine Helm revisions, five app Pods, three
+  brokers, and eight node-image rows were byte-stable across the two snapshots.
+- Focused gates passed for reconcile stamp/classification **8 / 8**, Kind
+  recovery/materialization **12 / 12**, app-image evidence **2 / 2**, Pulsar
+  stats parsing/retry **1 / 1**, and direct/umbrella Pulsar values **1 / 1**.
+  Haskell lint, `jitml check-code`, the warning-clean build, and the immutable
+  container build all passed.
 
 ### Remaining Work
 

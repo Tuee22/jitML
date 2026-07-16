@@ -39,17 +39,18 @@ budgetPerTrial ::
    Data.ProtoLens.Field.HasField s "budgetPerTrial" a) =>
   Lens.Family2.LensLike' f s a
 budgetPerTrial = Data.ProtoLens.Field.field @"budgetPerTrial"
+completedTraining ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "completedTraining" a) =>
+  Lens.Family2.LensLike' f s a
+completedTraining = Data.ProtoLens.Field.field @"completedTraining"
 dhallObjectKey ::
   forall f s a.
   (Prelude.Functor f,
    Data.ProtoLens.Field.HasField s "dhallObjectKey" a) =>
   Lens.Family2.LensLike' f s a
 dhallObjectKey = Data.ProtoLens.Field.field @"dhallObjectKey"
-done ::
-  forall f s a.
-  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "done" a) =>
-  Lens.Family2.LensLike' f s a
-done = Data.ProtoLens.Field.field @"done"
 experimentHash ::
   forall f s a.
   (Prelude.Functor f,
@@ -68,12 +69,6 @@ maybe'body ::
    Data.ProtoLens.Field.HasField s "maybe'body" a) =>
   Lens.Family2.LensLike' f s a
 maybe'body = Data.ProtoLens.Field.field @"maybe'body"
-maybe'done ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "maybe'done" a) =>
-  Lens.Family2.LensLike' f s a
-maybe'done = Data.ProtoLens.Field.field @"maybe'done"
 maybe'finished ::
   forall f s a.
   (Prelude.Functor f,
@@ -98,18 +93,55 @@ maybe'stop ::
    Data.ProtoLens.Field.HasField s "maybe'stop" a) =>
   Lens.Family2.LensLike' f s a
 maybe'stop = Data.ProtoLens.Field.field @"maybe'stop"
+maybe'sweepCompleted ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "maybe'sweepCompleted" a) =>
+  Lens.Family2.LensLike' f s a
+maybe'sweepCompleted
+  = Data.ProtoLens.Field.field @"maybe'sweepCompleted"
+maybe'sweepFinished ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "maybe'sweepFinished" a) =>
+  Lens.Family2.LensLike' f s a
+maybe'sweepFinished
+  = Data.ProtoLens.Field.field @"maybe'sweepFinished"
 objective ::
   forall f s a.
   (Prelude.Functor f,
    Data.ProtoLens.Field.HasField s "objective" a) =>
   Lens.Family2.LensLike' f s a
 objective = Data.ProtoLens.Field.field @"objective"
+parallelism ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "parallelism" a) =>
+  Lens.Family2.LensLike' f s a
+parallelism = Data.ProtoLens.Field.field @"parallelism"
 parametersJson ::
   forall f s a.
   (Prelude.Functor f,
    Data.ProtoLens.Field.HasField s "parametersJson" a) =>
   Lens.Family2.LensLike' f s a
 parametersJson = Data.ProtoLens.Field.field @"parametersJson"
+planId ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "planId" a) =>
+  Lens.Family2.LensLike' f s a
+planId = Data.ProtoLens.Field.field @"planId"
+promotions ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "promotions" a) =>
+  Lens.Family2.LensLike' f s a
+promotions = Data.ProtoLens.Field.field @"promotions"
+protocolVersion ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "protocolVersion" a) =>
+  Lens.Family2.LensLike' f s a
+protocolVersion = Data.ProtoLens.Field.field @"protocolVersion"
 pruned ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "pruned" a) =>
@@ -120,6 +152,12 @@ pruner ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "pruner" a) =>
   Lens.Family2.LensLike' f s a
 pruner = Data.ProtoLens.Field.field @"pruner"
+resolvedPlan ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "resolvedPlan" a) =>
+  Lens.Family2.LensLike' f s a
+resolvedPlan = Data.ProtoLens.Field.field @"resolvedPlan"
 sampler ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "sampler" a) =>
@@ -152,6 +190,18 @@ substrate ::
    Data.ProtoLens.Field.HasField s "substrate" a) =>
   Lens.Family2.LensLike' f s a
 substrate = Data.ProtoLens.Field.field @"substrate"
+sweepCompleted ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "sweepCompleted" a) =>
+  Lens.Family2.LensLike' f s a
+sweepCompleted = Data.ProtoLens.Field.field @"sweepCompleted"
+sweepFinished ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "sweepFinished" a) =>
+  Lens.Family2.LensLike' f s a
+sweepFinished = Data.ProtoLens.Field.field @"sweepFinished"
 sweepSeed ::
   forall f s a.
   (Prelude.Functor f,
@@ -194,6 +244,12 @@ trialsCompleted ::
    Data.ProtoLens.Field.HasField s "trialsCompleted" a) =>
   Lens.Family2.LensLike' f s a
 trialsCompleted = Data.ProtoLens.Field.field @"trialsCompleted"
+trialsPromoted ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "trialsPromoted" a) =>
+  Lens.Family2.LensLike' f s a
+trialsPromoted = Data.ProtoLens.Field.field @"trialsPromoted"
 trialsPruned ::
   forall f s a.
   (Prelude.Functor f,

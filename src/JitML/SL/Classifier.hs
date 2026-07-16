@@ -267,6 +267,7 @@ data ClassifierConfig = ClassifierConfig
   , clfHidden :: !Int
   , clfClasses :: !Int
   , clfEpochs :: !Int
+  , clfBatchSize :: !Int
   , clfLearningRate :: !Double
   }
   deriving stock (Eq, Show)
@@ -279,6 +280,7 @@ defaultClassifierConfig =
     , clfHidden = 128
     , clfClasses = 10
     , clfEpochs = 5
+    , clfBatchSize = 128
     , clfLearningRate = 1.0e-3
     }
 

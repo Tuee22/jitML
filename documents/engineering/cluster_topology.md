@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, code_quality.md, daemon_architecture.md, durable_state_dsl.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, code_quality.md, daemon_architecture.md, durable_state_dsl.md, run_contract.md
 **Generated sections**: cluster.routes
 
 > **Purpose**: Project-specific cluster topology for jitML — Kind cluster
@@ -16,25 +16,26 @@ Pulsar topic family are now projected from the durable-state registry
 the `ObjectBucket` projection, and the topic logical names are anti-drift-checked
 against `JitML.Coordinator.Topology`. See [durable_state_dsl.md](durable_state_dsl.md).
 
-**HA topology source of truth (2026-06-27):** this document describes the
-implemented HA topology: one control-plane node plus three workers per
+**HA topology source of truth:** this document defines one control-plane node
+plus three workers per
 substrate, one localhost Envoy edge socket, distributed stateful services, and
 scoped placement that permits at most one numerical ML compute worker of each
-scope per Kubernetes node. Phase `3` Sprint `3.6`, Phase `4` Sprint `4.10`, and
-Phase `5` Sprint `5.16` implemented the local materialization; Phase `15`
-Sprint `15.22` revalidated the Linux CUDA live lane, and Phase `16` Sprint
-`16.14` revalidated the Apple Silicon live lane.
+scope per Kubernetes node. Current implementation and lane-validation status
+live only in the development plan.
 
-**Current reconciliation closure (2026-06-30):** Phase `3` Sprint `3.7`
-re-closed the lower-level lifecycle surface. Cluster health and edge coordinates
+**Reconciliation contract:** cluster health and edge coordinates
 come only from a successful live Kind/Helm reconcile. A locally materialized
 publication, a missing publication, or a corrupt publication is not a ready
 cluster: `jitml cluster status` fails closed unless
 `./.build/runtime/cluster-publication.json` decodes and carries
-`evidence: live-readiness`. `jitml cluster up --substrate <s>` performs the live
-Kind create/export, dependency build, Docker image build/load, Helm/local apply,
-readiness, Pulsar-topic, and measured-publication write promised by the CLI and
-plan surfaces.
+`evidence: live-readiness` plus exactly one ready row for every required
+component. `jitml cluster up --substrate <s>` performs the live Kind
+create/export, dependency build, Docker image build/load, Helm/local apply,
+substrate-required role-rollout readiness, public Coordinator `/readyz`,
+Pulsar-topic, and measured-publication write promised by the CLI and plan
+surfaces. Linux requires clustered Engine and Coordinator rows; Apple requires
+only the clustered Coordinator and edge, never inferring its separately launched
+host Engine from the zero-replica cluster Deployment.
 
 ## Substrates and Cluster Shapes
 
@@ -43,6 +44,12 @@ plan surfaces.
 | `apple-silicon` | one control-plane plus three workers from `dhall/cluster/resources.dhall` | workers carry `jitml.node-role/compute=true`; host Metal compute remains host-resident | clustered (`Cluster + ForwardToHost`) + host-native (`Host + SelfInference`) |
 | `linux-cpu` | one control-plane plus three workers from `dhall/cluster/resources.dhall` | workers carry `jitml.node-role/compute=true` for numerical compute placement | clustered only (`Cluster + SelfInference`) |
 | `linux-cuda` | one control-plane plus three workers from `dhall/cluster/resources.dhall` | CUDA workers carry `jitml.node-role/compute=true` and `jitml.runtime/gpu=true` | clustered only (`Cluster + SelfInference`) |
+
+This table owns where computation may reside. A validated workload consumes it
+as the closed `ClusterJob | HostRun` placement choice defined by
+[Typed Run Contract → Lifecycle State Machine](run_contract.md#lifecycle-state-machine).
+Missing/probe-failed placement, terminal success, evidence completion, and
+resource cleanup are run-protocol states rather than topology strings.
 
 Per-substrate Kind configs live at `kind/cluster-<substrate>.yaml`. The
 `kindest/node` pin is the single source of toolchain truth; it is mirrored as a
@@ -294,21 +301,52 @@ path runs the typed `kind`, Helm, Docker build / Kind image-load,
 repo-owned manifest apply, platform readiness, and Pulsar-topic subprocesses
 through the `Subprocess` boundary and stops at the first failed subprocess so a
 failed image build or image load cannot be masked by later Helm rollout
-failures. The topic subprocesses register the substrate-scoped
-family consumed by `jitml service`: eight command/event topics for each
-substrate plus the Apple-only `inference.command.apple-silicon` forward topic
-and the Apple host-command topics `training.host-command.apple-silicon`,
-`tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`. The
-in-cluster Apple daemon forwards each raw inference command onto
+failures. The topic subprocesses register the exact 34-topic family derived by
+`JitML.Coordinator.Topology`: nine command/event/request/result topics per
+substrate plus one workflow-status topic per substrate, together with the
+Apple-only `inference.command.apple-silicon` forward topic and the Apple
+host-command topics `training.host-command.apple-silicon`,
+`tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`. Topic
+convergence probes every fully qualified topic with the exact read-only
+`pulsar-admin topics stats` command. Probes run concurrently with bounded
+retries and accept only a successfully decoded JSON object for each topic; a
+namespace topic listing is discovery information, never convergence authority.
+The in-cluster Apple daemon forwards each raw inference command onto
 `inference.command.apple-silicon`, and the host Engine publishes the
 `InferenceResult` to the request's reply-topic directly (the converged values
 model). The Apple placement path forwards Metal-backed starts to the
 host-command topics rather than rendering Linux worker Jobs; Phase `12` owns the
-live no-Job assertion. The live path rewrites the
-Kind/Gateway/EnvoyProxy inputs from the selected edge-port lease, writes
+live no-Job assertion. The live path selects the fresh lease or recovers the
+retained cluster's fixed edge coordinate before it materializes the
+Kind/Gateway/EnvoyProxy inputs. For a retained cluster it compares a versioned
+desired-state stamp with a deterministic workspace fingerprint and repo-app
+top-level OCI descriptor identities; these are distinct from both the selected
+platform manifest and the runtime config digest. Read-only observations require
+the exact Helm release,
+publication-readiness, Pulsar-topic, per-node loaded-image, and app-pod image
+families: every node's containerd target digest must match the desired host OCI
+identity, all expected nodes must resolve one uniform non-empty config ID for
+the tag, and every app pod's config image ID must match that uniform live ID. An
+exact match returns reconciler exit `3` without rewriting the
+publication or applying Helm; drift atomically replaces any stale live claim
+with an evidence-free recovery publication before cluster mutation. A mutating
+rollout must pass the same complete evidence gate before it can publish live
+state or persist the reconcile stamp. A
+successful apply writes
 `./.build/runtime/cluster-publication.json` with that lease, measured Helm
-release status, and `evidence: live-readiness`, and patches the Apple host Dhall
-from the publication.
+release status, substrate-required role rollout rows, public-edge readiness, and
+`evidence: live-readiness`, and patches the Apple host Dhall from the publication.
+Linux records Engine and Coordinator; Apple records Coordinator but no Engine
+until the separate host-daemon lifecycle supplies its own evidence outside
+cluster publication. The edge request is a bounded typed curl subprocess issued
+only after all HTTPRoutes are applied; incomplete, duplicate, unexpected, or
+not-ready component evidence returns a typed bootstrap invariant failure and
+writes no live publication. Only after that publication is live does the
+reconciler write `./.build/runtime/cluster-reconcile-stamp.json`, binding schema
+version, substrate, edge port, desired-input fingerprint, and each repo-app
+tag's top-level host OCI descriptor for the next no-op decision. The stamp's
+legacy `repo_app_image_ids` field name does not change that identity level: it
+does not store a selected-platform manifest or image config digest.
 Platform readiness includes rollout checks and a
 retry-hardened in-pod MinIO bucket check that aliases
 `http://minio.platform.svc.cluster.local:9000` through the Bitnami `mc` client
@@ -320,7 +358,26 @@ MinIO's upstream path while SigV4 verification still uses the path MinIO sees.
 External Helm dependencies install from the `.tgz` archives produced by
 `helm dependency build`, using typed values files from `chart/values/` when
 direct subchart installs need values; jitML-owned workloads install from
-`chart/local/`. Historical live Linux CPU validation on 2026-05-23 completed
+`chart/local/`. Direct Pulsar values and the umbrella-chart projection both set
+`brokerDeleteInactiveTopicsEnabled=false`; broker StatefulSets restart when
+that ConfigMap changes, so a retained broker fleet cannot keep a stale
+topic-deletion policy.
+
+The final Sprint `3.7` Linux CPU acceptance on 2026-07-16 ran the exact command
+`docker compose run -T --rm jitml jitml cluster up --substrate linux-cpu`
+twice against the retained cluster. The first invocation took the mutating path,
+exited `0` after 157 steps in 2,692 seconds, and retained all 34
+coordinator-derived topics as independently probeable JSON objects for more
+than 60 seconds. The identical second invocation exited `3` in 58 seconds and
+preserved publication, reconcile stamp, edge authority, four node identities,
+20 PVCs, nine Helm revisions, five application Pods, three broker identities,
+and all eight node/tag image rows. Host and node target identity was the
+top-level OCI descriptor
+`sha256:87b478abc5aade79b613386a9ad7c4a77a145b7cf3d54391ca4f1fa8d11013b0`;
+the uniform node CRI and application runtime config digest was
+`sha256:43238c272a7d54ac2c2212d211f209d1b991385c21e8badd4283710580d6f227`.
+
+Historical live Linux CPU validation on 2026-05-23 completed
 the compact 110-step phased rollout plus readiness checks, built and loaded
 `jitml:local`, retagged it as `jitml-demo:local`, loaded both tags into Kind, served
 `http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar topic
@@ -330,7 +387,8 @@ teardown plus the second-run no-op exit `3`. The 2026-05-19 live run confirms
 edge, `/pulsar/ws` resolves to `pulsar-broker:8080`, the broker config carries
 `webSocketServiceEnabled=true`, and routed WebSocket publish/consume succeeds
 through `JitML.Service.PulsarWebSocketSubprocess`. The 2026-05-20 live run
-reconciles all 26 current substrate-scoped Pulsar topics and publishes/consumes
+reconciled the then-current 26 substrate-scoped Pulsar topics and
+published/consumed
 on `persistent://public/default/training.command.linux-cpu` through the
 `jitml:local` WebSocket subprocess path. The 2026-05-19 live run
 revalidated Harbor's preconditions and
@@ -475,19 +533,13 @@ Missing stage-0 gates return exit code `2` with installation instructions. All
 broader package validation/remediation belongs to the Haskell typed
 prerequisite DAG. Homebrew packages may be installed lazily by `jitml` through
 Plan/Apply prerequisite remediation; shell scripts never install them.
-Current validation on 2026-05-23 runs the live cluster toolchain from the
-`jitml:local` image with the repository mounted at the same absolute host path;
-the root `compose.yaml` pins the headless `jitml` service to host networking so
+The root `compose.yaml` runs the live cluster toolchain from the `jitml:local`
+image with the repository mounted at the same absolute host path and pins the
+headless `jitml` service to host networking so
 Kind kubeconfig loopback endpoints are reachable from the outer container. The
 GPU-enabled `jitml-cuda` companion service uses the same image and mount shape,
 adding only `gpus: all` for direct live CUDA tests that need device exposure in
-the outer container. The Linux CPU bootstrap completes the 110-step live
-rollout and publishes all platform components as ready on edge port `9091`.
-
-2026-05-23 Linux CUDA live validation on a GPU host (NVIDIA GeForce RTX 5090,
-CUDA 12.8) historically closed both Phase `4` Sprint `4.7` and the CUDA portion
-of Phase `5` Sprint `5.6` against the compact `jitml-linux-cuda` shape. The
-current HA renderer preserves that CUDA RuntimeClass contract on the three GPU
+the outer container. The HA renderer preserves the CUDA RuntimeClass contract on the three GPU
 worker nodes: worker labels include `jitml.runtime/gpu=true`,
 `RuntimeClass/nvidia` applies, and `Deployment/jitml-service` plus daemon-spawned
 CUDA worker Jobs render `runtimeClassName: nvidia`,
@@ -522,5 +574,6 @@ JIT artifacts; `./.data/` holds only manual PV bind mounts.
 - [../../README.md → Envoy Gateway API](../../README.md#envoy-gateway-api-a-single-localhost-socket)
 - [../../README.md → Helm chart layout](../../README.md#helm-chart-layout)
 - [daemon_architecture.md](daemon_architecture.md)
+- [run_contract.md](run_contract.md)
 - [../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md](../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md)
 - [../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md](../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md)

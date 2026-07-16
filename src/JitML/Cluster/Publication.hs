@@ -1,11 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module JitML.Cluster.Publication
   ( ClusterPublication (..)
   , defaultPublication
   , markPublicationLive
+  , publicationComponentsReady
   , publicationHasLiveEvidence
   , publicationWithLeasedPort
+  , requiredPublicationComponents
   , renderPublicationSummary
   )
 where
@@ -16,7 +19,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.Cluster.EdgePort (EdgePortLease (..))
-import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate, substrateEdgePort)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
 
 data ClusterPublication = ClusterPublication
   { publicationSubstrate :: Substrate
@@ -74,25 +77,64 @@ defaultPublication substrate =
         "pulsar://127.0.0.1:" <> Text.pack (show (substrateEdgePort substrate)) <> "/pulsar"
     , publicationMinioUrl =
         "http://127.0.0.1:" <> Text.pack (show (substrateEdgePort substrate)) <> "/minio/s3"
-    , publicationComponents =
-        [ ("harbor", "ready")
-        , ("minio", "ready")
-        , ("pulsar", "ready")
-        , ("postgres", "ready")
-        , ("observability", "ready")
-        , ("jitml-service", "ready")
-        , ("jitml-demo", "ready")
-        ]
+    , publicationComponents = fmap (,"ready") (requiredPublicationComponents substrate)
     , publicationEvidence = Nothing
     }
 
+-- | The exact component family a consumable live publication must prove. The
+-- Linux publications require distinct Engine and Coordinator rows because one
+-- Helm release owns both Deployments. Apple Silicon deliberately omits Engine:
+-- its clustered Engine Deployment has zero replicas, while the separately
+-- launched host daemon is outside cluster-bootstrap readiness and must not be
+-- inferred ready from that zero-replica rollout.
+requiredPublicationComponents :: Substrate -> [Text]
+requiredPublicationComponents substrate =
+  [ "harbor"
+  , "minio"
+  , "pulsar"
+  , "postgres"
+  , "observability"
+  ]
+    <> engineComponents
+    <> [ "jitml-coordinator"
+       , "jitml-demo"
+       , "edge"
+       ]
+ where
+  engineComponents =
+    case substrate of
+      AppleSilicon -> []
+      LinuxCPU -> ["jitml-engine"]
+      LinuxCUDA -> ["jitml-engine"]
+
+-- | Require one and only one ready row for every required component, with no
+-- legacy, duplicate, or unexpected rows. This is intentionally stricter than
+-- checking that each name occurs somewhere: duplicate ready rows must not mint
+-- evidence, and a not-ready extra check must not be ignored.
+publicationComponentsReady :: ClusterPublication -> Bool
+publicationComponentsReady publication =
+  length components == length requiredComponents
+    && all requiredComponentReady requiredComponents
+    && all ((== "ready") . snd) components
+ where
+  components = publicationComponents publication
+  requiredComponents = requiredPublicationComponents (publicationSubstrate publication)
+  requiredComponentReady requiredName =
+    [status | (name, status) <- components, name == requiredName] == ["ready"]
+
 markPublicationLive :: ClusterPublication -> ClusterPublication
 markPublicationLive publication =
-  publication {publicationEvidence = Just "live-readiness"}
+  publication
+    { publicationEvidence =
+        if publicationComponentsReady publication
+          then Just "live-readiness"
+          else Nothing
+    }
 
 publicationHasLiveEvidence :: ClusterPublication -> Bool
 publicationHasLiveEvidence publication =
   publicationEvidence publication == Just "live-readiness"
+    && publicationComponentsReady publication
 
 -- | Overlay a `leaseEdgePort` result onto a `ClusterPublication`,
 -- rewriting `publicationEdgePort` and the Pulsar / MinIO URLs so they

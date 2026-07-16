@@ -1,6 +1,6 @@
 # Phase 27: Demo All-Model Rendering
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/purescript_frontend.md](../documents/engineering/purescript_frontend.md), [../documents/engineering/cli_command_surface.md](../documents/engineering/cli_command_surface.md)
 **Generated sections**: none

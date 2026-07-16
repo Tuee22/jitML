@@ -44,6 +44,7 @@ import JitML.Engines.Loader
   ( ensureKernelArtifact
   , kernelArtifactCompiled
   , kernelArtifactHandle
+  , renderKernelArtifactError
   , withKernelSymbol
   )
 import JitML.Env.Env (Env)
@@ -229,7 +230,8 @@ withCompiledLayerGraphOneDnn env useFunctions = do
       layerGraphOneDnnRuntimeSource
       layerGraphOneDnnHash
   case artifactResult of
-    Left err -> pure (Left ("layergraph-onednn compile failed: " <> err))
+    Left err ->
+      pure (Left ("layergraph-onednn compile failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = kernelHandleArtifactPath handle

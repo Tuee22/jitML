@@ -2,7 +2,9 @@
 
 module JitML.Engines.Loader
   ( KernelArtifact (..)
+  , KernelArtifactError (..)
   , ensureKernelArtifact
+  , renderKernelArtifactError
   , withKernelSymbol
   )
 where
@@ -19,7 +21,6 @@ import System.Directory
   , doesFileExist
   , renameFile
   )
-import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix.DynamicLinker (DL, RTLDFlags (RTLD_NOW), dlopen, dlsym)
@@ -38,6 +39,7 @@ import JitML.Engines.Engine
   , resolveKernelCache
   )
 import JitML.Env.Env (Env (..))
+import JitML.Sub.Outcome (ProcessFailure, ProcessOutcome (..), renderProcessFailure)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Substrate (Substrate (..))
@@ -50,8 +52,17 @@ data KernelArtifact = KernelArtifact
   }
   deriving stock (Eq, Show)
 
+data KernelArtifactError
+  = KernelArtifactProcessFailure ProcessFailure
+  | KernelArtifactSemanticError Text
+  deriving stock (Eq, Show)
+
+renderKernelArtifactError :: KernelArtifactError -> Text
+renderKernelArtifactError (KernelArtifactProcessFailure failure) = renderProcessFailure failure
+renderKernelArtifactError (KernelArtifactSemanticError message) = message
+
 ensureKernelArtifact
-  :: Env -> Engine -> RuntimeSource -> Cache.Hash -> IO (Either Text KernelArtifact)
+  :: Env -> Engine -> RuntimeSource -> Cache.Hash -> IO (Either KernelArtifactError KernelArtifact)
 ensureKernelArtifact env engine source hash = do
   artifactExists <- doesFileExist artifactPath
   case resolveKernelCache engine source hash artifactExists of
@@ -67,25 +78,20 @@ ensureKernelArtifact env engine source hash = do
               Right () -> Right (artifactFor missedHandle miss True)
               Left err ->
                 Left
-                  ( "Apple Silicon Metal source metadata write failed for "
-                      <> kernelHandleArtifactPath missedHandle
-                      <> ": "
-                      <> err
+                  ( KernelArtifactSemanticError
+                      ( "Apple Silicon Metal source metadata write failed for "
+                          <> kernelHandleArtifactPath missedHandle
+                          <> ": "
+                          <> err
+                      )
                   )
         _ -> do
           _sourceDirectory <- materializeRuntimeSource env source hash
-          (exitCode, _stdoutText, stderrText) <- runStreaming defaultSubprocessEnv command
-          case exitCode of
-            ExitFailure _ ->
-              pure
-                ( Left
-                    ( "kernel compile failed for "
-                        <> kernelHandleArtifactPath missedHandle
-                        <> ": "
-                        <> stderrText
-                    )
-                )
-            ExitSuccess ->
+          outcome <- runStreaming defaultSubprocessEnv command
+          case outcome of
+            ProcessFailed failure ->
+              pure (Left (KernelArtifactProcessFailure failure))
+            ProcessSucceeded _ ->
               pure (Right (artifactFor missedHandle miss True))
  where
   handle = case resolveKernelCache engine source hash False of

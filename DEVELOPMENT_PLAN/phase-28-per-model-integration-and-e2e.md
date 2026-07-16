@@ -1,6 +1,6 @@
 # Phase 28: Per-Model Integration & Row-Complete E2E
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md), [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md), [../documents/engineering/purescript_frontend.md](../documents/engineering/purescript_frontend.md)
 **Generated sections**: none
@@ -11,7 +11,13 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `27` remains
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `28.4`). Per-row live
+coverage still permits artifact reads, stdout prefixes, declared test ids, and
+green exit codes to stand in for a completed measured workflow journal. Sprint
+`28.4` is blocked by Sprint `25.4`. Sprints `28.1`–`28.3` remain Done on their
+retained row-enumeration and browser surfaces.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `27` remains
 Done for its owned demo-rendering surface, and Phase `25` remains re-closed
 (2026-07-03) after every live RL product row produced passing
 `CompletedTraining` evidence. The historical closure recorded Sprint `28.1` Done
@@ -393,9 +399,69 @@ gate must not pass a faked cell is the
 suite. The committed `linux-cpu` attestation is re-issued only after the card is
 backed by measured per-row evidence and both suites are green on `linux-cpu`.
 
+## Sprint 28.4: Contract-Driven Per-Row Live Execution [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `test/integration/Main.hs`,
+`src/JitML/Test/WorkflowMatrix.hs`, `src/JitML/Test/RowAssertions.hs`,
+`src/JitML/Test/Report.hs`, `src/JitML/Product/Matrix.hs`,
+`playwright/jitml-demo.spec.ts`
+**Blocked by**: Sprint `25.4`
+**Docs to update**: `../README.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/purescript_frontend.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make every `linux-cpu` product-row cell execute its validated plan through the
+shared live interpreter and close only from measured completed evidence. This
+sprint owns the per-row portions of
+[Exit Definition](README.md#exit-definition) items `31` and `34`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Derive one scenario per `ProductRow` from the Phase `19` plan projection and
+  execute it through Sprint `12.16`'s `runLiveWorkflow` interpreter.
+- Require row reports to consume the completed evidence journal, not an
+  artifact-only read, stdout prefix, declared test id, or green exit code.
+- Bind training, checkpoint, inference, negative, and browser evidence to the
+  same `rowId`, `PlanId`, artifact hash, and substrate.
+- Make Playwright assertions consume the completed row artifact and measured
+  result published by that scenario.
+- Render `Passed`, `Failed`, and `NotRun` cells explicitly and fail the row card
+  on missing or mismatched evidence.
+- Issue the committed `linux-cpu` lane fragment only from the completed journal
+  produced by the full live lane.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml test jitml-e2e --live --linux-cpu
+docker compose run --rm jitml jitml test all --live --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `25.4` provides dimensionally correct RL plans and
+  separated learning/evaluation evidence.
+- Migrate all row cells, Playwright assertions, and report projections to the
+  scenario journal.
+- Replace the committed `linux-cpu` fragment only after the live validation
+  passes and retire metadata-only row helpers.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — per-row live scenario execution and
+  journal-derived evidence cells.
 - `documents/engineering/unit_testing_policy.md` — row-keyed integration/e2e
   coverage ownership and the uncovered-pair failure rule.
 - `documents/engineering/purescript_frontend.md` — per-row generated Playwright

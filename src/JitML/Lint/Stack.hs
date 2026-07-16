@@ -23,7 +23,6 @@ import System.Directory
   , listDirectory
   , renameFile
   )
-import System.Exit (ExitCode (..))
 import System.FilePath qualified as FilePath
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -35,7 +34,10 @@ import JitML.Lint.DhallRL (checkDhallRL)
 import JitML.Lint.ForbiddenPaths (ForbiddenPathRule (..), matchForbiddenPath)
 import JitML.Lint.ProductTruth (checkProductTruth)
 import JitML.Lint.Stack.Types (LintFinding (..), LintMode (..), LintTarget (..))
-import JitML.Sub.Render (renderSubprocess)
+import JitML.Sub.Outcome
+  ( ProcessOutcome (..)
+  , renderProcessFailure
+  )
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Web.Bundle (panelEndpoint, panelSurfaces)
@@ -571,7 +573,8 @@ isHaskellSource path =
 
 checkForbiddenPrimitive :: FilePath -> IO [LintFinding]
 checkForbiddenPrimitive path
-  | path == "src/JitML/Sub/Stream.hs" = checkForbiddenTerminalPrimitive path
+  | path `elem` ["src/JitML/Sub/Stream.hs", "src/JitML/Sub/Piped.hs"] =
+      checkForbiddenTerminalPrimitive path
   | path == "src/JitML/CLI/Output.hs" = checkForbiddenSubprocessPrimitive path
   | otherwise = do
       subprocessFindings <- checkForbiddenSubprocessPrimitive path
@@ -586,7 +589,7 @@ checkForbiddenSubprocessPrimitive path = do
         path
         key
         "forbidden subprocess primitive outside typed interpreter"
-        "move subprocess execution through `src/JitML/Sub/Stream.hs`"
+        "move subprocess execution through `src/JitML/Sub/Stream.hs` or the scoped `src/JitML/Sub/Piped.hs` interpreter"
     | (key, needle) <- forbiddenSubprocessNeedles
     , needle `Text.isInfixOf` content
     ]
@@ -778,32 +781,17 @@ checkWarningCleanBuild =
 
 runCommandFinding :: FilePath -> Text -> Text -> Subprocess -> IO [LintFinding]
 runCommandFinding path key message command = do
-  (exitCode, stdoutText, stderrText) <- runStreaming defaultSubprocessEnv command
-  case exitCode of
-    ExitSuccess -> pure []
-    ExitFailure _ ->
+  outcome <- runStreaming defaultSubprocessEnv command
+  case outcome of
+    ProcessSucceeded _ -> pure []
+    ProcessFailed failure ->
       pure
         [ LintFinding
             path
             key
             message
-            (commandFailureRemedy command stdoutText stderrText)
+            (renderProcessFailure failure)
         ]
-
-commandFailureRemedy :: Subprocess -> Text -> Text -> Text
-commandFailureRemedy command stdoutText stderrText =
-  Text.unlines
-    [ "command: " <> renderSubprocess command
-    , "stdout: " <> clipped stdoutText
-    , "stderr: " <> clipped stderrText
-    ]
-
-clipped :: Text -> Text
-clipped value =
-  let limit = 4000
-   in if Text.length value <= limit
-        then value
-        else Text.take limit value <> "\n... truncated ..."
 
 checkCodeQualityDomain :: IO [LintFinding]
 checkCodeQualityDomain = do

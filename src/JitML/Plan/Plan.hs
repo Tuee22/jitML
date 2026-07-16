@@ -1,16 +1,687 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module JitML.Plan.Plan
   ( CommandInputs (..)
   , CommandResult (..)
+  , EventId
+  , FiniteMeasurement
   , Plan (..)
+  , PlanError (..)
+  , PlanId
   , PlanStep (..)
+  , Quantity
+  , RawRunBudget (..)
+  , RawRunRequest (..)
+  , RunKind (..)
+  , RunKindWitness (..)
+  , RunPlacement (..)
+  , RunPlan
+  , SeedCohort
+  , Unit (..)
+  , Validation (..)
   , buildCommandPlan
+  , deriveEventId
+  , deriveEventIdForPlanId
+  , eventIdText
+  , finiteMeasurementValue
+  , mkFiniteMeasurement
+  , mkQuantity
+  , planIdFromCanonicalText
+  , planIdText
+  , refinePlanIdText
+  , quantityValue
+  , resolveRun
+  , runPlanArtifactId
+  , runPlanAlphaZeroBudget
+  , runPlanBudgetSummary
+  , runPlanExperimentId
+  , runPlanId
+  , runPlanPlacement
+  , runPlanSeeds
+  , runPlanSubjectId
+  , runPlanSubstrate
+  , runPlanSupervisedBudget
+  , runPlanTopicId
+  , runPlanTuningBudget
+  , runPlanVersion
+  , seedCohortValues
+  , validationToEither
   )
 where
 
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
+import Data.Char (intToDigit, isDigit)
+import Data.List qualified as List
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
+import Data.Word (Word64)
+
+import JitML.Substrate (Substrate (..), renderSubstrate)
+
+-- | A small accumulating validation type.  Unlike 'Either', the Applicative
+-- instance retains every independent error, which is the required boundary
+-- behavior for raw run requests.
+data Validation error value
+  = Failure error
+  | Success value
+  deriving stock (Eq, Show)
+
+instance Functor (Validation error) where
+  fmap _ (Failure err) = Failure err
+  fmap f (Success value) = Success (f value)
+
+instance (Semigroup error) => Applicative (Validation error) where
+  pure = Success
+  Failure left <*> Failure right = Failure (left <> right)
+  Failure err <*> Success _ = Failure err
+  Success _ <*> Failure err = Failure err
+  Success f <*> Success value = Success (f value)
+
+validationToEither :: Validation error value -> Either error value
+validationToEither (Failure err) = Left err
+validationToEither (Success value) = Right value
+
+data RunKind
+  = SupervisedTraining
+  | ReinforcementLearning
+  | HyperparameterTuning
+  | AlphaZeroSelfPlay
+
+data RunKindWitness (kind :: RunKind) where
+  SupervisedTrainingWitness :: RunKindWitness 'SupervisedTraining
+  ReinforcementLearningWitness :: RunKindWitness 'ReinforcementLearning
+  HyperparameterTuningWitness :: RunKindWitness 'HyperparameterTuning
+  AlphaZeroSelfPlayWitness :: RunKindWitness 'AlphaZeroSelfPlay
+
+deriving instance Eq (RunKindWitness kind)
+deriving instance Show (RunKindWitness kind)
+
+data Unit
+  = Epoch
+  | EnvTransition
+  | RolloutTickPerEnv
+  | EpisodeStep
+  | EvaluationEpisode
+  | OptimizerUpdate
+  | Trial
+  | Generation
+  | TrainingExample
+  | EvaluationExample
+  | BatchExample
+  | ParallelTrial
+  | Promotion
+  | PerTrialOptimizerUpdate
+  | SelfPlayGame
+  | MctsSimulationPerMove
+  | AlphaZeroPly
+  | AlphaZeroOptimizerUpdate
+  | ArenaGame
+
+newtype Quantity (unit :: Unit) = Quantity Word64
+  deriving stock (Eq, Ord, Show)
+
+quantityValue :: Quantity unit -> Word64
+quantityValue (Quantity value) = value
+
+newtype FiniteMeasurement = FiniteMeasurement Double
+  deriving stock (Eq, Ord, Show)
+
+finiteMeasurementValue :: FiniteMeasurement -> Double
+finiteMeasurementValue (FiniteMeasurement value) = value
+
+newtype SeedCohort = SeedCohort (NonEmpty Word64)
+  deriving stock (Eq, Ord, Show)
+
+seedCohortValues :: SeedCohort -> NonEmpty Word64
+seedCohortValues (SeedCohort values) = values
+
+newtype PlanId = PlanId Text
+  deriving stock (Eq, Ord, Show)
+
+planIdText :: PlanId -> Text
+planIdText (PlanId value) = value
+
+-- | Refine an already-derived SHA-256 plan identity from a raw wire or
+-- persistence field. This validates the canonical lowercase hexadecimal
+-- representation; it never hashes or otherwise changes the observed value.
+refinePlanIdText :: Text -> Either Text PlanId
+refinePlanIdText raw
+  | Text.length raw == 64 && Text.all isLowerHex raw = Right (PlanId raw)
+  | otherwise = Left "plan-id must be exactly 64 lowercase hexadecimal characters"
+ where
+  isLowerHex char = isDigit char || (char >= 'a' && char <= 'f')
+
+newtype EventId = EventId Text
+  deriving stock (Eq, Ord, Show)
+
+eventIdText :: EventId -> Text
+eventIdText (EventId value) = value
+
+data RunPlacement
+  = ClusterRun
+  | HostRun
+  deriving stock (Eq, Ord, Show)
+
+data PlanError
+  = EmptyPlanField Text
+  | UnsupportedRunPlanVersion Word64
+  | NonPositiveQuantity Text
+  | QuantityOutOfRange Text Integer
+  | QuantityExceeds Text Integer Text Integer
+  | DerivedQuantityMismatch Text Integer Integer
+  | NonFiniteMeasurement Text
+  | EmptySeedCohort
+  | DuplicateSeed Word64
+  | InvalidRunPlacement Substrate RunPlacement
+  | InvalidPlanId Text
+  | EmptyEventKind
+  | EmptyEventLogicalKey
+  deriving stock (Eq, Ord, Show)
+
+data RawRunBudget (kind :: RunKind) where
+  RawSupervisedBudget
+    :: { rawSupervisedEpochs :: Integer
+       , rawSupervisedTrainingExamples :: Integer
+       , rawSupervisedEvaluationExamples :: Integer
+       , rawSupervisedBatchExamples :: Integer
+       , rawSupervisedOptimizerUpdates :: Integer
+       }
+    -> RawRunBudget 'SupervisedTraining
+  RawRlBudget
+    :: { rawRlEnvironmentTransitions :: Integer
+       , rawRlRolloutTicksPerEnv :: Integer
+       , rawRlEpisodeSteps :: Integer
+       , rawRlEvaluationEpisodes :: Integer
+       , rawRlOptimizerUpdates :: Integer
+       }
+    -> RawRunBudget 'ReinforcementLearning
+  RawTuningBudget
+    :: { rawTuningTrials :: Integer
+       , rawTuningParallelTrials :: Integer
+       , rawTuningPromotions :: Integer
+       , rawTuningPerTrialOptimizerUpdates :: Integer
+       }
+    -> RawRunBudget 'HyperparameterTuning
+  RawAlphaZeroBudget
+    :: { rawAlphaZeroGenerations :: Integer
+       , rawAlphaZeroSelfPlayGamesPerGeneration :: Integer
+       , rawAlphaZeroMctsSimulationsPerMove :: Integer
+       , rawAlphaZeroMaxPliesPerGame :: Integer
+       , rawAlphaZeroOptimizerUpdatesPerGeneration :: Integer
+       , rawAlphaZeroArenaGames :: Integer
+       }
+    -> RawRunBudget 'AlphaZeroSelfPlay
+
+deriving instance Eq (RawRunBudget kind)
+deriving instance Show (RawRunBudget kind)
+
+data RawRunRequest (kind :: RunKind) = RawRunRequest
+  { rawRunVersion :: Word64
+  , rawRunKind :: RunKindWitness kind
+  , rawRunExperimentId :: Text
+  , rawRunSubjectId :: Text
+  , rawRunArtifactId :: Text
+  , rawRunTopicId :: Text
+  , rawRunSubstrate :: Substrate
+  , rawRunPlacement :: RunPlacement
+  , rawRunSeeds :: [Word64]
+  , rawRunBudget :: RawRunBudget kind
+  }
+
+deriving instance Eq (RawRunRequest kind)
+deriving instance Show (RawRunRequest kind)
+
+data RunBudget (kind :: RunKind) where
+  SupervisedBudget
+    :: Quantity 'Epoch
+    -> Quantity 'TrainingExample
+    -> Quantity 'EvaluationExample
+    -> Quantity 'BatchExample
+    -> Quantity 'OptimizerUpdate
+    -> RunBudget 'SupervisedTraining
+  RlBudget
+    :: Quantity 'EnvTransition
+    -> Quantity 'RolloutTickPerEnv
+    -> Quantity 'EpisodeStep
+    -> Quantity 'EvaluationEpisode
+    -> Quantity 'OptimizerUpdate
+    -> RunBudget 'ReinforcementLearning
+  TuningBudget
+    :: Quantity 'Trial
+    -> Quantity 'ParallelTrial
+    -> Quantity 'Promotion
+    -> Quantity 'PerTrialOptimizerUpdate
+    -> RunBudget 'HyperparameterTuning
+  AlphaZeroBudget
+    :: Quantity 'Generation
+    -> Quantity 'SelfPlayGame
+    -> Quantity 'MctsSimulationPerMove
+    -> Quantity 'AlphaZeroPly
+    -> Quantity 'AlphaZeroOptimizerUpdate
+    -> Quantity 'ArenaGame
+    -> RunBudget 'AlphaZeroSelfPlay
+
+deriving instance Eq (RunBudget kind)
+deriving instance Show (RunBudget kind)
+
+-- | A resolved run plan.  Its constructor is intentionally private: callers
+-- receive one only through 'resolveRun'.
+data RunPlan (kind :: RunKind) = RunPlan
+  { runPlanVersion :: Word64
+  , resolvedRunKind :: RunKindWitness kind
+  , runPlanExperimentId :: Text
+  , runPlanSubjectId :: Text
+  , runPlanArtifactId :: Text
+  , runPlanTopicId :: Text
+  , runPlanSubstrate :: Substrate
+  , runPlanPlacement :: RunPlacement
+  , runPlanSeeds :: SeedCohort
+  , resolvedRunBudget :: RunBudget kind
+  , runPlanId :: PlanId
+  }
+
+deriving instance Eq (RunPlan kind)
+deriving instance Show (RunPlan kind)
+
+mkQuantity
+  :: Text
+  -> Integer
+  -> Validation (NonEmpty PlanError) (Quantity unit)
+mkQuantity label value
+  | value <= 0 = failure (NonPositiveQuantity label)
+  | value > toInteger (maxBound :: Word64) = failure (QuantityOutOfRange label value)
+  | otherwise = Success (Quantity (fromInteger value))
+
+mkFiniteMeasurement
+  :: Text
+  -> Double
+  -> Validation (NonEmpty PlanError) FiniteMeasurement
+mkFiniteMeasurement label value
+  | isNaN value || isInfinite value = failure (NonFiniteMeasurement label)
+  | otherwise = Success (FiniteMeasurement value)
+
+resolveRun
+  :: RawRunRequest kind
+  -> Validation (NonEmpty PlanError) (RunPlan kind)
+resolveRun raw =
+  buildResolved
+    <$> validateRunPlanVersion (rawRunVersion raw)
+    <*> validateNonEmpty "experiment-id" (rawRunExperimentId raw)
+    <*> validateNonEmpty "subject-id" (rawRunSubjectId raw)
+    <*> validateNonEmpty "artifact-id" (rawRunArtifactId raw)
+    <*> validateNonEmpty "topic-id" (rawRunTopicId raw)
+    <*> validatePlacement (rawRunSubstrate raw) (rawRunPlacement raw)
+    <*> validateSeedCohort (rawRunSeeds raw)
+    <*> validateBudget (rawRunBudget raw)
+ where
+  buildResolved version experimentId subjectId artifactId topicId placement seeds budget =
+    let planWithoutId =
+          ( version
+          , rawRunKind raw
+          , experimentId
+          , subjectId
+          , artifactId
+          , topicId
+          , rawRunSubstrate raw
+          , placement
+          , seeds
+          , budget
+          )
+        identity = PlanId (sha256Text (canonicalPlan planWithoutId))
+     in RunPlan
+          { runPlanVersion = version
+          , resolvedRunKind = rawRunKind raw
+          , runPlanExperimentId = experimentId
+          , runPlanSubjectId = subjectId
+          , runPlanArtifactId = artifactId
+          , runPlanTopicId = topicId
+          , runPlanSubstrate = rawRunSubstrate raw
+          , runPlanPlacement = placement
+          , runPlanSeeds = seeds
+          , resolvedRunBudget = budget
+          , runPlanId = identity
+          }
+
+validateBudget
+  :: RawRunBudget kind
+  -> Validation (NonEmpty PlanError) (RunBudget kind)
+validateBudget rawBudget =
+  case rawBudget of
+    RawSupervisedBudget epochs trainingExamples evaluationExamples batchExamples optimizerUpdates ->
+      SupervisedBudget
+        <$> mkQuantity "epochs" epochs
+        <*> mkQuantity "training-examples" trainingExamples
+        <*> mkQuantity "evaluation-examples" evaluationExamples
+        <*> mkQuantity "batch-examples" batchExamples
+        <*> mkQuantity "optimizer-updates" optimizerUpdates
+        <* validateDerivedOptimizerUpdates
+          epochs
+          trainingExamples
+          batchExamples
+          optimizerUpdates
+    RawRlBudget transitions rolloutTicks episodeSteps evaluationEpisodes optimizerUpdates ->
+      RlBudget
+        <$> mkQuantity "environment-transitions" transitions
+        <*> mkQuantity "rollout-ticks-per-environment" rolloutTicks
+        <*> mkQuantity "episode-steps" episodeSteps
+        <*> mkQuantity "evaluation-episodes" evaluationEpisodes
+        <*> mkQuantity "optimizer-updates" optimizerUpdates
+    RawTuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
+      TuningBudget
+        <$> mkQuantity "trials" trials
+        <*> mkQuantity "parallel-trials" parallelTrials
+        <*> mkQuantity "promotions" promotions
+        <*> mkQuantity "per-trial-optimizer-updates" perTrialOptimizerUpdates
+        <* validateAtMost "parallel-trials" parallelTrials "trials" trials
+        <* validateAtMost "promotions" promotions "trials" trials
+    RawAlphaZeroBudget generations selfPlayGames simulations maxPlies optimizerUpdates arenaGames ->
+      AlphaZeroBudget
+        <$> mkQuantity "generations" generations
+        <*> mkQuantity "self-play-games-per-generation" selfPlayGames
+        <*> mkQuantity "mcts-simulations-per-move" simulations
+        <*> mkQuantity "max-plies-per-game" maxPlies
+        <*> mkQuantity "optimizer-updates-per-generation" optimizerUpdates
+        <*> mkQuantity "arena-games" arenaGames
+
+validateNonEmpty :: Text -> Text -> Validation (NonEmpty PlanError) Text
+validateNonEmpty label value
+  | Text.null normalized = failure (EmptyPlanField label)
+  | otherwise = Success normalized
+ where
+  normalized = Text.strip value
+
+validateAtMost
+  :: Text
+  -> Integer
+  -> Text
+  -> Integer
+  -> Validation (NonEmpty PlanError) ()
+validateAtMost smallerLabel smaller largerLabel larger
+  | smaller <= 0 || larger <= 0 = Success ()
+  | smaller <= larger = Success ()
+  | otherwise = failure (QuantityExceeds smallerLabel smaller largerLabel larger)
+
+validateDerivedOptimizerUpdates
+  :: Integer
+  -> Integer
+  -> Integer
+  -> Integer
+  -> Validation (NonEmpty PlanError) ()
+validateDerivedOptimizerUpdates epochs trainingExamples batchExamples observed
+  | any (<= 0) [epochs, trainingExamples, batchExamples, observed] = Success ()
+  | observed == expected = Success ()
+  | otherwise = failure (DerivedQuantityMismatch "optimizer-updates" expected observed)
+ where
+  expected = epochs * ceilingDivide trainingExamples batchExamples
+
+ceilingDivide :: Integer -> Integer -> Integer
+ceilingDivide numerator denominator =
+  (numerator + denominator - 1) `div` denominator
+
+validateRunPlanVersion :: Word64 -> Validation (NonEmpty PlanError) Word64
+validateRunPlanVersion 1 = Success 1
+validateRunPlanVersion version = failure (UnsupportedRunPlanVersion version)
+
+validatePlacement
+  :: Substrate
+  -> RunPlacement
+  -> Validation (NonEmpty PlanError) RunPlacement
+validatePlacement AppleSilicon HostRun = Success HostRun
+validatePlacement LinuxCPU ClusterRun = Success ClusterRun
+validatePlacement LinuxCUDA ClusterRun = Success ClusterRun
+validatePlacement substrate placement = failure (InvalidRunPlacement substrate placement)
+
+validateSeedCohort :: [Word64] -> Validation (NonEmpty PlanError) SeedCohort
+validateSeedCohort [] = failure EmptySeedCohort
+validateSeedCohort seeds =
+  case duplicateSeeds canonicalSeeds of
+    [] ->
+      case canonicalSeeds of
+        firstSeed : rest -> Success (SeedCohort (firstSeed :| rest))
+        [] -> failure EmptySeedCohort
+    firstDuplicate : restDuplicates ->
+      Failure (DuplicateSeed firstDuplicate :| fmap DuplicateSeed restDuplicates)
+ where
+  canonicalSeeds = List.sort seeds
+
+duplicateSeeds :: [Word64] -> [Word64]
+duplicateSeeds values =
+  Set.toAscList
+    ( snd
+        ( foldl
+            ( \(seen, duplicates) value ->
+                if value `Set.member` seen
+                  then (seen, Set.insert value duplicates)
+                  else (Set.insert value seen, duplicates)
+            )
+            (Set.empty, Set.empty)
+            values
+        )
+    )
+
+runPlanBudgetSummary :: RunPlan kind -> [(Text, Word64)]
+runPlanBudgetSummary plan =
+  case resolvedRunBudget plan of
+    SupervisedBudget epochs trainingExamples evaluationExamples batchExamples optimizerUpdates ->
+      [ ("epochs", quantityValue epochs)
+      , ("training-examples", quantityValue trainingExamples)
+      , ("evaluation-examples", quantityValue evaluationExamples)
+      , ("batch-examples", quantityValue batchExamples)
+      , ("optimizer-updates", quantityValue optimizerUpdates)
+      ]
+    RlBudget transitions rolloutTicks episodeSteps evaluationEpisodes optimizerUpdates ->
+      [ ("environment-transitions", quantityValue transitions)
+      , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
+      , ("episode-steps", quantityValue episodeSteps)
+      , ("evaluation-episodes", quantityValue evaluationEpisodes)
+      , ("optimizer-updates", quantityValue optimizerUpdates)
+      ]
+    TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
+      [ ("trials", quantityValue trials)
+      , ("parallel-trials", quantityValue parallelTrials)
+      , ("promotions", quantityValue promotions)
+      , ("per-trial-optimizer-updates", quantityValue perTrialOptimizerUpdates)
+      ]
+    AlphaZeroBudget generations selfPlayGames simulations maxPlies optimizerUpdates arenaGames ->
+      [ ("generations", quantityValue generations)
+      , ("self-play-games-per-generation", quantityValue selfPlayGames)
+      , ("mcts-simulations-per-move", quantityValue simulations)
+      , ("max-plies-per-game", quantityValue maxPlies)
+      , ("optimizer-updates-per-generation", quantityValue optimizerUpdates)
+      , ("arena-games", quantityValue arenaGames)
+      ]
+
+runPlanTuningBudget
+  :: RunPlan 'HyperparameterTuning
+  -> ( Quantity 'Trial
+     , Quantity 'ParallelTrial
+     , Quantity 'Promotion
+     , Quantity 'PerTrialOptimizerUpdate
+     )
+runPlanTuningBudget plan =
+  case resolvedRunBudget plan of
+    TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
+      (trials, parallelTrials, promotions, perTrialOptimizerUpdates)
+
+runPlanSupervisedBudget
+  :: RunPlan 'SupervisedTraining
+  -> ( Quantity 'Epoch
+     , Quantity 'TrainingExample
+     , Quantity 'EvaluationExample
+     , Quantity 'BatchExample
+     , Quantity 'OptimizerUpdate
+     )
+runPlanSupervisedBudget plan =
+  case resolvedRunBudget plan of
+    SupervisedBudget epochs trainingExamples evaluationExamples batchExamples optimizerUpdates ->
+      (epochs, trainingExamples, evaluationExamples, batchExamples, optimizerUpdates)
+
+runPlanAlphaZeroBudget
+  :: RunPlan 'AlphaZeroSelfPlay
+  -> ( Quantity 'Generation
+     , Quantity 'SelfPlayGame
+     , Quantity 'MctsSimulationPerMove
+     , Quantity 'AlphaZeroPly
+     , Quantity 'AlphaZeroOptimizerUpdate
+     , Quantity 'ArenaGame
+     )
+runPlanAlphaZeroBudget plan =
+  case resolvedRunBudget plan of
+    AlphaZeroBudget generations selfPlayGames simulations maxPlies optimizerUpdates arenaGames ->
+      (generations, selfPlayGames, simulations, maxPlies, optimizerUpdates, arenaGames)
+
+planIdFromCanonicalText
+  :: Text
+  -> Validation (NonEmpty PlanError) PlanId
+planIdFromCanonicalText canonical =
+  PlanId . sha256Text . ("jitml-plan-id-v1\NUL" <>)
+    <$> validateNonEmpty "canonical-plan" canonical
+
+deriveEventId
+  :: RunPlan kind
+  -> Text
+  -> Text
+  -> Validation (NonEmpty PlanError) EventId
+deriveEventId plan = deriveEventIdForPlanId (runPlanId plan)
+
+deriveEventIdForPlanId
+  :: PlanId
+  -> Text
+  -> Text
+  -> Validation (NonEmpty PlanError) EventId
+deriveEventIdForPlanId planId rawKind rawLogicalKey =
+  buildEventId
+    <$> validateEventKind rawKind
+    <*> validateEventLogicalKey rawLogicalKey
+ where
+  buildEventId kind logicalKey =
+    EventId
+      ( sha256Text
+          ( Text.intercalate
+              "\NUL"
+              [ "jitml-event-id-v1"
+              , planIdText planId
+              , kind
+              , logicalKey
+              ]
+          )
+      )
+
+validateEventKind :: Text -> Validation (NonEmpty PlanError) Text
+validateEventKind value
+  | Text.null normalized = failure EmptyEventKind
+  | otherwise = Success normalized
+ where
+  normalized = Text.strip value
+
+validateEventLogicalKey :: Text -> Validation (NonEmpty PlanError) Text
+validateEventLogicalKey value
+  | Text.null normalized = failure EmptyEventLogicalKey
+  | otherwise = Success normalized
+ where
+  normalized = Text.strip value
+
+canonicalPlan
+  :: ( Word64
+     , RunKindWitness kind
+     , Text
+     , Text
+     , Text
+     , Text
+     , Substrate
+     , RunPlacement
+     , SeedCohort
+     , RunBudget kind
+     )
+  -> Text
+canonicalPlan (version, kind, experimentId, subjectId, artifactId, topicId, substrate, placement, seeds, budget) =
+  canonicalFields
+    ( [ "jitml-run-plan-v1"
+      , Text.pack (show version)
+      , renderRunKind kind
+      , experimentId
+      , subjectId
+      , artifactId
+      , topicId
+      , renderSubstrate substrate
+      , renderPlacement placement
+      ]
+        <> fmap (Text.pack . show) (List.sort (toListNonEmpty (seedCohortValues seeds)))
+        <> concatMap (\(label, value) -> [label, Text.pack (show value)]) (budgetSummary budget)
+    )
+
+budgetSummary :: RunBudget kind -> [(Text, Word64)]
+budgetSummary budget =
+  case budget of
+    SupervisedBudget epochs trainingExamples evaluationExamples batchExamples optimizerUpdates ->
+      [ ("epochs", quantityValue epochs)
+      , ("training-examples", quantityValue trainingExamples)
+      , ("evaluation-examples", quantityValue evaluationExamples)
+      , ("batch-examples", quantityValue batchExamples)
+      , ("optimizer-updates", quantityValue optimizerUpdates)
+      ]
+    RlBudget transitions rolloutTicks episodeSteps evaluationEpisodes optimizerUpdates ->
+      [ ("environment-transitions", quantityValue transitions)
+      , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
+      , ("episode-steps", quantityValue episodeSteps)
+      , ("evaluation-episodes", quantityValue evaluationEpisodes)
+      , ("optimizer-updates", quantityValue optimizerUpdates)
+      ]
+    TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
+      [ ("trials", quantityValue trials)
+      , ("parallel-trials", quantityValue parallelTrials)
+      , ("promotions", quantityValue promotions)
+      , ("per-trial-optimizer-updates", quantityValue perTrialOptimizerUpdates)
+      ]
+    AlphaZeroBudget generations selfPlayGames simulations maxPlies optimizerUpdates arenaGames ->
+      [ ("generations", quantityValue generations)
+      , ("self-play-games-per-generation", quantityValue selfPlayGames)
+      , ("mcts-simulations-per-move", quantityValue simulations)
+      , ("max-plies-per-game", quantityValue maxPlies)
+      , ("optimizer-updates-per-generation", quantityValue optimizerUpdates)
+      , ("arena-games", quantityValue arenaGames)
+      ]
+
+renderRunKind :: RunKindWitness kind -> Text
+renderRunKind SupervisedTrainingWitness = "supervised-training"
+renderRunKind ReinforcementLearningWitness = "reinforcement-learning"
+renderRunKind HyperparameterTuningWitness = "hyperparameter-tuning"
+renderRunKind AlphaZeroSelfPlayWitness = "alphazero-self-play"
+
+renderPlacement :: RunPlacement -> Text
+renderPlacement ClusterRun = "cluster"
+renderPlacement HostRun = "host"
+
+canonicalFields :: [Text] -> Text
+canonicalFields =
+  Text.concat . fmap (\field -> Text.pack (show (Text.length field)) <> ":" <> field)
+
+sha256Text :: Text -> Text
+sha256Text =
+  Text.pack
+    . concatMap byteHex
+    . ByteString.unpack
+    . SHA256.hash
+    . Text.Encoding.encodeUtf8
+ where
+  byteHex byte =
+    [ intToDigit (fromIntegral byte `div` 16)
+    , intToDigit (fromIntegral byte `mod` 16)
+    ]
+
+toListNonEmpty :: NonEmpty value -> [value]
+toListNonEmpty (firstValue :| restValues) = firstValue : restValues
+
+failure :: PlanError -> Validation (NonEmpty PlanError) value
+failure err = Failure (err :| [])
 
 data Plan inputs result = Plan
   { planName :: Text

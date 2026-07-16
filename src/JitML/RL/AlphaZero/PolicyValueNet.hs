@@ -70,6 +70,7 @@ where
 
 import Control.Monad (foldM)
 import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet qualified as IntSet
 import Data.List qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -111,6 +112,8 @@ import JitML.RL.AlphaZero
   , gomokuActionCount
   , hexActionCount
   , initialConnect4
+  , legalMoves
+  , normaliseForcedPass
   , othelloActionCount
   , othelloBoardAfter
   , terminalValueForToMove
@@ -220,8 +223,31 @@ moveCells actionCount state =
 
 -- | Compute the policy + value for a given board state.
 networkPolicyValue :: PolicyValueNet -> GameState -> PolicyValueOutput
-networkPolicyValue net state =
-  policyValueForward (pvnParams net) (pvnActionCount net) (encodeGameState net state)
+networkPolicyValue net rawState =
+  let state = normaliseForcedPass rawState
+   in policyValueForward (pvnParams net) (pvnActionCount net) (encodeGameState net state)
+
+maskedPriors :: GameState -> Vector Double -> [Double]
+maskedPriors state priors =
+  let allowed = legalMoves state
+      allowedSet = IntSet.fromList allowed
+      masked =
+        VU.imap
+          (\action probability -> if IntSet.member action allowedSet then probability else 0.0)
+          priors
+      total = VU.sum masked
+   in if total <= 0.0
+        then
+          [ if IntSet.member action allowedSet then 1.0 / fromIntegral (max 1 (length allowed)) else 0.0
+          | action <- [0 .. VU.length priors - 1]
+          ]
+        else VU.toList (VU.map (/ total) masked)
+
+applySearchPath :: GameState -> [Int] -> GameState
+applySearchPath =
+  Data.List.foldl'
+    (\state action -> normaliseForcedPass (applyMove action (normaliseForcedPass state)))
+    . normaliseForcedPass
 
 -- | Sprint 9.10 — build the position-aware 'PriorOracle' the real MCTS tree
 -- search consumes. The oracle is rooted at @rootState@; given a move-path from
@@ -231,20 +257,22 @@ networkPolicyValue net state =
 -- and back up the __value head__ at every node, not just the root prior.
 networkPriorOracle :: PolicyValueNet -> GameState -> PriorOracle
 networkPriorOracle net rootState moves =
-  let state = Data.List.foldl' (flip applyMove) rootState moves
+  let state = applySearchPath rootState moves
    in case gameOutcome state of
         GameInProgress ->
           let out = networkPolicyValue net state
            in NodeEval
-                { evalPriors = VU.toList (pvPolicy out)
+                { evalPriors = maskedPriors state (pvPolicy out)
                 , evalValue = pvValue out
                 , evalTerminal = False
+                , evalPlayerToMove = Just (gameCurrentPlayer state)
                 }
         _ ->
           NodeEval
             { evalPriors = []
             , evalValue = terminalValueForToMove state
             , evalTerminal = True
+            , evalPlayerToMove = Just (gameCurrentPlayer state)
             }
 
 -- | Device-backed variant of 'networkPriorOracle'. Leaf evaluation runs the
@@ -257,7 +285,7 @@ networkPriorOracleWithDevice
   -> [Int]
   -> IO (Either Text NodeEval)
 networkPriorOracleWithDevice device net rootState moves =
-  let state = Data.List.foldl' (flip applyMove) rootState moves
+  let state = applySearchPath rootState moves
    in case gameOutcome state of
         GameInProgress -> do
           fwdResult <- mlpdForward device (pvnParams net) (encodeGameState net state)
@@ -268,9 +296,10 @@ networkPriorOracleWithDevice device net rootState moves =
                 let out = policyValueFromForward (pvnActionCount net) fwd
                  in Right
                       NodeEval
-                        { evalPriors = VU.toList (pvPolicy out)
+                        { evalPriors = maskedPriors state (pvPolicy out)
                         , evalValue = pvValue out
                         , evalTerminal = False
+                        , evalPlayerToMove = Just (gameCurrentPlayer state)
                         }
         _ ->
           pure $
@@ -279,6 +308,7 @@ networkPriorOracleWithDevice device net rootState moves =
                 { evalPriors = []
                 , evalValue = terminalValueForToMove state
                 , evalTerminal = True
+                , evalPlayerToMove = Just (gameCurrentPlayer state)
                 }
 
 -- | Sprint 9.10 — the per-position oracle the production AlphaZero self-play
@@ -319,7 +349,7 @@ mctsVisitDistribution net sims state seed =
   let actionCount = pvnActionCount net
       cfg = (defaultMctsConfig actionCount) {mctsSimulations = max 1 sims}
       tree = runSearchWithPrior (netOracleFactory net state) cfg seed
-   in visitDistributionFromTree actionCount tree
+   in visitDistributionFromTree actionCount (legalMoves (normaliseForcedPass state)) tree
 
 -- | Device-backed MCTS visit-count distribution. This is the Sprint 9.10
 -- runtime path where leaf policy/value evaluation runs through the selected
@@ -335,18 +365,31 @@ mctsVisitDistributionWithDevice device net sims state seed = do
   let actionCount = pvnActionCount net
       cfg = (defaultMctsConfig actionCount) {mctsSimulations = max 1 sims}
   treeResult <- runSearchWithPriorIO (netOracleFactoryWithDevice device net state) cfg seed
-  pure (visitDistributionFromTree actionCount <$> treeResult)
+  pure
+    ( visitDistributionFromTree
+        actionCount
+        (legalMoves (normaliseForcedPass state))
+        <$> treeResult
+    )
 
-visitDistributionFromTree :: Int -> MctsNode -> Vector Double
-visitDistributionFromTree actionCount tree =
-  let visitFor a =
+visitDistributionFromTree :: Int -> [Int] -> MctsNode -> Vector Double
+visitDistributionFromTree actionCount allowed tree =
+  let allowedSet = IntSet.fromList allowed
+      visitFor a =
         case [edgeVisits e | e <- nodeChildren tree, edgeAction e == a] of
           (v : _) -> fromIntegral v
           [] -> 0.0
       visits = VU.generate actionCount visitFor
       total = VU.sum visits
    in if total <= 0
-        then VU.replicate actionCount (1.0 / fromIntegral (max 1 actionCount))
+        then
+          VU.generate
+            actionCount
+            ( \action ->
+                if IntSet.member action allowedSet
+                  then 1.0 / fromIntegral (max 1 (length allowed))
+                  else 0.0
+            )
         else VU.map (/ total) visits
 
 -- | One labeled training sample for the policy/value loss.
@@ -513,27 +556,32 @@ generatePolicyValueSamplesFrom
   -> [PolicyValueTrainingSample]
 generatePolicyValueSamplesFrom initialState net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
-      go !state !gen !plies !acc
-        | plies >= maxPlies = annotatePolicyValueOutcome GameDraw (reverse acc)
-        | otherwise =
-            let visitDist = mctsVisitDistribution net sims state (seed0 + plies * 7919)
-                (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
-                action = sampleCategorical visitDist u
-                nextState = applyMove action state
-                sample =
-                  PolicyValueTrainingSample
-                    { sampleState = state
-                    , sampleVisitDist = visitDist
-                    , sampleOutcome = 0.0 -- filled below
-                    }
-             in case gameOutcome nextState of
-                  GameInProgress
-                    | plies + 1 >= maxPlies ->
-                        annotatePolicyValueOutcome GameDraw (reverse (sample : acc))
-                    | otherwise ->
-                        go nextState gen' (plies + 1) (sample : acc)
-                  outcome ->
-                    annotatePolicyValueOutcome outcome (reverse (sample : acc))
+      go !rawState !gen !plies !acc =
+        let state = normaliseForcedPass rawState
+         in if plies >= maxPlies
+              then annotatePolicyValueOutcome GameDraw (reverse acc)
+              else case gameOutcome state of
+                GameWon winner -> annotatePolicyValueOutcome (GameWon winner) (reverse acc)
+                GameDraw -> annotatePolicyValueOutcome GameDraw (reverse acc)
+                GameInProgress ->
+                  let visitDist = mctsVisitDistribution net sims state (seed0 + plies * 7919)
+                      (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
+                      action = sampleCategorical visitDist u
+                      nextState = applyMove action state
+                      sample =
+                        PolicyValueTrainingSample
+                          { sampleState = state
+                          , sampleVisitDist = visitDist
+                          , sampleOutcome = 0.0 -- filled below
+                          }
+                   in case gameOutcome nextState of
+                        GameInProgress
+                          | plies + 1 >= maxPlies ->
+                              annotatePolicyValueOutcome GameDraw (reverse (sample : acc))
+                          | otherwise ->
+                              go nextState gen' (plies + 1) (sample : acc)
+                        outcome ->
+                          annotatePolicyValueOutcome outcome (reverse (sample : acc))
    in go initialState gen0 0 []
 
 -- | Device-backed variant of 'generatePolicyValueSamples'. The MCTS visit
@@ -561,30 +609,35 @@ generatePolicyValueSamplesWithDeviceFrom
   -> IO (Either Text [PolicyValueTrainingSample])
 generatePolicyValueSamplesWithDeviceFrom initialState device net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
-      go !state !gen !plies !acc
-        | plies >= maxPlies = pure (Right (annotatePolicyValueOutcome GameDraw (reverse acc)))
-        | otherwise = do
-            visitResult <- mctsVisitDistributionWithDevice device net sims state (seed0 + plies * 7919)
-            case visitResult of
-              Left err -> pure (Left err)
-              Right visitDist -> do
-                let (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
-                    action = sampleCategorical visitDist u
-                    nextState = applyMove action state
-                    sample =
-                      PolicyValueTrainingSample
-                        { sampleState = state
-                        , sampleVisitDist = visitDist
-                        , sampleOutcome = 0.0
-                        }
-                case gameOutcome nextState of
-                  GameInProgress
-                    | plies + 1 >= maxPlies ->
-                        pure (Right (annotatePolicyValueOutcome GameDraw (reverse (sample : acc))))
-                    | otherwise ->
-                        go nextState gen' (plies + 1) (sample : acc)
-                  outcome ->
-                    pure (Right (annotatePolicyValueOutcome outcome (reverse (sample : acc))))
+      go !rawState !gen !plies !acc = do
+        let state = normaliseForcedPass rawState
+        if plies >= maxPlies
+          then pure (Right (annotatePolicyValueOutcome GameDraw (reverse acc)))
+          else case gameOutcome state of
+            GameWon winner -> pure (Right (annotatePolicyValueOutcome (GameWon winner) (reverse acc)))
+            GameDraw -> pure (Right (annotatePolicyValueOutcome GameDraw (reverse acc)))
+            GameInProgress -> do
+              visitResult <- mctsVisitDistributionWithDevice device net sims state (seed0 + plies * 7919)
+              case visitResult of
+                Left err -> pure (Left err)
+                Right visitDist -> do
+                  let (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
+                      action = sampleCategorical visitDist u
+                      nextState = applyMove action state
+                      sample =
+                        PolicyValueTrainingSample
+                          { sampleState = state
+                          , sampleVisitDist = visitDist
+                          , sampleOutcome = 0.0
+                          }
+                  case gameOutcome nextState of
+                    GameInProgress
+                      | plies + 1 >= maxPlies ->
+                          pure (Right (annotatePolicyValueOutcome GameDraw (reverse (sample : acc))))
+                      | otherwise ->
+                          go nextState gen' (plies + 1) (sample : acc)
+                    outcome ->
+                      pure (Right (annotatePolicyValueOutcome outcome (reverse (sample : acc))))
    in go initialState gen0 0 []
 
 annotatePolicyValueOutcome
@@ -642,8 +695,8 @@ runOneGenerationOfSelfPlay net adam selfPlayGames maxPlies sims gradientUpdates 
 
 -- | Play @games@ arena games against a uniform-random opponent and
 -- return the network's win rate (in @[0, 1]@). Uses the network as
--- player 1 and uniform-random as player 2 in alternation by game
--- index, with winner/draw detection coming from the shared game rules.
+-- player 1 and uniform-random as player 2, with winner/draw detection coming
+-- from the shared game rules.
 arenaWinRateAgainstUniform :: PolicyValueNet -> Int -> Int -> Int -> Double
 arenaWinRateAgainstUniform =
   arenaWinRateAgainstUniformFrom initialConnect4
@@ -659,28 +712,38 @@ arenaWinRateAgainstUniformFrom initialState net games maxPlies seed0 =
       -- metric shortcut. Small boards (connect4) keep a modest budget.
       arenaSims =
         max 48 (min 192 (2 * VU.length (pvPolicy (networkPolicyValue net initialState))))
-      playOne g state gen plies =
-        if plies >= maxPlies
-          then (0.0 :: Double, gen) -- draw
-          else
-            let netPlayer = 1
-                netToMove = gameCurrentPlayer state == netPlayer
-                policy
-                  | netToMove = mctsVisitDistribution net arenaSims state (seed0 + g * 1009 + plies * 7919)
-                  | otherwise = pvPolicy (networkPolicyValue net state)
-                actionCount = VU.length policy
-                (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
-                action =
-                  if netToMove
-                    then sampleCategorical policy u
-                    else (floor (u * fromIntegral actionCount) :: Int) `mod` actionCount
-                nextState = applyMove action state
-             in case gameOutcome nextState of
-                  GameWon winner
-                    | winner == netPlayer -> (1.0, gen')
-                    | otherwise -> (-1.0, gen')
-                  GameDraw -> (0.0, gen')
-                  GameInProgress -> playOne g nextState gen' (plies + 1)
+      playOne g rawState gen plies =
+        let state = normaliseForcedPass rawState
+         in if plies >= maxPlies
+              then (0.0 :: Double, gen) -- draw
+              else case gameOutcome state of
+                GameWon winner
+                  | winner == 1 -> (1.0, gen)
+                  | otherwise -> (-1.0, gen)
+                GameDraw -> (0.0, gen)
+                GameInProgress ->
+                  let netPlayer = 1
+                      netToMove = gameCurrentPlayer state == netPlayer
+                      (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
+                      action =
+                        if netToMove
+                          then
+                            sampleCategorical
+                              (mctsVisitDistribution net arenaSims state (seed0 + g * 1009 + plies * 7919))
+                              u
+                          else
+                            let allowed = legalMoves state
+                                legalIndex =
+                                  (floor (u * fromIntegral (length allowed)) :: Int)
+                                    `mod` max 1 (length allowed)
+                             in if null allowed then 0 else allowed !! legalIndex
+                      nextState = applyMove action state
+                   in case gameOutcome nextState of
+                        GameWon winner
+                          | winner == netPlayer -> (1.0, gen')
+                          | otherwise -> (-1.0, gen')
+                        GameDraw -> (0.0, gen')
+                        GameInProgress -> playOne g nextState gen' (plies + 1)
       go !g !gen !wins !drawn !losses
         | g >= games = (wins, drawn, losses)
         | otherwise =

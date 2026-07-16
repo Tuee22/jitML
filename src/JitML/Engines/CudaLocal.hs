@@ -42,6 +42,7 @@ import JitML.Engines.Loader
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
+  , renderKernelArtifactError
   , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
@@ -222,7 +223,7 @@ runCudaWeightedKernel env source hash input weights = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("linux-cuda weighted compile failed: " <> err))
+      pure (Left ("linux-cuda weighted compile failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = Text.unpack (kernelHandleArtifactPath handle)
@@ -248,7 +249,7 @@ runCudaKernel env source hash input = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("linux-cuda compile failed: " <> err))
+      pure (Left ("linux-cuda compile failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = Text.unpack (kernelHandleArtifactPath handle)

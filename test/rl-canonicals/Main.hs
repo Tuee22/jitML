@@ -26,20 +26,25 @@ import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Mlp (AdamState, forwardOutput, mlpForward, mlpParamsToFlat)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
+import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl
-  ( CheckpointDoneRL (..)
+  ( ArenaCompleted (..)
+  , CheckpointDoneRL (..)
   , EpisodeDone (..)
   , EvalDone (..)
+  , GenerationCompleted (..)
   , MetricUpdate (..)
   , RlAnimationFrame (..)
   , RlCommand (..)
   , RlEvent (..)
   , RlReplayFrame (..)
+  , StartAlphaZeroRun (..)
   , StartRLRun (..)
   , StopRLRun (..)
+  , completeCheckpointDoneRL
   , decodeRlCommandProto
   , decodeRlEventProto
   , encodeRlCommandProto
@@ -85,6 +90,7 @@ import JitML.RL.AlphaZero
   , initialHex
   , initialOthello
   , initialStateFor
+  , legalMoves
   , maxPliesFor
   , observationSizeFor
   , selfPlayTranscript
@@ -102,6 +108,7 @@ import JitML.RL.ConvergenceThresholds
   , passesConvergence
   )
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
+import JitML.RL.CountExploration qualified as CountExploration
 import JitML.RL.Environments
   ( ActionSpace (..)
   , canonicalEnvironments
@@ -152,12 +159,8 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
     (error . Text.unpack)
     id
     ( TrainingBudget.completedTraining
-        TrainingBudget.TrainingBudget
-          { TrainingBudget.tbKind = kind
-          , TrainingBudget.tbTargetUnits = max 1 observedUnits
-          , TrainingBudget.tbUnitLabel = "units"
-          , TrainingBudget.tbSeed = Nothing
-          }
+        fixturePlanId
+        (budgetFixture kind (max 1 observedUnits))
         observedUnits
         (trainingEvidenceFixture experimentHash observedUnits)
         (convergenceObservationsFixture metrics)
@@ -167,6 +170,18 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
           , TrainingBudget.tbrScalarTags = fmap fst metrics
           }
     )
+
+budgetFixture
+  :: TrainingBudget.BudgetKind -> Word64 -> TrainingBudget.TrainingBudget
+budgetFixture kind target =
+  either
+    (error . Text.unpack)
+    id
+    (TrainingBudget.mkTrainingBudget kind target Nothing)
+
+fixturePlanId :: Plan.PlanId
+fixturePlanId =
+  either (error . Text.unpack) id (Plan.refinePlanIdText (Text.replicate 64 "c"))
 
 trainingEvidenceFixture :: Text -> Word64 -> ProductEvidence.TrainingEvidence
 trainingEvidenceFixture experimentHash observedUnits =
@@ -245,6 +260,9 @@ main =
       , testCase
           "product RL neural configs use widened 256-hidden networks (Sprint 25.2)"
           assertProductRlHiddenWidths
+      , testCase
+          "MaskablePPO KeyDoorGrid product config enables phase-aware count exploration (Sprint 25.3)"
+          assertMaskableKeyDoorGridCountExploration
       , testCase "PPO trained-policy CartPole rollout regenerates deterministically without fixtures" $ do
           first <- ppoCartpoleTrainedRollout 42
           second <- ppoCartpoleTrainedRollout 42
@@ -368,7 +386,7 @@ main =
           "AlphaZero self-play is game-specific with persistent MCTS cache evidence (Sprint 26.1)"
           assertAlphaZeroPerGameSelfPlay
       , testCase
-          "AlphaZero per-game arena evidence writes inference-eligible checkpoints (Sprint 26.2)"
+          "AlphaZero per-game arena evidence writes refined completed checkpoints (Sprint 26.2 / 10.12)"
           assertAlphaZeroArenaEvidenceAndCheckpoints
       , testCase
           "MCTS visit-count target is a valid search-derived distribution (Sprint 13.9 visit targets)"
@@ -397,11 +415,29 @@ main =
                     { srStopExperimentHash = "sha256:cartpole"
                     , srStopDrain = False
                     }
+              alphaZero =
+                RlStartAlphaZero
+                  StartAlphaZeroRun
+                    { sazSubstrate = LinuxCUDA
+                    , sazExperimentHash = "sha256:hex"
+                    , sazPlanId = "plan-alpha-zero"
+                    , sazResolvedPlan = "jitml-alpha-zero-plan-v1"
+                    , sazGame = "hex"
+                    , sazGenerations = 3
+                    , sazSelfPlayGames = 16
+                    , sazMctsSimulationsPerMove = 64
+                    , sazMaxPlies = 128
+                    , sazOptimizerUpdates = 8
+                    , sazArenaGames = 20
+                    , sazSeed = 43
+                    }
           parseRlCommand (renderRlCommand start) @?= Just start
           parseRlCommand (renderRlCommand stop) @?= Just stop
+          parseRlCommand (renderRlCommand alphaZero) @?= Just alphaZero
           parseRlCommand "kind: UnknownRlCommand\n" @?= Nothing
           decodeRlCommandProto (encodeRlCommandProto start) @?= Right start
           decodeRlCommandProto (encodeRlCommandProto stop) @?= Right stop
+          decodeRlCommandProto (encodeRlCommandProto alphaZero) @?= Right alphaZero
       , testCase "RL event envelopes round-trip through proto3-compatible bytes" $ do
           let episode =
                 RlEpisode
@@ -421,22 +457,29 @@ main =
                     , evStdReward = 0.125
                     , evTimestampNs = 223456789
                     }
-              checkpoint =
-                RlCheckpoint
-                  CheckpointDoneRL
-                    { cdrlExperimentHash = "sha256:cartpole"
-                    , cdrlManifestSha = "sha256:manifest"
-                    , cdrlStep = 2048
-                    , cdrlPointerKey = "checkpoints/cartpole/latest"
-                    , cdrlCompletedTraining =
-                        Just
+              checkpointDone =
+                CheckpointDoneRL
+                  { cdrlExperimentHash = "sha256:cartpole"
+                  , cdrlManifestSha = "sha256:manifest"
+                  , cdrlStep = 2048
+                  , cdrlPointerKey = "checkpoints/cartpole/latest"
+                  }
+              checkpoint = RlCheckpoint checkpointDone
+              completedCheckpoint =
+                RlCompletedCheckpoint
+                  ( either
+                      (error . Text.unpack)
+                      id
+                      ( completeCheckpointDoneRL
+                          checkpointDone
                           ( completedTrainingFixture
                               TrainingBudget.RlEnvironmentStepBudget
                               "sha256:cartpole"
                               2048
                               [("eval_return", 0.75)]
                           )
-                    }
+                      )
+                  )
               metric =
                 RlMetric
                   MetricUpdate
@@ -478,14 +521,39 @@ main =
                     , rrfObservationHash = 4243
                     , rrfTimestampNs = 523456789
                     }
+              generation =
+                RlGenerationCompleted
+                  GenerationCompleted
+                    { gcPlanId = "plan-alpha-zero"
+                    , gcExperimentHash = "sha256:hex"
+                    , gcGeneration = 2
+                    , gcSelfPlayGames = 16
+                    , gcSamples = 1024
+                    }
+              arena =
+                RlArenaCompleted
+                  ArenaCompleted
+                    { acPlanId = "plan-alpha-zero"
+                    , acExperimentHash = "sha256:hex"
+                    , acArenaGames = 20
+                    , acWinRate = 0.65
+                    }
           decodeRlEventProto (encodeRlEventProto episode) @?= Right episode
           decodeRlEventProto (encodeRlEventProto eval) @?= Right eval
           decodeRlEventProto (encodeRlEventProto checkpoint) @?= Right checkpoint
+          decodeRlEventProto (encodeRlEventProto completedCheckpoint)
+            @?= Right completedCheckpoint
           decodeRlEventProto (encodeRlEventProto metric) @?= Right metric
           decodeRlEventProto (encodeRlEventProto animation) @?= Right animation
           decodeRlEventProto (encodeRlEventProto replay) @?= Right replay
+          decodeRlEventProto (encodeRlEventProto generation) @?= Right generation
+          decodeRlEventProto (encodeRlEventProto arena) @?= Right arena
           parseRlEvent (renderRlEvent animation) @?= Just animation
           parseRlEvent (renderRlEvent replay) @?= Just replay
+          parseRlEvent (renderRlEvent checkpoint) @?= Just checkpoint
+          parseRlEvent (renderRlEvent completedCheckpoint) @?= Just completedCheckpoint
+          parseRlEvent (renderRlEvent generation) @?= Just generation
+          parseRlEvent (renderRlEvent arena) @?= Just arena
       ]
 
 assertContains :: Text -> [Text] -> IO ()
@@ -521,6 +589,45 @@ assertProductRlHiddenWidths = do
   QrDqnTrainer.productQrDqnHiddenUnits @?= 256
   ContinuousTrainer.productContinuousHiddenUnits @?= 256
   HerTrainer.productHerHiddenUnits @?= 256
+
+assertMaskableKeyDoorGridCountExploration :: IO ()
+assertMaskableKeyDoorGridCountExploration = do
+  let beta =
+        PpoTrainer.productPpoCountBetaFor
+          PpoTrainer.VariantMaskablePPO
+          "key-door-grid"
+      initial = Sim.keyDoorGridInitial 0
+      carryingKey = initial {Sim.keyDoorGridHasKey = True}
+      observation = Data.Vector.Unboxed.fromList . Sim.keyDoorGridObservation
+  beta @?= 8.0
+  PpoTrainer.productPpoCountBetaFor PpoTrainer.VariantMaskablePPO "cartpole"
+    @?= 0.0
+  table <- CountExploration.newCountTable
+  firstVisit <-
+    CountExploration.countExplorationBonus
+      table
+      beta
+      "key-door-grid"
+      (observation initial)
+  repeatedVisit <-
+    CountExploration.countExplorationBonus
+      table
+      beta
+      "key-door-grid"
+      (observation initial)
+  firstKeyPhaseVisit <-
+    CountExploration.countExplorationBonus
+      table
+      beta
+      "key-door-grid"
+      (observation carryingKey)
+  assertBool
+    "MaskablePPO KeyDoorGrid exploration rewards a novel position/phase bin"
+    (firstVisit > 0.0)
+  assertBool
+    "the count bonus decays when the same KeyDoorGrid phase is revisited"
+    (repeatedVisit < firstVisit)
+  firstKeyPhaseVisit @?= firstVisit
 
 -- | Cohorts asserted against `ConvergenceThresholds.cohortThreshold` from the
 -- canonical stanza. The list excludes (algo, env) pairs where the threshold
@@ -1726,6 +1833,17 @@ assertAlphaZeroPerGameSelfPlay =
     assertBool
       ("visit distributions should use action count for " <> Text.unpack game)
       (all ((== actionCount) . Data.Vector.Unboxed.length . PVN.sampleVisitDist) samples)
+    assertBool
+      ("visit distributions must assign zero mass to illegal " <> Text.unpack game <> " actions")
+      (all sampleTargetsOnlyLegalMoves samples)
+
+  sampleTargetsOnlyLegalMoves sample =
+    let allowed = legalMoves (PVN.sampleState sample)
+     in and
+          [ action `elem` allowed || probability == 0.0
+          | (action, probability) <-
+              zip [0 :: Int ..] (Data.Vector.Unboxed.toList (PVN.sampleVisitDist sample))
+          ]
 
 data AlphaZeroCheckpointRun = AlphaZeroCheckpointRun
   { azRunSamples :: ![PVN.PolicyValueTrainingSample]
@@ -1777,10 +1895,10 @@ assertAlphaZeroArenaEvidenceAndCheckpoints =
         root
         (Checkpoint.latestPointerKey (azExperimentHash game seed))
     pointer @?= Right (Just manifestSha)
-    case Checkpoint.requireInferenceEligibleCheckpoint manifestSha (azRunManifest first) of
+    case Checkpoint.requireCompletedCheckpoint manifestSha (azRunManifest first) of
       Left err ->
         assertFailure
-          ( "AlphaZero checkpoint should be inference-eligible for "
+          ( "AlphaZero checkpoint should refine as completed for "
               <> Text.unpack game
               <> ": "
               <> Text.unpack (Checkpoint.renderEligibilityError err)
@@ -2000,21 +2118,17 @@ alphaZeroCompletedTrainingTest experimentHash game generationCount initialHash f
       (hashText ("alphazero-self-play:" <> experimentHash <> ":" <> game))
   let threshold = alphaZeroArenaThreshold
       thresholdValue = RLConvergence.azTargetWinRate threshold - RLConvergence.azSlack threshold
-      arenaObservation =
-        TrainingBudget.ConvergenceObservation
-          { TrainingBudget.coMetricName = "arena_win_rate"
-          , TrainingBudget.coMetricValue = arenaWinRate
-          , TrainingBudget.coMetricGoal = TrainingBudget.MetricMaximise
-          , TrainingBudget.coThreshold = Just thresholdValue
-          , TrainingBudget.coPassed = passesAlphaZeroArena threshold arenaWinRate
-          }
+  arenaObservation <-
+    TrainingBudget.measureCriterionExcluding
+      "arena_win_rate"
+      TrainingBudget.MetricMaximise
+      thresholdValue
+      0.5
+      1.0e-12
+      arenaWinRate
   TrainingBudget.completedTraining
-    TrainingBudget.TrainingBudget
-      { TrainingBudget.tbKind = TrainingBudget.AlphaZeroSelfPlayBudget
-      , TrainingBudget.tbTargetUnits = generationCount
-      , TrainingBudget.tbUnitLabel = "self-play-generations"
-      , TrainingBudget.tbSeed = Nothing
-      }
+    fixturePlanId
+    (budgetFixture TrainingBudget.AlphaZeroSelfPlayBudget generationCount)
     generationCount
     evidence
     [arenaObservation]

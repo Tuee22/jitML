@@ -1,27 +1,54 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Test.Report
-  ( ReportCard (..)
+  ( BlockedBy
+  , InvocationJournal
+  , InvocationRecord
+  , InvocationResult (..)
+  , ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
   , ReportCardKnobs (..)
+  , SuiteResult
+  , SuiteStatus (..)
   , ProductRowReportEvidence (..)
   , RowIntegrationEvidence (..)
   , aggregateProductLaneAttestations
+  , appendInvocation
+  , appendInvocationJournal
+  , blockedByFailure
+  , blockedByStanza
   , defaultReportCardKnobs
+  , deriveSuiteResult
+  , emptyInvocationJournal
   , emptyReportMeasurements
+  , failedInvocation
+  , failedObservedInvocation
+  , firstInvocationFailure
+  , firstObservedInvocationFailure
+  , invocationCommand
+  , invocationJournalEntries
+  , invocationResult
+  , invocationStanza
   , loadAggregatedProductLaneAttestations
   , loadReportCardKnobs
+  , notRunInvocation
+  , notRunObservedInvocation
   , parseReportCardKnobs
+  , passedInvocation
   , parseProductRowReportEvidenceTable
   , productRowReportCoverageFailures
   , productLaneAttestationFailures
-  , renderReportCardForTargets
   , renderReportCardWithKnobs
   , renderProductRowReportEvidence
   , renderRowIntegrationEvidence
   , reportStanzas
   , rowIntegrationCoverageFailures
+  , suiteDuration
+  , suiteFailed
+  , suiteNotRun
+  , suitePassed
+  , suiteStatus
   , substrateRuntimeStanzas
   , substratePartitionedStanzas
   , substrateTestInvocations
@@ -34,18 +61,205 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Word (Word64)
+import System.Exit (ExitCode (..))
 
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Sub.Outcome
+  ( ObservedProcessFailure (..)
+  , ObservedProcessOutcome (..)
+  , ProcessAttemptFailure (..)
+  , ProcessDuration (..)
+  , ProcessFailure
+  , ProcessTranscript (..)
+  , observedProcessFailureCommand
+  , observedProcessFailureDuration
+  , processFailureDuration
+  , processFailureExitCode
+  , processFailureStderr
+  , processFailureStdout
+  , processFailureWorkingDirectory
+  )
 import JitML.Substrate (Substrate (..), renderSubstrate)
 import JitML.Test.RowAssertions qualified as RowAssertions
+import JitML.Test.ScenarioJournal
+  ( ScenarioDisposition (..)
+  , ScenarioIssue
+  , ScenarioJournal
+  , ScenarioPhase (..)
+  , ScenarioRecord
+  , scenarioIssueDetail
+  , scenarioIssuePhase
+  , scenarioIssueStep
+  , scenarioJournalIssues
+  , scenarioJournalName
+  , scenarioJournalRecords
+  , scenarioRecordDisposition
+  , scenarioRecordOutcome
+  , scenarioRecordPhase
+  , scenarioRecordStep
+  )
+
+-- | The observed result of one planned test-stanza invocation. A successful
+-- invocation retains its complete transcript, a failure retains either the
+-- opaque non-zero process failure or the exact synchronous runner exception,
+-- and fail-fast work records the failure that kept it from running.
+data InvocationResult
+  = Passed !ProcessTranscript
+  | Failed !ObservedProcessFailure
+  | NotRun !BlockedBy
+  deriving stock (Eq, Show)
+
+-- | Structured reason an invocation was not run. The blocker is the complete
+-- observed failure rather than a reconstructed command or prose reason.
+data BlockedBy = BlockedBy
+  { blockedByStanza :: !Text
+  , blockedByFailure :: !ObservedProcessFailure
+  }
+  deriving stock (Eq, Show)
+
+-- | One append-only journal row. For executed rows the command is derived from
+-- the retained outcome. For 'NotRun' rows it is the exact rendered command that
+-- would have run.
+data InvocationRecord = InvocationRecord
+  { invocationStanza :: !Text
+  , invocationCommand :: !Text
+  , invocationResult :: !InvocationResult
+  }
+  deriving stock (Eq, Show)
+
+-- | Chronological invocation evidence. The constructor stays hidden so callers
+-- can only append rows; they cannot rewrite or delete earlier observations.
+newtype InvocationJournal = InvocationJournal
+  { invocationJournalEntries :: [InvocationRecord]
+  }
+  deriving stock (Eq, Show)
+
+-- | Aggregate values projected only from invocation evidence.
+data SuiteStatus
+  = SuitePassed
+  | SuiteFailed
+  | SuiteNotRun
+  deriving stock (Eq, Show)
+
+data SuiteResult = SuiteResult
+  { suiteStatus :: !SuiteStatus
+  , suitePassed :: !Int
+  , suiteFailed :: !Int
+  , suiteNotRun :: !Int
+  , suiteDuration :: !ProcessDuration
+  }
+  deriving stock (Eq, Show)
 
 data ReportCard = ReportCard
-  { reportPassed :: Int
-  , reportFailed :: Int
-  , reportDurationSeconds :: Int
+  { reportInvocationJournal :: !InvocationJournal
+  , reportScenarioJournals :: ![ScenarioJournal]
   , reportMeasurements :: ReportMeasurements
   }
   deriving stock (Eq, Show)
+
+emptyInvocationJournal :: InvocationJournal
+emptyInvocationJournal = InvocationJournal []
+
+appendInvocation :: InvocationJournal -> InvocationRecord -> InvocationJournal
+appendInvocation (InvocationJournal entries) entry =
+  InvocationJournal (entries <> [entry])
+
+appendInvocationJournal :: InvocationJournal -> InvocationJournal -> InvocationJournal
+appendInvocationJournal (InvocationJournal left) (InvocationJournal right) =
+  InvocationJournal (left <> right)
+
+passedInvocation :: Text -> ProcessTranscript -> InvocationRecord
+passedInvocation stanza transcript =
+  InvocationRecord
+    { invocationStanza = stanza
+    , invocationCommand = processTranscriptCommand transcript
+    , invocationResult = Passed transcript
+    }
+
+failedInvocation :: Text -> ProcessFailure -> InvocationRecord
+failedInvocation stanza failure =
+  failedObservedInvocation stanza (ObservedProcessExitFailure failure)
+
+failedObservedInvocation :: Text -> ObservedProcessFailure -> InvocationRecord
+failedObservedInvocation stanza failure =
+  InvocationRecord
+    { invocationStanza = stanza
+    , invocationCommand = observedProcessFailureCommand failure
+    , invocationResult = Failed failure
+    }
+
+notRunInvocation :: Text -> Text -> Text -> ProcessFailure -> InvocationRecord
+notRunInvocation stanza command blockerStanza blocker =
+  notRunObservedInvocation
+    stanza
+    command
+    blockerStanza
+    (ObservedProcessExitFailure blocker)
+
+notRunObservedInvocation
+  :: Text
+  -> Text
+  -> Text
+  -> ObservedProcessFailure
+  -> InvocationRecord
+notRunObservedInvocation stanza command blockerStanza blocker =
+  InvocationRecord
+    { invocationStanza = stanza
+    , invocationCommand = command
+    , invocationResult = NotRun (BlockedBy blockerStanza blocker)
+    }
+
+deriveSuiteResult :: InvocationJournal -> SuiteResult
+deriveSuiteResult (InvocationJournal entries) =
+  SuiteResult
+    { suiteStatus = status
+    , suitePassed = passed
+    , suiteFailed = failed
+    , suiteNotRun = notRun
+    , suiteDuration =
+        ProcessDuration
+          (sum (fmap (invocationDurationNanoseconds . invocationResult) entries))
+    }
+ where
+  passed = length [() | InvocationRecord {invocationResult = Passed _} <- entries]
+  failed = length [() | InvocationRecord {invocationResult = Failed _} <- entries]
+  notRun = length [() | InvocationRecord {invocationResult = NotRun _} <- entries]
+  status
+    | failed > 0 = SuiteFailed
+    | notRun > 0 || null entries = SuiteNotRun
+    | otherwise = SuitePassed
+
+firstInvocationFailure :: InvocationJournal -> Maybe ProcessFailure
+firstInvocationFailure (InvocationJournal entries) =
+  firstFailure entries
+ where
+  firstFailure [] = Nothing
+  firstFailure
+    ( InvocationRecord
+        { invocationResult = Failed (ObservedProcessExitFailure failure)
+        }
+        : _
+      ) = Just failure
+  firstFailure (InvocationRecord {invocationResult = Failed _} : _) = Nothing
+  firstFailure (_ : rest) = firstFailure rest
+
+firstObservedInvocationFailure
+  :: InvocationJournal
+  -> Maybe ObservedProcessFailure
+firstObservedInvocationFailure (InvocationJournal entries) =
+  firstFailure entries
+ where
+  firstFailure [] = Nothing
+  firstFailure (InvocationRecord {invocationResult = Failed failure} : _) =
+    Just failure
+  firstFailure (_ : rest) = firstFailure rest
+
+invocationDurationNanoseconds :: InvocationResult -> Word64
+invocationDurationNanoseconds (Passed transcript) =
+  processDurationNanoseconds (processTranscriptDuration transcript)
+invocationDurationNanoseconds (Failed failure) =
+  processDurationNanoseconds (observedProcessFailureDuration failure)
+invocationDurationNanoseconds (NotRun _) = 0
 
 data ReportMeasurement
   = MeasurementAvailable Text
@@ -178,37 +392,29 @@ substrateRuntimeStanzas =
 -- | Build the ordered list of @cabal test@ argument vectors for a run. Each
 -- element is the arguments passed after the @cabal@ executable.
 --
--- Without a substrate selector, one invocation runs every target with the
--- optional user @--test-options@ string (the legacy behavior). With a
--- substrate, 'substratePartitionedStanzas' run under @-p \<substrate\>@ (and
--- @-fcuda@ on @linux-cuda@, so the cuBLAS/cuDNN bindings link) while every other
--- stanza runs unfiltered in its own invocation. That keeps non-backend coverage
--- instead of letting a substrate-wide @-p@ vacuously match zero tests, and it
--- avoids Cabal-native parallel execution across live stanzas that share one
--- cluster, registry, object store, and host device. Empty groups are omitted, so
--- single-stanza commands work too.
+-- Every stanza receives its own invocation. This makes the association between
+-- an observed process outcome and its suite exact, permits fail-fast suffixes
+-- to remain 'NotRun', and avoids Cabal-native parallel execution across live
+-- stanzas that share one cluster, registry, object store, and host device. With
+-- a substrate, 'substratePartitionedStanzas' additionally run under
+-- @-p \<substrate\>@ (and @-fcuda@ on @linux-cuda@, so the cuBLAS/cuDNN bindings
+-- link). Empty target lists produce no invocations.
 substrateTestInvocations :: Maybe Substrate -> [Text] -> Maybe Text -> [[Text]]
 substrateTestInvocations Nothing targets userOptions =
-  ["test" : targets <> testOptionArgs userOptions]
+  ["test" : target : testOptionArgs userOptions | target <- targets]
 substrateTestInvocations (Just substrate) targets userOptions =
-  restInvocations <> partitionedInvocations
+  fmap invocationFor targets
  where
   cudaArgs = ["-fcuda" | substrate == LinuxCUDA]
-  partitioned = filter (`elem` substratePartitionedStanzas) targets
-  rest = filter (`notElem` substratePartitionedStanzas) targets
-  restInvocations =
-    [ "test" : cudaArgs <> [target] <> testOptionArgs userOptions
-    | target <- rest
-    ]
   laneOption = "-p " <> renderSubstrate substrate
   partitionedOptions =
     case userOptions of
       Just opts | not (Text.null opts) -> laneOption <> " " <> opts
       _ -> laneOption
-  partitionedInvocations =
-    [ "test" : cudaArgs <> [target] <> ["--test-options", partitionedOptions]
-    | target <- partitioned
-    ]
+  invocationFor target
+    | target `elem` substratePartitionedStanzas =
+        "test" : cudaArgs <> [target, "--test-options", partitionedOptions]
+    | otherwise = "test" : cudaArgs <> [target] <> testOptionArgs userOptions
 
 testOptionArgs :: Maybe Text -> [Text]
 testOptionArgs Nothing = []
@@ -218,7 +424,7 @@ testOptionArgs (Just opts)
 
 renderReportCard :: ReportCard -> Text
 renderReportCard =
-  renderReportCardForTargets defaultReportCardKnobs reportStanzas
+  renderReportCardWithKnobs defaultReportCardKnobs
 
 loadReportCardKnobs :: FilePath -> IO (Either Text ReportCardKnobs)
 loadReportCardKnobs path =
@@ -256,11 +462,7 @@ parseReportCardKnobs content =
       _ -> Left ("invalid report-card knob " <> key <> ": " <> value)
 
 renderReportCardWithKnobs :: ReportCardKnobs -> ReportCard -> Text
-renderReportCardWithKnobs knobs =
-  renderReportCardForTargets knobs reportStanzas
-
-renderReportCardForTargets :: ReportCardKnobs -> [Text] -> ReportCard -> Text
-renderReportCardForTargets knobs targets report =
+renderReportCardWithKnobs knobs report =
   Text.unlines
     ( [ "jitML POC report card"
       , "knobs:"
@@ -275,18 +477,230 @@ renderReportCardForTargets knobs targets report =
       , "  xcluster_kind_nodes: " <> showText (knobCrossClusterKindNodes knobs)
       , "stanzas:"
       ]
-        <> fmap renderTarget targets
+        <> fmap renderInvocationStatus entries
         <> renderMeasurements (reportMeasurements report)
         <> renderProductRowEvidenceTable (reportMeasurements report)
+        <> renderScenarioJournals (reportScenarioJournals report)
         <> [ "cabal_test:"
-           , "  passed: " <> showText (reportPassed report)
-           , "  failed: " <> showText (reportFailed report)
-           , "  duration_seconds: " <> showText (reportDurationSeconds report)
+           , "  status: " <> renderSuiteStatus (suiteStatus result)
+           , "  passed: " <> showText (suitePassed result)
+           , "  failed: " <> showText (suiteFailed result)
+           , "  not_run: " <> showText (suiteNotRun result)
+           , "  duration_seconds: " <> renderDurationSeconds (suiteDuration result)
+           , "  duration_nanoseconds: "
+               <> showText (processDurationNanoseconds (suiteDuration result))
            ]
+        <> renderInvocationJournal entries
     )
  where
-  renderTarget target =
-    "  " <> target <> ": PASS"
+  journal = reportInvocationJournal report
+  entries = invocationJournalEntries journal
+  result = deriveSuiteResult journal
+
+renderScenarioJournals :: [ScenarioJournal] -> [Text]
+renderScenarioJournals [] = []
+renderScenarioJournals journals =
+  "scenario_journals:" : concatMap renderScenarioJournal journals
+
+renderScenarioJournal :: ScenarioJournal -> [Text]
+renderScenarioJournal journal =
+  ["  - scenario: " <> scenarioJournalName journal, "    records:"]
+    <> concatMap renderScenarioRecord (scenarioJournalRecords journal)
+    <> renderScenarioIssues (scenarioJournalIssues journal)
+
+renderScenarioRecord :: ScenarioRecord -> [Text]
+renderScenarioRecord record =
+  [ "      - phase: " <> renderScenarioPhase (scenarioRecordPhase record)
+  , "        step: " <> scenarioRecordStep record
+  , "        disposition: " <> renderScenarioDisposition (scenarioRecordDisposition record)
+  ]
+    <> if scenarioRecordPhase record == ScenarioBody
+      then ["        transcript: invocation_journal/" <> scenarioRecordStep record]
+      else case scenarioRecordOutcome record of
+        ObservedProcessSucceeded transcript ->
+          ("        command: " <> processTranscriptCommand transcript)
+            : renderTranscript "        " ExitSuccess transcript
+        ObservedProcessFailed failure ->
+          ("        command: " <> observedProcessFailureCommand failure)
+            : renderObservedFailureTranscript "        " failure
+
+renderScenarioPhase :: ScenarioPhase -> Text
+renderScenarioPhase ScenarioAcquire = "acquire"
+renderScenarioPhase ScenarioBody = "body"
+renderScenarioPhase ScenarioDiagnostics = "diagnostics"
+renderScenarioPhase ScenarioRelease = "release"
+
+renderScenarioDisposition :: ScenarioDisposition -> Text
+renderScenarioDisposition ScenarioStepSucceeded = "succeeded"
+renderScenarioDisposition ScenarioStepFailed = "failed"
+renderScenarioDisposition ScenarioStepAcceptedNoop = "accepted-noop"
+
+renderScenarioIssues :: [ScenarioIssue] -> [Text]
+renderScenarioIssues [] = []
+renderScenarioIssues issues =
+  "    issues:" : concatMap renderScenarioIssue issues
+
+renderScenarioIssue :: ScenarioIssue -> [Text]
+renderScenarioIssue issue =
+  [ "      - phase: " <> renderScenarioPhase (scenarioIssuePhase issue)
+  , "        step: " <> scenarioIssueStep issue
+  , "        detail:"
+  ]
+    <> fmap ("          " <>) (nonEmptyLines (scenarioIssueDetail issue))
+ where
+  nonEmptyLines detail
+    | Text.null detail = ["(none)"]
+    | otherwise = Text.lines detail
+
+renderInvocationStatus :: InvocationRecord -> Text
+renderInvocationStatus entry =
+  "  " <> invocationStanza entry <> ": " <> status
+ where
+  status =
+    case invocationResult entry of
+      Passed _ -> "PASS"
+      Failed _ -> "FAIL"
+      NotRun blocker -> "NOT-RUN (blocked by " <> blockedByStanza blocker <> ")"
+
+renderSuiteStatus :: SuiteStatus -> Text
+renderSuiteStatus SuitePassed = "passed"
+renderSuiteStatus SuiteFailed = "failed"
+renderSuiteStatus SuiteNotRun = "not-run"
+
+renderDurationSeconds :: ProcessDuration -> Text
+renderDurationSeconds (ProcessDuration nanoseconds) =
+  showText wholeSeconds
+    <> "."
+    <> Text.justifyRight 9 '0' (showText remainder)
+ where
+  (wholeSeconds, remainder) = nanoseconds `divMod` 1_000_000_000
+
+renderInvocationJournal :: [InvocationRecord] -> [Text]
+renderInvocationJournal [] = ["invocation_journal: []"]
+renderInvocationJournal entries =
+  "invocation_journal:" : concatMap renderInvocation entries
+
+renderInvocation :: InvocationRecord -> [Text]
+renderInvocation entry =
+  [ "  - stanza: " <> invocationStanza entry
+  , "    command: " <> invocationCommand entry
+  ]
+    <> case invocationResult entry of
+      Passed transcript ->
+        "    status: passed" : renderTranscript "    " ExitSuccess transcript
+      Failed failure ->
+        "    status: failed"
+          : renderObservedFailureTranscript "    " failure
+      NotRun blocker ->
+        [ "    status: not-run"
+        , "    blocked_by:"
+        , "      stanza: " <> blockedByStanza blocker
+        , "      command: " <> observedProcessFailureCommand (blockedByFailure blocker)
+        ]
+          <> renderObservedFailureTranscript "      " (blockedByFailure blocker)
+
+renderObservedFailureTranscript
+  :: Text
+  -> ObservedProcessFailure
+  -> [Text]
+renderObservedFailureTranscript indentation failure =
+  case failure of
+    ObservedProcessExitFailure processFailure ->
+      renderFailureTranscript indentation processFailure
+    ObservedProcessAttemptFailure attemptFailure ->
+      renderAttemptFailureTranscript indentation attemptFailure
+
+renderAttemptFailureTranscript
+  :: Text
+  -> ProcessAttemptFailure
+  -> [Text]
+renderAttemptFailureTranscript indentation failure =
+  [ indentation <> "exit: unavailable"
+  , indentation
+      <> "working_directory: "
+      <> maybe
+        "(inherited)"
+        Text.pack
+        (processAttemptFailureWorkingDirectory failure)
+  , indentation
+      <> "duration_nanoseconds: "
+      <> showText
+        (processDurationNanoseconds (processAttemptFailureDuration failure))
+  ]
+    <> renderOptionalOutput
+      indentation
+      "stdout"
+      (processAttemptFailureStdout failure)
+    <> renderOptionalOutput
+      indentation
+      "stderr"
+      (processAttemptFailureStderr failure)
+    <> [indentation <> "exception:"]
+    <> fmap
+      (\line -> indentation <> "  " <> line)
+      (nonEmptyTextLines (processAttemptFailureException failure))
+
+renderFailureTranscript :: Text -> ProcessFailure -> [Text]
+renderFailureTranscript indentation failure =
+  renderTranscriptWith
+    indentation
+    (processFailureExitCode failure)
+    (processFailureWorkingDirectory failure)
+    (processFailureDuration failure)
+    (processFailureStdout failure)
+    (processFailureStderr failure)
+
+renderTranscript :: Text -> ExitCode -> ProcessTranscript -> [Text]
+renderTranscript indentation exitCode transcript =
+  renderTranscriptWith
+    indentation
+    exitCode
+    (processTranscriptWorkingDirectory transcript)
+    (processTranscriptDuration transcript)
+    (processTranscriptStdout transcript)
+    (processTranscriptStderr transcript)
+
+renderTranscriptWith
+  :: Text
+  -> ExitCode
+  -> Maybe FilePath
+  -> ProcessDuration
+  -> Text
+  -> Text
+  -> [Text]
+renderTranscriptWith indentation exitCode workingDirectory duration stdout stderr =
+  [ indentation <> "exit: " <> renderExitCode exitCode
+  , indentation
+      <> "working_directory: "
+      <> maybe "(inherited)" Text.pack workingDirectory
+  , indentation
+      <> "duration_nanoseconds: "
+      <> showText (processDurationNanoseconds duration)
+  ]
+    <> renderOutput indentation "stdout" stdout
+    <> renderOutput indentation "stderr" stderr
+
+renderOutput :: Text -> Text -> Text -> [Text]
+renderOutput indentation label output =
+  (indentation <> label <> ":")
+    : fmap
+      (indentation <>)
+      (if Text.null output then ["  (none)"] else fmap ("  " <>) (Text.lines output))
+
+renderOptionalOutput :: Text -> Text -> Maybe Text -> [Text]
+renderOptionalOutput indentation label Nothing =
+  [indentation <> label <> ": (unavailable; capture did not complete)"]
+renderOptionalOutput indentation label (Just output) =
+  renderOutput indentation label output
+
+nonEmptyTextLines :: Text -> [Text]
+nonEmptyTextLines value
+  | Text.null value = ["(none)"]
+  | otherwise = Text.lines value
+
+renderExitCode :: ExitCode -> Text
+renderExitCode ExitSuccess = "0"
+renderExitCode (ExitFailure code) = showText code
 
 renderMeasurements :: ReportMeasurements -> [Text]
 renderMeasurements measurements

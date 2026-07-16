@@ -9,18 +9,19 @@ module JitML.Cluster.Readiness
   , runMinioBucketReadinessIO
   , renderPostgresReadinessResource
   , renderReadinessTarget
+  , rolloutStatusSubprocess
   )
 where
 
 import Control.Concurrent (threadDelay)
 import Data.Text (Text)
-import System.Exit (ExitCode (..))
 
 import JitML.Cluster.PostgresRegistry
   ( PerconaPGCluster (..)
   , postgresRegistry
   )
 import JitML.Storage.Buckets (bucketNames)
+import JitML.Sub.Outcome (ProcessFailure, ProcessOutcome (..))
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 
@@ -60,6 +61,7 @@ rolloutTargets =
   , "deployment/kube-prometheus-stack-operator"
   , "statefulset/prometheus-kube-prometheus-stack-prometheus"
   , "deployment/tensorboard"
+  , "deployment/jitml-coordinator"
   , "deployment/jitml-service"
   , "deployment/jitml-demo"
   ]
@@ -145,7 +147,7 @@ kubectlExecMc mcArgs =
 -- Replaces the embedded @sh -c@ retry loop. Each bucket is probed with up to
 -- 10 attempts at 2-second intervals; the first hard failure stops the IO step
 -- and surfaces as a @Left@ for 'JitML.Bootstrap.liveExecutePhasedRollout'.
-runMinioBucketReadinessIO :: IO (Either Text ())
+runMinioBucketReadinessIO :: IO (Either ProcessFailure ())
 runMinioBucketReadinessIO = goBuckets bucketNames
  where
   goBuckets [] = pure (Right ())
@@ -154,16 +156,15 @@ runMinioBucketReadinessIO = goBuckets bucketNames
     case result of
       Left err -> pure (Left err)
       Right () -> goBuckets rest
-  attempt bucket 0 =
-    pure (Left ("minio bucket readiness " <> bucket <> ": exhausted retries"))
   attempt bucket n = do
-    (code, _stdout, _stderr) <-
-      runStreaming defaultSubprocessEnv (mcBucketLsSubprocess bucket)
-    case code of
-      ExitSuccess -> pure (Right ())
-      ExitFailure _ -> do
-        threadDelay 2_000_000
-        attempt bucket (n - 1)
+    outcome <- runStreaming defaultSubprocessEnv (mcBucketLsSubprocess bucket)
+    case outcome of
+      ProcessSucceeded _ -> pure (Right ())
+      ProcessFailed failure
+        | n <= 1 -> pure (Left failure)
+        | otherwise -> do
+            threadDelay 2_000_000
+            attempt bucket (n - 1)
 
 renderReadinessTarget :: Text -> Text
 renderReadinessTarget target =

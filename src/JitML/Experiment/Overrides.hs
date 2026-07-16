@@ -69,7 +69,11 @@ hasExperimentOverrides (ExperimentOverrides s e a) =
   isJust s || isJust e || isJust a
 
 -- | CLI overrides for `jitml tune`. The five Tuning axes are independently
--- substitutable; absent fields preserve the Dhall.
+-- substitutable. An absent parallelism override normally preserves the Dhall;
+-- when @--trials@ lowers the trial count, however, the inherited parallelism
+-- is capped at that count so the resolved plan still denotes a possible
+-- cohort. An explicit @--parallelism@ remains authoritative and is rejected
+-- later by plan refinement when it exceeds the resolved trials.
 data TuningOverrides = TuningOverrides
   { toSampler :: !(Maybe Sampler)
   , toScheduler :: !(Maybe Scheduler)
@@ -223,25 +227,33 @@ applyOverrides ovr experiment =
   experiment {tuningExperimentConfig = fmap applyConfig (tuningExperimentConfig experiment)}
  where
   applyConfig config =
-    config
-      { tuningConfigSampler =
-          (tuningConfigSampler config)
-            { tuningSamplerKind =
-                overrideSampler ovr (tuningSamplerKind (tuningConfigSampler config))
-            }
-      , tuningConfigScheduler =
-          (tuningConfigScheduler config)
-            { tuningSchedulerKind =
-                overrideScheduler ovr (tuningSchedulerKind (tuningConfigScheduler config))
-            }
-      , tuningConfigPruner =
-          (tuningConfigPruner config)
-            { tuningPrunerKind =
-                overridePruner ovr (tuningPrunerKind (tuningConfigPruner config))
-            }
-      , tuningConfigTrials = overrideTrials ovr (tuningConfigTrials config)
-      , tuningConfigParallelism = overrideParallelism ovr (tuningConfigParallelism config)
-      }
+    let resolvedTrials = overrideTrials ovr (tuningConfigTrials config)
+        resolvedParallelism =
+          case toParallelism ovr of
+            Just explicitParallelism -> explicitParallelism
+            Nothing ->
+              case toTrials ovr of
+                Just _ -> min resolvedTrials (tuningConfigParallelism config)
+                Nothing -> tuningConfigParallelism config
+     in config
+          { tuningConfigSampler =
+              (tuningConfigSampler config)
+                { tuningSamplerKind =
+                    overrideSampler ovr (tuningSamplerKind (tuningConfigSampler config))
+                }
+          , tuningConfigScheduler =
+              (tuningConfigScheduler config)
+                { tuningSchedulerKind =
+                    overrideScheduler ovr (tuningSchedulerKind (tuningConfigScheduler config))
+                }
+          , tuningConfigPruner =
+              (tuningConfigPruner config)
+                { tuningPrunerKind =
+                    overridePruner ovr (tuningPrunerKind (tuningConfigPruner config))
+                }
+          , tuningConfigTrials = resolvedTrials
+          , tuningConfigParallelism = resolvedParallelism
+          }
 
 -- | Human-readable summary of which overrides are present, suitable for
 -- inclusion in `--dry-run` plan output and CLI summaries.

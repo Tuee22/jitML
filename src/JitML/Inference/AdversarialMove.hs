@@ -61,7 +61,7 @@ computeAdversarialMove game moves humanIsPlayer simulations output =
       terminal = AlphaZero.gameIsTerminal state
       root =
         Mcts.runSearchWithPrior
-          (const (Mcts.NodeEval priors valueEstimate terminal))
+          (const (Mcts.NodeEval priors valueEstimate terminal Nothing))
           config
           (length moves + humanIsPlayer)
       visitCounts = fmap (visitsFor root) legalMoves

@@ -39,7 +39,7 @@ buildEnv flags = do
       , envDataDir = dataDir
       , envFormat = outputFormat
       , envColor = globalColor flags
-      , envLogger = \_subprocess _exitCode _message -> pure ()
+      , envLogger = \_outcome -> pure ()
       , envClock = pure (MonotonicTime 0)
       }
 

@@ -63,6 +63,7 @@ library
         JitML.Cluster.PostgresRegistry
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
+        JitML.Cluster.ReconcileStamp
         JitML.Coordinator.Topology
         JitML.Work.Envelope
         JitML.Cluster.Readiness
@@ -124,6 +125,8 @@ library
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
+        JitML.Plan.Command
+        JitML.Plan.Workload
         JitML.Product.Convergence
         JitML.Product.Evidence
         JitML.Product.ExternalBars
@@ -196,11 +199,14 @@ library
         JitML.RL.Environments
         JitML.RL.Framework
         JitML.RL.Policy
+        JitML.RL.ProductBudget
         JitML.RL.RewardShaping
         JitML.RL.Schema
         JitML.RL.Simulator
         JitML.RL.VecEnv
         JitML.Routes
+        JitML.Run.Contract
+        JitML.Run.WorkloadContract
         JitML.Service.BootConfig
         JitML.Service.CatalogSchema
         JitML.Service.DhallSchema
@@ -214,6 +220,9 @@ library
         JitML.Service.FilesystemMinIO
         JitML.Service.Http
         JitML.Service.HotReload
+        JitML.Service.HostWorkloadRegistry
+        JitML.Service.InferenceBatch
+        JitML.Service.InferenceReplyScope
         JitML.Service.KubectlSubprocess
         JitML.Service.Lifecycle
         JitML.Service.LiveConfig
@@ -223,6 +232,7 @@ library
         JitML.Service.Retry
         JitML.Service.RunConfig
         JitML.Service.Runtime
+        JitML.Service.RuntimeState
         JitML.Service.Signal
         JitML.Service.Transcript
         JitML.Service.WebSocket
@@ -237,15 +247,32 @@ library
         JitML.SL.Regression
         JitML.SL.TinyImageNet
         JitML.Storage.Buckets
+        JitML.Sub.Outcome
         JitML.Sub.Render
         JitML.Sub.Stream
         JitML.Sub.Subprocess
         JitML.Substrate
+        JitML.Test.HostWorkloadRegistry
+        JitML.Test.InferenceBatch
+        JitML.Test.LiveEvidence
+        JitML.Test.LiveE2EScope
         JitML.Test.LivePlan
+        JitML.Test.LiveWorkflow
         JitML.Test.ModelConvergence
         JitML.Test.NegativeControls
+        JitML.Test.PipedProcess
+        JitML.Test.Pulsar
+        JitML.Test.PulsarBridge
+        JitML.Test.PulsarTransport
         JitML.Test.Report
+        JitML.Test.RunContract
+        JitML.Test.RunPlan
+        JitML.Test.WorkloadContract
+        JitML.Test.WorkloadPlan
+        JitML.Test.RuntimeState
+        JitML.Test.ScenarioJournal
         JitML.Test.RowAssertions
+        JitML.Test.Workload
         JitML.Test.WorkflowMatrix
         JitML.Training.Budget
         JitML.Tune.Catalog
@@ -264,6 +291,11 @@ library
         Proto.Jitml.Tune_Fields
 
     hs-source-dirs:   src gen
+    other-modules:
+        JitML.Service.Pulsar.Bridge
+        JitML.Service.Pulsar.Internal
+        JitML.Sub.Piped
+
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
@@ -280,6 +312,7 @@ library
         cryptohash-sha1,
         cryptohash-sha256,
         either,
+        exceptions,
         proto-lens,
         proto-lens-runtime,
         dhall,
@@ -324,7 +357,7 @@ executable jitml
     hs-source-dirs:   app
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields -threaded
         -fspecialise-aggressively -fexpose-all-unfoldings
         -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
         -with-rtsopts=-qb -with-rtsopts=-T
@@ -337,7 +370,11 @@ test-suite jitml-unit
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/unit
-    other-modules:    DurableStateTopology
+    other-modules:
+        DurableStateTopology
+        ProtocolCodec
+        ReconcileStamp
+
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
@@ -349,8 +386,10 @@ test-suite jitml-unit
         base >=4.21 && <4.22,
         aeson,
         bytestring,
+        containers,
         dhall,
         directory,
+        exceptions,
         filepath,
         jitml,
         optparse-applicative,
@@ -358,6 +397,7 @@ test-suite jitml-unit
         path-io,
         tasty,
         tasty-hunit,
+        tasty-quickcheck,
         temporary,
         text,
         unix,
@@ -376,8 +416,10 @@ test-suite jitml-integration
 
     build-depends:
         aeson,
+        async,
         base >=4.21 && <4.22,
         bytestring,
+        containers,
         directory,
         filepath,
         jitml,
@@ -487,10 +529,12 @@ test-suite jitml-backends
         vector
 
 test-suite jitml-daemon-lifecycle
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    hs-source-dirs:   test/daemon-lifecycle
-    default-language: GHC2024
+    type:               exitcode-stdio-1.0
+    main-is:            Main.hs
+    build-tool-depends: jitml:jitml
+    hs-source-dirs:     test/daemon-lifecycle
+    other-modules:      SigtermRegression
+    default-language:   GHC2024
     ghc-options:
         -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
         -fspecialise-aggressively -fexpose-all-unfoldings
@@ -499,7 +543,11 @@ test-suite jitml-daemon-lifecycle
 
     build-depends:
         base >=4.21 && <4.22,
+        async,
+        base64-bytestring,
         bytestring,
+        directory,
+        filepath,
         jitml,
         lens-family,
         mtl,
@@ -508,6 +556,7 @@ test-suite jitml-daemon-lifecycle
         proto-lens-runtime,
         tasty,
         tasty-hunit,
+        temporary,
         text
 
 test-suite jitml-e2e

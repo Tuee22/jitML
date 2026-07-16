@@ -10,6 +10,7 @@
 module JitML.Service.RunConfig
   ( TrainingRunConfig (..)
   , TuneRunConfig (..)
+  , AlphaZeroRunConfig (..)
   , RlRunConfig (..)
   , TrainingEvidenceConfig (..)
   , CompletedTrainingWitnessConfig (..)
@@ -17,56 +18,77 @@ module JitML.Service.RunConfig
   , RunConfigLoadResult (..)
   , trainingRunConfigDecoder
   , tuneRunConfigDecoder
+  , alphaZeroRunConfigDecoder
   , rlRunConfigDecoder
   , trainingEvidenceConfigDecoder
   , completedTrainingWitnessConfigDecoder
   , inferenceSelectorConfigDecoder
   , loadTrainingRunConfig
   , loadTuneRunConfig
+  , loadAlphaZeroRunConfig
   , loadRlRunConfig
   , loadInferenceSelectorConfig
   , tryLoadTrainingRunConfig
   , tryLoadTuneRunConfig
+  , tryLoadAlphaZeroRunConfig
   , tryLoadRlRunConfig
   , tryLoadInferenceSelectorConfig
   , validateInferenceSelectorConfig
+  , supervisedPlanFromRunConfig
+  , tuningPlanFromRunConfig
+  , alphaZeroPlanFromRunConfig
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
+  , renderAlphaZeroRunConfigDhall
   , renderRlRunConfigDhall
   )
 where
 
 import Control.Exception (SomeException, try)
 import Control.Exception qualified as Exception
+import Control.Monad (unless, when)
+import Data.Bifunctor (first)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Dhall qualified
 import Numeric.Natural (Natural)
 import System.Directory (doesFileExist)
 
+import JitML.Plan.Plan (Validation, planIdText, validationToEither)
+import JitML.Plan.Workload
+  ( AlphaZeroPlan
+  , SupervisedPlan
+  , TuningPlan
+  , alphaZeroPlanId
+  , parseAlphaZeroPlanTransport
+  , parseSupervisedPlanTransport
+  , parseTuningPlanTransport
+  , renderAlphaZeroPlanTransport
+  , renderSupervisedPlanTransport
+  , renderTuningPlanTransport
+  , supervisedPlanId
+  , tuningPlanId
+  )
+
 data TrainingRunConfig = TrainingRunConfig
-  { trcExperimentHash :: Text
-  , trcSubstrate :: Text
-  , trcSeed :: Int
-  , trcEpochs :: Int
-  , trcBatchSize :: Int
+  { trcPlanId :: Text
+  , trcResolvedPlan :: Text
   , trcPulsarWsUrl :: Text
-  , trcSlTrainLimit :: Maybe Int
-  , trcSlEpochs :: Maybe Int
-  , trcSlTestLimit :: Maybe Int
   }
   deriving stock (Eq, Show)
 
 data TuneRunConfig = TuneRunConfig
-  { turcExperimentHash :: Text
-  , turcSubstrate :: Text
-  , turcSweepSeed :: Int
-  , turcTrialBudget :: Int
-  , turcBudgetPerTrial :: Int
-  , turcSampler :: Text
-  , turcScheduler :: Text
-  , turcPruner :: Text
+  { turcPlanId :: Text
+  , turcResolvedPlan :: Text
   , turcPulsarWsUrl :: Text
+  }
+  deriving stock (Eq, Show)
+
+data AlphaZeroRunConfig = AlphaZeroRunConfig
+  { azrcPlanId :: Text
+  , azrcResolvedPlan :: Text
+  , azrcPulsarWsUrl :: Text
   }
   deriving stock (Eq, Show)
 
@@ -121,28 +143,24 @@ trainingRunConfigDecoder :: Dhall.Decoder TrainingRunConfig
 trainingRunConfigDecoder =
   Dhall.record $
     TrainingRunConfig
-      <$> Dhall.field "experimentHash" Dhall.strictText
-      <*> Dhall.field "substrate" Dhall.strictText
-      <*> fmap naturalToInt (Dhall.field "seed" Dhall.natural)
-      <*> fmap naturalToInt (Dhall.field "epochs" Dhall.natural)
-      <*> fmap naturalToInt (Dhall.field "batchSize" Dhall.natural)
+      <$> Dhall.field "planId" Dhall.strictText
+      <*> Dhall.field "resolvedPlan" Dhall.strictText
       <*> Dhall.field "pulsarWsUrl" Dhall.strictText
-      <*> fmap (fmap naturalToInt) (Dhall.field "slTrainLimit" (Dhall.maybe Dhall.natural))
-      <*> fmap (fmap naturalToInt) (Dhall.field "slEpochs" (Dhall.maybe Dhall.natural))
-      <*> fmap (fmap naturalToInt) (Dhall.field "slTestLimit" (Dhall.maybe Dhall.natural))
 
 tuneRunConfigDecoder :: Dhall.Decoder TuneRunConfig
 tuneRunConfigDecoder =
   Dhall.record $
     TuneRunConfig
-      <$> Dhall.field "experimentHash" Dhall.strictText
-      <*> Dhall.field "substrate" Dhall.strictText
-      <*> fmap naturalToInt (Dhall.field "sweepSeed" Dhall.natural)
-      <*> fmap naturalToInt (Dhall.field "trialBudget" Dhall.natural)
-      <*> fmap naturalToInt (Dhall.field "budgetPerTrial" Dhall.natural)
-      <*> Dhall.field "sampler" Dhall.strictText
-      <*> Dhall.field "scheduler" Dhall.strictText
-      <*> Dhall.field "pruner" Dhall.strictText
+      <$> Dhall.field "planId" Dhall.strictText
+      <*> Dhall.field "resolvedPlan" Dhall.strictText
+      <*> Dhall.field "pulsarWsUrl" Dhall.strictText
+
+alphaZeroRunConfigDecoder :: Dhall.Decoder AlphaZeroRunConfig
+alphaZeroRunConfigDecoder =
+  Dhall.record $
+    AlphaZeroRunConfig
+      <$> Dhall.field "planId" Dhall.strictText
+      <*> Dhall.field "resolvedPlan" Dhall.strictText
       <*> Dhall.field "pulsarWsUrl" Dhall.strictText
 
 rlRunConfigDecoder :: Dhall.Decoder RlRunConfig
@@ -188,10 +206,15 @@ inferenceSelectorConfigDecoder =
       <*> Dhall.field "completedTraining" completedTrainingWitnessConfigDecoder
 
 loadTrainingRunConfig :: FilePath -> IO TrainingRunConfig
-loadTrainingRunConfig = Dhall.inputFile trainingRunConfigDecoder
+loadTrainingRunConfig path = do
+  config <- Dhall.inputFile trainingRunConfigDecoder path
+  either (fail . Text.unpack) pure (validateTrainingRunConfig config)
 
 loadTuneRunConfig :: FilePath -> IO TuneRunConfig
 loadTuneRunConfig = Dhall.inputFile tuneRunConfigDecoder
+
+loadAlphaZeroRunConfig :: FilePath -> IO AlphaZeroRunConfig
+loadAlphaZeroRunConfig = Dhall.inputFile alphaZeroRunConfigDecoder
 
 loadRlRunConfig :: FilePath -> IO RlRunConfig
 loadRlRunConfig = Dhall.inputFile rlRunConfigDecoder
@@ -209,10 +232,15 @@ loadInferenceSelectorConfig path = do
 -- back only on 'RunConfigMissing'; mounted worker decode failures are fatal at
 -- the caller boundary.
 tryLoadTrainingRunConfig :: FilePath -> IO (RunConfigLoadResult TrainingRunConfig)
-tryLoadTrainingRunConfig = tryLoadFile trainingRunConfigDecoder
+tryLoadTrainingRunConfig =
+  tryLoadValidatedFile trainingRunConfigDecoder validateTrainingRunConfig
 
 tryLoadTuneRunConfig :: FilePath -> IO (RunConfigLoadResult TuneRunConfig)
-tryLoadTuneRunConfig = tryLoadFile tuneRunConfigDecoder
+tryLoadTuneRunConfig = tryLoadValidatedFile tuneRunConfigDecoder validateTuneRunConfig
+
+tryLoadAlphaZeroRunConfig :: FilePath -> IO (RunConfigLoadResult AlphaZeroRunConfig)
+tryLoadAlphaZeroRunConfig =
+  tryLoadValidatedFile alphaZeroRunConfigDecoder validateAlphaZeroRunConfig
 
 tryLoadRlRunConfig :: FilePath -> IO (RunConfigLoadResult RlRunConfig)
 tryLoadRlRunConfig = tryLoadFile rlRunConfigDecoder
@@ -273,9 +301,83 @@ validateInferenceSelectorConfig selector
   witness = iscCompletedTraining selector
   evidence = ctwEvidence witness
 
-renderOptionalNatural :: Maybe Int -> Text
-renderOptionalNatural Nothing = "None Natural"
-renderOptionalNatural (Just n) = "Some " <> Text.pack (show (max 0 n))
+validateTuneRunConfig :: TuneRunConfig -> Either Text TuneRunConfig
+validateTuneRunConfig config = do
+  _ <- tuningPlanFromRunConfig config
+  requireNonEmpty "TuneRunConfig pulsarWsUrl" (turcPulsarWsUrl config)
+  pure config
+
+validateTrainingRunConfig :: TrainingRunConfig -> Either Text TrainingRunConfig
+validateTrainingRunConfig config = do
+  _ <- supervisedPlanFromRunConfig config
+  requireNonEmpty "TrainingRunConfig pulsarWsUrl" (trcPulsarWsUrl config)
+  pure config
+
+validateAlphaZeroRunConfig :: AlphaZeroRunConfig -> Either Text AlphaZeroRunConfig
+validateAlphaZeroRunConfig config = do
+  _ <- alphaZeroPlanFromRunConfig config
+  requireNonEmpty "AlphaZeroRunConfig pulsarWsUrl" (azrcPulsarWsUrl config)
+  pure config
+
+tuningPlanFromRunConfig :: TuneRunConfig -> Either Text TuningPlan
+tuningPlanFromRunConfig config = do
+  plan <- decodePlan "TuneRunConfig resolvedPlan" (parseTuningPlanTransport (turcResolvedPlan config))
+  requireEqual "TuneRunConfig planId" (planIdText (tuningPlanId plan)) (turcPlanId config)
+  requireEqual
+    "TuneRunConfig canonical resolvedPlan"
+    (renderTuningPlanTransport plan)
+    (turcResolvedPlan config)
+  pure plan
+
+alphaZeroPlanFromRunConfig :: AlphaZeroRunConfig -> Either Text AlphaZeroPlan
+alphaZeroPlanFromRunConfig config = do
+  plan <-
+    decodePlan "AlphaZeroRunConfig resolvedPlan" (parseAlphaZeroPlanTransport (azrcResolvedPlan config))
+  requireEqual "AlphaZeroRunConfig planId" (planIdText (alphaZeroPlanId plan)) (azrcPlanId config)
+  requireEqual
+    "AlphaZeroRunConfig canonical resolvedPlan"
+    (renderAlphaZeroPlanTransport plan)
+    (azrcResolvedPlan config)
+  pure plan
+
+supervisedPlanFromRunConfig :: TrainingRunConfig -> Either Text SupervisedPlan
+supervisedPlanFromRunConfig config = do
+  plan <-
+    decodePlan
+      "TrainingRunConfig resolvedPlan"
+      (parseSupervisedPlanTransport (trcResolvedPlan config))
+  requireEqual
+    "TrainingRunConfig planId"
+    (planIdText (supervisedPlanId plan))
+    (trcPlanId config)
+  requireEqual
+    "TrainingRunConfig canonical resolvedPlan"
+    (renderSupervisedPlanTransport plan)
+    (trcResolvedPlan config)
+  pure plan
+
+decodePlan
+  :: (Show error)
+  => Text
+  -> Validation (NonEmpty error) value
+  -> Either Text value
+decodePlan label =
+  first (((label <> ": ") <>) . Text.pack . show) . validationToEither
+
+requireNonEmpty :: Text -> Text -> Either Text ()
+requireNonEmpty label value =
+  when (Text.null (Text.strip value)) (Left (label <> " must be non-empty"))
+
+requireEqual :: (Eq value, Show value) => Text -> value -> value -> Either Text ()
+requireEqual label expected observed =
+  unless (expected == observed) $
+    Left
+      ( label
+          <> " mismatch: expected "
+          <> Text.pack (show expected)
+          <> ", observed "
+          <> Text.pack (show observed)
+      )
 
 renderOptionalText :: Maybe Text -> Text
 renderOptionalText Nothing = "None Text"
@@ -287,30 +389,27 @@ quote t = "\"" <> t <> "\""
 renderTrainingRunConfigDhall :: TrainingRunConfig -> Text
 renderTrainingRunConfigDhall c =
   Text.unlines
-    [ "{ experimentHash = " <> quote (trcExperimentHash c)
-    , ", substrate = " <> quote (trcSubstrate c)
-    , ", seed = " <> Text.pack (show (trcSeed c))
-    , ", epochs = " <> Text.pack (show (trcEpochs c))
-    , ", batchSize = " <> Text.pack (show (trcBatchSize c))
+    [ "{ planId = " <> quote (trcPlanId c)
+    , ", resolvedPlan = " <> quote (trcResolvedPlan c)
     , ", pulsarWsUrl = " <> quote (trcPulsarWsUrl c)
-    , ", slTrainLimit = " <> renderOptionalNatural (trcSlTrainLimit c)
-    , ", slEpochs = " <> renderOptionalNatural (trcSlEpochs c)
-    , ", slTestLimit = " <> renderOptionalNatural (trcSlTestLimit c)
     , "}"
     ]
 
 renderTuneRunConfigDhall :: TuneRunConfig -> Text
 renderTuneRunConfigDhall c =
   Text.unlines
-    [ "{ experimentHash = " <> quote (turcExperimentHash c)
-    , ", substrate = " <> quote (turcSubstrate c)
-    , ", sweepSeed = " <> Text.pack (show (turcSweepSeed c))
-    , ", trialBudget = " <> Text.pack (show (turcTrialBudget c))
-    , ", budgetPerTrial = " <> Text.pack (show (turcBudgetPerTrial c))
-    , ", sampler = " <> quote (turcSampler c)
-    , ", scheduler = " <> quote (turcScheduler c)
-    , ", pruner = " <> quote (turcPruner c)
+    [ "{ planId = " <> quote (turcPlanId c)
+    , ", resolvedPlan = " <> quote (turcResolvedPlan c)
     , ", pulsarWsUrl = " <> quote (turcPulsarWsUrl c)
+    , "}"
+    ]
+
+renderAlphaZeroRunConfigDhall :: AlphaZeroRunConfig -> Text
+renderAlphaZeroRunConfigDhall c =
+  Text.unlines
+    [ "{ planId = " <> quote (azrcPlanId c)
+    , ", resolvedPlan = " <> quote (azrcResolvedPlan c)
+    , ", pulsarWsUrl = " <> quote (azrcPulsarWsUrl c)
     , "}"
     ]
 

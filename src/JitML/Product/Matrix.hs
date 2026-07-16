@@ -22,6 +22,7 @@ module JitML.Product.Matrix
   , productRowIds
   , renderRowClass
   , renderRowFamily
+  , selectProductRows
   , validateProductMatrix
   )
 where
@@ -29,6 +30,7 @@ where
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Word (Word64)
 
 import JitML.Product.Convergence
   ( ConvergenceBar
@@ -46,7 +48,8 @@ import JitML.Substrate (Substrate (..), renderSubstrate)
 import JitML.Training.Budget
   ( BudgetKind (..)
   , MetricGoal (..)
-  , TrainingBudget (..)
+  , TrainingBudget
+  , mkTrainingBudget
   )
 
 data ModelState
@@ -211,6 +214,47 @@ matrixFloorRowCount =
 productRowIds :: [Text]
 productRowIds = fmap rowId allProductRows
 
+-- | Select ProductRows from the comma-separated internal-command filter.
+-- Unknown and duplicate identifiers are rejected before either command starts
+-- work; silently accepting the valid subset would make a misspelled matrix
+-- gate look complete.
+selectProductRows :: Maybe Text -> Either Text [ProductRow 'Declared]
+selectProductRows rawFilter =
+  case filterFailures of
+    []
+      | null requestedIds -> Right allProductRows
+      | otherwise ->
+          Right
+            [ row
+            | row <- allProductRows
+            , rowId row `elem` requestedIds
+            ]
+    failures ->
+      Left
+        ( "JITML_PRODUCT_ROW_FILTER is invalid: "
+            <> Text.intercalate "; " failures
+        )
+ where
+  requestedIds =
+    maybe
+      []
+      (filter (not . Text.null) . fmap Text.strip . Text.splitOn ",")
+      rawFilter
+  unknownIds =
+    List.nub
+      [ requestedId
+      | requestedId <- requestedIds
+      , requestedId `notElem` productRowIds
+      ]
+  duplicateIds = duplicates requestedIds
+  filterFailures =
+    [ "unknown product row ids: " <> Text.intercalate ", " unknownIds
+    | not (null unknownIds)
+    ]
+      <> [ "duplicate product row ids: " <> Text.intercalate ", " duplicateIds
+         | not (null duplicateIds)
+         ]
+
 productRowExperimentHash :: ProductRow state -> Text
 productRowExperimentHash row =
   "product-row-" <> sanitizeTestId (rowId row)
@@ -257,12 +301,11 @@ supervisedRow problem =
       rowClass'
       ("JitML.SL.Architecture.architectureSpecForProblem/" <> SL.problemModel problem)
       ("experiments/" <> SL.problemName problem <> ".dhall")
-      TrainingBudget
-        { tbKind = SupervisedEpochBudget
-        , tbTargetUnits = 5
-        , tbUnitLabel = "fixed-epochs"
-        , tbSeed = Just (fromIntegral (SL.problemSeed problem))
-        }
+      ( staticBudget
+          SupervisedEpochBudget
+          (supervisedEpochBudget (SL.problemName problem))
+          (Just (fromIntegral (SL.problemSeed problem)))
+      )
       bar
       SubstrateBackedANN
       (supervisedDemoPanel problem)
@@ -281,6 +324,20 @@ supervisedRow problem =
         classificationAccuracyBar "test_accuracy" threshold
       Nothing ->
         regressionRmseBar "rmse" 0.90 0.10
+
+-- | The fixed product budget is the one source of truth for the publisher.
+-- The compact heavy-vision rows converge under five epochs over their bounded
+-- product datasets; the remaining supervised rows use the ten-epoch schedule
+-- that their real convergence runs exercise.  Producers must consume this
+-- value rather than independently clamping or extending it.
+supervisedEpochBudget :: Text -> Word64
+supervisedEpochBudget problemName =
+  case problemName of
+    "cifar10-resnet20" -> 5
+    "cifar10-resnet56" -> 5
+    "cifar10-vit" -> 5
+    "tiny-imagenet-resnet50" -> 5
+    _ -> 10
 
 rlConvergenceRows :: [ProductRow 'Declared]
 rlConvergenceRows =
@@ -350,12 +407,7 @@ tuningRow =
     (HyperparameterTuning "TPE/ASHA/MedianPruner")
     "JitML.Tune.Catalog"
     "experiments/mnist-tune.dhall"
-    TrainingBudget
-      { tbKind = TuningTrialBudget
-      , tbTargetUnits = 128
-      , tbUnitLabel = "trials"
-      , tbSeed = Just 1729
-      }
+    (staticBudget TuningTrialBudget 128 (Just 1729))
     (mkConvergenceBar "best_objective" MetricMaximise 1.0 0.05)
     TuningPromotedTraining
     "hyperparameter-sweep"
@@ -390,6 +442,10 @@ baseRow rowId' family' rowClass' implementation' experimentConfig' budget bar cl
     , e2eTest = "e2e.product." <> sanitizeTestId rowId'
     , demoPanel = panel
     }
+
+staticBudget :: BudgetKind -> Word64 -> Maybe Word64 -> TrainingBudget
+staticBudget kind target seed =
+  either (error . Text.unpack) id (mkTrainingBudget kind target seed)
 
 validateProductMatrix :: [ProductRow state] -> [Text]
 validateProductMatrix rows =

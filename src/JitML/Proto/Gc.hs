@@ -11,21 +11,19 @@
 -- `gc.event.<substrate>` to follow the reconciler's deletion stream.
 --
 -- This is Phase 13 Sprint `13.7`'s `gc_reaped` Pulsar event surface; the
--- topic is registered in `JitML.Cluster.PulsarBootstrap.substrateTopics`
+-- topic is registered in `JitML.Cluster.PulsarBootstrap.pulsarTopics`
 -- and the envelope is published from `JitML.App.runInternalGc` after
 -- each reap. See [../README.md → At-Least-Once Event Processing](../../../README.md).
 module JitML.Proto.Gc
   ( GcReapedEvent (..)
   , decodeGcReapedEventProto
   , encodeGcReapedEventProto
-  , gcEventTopic
   , parseGcReapedEvent
   , renderGcReapedEvent
   )
 where
 
 import Data.ByteString (ByteString)
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -33,16 +31,14 @@ import Data.Word (Word64)
 import Text.Read (readMaybe)
 
 import JitML.Proto.Wire
-  ( ProtoField
+  ( ProtoField (..)
+  , ProtoValue (..)
   , decodeMessage
   , encodeMessage
-  , fieldMessages
-  , fieldString
-  , fieldWord64
   , stringField
   , uint64Field
   )
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 -- | One reaped manifest's wire envelope.
 data GcReapedEvent = GcReapedEvent
@@ -50,16 +46,10 @@ data GcReapedEvent = GcReapedEvent
   , gcEventManifestSha :: Text
   , gcEventReapedBlobShas :: [Text]
   , gcEventStepAtReap :: Word64
-  , gcEventSubstrate :: Text
+  , gcEventSubstrate :: Substrate
   , gcEventTimestampNs :: Word64
   }
   deriving stock (Eq, Show)
-
--- | Substrate-scoped topic name. Matches the persistent path registered
--- by `JitML.Cluster.PulsarBootstrap.substrateTopics`.
-gcEventTopic :: Substrate -> Text
-gcEventTopic substrate =
-  "persistent://public/default/gc.event." <> renderSubstrate substrate
 
 renderGcReapedEvent :: GcReapedEvent -> Text
 renderGcReapedEvent event =
@@ -69,44 +59,34 @@ renderGcReapedEvent event =
     , "manifest-sha: " <> gcEventManifestSha event
     , "reaped-blob-shas: " <> Text.intercalate "," (gcEventReapedBlobShas event)
     , "step-at-reap: " <> Text.pack (show (gcEventStepAtReap event))
-    , "substrate: " <> gcEventSubstrate event
+    , "substrate: " <> renderSubstrate (gcEventSubstrate event)
     , "timestamp-ns: " <> Text.pack (show (gcEventTimestampNs event))
     ]
 
-parseGcReapedEvent :: Text -> Maybe GcReapedEvent
+-- | Decode exactly the text shape emitted by 'renderGcReapedEvent'. Unknown,
+-- duplicate, malformed, missing, and empty scalar fields are rejected. The
+-- reaped-blob list is the one deliberately empty-capable field because a
+-- manifest can be reaped while all of its blobs remain live through another
+-- manifest.
+parseGcReapedEvent :: Text -> Either Text GcReapedEvent
 parseGcReapedEvent payload = do
-  let fields = mapMaybe parseLineField (Text.lines payload)
-      value key = lookup key fields
-  "GcReapedEvent" <- value "envelope"
-  GcReapedEvent
-    <$> value "experiment-hash"
-    <*> value "manifest-sha"
-    <*> fmap parseBlobShaList (value "reaped-blob-shas")
-    <*> (value "step-at-reap" >>= readWord64)
-    <*> value "substrate"
-    <*> (value "timestamp-ns" >>= readWord64)
-
-encodeGcReapedEventProto :: GcReapedEvent -> ByteString
-encodeGcReapedEventProto event =
-  encodeMessage $
-    [ stringField 1 (gcEventExperimentHash event)
-    , stringField 2 (gcEventManifestSha event)
-    ]
-      <> fmap (stringField 3) (gcEventReapedBlobShas event)
-      <> [ uint64Field 4 (gcEventStepAtReap event)
-         , stringField 5 (gcEventSubstrate event)
-         , uint64Field 6 (gcEventTimestampNs event)
-         ]
-
-decodeGcReapedEventProto :: ByteString -> Either Text GcReapedEvent
-decodeGcReapedEventProto bytes = do
-  fields <- decodeMessage bytes
-  experimentHash <- require "experiment_hash" (fieldString 1 fields)
-  manifestSha <- require "manifest_sha" (fieldString 2 fields)
-  blobShas <- require "reaped_blob_shas" (decodeStrings 3 fields)
-  stepAtReap <- require "step_at_reap" (fieldWord64 4 fields)
-  substrate <- require "substrate" (fieldString 5 fields)
-  timestampNs <- require "timestamp_ns" (fieldWord64 6 fields)
+  fields <- traverse parseLineField (Text.lines payload)
+  requireOnlyFields gcEventFieldNames fields
+  envelope <- requiredField "envelope" fields
+  if envelope == "GcReapedEvent"
+    then Right ()
+    else Left "invalid field: envelope"
+  experimentHash <- requiredField "experiment-hash" fields
+  manifestSha <- requiredField "manifest-sha" fields
+  blobShas <- requiredBlobShaList fields
+  stepAtReap <- requiredReadField "step-at-reap" fields
+  substrateText <- requiredField "substrate" fields
+  substrate <-
+    maybe
+      (Left "invalid field: substrate")
+      Right
+      (parseSubstrate substrateText)
+  timestampNs <- requiredReadField "timestamp-ns" fields
   Right
     GcReapedEvent
       { gcEventExperimentHash = experimentHash
@@ -117,36 +97,145 @@ decodeGcReapedEventProto bytes = do
       , gcEventTimestampNs = timestampNs
       }
 
--- | Decode every length-delimited entry on `fieldNumber` as UTF-8 text.
--- proto3 repeated strings emit one length-delimited field per entry; an
--- absent field is `Just []` so the proto3 default for repeated holds.
-decodeStrings :: Word64 -> [ProtoField] -> Maybe [Text]
-decodeStrings fieldNumber fields = do
-  raw <- fieldMessages fieldNumber fields
-  traverse decodeOne raw
- where
-  decodeOne bs =
-    case Text.Encoding.decodeUtf8' bs of
-      Left _ -> Nothing
-      Right t -> Just t
+encodeGcReapedEventProto :: GcReapedEvent -> ByteString
+encodeGcReapedEventProto event =
+  encodeMessage $
+    [ stringField 1 (gcEventExperimentHash event)
+    , stringField 2 (gcEventManifestSha event)
+    ]
+      <> fmap (stringField 3) (gcEventReapedBlobShas event)
+      <> [ uint64Field 4 (gcEventStepAtReap event)
+         , stringField 5 (renderSubstrate (gcEventSubstrate event))
+         , uint64Field 6 (gcEventTimestampNs event)
+         ]
 
-parseBlobShaList :: Text -> [Text]
+decodeGcReapedEventProto :: ByteString -> Either Text GcReapedEvent
+decodeGcReapedEventProto bytes = do
+  fields <- decodeMessage bytes
+  requireOnlyProtoFields fields
+  experimentHash <- requiredProtoString "experiment_hash" 1 fields
+  manifestSha <- requiredProtoString "manifest_sha" 2 fields
+  blobShas <- repeatedProtoStrings "reaped_blob_shas" 3 fields
+  stepAtReap <- requiredProtoWord64 "step_at_reap" 4 fields
+  substrateText <- requiredProtoString "substrate" 5 fields
+  substrate <-
+    maybe
+      (Left "invalid protobuf field: substrate")
+      Right
+      (parseSubstrate substrateText)
+  timestampNs <- requiredProtoWord64 "timestamp_ns" 6 fields
+  Right
+    GcReapedEvent
+      { gcEventExperimentHash = experimentHash
+      , gcEventManifestSha = manifestSha
+      , gcEventReapedBlobShas = blobShas
+      , gcEventStepAtReap = stepAtReap
+      , gcEventSubstrate = substrate
+      , gcEventTimestampNs = timestampNs
+      }
+
+gcEventFieldNames :: [Text]
+gcEventFieldNames =
+  [ "envelope"
+  , "experiment-hash"
+  , "manifest-sha"
+  , "reaped-blob-shas"
+  , "step-at-reap"
+  , "substrate"
+  , "timestamp-ns"
+  ]
+
+parseBlobShaList :: Text -> Either Text [Text]
 parseBlobShaList raw
-  | Text.null raw = []
-  | otherwise =
-      filter (not . Text.null)
-        . fmap Text.strip
-        $ Text.splitOn "," raw
+  | Text.null raw = Right []
+  | otherwise = traverse requireBlobSha (Text.splitOn "," raw)
+ where
+  requireBlobSha encoded =
+    let blobSha = Text.strip encoded
+     in if Text.null blobSha
+          then Left "empty reaped blob sha"
+          else Right blobSha
 
-parseLineField :: Text -> Maybe (Text, Text)
+fieldValues :: Text -> [(Text, Text)] -> [Text]
+fieldValues key fields =
+  [value | (candidate, value) <- fields, candidate == key]
+
+requiredField :: Text -> [(Text, Text)] -> Either Text Text
+requiredField key fields =
+  case fieldValues key fields of
+    [] -> Left ("missing field: " <> key)
+    [value]
+      | Text.null value -> Left ("empty field: " <> key)
+      | otherwise -> Right value
+    _ -> Left ("duplicate field: " <> key)
+
+requiredBlobShaList :: [(Text, Text)] -> Either Text [Text]
+requiredBlobShaList fields =
+  case fieldValues "reaped-blob-shas" fields of
+    [] -> Left "missing field: reaped-blob-shas"
+    [value] -> parseBlobShaList value
+    _ -> Left "duplicate field: reaped-blob-shas"
+
+requiredReadField :: (Read value) => Text -> [(Text, Text)] -> Either Text value
+requiredReadField key fields = do
+  encoded <- requiredField key fields
+  maybe (Left ("malformed field: " <> key)) Right (readMaybe (Text.unpack encoded))
+
+requireOnlyFields :: [Text] -> [(Text, Text)] -> Either Text ()
+requireOnlyFields allowed fields =
+  case [key | (key, _value) <- fields, key `notElem` allowed] of
+    [] -> Right ()
+    unknown : _ -> Left ("unknown field: " <> unknown)
+
+parseLineField :: Text -> Either Text (Text, Text)
 parseLineField line =
   case Text.breakOn ":" line of
-    (_, "") -> Nothing
-    (key, rest) -> Just (Text.strip key, Text.strip (Text.drop 1 rest))
+    (_, "") -> Left ("malformed field line: " <> line)
+    (rawKey, rest) ->
+      let key = Text.strip rawKey
+       in if Text.null key
+            then Left "empty field name"
+            else Right (key, Text.strip (Text.drop 1 rest))
 
-readWord64 :: Text -> Maybe Word64
-readWord64 = readMaybe . Text.unpack
+requireOnlyProtoFields :: [ProtoField] -> Either Text ()
+requireOnlyProtoFields fields =
+  case [number | ProtoField number _value <- fields, number `notElem` [1 .. 6]] of
+    [] -> Right ()
+    unknown : _ -> Left ("unknown protobuf field: " <> Text.pack (show unknown))
 
-require :: Text -> Maybe a -> Either Text a
-require label Nothing = Left ("missing field: " <> label)
-require _ (Just value) = Right value
+requiredProtoString :: Text -> Word64 -> [ProtoField] -> Either Text Text
+requiredProtoString label fieldNumber fields =
+  case protoValues fieldNumber fields of
+    [] -> Left ("missing protobuf field: " <> label)
+    [LengthDelimited bytes] ->
+      case Text.Encoding.decodeUtf8' bytes of
+        Left _ -> Left ("malformed protobuf field: " <> label)
+        Right value
+          | Text.null value -> Left ("empty protobuf field: " <> label)
+          | otherwise -> Right value
+    [_wrongWireType] -> Left ("malformed protobuf field: " <> label)
+    _ -> Left ("duplicate protobuf field: " <> label)
+
+requiredProtoWord64 :: Text -> Word64 -> [ProtoField] -> Either Text Word64
+requiredProtoWord64 label fieldNumber fields =
+  case protoValues fieldNumber fields of
+    [] -> Left ("missing protobuf field: " <> label)
+    [Varint value] -> Right value
+    [_wrongWireType] -> Left ("malformed protobuf field: " <> label)
+    _ -> Left ("duplicate protobuf field: " <> label)
+
+repeatedProtoStrings :: Text -> Word64 -> [ProtoField] -> Either Text [Text]
+repeatedProtoStrings label fieldNumber fields =
+  traverse decodeOne (protoValues fieldNumber fields)
+ where
+  decodeOne (LengthDelimited bytes) =
+    case Text.Encoding.decodeUtf8' bytes of
+      Left _ -> Left ("malformed protobuf field: " <> label)
+      Right value
+        | Text.null value -> Left ("empty protobuf field: " <> label)
+        | otherwise -> Right value
+  decodeOne _ = Left ("malformed protobuf field: " <> label)
+
+protoValues :: Word64 -> [ProtoField] -> [ProtoValue]
+protoValues fieldNumber fields =
+  [value | ProtoField number value <- fields, number == fieldNumber]

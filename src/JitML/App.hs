@@ -1,34 +1,65 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module JitML.App
-  ( main
+  ( alphaZeroArtifactStep
+  , inferenceReplyAppError
+  , main
+  , matchingInferenceResult
   , parseUserIntOptionAtLeast
   , rlTrainerEnvironmentCompatibilityError
+  , serviceRoleInvocationError
+  , waitForConsumeOnceHostWorkloads
   )
 where
 
-import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
-import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
-import Control.Exception.Safe (bracket, displayException, finally, tryAny)
-import Control.Monad (forever, unless, void, when)
+import Control.Concurrent (ThreadId, forkFinally, forkIO, killThread, threadDelay)
+import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.MVar
+  ( MVar
+  , modifyMVar
+  , modifyMVar_
+  , newEmptyMVar
+  , newMVar
+  , putMVar
+  , readMVar
+  , takeMVar
+  , tryPutMVar
+  , tryReadMVar
+  , tryTakeMVar
+  )
+import Control.Exception.Safe
+  ( bracket
+  , displayException
+  , finally
+  , mask_
+  , throwIO
+  , tryAny
+  )
+import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Crypto.Hash.SHA256 qualified
 import Data.Aeson (eitherDecode, encode)
+import Data.Bifunctor (second)
+import Data.Bool (bool)
 import Data.ByteString qualified
 import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Either (isRight, lefts)
+import Data.Either (lefts)
+import Data.Either.Combinators (mapLeft)
 import Data.Foldable (for_, traverse_)
 import Data.List (sort, stripPrefix)
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word32, Word64)
+import GHC.Clock (getMonotonicTimeNSec)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (Abs, Dir, Path, toFilePath)
 import System.Directory
@@ -41,8 +72,9 @@ import System.Directory
   )
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeFileName, (</>))
+import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO qualified
+import System.Timeout (timeout)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
@@ -62,10 +94,12 @@ import Network.Socket.ByteString (recv, sendAll)
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap
   ( LiveExecutionResult (..)
+  , LiveStepFailure (..)
   , cachedThirdPartyRolloutImages
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
   , readExistingLivePublication
+  , renderLiveStepFailure
   )
 import JitML.CLI.Help (renderHelp)
 import JitML.CLI.Json (renderCommandJson)
@@ -89,13 +123,14 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
+import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
+import JitML.Coordinator.Topology qualified as Topology
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Engines.CudaLocal (runCudaWeightedCheckpointInference)
 import JitML.Engines.CudaRuntime (cudaRuntimeAvailable, probeCudaRuntime)
 import JitML.Engines.Engine
-  ( compileSubprocess
-  , engineForSubstrate
+  ( engineForSubstrate
   , kernelHandleArtifactPath
   , renderBuildPlan
   )
@@ -128,8 +163,22 @@ import JitML.Numerics.Mlp (AdamState, MlpParams, MlpShape (..), mlpInit, mlpPara
 import JitML.Numerics.MlpDevice (MlpDevice (..), probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
-import JitML.Plan.Plan (buildCommandPlan)
+import JitML.Plan.Command qualified as PlanCommand
+import JitML.Plan.Plan
+  ( PlanId
+  , buildCommandPlan
+  , planIdFromCanonicalText
+  , planIdText
+  , quantityValue
+  , runPlanExperimentId
+  , runPlanSeeds
+  , runPlanSubjectId
+  , runPlanSubstrate
+  , seedCohortValues
+  , validationToEither
+  )
 import JitML.Plan.Render (renderPlan)
+import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Prerequisite.Nodes.Container qualified as ContainerPrerequisites
 import JitML.Prerequisite.Plan
   ( PrerequisitePlanError (..)
@@ -167,6 +216,7 @@ import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.Simulator qualified as RLSim
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
@@ -175,39 +225,70 @@ import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.Regression qualified as Regression
 import JitML.SL.TinyImageNet qualified as TinyImageNet
 import JitML.Service.BootConfig qualified as BootConfig
-import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.CatalogSchema qualified as CatalogSchema
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
-  , EventDomain (..)
   , EventId
   , HandlerRouter
-  , consumerStepWithActions
+  , consumerStep
   )
+import JitML.Service.Consumer qualified as Consumer
 import JitML.Service.DhallSchema qualified as DhallSchema
+import JitML.Service.HostWorkloadRegistry qualified as HostWorkloadRegistry
+import JitML.Service.HotReload qualified as HotReload
+import JitML.Service.InferenceBatch qualified as InferenceBatch
+import JitML.Service.InferenceReplyScope qualified as InferenceReplyScope
+import JitML.Service.Lifecycle qualified as ServiceLifecycle
+import JitML.Service.LiveConfig qualified as LiveConfig
+import JitML.Service.Logger qualified as ServiceLogger
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Service.Retry qualified as ServiceRetry
 import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.Runtime qualified as ServiceRuntime
+import JitML.Service.RuntimeState qualified as RuntimeState
+import JitML.Service.Signal qualified as ServiceSignal
 import JitML.Service.WorkflowStatus qualified as WorkflowStatus
 import JitML.Service.Workload qualified as Workload
+import JitML.Sub.Outcome
+  ( ObservedProcessFailure (..)
+  , ObservedProcessOutcome (..)
+  , ProcessOutcome (..)
+  , processFailureExitCode
+  )
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Stream
+  ( defaultSubprocessEnv
+  , runStreaming
+  , runStreamingObserved
+  )
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
-import JitML.Test.LivePlan (LivePlanStep (..), liveE2EPlanFor)
+import JitML.Test.LiveE2EScope qualified as LiveE2EScope
+import JitML.Test.LivePlan
+  ( LivePlanStep (..)
+  , LiveResourceOwnership (..)
+  , ScopedLivePlan (..)
+  , scopedLiveE2EPlanFor
+  )
 import JitML.Test.Report
   ( ProductRowReportEvidence (..)
   , ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
+  , appendInvocation
+  , emptyInvocationJournal
   , emptyReportMeasurements
+  , failedObservedInvocation
+  , firstObservedInvocationFailure
   , loadReportCardKnobs
+  , notRunObservedInvocation
+  , passedInvocation
   , productRowReportCoverageFailures
-  , renderReportCardForTargets
+  , renderReportCardWithKnobs
   , reportStanzas
   , substrateRuntimeStanzas
   , substrateTestInvocations
@@ -419,8 +500,8 @@ prerequisitePlanAppError err =
         (unNodeId node)
         "Prerequisite has no typed remediation action."
         (Just remedy)
-    PrerequisitePlanRemediationFailed _node commandText exitCode stderrText ->
-      SubprocessFailed commandText exitCode stderrText
+    PrerequisitePlanRemediationFailed _node failure ->
+      SubprocessFailed failure
     PrerequisitePlanPostconditionFailed node description ->
       PrerequisiteUnmet
         (unNodeId node)
@@ -581,41 +662,42 @@ runBootstrap parsedOptions =
         else case parseSubstrate substrate of
           Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
           Just parsedSubstrate -> do
-            changed <- liftIO (materializeBootstrapFiles "." parsedSubstrate)
-            writeLine
-              ( "bootstrap: "
-                  <> substrate
-                  <> if changed then " reconciled" else " materialization already current"
-              )
             result <- liftIO (liveExecutePhasedRollout parsedSubstrate "chart")
-            writeLine
-              ( "bootstrap: live phased rollout executed "
-                  <> Text.pack (show (length (liveStepsExecuted result)))
-                  <> " steps"
-              )
+            if liveAlreadyConverged result
+              then writeLine ("bootstrap: " <> substrate <> " already converged")
+              else
+                writeLine
+                  ( "bootstrap: live phased rollout executed "
+                      <> Text.pack (show (length (liveStepsExecuted result)))
+                      <> " steps"
+                  )
             mapM_
-              ( \(step, stderrText) ->
-                  writeLine ("bootstrap: step failed: " <> step <> " stderr: " <> stderrText)
+              ( \failure ->
+                  writeLine ("bootstrap: step failed: " <> renderLiveStepFailure failure)
               )
               (liveStepsFailed result)
-            unless (null (liveStepsFailed result)) $
-              exitWithError
-                ( SubprocessFailed
-                    "bootstrap live phased rollout"
-                    (ExitFailure 1)
-                    (renderLiveStepFailures (liveStepsFailed result))
-                )
+            exitWithLiveStepFailure "bootstrap live phased rollout" (liveStepsFailed result)
+            when (liveAlreadyConverged result) $
+              exitWithError (ReconcilerNoop ("bootstrap: " <> substrate <> " already current"))
     [] ->
       exitWithError (InvalidConfig "bootstrap requires exactly one substrate flag")
     _ ->
       exitWithError (InvalidConfig "bootstrap accepts exactly one substrate flag")
 
-renderLiveStepFailures :: [(Text, Text)] -> Text
+renderLiveStepFailures :: [LiveStepFailure] -> Text
 renderLiveStepFailures =
-  Text.intercalate "\n" . fmap renderFailureLine
- where
-  renderFailureLine (step, stderrText) =
-    step <> ": " <> stderrText
+  Text.intercalate "\n" . fmap renderLiveStepFailure
+
+exitWithLiveStepFailure :: Text -> [LiveStepFailure] -> App ()
+exitWithLiveStepFailure _ [] = pure ()
+exitWithLiveStepFailure context (failure : _) =
+  case failure of
+    LiveStepProcessFailure _ processFailure ->
+      exitWithError (SubprocessFailed processFailure)
+    LiveStepInvalidResult {} ->
+      exitWithError (InvalidConfig (context <> ": " <> renderLiveStepFailures [failure]))
+    LiveStepInvariantFailure {} ->
+      exitWithError (InvalidConfig (context <> ": " <> renderLiveStepFailures [failure]))
 
 bootstrapSubstrates :: [ParsedOption] -> [Text]
 bootstrapSubstrates parsedOptions =
@@ -641,35 +723,62 @@ runService parsedOptions = do
           value : _ -> value
   consumeOnceBudget <- requireUserIntOptionAtLeast "consume-once" 0 0 parsedOptions
   env <- ask
-  runtime <- loadDaemonRuntime configPath explicitConfig
-  -- Sprint 11.10 — one-binary role dispatch. `activeRole = Webapp` serves the
-  -- browser surface (thin websocket + publish-only inference) and computes
-  -- nothing; every other role runs the Engine consumer path.
-  case BootConfig.bootActiveRole (ServiceRuntime.daemonBootConfig runtime) of
-    BootConfig.Webapp -> runWebappRole runtime
-    _ -> runEngineServe env configPath consumeOnceRequested consumeOnceBudget runtime
+  (bootConfig, liveConfig) <- loadServiceConfigs configPath explicitConfig
+  let activeRole = BootConfig.bootActiveRole bootConfig
+  for_ (serviceRoleInvocationError activeRole consumeOnceRequested) $
+    exitWithError . InvalidConfig
+  -- Role selection is exhaustive and happens before a daemon runtime exists.
+  -- Engine and Coordinator share the resource-safe lifecycle shell but acquire
+  -- disjoint prerequisites and command plans.
+  case activeRole of
+    BootConfig.Engine ->
+      runDaemonCommandRoleServe
+        env
+        configPath
+        consumeOnceRequested
+        consumeOnceBudget
+        (ServiceRuntime.daemonRuntimeForConfigs bootConfig liveConfig)
+    BootConfig.Coordinator ->
+      runDaemonCommandRoleServe
+        env
+        configPath
+        consumeOnceRequested
+        consumeOnceBudget
+        (ServiceRuntime.daemonRuntimeForConfigs bootConfig liveConfig)
+    BootConfig.Webapp -> runWebappRole configPath bootConfig liveConfig
+
+serviceRoleInvocationError :: BootConfig.Role -> Bool -> Maybe Text
+serviceRoleInvocationError role consumeOnceRequested
+  | consumeOnceRequested && role /= BootConfig.Engine =
+      Just "service --consume-once is available only when activeRole=Engine"
+serviceRoleInvocationError BootConfig.Coordinator _ = Nothing
+serviceRoleInvocationError BootConfig.Engine _ = Nothing
+serviceRoleInvocationError BootConfig.Webapp _ = Nothing
 
 -- | Sprint 11.10 — the Webapp role: serve the compiled browser bundle + the
 -- held-open @/api/ws@ Pulsar bridge, deriving host/port/substrate/WS endpoint
 -- from the typed Dhall 'BootConfig'. The browser-runtime handler __publishes__
 -- an inference @WorkCommand@ to the Engine (via 'requestInferenceViaEngine') and
 -- renders the streamed result; the Webapp itself computes no inference.
-runWebappRole :: ServiceRuntime.DaemonRuntime -> App ()
-runWebappRole runtime = do
-  let boot = ServiceRuntime.daemonBootConfig runtime
-      substrate = BootConfig.bootSubstrate boot
-      (host, port) =
-        case BootConfig.bootHttpListener boot of
-          Just listener -> (BootConfig.listenerHost listener, BootConfig.listenerPort listener)
-          Nothing -> ("0.0.0.0", 8080)
-      wsEndpoint = BootConfig.bootWebappPulsarWsUrl boot
+runWebappRole :: Text -> BootConfig.BootConfig -> LiveConfig.LiveConfig -> App ()
+runWebappRole configPath boot liveConfig = do
+  listener <-
+    case BootConfig.bootHttpListener boot of
+      Just configuredListener -> pure configuredListener
+      Nothing ->
+        exitWithError
+          (InvalidConfig "validated Webapp BootConfig has no HTTP listener")
+  wsEndpoint <-
+    case BootConfig.bootWebappPulsarWsUrl boot of
+      Just endpoint -> pure endpoint
+      Nothing ->
+        exitWithError
+          (InvalidConfig "validated Webapp BootConfig has no Pulsar WebSocket URL")
+  let substrate = BootConfig.bootSubstrate boot
+      host = BootConfig.listenerHost listener
+      port = BootConfig.listenerPort listener
       publication = defaultPublication substrate
-      pulsarSettings =
-        case wsEndpoint of
-          Just url -> PulsarWebSocketSubprocess.pulsarSettingsForEndpoint url
-          Nothing ->
-            PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge
-              (Publication.publicationEdgePort publication)
+      pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForEndpoint wsEndpoint
       handler request =
         fmap
           ( fmap
@@ -699,66 +808,355 @@ runWebappRole runtime = do
               publishLoadTranscriptCommandOnly pulsarSettings substrate
           }
   writeLine ("webapp: serving " <> host <> ":" <> Text.pack (show port))
-  liftIO
-    ( WebServer.serveDemoWithBridgeEndpointWithRuntime
-        host
-        port
-        (Just publication)
-        wsEndpoint
-        (Just handler)
-        (Just publishers)
-    )
+  let runtime = ServiceRuntime.daemonRuntimeForConfigs boot liveConfig
+      serveWebapp =
+        WebServer.serveDemoWithBridgeEndpointWithRuntime
+          host
+          port
+          (Just publication)
+          (Just wsEndpoint)
+          (Just handler)
+          (Just publishers)
+  control <-
+    liftIO
+      ( ServiceSignal.newDaemonControlWithLiveConfig
+          (ServiceRuntime.daemonState runtime)
+          liveConfig
+      )
+  reloadFailure <-
+    liftIO
+      ( ServiceRuntime.runDaemonWithReloadAndDrain
+          control
+          serveWebapp
+          (reloadServiceConfigs configPath control (const (pure ())) boot)
+          (pure ())
+      )
+  for_ reloadFailure exitWithError
 
-runEngineServe :: Env -> Text -> Bool -> Int -> ServiceRuntime.DaemonRuntime -> App ()
-runEngineServe env configPath consumeOnceRequested consumeOnceBudget runtime = do
-  metalAcquire <- acquireAppleMetalBridge runtime
-  metalReadyRuntime <-
-    case metalAcquire of
+runDaemonCommandRoleServe :: Env -> Text -> Bool -> Int -> ServiceRuntime.DaemonRuntime -> App ()
+runDaemonCommandRoleServe env configPath consumeOnceRequested consumeOnceBudget runtime = do
+  daemonLogger <- liftIO ServiceLogger.newDaemonLogger
+  hostWorkloadRegistry <- liftIO (hostWorkloadRegistryForRuntime runtime)
+  acquireResult <- acquireDaemonRole runtime
+  acquiredRuntime <-
+    case acquireResult of
       Right readyRuntime -> pure readyRuntime
       Left (failedRuntime, err) -> do
         writeLine ("service config: " <> configPath)
         writeText (ServiceRuntime.renderDaemonRuntimeSummary failedRuntime)
         exitWithError err
-  acquiredRuntime <-
-    liftIO
-      ( ServiceClients.runDaemonServiceClient
-          (ServiceRuntime.daemonClientSettings metalReadyRuntime)
-          (ServiceRuntime.acquireDaemonSubscriptions metalReadyRuntime)
-      )
-  probedRuntime <-
-    liftIO
-      ( ServiceClients.runDaemonServiceClient
-          (ServiceRuntime.daemonClientSettings acquiredRuntime)
-          (ServiceRuntime.probeDaemonServiceClients acquiredRuntime)
-      )
-  writeLine ("service config: " <> configPath)
-  writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
   if consumeOnceRequested
     then do
+      engineClientSettings <-
+        case ServiceClients.engineRoleClientSettings
+          (ServiceRuntime.daemonClientSettings acquiredRuntime) of
+          Just settings -> pure settings
+          Nothing ->
+            exitWithError
+              (InvalidConfig "Engine consume-once runtime has no Engine client settings")
       (_, outcomes) <-
         liftIO
-          ( ServiceClients.runDaemonServiceClient
-              (ServiceRuntime.daemonClientSettings probedRuntime)
+          ( ServiceClients.runEngineServiceClient
+              engineClientSettings
               ( ServiceRuntime.daemonConsumerBatch
-                  probedRuntime
+                  acquiredRuntime
                   consumeOnceBudget
-                  (daemonWorkloadDispatcherForRuntime env probedRuntime)
+                  ( engineDaemonWorkloadDispatcherForRuntime
+                      env
+                      acquiredRuntime
+                      hostWorkloadRegistry
+                  )
               )
           )
+      hostWorkloadFailure <-
+        liftIO (waitForConsumeOnceHostWorkloads hostWorkloadRegistry)
+      writeLine ("service config: " <> configPath)
+      writeText (ServiceRuntime.renderDaemonRuntimeSummary acquiredRuntime)
       writeLine
         ( "service: consume-once drained "
             <> Text.pack (show consumeOnceBudget)
-            <> " message(s) per acquired subscription"
+            <> " message(s) per planned subscription"
         )
       writeText (ServiceRuntime.renderConsumerOutcomes outcomes)
-      for_ (ServiceRuntime.consumerLoopExit outcomes) exitWithError
+      case ServiceRuntime.consumerLoopExit outcomes of
+        Just consumerFailure -> exitWithError consumerFailure
+        Nothing -> for_ hostWorkloadFailure exitWithError
     else do
-      writeLine (serviceListeningLine probedRuntime)
-      consumerThreads <- liftIO (startDaemonConsumerWorkers env probedRuntime)
+      control <-
+        liftIO
+          ( ServiceSignal.newDaemonControlWithLiveConfig
+              (ServiceRuntime.daemonState acquiredRuntime)
+              (ServiceRuntime.daemonLiveConfig acquiredRuntime)
+          )
+      consumerWorkers <-
+        liftIO
+          ( startDaemonConsumerWorkers
+              env
+              control
+              daemonLogger
+              acquiredRuntime
+              hostWorkloadRegistry
+          )
+      connected <- liftIO (waitForDaemonConsumerConnections consumerWorkers)
+      unless connected $ do
+        liftIO $ do
+          void
+            ( ServiceSignal.modifyDaemonState
+                control
+                ( RuntimeState.recordRuntimeFailure
+                    "persistent Pulsar consumers did not connect before startup deadline"
+                )
+            )
+          stopDaemonConsumerWorkers control consumerWorkers
+        writeLine ("service config: " <> configPath)
+        writeText (ServiceRuntime.renderDaemonRuntimeSummary acquiredRuntime)
+        exitWithError
+          (PulsarFailed "persistent Pulsar consumers did not connect before startup deadline")
+      connectedSnapshot <- liftIO (ServiceSignal.readDaemonControl control)
+      let connectedRuntime =
+            acquiredRuntime
+              { ServiceRuntime.daemonState =
+                  ServiceSignal.snapshotDaemonState connectedSnapshot
+              }
+      probeResultRuntime <-
+        case BootConfig.bootActiveRole (ServiceRuntime.daemonBootConfig connectedRuntime) of
+          BootConfig.Engine ->
+            case ServiceClients.engineRoleClientSettings
+              (ServiceRuntime.daemonClientSettings connectedRuntime) of
+              Just settings ->
+                liftIO
+                  ( ServiceClients.runEngineServiceClient
+                      settings
+                      (ServiceRuntime.probeEngineServiceClients connectedRuntime)
+                  )
+              Nothing ->
+                exitWithError
+                  (InvalidConfig "Engine runtime has no Engine client settings")
+          BootConfig.Coordinator ->
+            case ServiceClients.coordinatorRoleClientSettings
+              (ServiceRuntime.daemonClientSettings connectedRuntime) of
+              Just settings ->
+                liftIO
+                  ( ServiceClients.runDaemonServiceClient
+                      settings
+                      (ServiceRuntime.probeCoordinatorServiceClients connectedRuntime)
+                  )
+              Nothing ->
+                exitWithError
+                  (InvalidConfig "Coordinator runtime has no Coordinator client settings")
+          BootConfig.Webapp ->
+            exitWithError
+              (InvalidConfig "Webapp cannot probe command-role daemon clients")
+      reconnectedAfterProbes <- liftIO (waitForDaemonConsumerConnections consumerWorkers)
+      unless reconnectedAfterProbes $ do
+        liftIO (stopDaemonConsumerWorkers control consumerWorkers)
+        exitWithError
+          (PulsarFailed "persistent Pulsar consumers disconnected during client probes")
       liftIO
-        ( ServiceRuntime.serveDaemon probedRuntime
-            `finally` stopDaemonConsumerWorkers consumerThreads
+        ( void
+            ( ServiceSignal.modifyDaemonState
+                control
+                ( applyDaemonClientProbeStatuses
+                    (ServiceRuntime.daemonClientProbeStatuses probeResultRuntime)
+                )
+            )
         )
+      finalSnapshot <- liftIO (ServiceSignal.readDaemonControl control)
+      let probedRuntime =
+            probeResultRuntime
+              { ServiceRuntime.daemonState =
+                  ServiceSignal.snapshotDaemonState finalSnapshot
+              }
+      writeLine ("service config: " <> configPath)
+      writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
+      unless (ServiceRuntime.daemonReady probedRuntime) $ do
+        liftIO (stopDaemonConsumerWorkers control consumerWorkers)
+        exitWithError
+          ( PrerequisiteUnmet
+              "service.readiness"
+              (RuntimeState.daemonStateDetail (ServiceRuntime.daemonState probedRuntime))
+              (Just "restore every persistent consumer connection and service-client probe")
+          )
+      liftIO
+        ( void
+            ( emitDaemonControlLog
+                daemonLogger
+                control
+                LiveConfig.Info
+                ServiceLifecycle.Ready
+                ( "role ready: "
+                    <> BootConfig.renderRole (BootConfig.bootActiveRole (ServiceRuntime.daemonBootConfig probedRuntime))
+                )
+            )
+        )
+      writeLine (serviceListeningLine probedRuntime)
+      workerCleanup <- liftIO (newMVar False)
+      cleanupFailure <- liftIO (newMVar Nothing)
+      let stopDaemonResourcesOnce =
+            modifyMVar_ workerCleanup $ \stopped ->
+              if stopped
+                then pure True
+                else do
+                  (_, registryFailure) <-
+                    concurrently
+                      (stopDaemonConsumerWorkers control consumerWorkers)
+                      (drainHostWorkloads control hostWorkloadRegistry)
+                  modifyMVar_ cleanupFailure (const (pure registryFailure))
+                  pure True
+      reloadFailure <-
+        liftIO
+          ( ServiceRuntime.serveDaemonWithReloadAndDrain
+              control
+              probedRuntime
+              ( reloadServiceConfigs
+                  configPath
+                  control
+                  (`refreshIdleDaemonConsumerRouters` consumerWorkers)
+                  (ServiceRuntime.daemonBootConfig probedRuntime)
+              )
+              stopDaemonResourcesOnce
+              `finally` stopDaemonResourcesOnce
+          )
+      resourceFailure <- liftIO (readMVar cleanupFailure)
+      case reloadFailure of
+        Just primaryFailure -> exitWithError primaryFailure
+        Nothing -> for_ resourceFailure exitWithError
+
+hostWorkloadRegistryForRuntime
+  :: ServiceRuntime.DaemonRuntime
+  -> IO (Maybe HostWorkloadRegistry.HostWorkloadRegistry)
+hostWorkloadRegistryForRuntime runtime =
+  whenMaybe
+    (bootConfigIsAppleHostEngine (ServiceRuntime.daemonBootConfig runtime))
+    HostWorkloadRegistry.newHostWorkloadRegistry
+
+whenMaybe :: (Applicative f) => Bool -> f a -> f (Maybe a)
+whenMaybe condition action =
+  bool (pure Nothing) (Just <$> action) condition
+
+-- | A bounded consume-once pull may register asynchronous Apple host Starts.
+-- Once every subscription has returned, no further registrations can race the
+-- snapshot, so wait for every retained handle and surface any worker failure
+-- before the process reports success.
+waitForConsumeOnceHostWorkloads
+  :: Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> IO (Maybe AppError)
+waitForConsumeOnceHostWorkloads Nothing = pure Nothing
+waitForConsumeOnceHostWorkloads (Just registry) = do
+  snapshots <- HostWorkloadRegistry.hostWorkloadRegistrySnapshots registry
+  results <-
+    traverse
+      ( \(key, _snapshot) -> do
+          outcome <- HostWorkloadRegistry.waitHostWorkload registry key
+          pure (fmap (key,) outcome)
+      )
+      snapshots
+  pure $
+    case sequence results of
+      Left registryError ->
+        Just
+          ( PrerequisiteUnmet
+              "service.apple-host-workload.consume-once"
+              (HostWorkloadRegistry.renderHostWorkloadRegistryError registryError)
+              (Just "restore the process-local Apple host workload registry and retry")
+          )
+      Right outcomes ->
+        case [ renderHostWorkloadFailure key failure
+             | (key, HostWorkloadRegistry.HostWorkloadFailed failure) <- outcomes
+             ] of
+          [] -> Nothing
+          failures ->
+            Just
+              ( PrerequisiteUnmet
+                  "service.apple-host-workload.consume-once"
+                  (Text.intercalate "; " failures)
+                  (Just "correct the failed Apple host workload inputs and retry")
+              )
+ where
+  renderHostWorkloadFailure key failure =
+    HostWorkloadRegistry.hostWorkloadFamilyLabel
+      (HostWorkloadRegistry.hostWorkloadFamily key)
+      <> "/"
+      <> HostWorkloadRegistry.hostWorkloadExperimentHash key
+      <> ": "
+      <> failure
+
+bootConfigIsAppleHostEngine :: BootConfig.BootConfig -> Bool
+bootConfigIsAppleHostEngine bootConfig =
+  BootConfig.bootActiveRole bootConfig == BootConfig.Engine
+    && BootConfig.bootSubstrate bootConfig == AppleSilicon
+    && BootConfig.bootResidency bootConfig == BootConfig.Host
+
+drainHostWorkloads
+  :: ServiceSignal.DaemonControl
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> IO (Maybe AppError)
+drainHostWorkloads _control Nothing = pure Nothing
+drainHostWorkloads control (Just registry) = do
+  snapshot <- ServiceSignal.readDaemonControl control
+  result <-
+    HostWorkloadRegistry.drainHostWorkloadRegistry
+      registry
+      (fromIntegral (LiveConfig.liveDrainDeadlineMicros (ServiceSignal.snapshotLiveConfig snapshot)))
+  pure $
+    case result of
+      Right _report -> Nothing
+      Left registryError ->
+        Just
+          ( PrerequisiteUnmet
+              "service.apple-host-workload-drain"
+              (HostWorkloadRegistry.renderHostWorkloadRegistryError registryError)
+              (Just "allow the keyed Apple host workloads to cancel and join before the drain deadline")
+          )
+
+acquireDaemonRole
+  :: ServiceRuntime.DaemonRuntime
+  -> App (Either (ServiceRuntime.DaemonRuntime, AppError) ServiceRuntime.DaemonRuntime)
+acquireDaemonRole runtime =
+  case BootConfig.bootActiveRole (ServiceRuntime.daemonBootConfig runtime) of
+    BootConfig.Engine -> acquireAppleMetalBridge runtime
+    BootConfig.Coordinator -> acquireCoordinatorTopicFamily runtime
+    BootConfig.Webapp ->
+      pure
+        ( Left
+            ( runtime
+            , InvalidConfig "Webapp cannot enter the command-role daemon lifecycle"
+            )
+        )
+
+acquireCoordinatorTopicFamily
+  :: ServiceRuntime.DaemonRuntime
+  -> App (Either (ServiceRuntime.DaemonRuntime, AppError) ServiceRuntime.DaemonRuntime)
+acquireCoordinatorTopicFamily runtime = do
+  result <-
+    liftIO
+      ( PulsarBootstrap.runCoordinatorPulsarTopicReconcileIO
+          (LiveConfig.liveRetryPolicy (ServiceRuntime.daemonLiveConfig runtime))
+      )
+  pure $
+    case result of
+      Right evidence ->
+        Right
+          runtime
+            { ServiceRuntime.daemonState =
+                RuntimeState.recordTopicFamilyReconciled
+                  (PulsarBootstrap.topicFamilyEvidenceTopics evidence)
+                  (ServiceRuntime.daemonState runtime)
+            }
+      Left reconcileError ->
+        let detail = Text.pack (show reconcileError)
+         in Left
+              ( runtime
+                  { ServiceRuntime.daemonState =
+                      RuntimeState.recordTopicFamilyFailure
+                        detail
+                        (ServiceRuntime.daemonState runtime)
+                  }
+              , PrerequisiteUnmet
+                  "service.coordinator.topic-family"
+                  detail
+                  (Just "restore Pulsar and the Coordinator's in-cluster topic reconcile capability")
+              )
 
 serviceListeningLine :: ServiceRuntime.DaemonRuntime -> Text
 serviceListeningLine runtime =
@@ -770,8 +1168,22 @@ serviceListeningLine runtime =
         <> ":"
         <> Text.pack (show (BootConfig.listenerPort listener))
 
-startDaemonConsumerWorkers :: Env -> ServiceRuntime.DaemonRuntime -> IO [ThreadId]
-startDaemonConsumerWorkers env runtime =
+data DaemonConsumerWorker = DaemonConsumerWorker
+  { daemonConsumerWorkerThreadId :: ThreadId
+  , daemonConsumerWorkerRouter :: MVar HandlerRouter
+  , daemonConsumerWorkerConnected :: MVar Bool
+  , daemonConsumerWorkerInFlight :: MVar Bool
+  , daemonConsumerWorkerFinished :: MVar ()
+  }
+
+startDaemonConsumerWorkers
+  :: Env
+  -> ServiceSignal.DaemonControl
+  -> ServiceLogger.DaemonLogger
+  -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> IO [DaemonConsumerWorker]
+startDaemonConsumerWorkers env control daemonLogger runtime hostWorkloadRegistry =
   -- Sprint 16.11 — one dedup-cache MVar PER worker, not one shared across every
   -- worker. The dispatch compute runs inside `modifyMVar routerRef`
   -- (`handleDaemonConsumerDelivery`), so a single shared MVar serialized all
@@ -782,103 +1194,759 @@ startDaemonConsumerWorkers env runtime =
   -- timed out (head-of-line blocking across domains). Each subscription maps to a
   -- single topic/domain and redeliveries return to the same worker, so a
   -- per-worker router gives identical dedup semantics with no cross-worker lock.
-  traverse startWorker (acquiredSubscriptionIds runtime)
+  traverse startWorker (ServiceRuntime.daemonSubscriptions runtime)
  where
   startWorker subscription = do
     routerRef <- newMVar (ServiceRuntime.daemonHandlerRouter runtime)
-    forkIO (daemonConsumerWorkerLoop env runtime routerRef subscription)
+    connectedRef <- newMVar False
+    inFlightRef <- newMVar False
+    finishedRef <- newEmptyMVar
+    workerThread <-
+      forkFinally
+        ( daemonConsumerWorkerLoop
+            env
+            control
+            daemonLogger
+            runtime
+            hostWorkloadRegistry
+            routerRef
+            connectedRef
+            inFlightRef
+            subscription
+        )
+        (const (void (tryPutMVar finishedRef ())))
+    pure
+      DaemonConsumerWorker
+        { daemonConsumerWorkerThreadId = workerThread
+        , daemonConsumerWorkerRouter = routerRef
+        , daemonConsumerWorkerConnected = connectedRef
+        , daemonConsumerWorkerInFlight = inFlightRef
+        , daemonConsumerWorkerFinished = finishedRef
+        }
 
-stopDaemonConsumerWorkers :: [ThreadId] -> IO ()
-stopDaemonConsumerWorkers =
-  traverse_ killThread
+stopDaemonConsumerWorkers :: ServiceSignal.DaemonControl -> [DaemonConsumerWorker] -> IO ()
+stopDaemonConsumerWorkers control workers = do
+  void (ServiceSignal.modifyDaemonState control RuntimeState.beginDaemonDrain)
+  -- Idle workers can close their bridge immediately. In-flight handlers are
+  -- left alone: after dispatch they observe the draining state, return a
+  -- terminal disposition, and let the bridge confirm settlement before exit.
+  for_ workers $ \worker -> do
+    inFlight <- readMVar (daemonConsumerWorkerInFlight worker)
+    unless inFlight (requestDaemonConsumerWorkerCancellation worker)
+  controlSnapshot <- ServiceSignal.readDaemonControl control
+  let deadline =
+        LiveConfig.liveDrainDeadlineMicros
+          (ServiceSignal.snapshotLiveConfig controlSnapshot)
+  drained <-
+    timeout
+      deadline
+      (traverse_ (readMVar . daemonConsumerWorkerFinished) workers)
+  case drained of
+    Just () -> pure ()
+    Nothing ->
+      -- A stuck handler or bridge must not hold process shutdown past the
+      -- configured deadline. Issue cancellation from detached thrower threads:
+      -- 'throwTo' is synchronous and could otherwise block this coordinator on
+      -- an uninterruptible native call before the timeout can take effect.
+      do
+        traverse_ requestDaemonConsumerWorkerCancellation workers
+        forcedCleanup <-
+          timeout
+            daemonConsumerForcedCleanupJoinMicros
+            (traverse_ (readMVar . daemonConsumerWorkerFinished) workers)
+        case forcedCleanup of
+          Just () -> pure ()
+          Nothing ->
+            writeLineIO
+              "service: forced consumer cleanup did not join before the post-cancel deadline"
 
-acquiredSubscriptionIds :: ServiceRuntime.DaemonRuntime -> [SubscriptionId]
-acquiredSubscriptionIds runtime =
-  foldMap acquired (ServiceRuntime.daemonSubscriptionStatuses runtime)
+requestDaemonConsumerWorkerCancellation :: DaemonConsumerWorker -> IO ()
+requestDaemonConsumerWorkerCancellation worker = do
+  finished <- tryReadMVar (daemonConsumerWorkerFinished worker)
+  case finished of
+    Just () -> pure ()
+    Nothing -> void (forkIO (killThread (daemonConsumerWorkerThreadId worker)))
+
+daemonConsumerForcedCleanupJoinMicros :: Int
+daemonConsumerForcedCleanupJoinMicros = 5 * 1000 * 1000
+
+reloadServiceConfigs
+  :: Text
+  -> ServiceSignal.DaemonControl
+  -> (LiveConfig.LiveConfig -> IO ())
+  -> BootConfig.BootConfig
+  -> IO (Maybe AppError)
+reloadServiceConfigs configPath control applyLiveConfig initialBootConfig = do
+  let bootConfigPath = Text.unpack configPath
+      liveConfigPath = takeDirectory bootConfigPath </> "LiveConfig.dhall"
+  bootResult <- tryAny (BootConfig.loadBootConfig bootConfigPath)
+  case bootResult of
+    Left err ->
+      restartRequired
+        "invalid boot config"
+        ( "failed to reload service config "
+            <> configPath
+            <> ": "
+            <> Text.pack (displayException err)
+        )
+    Right nextBootConfig
+      | nextBootConfig /= initialBootConfig ->
+          restartRequired
+            "boot config changed"
+            "BootConfig changed under SIGHUP"
+      | otherwise -> do
+          liveResult <- tryAny (LiveConfig.loadLiveConfig liveConfigPath)
+          case liveResult of
+            Left err -> do
+              generation <- currentReloadGeneration control
+              writeLineIO
+                ( "reload: ignored; reason=invalid live config; generation="
+                    <> Text.pack (show generation)
+                )
+              writeLineIO
+                ( "reload: invalid live config detail="
+                    <> Text.pack (displayException err)
+                )
+              pure Nothing
+            Right nextLiveConfig -> do
+              decision <- ServiceSignal.applyDaemonLiveConfig control nextLiveConfig
+              writeLineIO (HotReload.renderReloadDecision decision)
+              case decision of
+                HotReload.ReloadIgnored _reason -> pure ()
+                HotReload.ReloadApplied snapshot -> do
+                  applyLiveConfig nextLiveConfig
+                  writeLineIO
+                    ( "reload: active live config; log-level="
+                        <> Text.pack (show (LiveConfig.liveLogLevel nextLiveConfig))
+                        <> "; retry-policy="
+                        <> Text.pack (show (LiveConfig.liveRetryPolicy nextLiveConfig))
+                        <> "; inference-batch-size="
+                        <> Text.pack (show (LiveConfig.liveInferenceBatchSize nextLiveConfig))
+                        <> "; inference-max-latency-millis="
+                        <> Text.pack (show (LiveConfig.liveInferenceMaxLatencyMillis nextLiveConfig))
+                        <> "; dedup-cache-size="
+                        <> Text.pack (show (LiveConfig.liveDedupCacheSize nextLiveConfig))
+                        <> "; dedup-cache-ttl-seconds="
+                        <> Text.pack (show (LiveConfig.liveDedupCacheTtlSeconds nextLiveConfig))
+                        <> "; drain-deadline-seconds="
+                        <> Text.pack (show (LiveConfig.liveDrainDeadlineSeconds nextLiveConfig))
+                        <> "; generation="
+                        <> Text.pack (show (HotReload.snapshotGeneration snapshot))
+                    )
+              pure Nothing
  where
-  acquired status =
-    case ServiceRuntime.daemonSubscriptionStatusState status of
-      ServiceRuntime.DaemonSubscriptionAcquired subscriptionId -> [subscriptionId]
-      _ -> []
+  restartRequired reason detail = do
+    generation <- currentReloadGeneration control
+    writeLineIO
+      ( "reload: restart-required; reason="
+          <> reason
+          <> "; generation="
+          <> Text.pack (show generation)
+      )
+    pure (Just (InvalidConfig detail))
+
+currentReloadGeneration :: ServiceSignal.DaemonControl -> IO Int
+currentReloadGeneration control =
+  ServiceSignal.snapshotReloadGeneration
+    <$> ServiceSignal.readDaemonControl control
+
+refreshIdleDaemonConsumerRouters :: LiveConfig.LiveConfig -> [DaemonConsumerWorker] -> IO ()
+refreshIdleDaemonConsumerRouters liveConfig =
+  traverse_ refreshWorker
+ where
+  refreshWorker worker = mask_ $ do
+    maybeRouter <- tryTakeMVar (daemonConsumerWorkerRouter worker)
+    case maybeRouter of
+      Nothing -> pure ()
+      Just router -> do
+        configuredRouter <-
+          Consumer.reconfigureHandlerRouter
+            (LiveConfig.liveDedupCacheSize liveConfig)
+            (LiveConfig.liveDedupCacheTtlSeconds liveConfig)
+            router
+        putMVar (daemonConsumerWorkerRouter worker) configuredRouter
+
+waitForDaemonConsumerConnections :: [DaemonConsumerWorker] -> IO Bool
+waitForDaemonConsumerConnections workers =
+  go daemonConsumerStartupPollAttempts
+ where
+  go attempts = do
+    connected <- traverse (readMVar . daemonConsumerWorkerConnected) workers
+    if and connected
+      then pure True
+      else
+        if attempts <= 0
+          then pure False
+          else do
+            threadDelay daemonConsumerStartupPollMicros
+            go (attempts - 1)
 
 daemonConsumerWorkerLoop
-  :: Env -> ServiceRuntime.DaemonRuntime -> MVar HandlerRouter -> SubscriptionId -> IO ()
-daemonConsumerWorkerLoop env runtime routerRef subscription =
-  forever $ do
-    workerResult <-
-      PulsarWebSocketSubprocess.runPulsarConsumerWorker
-        (ServiceClients.daemonPulsarSettings (ServiceRuntime.daemonClientSettings runtime))
-        subscription
-        (handleDaemonConsumerDelivery env runtime routerRef subscription)
-    case workerResult of
-      Right () -> pure ()
-      Left err -> do
-        writeLineIO
-          ( "service: consumer worker error: "
-              <> Text.strip (ServiceRuntime.renderConsumerOutcomes [ConsumerError err])
-          )
-        threadDelay daemonConsumerErrorDelayMicros
+  :: Env
+  -> ServiceSignal.DaemonControl
+  -> ServiceLogger.DaemonLogger
+  -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> MVar HandlerRouter
+  -> MVar Bool
+  -> MVar Bool
+  -> Consumer.DaemonSubscription
+  -> IO ()
+daemonConsumerWorkerLoop
+  env
+  control
+  daemonLogger
+  runtime
+  hostWorkloadRegistry
+  routerRef
+  connectedRef
+  inFlightRef
+  subscription =
+    runWorker
+   where
+    runWorker =
+      case ServiceClients.rolePulsarSettings (ServiceRuntime.daemonClientSettings runtime) of
+        Nothing ->
+          ioError
+            ( userError
+                "command-role daemon runtime has no Pulsar client settings"
+            )
+        Just pulsarSettings -> do
+          workerResult <-
+            PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              pulsarSettings
+              consumeSubscription
+          case workerResult of
+            Right _ -> pure ()
+            Left failure -> do
+              modifyMVar_ connectedRef (const (pure False))
+              void
+                ( ServiceSignal.modifyDaemonState
+                    control
+                    (RuntimeState.recordRuntimeFailure (Text.pack (show failure)))
+                )
+              snapshot <- ServiceSignal.readDaemonControl control
+              unless (ServiceSignal.snapshotDraining snapshot) $ do
+                void
+                  ( emitDaemonControlLog
+                      daemonLogger
+                      control
+                      LiveConfig.Error
+                      ServiceLifecycle.Serve
+                      ( "consumer worker error: "
+                          <> Text.strip
+                            (ServiceRuntime.renderConsumerOutcomes [ConsumerSessionError failure])
+                      )
+                  )
+                threadDelay daemonConsumerErrorDelayMicros
+                runWorker
+
+    consumeSubscription =
+      case Consumer.daemonSubscriptionDomain subscription of
+        Consumer.InferenceDomain ->
+          Consumer.consumeDaemonSubscriptionBatches
+            subscription
+            (liftIO (readInferenceBatchPolicy control))
+            inferenceBatchCompatibility
+            (observeDaemonConsumerSession control connectedRef subscription)
+            ( handleDaemonConsumerBatch
+                env
+                control
+                daemonLogger
+                runtime
+                hostWorkloadRegistry
+                routerRef
+                inFlightRef
+            )
+        _ ->
+          Consumer.consumeDaemonSubscription
+            subscription
+            (observeDaemonConsumerSession control connectedRef subscription)
+            ( handleDaemonConsumerDelivery
+                env
+                control
+                daemonLogger
+                runtime
+                hostWorkloadRegistry
+                routerRef
+                inFlightRef
+            )
+
+observeDaemonConsumerSession
+  :: ServiceSignal.DaemonControl
+  -> MVar Bool
+  -> Consumer.DaemonSubscription
+  -> Capabilities.ConsumerSessionEvent
+  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess ()
+observeDaemonConsumerSession control connectedRef subscription sessionEvent =
+  liftIO $ do
+    modifyMVar_ connectedRef (const (pure (sessionConnected sessionEvent)))
+    void
+      ( ServiceSignal.modifyDaemonState
+          control
+          (ServiceRuntime.daemonConsumerSessionTransition subscription sessionEvent)
+      )
+ where
+  sessionConnected event =
+    case event of
+      Capabilities.ConsumerSessionConnected _ -> True
+      Capabilities.ConsumerSessionDisconnected _ -> False
+      Capabilities.ConsumerSessionDraining -> False
+      Capabilities.ConsumerSessionDrained -> False
 
 handleDaemonConsumerDelivery
   :: Env
+  -> ServiceSignal.DaemonControl
+  -> ServiceLogger.DaemonLogger
   -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
   -> MVar HandlerRouter
-  -> SubscriptionId
-  -> PulsarWebSocketSubprocess.PulsarWorkerDelivery
-  -> IO (Either ServiceError ())
-  -> IO (Either ServiceError ())
-  -> IO ()
-handleDaemonConsumerDelivery env runtime routerRef subscription delivery ackDelivery nackDelivery = do
-  outcomeResult <-
-    tryAny $
-      modifyMVar routerRef $ \router -> do
-        (router', outcome) <-
-          consumerStepWithActions
-            subscription
-            router
-            (PulsarWebSocketSubprocess.pulsarWorkerDeliveryTopic delivery)
-            (PulsarWebSocketSubprocess.pulsarWorkerDeliveryPayload delivery)
-            ackDelivery
-            (const nackDelivery)
-            ( \domain eventId payload ->
-                ServiceClients.runDaemonServiceClient
-                  (ServiceRuntime.daemonClientSettings runtime)
-                  (daemonWorkloadDispatcherForRuntime env runtime domain eventId payload)
+  -> MVar Bool
+  -> Consumer.DaemonCommand
+  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (Capabilities.ConsumerDecision ())
+handleDaemonConsumerDelivery
+  env
+  control
+  daemonLogger
+  runtime
+  hostWorkloadRegistry
+  routerRef
+  inFlightRef
+  command = do
+    liftIO $
+      bracket
+        (modifyMVar_ inFlightRef (const (pure True)))
+        (const (modifyMVar_ inFlightRef (const (pure False))))
+        ( \() -> do
+            initialSnapshot <- ServiceSignal.readDaemonControl control
+            if ServiceSignal.snapshotDraining initialSnapshot
+              then
+                pure
+                  ( Capabilities.done
+                      (Capabilities.nack Capabilities.DrainRequested)
+                      ()
+                  )
+              else modifyMVar routerRef $ \router -> do
+                liveSnapshot <- ServiceSignal.readDaemonControl control
+                let liveConfig = ServiceSignal.snapshotLiveConfig liveSnapshot
+                configuredRouter <-
+                  Consumer.reconfigureHandlerRouter
+                    (LiveConfig.liveDedupCacheSize liveConfig)
+                    (LiveConfig.liveDedupCacheTtlSeconds liveConfig)
+                    router
+                (router', outcome, disposition) <-
+                  consumerStep
+                    configuredRouter
+                    command
+                    ( dispatchDaemonCommandWithRetry
+                        env
+                        runtime
+                        hostWorkloadRegistry
+                        liveConfig
+                        Nothing
+                    )
+                void
+                  ( emitDaemonControlLog
+                      daemonLogger
+                      control
+                      LiveConfig.Info
+                      ServiceLifecycle.Serve
+                      (Text.strip (ServiceRuntime.renderConsumerOutcomes [outcome]))
+                  )
+                for_ (ServiceRuntime.consumerLoopExit [outcome]) $ \appError ->
+                  void
+                    ( emitDaemonControlLog
+                        daemonLogger
+                        control
+                        LiveConfig.Error
+                        ServiceLifecycle.Serve
+                        ("consumer outcome error: " <> renderError appError)
+                    )
+                completedSnapshot <- ServiceSignal.readDaemonControl control
+                let decision =
+                      if ServiceSignal.snapshotDraining completedSnapshot
+                        then Capabilities.done disposition ()
+                        else Capabilities.continue disposition
+                pure (router', decision)
+        )
+
+data InferenceBatchCompatibility
+  = CompatibleRunInference Text Int
+  | IsolatedInferenceCommand Text
+  deriving stock (Eq)
+
+inferenceBatchCompatibility :: Consumer.DaemonCommand -> InferenceBatchCompatibility
+inferenceBatchCompatibility command =
+  case command of
+    Consumer.InferenceDaemonCommand _ (Inference.RunInference request) ->
+      CompatibleRunInference
+        (Inference.irExperimentHash request)
+        (length (Inference.irInput request))
+    _ -> IsolatedInferenceCommand (Consumer.daemonCommandPayload command)
+
+readInferenceBatchPolicy
+  :: ServiceSignal.DaemonControl
+  -> IO InferenceBatch.BatchPolicy
+readInferenceBatchPolicy control = do
+  snapshot <- ServiceSignal.readDaemonControl control
+  let liveConfig = ServiceSignal.snapshotLiveConfig snapshot
+  case InferenceBatch.mkBatchPolicy
+    (fromIntegral (LiveConfig.liveInferenceBatchSize liveConfig))
+    (fromIntegral (LiveConfig.liveInferenceMaxLatencyMillis liveConfig) * 1000) of
+    Right policy -> pure policy
+    Left policyError ->
+      ioError
+        ( userError
+            ( "validated LiveConfig produced an invalid inference batch policy: "
+                <> show policyError
             )
-        pure (router', outcome)
-  case outcomeResult of
-    Left err -> do
-      writeLineIO ("service: consumer worker failed: " <> Text.pack (displayException err))
-      threadDelay daemonConsumerErrorDelayMicros
-    Right outcome -> do
-      writeLineIO
-        ("service: " <> Text.strip (ServiceRuntime.renderConsumerOutcomes [outcome]))
-      for_ (ServiceRuntime.consumerLoopExit [outcome]) $ \appError ->
-        writeLineIO ("service: consumer outcome error: " <> renderError appError)
+        )
+
+data DaemonBatchFailure
+  = DaemonBatchSloExpired
+  | DaemonBatchDispatchFailed AppError
+
+handleDaemonConsumerBatch
+  :: Env
+  -> ServiceSignal.DaemonControl
+  -> ServiceLogger.DaemonLogger
+  -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> MVar HandlerRouter
+  -> MVar Bool
+  -> Capabilities.DeliveryBatch Consumer.DaemonCommand
+  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (Capabilities.ConsumerBatchDecision ())
+handleDaemonConsumerBatch
+  env
+  control
+  daemonLogger
+  runtime
+  hostWorkloadRegistry
+  routerRef
+  inFlightRef
+  batch =
+    liftIO $
+      bracket
+        (modifyMVar_ inFlightRef (const (pure True)))
+        (const (modifyMVar_ inFlightRef (const (pure False))))
+        ( \() -> do
+            initialSnapshot <- ServiceSignal.readDaemonControl control
+            if ServiceSignal.snapshotDraining initialSnapshot
+              then
+                pure
+                  ( Capabilities.doneBatch
+                      (Capabilities.nack Capabilities.DrainRequested)
+                      ()
+                  )
+              else do
+                liveSnapshot <- ServiceSignal.readDaemonControl control
+                let liveConfig = ServiceSignal.snapshotLiveConfig liveSnapshot
+                modifyMVar_ routerRef $ \router ->
+                  Consumer.reconfigureHandlerRouter
+                    (LiveConfig.liveDedupCacheSize liveConfig)
+                    (LiveConfig.liveDedupCacheTtlSeconds liveConfig)
+                    router
+                (_outcomes, batchFailure) <-
+                  runDaemonConsumerBatch
+                    env
+                    runtime
+                    hostWorkloadRegistry
+                    liveConfig
+                    (Capabilities.deliveryBatchWindow batch)
+                    (emitOutcomeLog control daemonLogger)
+                    routerRef
+                    (Capabilities.deliveryBatchEvents batch)
+                completedSnapshot <- ServiceSignal.readDaemonControl control
+                let disposition = daemonBatchDisposition batchFailure
+                    decision =
+                      if ServiceSignal.snapshotDraining completedSnapshot
+                        then Capabilities.doneBatch disposition ()
+                        else Capabilities.continueBatch disposition
+                pure decision
+        )
+
+runDaemonConsumerBatch
+  :: Env
+  -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> LiveConfig.LiveConfig
+  -> InferenceBatch.BatchWindow
+  -> (ConsumerOutcome -> IO ())
+  -> MVar HandlerRouter
+  -> NonEmpty.NonEmpty Consumer.DaemonCommand
+  -> IO ([ConsumerOutcome], Maybe DaemonBatchFailure)
+runDaemonConsumerBatch
+  env
+  runtime
+  hostWorkloadRegistry
+  liveConfig
+  window
+  observeOutcome
+  routerRef
+  initialCommands =
+    go [] (NonEmpty.toList initialCommands)
+   where
+    go outcomes pendingCommands =
+      case pendingCommands of
+        [] -> pure (reverse outcomes, Nothing)
+        command : remaining -> do
+          now <- getMonotonicTimeNSec
+          if InferenceBatch.batchWindowExpiredAt now window
+            then pure (reverse outcomes, Just DaemonBatchSloExpired)
+            else do
+              (outcome, _disposition) <-
+                Consumer.consumerStepCommitted
+                  routerRef
+                  command
+                  ( dispatchDaemonCommandWithRetry
+                      env
+                      runtime
+                      hostWorkloadRegistry
+                      liveConfig
+                      (Just (InferenceBatch.batchWindowDeadlineNanoseconds window))
+                  )
+              observeOutcome outcome
+              case Consumer.consumerOutcomeError outcome of
+                Just appError ->
+                  pure
+                    ( reverse (outcome : outcomes)
+                    , Just (DaemonBatchDispatchFailed appError)
+                    )
+                Nothing -> go (outcome : outcomes) remaining
+
+daemonBatchDisposition :: Maybe DaemonBatchFailure -> Capabilities.Disposition
+daemonBatchDisposition batchFailure =
+  case batchFailure of
+    Nothing -> Capabilities.ack
+    Just DaemonBatchSloExpired ->
+      Capabilities.nack
+        (Capabilities.RetryRequested "inference batch latency SLO expired")
+    Just (DaemonBatchDispatchFailed appError) ->
+      Capabilities.nack
+        (Capabilities.HandlerRejected (Text.strip (renderError appError)))
+
+emitOutcomeLog
+  :: ServiceSignal.DaemonControl
+  -> ServiceLogger.DaemonLogger
+  -> ConsumerOutcome
+  -> IO ()
+emitOutcomeLog control daemonLogger outcome = do
+  void
+    ( emitDaemonControlLog
+        daemonLogger
+        control
+        LiveConfig.Info
+        ServiceLifecycle.Serve
+        (Text.strip (ServiceRuntime.renderConsumerOutcomes [outcome]))
+    )
+  for_ (Consumer.consumerOutcomeError outcome) $ \appError ->
+    void
+      ( emitDaemonControlLog
+          daemonLogger
+          control
+          LiveConfig.Error
+          ServiceLifecycle.Serve
+          ("consumer outcome error: " <> renderError appError)
+      )
+
+dispatchDaemonCommandWithRetry
+  :: Env
+  -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> LiveConfig.LiveConfig
+  -> Maybe Integer
+  -> Consumer.DaemonCommand
+  -> EventId
+  -> IO (Either ServiceError ())
+dispatchDaemonCommandWithRetry
+  env
+  runtime
+  hostWorkloadRegistry
+  liveConfig
+  publicationDeadline
+  command
+  eventId =
+    ServiceRetry.retryServiceActionEither
+      (LiveConfig.liveRetryPolicy liveConfig)
+      ( \() ->
+          dispatchDaemonCommandForRole
+            env
+            runtime
+            hostWorkloadRegistry
+            publicationDeadline
+            command
+            eventId
+      )
+      ()
+
+dispatchDaemonCommandForRole
+  :: Env
+  -> ServiceRuntime.DaemonRuntime
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> Maybe Integer
+  -> Consumer.DaemonCommand
+  -> EventId
+  -> IO (Either ServiceError ())
+dispatchDaemonCommandForRole
+  env
+  runtime
+  hostWorkloadRegistry
+  publicationDeadline
+  command
+  eventId =
+    case BootConfig.bootActiveRole (ServiceRuntime.daemonBootConfig runtime) of
+      BootConfig.Engine ->
+        case ServiceClients.engineRoleClientSettings
+          (ServiceRuntime.daemonClientSettings runtime) of
+          Just settings ->
+            ServiceClients.runEngineServiceClient
+              ( maybe
+                  settings
+                  (`ServiceClients.engineClientSettingsWithPublicationDeadline` settings)
+                  publicationDeadline
+              )
+              ( engineDaemonWorkloadDispatcherForRuntime
+                  env
+                  runtime
+                  hostWorkloadRegistry
+                  command
+                  eventId
+              )
+          Nothing -> pure (Left (SEConflict "Engine runtime has no Engine client settings"))
+      BootConfig.Coordinator ->
+        case ServiceClients.coordinatorRoleClientSettings
+          (ServiceRuntime.daemonClientSettings runtime) of
+          Just settings ->
+            ServiceClients.runDaemonServiceClient
+              settings
+              (coordinatorDaemonWorkloadDispatcherForRuntime runtime command eventId)
+          Nothing ->
+            pure (Left (SEConflict "Coordinator runtime has no Coordinator client settings"))
+      BootConfig.Webapp ->
+        pure (Left (SEUnauthorized "Webapp cannot dispatch daemon commands"))
 
 daemonConsumerErrorDelayMicros :: Int
 daemonConsumerErrorDelayMicros = 1000000
 
+daemonConsumerStartupPollMicros :: Int
+daemonConsumerStartupPollMicros = 100000
+
+daemonConsumerStartupPollAttempts :: Int
+daemonConsumerStartupPollAttempts = 300
+
+emitDaemonControlLog
+  :: ServiceLogger.DaemonLogger
+  -> ServiceSignal.DaemonControl
+  -> LiveConfig.LogLevel
+  -> ServiceLifecycle.LifecyclePhase
+  -> Text
+  -> IO Bool
+emitDaemonControlLog logger control =
+  ServiceLogger.emitDaemonLog
+    logger
+    (ServiceSignal.snapshotLiveConfig <$> ServiceSignal.readDaemonControl control)
+
+applyDaemonClientProbeStatuses
+  :: [ServiceRuntime.DaemonClientProbeStatus]
+  -> RuntimeState.DaemonState
+  -> RuntimeState.DaemonState
+applyDaemonClientProbeStatuses statuses state =
+  case failedProbe statuses of
+    Just (name, err) ->
+      RuntimeState.recordClientProbeFailure name (Text.pack (show err)) state
+    Nothing
+      | all probeSucceeded statuses ->
+          RuntimeState.recordClientProbesSucceeded
+            (fmap ServiceRuntime.daemonClientProbeStatusName statuses)
+            state
+      | otherwise ->
+          RuntimeState.recordRuntimeFailure
+            "client probing returned a pending status"
+            state
+ where
+  failedProbe [] = Nothing
+  failedProbe (status : rest) =
+    case ServiceRuntime.daemonClientProbeStatusState status of
+      ServiceRuntime.DaemonClientProbeFailed err ->
+        Just (ServiceRuntime.daemonClientProbeStatusName status, err)
+      _ -> failedProbe rest
+
+  probeSucceeded status =
+    case ServiceRuntime.daemonClientProbeStatusState status of
+      ServiceRuntime.DaemonClientProbeSucceeded _ -> True
+      _ -> False
+
 daemonWorkloadDispatcherForRuntime
+  :: (Capabilities.HasPulsar m)
+  => ServiceRuntime.DaemonRuntime
+  -> (Consumer.DaemonCommand -> EventId -> m (Either ServiceError ()))
+  -> Consumer.DaemonCommand
+  -> EventId
+  -> m (Either ServiceError ())
+daemonWorkloadDispatcherForRuntime runtime innerDispatcher command eventId
+  | Left roleError <- ServiceRuntime.validateDaemonCommandDispatchRole runtime command =
+      pure (Left roleError)
+  | incomingSubstrate /= configuredSubstrate =
+      pure
+        ( Left
+            ( SETransient
+                ( "consumer delivery substrate mismatch: expected "
+                    <> renderSubstrate configuredSubstrate
+                    <> ", received "
+                    <> renderSubstrate incomingSubstrate
+                )
+            )
+        )
+  | otherwise = do
+      -- Sprint 14.1 (Feature C) — the Engine's workflow-status projector: alongside
+      -- the underlying command dispatch, project the observed training / tune / rl
+      -- lifecycle transition into a reconciled `WorkflowStatus` frame and republish
+      -- it onto `workflow.status.<substrate>`, which the workflow panel renders live.
+      dispatchResult <- innerDispatcher command eventId
+      case dispatchResult of
+        Left err -> pure (Left err)
+        Right () ->
+          case projectionMode of
+            ServiceRuntime.SkipWorkflowStatusProjection -> pure (Right ())
+            _projectionRequiredOrBestEffort ->
+              ServiceRuntime.applyWorkflowStatusProjectionResult projectionMode
+                <$> projectWorkflowStatus command
+ where
+  incomingSubstrate = Consumer.daemonCommandSubstrate command
+  bootConfig = ServiceRuntime.daemonBootConfig runtime
+  projectionMode =
+    ServiceRuntime.workflowStatusProjectionMode bootConfig command
+  configuredSubstrate = BootConfig.bootSubstrate bootConfig
+
+coordinatorDaemonWorkloadDispatcherForRuntime
+  :: ServiceRuntime.DaemonRuntime
+  -> Consumer.DaemonCommand
+  -> EventId
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+coordinatorDaemonWorkloadDispatcherForRuntime runtime =
+  daemonWorkloadDispatcherForRuntime runtime coordinatorDispatcher
+ where
+  coordinatorDispatcher =
+    case BootConfig.bootSubstrate
+      (ServiceRuntime.daemonBootConfig runtime) of
+      AppleSilicon -> ServiceRuntime.daemonWorkloadDispatcherForwardingInference
+      LinuxCPU -> ServiceRuntime.daemonWorkloadDispatcher
+      LinuxCUDA -> ServiceRuntime.daemonWorkloadDispatcher
+
+engineDaemonWorkloadDispatcherForRuntime
   :: Env
   -> ServiceRuntime.DaemonRuntime
-  -> EventDomain
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> Consumer.DaemonCommand
   -> EventId
-  -> Text
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-daemonWorkloadDispatcherForRuntime env runtime domain eventId payload = do
-  -- Sprint 14.1 (Feature C) — the Engine's workflow-status projector: alongside
-  -- the underlying command dispatch, project the observed training / tune / rl
-  -- lifecycle transition into a reconciled `WorkflowStatus` frame and republish
-  -- it onto `workflow.status.<substrate>`, which the workflow panel renders live.
-  projectWorkflowStatus substrate domain payload
-  innerDispatcher domain eventId payload
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+engineDaemonWorkloadDispatcherForRuntime env runtime hostWorkloadRegistry =
+  daemonWorkloadDispatcherForRuntime runtime engineDispatcher
  where
-  substrate = BootConfig.bootSubstrate (ServiceRuntime.daemonBootConfig runtime)
-  innerDispatcher =
-    case ( substrate
-         , BootConfig.bootInferenceMode (ServiceRuntime.daemonBootConfig runtime)
-         ) of
+  bootConfig = ServiceRuntime.daemonBootConfig runtime
+  configuredSubstrate = BootConfig.bootSubstrate bootConfig
+  engineDispatcher =
+    case (configuredSubstrate, BootConfig.bootInferenceMode bootConfig) of
       -- Sprint 13.11 — both Linux substrates route SelfInference through the
       -- weighted runners so the daemon executes the substrate-specific weighted
       -- kernel against `.jmw1`-decoded tensors instead of the deterministic
@@ -900,114 +1968,180 @@ daemonWorkloadDispatcherForRuntime env runtime domain eventId payload = do
       -- command envelopes forwarded by the in-cluster Apple daemon on the
       -- host-command topics.
       (AppleSilicon, BootConfig.SelfInference) ->
-        daemonWorkloadDispatcherHostingAppleWorkloads env
-      -- Sprint 14.4 — the in-cluster Apple daemon (`Cluster + ForwardToHost`)
-      -- forwards inference to the host-native daemon: it republishes the raw
-      -- inference command on `inference.command.apple-silicon` rather than running
-      -- Metal in-pod (Metal cannot be containerized).
-      (AppleSilicon, BootConfig.ForwardToHost) ->
-        ServiceRuntime.daemonWorkloadDispatcherForwardingInference
-      _ ->
-        ServiceRuntime.daemonWorkloadDispatcher
+        daemonWorkloadDispatcherHostingAppleWorkloads env hostWorkloadRegistry
+      _ -> \_command _eventId ->
+        pure
+          ( Left
+              ( SEUnauthorized
+                  "Engine client cannot execute Coordinator orchestration"
+              )
+          )
 
 -- | Sprint 14.1 (Feature C) — project an observed lifecycle transition into a
 -- reconciled `WorkflowStatus` frame and publish it onto
--- `workflow.status.<substrate>`. Inference-domain payloads carry no run status
--- and are skipped; a publish failure is swallowed (the projection is a
--- best-effort live overlay, never a hard dependency of the underlying dispatch).
+-- `workflow.status.<substrate>`. The caller selects whether a failure is a
+-- best-effort overlay or required terminal evidence for acknowledgement.
+-- Inference-domain payloads carry no run status and are skipped.
 projectWorkflowStatus
-  :: Substrate
-  -> EventDomain
-  -> Text
-  -> ServiceClients.DaemonServiceClient ()
-projectWorkflowStatus substrate domain payload =
-  case WorkflowStatus.workflowStatusFrameForCommand domain payload of
-    Nothing -> pure ()
-    Just frame -> do
-      _ <-
-        Capabilities.pulsarPublish
-          (Capabilities.TopicName (WorkflowStatus.workflowStatusTopic substrate))
-          (WorkflowStatus.renderWorkflowStatusFrame frame)
-      pure ()
+  :: (Capabilities.HasPulsar m)
+  => Consumer.DaemonCommand
+  -> m (Either ServiceError ())
+projectWorkflowStatus command =
+  case WorkflowStatus.workflowStatusFrameForDaemonCommand command of
+    Nothing -> pure (Right ())
+    Just frame ->
+      case Topology.mkWorkflowStatusMessage
+        (WorkflowStatus.renderWorkflowStatusFrame frame) of
+        Left decodeError ->
+          pure
+            ( Left
+                ( SEConflict
+                    ( "workflow status frame encoding failed: "
+                        <> Text.pack (show decodeError)
+                    )
+                )
+            )
+        Right message ->
+          publishProtocolEvent
+            Topology.WorkflowStatusRoute
+            (Consumer.daemonCommandSubstrate command)
+            message
 
 daemonWorkloadDispatcherHostingAppleWorkloads
   :: Env
-  -> EventDomain
+  -> Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> Consumer.DaemonCommand
   -> EventId
-  -> Text
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-daemonWorkloadDispatcherHostingAppleWorkloads env domain eventId payload =
-  case domain of
-    TrainingDomain ->
-      case ProtoTraining.parseTrainingCommand payload of
-        Just (ProtoTraining.TrainingStart start) ->
-          runHostAppleTraining env start
-        Just (ProtoTraining.TrainingStop _) ->
-          pure (Right ())
-        Nothing ->
-          hostInferenceFallback domain eventId payload
-    TuneDomain ->
-      case ProtoTune.parseTuneCommand payload of
-        Just (ProtoTune.TuneStart start) ->
-          runHostAppleTune env start
-        Just (ProtoTune.TuneStop _) ->
-          pure (Right ())
-        Nothing ->
-          hostInferenceFallback domain eventId payload
-    RlDomain ->
-      case ProtoRl.parseRlCommand payload of
-        Just (ProtoRl.RlStart start) ->
-          runHostAppleRl env start
-        Just (ProtoRl.RlStop _) ->
-          pure (Right ())
-        Nothing ->
-          hostInferenceFallback domain eventId payload
-    InferenceDomain ->
-      hostInferenceFallback domain eventId payload
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+daemonWorkloadDispatcherHostingAppleWorkloads env hostWorkloadRegistry command eventId
+  | substrate /= AppleSilicon =
+      pure (Left (SETransient "host Apple dispatcher received a non-apple-silicon delivery"))
+  | otherwise =
+      case ServiceRuntime.planAppleHostWorkloadAction command of
+        Left err -> pure (Left err)
+        Right action ->
+          case action of
+            ServiceRuntime.RunAppleHostTraining start ->
+              superviseAppleHostWorkload
+                hostWorkloadRegistry
+                action
+                (runHostAppleTraining env start)
+            ServiceRuntime.RunAppleHostTune start ->
+              superviseAppleHostWorkload
+                hostWorkloadRegistry
+                action
+                (runHostAppleTune env start)
+            ServiceRuntime.RunAppleHostRl start ->
+              superviseAppleHostWorkload
+                hostWorkloadRegistry
+                action
+                (runHostAppleRl env start)
+            ServiceRuntime.RunAppleHostAlphaZero start ->
+              superviseAppleHostWorkload
+                hostWorkloadRegistry
+                action
+                (runHostAppleAlphaZero env start)
+            ServiceRuntime.StopAppleHostWorkload mode key ->
+              stopAppleHostWorkload hostWorkloadRegistry eventId mode key
+            ServiceRuntime.RunAppleHostInference _ ->
+              hostInferenceFallback command eventId
  where
+  substrate = Consumer.daemonCommandSubstrate command
   hostInferenceFallback =
     ServiceRuntime.daemonWorkloadDispatcherHostingAppleInference
       ( \modelRef manifest weights input -> liftIO (engineWeightedInference env AppleSilicon modelRef manifest weights input)
       )
 
+superviseAppleHostWorkload
+  :: Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> ServiceRuntime.AppleHostWorkloadAction
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+superviseAppleHostWorkload registry action workload = do
+  clientSettings <- ask
+  liftIO
+    ( ServiceRuntime.executeAppleHostWorkloadStart registry action $ do
+        workloadResult <-
+          ServiceClients.runEngineServiceClient clientSettings workload
+        case workloadResult of
+          Right () -> pure ()
+          Left serviceError ->
+            throwIO
+              ( userError
+                  ( "Apple host workload failed: "
+                      <> show serviceError
+                  )
+              )
+    )
+
+stopAppleHostWorkload
+  :: Maybe HostWorkloadRegistry.HostWorkloadRegistry
+  -> EventId
+  -> ServiceRuntime.AppleHostWorkloadStopMode
+  -> HostWorkloadRegistry.HostWorkloadKey
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+stopAppleHostWorkload registry eventId mode key =
+  liftIO
+    ( ServiceRuntime.executeAppleHostWorkloadStop
+        registry
+        eventId
+        mode
+        key
+    )
+
 runHostAppleTraining
   :: Env
   -> ProtoTraining.StartTraining
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
 runHostAppleTraining env start
   | ProtoTraining.stSubstrate start /= AppleSilicon =
       pure (Left (SETransient "host Apple training received a non-apple-silicon command"))
-  | otherwise = do
-      problemE <-
-        liftIO (SL.loadCanonicalProblemExperiment (Text.unpack (ProtoTraining.stDhallObjectKey start)))
-      case problemE of
-        Left err -> pure (Left (SETransient ("host Apple training experiment decode failed: " <> err)))
-        Right problem -> do
-          let trainLimit = 2000
-              epochs = fromIntegral (ProtoTraining.stEpochs start)
-              testLimit = 1000
-          result <-
-            liftIO
-              ( runReaderT
-                  (runDeviceMnistTrainingWithLimits AppleSilicon problem trainLimit epochs testLimit)
-                  env
-              )
-          case result of
-            Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
-            Right metrics -> do
-              epochResult <- publishTrainingEpoch start metrics
-              case epochResult of
-                Left err -> pure (Left err)
-                Right () -> publishTrainingCheckpoint problem start metrics
+  | otherwise = case PlanCommand.validateStartTraining start of
+      Left err ->
+        pure (Left (SETransient ("host Apple supervised plan refinement failed: " <> err)))
+      Right plan -> do
+        problemE <-
+          liftIO
+            ( SL.loadCanonicalProblemExperiment
+                ( Text.unpack
+                    (runPlanSubjectId (WorkloadPlan.supervisedPlanRunPlan plan))
+                )
+            )
+        case problemE of
+          Left err -> pure (Left (SETransient ("host Apple training experiment decode failed: " <> err)))
+          Right problem -> do
+            case supervisedExecutionBudget plan of
+              Left err -> pure (Left (SETransient err))
+              Right (trainLimit, epochs, testLimit, batchSize) -> do
+                result <-
+                  liftIO
+                    ( runReaderT
+                        ( runDeviceMnistTrainingWithLimitsAndLearningRate
+                            AppleSilicon
+                            problem
+                            trainLimit
+                            epochs
+                            testLimit
+                            batchSize
+                            Nothing
+                        )
+                        env
+                    )
+                case result of
+                  Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
+                  Right metrics -> do
+                    epochResult <- publishTrainingEpoch start metrics
+                    case epochResult of
+                      Left err -> pure (Left err)
+                      Right () -> publishTrainingCheckpoint problem plan start metrics
 
 publishTrainingEpoch
   :: ProtoTraining.StartTraining
   -> TrainingMetrics
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
 publishTrainingEpoch start metrics = do
   timestampNs <- liftIO currentTimestampNs
-  let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic AppleSilicon)
-      epochNumber = max 1 (ProtoTraining.stEpochs start)
+  let epochNumber = fromIntegral (tmCompletedUnits metrics)
       envelope =
         ProtoTraining.TrainingEpoch
           ( ProtoTraining.EpochCompleted
@@ -1019,14 +2153,15 @@ publishTrainingEpoch start metrics = do
               , ProtoTraining.ecTimestampNs = timestampNs
               }
           )
-  publishUnit topic (ProtoTraining.renderTrainingEvent envelope)
+  publishProtocolEvent Topology.TrainingEventRoute AppleSilicon envelope
 
 publishTrainingCheckpoint
   :: SL.CanonicalProblem
+  -> WorkloadPlan.SupervisedPlan
   -> ProtoTraining.StartTraining
   -> TrainingMetrics
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-publishTrainingCheckpoint problem start metrics =
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+publishTrainingCheckpoint problem plan start metrics =
   case tmCheckpointWeights metrics of
     Nothing -> pure (Right ())
     Just weights -> do
@@ -1037,6 +2172,7 @@ publishTrainingCheckpoint problem start metrics =
           completedTraining =
             eitherToMaybe
               ( completedTrainingForSupervisedProblem
+                  plan
                   problem
                   metrics
                   experimentHash
@@ -1045,7 +2181,6 @@ publishTrainingCheckpoint problem start metrics =
                   metricRows
                   weights
               )
-          topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic AppleSilicon)
       checkpointResult <-
         writeMinIOWeightCheckpointWithDatasetShaAndCompleted
           (tmDatasetShaAtRead metrics)
@@ -1058,98 +2193,147 @@ publishTrainingCheckpoint problem start metrics =
       case checkpointResult of
         Left err -> pure (Left err)
         Right stored -> do
-          let envelope =
-                ProtoTraining.TrainingCheckpoint
-                  ( trainingCheckpointDoneEnvelope
-                      experimentHash
-                      tensorName
-                      step
-                      metricRows
-                      (tmDatasetShaAtRead metrics)
-                      completedTraining
-                      weights
-                      stored
-                  )
-          publishUnit topic (ProtoTraining.renderTrainingEvent envelope)
+          case trainingCheckpointEventEnvelope
+            experimentHash
+            tensorName
+            step
+            metricRows
+            (tmDatasetShaAtRead metrics)
+            completedTraining
+            weights
+            stored of
+            Left err -> pure (Left (SETransient ("host Apple checkpoint event failed: " <> err)))
+            Right envelope ->
+              publishProtocolEvent Topology.TrainingEventRoute AppleSilicon envelope
 
 runHostAppleTune
   :: Env
   -> ProtoTune.StartSweep
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
 runHostAppleTune env start
   | ProtoTune.ssSubstrate start /= AppleSilicon =
       pure (Left (SETransient "host Apple tune received a non-apple-silicon command"))
-  | otherwise =
-      case ( Tune.samplerFromText (ProtoTune.ssSampler start)
-           , Tune.schedulerFromText (ProtoTune.ssScheduler start)
-           , Tune.prunerFromText (ProtoTune.ssPruner start)
-           ) of
-        (Just sampler, Just scheduler, Just pruner) -> do
-          let trialCount = max 1 (fromIntegral (ProtoTune.ssTrialBudget start))
-              device = mlpDeviceForSubstrate AppleSilicon env
+  | otherwise = case PlanCommand.validateStartSweep start of
+      Left err -> pure (Left (SETransient ("host Apple tuning plan validation failed: " <> err)))
+      Right plan -> case tuningExecutionCountsService "host Apple tuning" plan of
+        Left err -> pure (Left err)
+        Right (trialCount, parallelism, promotions, updates) -> do
+          let device = mlpDeviceForSubstrate AppleSilicon env
           trialResultsE <-
             liftIO
-              (Tune.trialObjectiveResultsWithDeviceForAxes device sampler scheduler pruner trialCount)
+              ( Tune.trialObjectiveResultsWithDeviceForBudget
+                  device
+                  (WorkloadPlan.tuningPlanSampler plan)
+                  parallelism
+                  updates
+                  trialCount
+              )
           case trialResultsE of
             Left err -> pure (Left (SETransient ("host Apple tune failed: " <> err)))
-            Right trialResults -> publishHostTuneEvents start trialResults
-        _ ->
-          pure (Left (SETransient "host Apple tune command contains an unknown sampler/scheduler/pruner"))
+            Right trialResults ->
+              case Tune.trialExecutions
+                (WorkloadPlan.tuningPlanScheduler plan)
+                (WorkloadPlan.tuningPlanPruner plan)
+                promotions
+                trialResults of
+                Left err -> pure (Left (SETransient ("host Apple tune failed: " <> err)))
+                Right executions -> publishHostTuneEvents plan executions
 
 publishHostTuneEvents
-  :: ProtoTune.StartSweep
-  -> [Tune.TrialObjectiveResult]
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-publishHostTuneEvents start trialResults = do
-  let topic = Capabilities.TopicName (ProtoTune.tuneEventTopic AppleSilicon)
-      baseSeed = fromIntegral (ProtoTune.ssSweepSeed start) :: Int
-      indexed = zip [0 :: Int ..] trialResults
-      objectives = fmap Tune.trialResultObjective trialResults
-  publishedResults <- traverse (publishTrial topic baseSeed) indexed
-  case firstLeft publishedResults of
-    Just err -> pure (Left err)
-    Nothing -> do
-      let completed = fromIntegral (length objectives)
-          bestObjective = if null objectives then 0.0 else maximum objectives
-          done =
-            ProtoTune.TuneSweepDone
-              ( ProtoTune.SweepDone
-                  { ProtoTune.sdExperimentHash = ProtoTune.ssExperimentHash start
-                  , ProtoTune.sdTrialsCompleted = completed
-                  , ProtoTune.sdTrialsPruned = 0
-                  , ProtoTune.sdBestObjective = bestObjective
-                  , ProtoTune.sdCompletedTraining =
-                      tuneSweepCompletedTraining
-                        (ProtoTune.ssExperimentHash start)
-                        completed
-                        bestObjective
-                  }
-              )
-      publishUnit topic (ProtoTune.renderTuneEvent done)
+  :: WorkloadPlan.TuningPlan
+  -> [Tune.TrialExecution]
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+publishHostTuneEvents plan trialResults = do
+  baseSeed <- case word64ToIntService
+    "host Apple tuning seed"
+    (NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.tuningPlanRunPlan plan)))) of
+    Left err -> pure (Left err)
+    Right value -> pure (Right value)
+  case baseSeed of
+    Left err -> pure (Left err)
+    Right resolvedSeed -> publishWithSeed resolvedSeed
  where
-  publishTrial topic baseSeed (trialIndex, trialResult) = do
+  planId = planIdText (WorkloadPlan.tuningPlanId plan)
+  experimentHash = runPlanExperimentId (WorkloadPlan.tuningPlanRunPlan plan)
+  publishWithSeed baseSeed = do
+    let
+      promotedResults =
+        [ Tune.trialExecutionResult execution
+        | execution <- trialResults
+        , Tune.trialExecutionPromoted execution
+        ]
+      objectives = fmap Tune.trialResultObjective promotedResults
+      prunedCount = length (filter Tune.trialExecutionPruned trialResults)
+      promotedCount = length promotedResults
+    publishedResults <- traverse (publishTrial baseSeed) trialResults
+    case firstLeft publishedResults of
+      Just err -> pure (Left err)
+      Nothing -> do
+        let completed = fromIntegral (length trialResults)
+            bestObjective = if null objectives then 0.0 else maximum objectives
+            finished =
+              ProtoTune.SweepFinished
+                { ProtoTune.sfExperimentHash = experimentHash
+                , ProtoTune.sfPlanId = planId
+                , ProtoTune.sfTrialsCompleted = completed
+                , ProtoTune.sfTrialsPruned = fromIntegral prunedCount
+                , ProtoTune.sfTrialsPromoted = fromIntegral promotedCount
+                , ProtoTune.sfBestObjective = bestObjective
+                }
+        case tuneSweepCompletedTraining
+          plan
+          experimentHash
+          completed
+          bestObjective of
+          Left err -> pure (Left (SETransient ("host Apple tuning completion failed: " <> err)))
+          Right completedTraining ->
+            case ProtoTune.completeSweep finished completedTraining of
+              Left err -> pure (Left (SETransient ("host Apple tuning event failed: " <> err)))
+              Right completedSweep ->
+                publishProtocolEvent
+                  Topology.TuneEventRoute
+                  AppleSilicon
+                  (ProtoTune.TuneSweepCompleted completedSweep)
+
+  publishTrial baseSeed execution = do
     timestampStart <- liftIO currentTimestampNs
-    let trialSeed = baseSeed + trialIndex
+    let trialResult = Tune.trialExecutionResult execution
+        trialIndex = Tune.trialResultIndex trialResult
+        trialSeed = baseSeed + trialIndex
         objective = Tune.trialResultObjective trialResult
         started =
           ProtoTune.TuneTrialStarted
             ( ProtoTune.TrialStarted
-                { ProtoTune.tsExperimentHash = ProtoTune.ssExperimentHash start
+                { ProtoTune.tsExperimentHash = experimentHash
+                , ProtoTune.tsPlanId = planId
                 , ProtoTune.tsTrial = fromIntegral trialIndex
                 , ProtoTune.tsTrialSeed = fromIntegral trialSeed
                 , ProtoTune.tsParametersJson =
-                    "{\"sampler\":\"" <> ProtoTune.ssSampler start <> "\"}"
+                    "{\"sampler\":\""
+                      <> Text.pack (show (WorkloadPlan.tuningPlanSampler plan))
+                      <> "\",\"scheduler\":\""
+                      <> Text.pack (show (WorkloadPlan.tuningPlanScheduler plan))
+                      <> "\",\"pruner\":\""
+                      <> Text.pack (show (WorkloadPlan.tuningPlanPruner plan))
+                      <> "\",\"parallelism\":"
+                      <> Text.pack (show (quantityValue (WorkloadPlan.tuningPlanParallelism plan)))
+                      <> ",\"promotions\":"
+                      <> Text.pack (show (quantityValue (WorkloadPlan.tuningPlanPromotions plan)))
+                      <> ",\"perTrialOptimizerUpdates\":"
+                      <> Text.pack (show (quantityValue (WorkloadPlan.tuningPlanPerTrialUpdates plan)))
+                      <> "}"
                 , ProtoTune.tsTimestampNs = timestampStart
                 }
             )
-    startResult <- publishUnit topic (ProtoTune.renderTuneEvent started)
+    startResult <-
+      publishProtocolEvent Topology.TuneEventRoute AppleSilicon started
     case startResult of
       Left err -> pure (Left err)
       Right () -> do
         persistResult <-
           Tune.persistTrialTranscript
             Tune.TrialTranscript
-              { Tune.transcriptExperimentHash = ProtoTune.ssExperimentHash start
+              { Tune.transcriptExperimentHash = experimentHash
               , Tune.transcriptTrialSeed = trialSeed
               , Tune.transcriptValues = [objective]
               }
@@ -1157,34 +2341,60 @@ publishHostTuneEvents start trialResults = do
           Left err -> pure (Left err)
           Right _ -> do
             checkpointResult <-
-              writeMinIOWeightCheckpoint
-                (ProtoTune.ssExperimentHash start)
-                "tune-trial-weights"
-                (fromIntegral trialSeed)
-                [("objective", objective)]
-                (Tune.trialResultWeights trialResult)
+              if Tune.trialExecutionPromoted execution
+                then
+                  void
+                    <$> writeMinIOWeightCheckpoint
+                      experimentHash
+                      "tune-trial-weights"
+                      (fromIntegral trialSeed)
+                      [("objective", objective)]
+                      (Tune.trialResultWeights trialResult)
+                else pure (Right ())
             case checkpointResult of
               Left err -> pure (Left err)
-              Right _stored -> do
+              Right () -> do
                 timestampEnd <- liftIO currentTimestampNs
                 let finished =
                       ProtoTune.TuneTrialFinished
                         ( ProtoTune.TrialFinished
-                            { ProtoTune.tfTuneExperimentHash = ProtoTune.ssExperimentHash start
+                            { ProtoTune.tfTuneExperimentHash = experimentHash
+                            , ProtoTune.tfTunePlanId = planId
                             , ProtoTune.tfTuneTrial = fromIntegral trialIndex
                             , ProtoTune.tfTuneObjective = objective
-                            , ProtoTune.tfTunePruned = False
+                            , ProtoTune.tfTunePruned = Tune.trialExecutionPruned execution
                             , ProtoTune.tfTuneTranscriptObjectKey =
-                                Tune.trialStorageKey (ProtoTune.ssExperimentHash start) trialSeed
+                                Tune.trialStorageKey experimentHash trialSeed
                             , ProtoTune.tfTuneTimestampNs = timestampEnd
                             }
                         )
-                publishUnit topic (ProtoTune.renderTuneEvent finished)
+                publishProtocolEvent Topology.TuneEventRoute AppleSilicon finished
+
+tuningExecutionCountsService
+  :: Text
+  -> WorkloadPlan.TuningPlan
+  -> Either ServiceError (Int, Int, Int, Int)
+tuningExecutionCountsService label plan =
+  (,,,)
+    <$> word64ToIntService (label <> " trial count") (quantityValue (WorkloadPlan.tuningPlanTrials plan))
+    <*> word64ToIntService
+      (label <> " parallelism")
+      (quantityValue (WorkloadPlan.tuningPlanParallelism plan))
+    <*> word64ToIntService (label <> " promotions") (quantityValue (WorkloadPlan.tuningPlanPromotions plan))
+    <*> word64ToIntService
+      (label <> " per-trial updates")
+      (quantityValue (WorkloadPlan.tuningPlanPerTrialUpdates plan))
+
+word64ToIntService :: Text -> Word64 -> Either ServiceError Int
+word64ToIntService label value
+  | toInteger value > toInteger (maxBound :: Int) =
+      Left (SETransient (label <> " exceeds the platform Int range"))
+  | otherwise = Right (fromIntegral value)
 
 runHostAppleRl
   :: Env
   -> ProtoRl.StartRLRun
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
 runHostAppleRl env start
   | ProtoRl.srlSubstrate start /= AppleSilicon =
       pure (Left (SETransient "host Apple RL received a non-apple-silicon command"))
@@ -1210,14 +2420,214 @@ runHostAppleRl env start
           results <- traverse (publishHostRlEpisode start) (trainerRunEpisodes trainerRun)
           pure $ maybe (Right ()) Left (firstLeft results)
 
+runHostAppleAlphaZero
+  :: Env
+  -> ProtoRl.StartAlphaZeroRun
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+runHostAppleAlphaZero env start
+  | ProtoRl.sazSubstrate start /= AppleSilicon =
+      pure (Left (SETransient "host Apple AlphaZero received a non-apple-silicon command"))
+  | otherwise = case PlanCommand.validateStartAlphaZeroRun start of
+      Left err -> pure (Left (SETransient ("host Apple AlphaZero plan validation failed: " <> err)))
+      Right plan ->
+        case alphaZeroHostInputs plan of
+          Left err -> pure (Left err)
+          Right (generations, games, sims, maxPlies, updates, arenaGames, seed) -> do
+            let gameName = WorkloadPlan.renderAlphaZeroGame (WorkloadPlan.alphaZeroPlanGame plan)
+                experimentHash = runPlanExperimentId (WorkloadPlan.alphaZeroPlanRunPlan plan)
+                planId = planIdText (WorkloadPlan.alphaZeroPlanId plan)
+                initialState = AlphaZero.initialStateFor gameName
+                device = rlDeviceForSubstrate AppleSilicon env
+                net0 =
+                  PolicyValueNet.initPolicyValueNet
+                    (AlphaZero.observationSizeFor gameName)
+                    (AlphaZero.actionCountFor gameName)
+                    16
+                    seed
+                adam0 = PolicyValueNet.initAdamFor net0
+            probe <- liftIO (probeMlpDevice device)
+            case probe of
+              Left err -> pure (Left (SETransient ("host Apple AlphaZero device failed: " <> err)))
+              Right () -> do
+                trained <-
+                  trainHostAlphaZeroGenerations
+                    experimentHash
+                    planId
+                    initialState
+                    device
+                    net0
+                    adam0
+                    generations
+                    games
+                    sims
+                    maxPlies
+                    updates
+                    seed
+                case trained of
+                  Left err -> pure (Left err)
+                  Right (trainedNet, samples) -> do
+                    let winRate =
+                          PolicyValueNet.arenaWinRateAgainstUniformFrom
+                            initialState
+                            trainedNet
+                            arenaGames
+                            maxPlies
+                            (seed + 7919)
+                        completedGenerations = fromIntegral generations
+                        checkpointStep =
+                          alphaZeroArtifactStep completedGenerations (length samples)
+                        metrics =
+                          [ ("arena_win_rate", winRate)
+                          , ("legal_move_rate", 1.0)
+                          , ("mcts_simulations_per_move", fromIntegral sims)
+                          , ("self_play_games", fromIntegral games)
+                          , ("self_play_generations", fromIntegral generations)
+                          , ("self_play_samples", fromIntegral (length samples))
+                          ]
+                        initialWeights = PolicyValueNet.policyValueNetToFlat net0
+                        finalWeights = PolicyValueNet.policyValueNetToFlat trainedNet
+                        completed =
+                          do
+                            budget <- eitherToMaybe (alphaZeroCompletionBudget plan)
+                            alphaZeroCompletedTraining
+                              (WorkloadPlan.alphaZeroPlanId plan)
+                              budget
+                              experimentHash
+                              gameName
+                              completedGenerations
+                              metrics
+                              initialWeights
+                              finalWeights
+                    checkpoint <-
+                      writeMinIOWeightCheckpointWithDatasetShaAndCompleted
+                        Nothing
+                        completed
+                        experimentHash
+                        ("alphazero-" <> gameName <> "-policy-value-weights")
+                        checkpointStep
+                        metrics
+                        finalWeights
+                    case checkpoint of
+                      Left err -> pure (Left err)
+                      Right _ ->
+                        publishProtocolEvent
+                          Topology.RlEventRoute
+                          AppleSilicon
+                          ( ProtoRl.RlArenaCompleted
+                              ProtoRl.ArenaCompleted
+                                { ProtoRl.acPlanId = planId
+                                , ProtoRl.acExperimentHash = experimentHash
+                                , ProtoRl.acArenaGames = fromIntegral arenaGames
+                                , ProtoRl.acWinRate = winRate
+                                }
+                          )
+ where
+  alphaZeroHostInputs plan = do
+    generations <-
+      convert "host Apple AlphaZero generations" (WorkloadPlan.alphaZeroPlanGenerations plan)
+    games <-
+      convert "host Apple AlphaZero self-play games" (WorkloadPlan.alphaZeroPlanSelfPlayGames plan)
+    sims <-
+      convert "host Apple AlphaZero MCTS simulations" (WorkloadPlan.alphaZeroPlanMctsSimulations plan)
+    maxPlies <- convert "host Apple AlphaZero max plies" (WorkloadPlan.alphaZeroPlanMaxPlies plan)
+    updates <- convert "host Apple AlphaZero optimizer updates" (WorkloadPlan.alphaZeroPlanUpdates plan)
+    arenaGames <- convert "host Apple AlphaZero arena games" (WorkloadPlan.alphaZeroPlanArenaGames plan)
+    seed <-
+      word64ToIntService
+        "host Apple AlphaZero seed"
+        (NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.alphaZeroPlanRunPlan plan))))
+    pure (generations, games, sims, maxPlies, updates, arenaGames, seed)
+  convert label = word64ToIntService label . quantityValue
+
+trainHostAlphaZeroGenerations
+  :: Text
+  -> Text
+  -> AlphaZero.GameState
+  -> MlpDevice
+  -> PolicyValueNet.PolicyValueNet
+  -> AdamState
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> ServiceClients.EngineServiceClient
+       (Either ServiceError (PolicyValueNet.PolicyValueNet, [PolicyValueNet.PolicyValueTrainingSample]))
+trainHostAlphaZeroGenerations experimentHash planId initialState device = go 0
+ where
+  go generation net adam generationTarget games sims maxPlies updates seed
+    | generation >= generationTarget = pure (Right (net, []))
+    | otherwise = do
+        sampleResults <-
+          liftIO $
+            traverse
+              ( \gameIndex ->
+                  PolicyValueNet.generatePolicyValueSamplesWithDeviceFrom
+                    initialState
+                    device
+                    net
+                    (seed + generation * 7919 + gameIndex)
+                    sims
+                    maxPlies
+              )
+              [0 .. games - 1]
+        case sequence sampleResults of
+          Left err -> pure (Left (SETransient ("host Apple AlphaZero self-play failed: " <> err)))
+          Right batches -> do
+            let generationSamples = concat batches
+            if null generationSamples
+              then pure (Left (SETransient "host Apple AlphaZero self-play produced no samples"))
+              else do
+                trained <-
+                  liftIO
+                    ( PolicyValueNet.trainPolicyValueNetOnSamplesWithDevice
+                        device
+                        net
+                        adam
+                        1.0e-3
+                        updates
+                        generationSamples
+                    )
+                case trained of
+                  Left err -> pure (Left (SETransient ("host Apple AlphaZero training failed: " <> err)))
+                  Right (trainedNet, trainedAdam) -> do
+                    published <-
+                      publishProtocolEvent
+                        Topology.RlEventRoute
+                        AppleSilicon
+                        ( ProtoRl.RlGenerationCompleted
+                            ProtoRl.GenerationCompleted
+                              { ProtoRl.gcPlanId = planId
+                              , ProtoRl.gcExperimentHash = experimentHash
+                              , ProtoRl.gcGeneration = fromIntegral generation
+                              , ProtoRl.gcSelfPlayGames = fromIntegral games
+                              , ProtoRl.gcSamples = fromIntegral (length generationSamples)
+                              }
+                        )
+                    case published of
+                      Left err -> pure (Left err)
+                      Right () -> do
+                        later <-
+                          go
+                            (generation + 1)
+                            trainedNet
+                            trainedAdam
+                            generationTarget
+                            games
+                            sims
+                            maxPlies
+                            updates
+                            seed
+                        pure (fmap (second (generationSamples <>)) later)
+
 publishHostRlEpisode
   :: ProtoRl.StartRLRun
   -> EpisodeEnvelope.SimulatedEpisode
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
 publishHostRlEpisode start episode = do
   timestampNs <- liftIO currentTimestampNs
-  let topic = Capabilities.TopicName (ProtoRl.rlEventTopic AppleSilicon)
-      envelope =
+  let envelope =
         ProtoRl.RlEpisode
           ( ProtoRl.EpisodeDone
               { ProtoRl.edExperimentHash = ProtoRl.srlExperimentHash start
@@ -1231,16 +2641,40 @@ publishHostRlEpisode start episode = do
         fmap
           (rlAnimationEnvelope (ProtoRl.srlExperimentHash start) (ProtoRl.srlEnvironment start) timestampNs)
           (EpisodeEnvelope.simEpisodeFrames episode)
-  episodeResult <- publishUnit topic (ProtoRl.renderRlEvent envelope)
-  frameResults <- traverse (publishUnit topic . ProtoRl.renderRlEvent) animationEnvelopes
+  episodeResult <- publishProtocolEvent Topology.RlEventRoute AppleSilicon envelope
+  frameResults <-
+    traverse
+      (publishProtocolEvent Topology.RlEventRoute AppleSilicon)
+      animationEnvelopes
   pure $ maybe (Right ()) Left (firstLeft (episodeResult : frameResults))
 
-publishUnit
-  :: Capabilities.TopicName
-  -> Text
-  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-publishUnit topic payload =
-  fmap void (Capabilities.pulsarPublish topic payload)
+publishProtocolEvent
+  :: (Capabilities.HasPulsar m)
+  => Topology.ProtocolRoute event
+  -> Substrate
+  -> event
+  -> m (Either ServiceError ())
+publishProtocolEvent route substrate event =
+  case Topology.topicFor route substrate of
+    Left err ->
+      pure (Left (SETransient ("Pulsar topic resolution failed: " <> Text.pack (show err))))
+    Right topic ->
+      fmap void (Capabilities.pulsarPublish topic event)
+
+publishPulsarEvent
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Topology.ProtocolRoute event
+  -> Substrate
+  -> event
+  -> IO (Either ServiceError Text)
+publishPulsarEvent settings route substrate event =
+  case Topology.topicFor route substrate of
+    Left err ->
+      pure (Left (SETransient ("Pulsar topic resolution failed: " <> Text.pack (show err))))
+    Right topic ->
+      PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+        settings
+        (Capabilities.pulsarPublish topic event)
 
 firstLeft :: [Either a b] -> Maybe a
 firstLeft [] = Nothing
@@ -1274,8 +2708,16 @@ acquireAppleMetalBridge runtime =
                   if runtimeAvailable && bridgeAvailable
                     then ServiceRuntime.AppleMetalAcquireSucceeded statusText
                     else ServiceRuntime.AppleMetalAcquireFailed statusText
-              , ServiceRuntime.daemonReady =
-                  ServiceRuntime.daemonReady runtime && runtimeAvailable && bridgeAvailable
+              , ServiceRuntime.daemonState =
+                  if runtimeAvailable && bridgeAvailable
+                    then
+                      RuntimeState.recordMetalAcquired
+                        statusText
+                        (ServiceRuntime.daemonState runtime)
+                    else
+                      RuntimeState.recordMetalFailure
+                        statusText
+                        (ServiceRuntime.daemonState runtime)
               }
       pure $
         if runtimeAvailable && bridgeAvailable
@@ -1285,7 +2727,15 @@ acquireAppleMetalBridge runtime =
               ( acquired
               , appleMetalAcquireError runtimeAvailable bridgeAvailable
               )
-    _ -> pure (Right runtime)
+    _ ->
+      pure
+        ( Right
+            runtime
+              { ServiceRuntime.daemonState =
+                  RuntimeState.recordMetalNotRequired
+                    (ServiceRuntime.daemonState runtime)
+              }
+        )
  where
   boot = ServiceRuntime.daemonBootConfig runtime
 
@@ -1303,7 +2753,7 @@ acquireFixedBridge = do
             if verified
               then BridgeInstalled path
               else BridgeInstallFailed "installed bridge did not pass probe"
-        Left err -> pure (BridgeInstallFailed err)
+        Left err -> pure (BridgeInstallFailed (MetalBridge.renderMetalBridgeInstallError err))
 
 data BridgeAcquireResult
   = BridgeAlreadyAvailable
@@ -1346,26 +2796,54 @@ runInstallMetalBridge :: App ()
 runInstallMetalBridge = do
   installed <- liftIO MetalBridge.installFixedMetalBridge
   case installed of
+    Left (MetalBridge.MetalBridgeBuildFailed failure) ->
+      exitWithError (SubprocessFailed failure)
     Left err ->
-      exitWithError (SubprocessFailed "jitml internal install-metal-bridge" (ExitFailure 1) err)
+      exitWithError (InvalidConfig (MetalBridge.renderMetalBridgeInstallError err))
     Right path -> do
       writeLine ("metal_bridge: " <> Text.pack path)
       writeLine "metal_bridge_probe: ok"
 
-loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
-loadDaemonRuntime configPath explicitConfig = do
+loadServiceConfigs
+  :: Text
+  -> Bool
+  -> App (BootConfig.BootConfig, LiveConfig.LiveConfig)
+loadServiceConfigs configPath explicitConfig = do
   let path = Text.unpack configPath
+      liveConfigPath = takeDirectory path </> "LiveConfig.dhall"
   exists <- liftIO (doesFileExist path)
   if exists
     then do
-      result <- liftIO (tryAny (BootConfig.loadBootConfig path))
-      case result of
-        Right bootConfig -> pure (ServiceRuntime.daemonRuntimeForBootConfig bootConfig)
+      bootResult <- liftIO (tryAny (BootConfig.loadBootConfig path))
+      bootConfig <-
+        case bootResult of
+          Right loaded -> pure loaded
+          Left err ->
+            exitWithError
+              ( InvalidConfig
+                  ( "failed to load service config "
+                      <> configPath
+                      <> ": "
+                      <> Text.pack (displayException err)
+                  )
+              )
+      liveExists <- liftIO (doesFileExist liveConfigPath)
+      unless liveExists $
+        exitWithError
+          ( InvalidConfig
+              ( "service live config does not exist: "
+                  <> Text.pack liveConfigPath
+              )
+          )
+      liveResult <- liftIO (tryAny (LiveConfig.loadLiveConfig liveConfigPath))
+      case liveResult of
+        Right liveConfig ->
+          pure (bootConfig, liveConfig)
         Left err ->
           exitWithError
             ( InvalidConfig
-                ( "failed to load service config "
-                    <> configPath
+                ( "failed to load service live config "
+                    <> Text.pack liveConfigPath
                     <> ": "
                     <> Text.pack (displayException err)
                 )
@@ -1373,36 +2851,36 @@ loadDaemonRuntime configPath explicitConfig = do
     else
       if explicitConfig
         then exitWithError (InvalidConfig ("service config does not exist: " <> configPath))
-        else pure ServiceRuntime.defaultDaemonRuntime
+        else
+          pure
+            ( ServiceRuntime.daemonBootConfig ServiceRuntime.defaultDaemonRuntime
+            , ServiceRuntime.daemonLiveConfig ServiceRuntime.defaultDaemonRuntime
+            )
 
 runCluster :: [Text] -> [ParsedOption] -> App ()
 runCluster ["cluster", "up"] parsedOptions =
   case selectedSubstrate parsedOptions of
     Left err -> exitWithError err
     Right substrate -> do
-      changed <- liftIO (materializeBootstrapFiles "." substrate)
-      if changed
-        then writeLine ("cluster up: " <> renderSubstrate substrate <> " materialized")
-        else writeLine ("cluster up: " <> renderSubstrate substrate <> " materialization already current")
       result <- liftIO (liveExecutePhasedRollout substrate "chart")
-      writeLine
-        ( "cluster up: live phased rollout executed "
-            <> Text.pack (show (length (liveStepsExecuted result)))
-            <> " steps"
-        )
+      if liveAlreadyConverged result
+        then writeLine ("cluster up: " <> renderSubstrate substrate <> " already converged")
+        else
+          writeLine
+            ( "cluster up: live phased rollout executed "
+                <> Text.pack (show (length (liveStepsExecuted result)))
+                <> " steps"
+            )
       mapM_
-        ( \(step, stderrText) ->
-            writeLine ("cluster up: step failed: " <> step <> " stderr: " <> stderrText)
+        ( \failure ->
+            writeLine ("cluster up: step failed: " <> renderLiveStepFailure failure)
         )
         (liveStepsFailed result)
-      unless (null (liveStepsFailed result)) $
-        exitWithError
-          ( SubprocessFailed
-              "cluster up live phased rollout"
-              (ExitFailure 1)
-              (renderLiveStepFailures (liveStepsFailed result))
-          )
+      exitWithLiveStepFailure "cluster up live phased rollout" (liveStepsFailed result)
       writeText (renderPublicationSummary (livePublication result))
+      when (liveAlreadyConverged result) $
+        exitWithError
+          (ReconcilerNoop ("cluster up: " <> renderSubstrate substrate <> " already current"))
 runCluster ["cluster", "status"] _ = do
   publication <- readClusterPublicationOrExit
   writeText (renderPublicationSummary publication)
@@ -1411,16 +2889,17 @@ runCluster ["cluster", "down"] _ = do
   let substrate = Publication.publicationSubstrate publication
       command = Helm.kindDeleteSubprocess substrate
       clusterName = "jitml-" <> renderSubstrate substrate
-  (exitCode, _stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
-  case exitCode of
-    ExitSuccess ->
+  outcome <- liftIO (runStreaming defaultSubprocessEnv command)
+  case outcome of
+    ProcessSucceeded _ ->
       liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
         >> writeLine ("cluster down: " <> clusterName <> " deleted; ./.build and ./.data preserved")
-    ExitFailure 3 -> do
-      liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
-      exitWithError (ReconcilerNoop ("cluster down: " <> clusterName <> " already absent"))
-    ExitFailure _ ->
-      exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
+    ProcessFailed failure ->
+      case processFailureExitCode failure of
+        ExitFailure 3 -> do
+          liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
+          exitWithError (ReconcilerNoop ("cluster down: " <> clusterName <> " already absent"))
+        _ -> exitWithError (SubprocessFailed failure)
 runCluster ["cluster", "reset"] parsedOptions
   | hasOption "yes" parsedOptions =
       writeLine "cluster reset: local runtime state reset requested"
@@ -1472,13 +2951,10 @@ runBuild parsedOptions =
               tunedArtifact <-
                 runBenchmarkTunedEnsureKernelArtifact
                   env
-                  engine
                   substrate
                   kernelSpec
                   kind
                   fingerprint
-                  runtimeSource
-                  hash
               tunedPlanResult <-
                 liftIO
                   ( TuningCache.selectTuningCachePlan
@@ -1497,7 +2973,7 @@ runBuild parsedOptions =
                     liftIO (runLinuxCpuKernel env tunedSource tunedHash benchmarkSampleInput)
                   case result of
                     Left message ->
-                      exitWithError (SubprocessFailed "linux-cpu-jit" (ExitFailure 1) message)
+                      exitWithError (JitCacheMiss message)
                     Right kernelRun ->
                       pure
                         ( reportTunedArtifact tunedArtifact
@@ -1507,24 +2983,18 @@ runBuild parsedOptions =
               tunedArtifact <-
                 runBenchmarkTunedEnsureKernelArtifact
                   env
-                  engine
                   substrate
                   kernelSpec
                   kind
                   fingerprint
-                  runtimeSource
-                  hash
               pure (reportTunedArtifact tunedArtifact)
             _ -> do
               artifactResult <- liftIO (EngineLoader.ensureKernelArtifact env engine runtimeSource hash)
               case artifactResult of
-                Left message ->
-                  exitWithError
-                    ( SubprocessFailed
-                        (renderSubprocess (compileSubprocess engine runtimeSource hash))
-                        (ExitFailure 1)
-                        message
-                    )
+                Left (EngineLoader.KernelArtifactProcessFailure failure) ->
+                  exitWithError (SubprocessFailed failure)
+                Left err ->
+                  exitWithError (JitCacheMiss (EngineLoader.renderKernelArtifactError err))
                 Right artifact ->
                   pure (reportTunedArtifact artifact)
       writeText (Text.unlines (rendered : runOutput))
@@ -1546,7 +3016,7 @@ runBuild parsedOptions =
         <> if EngineLoader.kernelArtifactCompiled artifact then "yes" else "no"
     ]
 
-  runBenchmarkTunedEnsureKernelArtifact env engine substrate kernelSpec kind fingerprint runtimeSource hash = do
+  runBenchmarkTunedEnsureKernelArtifact env substrate kernelSpec kind fingerprint = do
     result <-
       liftIO
         ( TuningBenchmark.ensureKernelArtifactWithBenchmarkTuning
@@ -1558,13 +3028,10 @@ runBuild parsedOptions =
             benchmarkSampleInput
         )
     case result of
-      Left message ->
-        exitWithError
-          ( SubprocessFailed
-              (renderSubprocess (compileSubprocess engine runtimeSource hash))
-              (ExitFailure 1)
-              message
-          )
+      Left (EngineLoader.KernelArtifactProcessFailure failure) ->
+        exitWithError (SubprocessFailed failure)
+      Left err ->
+        exitWithError (JitCacheMiss (EngineLoader.renderKernelArtifactError err))
       Right artifact -> pure artifact
 
 buildToolchainFingerprint :: Substrate -> Cache.ToolchainFingerprint
@@ -1590,12 +3057,13 @@ runTrain parsedOptions = do
   -- nothing is printed or published — the command exits 2 with a typed
   -- `TrainingPrerequisiteUnmet`. Only the live measured loss is published.
   substrate <- resolveWorkerSubstrate overrides
-  result <- runDeviceMnistTraining substrate problem
+  plan <- resolveSupervisedInvocationPlan parsedOptions overrides substrate problem
+  result <- runDeviceMnistTraining substrate problem plan
   case result of
     Left reason -> exitWithError (TrainingPrerequisiteUnmet reason)
     Right metrics -> do
       publishWorkerTrainingEvent metrics
-      publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics
+      publishWorkerTrainingCheckpoint plan substrate problem parsedOptions metrics
 
 resolveTrainingProblem :: [ParsedOption] -> App SL.CanonicalProblem
 resolveTrainingProblem parsedOptions = do
@@ -1604,6 +3072,114 @@ resolveTrainingProblem parsedOptions = do
   case loaded of
     Left err -> exitWithError (DhallTypeError err)
     Right problem -> pure problem
+
+resolveSupervisedInvocationPlan
+  :: [ParsedOption]
+  -> Overrides.ExperimentOverrides
+  -> Substrate
+  -> SL.CanonicalProblem
+  -> App WorkloadPlan.SupervisedPlan
+resolveSupervisedInvocationPlan parsedOptions overrides substrate problem = do
+  mounted <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+  plan <- case mounted of
+    RunConfig.RunConfigLoaded config ->
+      case RunConfig.supervisedPlanFromRunConfig config of
+        Left err -> exitWithError (mountedRunConfigDecodeError "TrainingRunConfig" err)
+        Right resolved -> pure resolved
+    RunConfig.RunConfigDecodeFailed err ->
+      exitWithError (mountedRunConfigDecodeError "TrainingRunConfig" err)
+    RunConfig.RunConfigMissing -> do
+      rejectMissingMountedRunConfigInKubernetes "TrainingRunConfig"
+      prepareLocalSupervisedPlan parsedOptions overrides substrate problem
+  let runPlan = WorkloadPlan.supervisedPlanRunPlan plan
+      selectedPath = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
+  when (runPlanSubstrate runPlan /= substrate) $
+    exitWithError
+      ( InvalidConfig
+          ( "supervised plan substrate mismatch: plan="
+              <> renderSubstrate (runPlanSubstrate runPlan)
+              <> ", selected="
+              <> renderSubstrate substrate
+          )
+      )
+  when (runPlanSubjectId runPlan /= Text.strip selectedPath) $
+    exitWithError
+      ( InvalidConfig
+          ( "supervised plan subject mismatch: plan="
+              <> runPlanSubjectId runPlan
+              <> ", command="
+              <> Text.strip selectedPath
+          )
+      )
+  pure plan
+
+prepareLocalSupervisedPlan
+  :: [ParsedOption]
+  -> Overrides.ExperimentOverrides
+  -> Substrate
+  -> SL.CanonicalProblem
+  -> App WorkloadPlan.SupervisedPlan
+prepareLocalSupervisedPlan parsedOptions overrides substrate problem = do
+  epochs <- localSupervisedQuantity "JITML_SL_EPOCHS" 3
+  trainingExamples <- localSupervisedQuantity "JITML_SL_TRAIN_LIMIT" 2000
+  evaluationExamples <- localSupervisedQuantity "JITML_SL_TEST_LIMIT" 1000
+  batchExamples <- localSupervisedQuantity "JITML_SL_BATCH_SIZE" 128
+  let dhallPath = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
+      experimentHash =
+        Checkpoint.deriveExperimentHash
+          dhallPath
+          (SL.problemName problem <> "\NUL" <> SL.problemModel problem)
+      raw =
+        ProtoTraining.StartTraining
+          { ProtoTraining.stExperimentHash = experimentHash
+          , ProtoTraining.stDhallObjectKey = dhallPath
+          , ProtoTraining.stSubstrate = substrate
+          , ProtoTraining.stSeed =
+              Overrides.overrideSeed overrides (fromIntegral (SL.problemSeed problem))
+          , ProtoTraining.stEpochs = epochs
+          , ProtoTraining.stBatchSize = batchExamples
+          , ProtoTraining.stPlanId = ""
+          , ProtoTraining.stResolvedPlan = ""
+          , ProtoTraining.stTrainingExamples = trainingExamples
+          , ProtoTraining.stEvaluationExamples = evaluationExamples
+          }
+  case PlanCommand.prepareStartTraining raw of
+    Left err -> exitWithError (InvalidConfig ("supervised plan refinement failed: " <> err))
+    Right (_, plan) -> pure plan
+
+localSupervisedQuantity :: String -> Word32 -> App Word32
+localSupervisedQuantity name fallback = do
+  raw <- liftIO (envWithDefault name (Text.pack (show fallback)))
+  case readMaybe (Text.unpack raw) :: Maybe Integer of
+    Just value
+      | value > 0 && value <= toInteger (maxBound :: Word32) -> pure (fromInteger value)
+    _ ->
+      exitWithError
+        ( InvalidConfig
+            ( Text.pack name
+                <> " must be a positive Word32, received "
+                <> raw
+            )
+        )
+
+supervisedExecutionBudget
+  :: WorkloadPlan.SupervisedPlan
+  -> Either Text (Int, Int, Int, Int)
+supervisedExecutionBudget plan = do
+  trainingExamples <-
+    boundedInt "supervised training examples" (WorkloadPlan.supervisedPlanTrainingExamples plan)
+  epochs <- boundedInt "supervised epochs" (WorkloadPlan.supervisedPlanEpochs plan)
+  evaluationExamples <-
+    boundedInt "supervised evaluation examples" (WorkloadPlan.supervisedPlanEvaluationExamples plan)
+  batchExamples <-
+    boundedInt "supervised batch examples" (WorkloadPlan.supervisedPlanBatchExamples plan)
+  pure (trainingExamples, epochs, evaluationExamples, batchExamples)
+ where
+  boundedInt label quantity
+    | value > toInteger (maxBound :: Int) = Left (label <> " exceeds the platform Int range")
+    | otherwise = Right (fromIntegral (quantityValue quantity))
+   where
+    value = toInteger (quantityValue quantity)
 
 -- | Sprint 8.13 — the real supervised-learning run metrics surfaced by
 -- @jitml train@. The published loss is a measured cross-entropy (classifier)
@@ -1625,22 +3201,12 @@ data TrainingMetrics = TrainingMetrics
   }
   deriving stock (Eq, Show)
 
--- | Sprint 8.13 — deterministically carve a held-out validation partition off
--- the tail of the (bounded) training examples. The validation slice is never
--- folded into the gradient-update set, so model selection on it is honest. The
--- canonical archives that ship no separate validation partition (CIFAR-10/100)
--- still get an honest held-out slice here rather than reusing the test split as
--- validation (the prohibition in @training_metrics_and_splits.md@). Tiny inputs
--- (≤1 example) degenerate to using the same set for both, which only happens in
--- unit fixtures, never in a budgeted live run.
-splitTrainValidation :: [a] -> ([a], [a])
-splitTrainValidation examples =
-  let n = length examples
-      valCount = max 1 (n `div` 6)
-      trainCount = n - valCount
-   in if trainCount < 1
-        then (examples, examples)
-        else splitAt trainCount examples
+-- | Materialize a deterministic held-out selection slice in addition to the
+-- exact gradient-example budget.  Only the first @trainingExamples@ values
+-- enter optimizer updates; the remainder is validation-only.
+trainingMaterializationLimit :: Int -> Int
+trainingMaterializationLimit trainingExamples =
+  trainingExamples + max 1 (trainingExamples `div` 5)
 
 -- | Sprint 8.13 — promote the architecture's 'Architecture.SlRunMetrics' plus
 -- the held-out test metric into the App-level 'TrainingMetrics' the publishers
@@ -1709,42 +3275,26 @@ renderTrainingMetricsLine substrate problem archiveName trainLimit epochs metric
 -- @Left reason@ when a hard prerequisite (live publication, staged dataset ref,
 -- staged bytes) is absent or the device training itself failed. There is no
 -- synthetic fallback: a missing prerequisite is a 'Left', never a fabricated
--- curve. The example count and epoch budget are capped by the mounted
--- @TrainingRunConfig@ or the @JITML_SL_*@ env vars so a live run stays
--- tractable.
-runDeviceMnistTraining :: Substrate -> SL.CanonicalProblem -> App (Either Text TrainingMetrics)
-runDeviceMnistTraining substrate problem = do
-  -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount; fall back to
-  -- env vars when no mount is present. Sprint 5.11 reuses the helper below for
-  -- host-resident Apple work, where the config arrives as a Pulsar envelope
-  -- rather than a pod-mounted file.
-  runConfigLoad <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
-  (trainLimit, epochs, testLimit) <- case runConfigLoad of
-    RunConfig.RunConfigLoaded rc ->
-      pure
-        ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
-        , fromMaybe 3 (RunConfig.trcSlEpochs rc)
-        , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
-        )
-    RunConfig.RunConfigMissing -> liftIO $ do
-      tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
-      ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
-      tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
-      pure (tl, ep, tt)
-    RunConfig.RunConfigDecodeFailed err ->
-      exitWithError (mountedRunConfigDecodeError "TrainingRunConfig" err)
-  runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit
-
-runDeviceMnistTrainingWithLimits
-  :: Substrate -> SL.CanonicalProblem -> Int -> Int -> Int -> App (Either Text TrainingMetrics)
-runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
-  runDeviceMnistTrainingWithLimitsAndLearningRate
-    substrate
-    problem
-    trainLimit
-    epochs
-    testLimit
-    Nothing
+-- curve. The exact example, epoch, evaluation, and batch quantities come from
+-- one re-refined supervised plan; the worker never reconstructs or clamps
+-- primitive mounted values.
+runDeviceMnistTraining
+  :: Substrate
+  -> SL.CanonicalProblem
+  -> WorkloadPlan.SupervisedPlan
+  -> App (Either Text TrainingMetrics)
+runDeviceMnistTraining substrate problem plan =
+  case supervisedExecutionBudget plan of
+    Left err -> pure (Left err)
+    Right (trainLimit, epochs, testLimit, batchSize) ->
+      runDeviceMnistTrainingWithLimitsAndLearningRate
+        substrate
+        problem
+        trainLimit
+        epochs
+        testLimit
+        batchSize
+        Nothing
 
 runDeviceMnistTrainingWithLimitsAndLearningRate
   :: Substrate
@@ -1752,9 +3302,10 @@ runDeviceMnistTrainingWithLimitsAndLearningRate
   -> Int
   -> Int
   -> Int
+  -> Int
   -> Maybe Double
   -> App (Either Text TrainingMetrics)
-runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epochs testLimit learningRateOverride = do
+runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epochs testLimit batchSize learningRateOverride = do
   env <- ask
   liveContext <- workerLiveContext
   case liveContext of
@@ -1774,7 +3325,11 @@ runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epo
                   let datasetShaAtRead =
                         Dataset.datasetReadShaForArtifacts [imgArtifact, lblArtifact]
                   let config =
-                        (Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs})
+                        ( Classifier.defaultClassifierConfig
+                            { Classifier.clfEpochs = epochs
+                            , Classifier.clfBatchSize = batchSize
+                            }
+                        )
                           { Classifier.clfLearningRate =
                               fromMaybe
                                 (Classifier.clfLearningRate Classifier.defaultClassifierConfig)
@@ -1784,52 +3339,56 @@ runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epo
                       decodedE =
                         Classifier.decodeBoundedDataset
                           config
-                          (Just (max 1 trainLimit))
+                          (Just (trainingMaterializationLimit trainLimit))
                           (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload imgArtifact))
                           (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload lblArtifact))
                   case decodedE of
                     Left err -> pure (Left (Text.pack err))
                     Right (configForData, dataset) -> do
                       let spec = Architecture.architectureSpecForProblem configForData problem
-                          (trainSet, validationSet) = splitTrainValidation dataset
-                      trainedE <-
-                        liftIO
-                          ( Architecture.trainArchitectureWithDeviceSelected
-                              device
-                              spec
-                              configForData
-                              trainSet
-                              validationSet
-                          )
-                      case trainedE of
-                        Left err -> pure (Left ("substrate training failed: " <> err))
-                        Right (trained, metrics) -> do
-                          testAccE <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
-                          case testAccE of
-                            Left err -> pure (Left err)
-                            Right testAcc -> do
-                              writeText
-                                ( renderTrainingMetricsLine
-                                    substrate
-                                    problem
-                                    Nothing
-                                    trainLimit
-                                    epochs
-                                    metrics
-                                    testAcc
-                                    "test_accuracy"
-                                )
-                              pure
-                                ( Right
-                                    ( trainingMetricsFor
+                          trainSet = take trainLimit dataset
+                          validationSet = drop trainLimit dataset
+                      if length trainSet /= trainLimit || null validationSet
+                        then pure (Left "supervised dataset cannot satisfy exact training/validation example budgets")
+                        else do
+                          trainedE <-
+                            liftIO
+                              ( Architecture.trainArchitectureWithDeviceSelected
+                                  device
+                                  spec
+                                  configForData
+                                  trainSet
+                                  validationSet
+                              )
+                          case trainedE of
+                            Left err -> pure (Left ("substrate training failed: " <> err))
+                            Right (trained, metrics) -> do
+                              testAccE <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
+                              case testAccE of
+                                Left err -> pure (Left err)
+                                Right testAcc -> do
+                                  writeText
+                                    ( renderTrainingMetricsLine
+                                        substrate
+                                        problem
+                                        Nothing
+                                        trainLimit
                                         epochs
-                                        (Just datasetShaAtRead)
-                                        (Just (Architecture.trainedArchitectureWeights trained))
                                         metrics
                                         testAcc
                                         "test_accuracy"
                                     )
-                                )
+                                  pure
+                                    ( Right
+                                        ( trainingMetricsFor
+                                            epochs
+                                            (Just datasetShaAtRead)
+                                            (Just (Architecture.trainedArchitectureWeights trained))
+                                            metrics
+                                            testAcc
+                                            "test_accuracy"
+                                        )
+                                    )
                 _ ->
                   pure
                     ( Left
@@ -1846,6 +3405,7 @@ runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epo
                 trainLimit
                 epochs
                 testLimit
+                batchSize
                 learningRateOverride
                 (workerLiveMinIOSettings context)
                 Classifier.decodeCifar10ArchiveBoundedDataset
@@ -1857,6 +3417,7 @@ runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epo
                 trainLimit
                 epochs
                 testLimit
+                batchSize
                 learningRateOverride
                 (workerLiveMinIOSettings context)
                 Classifier.decodeCifar100ArchiveBoundedDataset
@@ -1868,6 +3429,7 @@ runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epo
                 trainLimit
                 epochs
                 testLimit
+                batchSize
                 learningRateOverride
                 (workerLiveMinIOSettings context)
                 TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
@@ -1878,6 +3440,8 @@ runDeviceMnistTrainingWithLimitsAndLearningRate substrate problem trainLimit epo
                 trainRef
                 trainLimit
                 epochs
+                testLimit
+                batchSize
                 (workerLiveMinIOSettings context)
         _ ->
           pure
@@ -1890,6 +3454,7 @@ runDeviceArchiveClassifierTraining
   -> Int
   -> Int
   -> Int
+  -> Int
   -> Maybe Double
   -> MinIOSubprocess.MinIOSettings
   -> ( Classifier.ClassifierConfig
@@ -1899,11 +3464,15 @@ runDeviceArchiveClassifierTraining
        -> Either String (Classifier.ClassifierConfig, Classifier.Dataset)
      )
   -> App (Either Text TrainingMetrics)
-runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit learningRateOverride minioSettings decodeArchive = do
+runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit batchSize learningRateOverride minioSettings decodeArchive = do
   env <- ask
   let run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
       config =
-        (Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs})
+        ( Classifier.defaultClassifierConfig
+            { Classifier.clfEpochs = epochs
+            , Classifier.clfBatchSize = batchSize
+            }
+        )
           { Classifier.clfLearningRate =
               fromMaybe
                 (Classifier.clfLearningRate Classifier.defaultClassifierConfig)
@@ -1923,51 +3492,64 @@ runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs 
     Right archiveArtifact ->
       let archiveBytes = Dataset.fetchedArtifactPayload archiveArtifact
           datasetShaAtRead = Dataset.datasetReadShaForArtifacts [archiveArtifact]
-       in case decodeArchive config Dataset.TrainSplit (Just (max 1 trainLimit)) archiveBytes of
+       in case decodeArchive
+            config
+            Dataset.TrainSplit
+            (Just (trainingMaterializationLimit trainLimit))
+            archiveBytes of
             Left err -> pure (Left (Text.pack err))
             Right (configForData, dataset) -> do
               let spec = Architecture.architectureSpecForProblem configForData problem
-                  (trainSet, validationSet) = splitTrainValidation dataset
-              trainedE <-
-                liftIO
-                  ( Architecture.trainArchitectureWithDeviceSelected
-                      device
-                      spec
-                      configForData
-                      trainSet
-                      validationSet
-                  )
-              case trainedE of
-                Left err -> pure (Left ("substrate archive training failed: " <> err))
-                Right (trained, metrics) -> do
-                  testAcc <-
-                    case decodeArchive configForData Dataset.TestSplit (Just (max 1 testLimit)) archiveBytes of
-                      Left _ -> pure Nothing
-                      Right (_, testSet) -> do
-                        accE <- liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
-                        pure (eitherToMaybe accE)
-                  writeText
-                    ( renderTrainingMetricsLine
-                        substrate
-                        problem
-                        (Just (Dataset.datasetName trainRef))
-                        trainLimit
-                        epochs
-                        metrics
-                        testAcc
-                        "test_accuracy"
-                    )
-                  pure
-                    ( Right
-                        ( trainingMetricsFor
-                            epochs
-                            (Just datasetShaAtRead)
-                            (Just (Architecture.trainedArchitectureWeights trained))
-                            metrics
-                            testAcc
-                            "test_accuracy"
-                        )
-                    )
+                  trainSet = take trainLimit dataset
+                  validationSet = drop trainLimit dataset
+              if length trainSet /= trainLimit || null validationSet
+                then pure (Left "supervised archive cannot satisfy exact training/validation example budgets")
+                else do
+                  trainedE <-
+                    liftIO
+                      ( Architecture.trainArchitectureWithDeviceSelected
+                          device
+                          spec
+                          configForData
+                          trainSet
+                          validationSet
+                      )
+                  case trainedE of
+                    Left err -> pure (Left ("substrate archive training failed: " <> err))
+                    Right (trained, metrics) ->
+                      case decodeArchive configForData Dataset.TestSplit (Just testLimit) archiveBytes of
+                        Left err -> pure (Left (Text.pack err))
+                        Right (_, testSet)
+                          | length testSet /= testLimit ->
+                              pure (Left "supervised archive cannot satisfy exact evaluation-example budget")
+                          | otherwise -> do
+                              testAccE <-
+                                liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
+                              case testAccE of
+                                Left err -> pure (Left err)
+                                Right testAcc -> do
+                                  writeText
+                                    ( renderTrainingMetricsLine
+                                        substrate
+                                        problem
+                                        (Just (Dataset.datasetName trainRef))
+                                        trainLimit
+                                        epochs
+                                        metrics
+                                        (Just testAcc)
+                                        "test_accuracy"
+                                    )
+                                  pure
+                                    ( Right
+                                        ( trainingMetricsFor
+                                            epochs
+                                            (Just datasetShaAtRead)
+                                            (Just (Architecture.trainedArchitectureWeights trained))
+                                            metrics
+                                            (Just testAcc)
+                                            "test_accuracy"
+                                        )
+                                    )
 
 runDeviceCaliforniaHousingTraining
   :: Substrate
@@ -1975,9 +3557,11 @@ runDeviceCaliforniaHousingTraining
   -> Dataset.DatasetRef
   -> Int
   -> Int
+  -> Int
+  -> Int
   -> MinIOSubprocess.MinIOSettings
   -> App (Either Text TrainingMetrics)
-runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs minioSettings = do
+runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs testLimit batchSize minioSettings = do
   env <- ask
   let run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
       device = mlpDeviceForSubstrate substrate env
@@ -1994,20 +3578,25 @@ runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs 
     Right archiveArtifact ->
       let archiveBytes = Dataset.fetchedArtifactPayload archiveArtifact
           datasetShaAtRead = Dataset.datasetReadShaForArtifacts [archiveArtifact]
-       in case Regression.decodeCaliforniaHousingArchiveBoundedData (Just (max 1 trainLimit)) archiveBytes of
+       in case Regression.decodeCaliforniaHousingArchiveBoundedData (Just (trainLimit + testLimit)) archiveBytes of
             Left err -> pure (Left (Text.pack err))
             Right dataset ->
               case listToMaybe dataset of
                 Nothing -> pure (Left "California Housing archive produced no rows")
                 Just firstExample -> do
                   let normalizedDataset = Regression.standardizeRegressionExamples dataset
-                      (trainSet, validationSet) = splitTrainValidation normalizedDataset
+                      trainSet = take trainLimit normalizedDataset
+                      validationSet = take testLimit (drop trainLimit normalizedDataset)
                       config =
                         Regression.defaultRegressionConfig
                           { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
-                          , Regression.regEpochs = max 1 epochs
+                          , Regression.regEpochs = epochs
+                          , Regression.regBatchSize = batchSize
                           }
-                  trainedE <- liftIO (Regression.trainRegressorWithDevice device config trainSet)
+                  trainedE <-
+                    if length trainSet /= trainLimit || length validationSet /= testLimit
+                      then pure (Left "supervised regression cannot satisfy exact train/evaluation budgets")
+                      else liftIO (Regression.trainRegressorWithDevice device config trainSet)
                   case trainedE of
                     Left err -> pure (Left ("substrate regression training failed: " <> err))
                     Right (trained, trainMse) -> do
@@ -2122,9 +3711,12 @@ evaluateTestSplitDevice device minioSettings trainRef trained limit = do
            , Classifier.parseIdxLabels (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload tlArtifact))
            ) of
         (Right (_, images), Right labels) -> do
-          let testSet = take (max 1 limit) (Classifier.zipImagesLabels images labels)
-          accE <- liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
-          pure (Right (eitherToMaybe accE))
+          let testSet = take limit (Classifier.zipImagesLabels images labels)
+          if length testSet /= limit
+            then pure (Left "supervised test split cannot satisfy exact evaluation-example budget")
+            else do
+              accE <- liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
+              pure (fmap Just accE)
         _ -> pure (Right Nothing)
     _ ->
       pure
@@ -2163,13 +3755,13 @@ workerLiveContext = do
   bootMaybe <- liftIO (tryLoadBootConfigFromFile serviceBootConfigPath)
   case bootMaybe of
     Just bootConfig -> do
-      let clientSettings = ServiceClients.daemonClientSettingsForBootConfig bootConfig
+      let clientSettings = ServiceClients.engineClientSettingsForBootConfig bootConfig
       pure $
         Just
           WorkerLiveContext
             { workerLivePublication = publicationFromBootConfig bootConfig
-            , workerLiveMinIOSettings = ServiceClients.daemonMinIOSettings clientSettings
-            , workerLivePulsarSettings = ServiceClients.daemonPulsarSettings clientSettings
+            , workerLiveMinIOSettings = ServiceClients.engineMinIOSettings clientSettings
+            , workerLivePulsarSettings = ServiceClients.enginePulsarSettings clientSettings
             }
     Nothing -> do
       cluster <- liftIO (readExistingLivePublication ".")
@@ -2238,23 +3830,27 @@ workerBrokerTarget = do
  where
   nonEmptyString s = if null s then Nothing else Just s
   orElse :: Maybe a -> Maybe a -> Maybe a
-  orElse first second = case first of
+  orElse first fallback = case first of
     Just _ -> first
-    Nothing -> second
+    Nothing -> fallback
   -- Try each RunConfig variant in turn; pick the first that has a pulsarWsUrl.
   mountedWsFromRunConfig :: App (Maybe Text)
   mountedWsFromRunConfig = do
     rl <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
     tr <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
     tu <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
-    case ( fmapRunConfig RunConfig.rlcPulsarWsUrl rl
-         , fmapRunConfig RunConfig.trcPulsarWsUrl tr
-         , fmapRunConfig RunConfig.turcPulsarWsUrl tu
-         ) of
-      (Just ws, _, _) -> pure (Just ws)
-      (_, Just ws, _) -> pure (Just ws)
-      (_, _, Just ws) -> pure (Just ws)
-      _ -> case firstRunConfigDecodeFailure [rlRunConfigError rl, trainingRunConfigError tr, tuneRunConfigError tu] of
+    az <- liftIO (RunConfig.tryLoadAlphaZeroRunConfig runConfigPath)
+    case listToMaybe
+      ( catMaybes
+          [ fmapRunConfig RunConfig.rlcPulsarWsUrl rl
+          , fmapRunConfig RunConfig.trcPulsarWsUrl tr
+          , fmapRunConfig RunConfig.turcPulsarWsUrl tu
+          , fmapRunConfig RunConfig.azrcPulsarWsUrl az
+          ]
+      ) of
+      Just ws -> pure (Just ws)
+      Nothing -> case firstRunConfigDecodeFailure
+        [rlRunConfigError rl, trainingRunConfigError tr, tuneRunConfigError tu, alphaZeroRunConfigError az] of
         Just err -> exitWithError (mountedRunConfigDecodeError "RunConfig" err)
         Nothing -> pure Nothing
 
@@ -2303,6 +3899,16 @@ mountedRunConfigDecodeError configName detail =
         <> detail
     )
 
+rejectMissingMountedRunConfigInKubernetes :: Text -> App ()
+rejectMissingMountedRunConfigInKubernetes configName = do
+  kubernetesHost <- liftIO (lookupEnv "KUBERNETES_SERVICE_HOST")
+  when (maybe False (not . null) kubernetesHost) $
+    exitWithError
+      ( mountedRunConfigDecodeError
+          configName
+          "required resolved-plan mount is missing in a Kubernetes workload"
+      )
+
 fmapRunConfig :: (a -> b) -> RunConfig.RunConfigLoadResult a -> Maybe b
 fmapRunConfig f loadResult =
   case loadResult of
@@ -2325,6 +3931,9 @@ trainingRunConfigError = runConfigDecodeError
 tuneRunConfigError :: RunConfig.RunConfigLoadResult RunConfig.TuneRunConfig -> Maybe Text
 tuneRunConfigError = runConfigDecodeError
 
+alphaZeroRunConfigError :: RunConfig.RunConfigLoadResult RunConfig.AlphaZeroRunConfig -> Maybe Text
+alphaZeroRunConfigError = runConfigDecodeError
+
 firstRunConfigDecodeFailure :: [Maybe Text] -> Maybe Text
 firstRunConfigDecodeFailure = listToMaybe . catMaybes
 
@@ -2343,20 +3952,34 @@ workerExperimentHash = do
   rl <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
   tr <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
   tu <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
-  case ( nonEmptyText =<< fmapRunConfig RunConfig.rlcExperimentHash rl
-       , nonEmptyText =<< fmapRunConfig RunConfig.trcExperimentHash tr
-       , nonEmptyText =<< fmapRunConfig RunConfig.turcExperimentHash tu
-       ) of
-    (Just h, _, _) -> pure (Just h)
-    (_, Just h, _) -> pure (Just h)
-    (_, _, Just h) -> pure (Just h)
-    _ -> case firstRunConfigDecodeFailure [rlRunConfigError rl, trainingRunConfigError tr, tuneRunConfigError tu] of
+  az <- liftIO (RunConfig.tryLoadAlphaZeroRunConfig runConfigPath)
+  case listToMaybe
+    ( catMaybes
+        [ nonEmptyText =<< fmapRunConfig RunConfig.rlcExperimentHash rl
+        , supervisedExperimentHash =<< fmapRunConfig id tr
+        , tuningExperimentHash =<< fmapRunConfig id tu
+        , alphaZeroExperimentHash =<< fmapRunConfig id az
+        ]
+    ) of
+    Just experimentHash -> pure (Just experimentHash)
+    Nothing -> case firstRunConfigDecodeFailure
+      [rlRunConfigError rl, trainingRunConfigError tr, tuneRunConfigError tu, alphaZeroRunConfigError az] of
       Just err -> exitWithError (mountedRunConfigDecodeError "RunConfig" err)
       Nothing -> liftIO $ do
         raw <- lookupEnv "JITML_EXPERIMENT_HASH"
         pure $ case raw of
           Just value | not (null value) -> Just (Text.pack value)
           _ -> Nothing
+ where
+  supervisedExperimentHash config =
+    nonEmptyText . runPlanExperimentId . WorkloadPlan.supervisedPlanRunPlan
+      =<< eitherToMaybe (RunConfig.supervisedPlanFromRunConfig config)
+  tuningExperimentHash config =
+    nonEmptyText . runPlanExperimentId . WorkloadPlan.tuningPlanRunPlan
+      =<< eitherToMaybe (RunConfig.tuningPlanFromRunConfig config)
+  alphaZeroExperimentHash config =
+    nonEmptyText . runPlanExperimentId . WorkloadPlan.alphaZeroPlanRunPlan
+      =<< eitherToMaybe (RunConfig.alphaZeroPlanFromRunConfig config)
 
 publishWorkerTrainingEvent :: TrainingMetrics -> App ()
 publishWorkerTrainingEvent metrics = do
@@ -2364,7 +3987,6 @@ publishWorkerTrainingEvent metrics = do
   experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
-      let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
       timestampNs <- liftIO currentTimestampNs
       let envelope =
             ProtoTraining.TrainingEpoch
@@ -2380,12 +4002,11 @@ publishWorkerTrainingEvent metrics = do
               )
       result <-
         liftIO
-          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+          ( publishPulsarEvent
               pulsarSettings
-              ( Capabilities.pulsarPublish
-                  topic
-                  (ProtoTraining.renderTrainingEvent envelope)
-              )
+              Topology.TrainingEventRoute
+              substrate
+              envelope
           )
       case result of
         Right _ -> pure ()
@@ -2398,12 +4019,13 @@ publishWorkerTrainingEvent metrics = do
     _ -> pure ()
 
 publishWorkerTrainingCheckpoint
-  :: Substrate
+  :: WorkloadPlan.SupervisedPlan
+  -> Substrate
   -> SL.CanonicalProblem
   -> [ParsedOption]
   -> TrainingMetrics
   -> App ()
-publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics =
+publishWorkerTrainingCheckpoint plan substrate problem parsedOptions metrics =
   case tmCheckpointWeights metrics of
     Nothing -> pure ()
     Just weights -> do
@@ -2420,6 +4042,7 @@ publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics =
           completedTraining =
             eitherToMaybe
               ( completedTrainingForSupervisedProblem
+                  plan
                   problem
                   metrics
                   experimentHash
@@ -2459,27 +4082,25 @@ publishWorkerTrainingCheckpointEvent tensorName step metricRows datasetShaAtRead
   experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
-      let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
-          envelope =
-            ProtoTraining.TrainingCheckpoint
-              ( trainingCheckpointDoneEnvelope
-                  experimentHash
-                  tensorName
-                  step
-                  metricRows
-                  datasetShaAtRead
-                  completedTraining
-                  weights
-                  stored
-              )
+      envelope <-
+        case trainingCheckpointEventEnvelope
+          experimentHash
+          tensorName
+          step
+          metricRows
+          datasetShaAtRead
+          completedTraining
+          weights
+          stored of
+          Left err -> exitWithError (InvalidConfig ("training checkpoint event failed: " <> err))
+          Right value -> pure value
       result <-
         liftIO
-          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+          ( publishPulsarEvent
               pulsarSettings
-              ( Capabilities.pulsarPublish
-                  topic
-                  (ProtoTraining.renderTrainingEvent envelope)
-              )
+              Topology.TrainingEventRoute
+              substrate
+              envelope
           )
       case result of
         Right _ -> pure ()
@@ -2491,7 +4112,7 @@ publishWorkerTrainingCheckpointEvent tensorName step metricRows datasetShaAtRead
             )
     _ -> pure ()
 
-trainingCheckpointDoneEnvelope
+trainingCheckpointEventEnvelope
   :: Text
   -> Text
   -> Word64
@@ -2500,19 +4121,24 @@ trainingCheckpointDoneEnvelope
   -> Maybe TrainingBudget.CompletedTraining
   -> [Double]
   -> CheckpointStore.StoredCheckpoint
-  -> ProtoTraining.CheckpointDone
-trainingCheckpointDoneEnvelope experimentHash _tensorName step metricRows _datasetShaAtRead completedOverride _weights stored =
-  ProtoTraining.CheckpointDone
-    { ProtoTraining.cdExperimentHash = experimentHash
-    , ProtoTraining.cdManifestSha = CheckpointStore.storedManifestSha stored
-    , ProtoTraining.cdStep = step
-    , ProtoTraining.cdPointerKey = Checkpoint.latestPointerKey experimentHash
-    , ProtoTraining.cdEpoch = fromIntegral step
-    , ProtoTraining.cdTrialSha = Nothing
-    , ProtoTraining.cdRunUuid = "training-" <> experimentHash
-    , ProtoTraining.cdMetricsAtStep = metricRows
-    , ProtoTraining.cdCompletedTraining = completedOverride
-    }
+  -> Either Text ProtoTraining.TrainingEvent
+trainingCheckpointEventEnvelope experimentHash _tensorName step metricRows _datasetShaAtRead completedOverride _weights stored = do
+  let checkpoint =
+        ProtoTraining.CheckpointDone
+          { ProtoTraining.cdExperimentHash = experimentHash
+          , ProtoTraining.cdManifestSha = CheckpointStore.storedManifestSha stored
+          , ProtoTraining.cdStep = step
+          , ProtoTraining.cdPointerKey = Checkpoint.latestPointerKey experimentHash
+          , ProtoTraining.cdEpoch = fromIntegral step
+          , ProtoTraining.cdTrialSha = Nothing
+          , ProtoTraining.cdRunUuid = "training-" <> experimentHash
+          , ProtoTraining.cdMetricsAtStep = metricRows
+          }
+  case completedOverride of
+    Nothing -> Right (ProtoTraining.TrainingCheckpoint checkpoint)
+    Just completed ->
+      ProtoTraining.TrainingCompletedCheckpoint
+        <$> ProtoTraining.completeCheckpointDone checkpoint completed
 
 trainingCheckpointMetrics :: TrainingMetrics -> [(Text, Double)]
 trainingCheckpointMetrics metrics =
@@ -2570,78 +4196,181 @@ runCheckpointEval label parsedOptions = do
 
 runTune :: [ParsedOption] -> App ()
 runTune parsedOptions = do
-  -- Sprint 1.12 — parse the tuning CLI overrides
-  -- (--sampler / --scheduler / --pruner / --trials / --parallelism) per
-  -- README.md → Hyperparameter tuning, first-class. Each axis is
-  -- independently optional; absent overrides leave the Dhall untouched.
+  mounted <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
+  case mounted of
+    RunConfig.RunConfigLoaded config ->
+      case RunConfig.tuningPlanFromRunConfig config of
+        Left err -> exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
+        Right plan -> do
+          writeLine
+            ( "tune resolved-plan: plan-id="
+                <> planIdText (WorkloadPlan.tuningPlanId plan)
+                <> " trials="
+                <> Text.pack (show (quantityValue (WorkloadPlan.tuningPlanTrials plan)))
+            )
+          publishWorkerTuneEvent plan
+    RunConfig.RunConfigDecodeFailed err ->
+      exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
+    RunConfig.RunConfigMissing -> do
+      rejectMissingMountedRunConfigInKubernetes "TuneRunConfig"
+      runLocalTune parsedOptions
+
+runLocalTune :: [ParsedOption] -> App ()
+runLocalTune parsedOptions = do
   overrides <- case Overrides.parseTuningOverrides parsedOptions of
     Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
     Right ovr -> pure ovr
   let tunePath = Text.unpack (selectedValue "tune-dhall" "experiments/mnist-tune.dhall" parsedOptions)
   loaded <- liftIO (Tune.loadTuningExperiment tunePath)
-  case loaded of
-    Left message ->
-      exitWithError (DhallTypeError message)
-    Right experiment -> do
-      let resolvedExperiment = Overrides.applyOverrides overrides experiment
-          rendered = Tune.renderTuningPlan tunePath resolvedExperiment
-          renderedWithOverrides =
-            rendered <> "overrides: " <> Overrides.renderTuningOverrides overrides <> "\n"
-      tuneArtifactLines <- writeLocalTuneArtifacts tunePath resolvedExperiment
-      case optionValues "plan-file" parsedOptions of
-        [] -> pure ()
-        planPath : _ ->
-          liftIO
-            ( writePlanFile
-                (Text.unpack planPath)
-                (renderedWithOverrides <> Text.unlines tuneArtifactLines)
-            )
-      writeText (renderedWithOverrides <> Text.unlines tuneArtifactLines)
-      -- Sprint 13.3 — publish a `TuneSweepDone` envelope so the dispatch
-      -- → worker → broker event loop is observably closed for the tune
-      -- domain. Sprint 13.10 widens this to per-trial events when the
-      -- TuneHandler spawns trials in the cluster.
-      publishWorkerTuneEvent
+  experiment <- case loaded of
+    Left message -> exitWithError (DhallTypeError message)
+    Right value -> pure (Overrides.applyOverrides overrides value)
+  (start, plan) <- prepareLocalTuningPlan tunePath experiment
+  let rendered = Tune.renderTuningPlan tunePath experiment
+      renderedWithOverrides =
+        rendered
+          <> "plan-id: "
+          <> ProtoTune.ssPlanId start
+          <> "\nresolved-plan: "
+          <> ProtoTune.ssResolvedPlan start
+          <> "\noverrides: "
+          <> Overrides.renderTuningOverrides overrides
+          <> "\n"
+  tuneArtifactLines <- writeLocalTuneArtifacts experiment plan
+  case optionValues "plan-file" parsedOptions of
+    [] -> pure ()
+    planPath : _ ->
+      liftIO
+        ( writePlanFile
+            (Text.unpack planPath)
+            (renderedWithOverrides <> Text.unlines tuneArtifactLines)
+        )
+  writeText (renderedWithOverrides <> Text.unlines tuneArtifactLines)
 
-writeLocalTuneArtifacts :: FilePath -> Tune.TuningExperiment -> App [Text]
-writeLocalTuneArtifacts tunePath experiment =
-  case Tune.tuningExperimentConfig experiment of
-    Nothing -> pure []
-    Just config -> do
-      let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
-          scheduler = Tune.tuningSchedulerKind (Tune.tuningConfigScheduler config)
-          pruner = Tune.tuningPrunerKind (Tune.tuningConfigPruner config)
-          trialCount = max 1 (min 4 (fromIntegral (Tune.tuningConfigTrials config)))
-          results = Tune.trialObjectiveResultsForAxes sampler scheduler pruner trialCount
-      case selectBestTrialResult results of
-        Nothing -> pure []
-        Just best -> do
-          let experimentHash =
-                Checkpoint.deriveExperimentHash
-                  (Text.pack tunePath)
-                  ( "tune:"
-                      <> Text.pack (show sampler)
-                      <> ":"
-                      <> Text.pack (show (Tune.trialResultIndex best))
-                  )
-          stored <-
-            writeLocalWeightCheckpoint
-              experimentHash
-              "tune-trial-weights"
-              (fromIntegral (Tune.trialResultIndex best))
-              [("objective", Tune.trialResultObjective best)]
-              (Tune.trialResultWeights best)
-          artifact <-
-            writeTextArtifact
-              experimentHash
-              "tune-trials"
-              (renderTuneTrialArtifact experiment sampler results best)
-          pure $
-            [ "best-trial-index: " <> Text.pack (show (Tune.trialResultIndex best))
-            , "best-trial-objective: " <> Text.pack (show (Tune.trialResultObjective best))
-            ]
-              <> renderStoredCheckpointLinesWithPrefix "trial-checkpoint" experimentHash stored
-              <> renderStoredArtifactLines "tune-trials" artifact
+prepareLocalTuningPlan
+  :: FilePath
+  -> Tune.TuningExperiment
+  -> App (ProtoTune.StartSweep, WorkloadPlan.TuningPlan)
+prepareLocalTuningPlan tunePath experiment = do
+  config <- case Tune.tuningExperimentConfig experiment of
+    Nothing -> exitWithError (InvalidConfig "tuning experiment requires a tuning configuration")
+    Just value -> pure value
+  substrate <- workerSubstrateBase
+  trials <- word32PlanValue "tuning trials" (toInteger (Tune.tuningConfigTrials config))
+  parallelism <-
+    word32PlanValue "tuning parallelism" (toInteger (Tune.tuningConfigParallelism config))
+  promotions <-
+    word32PlanValue
+      "tuning promotions"
+      (tuningPromotionBudget config)
+  updates <-
+    word32PlanValue
+      "tuning per-trial updates"
+      (toInteger (Tune.tuningSchedulerMaxBudget (Tune.tuningConfigScheduler config)))
+  let experimentHash =
+        Checkpoint.deriveExperimentHash
+          (Text.pack tunePath)
+          (Tune.renderTuningPlan tunePath experiment)
+      raw =
+        ProtoTune.StartSweep
+          { ProtoTune.ssExperimentHash = experimentHash
+          , ProtoTune.ssDhallObjectKey = Text.pack tunePath
+          , ProtoTune.ssSubstrate = substrate
+          , ProtoTune.ssSweepSeed = fromIntegral (Tune.tuningExperimentSeed experiment)
+          , ProtoTune.ssTrialBudget = trials
+          , ProtoTune.ssBudgetPerTrial = updates
+          , ProtoTune.ssSampler = Text.pack (show (Tune.tuningSamplerKind (Tune.tuningConfigSampler config)))
+          , ProtoTune.ssScheduler =
+              Text.pack (show (Tune.tuningSchedulerKind (Tune.tuningConfigScheduler config)))
+          , ProtoTune.ssPruner = Text.pack (show (Tune.tuningPrunerKind (Tune.tuningConfigPruner config)))
+          , ProtoTune.ssParallelism = parallelism
+          , ProtoTune.ssPromotions = promotions
+          , ProtoTune.ssPlanId = ""
+          , ProtoTune.ssResolvedPlan = ""
+          }
+  case PlanCommand.prepareStartSweep raw of
+    Left err -> exitWithError (InvalidConfig ("tuning plan refinement failed: " <> err))
+    Right prepared -> pure prepared
+
+tuningPromotionBudget :: Tune.TuningConfig -> Integer
+tuningPromotionBudget config =
+  let trials = toInteger (Tune.tuningConfigTrials config)
+      scheduler = Tune.tuningConfigScheduler config
+      eta = max 1 (toInteger (Tune.tuningSchedulerEta scheduler))
+   in case Tune.tuningSchedulerKind scheduler of
+        Tune.Fifo -> trials
+        Tune.SuccessiveHalving -> max 1 (trials `div` eta)
+        Tune.Hyperband -> max 1 (trials `div` eta)
+        Tune.ASHA -> max 1 (trials `div` eta)
+
+word32PlanValue :: Text -> Integer -> App Word32
+word32PlanValue label value
+  | value < 0 || value > toInteger (maxBound :: Word32) =
+      exitWithError (InvalidConfig (label <> " is outside the Word32 protocol range"))
+  | otherwise = pure (fromInteger value)
+
+writeLocalTuneArtifacts
+  :: Tune.TuningExperiment
+  -> WorkloadPlan.TuningPlan
+  -> App [Text]
+writeLocalTuneArtifacts experiment plan = do
+  trialCount <- intPlanValue "tuning trials" (quantityValue (WorkloadPlan.tuningPlanTrials plan))
+  parallelism <-
+    intPlanValue "tuning parallelism" (quantityValue (WorkloadPlan.tuningPlanParallelism plan))
+  promotions <-
+    intPlanValue "tuning promotions" (quantityValue (WorkloadPlan.tuningPlanPromotions plan))
+  updates <-
+    intPlanValue
+      "tuning per-trial updates"
+      (quantityValue (WorkloadPlan.tuningPlanPerTrialUpdates plan))
+  let sampler = WorkloadPlan.tuningPlanSampler plan
+      scheduler = WorkloadPlan.tuningPlanScheduler plan
+      pruner = WorkloadPlan.tuningPlanPruner plan
+      experimentHash = runPlanExperimentId (WorkloadPlan.tuningPlanRunPlan plan)
+  results <-
+    case Tune.trialObjectiveResultsForBudget sampler parallelism updates trialCount of
+      Left err -> exitWithError (InvalidConfig ("resolved tuning execution failed: " <> err))
+      Right values -> pure values
+  executions <-
+    case Tune.trialExecutions scheduler pruner promotions results of
+      Left err -> exitWithError (InvalidConfig ("resolved tuning execution failed: " <> err))
+      Right values -> pure values
+  let promotedResults =
+        [ Tune.trialExecutionResult execution
+        | execution <- executions
+        , Tune.trialExecutionPromoted execution
+        ]
+      prunedCount = length (filter Tune.trialExecutionPruned executions)
+  case selectBestTrialResult promotedResults of
+    Nothing -> exitWithError (InvalidConfig "resolved tuning plan produced no trials")
+    Just best -> do
+      storedPromotions <-
+        traverse
+          ( \result ->
+              writeLocalWeightCheckpoint
+                experimentHash
+                "tune-trial-weights"
+                (fromIntegral (Tune.trialResultIndex result))
+                [("objective", Tune.trialResultObjective result)]
+                (Tune.trialResultWeights result)
+          )
+          promotedResults
+      artifact <-
+        writeTextArtifact
+          experimentHash
+          "tune-trials"
+          (renderTuneTrialArtifact experiment sampler executions best)
+      pure $
+        [ "best-trial-index: " <> Text.pack (show (Tune.trialResultIndex best))
+        , "best-trial-objective: " <> Text.pack (show (Tune.trialResultObjective best))
+        , "trials-completed: " <> Text.pack (show (length executions))
+        , "trials-pruned: " <> Text.pack (show prunedCount)
+        , "trials-promoted: " <> Text.pack (show (length promotedResults))
+        ]
+          <> concatMap
+            (renderStoredCheckpointLinesWithPrefix "trial-checkpoint" experimentHash)
+            storedPromotions
+          <> renderStoredArtifactLines "tune-trials" artifact
 
 selectBestTrialResult :: [Tune.TrialObjectiveResult] -> Maybe Tune.TrialObjectiveResult
 selectBestTrialResult [] = Nothing
@@ -2655,25 +4384,28 @@ selectBestTrialResult (firstResult : rest) =
 renderTuneTrialArtifact
   :: Tune.TuningExperiment
   -> Tune.Sampler
-  -> [Tune.TrialObjectiveResult]
+  -> [Tune.TrialExecution]
   -> Tune.TrialObjectiveResult
   -> Text
-renderTuneTrialArtifact experiment sampler results best =
+renderTuneTrialArtifact experiment sampler executions best =
   Text.unlines $
     [ "kind: tune-trials-v1"
     , "name: " <> Tune.tuningExperimentName experiment
     , "sampler: " <> Text.pack (show sampler)
-    , "trial-count: " <> Text.pack (show (length results))
+    , "trial-count: " <> Text.pack (show (length executions))
     , "best-trial-index: " <> Text.pack (show (Tune.trialResultIndex best))
     , "best-trial-objective: " <> Text.pack (show (Tune.trialResultObjective best))
     ]
-      <> concatMap renderTrial results
+      <> concatMap renderTrial executions
  where
-  renderTrial result =
-    [ "trial: " <> Text.pack (show (Tune.trialResultIndex result))
-    , "objective: " <> Text.pack (show (Tune.trialResultObjective result))
-    , "weight-count: " <> Text.pack (show (length (Tune.trialResultWeights result)))
-    ]
+  renderTrial execution =
+    let result = Tune.trialExecutionResult execution
+     in [ "trial: " <> Text.pack (show (Tune.trialResultIndex result))
+        , "objective: " <> Text.pack (show (Tune.trialResultObjective result))
+        , "pruned: " <> Text.pack (show (Tune.trialExecutionPruned execution))
+        , "promoted: " <> Text.pack (show (Tune.trialExecutionPromoted execution))
+        , "weight-count: " <> Text.pack (show (length (Tune.trialResultWeights result)))
+        ]
 
 renderRlTrajectoryArtifact
   :: Text
@@ -2757,74 +4489,131 @@ renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples =
 --   5. publishes `TuneTrialStarted` + `TuneTrialFinished` envelopes to
 --      `tune.event.<substrate>`.
 --
--- After the loop publishes `TuneSweepDone` with the count of completed
--- trials and the best (highest) objective observed. Outside a cluster
--- context the function is a no-op.
-publishWorkerTuneEvent :: App ()
-publishWorkerTuneEvent = do
+-- After the loop publishes `TuneSweepCompleted` with the exact planned count and
+-- the best measured objective. The worker consumes only the already-refined
+-- plan mounted by the daemon; it never re-reads or repairs primitive budgets.
+publishWorkerTuneEvent :: WorkloadPlan.TuningPlan -> App ()
+publishWorkerTuneEvent plan = do
   env <- ask
   liveContext <- workerLiveContext
-  experimentHashMaybe <- workerExperimentHash
-  case (liveContext, experimentHashMaybe) of
-    (Just context, Just experimentHash) -> do
-      let publication = workerLivePublication context
-          substrate = Publication.publicationSubstrate publication
-          pulsarSettings = workerLivePulsarSettings context
-          topic = Capabilities.TopicName (ProtoTune.tuneEventTopic substrate)
-          minioSettings = workerLiveMinIOSettings context
-          device = mlpDeviceForSubstrate substrate env
-      trialBudget <- lookupTrialBudget 6
-      sweepSeed <- lookupSweepSeed 0
-      (sampler, scheduler, pruner) <- lookupTuneAxes
-      -- Sprint 9.16 — daemon-dispatched workers use the sampler, scheduler,
-      -- and pruner selected in the mounted TuneRunConfig. Each trial gets a
-      -- unique seed derived from the sweep seed so transcripts stay distinct
-      -- in MinIO.
-      let combos =
-            replicate (max 1 trialBudget) (sampler, scheduler, pruner)
-          gridTrials =
-            take trialBudget (zip [sweepSeed ..] combos)
-      publishedResults <-
-        traverse
-          (publishOneTrial device pulsarSettings minioSettings topic experimentHash)
-          gridTrials
-      let completed = fromIntegral (length (filter (isRight . fst) publishedResults))
-          bestObjective =
-            if null publishedResults
-              then 0.0
-              else maximum (fmap snd publishedResults)
-          envelope =
-            ProtoTune.TuneSweepDone
-              ( ProtoTune.SweepDone
-                  { ProtoTune.sdExperimentHash = experimentHash
-                  , ProtoTune.sdTrialsCompleted = completed
-                  , ProtoTune.sdTrialsPruned = 0
-                  , ProtoTune.sdBestObjective = bestObjective
-                  , ProtoTune.sdCompletedTraining =
-                      tuneSweepCompletedTraining experimentHash completed bestObjective
-                  }
-              )
-      _ <-
-        liftIO
-          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-              pulsarSettings
-              ( Capabilities.pulsarPublish
-                  topic
-                  (ProtoTune.renderTuneEvent envelope)
-              )
+  context <- case liveContext of
+    Nothing ->
+      exitWithError
+        (InvalidConfig "resolved tuning worker requires mounted service configuration")
+    Just value -> pure value
+  let publication = workerLivePublication context
+      substrate = Publication.publicationSubstrate publication
+      plannedSubstrate = runPlanSubstrate (WorkloadPlan.tuningPlanRunPlan plan)
+      experimentHash = runPlanExperimentId (WorkloadPlan.tuningPlanRunPlan plan)
+      planId = planIdText (WorkloadPlan.tuningPlanId plan)
+      sampler = WorkloadPlan.tuningPlanSampler plan
+      scheduler = WorkloadPlan.tuningPlanScheduler plan
+      pruner = WorkloadPlan.tuningPlanPruner plan
+      pulsarSettings = workerLivePulsarSettings context
+      minioSettings = workerLiveMinIOSettings context
+      device = mlpDeviceForSubstrate substrate env
+  unless (substrate == plannedSubstrate) $
+    exitWithError
+      ( InvalidConfig
+          ( "resolved tuning plan substrate "
+              <> renderSubstrate plannedSubstrate
+              <> " does not match worker substrate "
+              <> renderSubstrate substrate
           )
-      pure ()
-    _ -> pure ()
- where
-  publishOneTrial device pulsarSettings minioSettings topic experimentHash (trialSeed, (sampler, scheduler, pruner)) = do
-    -- Sprint 9.11 / 13.10: derive deterministic trial objectives by training
-    -- through the substrate-selected MLP device. A device failure aborts the
-    -- worker; there is no pure objective fallback on the live path.
-    trialResultE <- liftIO (Tune.trialObjectiveResultWithDevice device sampler trialSeed)
-    trialResult <- case trialResultE of
-      Left err -> liftIO (ioError (userError ("device-backed tune trial failed: " <> Text.unpack err)))
+      )
+  trialBudget <- intPlanValue "tuning trials" (quantityValue (WorkloadPlan.tuningPlanTrials plan))
+  parallelism <-
+    intPlanValue "tuning parallelism" (quantityValue (WorkloadPlan.tuningPlanParallelism plan))
+  promotions <-
+    intPlanValue "tuning promotions" (quantityValue (WorkloadPlan.tuningPlanPromotions plan))
+  updates <-
+    intPlanValue
+      "tuning per-trial updates"
+      (quantityValue (WorkloadPlan.tuningPlanPerTrialUpdates plan))
+  sweepSeed <-
+    intPlanValue
+      "tuning sweep seed"
+      (NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.tuningPlanRunPlan plan))))
+  trialResultsE <-
+    liftIO
+      ( Tune.trialObjectiveResultsWithDeviceForBudget
+          device
+          sampler
+          parallelism
+          updates
+          trialBudget
+      )
+  trialResults <- case trialResultsE of
+    Left err -> exitWithError (InvalidConfig ("device-backed tuning execution failed: " <> err))
+    Right values -> pure values
+  executions <-
+    case Tune.trialExecutions scheduler pruner promotions trialResults of
+      Left err -> exitWithError (InvalidConfig ("resolved tuning execution failed: " <> err))
+      Right values -> pure values
+  objectives <-
+    traverse
+      ( publishOneTrial
+          pulsarSettings
+          minioSettings
+          substrate
+          experimentHash
+          planId
+          sampler
+          scheduler
+          pruner
+          parallelism
+          promotions
+          updates
+          sweepSeed
+      )
+      executions
+  let promotedObjectives =
+        [ objective
+        | (execution, objective) <- zip executions objectives
+        , Tune.trialExecutionPromoted execution
+        ]
+      prunedCount = length (filter Tune.trialExecutionPruned executions)
+      promotedCount = length promotedObjectives
+  bestObjective <- case promotedObjectives of
+    [] -> exitWithError (InvalidConfig "resolved tuning plan produced no trials")
+    values -> pure (maximum values)
+  let completed = fromIntegral trialBudget
+      finished =
+        ProtoTune.SweepFinished
+          { ProtoTune.sfExperimentHash = experimentHash
+          , ProtoTune.sfPlanId = planId
+          , ProtoTune.sfTrialsCompleted = completed
+          , ProtoTune.sfTrialsPruned = fromIntegral prunedCount
+          , ProtoTune.sfTrialsPromoted = fromIntegral promotedCount
+          , ProtoTune.sfBestObjective = bestObjective
+          }
+  completedTraining <-
+    case tuneSweepCompletedTraining
+      plan
+      experimentHash
+      completed
+      bestObjective of
+      Left err -> exitWithError (InvalidConfig ("tuning completion proof failed: " <> err))
       Right value -> pure value
-    let objective = Tune.trialResultObjective trialResult
+  envelope <-
+    case ProtoTune.completeSweep finished completedTraining of
+      Left err -> exitWithError (InvalidConfig ("tuning completion event failed: " <> err))
+      Right value -> pure (ProtoTune.TuneSweepCompleted value)
+  publishResult <-
+    liftIO
+      ( publishPulsarEvent
+          pulsarSettings
+          Topology.TuneEventRoute
+          substrate
+          envelope
+      )
+  requireServiceSuccess "publish tuning completion" publishResult
+ where
+  publishOneTrial pulsarSettings minioSettings substrate experimentHash planId sampler scheduler pruner parallelism promotions updates sweepSeed execution = do
+    let trialResult = Tune.trialExecutionResult execution
+        trialIndex = Tune.trialResultIndex trialResult
+        trialSeed = sweepSeed + trialIndex
+        objective = Tune.trialResultObjective trialResult
         trialValues = [objective]
         transcript =
           Tune.TrialTranscript
@@ -2839,116 +4628,84 @@ publishWorkerTuneEvent = do
             <> Text.pack (show scheduler)
             <> "\",\"pruner\":\""
             <> Text.pack (show pruner)
-            <> "\"}"
+            <> "\",\"parallelism\":"
+            <> Text.pack (show parallelism)
+            <> ",\"promotions\":"
+            <> Text.pack (show promotions)
+            <> ",\"perTrialOptimizerUpdates\":"
+            <> Text.pack (show updates)
+            <> "}"
     timestampStart <- liftIO currentTimestampNs
     let startEvent =
           ProtoTune.TuneTrialStarted
             ( ProtoTune.TrialStarted
                 { ProtoTune.tsExperimentHash = experimentHash
-                , ProtoTune.tsTrial = fromIntegral trialSeed
+                , ProtoTune.tsPlanId = planId
+                , ProtoTune.tsTrial = fromIntegral trialIndex
                 , ProtoTune.tsTrialSeed = fromIntegral trialSeed
                 , ProtoTune.tsParametersJson = parametersJson
                 , ProtoTune.tsTimestampNs = timestampStart
                 }
             )
-    _ <-
+    startPublish <-
       liftIO
-        ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+        ( publishPulsarEvent
             pulsarSettings
-            (Capabilities.pulsarPublish topic (ProtoTune.renderTuneEvent startEvent))
+            Topology.TuneEventRoute
+            substrate
+            startEvent
         )
+    requireServiceSuccess "publish tuning trial start" startPublish
     persistResult <-
       liftIO
         ( MinIOSubprocess.runMinIOSubprocess
             minioSettings
             (Tune.persistTrialTranscript transcript)
         )
-    checkpointResult <-
-      liftIO
-        ( MinIOSubprocess.runMinIOSubprocess
-            minioSettings
-            ( writeMinIOWeightCheckpoint
-                experimentHash
-                "tune-trial-weights"
-                (fromIntegral trialSeed)
-                [("objective", objective)]
-                (Tune.trialResultWeights trialResult)
-            )
-        )
+    requireServiceSuccess "persist tuning trial transcript" persistResult
+    when (Tune.trialExecutionPromoted execution) $ do
+      checkpointResult <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              ( writeMinIOWeightCheckpoint
+                  experimentHash
+                  "tune-trial-weights"
+                  (fromIntegral trialSeed)
+                  [("objective", objective)]
+                  (Tune.trialResultWeights trialResult)
+              )
+          )
+      requireServiceSuccess "persist promoted tuning trial checkpoint" checkpointResult
     timestampEnd <- liftIO currentTimestampNs
     let finishedEvent =
           ProtoTune.TuneTrialFinished
             ( ProtoTune.TrialFinished
                 { ProtoTune.tfTuneExperimentHash = experimentHash
-                , ProtoTune.tfTuneTrial = fromIntegral trialSeed
+                , ProtoTune.tfTunePlanId = planId
+                , ProtoTune.tfTuneTrial = fromIntegral trialIndex
                 , ProtoTune.tfTuneObjective = objective
-                , ProtoTune.tfTunePruned = False
+                , ProtoTune.tfTunePruned = Tune.trialExecutionPruned execution
                 , ProtoTune.tfTuneTranscriptObjectKey =
                     Tune.trialStorageKey experimentHash trialSeed
                 , ProtoTune.tfTuneTimestampNs = timestampEnd
                 }
             )
-    _ <-
+    finishPublish <-
       liftIO
-        ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+        ( publishPulsarEvent
             pulsarSettings
-            (Capabilities.pulsarPublish topic (ProtoTune.renderTuneEvent finishedEvent))
+            Topology.TuneEventRoute
+            substrate
+            finishedEvent
         )
-    pure (firstServiceError persistResult checkpointResult, objective)
+    requireServiceSuccess "publish tuning trial finish" finishPublish
+    pure objective
 
-  -- Sprint 5.7 — prefer the typed Dhall `TuneRunConfig` mount; fall back to
-  -- the legacy env var when no mount is present (developer-side CLI).
-  lookupTrialBudget defaultValue = do
-    runConfigLoad <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
-    case runConfigLoad of
-      RunConfig.RunConfigLoaded rc -> pure (RunConfig.turcTrialBudget rc)
-      RunConfig.RunConfigMissing -> liftIO $ do
-        raw <- lookupEnv "JITML_TRIAL_BUDGET"
-        pure $ case raw of
-          Just text | [(parsed, "")] <- reads text -> parsed
-          _ -> defaultValue
-      RunConfig.RunConfigDecodeFailed err ->
-        exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
-
-  firstServiceError (Left err) _ = Left err
-  firstServiceError _ (Left err) = Left err
-  firstServiceError (Right _) (Right _) = Right ()
-
-  lookupSweepSeed defaultValue = do
-    runConfigLoad <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
-    case runConfigLoad of
-      RunConfig.RunConfigLoaded rc -> pure (RunConfig.turcSweepSeed rc)
-      RunConfig.RunConfigMissing -> liftIO $ do
-        raw <- lookupEnv "JITML_SWEEP_SEED"
-        pure $ case raw of
-          Just text | [(parsed, "")] <- reads text -> parsed
-          _ -> defaultValue
-      RunConfig.RunConfigDecodeFailed err ->
-        exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
-
-  lookupTuneAxes = do
-    runConfigLoad <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
-    case runConfigLoad of
-      RunConfig.RunConfigLoaded rc ->
-        case ( Tune.samplerFromText (RunConfig.turcSampler rc)
-             , Tune.schedulerFromText (RunConfig.turcScheduler rc)
-             , Tune.prunerFromText (RunConfig.turcPruner rc)
-             ) of
-          (Just sampler, Just scheduler, Just pruner) -> pure (sampler, scheduler, pruner)
-          _ ->
-            exitWithError
-              ( InvalidConfig
-                  ( "invalid mounted TuneRunConfig tuning axes: sampler="
-                      <> RunConfig.turcSampler rc
-                      <> " scheduler="
-                      <> RunConfig.turcScheduler rc
-                      <> " pruner="
-                      <> RunConfig.turcPruner rc
-                  )
-              )
-      RunConfig.RunConfigMissing -> pure (Tune.TPE, Tune.ASHA, Tune.MedianPruner)
-      RunConfig.RunConfigDecodeFailed err ->
-        exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
+  requireServiceSuccess label result =
+    case result of
+      Left err -> exitWithError (InvalidConfig (label <> ": " <> Text.pack (show err)))
+      Right _ -> pure ()
 
 runRl :: [Text] -> [ParsedOption] -> App ()
 runRl ["rl", "train"] parsedOptions = do
@@ -3121,11 +4878,28 @@ runRl ["rl", "rollout"] parsedOptions = do
               <> renderStoredArtifactLines "rl-rollout" replayArtifact
           )
 runRl ["rl", "alphazero", "self-play"] parsedOptions = do
+  mounted <- liftIO (RunConfig.tryLoadAlphaZeroRunConfig runConfigPath)
+  case mounted of
+    RunConfig.RunConfigLoaded config ->
+      case RunConfig.alphaZeroPlanFromRunConfig config of
+        Left err -> exitWithError (mountedRunConfigDecodeError "AlphaZeroRunConfig" err)
+        Right plan -> runResolvedAlphaZeroPlan True plan
+    RunConfig.RunConfigDecodeFailed err ->
+      exitWithError (mountedRunConfigDecodeError "AlphaZeroRunConfig" err)
+    RunConfig.RunConfigMissing -> do
+      rejectMissingMountedRunConfigInKubernetes "AlphaZeroRunConfig"
+      plan <- prepareLocalAlphaZeroPlan parsedOptions
+      runResolvedAlphaZeroPlan False plan
+runRl path _ =
+  exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
+
+prepareLocalAlphaZeroPlan :: [ParsedOption] -> App WorkloadPlan.AlphaZeroPlan
+prepareLocalAlphaZeroPlan parsedOptions = do
   overrides <- case Overrides.parseExperimentOverrides parsedOptions of
     Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
     Right ovr -> pure ovr
   baseSubstrate <- workerSubstrateBase
-  env <- ask
+  generations <- requireUserIntOptionAtLeast "generations" 1 1 parsedOptions
   games <- requireUserIntOptionAtLeast "games" 2 1 parsedOptions
   sims <- requireUserIntOptionAtLeast "sims" 4 1 parsedOptions
   maxPlies <- requireUserIntOptionAtLeast "max-plies" 6 1 parsedOptions
@@ -3143,48 +4917,115 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
               <> ")"
           )
       )
+  generationsWord <- word32PlanValue "AlphaZero generations" (toInteger generations)
+  gamesWord <- word32PlanValue "AlphaZero self-play games" (toInteger games)
+  simsWord <- word32PlanValue "AlphaZero MCTS simulations" (toInteger sims)
+  maxPliesWord <- word32PlanValue "AlphaZero max plies" (toInteger maxPlies)
+  updatesWord <- word32PlanValue "AlphaZero optimizer updates" (toInteger updates)
+  arenaGamesWord <- word32PlanValue "AlphaZero arena games" (toInteger arenaGames)
   let substrate = Overrides.overrideSubstrate overrides baseSubstrate
-      seed = fromIntegral (Overrides.overrideSeed overrides 31) :: Int
+      seed = Overrides.overrideSeed overrides 31
+      experimentHash =
+        Checkpoint.deriveExperimentHash
+          "alphazero-self-play"
+          ( Text.intercalate
+              ":"
+              [ renderSubstrate substrate
+              , gameName
+              , Text.pack (show generations)
+              , Text.pack (show games)
+              , Text.pack (show sims)
+              , Text.pack (show maxPlies)
+              , Text.pack (show updates)
+              , Text.pack (show arenaGames)
+              , Text.pack (show seed)
+              ]
+          )
+      raw =
+        ProtoRl.StartAlphaZeroRun
+          { ProtoRl.sazSubstrate = substrate
+          , ProtoRl.sazExperimentHash = experimentHash
+          , ProtoRl.sazPlanId = ""
+          , ProtoRl.sazResolvedPlan = ""
+          , ProtoRl.sazGame = gameName
+          , ProtoRl.sazGenerations = generationsWord
+          , ProtoRl.sazSelfPlayGames = gamesWord
+          , ProtoRl.sazMctsSimulationsPerMove = simsWord
+          , ProtoRl.sazMaxPlies = maxPliesWord
+          , ProtoRl.sazOptimizerUpdates = updatesWord
+          , ProtoRl.sazArenaGames = arenaGamesWord
+          , ProtoRl.sazSeed = seed
+          }
+  case PlanCommand.prepareStartAlphaZeroRun raw of
+    Left err -> exitWithError (InvalidConfig ("AlphaZero plan refinement failed: " <> err))
+    Right (_, plan) -> pure plan
+
+runResolvedAlphaZeroPlan :: Bool -> WorkloadPlan.AlphaZeroPlan -> App ()
+runResolvedAlphaZeroPlan requireLiveContext plan = do
+  env <- ask
+  generations <-
+    intPlanValue "AlphaZero generations" (quantityValue (WorkloadPlan.alphaZeroPlanGenerations plan))
+  games <-
+    intPlanValue
+      "AlphaZero self-play games"
+      (quantityValue (WorkloadPlan.alphaZeroPlanSelfPlayGames plan))
+  sims <-
+    intPlanValue
+      "AlphaZero MCTS simulations"
+      (quantityValue (WorkloadPlan.alphaZeroPlanMctsSimulations plan))
+  maxPlies <-
+    intPlanValue "AlphaZero max plies" (quantityValue (WorkloadPlan.alphaZeroPlanMaxPlies plan))
+  updates <-
+    intPlanValue "AlphaZero optimizer updates" (quantityValue (WorkloadPlan.alphaZeroPlanUpdates plan))
+  arenaGames <-
+    intPlanValue "AlphaZero arena games" (quantityValue (WorkloadPlan.alphaZeroPlanArenaGames plan))
+  seed <-
+    intPlanValue
+      "AlphaZero seed"
+      (NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.alphaZeroPlanRunPlan plan))))
+  contextMaybe <- workerLiveContext
+  when (requireLiveContext && isNothing contextMaybe) $
+    exitWithError (InvalidConfig "resolved AlphaZero worker requires mounted service configuration")
+  let substrate = runPlanSubstrate (WorkloadPlan.alphaZeroPlanRunPlan plan)
+      experimentHash = runPlanExperimentId (WorkloadPlan.alphaZeroPlanRunPlan plan)
+      planId = planIdText (WorkloadPlan.alphaZeroPlanId plan)
+      gameName = WorkloadPlan.renderAlphaZeroGame (WorkloadPlan.alphaZeroPlanGame plan)
       device = rlDeviceForSubstrate substrate env
       initialState = AlphaZero.initialStateFor gameName
       observationSize = AlphaZero.observationSizeFor gameName
       actionCount = AlphaZero.actionCountFor gameName
       net0 = PolicyValueNet.initPolicyValueNet observationSize actionCount 16 seed
       adam0 = PolicyValueNet.initAdamFor net0
+  for_ contextMaybe $ \context ->
+    unless (Publication.publicationSubstrate (workerLivePublication context) == substrate) $
+      exitWithError
+        ( InvalidConfig
+            ( "resolved AlphaZero plan substrate "
+                <> renderSubstrate substrate
+                <> " does not match worker substrate "
+                <> renderSubstrate (Publication.publicationSubstrate (workerLivePublication context))
+            )
+        )
   probe <- liftIO (probeMlpDevice device)
   case probe of
     Left err -> exitWithError (InvalidConfig ("AlphaZero substrate device unavailable: " <> err))
     Right () -> do
-      sampleResults <-
-        liftIO $
-          traverse
-            ( \gameIndex ->
-                PolicyValueNet.generatePolicyValueSamplesWithDeviceFrom
-                  initialState
-                  device
-                  net0
-                  (seed + gameIndex)
-                  sims
-                  maxPlies
-            )
-            [0 .. games - 1]
-      samples <- case sequence sampleResults of
-        Left err -> exitWithError (InvalidConfig ("AlphaZero self-play failed: " <> err))
-        Right batches -> pure (concat batches)
-      when (null samples) $
-        exitWithError (InvalidConfig "AlphaZero self-play produced no samples")
-      trainedE <-
-        liftIO $
-          PolicyValueNet.trainPolicyValueNetOnSamplesWithDevice
-            device
-            net0
-            adam0
-            1.0e-3
-            updates
-            samples
-      trainedNet <- case trainedE of
-        Left err -> exitWithError (InvalidConfig ("AlphaZero device training failed: " <> err))
-        Right (trained, _trainedAdam) -> pure trained
+      (trainedNet, samples) <-
+        trainResolvedAlphaZeroGenerations
+          contextMaybe
+          substrate
+          experimentHash
+          planId
+          initialState
+          device
+          net0
+          adam0
+          generations
+          games
+          sims
+          maxPlies
+          updates
+          seed
       let winRate =
             PolicyValueNet.arenaWinRateAgainstUniformFrom
               initialState
@@ -3192,30 +5033,31 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
               arenaGames
               maxPlies
               (seed + 7919)
-          experimentHash =
-            Checkpoint.deriveExperimentHash
-              "alphazero-self-play"
-              (renderSubstrate substrate <> ":" <> gameName <> ":" <> Text.pack (show seed))
-          checkpointStep = fromIntegral (length samples)
-          alphaZeroGenerationCount = 1
+          completedGenerations = fromIntegral generations
+          checkpointStep =
+            alphaZeroArtifactStep completedGenerations (length samples)
           alphaZeroMetrics =
             [ ("arena_win_rate", winRate)
             , ("legal_move_rate", 1.0)
             , ("mcts_simulations_per_move", fromIntegral sims)
             , ("self_play_games", fromIntegral games)
-            , ("self_play_generations", fromIntegral alphaZeroGenerationCount)
+            , ("self_play_generations", fromIntegral generations)
             , ("self_play_samples", fromIntegral (length samples))
             ]
           initialAlphaZeroWeights = PolicyValueNet.policyValueNetToFlat net0
           alphaZeroWeights = PolicyValueNet.policyValueNetToFlat trainedNet
           alphaZeroCompleted =
-            alphaZeroCompletedTraining
-              experimentHash
-              gameName
-              alphaZeroGenerationCount
-              alphaZeroMetrics
-              initialAlphaZeroWeights
-              alphaZeroWeights
+            do
+              budget <- eitherToMaybe (alphaZeroCompletionBudget plan)
+              alphaZeroCompletedTraining
+                (WorkloadPlan.alphaZeroPlanId plan)
+                budget
+                experimentHash
+                gameName
+                completedGenerations
+                alphaZeroMetrics
+                initialAlphaZeroWeights
+                alphaZeroWeights
       stored <-
         writeLocalWeightCheckpointWithCompleted
           alphaZeroCompleted
@@ -3233,6 +5075,7 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
         Text.unlines
           ( [ "rl alphazero self-play: substrate=" <> renderSubstrate substrate
             , "game: " <> gameName
+            , "generations: " <> Text.pack (show generations)
             , "games: " <> Text.pack (show games)
             , "samples: " <> Text.pack (show (length samples))
             , "arena-win-rate: " <> Text.pack (show winRate)
@@ -3242,13 +5085,114 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
               <> renderStoredCheckpointLines experimentHash stored
               <> renderStoredArtifactLines "alphazero-transcript" transcriptArtifact
           )
-      publishWorkerRlCompletion
-        ("alphazero-" <> gameName <> "-policy-value-weights")
-        checkpointStep
-        alphaZeroMetrics
-        (Just (stored, Nothing))
-runRl path _ =
-  exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
+      publishResolvedAlphaZeroEvent
+        contextMaybe
+        substrate
+        ( ProtoRl.RlArenaCompleted
+            ProtoRl.ArenaCompleted
+              { ProtoRl.acPlanId = planId
+              , ProtoRl.acExperimentHash = experimentHash
+              , ProtoRl.acArenaGames = fromIntegral arenaGames
+              , ProtoRl.acWinRate = winRate
+              }
+        )
+
+trainResolvedAlphaZeroGenerations
+  :: Maybe WorkerLiveContext
+  -> Substrate
+  -> Text
+  -> Text
+  -> AlphaZero.GameState
+  -> MlpDevice
+  -> PolicyValueNet.PolicyValueNet
+  -> AdamState
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> App (PolicyValueNet.PolicyValueNet, [PolicyValueNet.PolicyValueTrainingSample])
+trainResolvedAlphaZeroGenerations context substrate experimentHash planId initialState device = go 0
+ where
+  go generation net adam generationTarget games sims maxPlies updates seed
+    | generation >= generationTarget = pure (net, [])
+    | otherwise = do
+        sampleResults <-
+          liftIO $
+            traverse
+              ( \gameIndex ->
+                  PolicyValueNet.generatePolicyValueSamplesWithDeviceFrom
+                    initialState
+                    device
+                    net
+                    (seed + generation * 7919 + gameIndex)
+                    sims
+                    maxPlies
+              )
+              [0 .. games - 1]
+        generationSamples <- case sequence sampleResults of
+          Left err -> exitWithError (InvalidConfig ("AlphaZero self-play failed: " <> err))
+          Right batches -> pure (concat batches)
+        when (null generationSamples) $
+          exitWithError (InvalidConfig "AlphaZero self-play produced no samples")
+        trainedE <-
+          liftIO $
+            PolicyValueNet.trainPolicyValueNetOnSamplesWithDevice
+              device
+              net
+              adam
+              1.0e-3
+              updates
+              generationSamples
+        (trainedNet, trainedAdam) <- case trainedE of
+          Left err -> exitWithError (InvalidConfig ("AlphaZero device training failed: " <> err))
+          Right trained -> pure trained
+        publishResolvedAlphaZeroEvent
+          context
+          substrate
+          ( ProtoRl.RlGenerationCompleted
+              ProtoRl.GenerationCompleted
+                { ProtoRl.gcPlanId = planId
+                , ProtoRl.gcExperimentHash = experimentHash
+                , ProtoRl.gcGeneration = fromIntegral generation
+                , ProtoRl.gcSelfPlayGames = fromIntegral games
+                , ProtoRl.gcSamples = fromIntegral (length generationSamples)
+                }
+          )
+        (finalNet, laterSamples) <-
+          go
+            (generation + 1)
+            trainedNet
+            trainedAdam
+            generationTarget
+            games
+            sims
+            maxPlies
+            updates
+            seed
+        pure (finalNet, generationSamples <> laterSamples)
+
+publishResolvedAlphaZeroEvent :: Maybe WorkerLiveContext -> Substrate -> ProtoRl.RlEvent -> App ()
+publishResolvedAlphaZeroEvent Nothing _ _ = pure ()
+publishResolvedAlphaZeroEvent (Just context) substrate event = do
+  result <-
+    liftIO
+      ( publishPulsarEvent
+          (workerLivePulsarSettings context)
+          Topology.RlEventRoute
+          substrate
+          event
+      )
+  case result of
+    Left err -> exitWithError (InvalidConfig ("publish AlphaZero event: " <> Text.pack (show err)))
+    Right _ -> pure ()
+
+intPlanValue :: Text -> Word64 -> App Int
+intPlanValue label value
+  | toInteger value > toInteger (maxBound :: Int) =
+      exitWithError (InvalidConfig (label <> " exceeds the platform Int range"))
+  | otherwise = pure (fromIntegral value)
 
 overrideTrainerKind :: Overrides.ExperimentOverrides -> Text -> Text
 overrideTrainerKind overrides base =
@@ -3524,7 +5468,8 @@ buildWeightCheckpointSnapshotWithDatasetShaAndCompletion _datasetShaAtRead compl
    in (manifest, [(blobObjectKey, payload)])
 
 completedTrainingForSupervisedProblem
-  :: SL.CanonicalProblem
+  :: WorkloadPlan.SupervisedPlan
+  -> SL.CanonicalProblem
   -> TrainingMetrics
   -> Text
   -> Text
@@ -3532,7 +5477,7 @@ completedTrainingForSupervisedProblem
   -> [(Text, Double)]
   -> [Double]
   -> Either Text TrainingBudget.CompletedTraining
-completedTrainingForSupervisedProblem problem metrics experimentHash tensorName step metricRows finalWeights = do
+completedTrainingForSupervisedProblem plan problem metrics experimentHash tensorName step metricRows finalWeights = do
   row <-
     maybe
       (Left ("missing ProductRow for supervised problem " <> SL.problemName problem))
@@ -3543,7 +5488,14 @@ completedTrainingForSupervisedProblem problem metrics experimentHash tensorName 
       (Left ("missing initial checkpoint weights for " <> SL.problemName problem))
       Right
       (tmInitialCheckpointWeights metrics)
+  budget <-
+    TrainingBudget.mkTrainingBudget
+      TrainingBudget.SupervisedEpochBudget
+      (quantityValue (WorkloadPlan.supervisedPlanEpochs plan))
+      (Just (NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.supervisedPlanRunPlan plan)))))
   completedTrainingForProductRow
+    (WorkloadPlan.supervisedPlanId plan)
+    budget
     row
     (tmDatasetShaAtRead metrics)
     experimentHash
@@ -3565,7 +5517,9 @@ supervisedProductRowForProblem problem =
     ]
 
 completedTrainingForProductRow
-  :: ProductMatrix.ProductRow state
+  :: PlanId
+  -> TrainingBudget.TrainingBudget
+  -> ProductMatrix.ProductRow state
   -> Maybe Text
   -> Text
   -> Text
@@ -3574,7 +5528,7 @@ completedTrainingForProductRow
   -> [Double]
   -> [Double]
   -> Either Text TrainingBudget.CompletedTraining
-completedTrainingForProductRow row datasetShaAtRead experimentHash tensorName step metrics initialWeights finalWeights = do
+completedTrainingForProductRow planId budget row datasetShaAtRead experimentHash tensorName step metrics initialWeights finalWeights = do
   evidence <-
     checkpointTrainingEvidenceWithInitialWeights
       datasetShaAtRead
@@ -3586,7 +5540,8 @@ completedTrainingForProductRow row datasetShaAtRead experimentHash tensorName st
       finalWeights
   observations <- convergenceObservationsForProductRow row metrics
   TrainingBudget.completedTraining
-    (ProductMatrix.trainingBudget row)
+    planId
+    budget
     step
     evidence
     observations
@@ -3595,6 +5550,31 @@ completedTrainingForProductRow row datasetShaAtRead experimentHash tensorName st
       , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
       , TrainingBudget.tbrScalarTags = fmap TrainingBudget.coMetricName observations
       }
+
+-- | Phase-10 bridge for product rows whose total kind-indexed plan projection
+-- lands in Sprint 19.4.  The identity is still canonical, deterministic, and
+-- bound to the row's declared budget; Sprint 19.4 replaces this bridge with
+-- the row's resolved 'RunPlan' identity.
+completionPlanIdForProductRow
+  :: ProductMatrix.ProductRow state
+  -> Either Text PlanId
+completionPlanIdForProductRow row =
+  completionPlanIdFromCanonicalText
+    ( Text.intercalate
+        "\NUL"
+        [ "jitml-product-row-completion-plan-v1"
+        , ProductMatrix.rowId row
+        , ProductMatrix.productRowExperimentHash row
+        , TrainingBudget.renderTrainingBudget (ProductMatrix.trainingBudget row)
+        ]
+    )
+
+completionPlanIdFromCanonicalText :: Text -> Either Text PlanId
+completionPlanIdFromCanonicalText canonical =
+  case validationToEither (planIdFromCanonicalText canonical) of
+    Right planId -> Right planId
+    Left errors ->
+      Left ("completion plan-id refinement failed: " <> Text.pack (show errors))
 
 convergenceObservationsForProductRow
   :: ProductMatrix.ProductRow state
@@ -3612,49 +5592,52 @@ convergenceObservationsForProductRow row metrics = do
     failures -> Left (Text.intercalate "; " failures)
 
 tuneSweepCompletedTraining
-  :: Text
+  :: WorkloadPlan.TuningPlan
+  -> Text
   -> Word32
   -> Double
-  -> Maybe TrainingBudget.CompletedTraining
-tuneSweepCompletedTraining experimentHash trialsCompleted bestObjective =
+  -> Either Text TrainingBudget.CompletedTraining
+tuneSweepCompletedTraining plan experimentHash trialsCompleted bestObjective =
   let observed = fromIntegral trialsCompleted
+      planned = quantityValue (WorkloadPlan.tuningPlanTrials plan)
+      seed = NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.tuningPlanRunPlan plan)))
       metrics = [("best_objective", bestObjective)]
    in do
+        budget <-
+          TrainingBudget.mkTrainingBudget
+            TrainingBudget.TuningTrialBudget
+            planned
+            (Just seed)
         evidence <-
-          eitherToMaybe
-            ( ProductEvidence.mkTrainingEvidence
-                (sha256Text ("tune-initial:" <> experimentHash))
-                (sha256Text ("tune-final:" <> experimentHash <> ":" <> Text.pack (show bestObjective)))
-                (max 1 observed)
-                (sha256Text ("tune-dataset:" <> experimentHash))
-            )
-        observations <- eitherToMaybe (convergenceObservationsForMetrics metrics)
-        eitherToMaybe $
-          TrainingBudget.completedTraining
-            TrainingBudget.TrainingBudget
-              { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
-              , TrainingBudget.tbTargetUnits = max 1 observed
-              , TrainingBudget.tbUnitLabel = "trials"
-              , TrainingBudget.tbSeed = Nothing
-              }
+          ProductEvidence.mkTrainingEvidence
+            (sha256Text ("tune-initial:" <> experimentHash))
+            (sha256Text ("tune-final:" <> experimentHash <> ":" <> Text.pack (show bestObjective)))
             observed
-            evidence
-            observations
-            TrainingBudget.TensorBoardRunMetadata
-              { TrainingBudget.tbrRunId = experimentHash
-              , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
-              , TrainingBudget.tbrScalarTags = fmap fst metrics
-              }
+            (sha256Text ("tune-dataset:" <> experimentHash))
+        observations <- convergenceObservationsForMetrics metrics
+        TrainingBudget.completedTraining
+          (WorkloadPlan.tuningPlanId plan)
+          budget
+          observed
+          evidence
+          observations
+          TrainingBudget.TensorBoardRunMetadata
+            { TrainingBudget.tbrRunId = experimentHash
+            , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+            , TrainingBudget.tbrScalarTags = fmap fst metrics
+            }
 
 alphaZeroCompletedTraining
-  :: Text
+  :: PlanId
+  -> TrainingBudget.TrainingBudget
+  -> Text
   -> Text
   -> Word64
   -> [(Text, Double)]
   -> [Double]
   -> [Double]
   -> Maybe TrainingBudget.CompletedTraining
-alphaZeroCompletedTraining experimentHash game generationCount metrics initialWeights finalWeights = do
+alphaZeroCompletedTraining planId budget experimentHash game generationCount metrics initialWeights finalWeights = do
   evidence <-
     eitherToMaybe $
       ProductEvidence.mkTrainingEvidence
@@ -3665,13 +5648,9 @@ alphaZeroCompletedTraining experimentHash game generationCount metrics initialWe
   observations <- eitherToMaybe (alphaZeroConvergenceObservations metrics)
   eitherToMaybe $
     TrainingBudget.completedTraining
-      TrainingBudget.TrainingBudget
-        { TrainingBudget.tbKind = TrainingBudget.AlphaZeroSelfPlayBudget
-        , TrainingBudget.tbTargetUnits = max 1 generationCount
-        , TrainingBudget.tbUnitLabel = "self-play-generations"
-        , TrainingBudget.tbSeed = Nothing
-        }
-      (max 1 generationCount)
+      planId
+      budget
+      generationCount
       evidence
       observations
       TrainingBudget.TensorBoardRunMetadata
@@ -3679,6 +5658,25 @@ alphaZeroCompletedTraining experimentHash game generationCount metrics initialWe
         , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
         , TrainingBudget.tbrScalarTags = fmap TrainingBudget.coMetricName observations
         }
+
+-- | AlphaZero budgets are counted in completed self-play generations. Sample
+-- count remains useful diagnostic evidence, but it is not the checkpoint's
+-- progress unit and can differ substantially between games and runs.
+alphaZeroArtifactStep :: Word64 -> Int -> Word64
+alphaZeroArtifactStep completedGenerations _sampleCount = completedGenerations
+
+alphaZeroCompletionBudget
+  :: WorkloadPlan.AlphaZeroPlan
+  -> Either Text TrainingBudget.TrainingBudget
+alphaZeroCompletionBudget plan =
+  TrainingBudget.mkTrainingBudget
+    TrainingBudget.AlphaZeroSelfPlayBudget
+    (quantityValue (WorkloadPlan.alphaZeroPlanGenerations plan))
+    ( Just
+        ( NonEmpty.head
+            (seedCohortValues (runPlanSeeds (WorkloadPlan.alphaZeroPlanRunPlan plan)))
+        )
+    )
 
 alphaZeroConvergenceObservations
   :: [(Text, Double)]
@@ -3691,15 +5689,15 @@ alphaZeroConvergenceObservations metrics = do
       (lookup "arena_win_rate" metrics)
   let threshold = RLConvergence.alphaZeroArenaThreshold
       thresholdValue = RLConvergence.azTargetWinRate threshold - RLConvergence.azSlack threshold
-  pure
-    [ TrainingBudget.ConvergenceObservation
-        { TrainingBudget.coMetricName = "arena_win_rate"
-        , TrainingBudget.coMetricValue = arenaWinRate
-        , TrainingBudget.coMetricGoal = TrainingBudget.MetricMaximise
-        , TrainingBudget.coThreshold = Just thresholdValue
-        , TrainingBudget.coPassed = RLConvergence.passesAlphaZeroArena threshold arenaWinRate
-        }
-    ]
+  observation <-
+    TrainingBudget.measureCriterionExcluding
+      "arena_win_rate"
+      TrainingBudget.MetricMaximise
+      thresholdValue
+      0.5
+      1.0e-12
+      arenaWinRate
+  pure [observation]
 
 checkpointTrainingEvidenceWithInitialWeights
   :: Maybe Text
@@ -3744,43 +5742,22 @@ hashBytes =
 
 checkpointTrainingBudgetForTensor :: Text -> Word64 -> TrainingBudget.TrainingBudget
 checkpointTrainingBudgetForTensor tensorName step =
-  let modelFamily = checkpointModelFamilyForTensor tensorName
-   in case modelFamily of
-        Checkpoint.ReinforcementLearningPolicyFamily ->
-          TrainingBudget.TrainingBudget
-            { TrainingBudget.tbKind = TrainingBudget.RlEnvironmentStepBudget
-            , TrainingBudget.tbTargetUnits = max 1 step
-            , TrainingBudget.tbUnitLabel = "env-steps"
-            , TrainingBudget.tbSeed = Nothing
-            }
-        Checkpoint.AlphaZeroPolicyValueFamily ->
-          TrainingBudget.TrainingBudget
-            { TrainingBudget.tbKind = TrainingBudget.AlphaZeroSelfPlayBudget
-            , TrainingBudget.tbTargetUnits = max 1 step
-            , TrainingBudget.tbUnitLabel = "self-play-samples"
-            , TrainingBudget.tbSeed = Nothing
-            }
-        Checkpoint.HyperparameterTuningFamily ->
-          TrainingBudget.TrainingBudget
-            { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
-            , TrainingBudget.tbTargetUnits = max 1 step
-            , TrainingBudget.tbUnitLabel = "trials"
-            , TrainingBudget.tbSeed = Nothing
-            }
-        Checkpoint.SupervisedModelFamily ->
-          TrainingBudget.TrainingBudget
-            { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
-            , TrainingBudget.tbTargetUnits = max 1 step
-            , TrainingBudget.tbUnitLabel = "epochs"
-            , TrainingBudget.tbSeed = Nothing
-            }
-        Checkpoint.GenericModelFamily ->
-          TrainingBudget.TrainingBudget
-            { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
-            , TrainingBudget.tbTargetUnits = max 1 step
-            , TrainingBudget.tbUnitLabel = "steps"
-            , TrainingBudget.tbSeed = Nothing
-            }
+  let kind =
+        case checkpointModelFamilyForTensor tensorName of
+          Checkpoint.ReinforcementLearningPolicyFamily ->
+            TrainingBudget.RlEnvironmentStepBudget
+          Checkpoint.AlphaZeroPolicyValueFamily ->
+            TrainingBudget.AlphaZeroSelfPlayBudget
+          Checkpoint.HyperparameterTuningFamily ->
+            TrainingBudget.TuningTrialBudget
+          Checkpoint.SupervisedModelFamily ->
+            TrainingBudget.SupervisedEpochBudget
+          Checkpoint.GenericModelFamily ->
+            TrainingBudget.SupervisedEpochBudget
+   in either
+        (error . Text.unpack)
+        id
+        (TrainingBudget.mkTrainingBudget kind (max 1 step) Nothing)
 
 checkpointModelFamilyForTensor :: Text -> Checkpoint.ModelFamily
 checkpointModelFamilyForTensor tensorName
@@ -3986,14 +5963,6 @@ positiveWordFromInt :: Int -> Word64
 positiveWordFromInt =
   fromIntegral . max 1
 
-positiveIntFromWord64 :: Word64 -> Int
-positiveIntFromWord64 value =
-  max 1 (fromIntegral (min value (fromIntegral (maxBound :: Int) :: Word64)))
-
-ceilingDivInt :: Int -> Int -> Int
-ceilingDivInt numerator denominator =
-  max 1 ((max 1 numerator + max 1 denominator - 1) `div` max 1 denominator)
-
 data StoredArtifact = StoredArtifact
   { storedArtifactSha :: !Text
   , storedArtifactObjectKey :: !Text
@@ -4126,19 +6095,24 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
    where
     goEvaluated _ [] = []
     goEvaluated i (episode : rest) = asEpisodeWithSteps i episode : goEvaluated (i + 1) rest
-  targetTrainingSteps floorSteps =
-    positiveIntFromWord64
-      (max (fromIntegral (max 1 floorSteps)) (fromMaybe 0 targetEnvStepsMaybe))
-  -- Replay-based off-policy trainers (DQN, QR-DQN, DDPG/TD3/SAC/CrossQ/TQC) need
-  -- a sample budget comparable to the on-policy path (which gets ~25600 env-steps
-  -- via `max 50 evalEpisodes * rolloutSteps`). The old flat `max 2000` floor left
-  -- them with ~2000-4000 steps — below the replay warmup + epsilon-decay
-  -- schedules — so the policy stayed essentially random. These floors match the
-  -- SB3 zoo sample complexity (cartpole ~50k, mountain-car ~120k).
-  offPolicyStepFloor =
-    case Text.toLower envName of
-      "mountain-car" -> 120000
-      _ -> 50000
+  plannedSchedule vectorOverride =
+    case targetEnvStepsMaybe of
+      Just expected ->
+        ProductBudget.planExactRlTrainingSchedule
+          trainerKind
+          envName
+          evalEpisodes
+          maxStepsPerEpisode
+          vectorOverride
+          expected
+      Nothing ->
+        ProductBudget.planRlTrainingSchedule
+          trainerKind
+          envName
+          evalEpisodes
+          maxStepsPerEpisode
+          vectorOverride
+          Nothing
   -- Sprint 8.11 — every MLP-backed trainer routes through its `*OnDevice`
   -- variant against the resolved substrate device, with iteration budgets
   -- raised from the old `max 1 evalEpisodes` floor so training actually
@@ -4148,79 +6122,66 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
         vecEnvCountOverride <- productEnvMaybeIntPlain "JITML_PRODUCT_RL_VEC_ENVS"
-        let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
-            effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
-            rolloutSteps = max 512 effectiveMaxSteps
-            iterationFloor = onPolicyIterationFloorFor variant envName
-            -- ~150 rollouts (~77k env-steps for the 512-step rollout). The old
-            -- `max 50` floor (~25600 steps) is below the SB3 on-policy sample
-            -- budget for cartpole (~1e5) and far below lunar-lander/mountain-car,
-            -- so even a correct (linear) critic could not reach the literature
-            -- bars in the given budget.
-            targetSteps = targetTrainingSteps (max iterationFloor evalEpisodes * rolloutSteps)
-            numIterations = max iterationFloor (ceilingDivInt targetSteps rolloutSteps)
-            vecEnvCount =
-              fromMaybe
-                (onPolicyDefaultVectorEnvCountFor variant envName)
-                vecEnvCountOverride
-        let config =
-              PpoTrainer.defaultPpoTrainConfig
-                { PpoTrainer.ppoSeed = seed
-                , PpoTrainer.ppoVariant = variant
-                , PpoTrainer.ppoHiddenUnits = PpoTrainer.productPpoHiddenUnits
-                , PpoTrainer.ppoVectorEnvCount = vecEnvCount
-                , PpoTrainer.ppoNumIterations = numIterations
-                , PpoTrainer.ppoRolloutSteps = rolloutSteps
-                , PpoTrainer.ppoEpochsPerUpdate =
-                    onPolicyEpochsPerUpdateFor variant envName epochsPerUpdate
-                , PpoTrainer.ppoMaxEpisodeSteps = effectiveMaxSteps
-                , PpoTrainer.ppoActionCount = RLSim.envActionCount environment
-                , PpoTrainer.ppoObsSize = RLSim.envObservationSize environment
-                , PpoTrainer.ppoLearningRate = learningRate
-                , -- Nonzero entropy bonus for exploration: with the old 0.0
-                  -- coefficient and a deterministic argmax eval policy,
-                  -- mountain-car and acrobot sat on their exact reward floors
-                  -- (goal never reached). 0.01 matches common SB3 PPO configs;
-                  -- the sparse-reward classic-control envs (mountain-car,
-                  -- acrobot) get a larger bonus because the potential-based
-                  -- reward shaping is absorbed by the on-policy value baseline,
-                  -- so exploration must come from the entropy term.
-                  PpoTrainer.ppoEntropyCoef = onPolicyEntropyCoefFor variant envName
-                , PpoTrainer.ppoCountBeta = onPolicyCountBetaFor variant envName
-                , PpoTrainer.ppoKlTarget = onPolicyKlTargetFor variant envName
-                }
-        resultE <- PpoTrainer.trainOnPolicyOnDeviceWithEnvironment device simEnv variant config
-        pure $
-          resultE
-            >>= \result ->
-              let episodes =
-                    evaluatedEpisodes $
-                      PpoTrainer.evaluateOnPolicyWithEnvironment
-                        simEnv
-                        config
-                        (PpoTrainer.resultFinalParams result)
-                        evalEpisodes
-                  initialWeights = mlpParamsToFlat (PpoTrainer.initialPpoParams config)
-                  finalWeights = mlpParamsToFlat (PpoTrainer.resultFinalParams result)
-                  updateCount =
-                    positiveWordFromInt $
-                      PpoTrainer.ppoNumIterations config
-                        * max 1 (PpoTrainer.ppoEpochsPerUpdate config)
-                  observedUnits =
-                    positiveWordFromInt $
-                      PpoTrainer.ppoNumIterations config
-                        * PpoTrainer.ppoRolloutSteps config
-                        * max 1 (PpoTrainer.ppoVectorEnvCount config)
-               in trainerRunWithEvidence
-                    substrate
-                    trainerKind
-                    envName
-                    seed
-                    updateCount
-                    initialWeights
-                    finalWeights
-                    observedUnits
-                    episodes
+        case plannedSchedule vecEnvCountOverride of
+          Left err -> pure (Left err)
+          Right schedule@ProductBudget.OnPolicyTrainingSchedule {} -> do
+            let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
+                config =
+                  PpoTrainer.defaultPpoTrainConfig
+                    { PpoTrainer.ppoSeed = seed
+                    , PpoTrainer.ppoVariant = variant
+                    , PpoTrainer.ppoHiddenUnits = PpoTrainer.productPpoHiddenUnits
+                    , PpoTrainer.ppoVectorEnvCount =
+                        ProductBudget.scheduleOnPolicyVectorEnvironments schedule
+                    , PpoTrainer.ppoNumIterations =
+                        ProductBudget.scheduleOnPolicyIterations schedule
+                    , PpoTrainer.ppoRolloutSteps =
+                        ProductBudget.scheduleOnPolicyRolloutSteps schedule
+                    , PpoTrainer.ppoEpochsPerUpdate =
+                        onPolicyEpochsPerUpdateFor variant envName epochsPerUpdate
+                    , PpoTrainer.ppoMaxEpisodeSteps =
+                        ProductBudget.scheduleOnPolicyMaxEpisodeSteps schedule
+                    , PpoTrainer.ppoActionCount = RLSim.envActionCount environment
+                    , PpoTrainer.ppoObsSize = RLSim.envObservationSize environment
+                    , PpoTrainer.ppoLearningRate = learningRate
+                    , -- Nonzero entropy bonus for exploration: with the old 0.0
+                      -- coefficient and a deterministic argmax eval policy,
+                      -- mountain-car and acrobot sat on their exact reward floors.
+                      PpoTrainer.ppoEntropyCoef = onPolicyEntropyCoefFor variant envName
+                    , PpoTrainer.ppoCountBeta = PpoTrainer.productPpoCountBetaFor variant envName
+                    , PpoTrainer.ppoKlTarget = onPolicyKlTargetFor variant envName
+                    }
+            resultE <- PpoTrainer.trainOnPolicyOnDeviceWithEnvironment device simEnv variant config
+            pure $
+              resultE
+                >>= \result ->
+                  let episodes =
+                        evaluatedEpisodes $
+                          PpoTrainer.evaluateOnPolicyWithEnvironment
+                            simEnv
+                            config
+                            (PpoTrainer.resultFinalParams result)
+                            evalEpisodes
+                      initialWeights = mlpParamsToFlat (PpoTrainer.initialPpoParams config)
+                      finalWeights = mlpParamsToFlat (PpoTrainer.resultFinalParams result)
+                      updateCount =
+                        positiveWordFromInt $
+                          if variant == PpoTrainer.VariantTRPO
+                            then PpoTrainer.ppoNumIterations config
+                            else
+                              PpoTrainer.ppoNumIterations config
+                                * max 1 (PpoTrainer.ppoEpochsPerUpdate config)
+                   in trainerRunWithEvidence
+                        substrate
+                        trainerKind
+                        envName
+                        seed
+                        updateCount
+                        initialWeights
+                        finalWeights
+                        (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                        episodes
+          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   -- One on-policy tuning across substrates: the cuBLAS (linux-cuda) and oneDNN
   -- (linux-cpu) GEMM paths are numerically close, so the same (epochs, lr) that
   -- converges cartpole/lunar on linux-cpu must be used on linux-cuda rather than
@@ -4229,42 +6190,24 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
   onPolicyTuning LinuxCPU = (10, 5.0e-4)
   onPolicyTuning LinuxCUDA = (10, 5.0e-4)
   onPolicyTuning AppleSilicon = (10, 5.0e-4)
-  -- TRPO's trust-region step is intentionally single-pass on lunar-lander.
-  -- Replaying the same large rollout through ten natural-gradient line
-  -- searches overstepped the landing-policy region and consistently crashed.
-  onPolicyEpochsPerUpdateFor PpoTrainer.VariantTRPO "lunar-lander" _ = 1
+  -- TRPO performs one natural-gradient actor step and its own isolated
+  -- value-head fitting passes per rollout. PPO's repeated gradient-epoch field
+  -- is deliberately ignored; the TRPO critic count and learning rate are
+  -- explicit trainer fields.
+  onPolicyEpochsPerUpdateFor PpoTrainer.VariantTRPO _ _ = 1
   onPolicyEpochsPerUpdateFor _ _ fallback = fallback
   onPolicyKlTargetFor PpoTrainer.VariantTRPO "lunar-lander" = 0.002
   onPolicyKlTargetFor _ _ = PpoTrainer.ppoKlTarget PpoTrainer.defaultPpoTrainConfig
-  onPolicyIterationFloorFor PpoTrainer.VariantTRPO "lunar-lander" = 150
-  onPolicyIterationFloorFor _ _ = 150
+  -- TRPO acceptance compares the same unclipped surrogate differentiated by
+  -- the actor step. Entropy is therefore zero rather than an unguarded actor
+  -- term that is absent from line-search acceptance.
+  onPolicyEntropyCoefFor PpoTrainer.VariantTRPO _ = 0.0
   onPolicyEntropyCoefFor _ "mountain-car" = 0.05
   onPolicyEntropyCoefFor _ _ = 0.01
-  -- Per-algorithm count-based exploration scale for sparse goals. Mountain-car
-  -- uses position/velocity bins; RecurrentPPO/key-door-grid uses agent-position
-  -- plus key/door phase bins so the recurrent learner discovers the unlock
-  -- sequence. Values found by per-row validation.
-  onPolicyCountBetaFor PpoTrainer.VariantPPO "key-door-grid" = 6.0
-  onPolicyCountBetaFor PpoTrainer.VariantA2C "key-door-grid" = 6.0
-  onPolicyCountBetaFor PpoTrainer.VariantRecurrentPPO "key-door-grid" = 4.0
-  onPolicyCountBetaFor _ name | name /= "mountain-car" = 0.0
-  onPolicyCountBetaFor PpoTrainer.VariantTRPO _ = 5.0
-  onPolicyCountBetaFor PpoTrainer.VariantRecurrentPPO _ = 4.0
-  onPolicyCountBetaFor PpoTrainer.VariantMaskablePPO _ = 8.0
-  onPolicyCountBetaFor _ _ = 10.0
-  -- RecurrentPPO/key-door-grid is the expensive corner of the on-policy matrix:
-  -- the 16-env default multiplies every recurrent update batch by 16 while the
-  -- fixed 150-iteration product floor is already enough for the phase-shaped
-  -- unlock sequence. Keep explicit env overrides intact for experiments.
-  onPolicyDefaultVectorEnvCountFor PpoTrainer.VariantRecurrentPPO "key-door-grid" = 4
-  onPolicyDefaultVectorEnvCountFor _ _ = PpoTrainer.productPpoVectorEnvCount
   -- SAC/pendulum now warm-starts the actor from a swing-up controller and then
   -- runs real SAC replay updates; an additional count bonus over-explores and
   -- degrades the deterministic eval policy.
   continuousCountBetaFor _ _ = 0.0
-  continuousStepFloorFor ContinuousTrainer.VariantDDPG "lunar-lander" = 120000
-  continuousStepFloorFor ContinuousTrainer.VariantSAC "pendulum" = 2000
-  continuousStepFloorFor _ _ = offPolicyStepFloor
   continuousActorLrFor ContinuousTrainer.VariantSAC "pendulum" _ = 1.0e-10
   continuousActorLrFor _ _ fallback = fallback
   productEnvMaybeIntPlain name = do
@@ -4276,247 +6219,186 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
   dqnEpisodes useDouble = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
-      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
-        let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
-            numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
-        let config =
-              DqnTrainer.defaultDqnTrainConfig
-                { DqnTrainer.dqnSeed = seed
-                , DqnTrainer.dqnHiddenUnits = DqnTrainer.productDqnHiddenUnits
-                , DqnTrainer.dqnUseDouble = useDouble
-                , DqnTrainer.dqnNumSteps = numSteps
-                , DqnTrainer.dqnActionCount = RLSim.envActionCount environment
-                , DqnTrainer.dqnObsSize = RLSim.envObservationSize environment
-                , DqnTrainer.dqnMaxEpisodeSteps = effectiveMaxSteps
-                , DqnTrainer.dqnStatInterval = max 1000 effectiveMaxSteps
-                }
-        resultE <- DqnTrainer.trainDqnOnDeviceWithEnvironment device simEnv config
-        pure $
-          resultE
-            >>= \result ->
-              let episodes =
-                    evaluatedEpisodes $
-                      DqnTrainer.evaluateDqnPolicyWithEnvironment
-                        simEnv
-                        config
-                        (DqnTrainer.dqnResultFinalParams result)
-                        evalEpisodes
-                  initialWeights = mlpParamsToFlat (DqnTrainer.initialDqnParams config)
-                  finalWeights = mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result)
-                  updateCount =
-                    positiveWordFromInt $
-                      (DqnTrainer.dqnNumSteps config - DqnTrainer.dqnTrainStart config)
-                        `div` max 1 (DqnTrainer.dqnUpdateFrequency config)
-                  observedUnits = positiveWordFromInt (DqnTrainer.dqnNumSteps config)
-               in trainerRunWithEvidence
-                    substrate
-                    trainerKind
-                    envName
-                    seed
-                    updateCount
-                    initialWeights
-                    finalWeights
-                    observedUnits
-                    episodes
+      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
+        case plannedSchedule Nothing of
+          Left err -> pure (Left err)
+          Right schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
+            let config =
+                  DqnTrainer.defaultDqnTrainConfig
+                    { DqnTrainer.dqnSeed = seed
+                    , DqnTrainer.dqnHiddenUnits = DqnTrainer.productDqnHiddenUnits
+                    , DqnTrainer.dqnUseDouble = useDouble
+                    , DqnTrainer.dqnNumSteps = ProductBudget.scheduleFixedSteps schedule
+                    , DqnTrainer.dqnActionCount = RLSim.envActionCount environment
+                    , DqnTrainer.dqnObsSize = RLSim.envObservationSize environment
+                    , DqnTrainer.dqnMaxEpisodeSteps = ProductBudget.scheduleFixedMaxEpisodeSteps schedule
+                    , DqnTrainer.dqnStatInterval =
+                        max 1000 (ProductBudget.scheduleFixedMaxEpisodeSteps schedule)
+                    }
+            resultE <- DqnTrainer.trainDqnOnDeviceWithEnvironment device simEnv config
+            pure $
+              resultE
+                >>= \result ->
+                  let episodes =
+                        evaluatedEpisodes $
+                          DqnTrainer.evaluateDqnPolicyWithEnvironment
+                            simEnv
+                            config
+                            (DqnTrainer.dqnResultFinalParams result)
+                            evalEpisodes
+                      initialWeights = mlpParamsToFlat (DqnTrainer.initialDqnParams config)
+                      finalWeights = mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result)
+                      updateCount =
+                        positiveWordFromInt $
+                          (DqnTrainer.dqnNumSteps config - DqnTrainer.dqnTrainStart config)
+                            `div` max 1 (DqnTrainer.dqnUpdateFrequency config)
+                   in trainerRunWithEvidence
+                        substrate
+                        trainerKind
+                        envName
+                        seed
+                        updateCount
+                        initialWeights
+                        finalWeights
+                        (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                        episodes
+          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   qrDqnEpisodes = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
-      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
-        let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
-            numSteps = max offPolicyStepFloor (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
-            qrProductBatchSize =
-              if envName == "key-door-grid"
-                then QrDqnTrainer.qrBatchSize QrDqnTrainer.defaultQrDqnTrainConfig
-                else 32
-            qrProductSteps =
-              if envName == "key-door-grid"
-                then max 120000 numSteps
-                else numSteps
-        let config =
-              QrDqnTrainer.defaultQrDqnTrainConfig
-                { QrDqnTrainer.qrSeed = seed
-                , QrDqnTrainer.qrHiddenUnits = QrDqnTrainer.productQrDqnHiddenUnits
-                , QrDqnTrainer.qrBatchSize = qrProductBatchSize
-                , QrDqnTrainer.qrUpdateFrequency = 1
-                , QrDqnTrainer.qrNumSteps = qrProductSteps
-                , QrDqnTrainer.qrActionCount = RLSim.envActionCount environment
-                , QrDqnTrainer.qrObsSize = RLSim.envObservationSize environment
-                , QrDqnTrainer.qrMaxEpisodeSteps = effectiveMaxSteps
-                , QrDqnTrainer.qrStatInterval = max 1000 effectiveMaxSteps
-                }
-        resultE <- QrDqnTrainer.trainQrDqnOnDeviceWithEnvironment device simEnv config
-        pure $
-          resultE
-            >>= \result ->
-              let episodes =
-                    evaluatedEpisodes $
-                      QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
-                        simEnv
-                        config
-                        (QrDqnTrainer.qrResultFinalParams result)
-                        evalEpisodes
-                  initialWeights = mlpParamsToFlat (QrDqnTrainer.initialQrDqnParams config)
-                  finalWeights = mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result)
-                  updateCount =
-                    positiveWordFromInt $
-                      (QrDqnTrainer.qrNumSteps config - QrDqnTrainer.qrTrainStart config)
-                        `div` max 1 (QrDqnTrainer.qrUpdateFrequency config)
-                  observedUnits = positiveWordFromInt (QrDqnTrainer.qrNumSteps config)
-               in trainerRunWithEvidence
-                    substrate
-                    trainerKind
-                    envName
-                    seed
-                    updateCount
-                    initialWeights
-                    finalWeights
-                    observedUnits
-                    episodes
+      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
+        case plannedSchedule Nothing of
+          Left err -> pure (Left err)
+          Right schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
+            let qrProductBatchSize =
+                  if envName == "key-door-grid"
+                    then QrDqnTrainer.qrBatchSize QrDqnTrainer.defaultQrDqnTrainConfig
+                    else 32
+                config =
+                  QrDqnTrainer.defaultQrDqnTrainConfig
+                    { QrDqnTrainer.qrSeed = seed
+                    , QrDqnTrainer.qrHiddenUnits = QrDqnTrainer.productQrDqnHiddenUnits
+                    , QrDqnTrainer.qrBatchSize = qrProductBatchSize
+                    , QrDqnTrainer.qrUpdateFrequency = 1
+                    , QrDqnTrainer.qrNumSteps = ProductBudget.scheduleFixedSteps schedule
+                    , QrDqnTrainer.qrActionCount = RLSim.envActionCount environment
+                    , QrDqnTrainer.qrObsSize = RLSim.envObservationSize environment
+                    , QrDqnTrainer.qrMaxEpisodeSteps =
+                        ProductBudget.scheduleFixedMaxEpisodeSteps schedule
+                    , QrDqnTrainer.qrStatInterval =
+                        max 1000 (ProductBudget.scheduleFixedMaxEpisodeSteps schedule)
+                    }
+            resultE <- QrDqnTrainer.trainQrDqnOnDeviceWithEnvironment device simEnv config
+            pure $
+              resultE
+                >>= \result ->
+                  let episodes =
+                        evaluatedEpisodes $
+                          QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
+                            simEnv
+                            config
+                            (QrDqnTrainer.qrResultFinalParams result)
+                            evalEpisodes
+                      initialWeights = mlpParamsToFlat (QrDqnTrainer.initialQrDqnParams config)
+                      finalWeights = mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result)
+                      updateCount =
+                        positiveWordFromInt $
+                          (QrDqnTrainer.qrNumSteps config - QrDqnTrainer.qrTrainStart config)
+                            `div` max 1 (QrDqnTrainer.qrUpdateFrequency config)
+                   in trainerRunWithEvidence
+                        substrate
+                        trainerKind
+                        envName
+                        seed
+                        updateCount
+                        initialWeights
+                        finalWeights
+                        (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                        episodes
+          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   continuousEpisodes variant = do
     case RLSim.lookupContinuousEnvironmentByName envName of
       Nothing -> pure (Left ("unknown continuous RL environment: " <> envName))
-      Just contEnv@(RLSim.SomeContinuousEnvironment environment) -> do
-        let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.cEnvMaxEpisodeSteps environment)
-            numSteps =
-              max
-                (continuousStepFloorFor variant envName)
-                (targetTrainingSteps (evalEpisodes * effectiveMaxSteps))
-        let config =
-              (ContinuousTrainer.defaultContinuousTrainConfig variant)
-                { ContinuousTrainer.ctSeed = seed
-                , ContinuousTrainer.ctHidden = ContinuousTrainer.productContinuousHiddenUnits
-                , ContinuousTrainer.ctNumSteps = numSteps
-                , ContinuousTrainer.ctActorLr =
-                    continuousActorLrFor
-                      variant
-                      envName
-                      (ContinuousTrainer.ctActorLr (ContinuousTrainer.defaultContinuousTrainConfig variant))
-                , ContinuousTrainer.ctMaxEpisodeSteps = effectiveMaxSteps
-                , ContinuousTrainer.ctObsSize = RLSim.cEnvObservationSize environment
-                , ContinuousTrainer.ctActionLow = RLSim.cEnvActionLow environment
-                , ContinuousTrainer.ctActionHigh = RLSim.cEnvActionHigh environment
-                , ContinuousTrainer.ctStatInterval = max 1000 effectiveMaxSteps
-                , ContinuousTrainer.ctEnvName = envName
-                , ContinuousTrainer.ctCountBeta = continuousCountBetaFor variant envName
-                }
-        resultE <- ContinuousTrainer.trainContinuousOnDeviceWithEnvironment device contEnv config
-        pure $
-          resultE
-            >>= \result ->
-              let episodes =
-                    evaluatedEpisodes $
-                      ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
-                        contEnv
-                        config
-                        (ContinuousTrainer.contResultFinalActor result)
-                        evalEpisodes
-                  initialWeights = mlpParamsToFlat (ContinuousTrainer.initialContinuousActor config)
-                  finalWeights = mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result)
-                  updateCount =
-                    positiveWordFromInt $
-                      ContinuousTrainer.ctNumSteps config - ContinuousTrainer.ctTrainStart config
-                  observedUnits = positiveWordFromInt (ContinuousTrainer.ctNumSteps config)
-               in trainerRunWithEvidence
-                    substrate
-                    trainerKind
-                    envName
-                    seed
-                    updateCount
-                    initialWeights
-                    finalWeights
-                    observedUnits
-                    episodes
+      Just contEnv@(RLSim.SomeContinuousEnvironment environment) ->
+        case plannedSchedule Nothing of
+          Left err -> pure (Left err)
+          Right schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
+            let config =
+                  (ContinuousTrainer.defaultContinuousTrainConfig variant)
+                    { ContinuousTrainer.ctSeed = seed
+                    , ContinuousTrainer.ctHidden = ContinuousTrainer.productContinuousHiddenUnits
+                    , ContinuousTrainer.ctNumSteps = ProductBudget.scheduleFixedSteps schedule
+                    , ContinuousTrainer.ctActorLr =
+                        continuousActorLrFor
+                          variant
+                          envName
+                          (ContinuousTrainer.ctActorLr (ContinuousTrainer.defaultContinuousTrainConfig variant))
+                    , ContinuousTrainer.ctMaxEpisodeSteps =
+                        ProductBudget.scheduleFixedMaxEpisodeSteps schedule
+                    , ContinuousTrainer.ctObsSize = RLSim.cEnvObservationSize environment
+                    , ContinuousTrainer.ctActionLow = RLSim.cEnvActionLow environment
+                    , ContinuousTrainer.ctActionHigh = RLSim.cEnvActionHigh environment
+                    , ContinuousTrainer.ctStatInterval =
+                        max 1000 (ProductBudget.scheduleFixedMaxEpisodeSteps schedule)
+                    , ContinuousTrainer.ctEnvName = envName
+                    , ContinuousTrainer.ctCountBeta = continuousCountBetaFor variant envName
+                    }
+            resultE <- ContinuousTrainer.trainContinuousOnDeviceWithEnvironment device contEnv config
+            pure $
+              resultE
+                >>= \result ->
+                  let episodes =
+                        evaluatedEpisodes $
+                          ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
+                            contEnv
+                            config
+                            (ContinuousTrainer.contResultFinalActor result)
+                            evalEpisodes
+                      initialWeights = mlpParamsToFlat (ContinuousTrainer.initialContinuousActor config)
+                      finalWeights = mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result)
+                      updateCount =
+                        positiveWordFromInt $
+                          ContinuousTrainer.ctNumSteps config - ContinuousTrainer.ctTrainStart config
+                   in trainerRunWithEvidence
+                        substrate
+                        trainerKind
+                        envName
+                        seed
+                        updateCount
+                        initialWeights
+                        finalWeights
+                        (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                        episodes
+          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   arsEpisodes = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
-      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
-        let effectiveMaxSteps = max maxStepsPerEpisode (RLSim.envMaxEpisodeSteps environment)
-            stepsPerIteration =
-              max 1 $
-                2
-                  * ArsTrainer.arsNumDirections ArsTrainer.defaultArsTrainConfig
-                  * effectiveMaxSteps
-            iterations =
-              max 50 (ceilingDivInt (targetTrainingSteps (evalEpisodes * stepsPerIteration)) stepsPerIteration)
-        let config =
-              ArsTrainer.defaultArsTrainConfig
-                { ArsTrainer.arsSeed = seed
-                , ArsTrainer.arsIterations = iterations
-                , ArsTrainer.arsMaxEpisodeSteps = effectiveMaxSteps
-                , ArsTrainer.arsActionCount = RLSim.envActionCount environment
-                , ArsTrainer.arsObsSize = RLSim.envObservationSize environment
-                }
-        result <- ArsTrainer.trainArsOnEnvironment simEnv config
-        let episodes =
-              evaluatedEpisodes $
-                ArsTrainer.evaluateArsPolicyWithEnvironment
-                  simEnv
-                  config
-                  (ArsTrainer.arsResultFinalParams result)
-                  evalEpisodes
-            initialWeights = VU.toList (ArsTrainer.initialArsParams config)
-            finalWeights = VU.toList (ArsTrainer.arsResultFinalParams result)
-            updateCount = positiveWordFromInt (ArsTrainer.arsIterations config)
-            observedUnits =
-              positiveWordFromInt $
-                ArsTrainer.arsIterations config
-                  * 2
-                  * ArsTrainer.arsNumDirections config
-                  * ArsTrainer.arsMaxEpisodeSteps config
-        pure $
-          trainerRunWithEvidence
-            substrate
-            trainerKind
-            envName
-            seed
-            updateCount
-            initialWeights
-            finalWeights
-            observedUnits
-            episodes
-  herEpisodes = do
-    let targetEpisodes =
-          ceilingDivInt
-            (targetTrainingSteps (evalEpisodes * HerTrainer.herNumBits HerTrainer.defaultHerTrainConfig))
-            (HerTrainer.herNumBits HerTrainer.defaultHerTrainConfig)
-    let config =
-          HerTrainer.defaultHerTrainConfig
-            { HerTrainer.herSeed = seed
-            , HerTrainer.herHiddenUnits = HerTrainer.productHerHiddenUnits
-            , HerTrainer.herEpisodes = max 200 targetEpisodes
-            , HerTrainer.herStatInterval = max 25 evalEpisodes
-            }
-    resultE <- HerTrainer.trainHerOnDevice device config
-    pure $
-      resultE
-        >>= \result ->
-          let evals =
-                HerTrainer.evaluateHerGreedy
-                  config
-                  (HerTrainer.herResultFinalParams result)
-                  (max 1 evalEpisodes)
-                  (seed + 104729)
-              -- Encode the greedy (epsilon=0) eval into the SimulatedEpisode
-              -- plumbing: done = reached-goal, reward = 1 - normalized distance
-              -- (1.0 exactly when reached). The HER convergence gate reads these
-              -- back as goal_success_rate + achieved_goal_distance.
-              episodes =
-                [ EpisodeEnvelope.SimulatedEpisode
-                    { EpisodeEnvelope.simEpisodeIndex = i
-                    , EpisodeEnvelope.simEpisodeSteps = HerTrainer.herNumBits config
-                    , EpisodeEnvelope.simEpisodeReward = 1.0 - normDist
-                    , EpisodeEnvelope.simEpisodeDone = reached
-                    , EpisodeEnvelope.simEpisodeFrames = []
+      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
+        case plannedSchedule Nothing of
+          Left err -> pure (Left err)
+          Right schedule@ProductBudget.ArsTrainingSchedule {} -> do
+            let config =
+                  ArsTrainer.defaultArsTrainConfig
+                    { ArsTrainer.arsSeed = seed
+                    , ArsTrainer.arsIterations = ProductBudget.scheduleArsIterations schedule
+                    , ArsTrainer.arsNumDirections = ProductBudget.scheduleArsDirections schedule
+                    , ArsTrainer.arsMaxEpisodeSteps = ProductBudget.scheduleArsMaxEpisodeSteps schedule
+                    , ArsTrainer.arsActionCount = RLSim.envActionCount environment
+                    , ArsTrainer.arsObsSize = RLSim.envObservationSize environment
                     }
-                | (i, (reached, normDist)) <- zip [0 ..] evals
-                ]
-              initialWeights = mlpParamsToFlat (HerTrainer.initialHerParams config)
-              finalWeights = mlpParamsToFlat (HerTrainer.herResultFinalParams result)
-              updateCount = positiveWordFromInt (HerTrainer.herEpisodes config)
-              observedUnits =
-                positiveWordFromInt $
-                  HerTrainer.herEpisodes config * HerTrainer.herNumBits config
-           in trainerRunWithEvidence
+            result <- ArsTrainer.trainArsOnEnvironment simEnv config
+            let episodes =
+                  evaluatedEpisodes $
+                    ArsTrainer.evaluateArsPolicyWithEnvironment
+                      simEnv
+                      config
+                      (ArsTrainer.arsResultFinalParams result)
+                      evalEpisodes
+                initialWeights = VU.toList (ArsTrainer.initialArsParams config)
+                finalWeights = VU.toList (ArsTrainer.arsResultFinalParams result)
+                updateCount = positiveWordFromInt (ArsTrainer.arsIterations config)
+            pure $
+              trainerRunWithEvidence
                 substrate
                 trainerKind
                 envName
@@ -4524,8 +6406,56 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
                 updateCount
                 initialWeights
                 finalWeights
-                observedUnits
+                (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                 episodes
+          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+  herEpisodes = do
+    case plannedSchedule Nothing of
+      Left err -> pure (Left err)
+      Right schedule@ProductBudget.HerTrainingSchedule {} -> do
+        let config =
+              HerTrainer.defaultHerTrainConfig
+                { HerTrainer.herSeed = seed
+                , HerTrainer.herHiddenUnits = HerTrainer.productHerHiddenUnits
+                , HerTrainer.herEpisodes = ProductBudget.scheduleHerEpisodes schedule
+                , HerTrainer.herStatInterval = max 25 evalEpisodes
+                }
+        resultE <- HerTrainer.trainHerOnDevice device config
+        pure $
+          resultE
+            >>= \result ->
+              let evals =
+                    HerTrainer.evaluateHerGreedy
+                      config
+                      (HerTrainer.herResultFinalParams result)
+                      (max 1 evalEpisodes)
+                      (seed + 104729)
+                  -- Encode the greedy (epsilon=0) eval into the SimulatedEpisode
+                  -- plumbing: done = reached-goal, reward = 1 - normalized distance.
+                  episodes =
+                    [ EpisodeEnvelope.SimulatedEpisode
+                        { EpisodeEnvelope.simEpisodeIndex = i
+                        , EpisodeEnvelope.simEpisodeSteps = HerTrainer.herNumBits config
+                        , EpisodeEnvelope.simEpisodeReward = 1.0 - normDist
+                        , EpisodeEnvelope.simEpisodeDone = reached
+                        , EpisodeEnvelope.simEpisodeFrames = []
+                        }
+                    | (i, (reached, normDist)) <- zip [0 ..] evals
+                    ]
+                  initialWeights = mlpParamsToFlat (HerTrainer.initialHerParams config)
+                  finalWeights = mlpParamsToFlat (HerTrainer.herResultFinalParams result)
+                  updateCount = positiveWordFromInt (HerTrainer.herEpisodes config)
+               in trainerRunWithEvidence
+                    substrate
+                    trainerKind
+                    envName
+                    seed
+                    updateCount
+                    initialWeights
+                    finalWeights
+                    (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                    episodes
+      Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
 rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
@@ -4614,17 +6544,36 @@ rlCompletedTraining
   -> [(Text, Double)]
   -> ProductEvidence.TrainingEvidence
   -> Maybe TrainingBudget.CompletedTraining
-rlCompletedTraining trainerKind envName experimentHash tensorName checkpointStep =
-  rlCompletedTrainingWithBudget
-    (checkpointTrainingBudgetForTensor tensorName checkpointStep)
-    trainerKind
-    envName
-    experimentHash
-    tensorName
-    checkpointStep
+rlCompletedTraining trainerKind envName experimentHash tensorName checkpointStep metrics evidence =
+  let budget = checkpointTrainingBudgetForTensor tensorName checkpointStep
+   in do
+        planId <-
+          eitherToMaybe
+            ( completionPlanIdFromCanonicalText
+                ( Text.intercalate
+                    "\NUL"
+                    [ "jitml-rl-completion-plan-v1"
+                    , experimentHash
+                    , trainerKind
+                    , envName
+                    , TrainingBudget.renderTrainingBudget budget
+                    ]
+                )
+            )
+        rlCompletedTrainingWithBudget
+          planId
+          budget
+          trainerKind
+          envName
+          experimentHash
+          tensorName
+          checkpointStep
+          metrics
+          evidence
 
 rlCompletedTrainingWithBudget
-  :: TrainingBudget.TrainingBudget
+  :: PlanId
+  -> TrainingBudget.TrainingBudget
   -> Text
   -> Text
   -> Text
@@ -4633,10 +6582,11 @@ rlCompletedTrainingWithBudget
   -> [(Text, Double)]
   -> ProductEvidence.TrainingEvidence
   -> Maybe TrainingBudget.CompletedTraining
-rlCompletedTrainingWithBudget budget trainerKind envName experimentHash _tensorName checkpointStep metrics evidence = do
+rlCompletedTrainingWithBudget planId budget trainerKind envName experimentHash _tensorName checkpointStep metrics evidence = do
   observations <- eitherToMaybe (rlConvergenceObservations trainerKind envName metrics)
   eitherToMaybe $
     TrainingBudget.completedTraining
+      planId
       budget
       checkpointStep
       evidence
@@ -4667,9 +6617,9 @@ renderObservation observation =
     <> "="
     <> Text.pack (show (TrainingBudget.coMetricValue observation))
     <> " threshold="
-    <> maybe "none" (Text.pack . show) (TrainingBudget.coThreshold observation)
+    <> Text.pack (show (TrainingBudget.coThreshold observation))
     <> " passed="
-    <> Text.toLower (Text.pack (show (TrainingBudget.coPassed observation)))
+    <> Text.toLower (Text.pack (show (TrainingBudget.convergencePassed observation)))
 
 renderMetricPairs :: [(Text, Double)] -> Text
 renderMetricPairs [] = "none"
@@ -4696,15 +6646,13 @@ rlConvergenceObservations trainerKind envName metrics
           (RLConvergence.cohortThreshold algorithm envName)
       measured <- metricValue "median_final_reward" metrics
       let thresholdValue = RLConvergence.literatureTarget threshold - RLConvergence.slack threshold
-      pure
-        [ TrainingBudget.ConvergenceObservation
-            { TrainingBudget.coMetricName = "median_final_reward"
-            , TrainingBudget.coMetricValue = measured
-            , TrainingBudget.coMetricGoal = TrainingBudget.MetricMaximise
-            , TrainingBudget.coThreshold = Just thresholdValue
-            , TrainingBudget.coPassed = RLConvergence.passesConvergence threshold measured
-            }
-        ]
+      observation <-
+        TrainingBudget.measureCriterion
+          "median_final_reward"
+          TrainingBudget.MetricMaximise
+          thresholdValue
+          measured
+      pure [observation]
 
 herConvergenceObservations
   :: [(Text, Double)]
@@ -4721,16 +6669,10 @@ herConvergenceObservations metrics = do
 measuredObservation
   :: Double -> TrainingBudget.ConvergenceObservation -> TrainingBudget.ConvergenceObservation
 measuredObservation measured pinned =
-  pinned
-    { TrainingBudget.coMetricValue = measured
-    , TrainingBudget.coPassed =
-        case TrainingBudget.coThreshold pinned of
-          Nothing -> False
-          Just threshold ->
-            case TrainingBudget.coMetricGoal pinned of
-              TrainingBudget.MetricMaximise -> measured >= threshold
-              TrainingBudget.MetricMinimise -> measured <= threshold
-    }
+  either
+    (error . Text.unpack)
+    id
+    (TrainingBudget.remeasureCriterion measured pinned)
 
 algorithmNameForTrainer :: Text -> Either Text Text
 algorithmNameForTrainer trainerKind =
@@ -4793,8 +6735,7 @@ publishWorkerRlCompletion _tensorName checkpointStep metrics checkpointMaybe = d
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
       timestampNs <- liftIO currentTimestampNs
-      let topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
-          metricEvents =
+      let metricEvents =
             [ ProtoRl.RlMetric
                 ProtoRl.MetricUpdate
                   { ProtoRl.muExperimentHash = experimentHash
@@ -4804,28 +6745,33 @@ publishWorkerRlCompletion _tensorName checkpointStep metrics checkpointMaybe = d
                   }
             | (name, value) <- metrics
             ]
-          checkpointEvents =
-            case checkpointMaybe of
-              Nothing -> []
-              Just (stored, completedTraining) ->
-                [ ProtoRl.RlCheckpoint
-                    ProtoRl.CheckpointDoneRL
-                      { ProtoRl.cdrlExperimentHash = experimentHash
-                      , ProtoRl.cdrlManifestSha = CheckpointStore.storedManifestSha stored
-                      , ProtoRl.cdrlStep = checkpointStep
-                      , ProtoRl.cdrlPointerKey = Checkpoint.latestPointerKey experimentHash
-                      , ProtoRl.cdrlCompletedTraining = completedTraining
-                      }
-                ]
+      checkpointEvents <-
+        case checkpointMaybe of
+          Nothing -> pure []
+          Just (stored, completedTraining) -> do
+            let checkpoint =
+                  ProtoRl.CheckpointDoneRL
+                    { ProtoRl.cdrlExperimentHash = experimentHash
+                    , ProtoRl.cdrlManifestSha = CheckpointStore.storedManifestSha stored
+                    , ProtoRl.cdrlStep = checkpointStep
+                    , ProtoRl.cdrlPointerKey = Checkpoint.latestPointerKey experimentHash
+                    }
+            case completedTraining of
+              Nothing -> pure [ProtoRl.RlCheckpoint checkpoint]
+              Just completed ->
+                case ProtoRl.completeCheckpointDoneRL checkpoint completed of
+                  Left err ->
+                    exitWithError (InvalidConfig ("RL completion event failed: " <> err))
+                  Right completedCheckpoint ->
+                    pure [ProtoRl.RlCompletedCheckpoint completedCheckpoint]
       for_ (metricEvents <> checkpointEvents) $ \event -> do
         result <-
           liftIO
-            ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            ( publishPulsarEvent
                 pulsarSettings
-                ( Capabilities.pulsarPublish
-                    topic
-                    (ProtoRl.renderRlEvent event)
-                )
+                Topology.RlEventRoute
+                substrate
+                event
             )
         case result of
           Right _ -> pure ()
@@ -4846,7 +6792,6 @@ publishWorkerRlEpisode environment episode = do
   experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
-      let topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
       timestampNs <- liftIO currentTimestampNs
       let envelope =
             ProtoRl.RlEpisode
@@ -4867,12 +6812,11 @@ publishWorkerRlEpisode environment episode = do
       for_ (envelope : animationEnvelopes) $ \event -> do
         result <-
           liftIO
-            ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            ( publishPulsarEvent
                 pulsarSettings
-                ( Capabilities.pulsarPublish
-                    topic
-                    (ProtoRl.renderRlEvent event)
-                )
+                Topology.RlEventRoute
+                substrate
+                event
             )
         case result of
           Right _ -> pure ()
@@ -4979,7 +6923,7 @@ runInference parsedOptions = do
                 <> Text.pack (show values)
             )
         Left err ->
-          exitWithError (InferenceCheckpointMissing (experimentHash <> ": " <> err))
+          exitWithError (inferenceReplyAppError experimentHash err)
     Nothing ->
       -- Sprint 10.5 — fail closed: without a live cluster publication there is
       -- no checkpoint to read, so emit a typed `InferenceCheckpointMissing`
@@ -5027,77 +6971,166 @@ requestInferenceViaEngine
   -> IO (Either Text [Double])
 requestInferenceViaEngine settings substrate experimentHash input = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let replyTopic = Inference.inferenceResultTopic substrate
-      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
-      replyTopicName = Capabilities.TopicName replyTopic
-      subscriptionName = "jitml-infer-" <> callId
-      request =
-        Inference.InferenceRequest
-          { Inference.irCallId = callId
-          , Inference.irExperimentHash = experimentHash
-          , Inference.irReplyTopic = replyTopic
-          , Inference.irInput = input
-          }
-  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    -- Subscribe to the reply topic BEFORE publishing so the Engine's result is
-    -- never missed.
-    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
-    case subscribed of
-      Left err ->
-        pure (Left ("inference request subscribe failed: " <> Text.pack (show err)))
-      Right subscriptionId -> do
-        published <-
-          Capabilities.pulsarPublish requestTopic (Inference.renderInferenceRequest request)
-        case published of
-          Left err ->
-            pure (Left ("inference request publish failed: " <> Text.pack (show err)))
-          Right _ -> consumeMatchingInferenceResult subscriptionId callId inferenceReplyAttempts
+  runInferenceCommandWithReply
+    settings
+    substrate
+    ("jitml-infer-" <> callId)
+    ( \replyTopic ->
+        Inference.RunInference
+          Inference.InferenceRequest
+            { Inference.irCallId = callId
+            , Inference.irExperimentHash = experimentHash
+            , Inference.irReplyTopic = replyTopic
+            , Inference.irInput = input
+            }
+    )
+    (matchingInferenceResult callId experimentHash)
 
--- | Bounded poll for the @WorkResult@ correlated to our @callId@ on the shared
--- reply topic (other callers' results are skipped).
-consumeMatchingInferenceResult
-  :: (Capabilities.HasPulsar m)
-  => SubscriptionId
-  -> Text
-  -> Int
-  -> m (Either Text [Double])
-consumeMatchingInferenceResult subscriptionId callId attempts
-  | attempts <= 0 =
-      pure (Left "inference result: no matching reply received from the Engine")
-  | otherwise = do
-      consumed <- Capabilities.pulsarConsume subscriptionId
-      case consumed of
-        Right (topic, payload) -> do
-          void (Capabilities.pulsarAcknowledge (Capabilities.TopicName topic) payload)
-          case Inference.parseInferenceResult payload of
-            Just result
-              | Inference.iresCallId result == callId ->
-                  pure (Right (Inference.iresOutput result))
-            _ -> consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
-        _ ->
-          consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
+-- | A live publication exists, so request/reply startup, transport, publish,
+-- and timeout failures are broker-path failures rather than evidence that a
+-- particular checkpoint is absent.
+inferenceReplyAppError :: Text -> Text -> AppError
+inferenceReplyAppError experimentHash detail =
+  PulsarFailed
+    ( "inference request/reply failed for "
+        <> experimentHash
+        <> ": "
+        <> detail
+    )
 
-consumeMatchingKindPayload
-  :: (Capabilities.HasPulsar m)
-  => SubscriptionId
+-- | Correlate a typed inference reply by both request identity fields. A
+-- same-call reply for another experiment is unrelated evidence and remains on
+-- the shared result stream for the owning client.
+matchingInferenceResult :: Text -> Text -> Text -> Maybe [Double]
+matchingInferenceResult expectedCallId expectedExperimentHash payload = do
+  result <- Inference.parseInferenceResult payload
+  if Inference.iresCallId result == expectedCallId
+    && Inference.iresExperimentHash result == expectedExperimentHash
+    then Just (Inference.iresOutput result)
+    else Nothing
+
+-- | Open an owned, from-latest reply cursor before publishing a command. The
+-- persistent interpreter settles every receipt exactly once, drains the
+-- matching delivery, and deletes the short-lived owned cursor on scope exit.
+runInferenceCommandWithReply
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
   -> Text
+  -> (Text -> Inference.InferenceCommand)
+  -> (Text -> Maybe result)
+  -> IO (Either Text result)
+runInferenceCommandWithReply settings substrate subscriptionName buildCommand match =
+  case inferenceRequestReplyPlan substrate subscriptionName of
+    Left err -> pure (Left err)
+    Right (requestTopic, replyTopic, subscription) -> do
+      startupSignal <- newEmptyMVar
+      resultSignal <- newEmptyMVar
+      InferenceReplyScope.runInferenceReplyScope
+        ( do
+            consumed <-
+              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+                Capabilities.pulsarConsumeUntil
+                  subscription
+                  (observeReplySession startupSignal)
+                  (handleReplyDelivery match)
+            case consumed of
+              Left failure -> do
+                void
+                  ( tryPutMVar
+                      startupSignal
+                      (Left ("inference reply consumer failed: " <> Text.pack (show failure)))
+                  )
+                void
+                  ( tryPutMVar
+                      resultSignal
+                      (Left ("inference reply consumer failed: " <> Text.pack (show failure)))
+                  )
+              Right result ->
+                void (tryPutMVar resultSignal (Right result))
+            pure consumed
+        )
+        ( do
+            startup <- timeout inferenceReplyStartupTimeoutMicros (takeMVar startupSignal)
+            case startup of
+              Nothing -> pure (Left "inference reply consumer did not connect before the startup deadline")
+              Just (Left err) -> pure (Left err)
+              Just (Right ()) -> do
+                published <-
+                  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                    settings
+                    ( Capabilities.pulsarPublish
+                        requestTopic
+                        (buildCommand (Topology.topicName replyTopic))
+                    )
+                case published of
+                  Left err ->
+                    pure (Left ("inference command publish failed: " <> Text.pack (show err)))
+                  Right _ -> do
+                    result <- timeout inferenceReplyTimeoutMicros (takeMVar resultSignal)
+                    pure
+                      ( fromMaybe
+                          (Left "inference result: no matching reply received from the Engine")
+                          result
+                      )
+        )
+
+inferenceRequestReplyPlan
+  :: Substrate
   -> Text
-  -> Int
-  -> m (Either Text Text)
-consumeMatchingKindPayload subscriptionId kind callId attempts
-  | attempts <= 0 =
-      pure (Left (kind <> ": no matching reply received from the Engine"))
-  | otherwise = do
-      consumed <- Capabilities.pulsarConsume subscriptionId
-      case consumed of
-        Right (topic, payload) -> do
-          void (Capabilities.pulsarAcknowledge (Capabilities.TopicName topic) payload)
-          if frameField "kind" payload == Just kind
-            && frameField "call-id" payload == Just callId
-            then pure (Right payload)
-            else consumeMatchingKindPayload subscriptionId kind callId (attempts - 1)
-        _ ->
-          consumeMatchingKindPayload subscriptionId kind callId (attempts - 1)
+  -> Either
+       Text
+       ( Topology.Topic Inference.InferenceCommand
+       , Topology.Topic Topology.InferenceResultMessage
+       , Capabilities.Subscription Topology.InferenceResultMessage
+       )
+inferenceRequestReplyPlan substrate subscriptionName = do
+  requestTopic <-
+    mapLeftText "inference request topic" (Topology.topicFor Topology.InferenceRequestRoute substrate)
+  replyTopic <-
+    mapLeftText
+      "inference reply topic"
+      (Topology.topicFor Topology.InferenceResultRoute substrate)
+  subscription <-
+    mapLeftText
+      "inference reply subscription"
+      ( Capabilities.mkSubscription
+          replyTopic
+          subscriptionName
+          Capabilities.FromLatest
+          Capabilities.Owned
+      )
+  pure (requestTopic, replyTopic, subscription)
+
+observeReplySession
+  :: MVar (Either Text ())
+  -> Capabilities.ConsumerSessionEvent
+  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess ()
+observeReplySession startupSignal sessionEvent =
+  liftIO $
+    case sessionEvent of
+      Capabilities.ConsumerSessionConnected _ ->
+        void (tryPutMVar startupSignal (Right ()))
+      Capabilities.ConsumerSessionDisconnected detail ->
+        void (tryPutMVar startupSignal (Left ("inference reply disconnected: " <> detail)))
+      Capabilities.ConsumerSessionDraining -> pure ()
+      Capabilities.ConsumerSessionDrained -> pure ()
+
+handleReplyDelivery
+  :: (Text -> Maybe result)
+  -> Capabilities.Delivery Topology.InferenceResultMessage
+  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (Capabilities.ConsumerDecision result)
+handleReplyDelivery match delivery =
+  let payload =
+        Topology.inferenceResultMessagePayload
+          (Capabilities.deliveryEvent delivery)
+   in pure $
+        case match payload of
+          Just result -> Capabilities.done Capabilities.ack result
+          Nothing -> Capabilities.continue Capabilities.ack
+
+mapLeftText :: (Show err) => Text -> Either err value -> Either Text value
+mapLeftText context =
+  mapLeft (((context <> ": ") <>) . Text.pack . show)
 
 frameField :: Text -> Text -> Maybe Text
 frameField key =
@@ -5110,8 +7143,11 @@ frameField key =
             Just (Text.strip field, Text.strip (Text.drop 2 rest))
       _ -> Nothing
 
-inferenceReplyAttempts :: Int
-inferenceReplyAttempts = 10
+inferenceReplyStartupTimeoutMicros :: Int
+inferenceReplyStartupTimeoutMicros = 10000000
+
+inferenceReplyTimeoutMicros :: Int
+inferenceReplyTimeoutMicros = 30000000
 
 -- | Sprint 11.10 — fire-and-forget publish of a checkpoint-compare @WorkCommand@;
 -- the Engine runs both inferences + the delta and the panel renders the streamed
@@ -5125,22 +7161,26 @@ publishCheckpointCompareCommandOnly
   -> IO (Either Text ())
 publishCheckpointCompareCommandOnly settings substrate baselineHash candidateHash input = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
-      command =
-        Inference.CheckpointCompareCommand
-          { Inference.cccCallId = callId
-          , Inference.cccBaselineExperimentHash = baselineHash
-          , Inference.cccCandidateExperimentHash = candidateHash
-          , Inference.cccReplyTopic = Inference.inferenceResultTopic substrate
-          , Inference.cccInput = input
-          }
-  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    published <-
-      Capabilities.pulsarPublish requestTopic (Inference.renderCheckpointCompareCommand command)
-    pure $
-      case published of
-        Left err -> Left ("compare command publish failed: " <> Text.pack (show err))
-        Right _ -> Right ()
+  case inferenceRequestReplyPlan substrate ("jitml-compare-" <> callId) of
+    Left err -> pure (Left err)
+    Right (requestTopic, replyTopic, _unusedSubscription) -> do
+      let command =
+            Inference.CompareCheckpoints
+              Inference.CheckpointCompareCommand
+                { Inference.cccCallId = callId
+                , Inference.cccBaselineExperimentHash = baselineHash
+                , Inference.cccCandidateExperimentHash = candidateHash
+                , Inference.cccReplyTopic = Topology.topicName replyTopic
+                , Inference.cccInput = input
+                }
+      published <-
+        PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+          settings
+          (Capabilities.pulsarPublish requestTopic command)
+      pure $
+        case published of
+          Left err -> Left ("compare command publish failed: " <> Text.pack (show err))
+          Right _ -> Right ()
 
 -- | Sprint 11.10 / 14.3 — publish an adversarial-move @WorkCommand@ after
 -- subscribing to its reply topic, then return the matching Engine
@@ -5157,34 +7197,24 @@ publishAdversarialMoveCommandOnly
   -> IO (Either Text Text)
 publishAdversarialMoveCommandOnly settings substrate game experimentHash moves humanIsPlayer simulations = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let replyTopic = Inference.inferenceResultTopic substrate
-      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
-      replyTopicName = Capabilities.TopicName replyTopic
-      subscriptionName = "jitml-move-" <> callId
-      command =
-        Inference.AdversarialMoveCommand
-          { Inference.amcCallId = callId
-          , Inference.amcGame = game
-          , Inference.amcExperimentHash = experimentHash
-          , Inference.amcReplyTopic = replyTopic
-          , Inference.amcMoves = moves
-          , Inference.amcHumanIsPlayer = humanIsPlayer
-          , Inference.amcSimulationsPerMove = simulations
-          , Inference.amcInput = []
-          }
-  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
-    case subscribed of
-      Left err ->
-        pure (Left ("move command subscribe failed: " <> Text.pack (show err)))
-      Right subscriptionId -> do
-        published <-
-          Capabilities.pulsarPublish requestTopic (Inference.renderAdversarialMoveCommand command)
-        case published of
-          Left err ->
-            pure (Left ("move command publish failed: " <> Text.pack (show err)))
-          Right _ ->
-            consumeMatchingKindPayload subscriptionId "AdversarialMoveResult" callId inferenceReplyAttempts
+  runInferenceCommandWithReply
+    settings
+    substrate
+    ("jitml-move-" <> callId)
+    ( \replyTopic ->
+        Inference.SelectAdversarialMove
+          Inference.AdversarialMoveCommand
+            { Inference.amcCallId = callId
+            , Inference.amcGame = game
+            , Inference.amcExperimentHash = experimentHash
+            , Inference.amcReplyTopic = replyTopic
+            , Inference.amcMoves = moves
+            , Inference.amcHumanIsPlayer = humanIsPlayer
+            , Inference.amcSimulationsPerMove = simulations
+            , Inference.amcInput = []
+            }
+    )
+    (matchingKindPayload "AdversarialMoveResult" callId)
 
 -- | Sprint 14.1 / 27.1 / 28.2 (Feature A) — publish a checkpoint-browse
 -- @WorkCommand@ after subscribing to the reply topic, then return the matching
@@ -5197,28 +7227,18 @@ publishListCheckpointsCommandOnly
   -> IO (Either Text Text)
 publishListCheckpointsCommandOnly settings substrate = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let replyTopic = Inference.inferenceResultTopic substrate
-      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
-      replyTopicName = Capabilities.TopicName replyTopic
-      subscriptionName = "jitml-checkpoints-" <> callId
-      command =
-        Inference.ListCheckpointsCommand
-          { Inference.lccCallId = callId
-          , Inference.lccReplyTopic = replyTopic
-          }
-  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
-    case subscribed of
-      Left err ->
-        pure (Left ("list-checkpoints command subscribe failed: " <> Text.pack (show err)))
-      Right subscriptionId -> do
-        published <-
-          Capabilities.pulsarPublish requestTopic (Inference.renderListCheckpointsCommand command)
-        case published of
-          Left err ->
-            pure (Left ("list-checkpoints command publish failed: " <> Text.pack (show err)))
-          Right _ ->
-            consumeMatchingKindPayload subscriptionId "CheckpointList" callId inferenceReplyAttempts
+  runInferenceCommandWithReply
+    settings
+    substrate
+    ("jitml-checkpoints-" <> callId)
+    ( \replyTopic ->
+        Inference.ListCheckpoints
+          Inference.ListCheckpointsCommand
+            { Inference.lccCallId = callId
+            , Inference.lccReplyTopic = replyTopic
+            }
+    )
+    (matchingKindPayload "CheckpointList" callId)
 
 -- | Sprint 14.1 (Feature B) — publish a transcript-replay @WorkCommand@ after
 -- subscribing to its reply topic, then return the matching @TranscriptReplay@
@@ -5231,29 +7251,26 @@ publishLoadTranscriptCommandOnly
   -> IO (Either Text Text)
 publishLoadTranscriptCommandOnly settings substrate transcriptId = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let replyTopic = Inference.inferenceResultTopic substrate
-      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
-      replyTopicName = Capabilities.TopicName replyTopic
-      subscriptionName = "jitml-transcript-" <> callId
-      command =
-        Inference.LoadTranscriptCommand
-          { Inference.ltcCallId = callId
-          , Inference.ltcTranscriptId = transcriptId
-          , Inference.ltcReplyTopic = replyTopic
-          }
-  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    subscribed <- Capabilities.pulsarSubscribeFromLatest replyTopicName subscriptionName
-    case subscribed of
-      Left err ->
-        pure (Left ("load-transcript command subscribe failed: " <> Text.pack (show err)))
-      Right subscriptionId -> do
-        published <-
-          Capabilities.pulsarPublish requestTopic (Inference.renderLoadTranscriptCommand command)
-        case published of
-          Left err ->
-            pure (Left ("load-transcript command publish failed: " <> Text.pack (show err)))
-          Right _ ->
-            consumeMatchingKindPayload subscriptionId "TranscriptReplay" callId inferenceReplyAttempts
+  runInferenceCommandWithReply
+    settings
+    substrate
+    ("jitml-transcript-" <> callId)
+    ( \replyTopic ->
+        Inference.LoadTranscript
+          Inference.LoadTranscriptCommand
+            { Inference.ltcCallId = callId
+            , Inference.ltcTranscriptId = transcriptId
+            , Inference.ltcReplyTopic = replyTopic
+            }
+    )
+    (matchingKindPayload "TranscriptReplay" callId)
+
+matchingKindPayload :: Text -> Text -> Text -> Maybe Text
+matchingKindPayload kind callId payload
+  | frameField "kind" payload == Just kind
+      && frameField "call-id" payload == Just callId =
+      Just payload
+  | otherwise = Nothing
 
 -- | Map a weighted checkpoint load `Left Text` to a typed `AppError`. The
 -- live read path returns "pointer read failed: ..." when the latest
@@ -5272,11 +7289,6 @@ classifyCheckpointLoadError experimentHash err
 runTest :: [Text] -> [ParsedOption] -> App ()
 runTest ["test", "all"] parsedOptions =
   runCabalTest parsedOptions reportStanzas
-runTest ["test", "jitml-e2e"] parsedOptions
-  | hasOption "live" parsedOptions = do
-      substrate <- liveE2ESubstrate parsedOptions
-      runLiveE2EPlaywright substrate
-      runCabalTest parsedOptions ["jitml-e2e"]
 runTest ["test", stanza] parsedOptions
   | stanza `elem` reportStanzas =
       runCabalTest parsedOptions [stanza]
@@ -5292,78 +7304,23 @@ liveE2ESubstrate parsedOptions =
       case parseSubstrate substrateName of
         Just substrate -> pure substrate
         Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrateName))
-    [] -> exitWithError (InvalidConfig "jitml-e2e --live requires exactly one substrate flag")
-    _ -> exitWithError (InvalidConfig "jitml-e2e --live accepts exactly one substrate flag")
-
-runLiveE2EPlaywright :: Substrate -> App ()
-runLiveE2EPlaywright substrate = do
-  ensureLivePublicationFor substrate
-  case livePlaywrightStep substrate of
-    Nothing -> exitWithError (InvalidConfig "live e2e plan is missing the Playwright step")
-    Just step -> do
-      let command = livePlanStepCommand step
-      writeLine ("test jitml-e2e --live: " <> renderSubprocess command)
-      (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
-      case exitCode of
-        ExitSuccess -> writeText stdoutText
-        ExitFailure _ ->
-          exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
-
-livePlaywrightStep :: Substrate -> Maybe LivePlanStep
-livePlaywrightStep substrate =
-  listToMaybe [step | step <- liveE2EPlanFor substrate, livePlanStepName step == "playwright"]
-
-ensureLivePublicationFor :: Substrate -> App ()
-ensureLivePublicationFor substrate = do
-  existing <- liftIO (readExistingLivePublication ".")
-  case existing of
-    Just publication
-      | Publication.publicationSubstrate publication == substrate ->
-          writeLine
-            ( "test jitml-e2e --live: selected existing "
-                <> renderSubstrate substrate
-                <> " publication at edge :"
-                <> Text.pack (show (Publication.publicationEdgePort publication))
-            )
-      | otherwise ->
+    [] -> do
+      publication <- liftIO (readExistingLivePublication ".")
+      case publication of
+        Just existing
+          | Publication.publicationHasLiveEvidence existing ->
+              pure (Publication.publicationSubstrate existing)
+        _ ->
           exitWithError
             ( InvalidConfig
-                ( "jitml-e2e --live requested "
-                    <> renderSubstrate substrate
-                    <> " but cluster-publication.json is for "
-                    <> renderSubstrate (Publication.publicationSubstrate publication)
-                )
+                "test --live requires one substrate flag when no live cluster publication exists"
             )
-    Nothing -> do
-      changed <- liftIO (materializeBootstrapFiles "." substrate)
-      writeLine
-        ( "test jitml-e2e --live: "
-            <> renderSubstrate substrate
-            <> if changed then " bootstrap files reconciled" else " bootstrap files already current"
-        )
-      result <- liftIO (liveExecutePhasedRollout substrate "chart")
-      writeLine
-        ( "test jitml-e2e --live: live phased rollout executed "
-            <> Text.pack (show (length (liveStepsExecuted result)))
-            <> " steps"
-        )
-      mapM_
-        ( \(step, stderrText) ->
-            writeLine ("test jitml-e2e --live: step failed: " <> step <> " stderr: " <> stderrText)
-        )
-        (liveStepsFailed result)
-      unless (null (liveStepsFailed result)) $
-        exitWithError
-          ( SubprocessFailed
-              "jitml-e2e live phased rollout"
-              (ExitFailure 1)
-              (renderLiveStepFailures (liveStepsFailed result))
-          )
+    _ -> exitWithError (InvalidConfig "test --live accepts at most one substrate flag")
 
 -- | Run the requested Cabal test stanzas, optionally restricted to one
--- substrate's lane. Without a substrate flag this is a single
--- @cabal test \<targets\>@ with the opaque @--test-options@ passthrough (the
--- legacy behavior). With exactly one substrate flag the
+-- substrate's lane. Every stanza receives its own process invocation so its
+-- outcome is exact and a fail-fast suffix can be retained as @NotRun@. With
+-- exactly one substrate flag the
 -- 'substratePartitionedStanzas' run under @-p \<substrate\>@ (and @-fcuda@ on
 -- @linux-cuda@), while non-partitioned stanzas run in full, one invocation at a
 -- time, so live substrate tests do not contend over the same cluster/device.
@@ -5374,11 +7331,21 @@ ensureLivePublicationFor substrate = do
 runCabalTest :: [ParsedOption] -> [Text] -> App ()
 runCabalTest parsedOptions targets =
   case bootstrapSubstrates parsedOptions of
-    [] ->
-      runCabalInvocations
-        parsedOptions
-        targets
-        (substrateTestInvocations Nothing targets userOptions)
+    []
+      | hasOption "live" parsedOptions -> do
+          substrate <- liveE2ESubstrate parsedOptions
+          ensureSubstrateRuntimeFor substrate targets
+          runCabalInvocations
+            parsedOptions
+            targets
+            (Just substrate)
+            (substrateTestInvocations (Just substrate) targets userOptions)
+      | otherwise ->
+          runCabalInvocations
+            parsedOptions
+            targets
+            Nothing
+            (substrateTestInvocations Nothing targets userOptions)
     [substrateName] ->
       case parseSubstrate substrateName of
         Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrateName))
@@ -5387,6 +7354,7 @@ runCabalTest parsedOptions targets =
           runCabalInvocations
             parsedOptions
             targets
+            (Just substrate)
             (substrateTestInvocations (Just substrate) targets userOptions)
     _ -> exitWithError (InvalidConfig "test accepts at most one substrate flag")
  where
@@ -5423,49 +7391,211 @@ ensureSubstrateRuntimeFor substrate targets
     available <- liftIO probe
     unless available (exitWithError (InvalidConfig message))
 
--- | Run each planned @cabal test@ invocation in order, stopping at the first
--- failure, then render the report card once over the full target set.
-runCabalInvocations :: [ParsedOption] -> [Text] -> [[Text]] -> App ()
-runCabalInvocations parsedOptions targets invocations = do
-  mapM_ (runOne selectedTestSubstrate) invocations
+-- | Run each planned @cabal test@ invocation in order. On the first failure,
+-- retain the failed outcome and append @NotRun@ rows for the fail-fast suffix;
+-- render the complete journal before propagating that original failure.
+runCabalInvocations :: [ParsedOption] -> [Text] -> Maybe Substrate -> [[Text]] -> App ()
+runCabalInvocations parsedOptions targets selectedTestSubstrate invocations = do
   loadedKnobs <- liftIO (loadReportCardKnobs "cabal.project")
   case loadedKnobs of
     Left err -> exitWithError (InvalidConfig err)
     Right knobs -> do
-      let renderedTargets = targetStanzas targets
-      measurements <-
+      planned <-
+        case pairPlannedInvocations targets invocations of
+          Nothing ->
+            exitWithError
+              (InvalidConfig "internal test plan mismatch between stanzas and Cabal invocations")
+          Just paired -> pure paired
+      (journal, scenarioJournals, measurements, liveFailure) <-
         if hasOption "live" parsedOptions
-          then collectLiveReportMeasurements renderedTargets
-          else pure emptyReportMeasurements
+          then runScopedLiveInvocations targets selectedTestSubstrate planned
+          else do
+            observed <- runPlannedInvocations emptyInvocationJournal planned
+            pure (observed, [], emptyReportMeasurements, Nothing)
       writeText
-        ( renderReportCardForTargets
+        ( renderReportCardWithKnobs
             knobs
-            renderedTargets
-            (ReportCard (passedCount targets) 0 0 measurements)
+            ReportCard
+              { reportInvocationJournal = journal
+              , reportMeasurements = measurements
+              , reportScenarioJournals = scenarioJournals
+              }
         )
+      case liveFailure of
+        Just err -> exitWithError err
+        Nothing ->
+          for_
+            (firstObservedInvocationFailure journal)
+            (exitWithError . observedProcessAppError)
  where
-  selectedTestSubstrate =
-    case bootstrapSubstrates parsedOptions of
-      [substrateName] -> parseSubstrate substrateName
-      _ -> Nothing
+  pairPlannedInvocations [] [] = Just []
+  pairPlannedInvocations (target : remainingTargets) (args : remainingInvocations) =
+    ((target, args) :) <$> pairPlannedInvocations remainingTargets remainingInvocations
+  pairPlannedInvocations _ _ = Nothing
 
-  runOne substrateMaybe args = do
-    let rawCommand =
-          case substrateMaybe of
-            Nothing -> subprocess "cabal" args
-            Just substrate ->
-              subprocess
-                "env"
-                ( ("JITML_SUBSTRATE=" <> renderSubstrate substrate)
-                    : "cabal"
-                    : args
-                )
-        command = prioritizeLiveCabal (hasOption "live" parsedOptions) rawCommand
-    (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
-    case exitCode of
-      ExitSuccess -> writeText stdoutText
-      ExitFailure _ ->
-        exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
+  runPlannedInvocations journal [] = pure journal
+  runPlannedInvocations journal ((target, args) : remaining) = do
+    let command = commandFor selectedTestSubstrate args
+    outcome <- liftIO (runStreamingObserved defaultSubprocessEnv command)
+    case outcome of
+      ObservedProcessSucceeded transcript ->
+        runPlannedInvocations
+          (appendInvocation journal (passedInvocation target transcript))
+          remaining
+      ObservedProcessFailed failure ->
+        pure
+          ( foldl'
+              ( \observed (notRunTarget, notRunArgs) ->
+                  appendInvocation
+                    observed
+                    ( notRunObservedInvocation
+                        notRunTarget
+                        (renderSubprocess (commandFor selectedTestSubstrate notRunArgs))
+                        target
+                        failure
+                    )
+              )
+              (appendInvocation journal (failedObservedInvocation target failure))
+              remaining
+          )
+
+  runScopedLiveInvocations selectedTargets substrateMaybe planned =
+    case substrateMaybe of
+      Nothing ->
+        exitWithError
+          (InvalidConfig "internal live test plan is missing its selected substrate")
+      Just substrate -> do
+        existing <- liftIO (readExistingLivePublication ".")
+        ownership <- liveResourceOwnership substrate existing
+        let scopePlan = scopedLiveE2EPlanFor ownership substrate
+            playwright
+              | "jitml-e2e" `elem` selectedTargets =
+                  [ LiveE2EScope.PlannedTestInvocation
+                      { LiveE2EScope.plannedTestStanza = "jitml-e2e-playwright"
+                      , LiveE2EScope.plannedTestCommand = livePlanStepCommand step
+                      }
+                  | step <- scopedLivePlanBody scopePlan
+                  , livePlanStepName step == "playwright"
+                  ]
+              | otherwise = []
+            cabalInvocations =
+              [ LiveE2EScope.PlannedTestInvocation
+                  { LiveE2EScope.plannedTestStanza = target
+                  , LiveE2EScope.plannedTestCommand = commandFor (Just substrate) args
+                  }
+              | (target, args) <- planned
+              ]
+            expectedPlaywrightInvocations =
+              if "jitml-e2e" `elem` selectedTargets then 1 else 0
+        when (length playwright /= expectedPlaywrightInvocations) $
+          exitWithError
+            ( InvalidConfig
+                "live e2e plan produced an invalid Playwright invocation cardinality"
+            )
+        env <- ask
+        scoped <-
+          liftIO
+            ( LiveE2EScope.runLiveE2EScope
+                liveE2EScopeBackend
+                scopePlan
+                (playwright <> cabalInvocations)
+                (collectMeasurements env selectedTargets)
+            )
+        pure
+          ( LiveE2EScope.liveE2EInvocationJournal scoped
+          , [LiveE2EScope.liveE2EScenarioJournal scoped]
+          , fromMaybe emptyReportMeasurements (LiveE2EScope.liveE2EPostBodyResult scoped)
+          , liveScopeAppError scoped
+          )
+
+  collectMeasurements env selectedTargets = do
+    measured <- tryAny (runReaderT (collectLiveReportMeasurements selectedTargets) env)
+    pure $
+      case measured of
+        Left exception ->
+          Left
+            ( "live report measurement collection failed: "
+                <> Text.pack (displayException exception)
+            )
+        Right values -> Right values
+
+  liveResourceOwnership substrate existing =
+    case existing of
+      Nothing -> pure OwnedEphemeralCluster
+      Just publication
+        | Publication.publicationSubstrate publication /= substrate ->
+            exitWithError
+              ( InvalidConfig
+                  ( "test --live requested "
+                      <> renderSubstrate substrate
+                      <> " but cluster-publication.json is for "
+                      <> renderSubstrate (Publication.publicationSubstrate publication)
+                  )
+              )
+        | Publication.publicationHasLiveEvidence publication -> do
+            writeLine
+              ( "test --live: borrowing existing "
+                  <> renderSubstrate substrate
+                  <> " publication at edge :"
+                  <> Text.pack (show (Publication.publicationEdgePort publication))
+              )
+            pure BorrowedLiveCluster
+        | otherwise -> pure OwnedEphemeralCluster
+
+  liveE2EScopeBackend =
+    LiveE2EScope.LiveE2EScopeBackend
+      { LiveE2EScope.liveE2ERunStep =
+          runStreaming defaultSubprocessEnv . livePlanStepCommand
+      , LiveE2EScope.liveE2EDiagnosticSteps =
+          [ LivePlanStep
+              "cluster-pods"
+              ( subprocess
+                  "kubectl"
+                  [ "--kubeconfig"
+                  , "./.build/jitml.kubeconfig"
+                  , "get"
+                  , "pods"
+                  , "--all-namespaces"
+                  , "-o"
+                  , "wide"
+                  ]
+              )
+          ]
+      , LiveE2EScope.liveE2EAcceptReleaseFailure =
+          (== ExitFailure 3) . processFailureExitCode
+      }
+
+  liveScopeAppError scoped =
+    case LiveE2EScope.liveE2EScopeFailure scoped of
+      Just (LiveE2EScope.LiveE2EProcessFailure failure) ->
+        Just
+          ( observedProcessAppError
+              (LiveE2EScope.liveE2EFailureProcess failure)
+          )
+      Just (LiveE2EScope.LiveE2EPostBodyIssue failure) ->
+        Just (InvalidConfig failure)
+      Nothing -> Nothing
+
+  observedProcessAppError failure =
+    case failure of
+      ObservedProcessExitFailure processFailure ->
+        SubprocessFailed processFailure
+      ObservedProcessAttemptFailure attemptFailure ->
+        SubprocessAttemptFailed attemptFailure
+
+  commandFor substrateMaybe args =
+    prioritizeLiveCabal (hasOption "live" parsedOptions) rawCommand
+   where
+    rawCommand =
+      case substrateMaybe of
+        Nothing -> subprocess "cabal" args
+        Just substrate ->
+          subprocess
+            "env"
+            ( ("JITML_SUBSTRATE=" <> renderSubstrate substrate)
+                : "cabal"
+                : args
+            )
 
   prioritizeLiveCabal live command
     | not live = command
@@ -5538,7 +7668,13 @@ measureSlFinalLoss = do
   substrate <- workerSubstrateBase
   case SL.canonicalProblems of
     problem : _ -> do
-      result <- runDeviceMnistTraining substrate problem
+      plan <-
+        resolveSupervisedInvocationPlan
+          []
+          Overrides.emptyExperimentOverrides
+          substrate
+          problem
+      result <- runDeviceMnistTraining substrate problem plan
       pure $
         case result of
           Right loss -> measuredShow (SL.problemName problem <> "=") loss
@@ -5839,12 +7975,6 @@ prometheusMetricInt metricName body =
             | metric == metricName -> readMaybe (Text.unpack value)
           _ -> firstMatch rest
 
-passedCount :: [Text] -> Int
-passedCount = length
-
-targetStanzas :: [Text] -> [Text]
-targetStanzas targets = targets
-
 -- | `jitml internal gc <experiment-hash>` reconciler. When a live
 -- `cluster-publication.json` is present, walks the live MinIO bucket
 -- `jitml-checkpoints/<experiment-hash>/manifests/` through
@@ -6031,25 +8161,11 @@ runInternalTrainAndPublishProductRows parsedOptions = do
     Left err -> exitWithError err
     Right value -> pure value
   rowFilterRaw <- liftIO (lookupEnv "JITML_PRODUCT_ROW_FILTER")
-  let rowFilter =
-        maybe
-          []
-          (filter (not . Text.null) . fmap Text.strip . Text.splitOn "," . Text.pack)
-          rowFilterRaw
-      selectedRows =
-        if null rowFilter
-          then ProductMatrix.allProductRows
-          else
-            filter
-              (\row -> ProductMatrix.rowId row `elem` rowFilter)
-              ProductMatrix.allProductRows
-  when (not (null rowFilter) && null selectedRows) $
-    exitWithError
-      ( InvalidConfig
-          ( "JITML_PRODUCT_ROW_FILTER matched no product rows: "
-              <> Text.intercalate ", " rowFilter
-          )
-      )
+  selectedRows <-
+    either
+      (exitWithError . InvalidConfig)
+      pure
+      (ProductMatrix.selectProductRows (Text.pack <$> rowFilterRaw))
   results <-
     traverse
       ( \row -> do
@@ -6092,25 +8208,11 @@ runInternalBenchmarkProductRowWallClock :: App ()
 runInternalBenchmarkProductRowWallClock = do
   env <- ask
   rowFilterRaw <- liftIO (lookupEnv "JITML_PRODUCT_ROW_FILTER")
-  let rowFilter =
-        maybe
-          []
-          (filter (not . Text.null) . fmap Text.strip . Text.splitOn "," . Text.pack)
-          rowFilterRaw
-      selectedRows =
-        if null rowFilter
-          then ProductMatrix.allProductRows
-          else
-            filter
-              (\row -> ProductMatrix.rowId row `elem` rowFilter)
-              ProductMatrix.allProductRows
-  when (not (null rowFilter) && null selectedRows) $
-    exitWithError
-      ( InvalidConfig
-          ( "JITML_PRODUCT_ROW_FILTER matched no product rows: "
-              <> Text.intercalate ", " rowFilter
-          )
-      )
+  selectedRows <-
+    either
+      (exitWithError . InvalidConfig)
+      pure
+      (ProductMatrix.selectProductRows (Text.pack <$> rowFilterRaw))
   let cpuDevice = mlpDeviceForSubstrate LinuxCPU env
       cudaDevice = mlpDeviceForSubstrate LinuxCUDA env
   requireProductTimingProbe "linux-cpu" cpuDevice
@@ -6468,6 +8570,7 @@ trainAndPublishSupervisedProductRow substrate row = do
           trainLimit
           epochs
           testLimit
+          (Classifier.clfBatchSize Classifier.defaultClassifierConfig)
           (Just learningRate)
       case trained of
         Left err -> pure (productPublishError row err)
@@ -6480,18 +8583,24 @@ trainAndPublishSupervisedProductRow substrate row = do
                   tensorName = experimentHash <> "-sl-weights"
                   metricRows = trainingCheckpointMetrics metrics
                   completedTraining =
-                    case tmInitialCheckpointWeights metrics of
-                      Nothing -> Left "missing initial checkpoint weights"
-                      Just initialWeights ->
-                        completedTrainingForProductRow
-                          row
-                          (tmDatasetShaAtRead metrics)
-                          experimentHash
-                          tensorName
-                          (tmCompletedUnits metrics)
-                          metricRows
-                          initialWeights
-                          weights
+                    do
+                      planId <- completionPlanIdForProductRow row
+                      initialWeights <-
+                        maybe
+                          (Left "missing initial checkpoint weights")
+                          Right
+                          (tmInitialCheckpointWeights metrics)
+                      completedTrainingForProductRow
+                        planId
+                        (ProductMatrix.trainingBudget row)
+                        row
+                        (tmDatasetShaAtRead metrics)
+                        experimentHash
+                        tensorName
+                        (tmCompletedUnits metrics)
+                        metricRows
+                        initialWeights
+                        weights
               case completedTraining of
                 Left err ->
                   pure
@@ -6526,8 +8635,14 @@ trainAndPublishRlProductRow substrate row trainerKind environment =
       -- genuinely-converged but variable policy (e.g. PPO/cartpole) can post a
       -- low median from a couple of unlucky short episodes, so the convergence
       -- gate saw noise rather than the policy's true performance.
-      evalEpisodes <- productEnvInt "JITML_PRODUCT_RL_EVAL_EPISODES" 20
-      maxSteps <- productEnvInt "JITML_PRODUCT_RL_MAX_STEPS" 200
+      evalEpisodes <-
+        productEnvInt
+          "JITML_PRODUCT_RL_EVAL_EPISODES"
+          ProductBudget.productRlDefaultEvaluationEpisodes
+      maxSteps <-
+        productEnvInt
+          "JITML_PRODUCT_RL_MAX_STEPS"
+          ProductBudget.productRlDefaultMaxEpisodeSteps
       trainerRunE <-
         liftIO
           ( runTrainerEpisodes
@@ -6556,15 +8671,18 @@ trainAndPublishRlProductRow substrate row trainerKind environment =
                       (trainerRunEpisodes trainerRun)
                   checkpointStep = trainerRunObservedUnits trainerRun
                   completedTraining =
-                    rlCompletedTrainingWithBudget
-                      (ProductMatrix.trainingBudget row)
-                      trainerKind
-                      environment
-                      experimentHash
-                      tensorName
-                      checkpointStep
-                      metrics
-                      evidence
+                    do
+                      completionPlanId <- eitherToMaybe (completionPlanIdForProductRow row)
+                      rlCompletedTrainingWithBudget
+                        completionPlanId
+                        (ProductMatrix.trainingBudget row)
+                        trainerKind
+                        environment
+                        experimentHash
+                        tensorName
+                        checkpointStep
+                        metrics
+                        evidence
               case completedTraining of
                 Nothing ->
                   pure
@@ -6660,7 +8778,9 @@ trainAndPublishAlphaZeroProductRow substrate row game = do
                       maxPlies
                       (seed + 7919)
                   experimentHash = ProductMatrix.productRowExperimentHash row
-                  checkpointStep = fromIntegral (length samples)
+                  completedGenerations = fromIntegral generationCount
+                  checkpointStep =
+                    alphaZeroArtifactStep completedGenerations (length samples)
                   metrics =
                     [ ("arena_win_rate", winRate)
                     , ("legal_move_rate", 1.0)
@@ -6672,13 +8792,17 @@ trainAndPublishAlphaZeroProductRow substrate row game = do
                   initialWeights = PolicyValueNet.policyValueNetToFlat net0
                   finalWeights = PolicyValueNet.policyValueNetToFlat trainedNet
                   completedTraining =
-                    alphaZeroCompletedTraining
-                      experimentHash
-                      game
-                      (fromIntegral generationCount)
-                      metrics
-                      initialWeights
-                      finalWeights
+                    do
+                      completionPlanId <- eitherToMaybe (completionPlanIdForProductRow row)
+                      alphaZeroCompletedTraining
+                        completionPlanId
+                        (ProductMatrix.trainingBudget row)
+                        experimentHash
+                        game
+                        completedGenerations
+                        metrics
+                        initialWeights
+                        finalWeights
               case completedTraining of
                 Nothing ->
                   pure
@@ -6814,20 +8938,33 @@ trainAndPublishTuningProductRow substrate row = do
                       trialsCompleted32 = fromIntegral trialCount
                       trialsCompleted = fromIntegral trialsCompleted32
                       completedTraining =
-                        completedTrainingForProductRow
-                          row
-                          Nothing
-                          experimentHash
-                          "tune-trial-weights"
-                          trialsCompleted
-                          [("best_objective", Tune.trialResultObjective best)]
-                          (Tune.trialResultInitialWeights best)
-                          (Tune.trialResultWeights best)
+                        do
+                          planId <- completionPlanIdForProductRow row
+                          completedTrainingForProductRow
+                            planId
+                            (ProductMatrix.trainingBudget row)
+                            row
+                            Nothing
+                            experimentHash
+                            "tune-trial-weights"
+                            trialsCompleted
+                            [("best_objective", Tune.trialResultObjective best)]
+                            (Tune.trialResultInitialWeights best)
+                            (Tune.trialResultWeights best)
                   case completedTraining of
                     Left err ->
                       pure
                         (productPublishError row ("tuning row did not produce passing CompletedTraining evidence: " <> err))
                     Right completed -> do
+                      let productExecutions =
+                            [ Tune.TrialExecution
+                                { Tune.trialExecutionResult = result
+                                , Tune.trialExecutionPruned = False
+                                , Tune.trialExecutionPromoted =
+                                    Tune.trialResultIndex result == Tune.trialResultIndex best
+                                }
+                            | result <- results
+                            ]
                       stored <-
                         writeLocalWeightCheckpointWithCompleted
                           (Just completed)
@@ -6843,7 +8980,7 @@ trainAndPublishTuningProductRow substrate row = do
                           ( renderTuneTrialArtifact
                               experiment
                               (Tune.tuningSamplerKind (Tune.tuningConfigSampler config))
-                              results
+                              productExecutions
                               best
                           )
                       pure (productPublishEligible row stored "tuning promoted artifact published")
@@ -6922,13 +9059,8 @@ productSupervisedDefaultTrainLimit row =
     _ -> 7000
 
 productSupervisedDefaultEpochs :: ProductMatrix.ProductRow state -> Int
-productSupervisedDefaultEpochs row =
-  case ProductMatrix.rowId row of
-    "cifar10-resnet20" -> 5
-    "cifar10-resnet56" -> 5
-    "cifar10-vit" -> 5
-    "tiny-imagenet-resnet50" -> 5
-    _ -> max 10 (fromIntegral (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row)))
+productSupervisedDefaultEpochs =
+  fromIntegral . TrainingBudget.tbTargetUnits . ProductMatrix.trainingBudget
 
 productSupervisedDefaultTestLimit :: ProductMatrix.ProductRow state -> Int
 productSupervisedDefaultTestLimit row
@@ -7072,7 +9204,6 @@ publishGcReapedEvents publication executed plan
       let edgePort = Publication.publicationEdgePort publication
           substrate = Publication.publicationSubstrate publication
           pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
-          topic = Capabilities.TopicName (ProtoGc.gcEventTopic substrate)
           reapedCount = CheckpointStore.gcExecutedReapedManifests executed
           reapedEvents =
             take reapedCount (CheckpointStore.gcReapEvents plan)
@@ -7088,14 +9219,16 @@ publishGcReapedEvents publication executed plan
                     CheckpointStore.gcReapedBlobShas event
                 , ProtoGc.gcEventStepAtReap =
                     CheckpointStore.gcStepAtReap event
-                , ProtoGc.gcEventSubstrate = renderSubstrate substrate
+                , ProtoGc.gcEventSubstrate = substrate
                 , ProtoGc.gcEventTimestampNs = timestampNs
                 }
         result <-
           liftIO
-            ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            ( publishPulsarEvent
                 pulsarSettings
-                (Capabilities.pulsarPublish topic (ProtoGc.renderGcReapedEvent envelope))
+                Topology.GcEventRoute
+                substrate
+                envelope
             )
         case result of
           Right _ -> pure ()

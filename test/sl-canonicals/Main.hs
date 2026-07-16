@@ -55,6 +55,8 @@ import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
+import JitML.Plan.Command qualified as PlanCommand
+import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
@@ -66,6 +68,7 @@ import JitML.Proto.Training
   , TrainingCommand (..)
   , TrainingEvent (..)
   , TrainingFailed (..)
+  , completeCheckpointDone
   , decodeTrainingCommandProto
   , decodeTrainingEventProto
   , encodeTrainingCommandProto
@@ -124,12 +127,8 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
     (error . Text.unpack)
     id
     ( TrainingBudget.completedTraining
-        TrainingBudget.TrainingBudget
-          { TrainingBudget.tbKind = kind
-          , TrainingBudget.tbTargetUnits = max 1 observedUnits
-          , TrainingBudget.tbUnitLabel = "units"
-          , TrainingBudget.tbSeed = Nothing
-          }
+        fixturePlanId
+        (budgetFixture kind (max 1 observedUnits))
         observedUnits
         (trainingEvidenceFixture experimentHash observedUnits)
         (convergenceObservationsFixture metrics)
@@ -139,6 +138,18 @@ completedTrainingFixture kind experimentHash observedUnits metrics =
           , TrainingBudget.tbrScalarTags = fmap fst metrics
           }
     )
+
+budgetFixture
+  :: TrainingBudget.BudgetKind -> Word64 -> TrainingBudget.TrainingBudget
+budgetFixture kind target =
+  either
+    (error . Text.unpack)
+    id
+    (TrainingBudget.mkTrainingBudget kind target Nothing)
+
+fixturePlanId :: Plan.PlanId
+fixturePlanId =
+  either (error . Text.unpack) id (Plan.refinePlanIdText (Text.replicate 64 "a"))
 
 trainingEvidenceFixture :: Text -> Word64 -> ProductEvidence.TrainingEvidence
 trainingEvidenceFixture experimentHash observedUnits =
@@ -576,16 +587,26 @@ main =
                 "sl_epochs covers at least one device epoch"
                 (knobSlEpochs knobs >= 1)
       , testCase "training command envelopes parse after render" $ do
-          let start =
+          let rawStart =
+                StartTraining
+                  { stExperimentHash = "sha256:mnist"
+                  , stDhallObjectKey = "experiments/mnist.dhall"
+                  , stSubstrate = LinuxCPU
+                  , stSeed = 42
+                  , stEpochs = 5
+                  , stBatchSize = 64
+                  , stPlanId = ""
+                  , stResolvedPlan = ""
+                  , stTrainingExamples = 4096
+                  , stEvaluationExamples = 1024
+                  }
+              start =
                 TrainingStart
-                  StartTraining
-                    { stExperimentHash = "sha256:mnist"
-                    , stDhallObjectKey = "experiments/mnist.dhall"
-                    , stSubstrate = LinuxCPU
-                    , stSeed = 42
-                    , stEpochs = 5
-                    , stBatchSize = 64
-                    }
+                  ( either
+                      (error . Text.unpack)
+                      fst
+                      (PlanCommand.prepareStartTraining rawStart)
+                  )
               stop =
                 TrainingStop
                   StopTraining
@@ -607,26 +628,31 @@ main =
                     , ecValidationLoss = 0.25
                     , ecTimestampNs = 123456789
                     }
-              checkpoint =
-                TrainingCheckpoint
-                  CheckpointDone
-                    { cdExperimentHash = "sha256:mnist"
-                    , cdManifestSha = "sha256:manifest"
-                    , cdStep = 4096
-                    , cdPointerKey = "checkpoints/mnist/latest"
-                    , cdEpoch = 4
-                    , cdTrialSha = Just "sha256:trial"
-                    , cdRunUuid = "run-0001"
-                    , cdMetricsAtStep = [("loss", 0.125), ("accuracy", 0.875)]
-                    , cdCompletedTraining =
-                        Just
-                          ( completedTrainingFixture
-                              TrainingBudget.SupervisedEpochBudget
-                              "sha256:mnist"
-                              4096
-                              [("loss", 0.125), ("accuracy", 0.875)]
-                          )
-                    }
+              checkpointCandidate =
+                CheckpointDone
+                  { cdExperimentHash = "sha256:mnist"
+                  , cdManifestSha = "sha256:manifest"
+                  , cdStep = 4096
+                  , cdPointerKey = "checkpoints/mnist/latest"
+                  , cdEpoch = 4
+                  , cdTrialSha = Just "sha256:trial"
+                  , cdRunUuid = "run-0001"
+                  , cdMetricsAtStep = [("loss", 0.125), ("accuracy", 0.875)]
+                  }
+              completedTraining =
+                completedTrainingFixture
+                  TrainingBudget.SupervisedEpochBudget
+                  "sha256:mnist"
+                  4096
+                  [("loss", 0.125), ("accuracy", 0.875)]
+              checkpoint = TrainingCheckpoint checkpointCandidate
+              completedCheckpoint =
+                TrainingCompletedCheckpoint
+                  ( either
+                      (error . Text.unpack)
+                      id
+                      (completeCheckpointDone checkpointCandidate completedTraining)
+                  )
               failure =
                 TrainingFailure
                   TrainingFailed
@@ -637,6 +663,8 @@ main =
                     }
           decodeTrainingEventProto (encodeTrainingEventProto epoch) @?= Right epoch
           decodeTrainingEventProto (encodeTrainingEventProto checkpoint) @?= Right checkpoint
+          decodeTrainingEventProto (encodeTrainingEventProto completedCheckpoint)
+            @?= Right completedCheckpoint
           decodeTrainingEventProto (encodeTrainingEventProto failure) @?= Right failure
       , testCase "SL classifier converges on a separable synthetic task (Sprint 13.4 network seam)" $ do
           -- Sprint 13.4 — drive the real differentiable softmax-cross-entropy

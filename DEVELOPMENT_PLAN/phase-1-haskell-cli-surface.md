@@ -20,7 +20,16 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `1.17`). The placeholder
+✅ **Done** (re-closed 2026-07-12 by Sprint `1.18`).
+`JitML.Sub.Outcome` makes success and failure mutually exclusive, complete
+transcripts cross every subprocess boundary, and opaque `ProcessFailure`
+retains the genuinely non-zero exit status. Validation passed
+`jitml-unit --linux-cpu` **284 / 284**, `jitml docs check` exit `0`, and
+`jitml check-code` exit `0`. Sprint `1.18` closes the subprocess portion of
+Exit Definition item `33`; Sprints `1.1`–`1.18` are Done on their owned
+surfaces.
+
+**Historical retained closure.** ✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `1.17`). The placeholder
 top-level `verify`, `inspect`, `bench`, and `kubectl` command groups remain
 removed from the canonical `CommandSpec` registry and app dispatch. Residual
 user-facing numeric flags now parse through the typed `InvalidConfig` error
@@ -468,8 +477,8 @@ None.
 ## Sprint 1.6: `Subprocess` Typed Values, `runStreaming` / `capture` Interpreter ✅
 
 **Status**: Done
-**Implementation**: `src/JitML/Sub/Subprocess.hs`, `src/JitML/Sub/Stream.hs`,
-`src/JitML/Sub/Render.hs`
+**Implementation**: `src/JitML/Sub/Subprocess.hs`, `src/JitML/Sub/Outcome.hs`,
+`src/JitML/Sub/Stream.hs`, `src/JitML/Sub/Render.hs`
 **Docs to update**: `documents/engineering/haskell_code_guide.md`
 
 ### Objective
@@ -488,9 +497,10 @@ later phases.
   stdin, Dhall, or typed config.
 - `renderSubprocess :: Subprocess -> Text` is pure and used by the Plan
   renderer and the structured logger.
-- `runStreaming :: Env -> Subprocess -> IO (ExitCode, Text, Text)` and
-  `capture :: Env -> Subprocess -> IO (ExitCode, ByteString, ByteString)` are
-  the only IO interpreters.
+- `runStreaming :: SubprocessEnv -> Subprocess -> IO ProcessOutcome` and
+  `capture :: SubprocessEnv -> Subprocess -> IO ProcessOutcome` are the only IO
+  interpreters. `ProcessOutcome` is defined in `JitML.Sub.Outcome` and retains a
+  complete transcript for both success and failure.
 - The Sprint `1.4` in-repo primitive scan refuses `callProcess`,
   `readCreateProcess`, `System.Process.*`, and `typed-process` smart
   constructors outside this module.
@@ -501,7 +511,8 @@ later phases.
    primitives across `src/`.
 2. `jitml-unit` exercises `renderSubprocess` snapshot tests for the Plan renderer.
 3. `jitml-integration` exercises `runStreaming` against a fixture binary and
-   asserts the typed `(ExitCode, Text, Text)` shape.
+   asserts the typed `ProcessSucceeded ProcessTranscript` /
+   `ProcessFailed ProcessFailure` shape.
 
 ### Remaining Work
 
@@ -566,8 +577,8 @@ runners thread through, per doctrine `Application Environment`.
   - `envDataDir :: Path Abs Dir` (resolves explicit `--data-dir <path>` or
     defaults to `./.data/`),
   - `envFormat :: OutputFormat`, `envColor :: ColorMode`,
-  - `envLogger :: Subprocess -> ExitCode -> Text -> IO ()` (defaults to
-    structured JSON on stderr; daemon overrides),
+  - `envLogger :: ProcessOutcome -> IO ()` (defaults to structured JSON on
+    stderr; daemon overrides),
   - `envClock :: IO MonotonicTime` (test-hook seam per doctrine
     [§Test hooks in Env](../README.md)).
 - `buildEnv :: GlobalFlags -> IO Env` is the single entry point used by
@@ -602,13 +613,15 @@ and the doctrine-mandated output flags `--format` and `--color`.
 ### Deliverables
 
 - `AppError` ADT in `src/JitML/AppError/AppError.hs` carries the canonical
-  17-variant set per [system-components.md → CLI Doctrine
+  20-variant set per [system-components.md → CLI Doctrine
   Components](system-components.md#cli-doctrine-components):
   `PrerequisiteUnmet`, `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`,
   `HarborFailed`, `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`,
   `InvalidConfig`, `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`,
   `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`,
-  `CheckpointWriteConflict`, `ReconcilerNoop`.
+  `CheckpointWriteConflict`, `InferenceCheckpointMissing`,
+  `InferenceManifestShaMismatch`, `TrainingPrerequisiteUnmet`,
+  `ReconcilerNoop`.
 - `renderError :: AppError -> Text` is the only Text rendering at the CLI
   boundary, defined in `src/JitML/CLI/Output.hs`. Sprint `1.4` has `.hlint.yaml`
   hints and an in-repo primitive scan for direct terminal formatting and
@@ -972,6 +985,8 @@ lane. The `jitml verify cross-backend` row in
 
 **Engineering docs to create/update:**
 
+- `documents/engineering/run_contract.md` — structured process outcomes and
+  transcript preservation at the workflow interpreter boundary.
 - `documents/engineering/cli_command_surface.md` — populate the project-specific
   command matrix; link generated tables (key `cli-commands.help-blocks`) to the
   `GeneratedSectionRule` registry.
@@ -987,7 +1002,7 @@ lane. The `jitml verify cross-backend` row in
   substrate.
 - `documents/engineering/haskell_code_guide.md` — name the `Subprocess`,
   `Plan / apply`, prerequisite, `Env`, and `AppError` patterns with project-
-  specific elaborations (the 17-variant `AppError` enumeration).
+  specific elaborations (the 20-variant `AppError` enumeration).
 - `documents/engineering/cli_command_surface.md` (Sprint `1.13`) — regenerated
   `cli-commands.help-blocks` region drops the `verify cross-backend` leaf and
   adds the `--test-options` option on the `test` leaves. Regenerated by
@@ -1185,6 +1200,51 @@ and remove stale duplicate command syntax from manually maintained docs.
 - `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`
 - `docker compose run --rm jitml jitml docs check`
 - `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+None.
+
+## Sprint 1.18: Structured Subprocess Outcomes [✅ Done]
+
+**Status**: Done
+**Implementation**: `src/JitML/Sub/Outcome.hs`, `src/JitML/Sub/Stream.hs`,
+`src/JitML/Sub/Subprocess.hs`, `src/JitML/AppError/AppError.hs`,
+`src/JitML/AppError/Render.hs`, `src/JitML/App.hs`, `test/unit/Main.hs`,
+`test/integration/Main.hs`, `test/e2e/Main.hs`
+**Docs to update**: `../README.md`,
+`../documents/engineering/haskell_code_guide.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make subprocess success and failure mutually exclusive typed values, and retain
+the complete process transcript at every failure boundary. This sprint owns the
+subprocess portion of [Exit Definition](README.md#exit-definition) item `33` and
+implements `Subprocesses as Typed Values` without exposing raw result tuples to
+callers.
+
+### Deliverables
+
+- Replace `(ExitCode, stdout, stderr)` results with a closed
+  `ProcessSucceeded ProcessTranscript | ProcessFailed ProcessFailure` sum.
+- Make `ProcessFailure` constructible only from a non-zero exit and retain the
+  rendered command, stdout, stderr, working directory, and elapsed duration.
+- Thread the structured result through Cabal, Playwright, bootstrap, lint, and
+  other subprocess callers so no caller can silently discard stdout on failure.
+- Refine `AppError` to carry the structured failure rather than an independently
+  constructible exit code and stderr fragment.
+- Add unit and property tests for success/failure exclusivity, transcript
+  preservation, rendering, and non-zero failure construction.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu  # passed, 284 / 284
+docker compose run --rm jitml jitml docs check                  # exit 0
+docker compose run --rm jitml jitml check-code                  # exit 0
+```
 
 ### Remaining Work
 

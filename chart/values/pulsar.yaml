@@ -55,7 +55,15 @@ bookkeeper:
 
 broker:
   replicaCount: 3
+  # The retained-cluster reconciler upgrades this release in place. Include
+  # the broker ConfigMap checksum in the StatefulSet template so configData
+  # changes reach already-running brokers instead of waiting for recreation.
+  restartPodsOnConfigMapChange: true
   configData:
+    # The Coordinator owns a fixed cross-substrate topology. Pulsar's default
+    # 60-second inactive-topic deletion would remove unsubscribed lanes and
+    # make a reconciled cluster drift while idle.
+    brokerDeleteInactiveTopicsEnabled: "false"
     webSocketServiceEnabled: "true"
   podMonitor:
     enabled: false

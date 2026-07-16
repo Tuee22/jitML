@@ -14,15 +14,31 @@
 **Generated sections**: none
 
 > **Purpose**: Own the SL canonical summaries, RL catalog/environment
-> metadata, registered rollout helpers, measured command summaries, run-plan
-> metadata, and the three GADT-indexed lifecycles. Daemon-backed training
-> loops, real datasets, buffers, callbacks, GAE, target networks, and
-> live Pulsar events are tracked in the per-sprint `### Remaining Work`
-> blocks below.
+> metadata, registered rollout helpers, measured command summaries, the shared
+> raw-to-validated kind-indexed run-plan boundary, pure evidence-contract
+> algebra, plan-bound semantic identity, and the three workload-local
+> GADT-indexed lifecycles.
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `8.15`). `TrainingBudget`,
+✅ **Done** (reopened and re-closed 2026-07-12 for Sprint `8.16`). Raw SL/RL
+requests now cross one accumulating refinement boundary into a hidden-constructor,
+kind-indexed `RunPlan`; positive unit-indexed quantities, finite measurements,
+non-empty unique seed cohorts, placement validation, and content-derived
+`PlanId` values form the shared core. `JitML.Run.Contract` supplies the pure
+total evidence algebra, and daemon semantic `EventId` values derive after typed
+decode from plan, event kind, and logical key rather than payload bytes.
+Validation passed `jitml-unit` **367 / 367**, `jitml-sl-canonicals` **31 / 31**,
+`jitml-rl-canonicals` **39 / 39**, `jitml-daemon-lifecycle` **43 / 43**,
+`jitml docs check`, and `jitml check-code`; the three rule-M scans report zero
+backward edges, zero dual-accelerator gates, and zero aggregation accelerator
+reruns. Resolved Tune/AlphaZero worker-plan serialization closed in Sprint
+`9.17`, and supervised worker-plan serialization plus refined completion closed
+in Sprint `10.12`; the live interpreter remains Sprint `12.16`, and compiled
+algorithm-specific RL adoption remains Sprint `25.4`. Sprints `8.1`–`8.15`
+remain Done on their retained training/runtime surfaces.
+
+**Historical retained closure.** ✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `8.15`). `TrainingBudget`,
 `CompletedTraining`, and the
 `InferenceEligibleCheckpoint` boundary are shared by SL, RL, tuning, and
 checkpointing; partial, smoke, skipped, seeded-without-witness, and otherwise
@@ -545,8 +561,9 @@ are closed by the later no-caveat runtime and per-lane closure phases.
 - `src/JitML/Plan/Plan.hs` renders the current `jitml rl train` plan steps.
 - `src/JitML/App.hs` dispatches `jitml rl train`, `jitml rl eval`, and
   `jitml rl rollout` to local summaries.
-- `src/JitML/Service/Consumer.hs` provides the payload-hash deduplication
-  helper for later RL event consumers.
+- Historical Sprint `8.5` supplied the then-current payload-hash deduplication
+  helper for later RL event consumers; Sprint `8.16` replaces it with
+  plan/kind/key semantic identity after strict typed decode.
 - `src/JitML/RL/Loop.hs` declares `RLLoop`, `RLConfig`, `EpisodeResult`,
   and `RLLoopResult`. `runRLLoop` walks the algorithm × policy ×
   environment cohort through the `RLRunPhase` plan, accumulating
@@ -1233,7 +1250,7 @@ Dense-only compatibility helper is tracked for Phase `13` cleanup in
 
 - [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprints 8.2, 8.5 — `jitml train` and `jitml rl *` command leaves)
 - [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprints 8.2, 8.5, 8.6 — current dry-run / plan-file surfaces)
-- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprints 8.2, 8.6 — payload-hash deduplication helper)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprints 8.2, 8.6 retained the original helper; Sprint `8.16` replaces payload-derived identity with plan-bound semantic `EventId` values)
 - [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 8.1, 8.3, 8.4 — dedicated local `jitml-sl-canonicals` and `jitml-rl-canonicals` bodies)
 - [../README.md → GADT-Indexed State Machines](../README.md#doctrine-scope) (Sprint 8.7 — `RLRunLifecycle` joins `TrainingLifecycle` and `TuneSweepLifecycle` as phase-indexed singleton GADTs)
 - [../README.md → Canonical reinforcement learning environments](../README.md#canonical-reinforcement-learning-environments) (Sprints 8.8 / 8.9 — optional `atari-subset` ROM policy plus copyright-free `KeyDoorGrid-v0` default demo replacement)
@@ -1242,6 +1259,13 @@ Dense-only compatibility helper is tracked for Phase `13` cleanup in
 
 **Engineering docs to create/update:**
 
+- `documents/engineering/run_contract.md` — validated `RunPlan`, unit-indexed
+  quantities, and the pure evidence-contract algebra.
+- `documents/engineering/training_metrics_and_splits.md` — plan quantities and
+  nominally distinct training-progress, learning-curve, and final-evaluation
+  evidence.
+- `documents/engineering/durable_state_dsl.md` — raw configuration remains an
+  untrusted input and cannot directly mint proof-bearing plan/evidence values.
 - `documents/engineering/training_workloads.md` — SL canonical
   summaries, RL algorithm metadata hooks, registered real-environment rollout
   helper, `jitml train` / `jitml rl train` summary surfaces, and the
@@ -1259,8 +1283,8 @@ Dense-only compatibility helper is tracked for Phase `13` cleanup in
   validation owns required visual discrete-control coverage; `atari-subset`
   smoke remains optional/manual, requires generated/external adapter support,
   and is never required for canonical demo closure.
-- `documents/engineering/daemon_architecture.md` — payload-hash
-  deduplication helper; target at-least-once `TrainingHandler` and
+- `documents/engineering/daemon_architecture.md` — plan-bound semantic-event
+  deduplication after deletion of the payload-hash helper; at-least-once `TrainingHandler` and
   `RlHandler` owned by Sprints `8.2` / `8.6` Remaining Work after Sprint
   `5.5` closes the daemon consumer redelivery/dedup substrate.
 - `documents/engineering/haskell_code_guide.md` — lifecycle GADT table
@@ -1483,6 +1507,66 @@ upfront substrate unavailability.
 - `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
 - `docker compose run --rm jitml jitml test jitml-backends --linux-cpu`
 - `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+- None.
+
+## Sprint 8.16: Validated `RunPlan` and Pure Contract Algebra [✅ Done]
+
+**Status**: Done (closed 2026-07-12)
+**Implementation**: `src/JitML/Plan/Plan.hs`,
+`src/JitML/Run/Contract.hs`, `src/JitML/Service/Consumer.hs`,
+`src/JitML/Test/RunPlan.hs`, `src/JitML/Test/RunContract.hs`,
+`test/unit/Main.hs`, `test/daemon-lifecycle/Main.hs`,
+`test/integration/Main.hs`
+**Docs to update**: `../README.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/durable_state_dsl.md`,
+`../documents/engineering/run_contract.md`,
+`../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/haskell_code_guide.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Establish a functional core in which raw commands and Dhall values must refine
+into a valid kind-indexed `RunPlan` before execution, and workflow evidence is
+accepted only by a pure total contract. This sprint owns the shared framework
+portion of [Exit Definition](README.md#exit-definition) items `30` and `31`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Add a single raw-to-validated boundary returning
+  `Validation (NonEmpty PlanError) (RunPlan kind)`; hide constructors for
+  validated plans.
+- Introduce positive, unit-indexed quantities for epochs, environment
+  transitions, rollout ticks per environment, evaluation episodes, trials,
+  generations, and optimizer updates.
+- Add refined finite measurements, non-empty seed cohorts, and a content-derived
+  `PlanId`; reject zero counts, empty identifiers, non-finite values, and
+  inconsistent fields.
+- Derive opaque semantic `EventId` values from `PlanId`, event kind, and logical
+  key; remove payload-byte hashing as workflow identity.
+- Define the pure `Contract event progress evidence` reducer and reusable
+  combinators such as `exactlyOne`, `atLeastOne`, and `exactKeyedRange`.
+- Separate training progress, learning-curve observations, and final evaluation
+  evidence at the type level.
+- Keep raw wire DTOs at the protocol boundary; only validated commands, decoded
+  typed events, and refined evidence enter the functional core.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
+docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
 
 ### Remaining Work
 

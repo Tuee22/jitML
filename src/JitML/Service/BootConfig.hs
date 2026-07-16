@@ -2,6 +2,7 @@
 
 module JitML.Service.BootConfig
   ( BootConfig (..)
+  , BootConfigError (..)
   , HttpListener (..)
   , InferenceMode (..)
   , Residency (..)
@@ -9,10 +10,12 @@ module JitML.Service.BootConfig
   , defaultBootConfig
   , loadBootConfig
   , renderBootConfigDhall
+  , renderBootConfigError
   , renderInferenceMode
   , renderResidency
   , renderRole
   , rawBootConfigDecoder
+  , validateBootConfig
   )
 where
 
@@ -26,9 +29,11 @@ import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substra
 -- | Sprint 5.14 (Pulsar ML-Workflow convergence) — the one-binary role. The
 -- same @jitml service@ binary runs as exactly one of these, selected by typed
 -- Dhall @activeRole@ (no env-var role selection). The __Engine__ is the only
--- role that computes (training + inference); the __Coordinator__ owns the Pulsar
--- topic lifecycle + readiness gating; the __Webapp__ is a thin websocket/static
--- surface. See @documents/engineering/pulsar_ml_workflow.md@ → /The three roles/.
+-- role that computes; the __Coordinator__ owns the Pulsar topic lifecycle,
+-- cluster placement, and readiness gating; the __Webapp__ is a thin
+-- websocket/static surface. Coordinator and Engine use disjoint subscriptions
+-- and effects.
+-- See @documents/engineering/pulsar_ml_workflow.md@ → /The three roles/.
 data Role
   = Engine
   | Coordinator
@@ -70,6 +75,22 @@ data BootConfig = BootConfig
   }
   deriving stock (Eq, Show)
 
+-- | Fail-closed refinement errors for the combinations that the runtime can
+-- actually execute. Dhall validates each field's shape; this second boundary
+-- validates the relationships between role, substrate, residency, inference
+-- mode, listener ownership, and the Webapp-only broker endpoint.
+data BootConfigError
+  = UnknownBootConfigSubstrate Text
+  | UnsupportedBootRuntime Substrate Residency InferenceMode
+  | HostResidencyRequiresEngine Role
+  | ClusterResidencyRequiresHttpListener Role
+  | HostResidencyForbidsHttpListener
+  | EmptyHttpListenerHost
+  | HttpListenerPortOutOfRange Integer
+  | WebappRequiresPulsarWebSocketUrl
+  | NonWebappForbidsPulsarWebSocketUrl Role
+  deriving stock (Eq, Show)
+
 data RawBootConfig = RawBootConfig
   { rawActiveRole :: Role
   , rawSubstrate :: Text
@@ -79,8 +100,14 @@ data RawBootConfig = RawBootConfig
   , rawPulsarAdminUrl :: Text
   , rawMinioEndpoint :: Text
   , rawHarborRegistry :: Text
-  , rawHttpListener :: Maybe HttpListener
+  , rawHttpListener :: Maybe RawHttpListener
   , rawWebappPulsarWsUrl :: Maybe Text
+  }
+  deriving stock (Eq, Show)
+
+data RawHttpListener = RawHttpListener
+  { rawListenerHost :: Text
+  , rawListenerPort :: Natural
   }
   deriving stock (Eq, Show)
 
@@ -127,7 +154,88 @@ loadBootConfig path = do
   raw <- Dhall.inputFile rawBootConfigDecoder path
   case rawToBootConfig raw of
     Right config -> pure config
-    Left err -> ioError (userError (Text.unpack err))
+    Left err -> ioError (userError (Text.unpack (renderBootConfigError err)))
+
+-- | Accept only the three documented execution topologies:
+--
+-- * Linux CPU/CUDA in-cluster with self inference;
+-- * Apple Silicon in-cluster forwarding to the host; or
+-- * the Apple Silicon host Engine with self inference.
+--
+-- Coordinator is cluster-resident; it reconciles the typed topic family and
+-- serves the orchestration-only command plan.
+validateBootConfig :: BootConfig -> Either BootConfigError BootConfig
+validateBootConfig config = do
+  validateRuntimeTopology config
+  validateRoleResidency config
+  validateListener config
+  validateWebappEndpoint config
+  pure config
+
+validateRuntimeTopology :: BootConfig -> Either BootConfigError ()
+validateRuntimeTopology config =
+  case (bootSubstrate config, bootResidency config, bootInferenceMode config) of
+    (LinuxCPU, Cluster, SelfInference) -> Right ()
+    (LinuxCUDA, Cluster, SelfInference) -> Right ()
+    (AppleSilicon, Cluster, ForwardToHost) -> Right ()
+    (AppleSilicon, Host, SelfInference) -> Right ()
+    (substrate, residency, inferenceMode) ->
+      Left (UnsupportedBootRuntime substrate residency inferenceMode)
+
+validateRoleResidency :: BootConfig -> Either BootConfigError ()
+validateRoleResidency config =
+  case (bootActiveRole config, bootResidency config) of
+    (Engine, _) -> Right ()
+    (role, Host) -> Left (HostResidencyRequiresEngine role)
+    (_, Cluster) -> Right ()
+
+validateListener :: BootConfig -> Either BootConfigError ()
+validateListener config =
+  case (bootResidency config, bootHttpListener config) of
+    (Cluster, Nothing) -> Left (ClusterResidencyRequiresHttpListener (bootActiveRole config))
+    (Host, Just _) -> Left HostResidencyForbidsHttpListener
+    (_, Nothing) -> Right ()
+    (_, Just listener)
+      | Text.null (Text.strip (listenerHost listener)) -> Left EmptyHttpListenerHost
+      | listenerPort listener < 1 || listenerPort listener > 65535 ->
+          Left (HttpListenerPortOutOfRange (fromIntegral (listenerPort listener)))
+      | otherwise -> Right ()
+
+validateWebappEndpoint :: BootConfig -> Either BootConfigError ()
+validateWebappEndpoint config =
+  case (bootActiveRole config, bootWebappPulsarWsUrl config) of
+    (Webapp, Just endpoint)
+      | not (Text.null (Text.strip endpoint)) -> Right ()
+    (Webapp, _) -> Left WebappRequiresPulsarWebSocketUrl
+    (_role, Nothing) -> Right ()
+    (role, Just _) -> Left (NonWebappForbidsPulsarWebSocketUrl role)
+
+renderBootConfigError :: BootConfigError -> Text
+renderBootConfigError err =
+  case err of
+    UnknownBootConfigSubstrate substrate ->
+      "unknown substrate in BootConfig: " <> substrate
+    UnsupportedBootRuntime substrate residency inferenceMode ->
+      "unsupported BootConfig runtime topology: substrate="
+        <> renderSubstrate substrate
+        <> ", residency="
+        <> showText residency
+        <> ", inferenceMode="
+        <> showText inferenceMode
+    HostResidencyRequiresEngine role ->
+      "BootConfig host residency requires activeRole=Engine, received " <> showText role
+    ClusterResidencyRequiresHttpListener role ->
+      "BootConfig cluster residency requires an HTTP listener for activeRole=" <> showText role
+    HostResidencyForbidsHttpListener ->
+      "BootConfig host residency forbids an HTTP listener"
+    EmptyHttpListenerHost ->
+      "BootConfig HTTP listener host must be non-empty"
+    HttpListenerPortOutOfRange port ->
+      "BootConfig HTTP listener port must be between 1 and 65535, received " <> showText port
+    WebappRequiresPulsarWebSocketUrl ->
+      "BootConfig activeRole=Webapp requires a non-empty webappPulsarWsUrl"
+    NonWebappForbidsPulsarWebSocketUrl role ->
+      "BootConfig webappPulsarWsUrl is only legal for activeRole=Webapp, received " <> showText role
 
 renderRole :: Role -> Text
 renderRole Engine = "< Engine | Coordinator | Webapp >.Engine"
@@ -189,36 +297,53 @@ inferenceModeDecoder =
     Dhall.constructor "SelfInference" (SelfInference <$ Dhall.unit)
       <> Dhall.constructor "ForwardToHost" (ForwardToHost <$ Dhall.unit)
 
-httpListenerDecoder :: Dhall.Decoder HttpListener
+httpListenerDecoder :: Dhall.Decoder RawHttpListener
 httpListenerDecoder =
   Dhall.record $
-    HttpListener
+    RawHttpListener
       <$> Dhall.field "host" Dhall.strictText
-      <*> fmap naturalToInt (Dhall.field "port" Dhall.natural)
+      <*> Dhall.field "port" Dhall.natural
 
-rawToBootConfig :: RawBootConfig -> Either Text BootConfig
+rawToBootConfig :: RawBootConfig -> Either BootConfigError BootConfig
 rawToBootConfig raw = do
   substrate <-
     maybe
-      (Left ("unknown substrate in BootConfig: " <> rawSubstrate raw))
+      (Left (UnknownBootConfigSubstrate (rawSubstrate raw)))
       Right
       (parseSubstrate (rawSubstrate raw))
-  pure
-    BootConfig
-      { bootActiveRole = rawActiveRole raw
-      , bootSubstrate = substrate
-      , bootResidency = rawResidency raw
-      , bootInferenceMode = rawInferenceMode raw
-      , bootPulsarServiceUrl = rawPulsarServiceUrl raw
-      , bootPulsarAdminUrl = rawPulsarAdminUrl raw
-      , bootMinioEndpoint = rawMinioEndpoint raw
-      , bootHarborRegistry = rawHarborRegistry raw
-      , bootHttpListener = rawHttpListener raw
-      , bootWebappPulsarWsUrl = rawWebappPulsarWsUrl raw
-      }
+  listener <- traverse rawHttpListenerToHttpListener (rawHttpListener raw)
+  validateBootConfig
+    ( BootConfig
+        { bootActiveRole = rawActiveRole raw
+        , bootSubstrate = substrate
+        , bootResidency = rawResidency raw
+        , bootInferenceMode = rawInferenceMode raw
+        , bootPulsarServiceUrl = rawPulsarServiceUrl raw
+        , bootPulsarAdminUrl = rawPulsarAdminUrl raw
+        , bootMinioEndpoint = rawMinioEndpoint raw
+        , bootHarborRegistry = rawHarborRegistry raw
+        , bootHttpListener = listener
+        , bootWebappPulsarWsUrl = rawWebappPulsarWsUrl raw
+        }
+    )
 
-naturalToInt :: Natural -> Int
-naturalToInt = fromIntegral
+rawHttpListenerToHttpListener
+  :: RawHttpListener
+  -> Either BootConfigError HttpListener
+rawHttpListenerToHttpListener raw
+  | port < 1 || port > 65535 =
+      Left (HttpListenerPortOutOfRange (fromIntegral port))
+  | otherwise =
+      Right
+        HttpListener
+          { listenerHost = rawListenerHost raw
+          , listenerPort = fromIntegral port
+          }
+ where
+  port = rawListenerPort raw
+
+showText :: (Show value) => value -> Text
+showText = Text.pack . show
 
 _edgePortAnchor :: Substrate -> Int
 _edgePortAnchor = substrateEdgePort

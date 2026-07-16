@@ -2,12 +2,12 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, daemon_architecture.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, daemon_architecture.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific Haskell code patterns for jitML. Defers to the
 > doctrine for the patterns it owns; names jitML's lifecycle ADTs, the
-> capability classes, the 17-variant `AppError` enumeration, the typed
+> capability classes, the 20-variant `AppError` enumeration, the typed
 > `Subprocess` consumers, the `Plan` / `apply` consumers, and the daemon
 > shape.
 
@@ -19,8 +19,8 @@ This doc defers to [../../README.md](../../README.md) for:
   witnesses, the forbidden runtime-status-enum-with-manual-validation
   pattern.
 - **Architecture → Subprocesses as Typed Values** — `Subprocess` ADT plus
-  `runStreaming` / `capture` interpreter; `renderSubprocess` pure;
-  forbidden primitives.
+  `JitML.Sub.Outcome` and the `runStreaming` / `capture` interpreter;
+  `renderSubprocess` pure; forbidden primitives.
 - **Plan / Apply** — `build :: inputs -> Either AppError Plan` /
   `apply :: Env -> Plan -> IO ExitCode`, with `--dry-run` and
   `--plan-file <path>` on every Plan/Apply command.
@@ -40,28 +40,43 @@ This doc defers to [../../README.md](../../README.md) for:
 - **Long-Running Daemons in the Same Binary** — `Lifecycle: load → prereq
   → acquire → ready → serve → drain → exit`, `BootConfig` /
   `LiveConfig`, SIGHUP hot reload, `/healthz` / `/readyz` / `/metrics`,
-  structured JSON logging on stderr, recoverable-vs-fatal error kinds.
-- **At-Least-Once Event Processing** — protobuf-message-hash deduplication;
-  Pulsar consumer semantics.
+  structured JSON logging on stderr, recoverable-vs-fatal error kinds. The
+  operational stderr sink and dynamic policy readers are Sprint `12.16` target
+  obligations; the current retained logging surface is a pure renderer.
+- **At-Least-Once Event Processing** — semantic event IDs derived from the
+  validated plan, event kind, and logical key; Pulsar consumer semantics.
 - **Reconcilers: Idempotent Mutation as a Single Command** — exit code `3`
   on no-op-on-match.
 
-## Current Implementation Status
+The project-specific refinement, lifecycle, evidence-reducer, delivery-
+settlement, and live-interpreter rules are owned by
+[Typed Run Contract](run_contract.md). This guide records their Haskell module
+shape only; it does not restate that contract.
 
-Sprints `1.1` through `1.9` have landed the Cabal
-scaffold, registry-backed CLI, generated-docs reconciler, typed `Plan` modules,
-typed `Subprocess` boundary, prerequisite registry, single `Env` record with the
-`ReaderT Env IO` alias, the canonical `AppError` ADT, `renderError`, global
-output flags, CLI output module, and full lint/check-code stack. `--dry-run`
-and `--plan-file <path>` now render command plans for the registered Plan/Apply
-surfaces; concrete apply bodies remain owned by later feature sprints.
+## Implementation Status
+
+Phase order, implementation status, blockers, remaining work, and validation
+evidence live only in the
+[Development Plan](../../DEVELOPMENT_PLAN/README.md). The patterns below define
+the target module and type boundaries.
 
 ## jitML Project-Specific Surfaces
 
+### Validated Plans and Pure Evidence Contracts
+
+| Surface | Invariants | Owning module |
+|---------|------------|---------------|
+| `RunPlan kind` | Hidden constructor; one accumulating `RawRunRequest` refinement validates the version, non-empty identities, substrate/placement, non-empty unique seed cohort, and positive unit-indexed budget before deriving `PlanId` | `src/JitML/Plan/Plan.hs` |
+| `Quantity unit`, `FiniteMeasurement`, `PlanId`, `EventId` | Hidden constructors prevent zero/overflow counts, non-finite measurements, and caller-manufactured identities; semantic event identity is derived from plan, event kind, and logical key | `src/JitML/Plan/Plan.hs` |
+| `Contract event progress evidence` | Pure total `initial`/`ingest`/`finish` reducer with `exactlyOne`, `atLeastOne`, exact keyed coverage, product composition, idempotent identical redelivery, and typed wrong-plan/conflict/gap failures | `src/JitML/Run/Contract.hs` |
+
+The shared core does not serialize resolved worker plans, join terminal workload
+success with completion evidence, or acquire live resources. Those consumers
+reuse these opaque values at their numerically ordered owning sprints.
+
 ### Lifecycle GADTs
 
-Per doctrine `GADT-Indexed State Machines`, jitML carries three GADT-indexed
-lifecycles:
+The current framework exposes three phase-indexed computation lifecycles:
 
 | GADT | Indices (data kind) | Owning module |
 |------|---------------------|---------------|
@@ -69,25 +84,26 @@ lifecycles:
 | `RLRunLifecycle` | `RLRunPhase`: `RLCollect \| RLComputeAdvantages \| RLOptimise \| RLEvaluate \| RLCheckpoint` | `src/JitML/RL/Framework.hs` |
 | `TuneSweepLifecycle` | `TuneSweepPhase`: `SweepConfigured \| SweepScheduling \| SweepRunningTrial \| SweepPruning \| SweepCompleted` | `src/JitML/RL/Framework.hs` |
 
-The doctrine forbids the runtime-status-enum-with-manual-validation pattern;
-each lifecycle is a phantom-type-indexed GADT with singleton witnesses
-(`STrainingConfigured`, `SRLCollect`, `SSweepConfigured`, etc.). All three
-GADTs currently co-locate in `src/JitML/RL/Framework.hs`; daemon-backed
-runtime expansion may later split them into per-domain `Loop.hs` / `Sweep.hs`
-homes, but the type-level shape is fixed.
+These computation-phase GADTs do not by themselves prove placement, terminal
+workload success, evidence completeness, delivery settlement, or cleanup. The
+common orchestration lifecycle and its opaque `CompletedRunEvidence` boundary
+are defined by
+[Typed Run Contract → Lifecycle State Machine](run_contract.md#lifecycle-state-machine).
+Domain modules project their legal computation transitions into that common
+run protocol rather than maintaining a second manually validated status enum.
 
 ### Capability Classes
 
 | Class | Operations | Owning module |
 |-------|-----------|---------------|
 | `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs` |
-| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs` |
+| `HasPulsar` | Typed publication plus scoped subscriptions yielding receipt-bearing deliveries; the consumer handler returns one disposition and the interpreter owns settlement | `src/JitML/Service/Capabilities.hs` and `src/JitML/Service/PulsarWebSocketSubprocess.hs` |
 | `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs`; subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
 | `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
 `HasKubectl` operations route through the typed `Subprocess` boundary.
 
-### Canonical `AppError` Enumeration (17 Variants)
+### Canonical `AppError` Enumeration (21 Variants)
 
 Defined in `src/JitML/AppError/AppError.hs`:
 
@@ -95,6 +111,7 @@ Defined in `src/JitML/AppError/AppError.hs`:
 |---------|--------------|-----------|
 | `PrerequisiteUnmet` | Prerequisite reconciler failure | `2` |
 | `SubprocessFailed` | Typed `Subprocess` boundary non-zero exit | `1` |
+| `SubprocessAttemptFailed` | Typed `Subprocess` runner raised synchronously before an exit status was observed | `1` |
 | `MinIOFailed` | `HasMinIO` operation failure (after `RetryPolicy`) | `1` |
 | `PulsarFailed` | `HasPulsar` operation failure | `1` |
 | `HarborFailed` | `HasHarbor` operation failure | `1` |
@@ -109,6 +126,9 @@ Defined in `src/JitML/AppError/AppError.hs`:
 | `JitToolchainDrift` | `ToolchainFingerprint` mismatch against a cached artefact | `1` |
 | `CheckpointFormatUnsupported` | `.jmw1` magic / version mismatch | `1` |
 | `CheckpointWriteConflict` | `If-Match: <etag>` exhausted retries | `1` |
+| `InferenceCheckpointMissing` | No inference-eligible checkpoint exists for the requested experiment | `1` |
+| `InferenceManifestShaMismatch` | Requested and loaded inference manifest SHAs disagree | `1` |
+| `TrainingPrerequisiteUnmet` | Required live publication or staged dataset is absent | `2` |
 | `ReconcilerNoop` | Reconciler-on-match — no-op | `3` |
 
 `renderError :: AppError -> Text` is the only Text rendering at the CLI
@@ -127,8 +147,30 @@ conversion returns `Either Text FilePath`, and app-level command paths such as
 ### Wrapped Subprocess Surface
 
 Per doctrine `Architecture → Subprocesses as Typed Values`, every external
-program invocation flows through the typed `Subprocess` boundary
-(`runStreaming` / `capture` interpreters in `src/JitML/Sub/Stream.hs`):
+program invocation flows through the typed `Subprocess` boundary.
+`JitML.Sub.Outcome` defines the interpreter result as
+`ProcessSucceeded ProcessTranscript | ProcessFailed ProcessFailure`, and
+`JitML.Sub.Stream.runStreaming` / `capture` return it directly. The transcript
+retains the rendered command, stdout, stderr, working directory, and monotonic
+duration; opaque `ProcessFailure` adds the genuinely non-zero exit status.
+Callers cannot discard stdout by selecting one field from an
+`(ExitCode, stdout, stderr)` tuple, and neither `ExitSuccess` nor the malformed
+`ExitFailure 0` representation can construct a process failure. The
+run-contract journal consumes that structured result; see
+[Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
+
+Orchestration that must account for the attempt even when the runner raises
+uses the additive `ObservedProcessOutcome` boundary through
+`runStreamingObserved` / `observeProcessAction`. Its failure branch is either
+the original non-zero `ProcessFailure` or `ProcessAttemptFailure`, which records
+the exact command, working directory, monotonic attempt duration, synchronous
+exception detail, and whether each captured stream was available. A missing
+exit status is rendered as unavailable; it is never replaced with a made-up
+code. The observer catches only synchronous exceptions. Asynchronous exceptions
+are rethrown unchanged so cancellation reaches the surrounding `generalBracket`
+and its release action.
+
+External programs include:
 
 - `kubectl`, `helm`, `kind`, `docker`, `cabal`,
   `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI),
@@ -148,9 +190,11 @@ MinIO/Pulsar readiness retry loops) moves to typed multi-step Haskell over leaf
 `subprocess` values, with retries expressed through the typed `RetryPolicy` rather
 than shell `for`/`sleep` — Phase `2` Sprint `2.9` and Phase `4` Sprint `4.8` under
 `Subprocesses as Typed Values` and `Retry Policy as First-Class Values`. Run
-parameters reach worker Jobs as a typed Dhall `RunConfig` (not `JITML_*` env vars)
-under `Application Environment` (Phase `5` Sprint `5.7`). See
-[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29).
+parameters reach worker Jobs as a versioned Dhall raw DTO rather than `JITML_*`
+environment variables. Before effects begin, the DTO is refined into the opaque
+dimensionally valid plan described by
+[Raw and Validated Boundaries](run_contract.md#raw-and-validated-boundaries).
+The development plan owns the migration status.
 
 ### Plan/Apply Consumers
 
@@ -197,13 +241,16 @@ Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 
 - `BootConfig` Dhall: `substrate`, `residency`, `inferenceMode`, Pulsar /
   MinIO / Harbor connection info, HTTP listener.
-- `LiveConfig` Dhall: log level, `RetryPolicy`, inference batch / latency,
-  dedup cache size / TTL, `drainDeadlineSeconds`.
+- `LiveConfig` Dhall: dedup cache size / TTL and
+  `drainDeadlineSeconds`; every accepted field has a live operational reader.
+  Dynamic log filtering, service retry, inference batching, and latency-SLO
+  controls enter with their readers under Sprint `12.16`, not as no-op fields.
 - SIGHUP triggers `LiveConfig` reload; restart-required field changes emit
   `AppError InvalidConfig` with exit `2`.
 - `/healthz`, `/readyz`, `/metrics` are mandatory.
 - Logging: structured JSON on stderr.
-- At-least-once Pulsar consumer with protobuf-message-hash deduplication.
+- At-least-once Pulsar consumer with plan-bound semantic-event deduplication;
+  broker receipts remain separate settlement identities.
 
 ## Cross-References
 
@@ -211,4 +258,5 @@ Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 - [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md)
 - [../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md)
 - [daemon_architecture.md](daemon_architecture.md)
+- [run_contract.md](run_contract.md)
 - [../documentation_standards.md](../documentation_standards.md)

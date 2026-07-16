@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/apple_silicon_metal_headless_builds.md, engineering/numerical_core.md, engineering/product_completion_contract.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
+**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/apple_silicon_metal_headless_builds.md, engineering/numerical_core.md, engineering/product_completion_contract.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md, engineering/run_contract.md
 **Generated sections**: documentation-standards.generated-section-index
 
 > **Purpose**: Single Source of Truth (SSoT) for writing and maintaining
@@ -22,6 +22,10 @@ development plan lives at [../DEVELOPMENT_PLAN/README.md](../DEVELOPMENT_PLAN/RE
 Project-specific engineering doctrine lives under [engineering/](./engineering/);
 the model-surface completion gate lives at
 [engineering/product_completion_contract.md](engineering/product_completion_contract.md).
+The single jitML-specific owner for raw-to-validated run plans, protocol
+evidence, delivery settlement, lifecycle joining, scenario journals, and the
+functional-core live interpreter is
+[engineering/run_contract.md](engineering/run_contract.md).
 Operator-facing project intent lives at [../README.md](../README.md).
 
 ### Development Plan Authority
@@ -52,6 +56,10 @@ status ledgers.
 - **CLI docs** (generated under `cli/`): API documentation, command schema,
   generated tables, manpages, completion scripts.
 - **Reference docs** (the doctrine, the development plan): authoritative rules.
+
+Cross-cutting workflow documents retain their own domain semantics and deep-link
+the typed run contract. They do not reproduce its ADTs, lifecycle steps, or
+evidence-reducer rules, and they do not carry phase status.
 
 ---
 
@@ -149,6 +157,8 @@ include A.
 - Code snippets that exist in the source.
 - The doctrine's own prescriptions — engineering docs cite the doctrine
   section by name; they do not paste its text.
+- Typed run-plan, delivery, lifecycle, evidence, and journal representations —
+  docs cite `engineering/run_contract.md` rather than defining parallel shapes.
 
 ### Always Link
 

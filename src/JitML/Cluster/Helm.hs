@@ -7,11 +7,13 @@ module JitML.Cluster.Helm
   , helmDependencyBuildSubprocess
   , helmInstallSubprocess
   , helmInstallSubprocessForEdgePort
+  , helmInstallSubprocessForEdgePortNoWait
   , helmInstallSubprocessForSubstrate
   , helmPhasedRolloutPlan
   , kindCreateKubeconfigPath
   , kindCreateSubprocess
   , kindDeleteSubprocess
+  , kindGetClustersSubprocess
   , phasedReleases
   , renderHelmDependencyBuildPlan
   , renderHelmPhasedRolloutPlan
@@ -87,7 +89,7 @@ phasedReleases =
 
 helmInstallSubprocess :: HelmRelease -> FilePath -> Subprocess
 helmInstallSubprocess =
-  helmInstallSubprocessWith []
+  helmInstallSubprocessWith True []
 
 helmInstallSubprocessForSubstrate :: Substrate -> HelmRelease -> FilePath -> Subprocess
 helmInstallSubprocessForSubstrate substrate =
@@ -96,6 +98,7 @@ helmInstallSubprocessForSubstrate substrate =
 helmInstallSubprocessForEdgePort :: Substrate -> Int -> HelmRelease -> FilePath -> Subprocess
 helmInstallSubprocessForEdgePort substrate edgePort release =
   helmInstallSubprocessWith
+    True
     ( [ "--set"
       , "substrate=" <> renderSubstrate substrate
       , "--set"
@@ -105,8 +108,28 @@ helmInstallSubprocessForEdgePort substrate edgePort release =
     )
     release
 
-helmInstallSubprocessWith :: [Text] -> HelmRelease -> FilePath -> Subprocess
-helmInstallSubprocessWith extraArgs release chartPath =
+-- | Apply a repo-owned app release without waiting on its existing Deployment.
+-- Bootstrap loads mutable local tags immediately before this command, then its
+-- typed executor reconciles pod image identities and performs explicit rollout
+-- and readiness gates. Waiting here could deadlock on the stale pod that the
+-- subsequent same-tag reconcile is responsible for replacing.
+helmInstallSubprocessForEdgePortNoWait
+  :: Substrate
+  -> Int
+  -> HelmRelease
+  -> FilePath
+  -> Subprocess
+helmInstallSubprocessForEdgePortNoWait substrate edgePort =
+  helmInstallSubprocessWith
+    False
+    [ "--set"
+    , "substrate=" <> renderSubstrate substrate
+    , "--set"
+    , "edgePort=" <> Text.pack (show edgePort)
+    ]
+
+helmInstallSubprocessWith :: Bool -> [Text] -> HelmRelease -> FilePath -> Subprocess
+helmInstallSubprocessWith waitForReady extraArgs release chartPath =
   subprocess
     "helm"
     ( [ "upgrade"
@@ -116,14 +139,17 @@ helmInstallSubprocessWith extraArgs release chartPath =
       , "--namespace"
       , "platform"
       , "--create-namespace"
-      , "--wait"
-      , "--timeout=900s"
       , "--kubeconfig"
       , "./.build/jitml.kubeconfig"
       ]
+        <> waitArgs
         <> valuesArgs release chartPath
         <> extraArgs
     )
+ where
+  waitArgs
+    | waitForReady = ["--wait", "--timeout=900s"]
+    | otherwise = ["--timeout=900s"]
 
 chartReference :: HelmRelease -> FilePath -> Text
 chartReference release chartPath =
@@ -181,6 +207,14 @@ kindCreateSubprocess substrate kindConfigPath =
     , "--kubeconfig"
     , Text.pack (kindCreateKubeconfigPath substrate)
     ]
+
+-- | Typed Kind-cluster presence probe used by the live bootstrap executor
+-- before it decides whether the create step is necessary. Keeping the probe
+-- separate from @kind create cluster@ lets a retained matching cluster export
+-- its kubeconfig and continue through the idempotent rollout.
+kindGetClustersSubprocess :: Subprocess
+kindGetClustersSubprocess =
+  subprocess "kind" ["get", "clusters"]
 
 -- | Sprint 2.9 — typed @kind delete cluster@. Replaces the prior @sh -c@
 -- existence-check + delete; @kind delete@ on a missing cluster errors, which

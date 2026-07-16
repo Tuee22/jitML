@@ -21,13 +21,30 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-30 by Sprint `9.16`). The fixed-budget RL,
+✅ **Done** (re-closed 2026-07-14 by Sprint `9.17`). The checked-in
+AlphaZero and tuning paths now refine raw commands once, carry a canonical
+versioned resolved plan plus its derived `PlanId` through Linux worker mounts
+and Apple host commands, and correlate exact completion events through the
+shared pure contract algebra. Sprint `8.16` supplies the generic validated-plan
+and contract prerequisite. The final audit found and the worktree now repairs
+tuning execution's resolved parallelism, promotion, per-trial-update, and
+full-outcome semantics on local, Linux worker, and Apple host paths; the live
+test consumes the resulting events through the same completion contract
+instead of proving Job placement alone. The real ProductRow publication
+prerequisite and all focused, live-integration, documentation, and
+code-quality validation gates pass.
+Sprints `9.1`–`9.16` remain Done on their retained algorithm, AlphaZero, and
+tuning surfaces.
+
+**Historical retained closure.** ✅ **Done** (re-closed 2026-06-30 by Sprint `9.16`). The fixed-budget RL,
 AlphaZero, tuning metric, typed tuning-resume failure, and tuning-control
 surfaces are closed again. CLI tuning overrides are applied to the resolved
 experiment before validation, plan rendering, local trial/artifact writing, and
-best-trial checkpoint promotion. Daemon-dispatched tuning workers read
-sampler/scheduler/pruner/trial budget from mounted `TuneRunConfig` instead of
-silently enumerating the whole catalog product. Validation passed
+best-trial checkpoint promotion. At that closure, daemon-dispatched tuning
+workers read sampler/scheduler/pruner/trial budget from mounted `TuneRunConfig`
+instead of silently enumerating the whole catalog product. Sprint `9.17`
+retains that axis fidelity while replacing the intermediate primitive mount
+with the versioned resolved plan and `PlanId`. Validation passed
 `jitml-hyperparameter` 17/17 and the live `jitml-integration --linux-cpu` lane
 77/77. Prior closure history follows.
 
@@ -151,6 +168,18 @@ values. The tune proto mirror declares typed
 command/event envelopes, parses the deterministic local text command envelope,
 and round-trips the current command and event oneofs through proto3-compatible
 bytes via `JitML.Proto.Wire`.
+`JitML.Plan.Workload` refines tuning and AlphaZero into hidden
+`TuningPlan` / `AlphaZeroPlan` values with positive dimension-specific
+quantities and content-derived identities. `JitML.Plan.Command` is the single
+raw-command adapter: producers attach the canonical version-`1` transport and
+`PlanId`, while workers re-refine the raw command and transported plan and
+require their canonical values and identities to agree before effects.
+`TuneRunConfig` and `AlphaZeroRunConfig` therefore mount only `planId`,
+`resolvedPlan`, and the operational Pulsar WebSocket endpoint. The Linux Job
+and Apple host routes consume the same plan. `JitML.Run.WorkloadContract`
+adapts plan-correlated tuning trial/sweep and AlphaZero generation/arena events
+to exact keyed ranges, exactly-one terminal evidence, finite measurements, and
+the shared semantic-event identity algebra.
 Live MinIO trial storage, live tuner resume, real network execution, and
 on-hardware reward thresholds closed in the Linux live lanes owned by Phase `15`.
 
@@ -1004,6 +1033,8 @@ None.
 
 **Engineering docs to create/update:**
 
+- `documents/engineering/run_contract.md` — resolved AlphaZero/tuning plan
+  serialization and `PlanId`-correlated worker execution.
 - `documents/engineering/training_workloads.md` — current RL algorithm
   metadata catalog, Dhall mirror, run-to-run determinism for the
   registered per-algorithm real-environment rollout surface (no committed
@@ -1019,6 +1050,9 @@ None.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.
+- `documents/engineering/durable_state_dsl.md` — resolved Tune and AlphaZero
+  plan ownership at the command/mount boundary and the durable artifacts those
+  plans authorize workers to publish.
 
 **Product docs to create/update:**
 
@@ -1231,9 +1265,10 @@ message, not a bottom hidden inside `resumeReadFailures`.
 ### Objective
 
 Make tuning control values real. A sampler/scheduler/pruner/trial count selected
-by CLI override or daemon `TuneRunConfig` must be the value used by validation,
-trial selection, local artifact writing, checkpoint promotion, and report-card
-measurement.
+by CLI override must be the value used by validation, plan refinement, trial
+selection, local artifact writing, checkpoint promotion, and report-card
+measurement. The current worker transport captures those resolved values in
+the versioned `TuningPlan`, not in parallel primitive fields.
 
 ### Deliverables
 
@@ -1242,9 +1277,11 @@ measurement.
   trials, writing `tune-trials`, or writing the best-trial checkpoint.
 - Ensure `writeLocalTuneArtifacts` consumes the resolved/overridden experiment,
   not the original Dhall value.
-- Make daemon-dispatched worker tuning consume `turcSampler`, `turcScheduler`,
-  and `turcPruner` from `TuneRunConfig`; workers must not enumerate the whole
-  catalog product unless the resolved config explicitly asks for that behaviour.
+- Preserve daemon-dispatched worker axis fidelity: workers consume the
+  sampler/scheduler/pruner selected by the resolved plan and must not enumerate
+  the whole catalog product unless that plan explicitly requests it. Sprint
+  `9.17` supersedes the primitive `turcSampler` / `turcScheduler` /
+  `turcPruner` transport used when this sprint originally closed.
 - Add tests that `jitml tune experiments/mnist-tune.dhall --sampler Sobol
   --trials 2` changes both rendered output and local artifact/trial selection,
   and that a daemon `StartSweep` with a non-default axis runs that axis in the
@@ -1261,6 +1298,97 @@ measurement.
   `9.16` documentation updates.
 - `docker compose run --rm jitml jitml check-code` is rerun after the Sprint
   `9.16` documentation updates.
+
+### Remaining Work
+
+- None.
+
+## Sprint 9.17: Resolved AlphaZero and Tuning Plans [✅ Done]
+
+**Status**: Done
+**Implementation**: `src/JitML/Plan/{Plan,Workload,Command}.hs`,
+`src/JitML/Proto/{Tune,Rl}.hs`, `src/JitML/Run/WorkloadContract.hs`,
+`src/JitML/Service/{RunConfig,Workload}.hs`, `src/JitML/App.hs`,
+`src/JitML/Experiment/Overrides.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`,
+`src/JitML/RL/AlphaZero{,/Mcts}.hs`, `src/JitML/Web/Contracts.hs`,
+`proto/jitml/{tune,rl}.proto`, `gen/Proto/Jitml/{Tune,Rl}*.hs`,
+`test/unit/JitML/Test/{WorkloadPlan,WorkloadContract}.hs`,
+`test/hyperparameter/Main.hs`, `test/rl-canonicals/Main.hs`,
+`test/integration/Main.hs`
+**Docs to update**: `../README.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/determinism_contract.md`,
+`../documents/engineering/durable_state_dsl.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make AlphaZero and tuning workers execute the same validated resolved plan that
+the command boundary produced. This sprint owns their portion of
+[Exit Definition](README.md#exit-definition) item `30`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Define kind-specific AlphaZero and tuning plan bodies using typed generation,
+  self-play, simulation, trial, promotion, and per-trial training quantities.
+- Resolve CLI overrides and Dhall exactly once, then serialize a versioned
+  resolved plan carrying its `PlanId` into the worker mount.
+- Make workers reject missing, malformed, version-incompatible, or mismatched
+  resolved plans before any trial, game, checkpoint, or publication effect.
+- Remove worker-side reinterpretation of raw sampler, scheduler, pruner,
+  algorithm, and budget fields once the resolved-plan adapter is unused.
+- Emit plan-correlated typed events consumed by the shared contract algebra.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu
+docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Current Validation State
+
+- The unfiltered integration prerequisite is closed with **55 / 55** real
+  ProductRow checkpoints. The refresh
+  exposed honest convergence failures that were repaired and republished,
+  not bypassed. The then-current TRPO repair repeated every reported update
+  epoch; the later Sprint `12.16` audit rejected that behavior because the
+  binding CLI doctrine makes PPO epochs inapplicable to TRPO. The replacement
+  executes one exact-categorical-KL natural-gradient actor step and one isolated
+  value-head critic step per rollout through the batched device path; its fresh
+  validation is owned by Sprint `12.16`. Othello policy/search targets contain only
+  legal moves and forced passes preserve the player-to-move value perspective;
+  and `MaskablePPO/key-door-grid` receives its intended phase-aware count
+  exploration. Its focused regression passes **1 / 1** and
+  `MaskablePPO/key-door-grid` now passes its exact full-budget publication with
+  all 20 evaluation episodes at reward `1.37`, above the unchanged `0.85` bar,
+  one eligible row, and no errors. The focused Othello legality/self-play
+  regressions pass; its exact unmodified-budget publisher passes at **8 / 9**
+  arena wins with 96 generations, 192 simulations per move, and 23,037 real
+  samples. The focused TRPO suite passes **4 / 4**; its exact unmodified-budget
+  publisher passes with all 20 evaluation episodes reaching the goal in 123
+  steps and median reward `-123`, above the unchanged `-145` bar. The full-budget
+  `cifar100-wide-resnet` canonical run has produced its real passing manifest
+  and latest pointer.
+- Post-audit validation is
+  green at `jitml-hyperparameter` **21 / 21**, `jitml-rl-canonicals` **40 / 40**,
+  and the final integrated `jitml-unit` gate passes **400 / 400**. Exact Tune
+  execution, promoted-count protocol/contract coverage, live contract completion,
+  browser plan budgets, and missing-worker-mount rejection are implemented.
+  The unfiltered `jitml-integration --linux-cpu` gate passes **138 / 138** in
+  1,633.61 seconds, including **20 / 20** Live cases (1,396.34 seconds summed
+  case duration). The spawned-binary matrix passes with the resolved Tune
+  override adapter: an implicit inherited parallelism is capped by an explicit
+  trial-count override, while an explicitly invalid parallelism still fails
+  closed. The current-source image, `jitml docs check`, `jitml check-code`, and
+  `git diff --check` are green.
 
 ### Remaining Work
 

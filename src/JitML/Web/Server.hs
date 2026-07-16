@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Web.Server
@@ -34,10 +35,22 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Word (Word64)
 import System.Directory (doesFileExist)
+import System.Posix.Process (getProcessID)
+import System.Random (randomIO)
 import Text.Read (readMaybe)
 
 import JitML.Cluster.Publication qualified as Publication
+import JitML.Coordinator.Topology
+  ( ProtocolRoute (..)
+  , Topic
+  , encodeTopicPayload
+  , topicFor
+  , topicName
+  )
+import JitML.Plan.Command qualified as PlanCommand
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as ProtoTraining
@@ -46,8 +59,19 @@ import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.Mcts qualified as Mcts
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Capabilities
-  ( HasPulsar (..)
-  , TopicName (..)
+  ( ConsumerDecision
+  , ConsumerFailure
+  , Delivery
+  , HasPulsar (..)
+  , Subscription
+  , SubscriptionOwnership (Owned)
+  , SubscriptionStart (FromLatest)
+  , ack
+  , continue
+  , deliveryEvent
+  , done
+  , mkSubscription
+  , subscriptionTopic
   )
 import JitML.Service.Endpoints (EndpointResponse (..))
 import JitML.Service.Http
@@ -59,7 +83,6 @@ import JitML.Service.Http
   , serveHttpRoutesWithWebSockets
   )
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
-import JitML.Service.WorkflowStatus (workflowStatusTopic)
 import JitML.Substrate (Substrate, renderSubstrate)
 import JitML.Web.Contracts qualified as Contracts
 
@@ -208,63 +231,98 @@ bridgeHandler domain (Just publication) endpointOverride writeFrame = do
         case endpointOverride of
           Just endpoint -> PulsarWebSocketSubprocess.pulsarSettingsForEndpoint endpoint
           Nothing -> PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
-      topic = TopicName (eventTopicFor domain substrate)
-      subscriptionName = "jitml-demo-bridge-" <> domain
-  result <-
-    PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-      pulsarSettings
-      (consumeLoop topic subscriptionName writeFrame)
-  case result of
-    Right () -> pure ()
-    Left err -> do
-      -- Forward the error as one terminal frame so the client sees
-      -- why the stream stopped.
-      _ <-
-        writeFrame
-          ( "event: error\ndata: bridge consume failed: "
-              <> Text.replace "\n" " " (Text.pack err)
-              <> "\n\n"
-          )
-      pure ()
+  case browserBridgeTopic domain substrate of
+    Left err -> writeBridgeFailure writeFrame err
+    Right (BrowserBridgeTopic topic) -> do
+      subscriptionName <- uniqueBridgeSubscriptionName domain
+      case mkSubscription topic subscriptionName FromLatest Owned of
+        Left err -> writeBridgeFailure writeFrame (Text.pack (show err))
+        Right subscription -> do
+          result <-
+            PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              pulsarSettings
+              (consumeLoop subscription writeFrame)
+          case result of
+            Right () -> pure ()
+            Left err -> writeBridgeFailure writeFrame (Text.pack (show err))
+
+-- | The bridge route retains the event type existentially, but every witness
+-- comes from the Coordinator's closed protocol-route registry. There is no
+-- raw topic/text constructor at this boundary.
+data BrowserBridgeTopic where
+  BrowserBridgeTopic :: Topic event -> BrowserBridgeTopic
+
+browserBridgeTopic :: Text -> Substrate -> Either Text BrowserBridgeTopic
+browserBridgeTopic domain substrate =
+  case domain of
+    "metrics" -> browserBridgeTopicFromRoute TrainingEventRoute substrate
+    "training" -> browserBridgeTopicFromRoute TrainingEventRoute substrate
+    "tune" -> browserBridgeTopicFromRoute TuneEventRoute substrate
+    "rl" -> browserBridgeTopicFromRoute RlEventRoute substrate
+    "inference" -> browserBridgeTopicFromRoute InferenceResultRoute substrate
+    "workflow" -> browserBridgeTopicFromRoute WorkflowStatusRoute substrate
+    _ -> Left ("unknown browser bridge domain: " <> domain)
+
+browserBridgeTopicFromRoute
+  :: ProtocolRoute event -> Substrate -> Either Text BrowserBridgeTopic
+browserBridgeTopicFromRoute route substrate =
+  case topicFor route substrate of
+    Left err -> Left (Text.pack (show err))
+    Right topic -> Right (BrowserBridgeTopic topic)
+
+-- | Each browser connection owns a fresh cursor. The process id, nanosecond
+-- timestamp, and random nonce avoid cursor collisions across concurrent
+-- connections and Webapp restarts; ownership makes transport cleanup explicit.
+uniqueBridgeSubscriptionName :: Text -> IO Text
+uniqueBridgeSubscriptionName domain = do
+  processId <- getProcessID
+  timestamp <- getPOSIXTime
+  nonce <- randomIO :: IO Word64
+  pure
+    ( Text.intercalate
+        "-"
+        [ "jitml-demo-bridge"
+        , domain
+        , Text.pack (show processId)
+        , Text.pack (show (floor (timestamp * 1000000000) :: Integer))
+        , Text.pack (show nonce)
+        ]
+    )
 
 consumeLoop
-  :: TopicName
-  -> Text
+  :: forall event
+   . Subscription event
   -> (Text -> IO Bool)
-  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (Either String ())
-consumeLoop topic subscriptionName writeFrame = do
-  subscribeResult <- pulsarSubscribe topic subscriptionName
-  case subscribeResult of
-    Left err -> pure (Left (show err))
-    Right subId -> drainLoop subId
+  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (Either ConsumerFailure ())
+consumeLoop subscription writeFrame =
+  pulsarConsumeUntil subscription (const (pure ())) handleDelivery
  where
-  drainLoop subId = do
-    consumed <- pulsarConsume subId
-    case consumed of
-      Left err -> pure (Left (show err))
-      Right (_topicBack, payload) -> do
-        keepGoing <-
-          Control.Monad.IO.Class.liftIO (writeFrame payload)
-        if keepGoing
-          then do
-            _ <- pulsarAcknowledge topic payload
-            drainLoop subId
-          else pure (Right ())
+  handleDelivery
+    :: Delivery event
+    -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (ConsumerDecision ())
+  handleDelivery delivery = do
+    let payload =
+          encodeTopicPayload
+            (subscriptionTopic subscription)
+            (deliveryEvent delivery)
+    keepGoing <- Control.Monad.IO.Class.liftIO (writeFrame payload)
+    pure
+      ( if keepGoing
+          then continue ack
+          else done ack ()
+      )
 
-eventTopicFor :: Text -> Substrate -> Text
-eventTopicFor "metrics" substrate =
-  "persistent://public/default/training.event." <> renderSubstrate substrate
--- Sprint 11.10 — inference results stream off `inference.result.<substrate>`
--- (the Engine's `WorkResult` topic), not an `inference.event` topic.
-eventTopicFor "inference" substrate =
-  "persistent://public/default/inference.result." <> renderSubstrate substrate
--- Sprint 14.1 (Feature C) — the workflow panel streams the Engine's reconciled
--- `WorkflowStatus` frames off `workflow.status.<substrate>` (the status
--- projector's republished topic), not a `workflow.event` topic.
-eventTopicFor "workflow" substrate =
-  "persistent://public/default/" <> workflowStatusTopic substrate
-eventTopicFor domain substrate =
-  "persistent://public/default/" <> domain <> ".event." <> renderSubstrate substrate
+writeBridgeFailure :: (Text -> IO Bool) -> Text -> IO ()
+writeBridgeFailure writeFrame err = do
+  -- Forward the error as one terminal frame so the client sees why the stream
+  -- stopped. Broker receipts and message ids never enter this diagnostic.
+  _ <-
+    writeFrame
+      ( "event: error\ndata: bridge consume failed: "
+          <> Text.replace "\n" " " err
+          <> "\n\n"
+      )
+  pure ()
 
 -- | Canonical path to the browser-loadable Halogen entry bundle. The
 -- Dockerfile runs `spago build --output dist` (per-module CommonJS
@@ -862,7 +920,7 @@ renderAdversarialMoveResultResponse request runtimeResult _latencyMs =
       terminal = AlphaZero.gameIsTerminal state
       root =
         Mcts.runSearchWithPrior
-          (const (Mcts.NodeEval priors valueEstimate terminal))
+          (const (Mcts.NodeEval priors valueEstimate terminal Nothing))
           config
           (length (barMoves request) + barHumanIsPlayer request)
       visitCounts = fmap (visitsFor root) legalMoves
@@ -1137,11 +1195,15 @@ renderBool :: Bool -> Text
 renderBool True = "true"
 renderBool False = "false"
 
-data WorkflowCommandPublication = WorkflowCommandPublication
-  { workflowCommandTopic :: TopicName
-  , workflowCommandPayload :: Text
-  , workflowCommandName :: Text
-  }
+-- | A command paired with the only topic witness whose codec can carry it.
+-- The existential prevents callers from separating the value from its route
+-- and recreating a raw topic/payload pair.
+data WorkflowCommandPublication where
+  WorkflowCommandPublication
+    :: Topic command
+    -> command
+    -> Text
+    -> WorkflowCommandPublication
 
 workflowCommandResponse
   :: Maybe Publication.ClusterPublication -> Maybe Text -> HttpRequest -> IO EndpointResponse
@@ -1169,18 +1231,17 @@ workflowCommandResponse (Just publication) endpointOverride request =
                 ]
             )
         )
-    Right publicationCommand -> do
+    Right (WorkflowCommandPublication commandTopic command commandName) -> do
       publishResult <-
         PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $
-          pulsarPublish
-            (workflowCommandTopic publicationCommand)
-            (workflowCommandPayload publicationCommand)
+          pulsarPublish commandTopic command
       case publishResult of
         Right messageId ->
           pure
             ( workflowCommandAccepted
                 (runIdFromCommandPath (httpRequestPath request))
-                publicationCommand
+                commandName
+                commandTopic
                 messageId
             )
         Left err ->
@@ -1222,67 +1283,78 @@ trainingCommandPublication
 trainingCommandPublication substrate command =
   case command of
     ProtoTraining.TrainingStart start -> do
-      ensureCommandSubstrate substrate (ProtoTraining.stSubstrate start)
-      pure
-        ( makeCommandPublication
-            "StartTraining"
-            (ProtoTraining.trainingCommandTopic substrate)
-            (ProtoTraining.renderTrainingCommand command)
-        )
+      let unresolved =
+            ProtoTraining.stPlanId start == "browser-unresolved"
+              && ProtoTraining.stResolvedPlan start == "browser-unresolved"
+      (prepared, _) <-
+        if unresolved
+          then PlanCommand.prepareStartTraining start
+          else do
+            plan <- PlanCommand.validateStartTraining start
+            pure (start, plan)
+      ensureCommandSubstrate substrate (ProtoTraining.stSubstrate prepared)
+      makeCommandPublication
+        "StartTraining"
+        TrainingCommandRoute
+        substrate
+        (ProtoTraining.TrainingStart prepared)
     ProtoTraining.TrainingStop _ ->
-      pure
-        ( makeCommandPublication
-            "StopTraining"
-            (ProtoTraining.trainingCommandTopic substrate)
-            (ProtoTraining.renderTrainingCommand command)
-        )
+      makeCommandPublication "StopTraining" TrainingCommandRoute substrate command
 
 rlCommandPublication :: Substrate -> ProtoRl.RlCommand -> Either Text WorkflowCommandPublication
 rlCommandPublication substrate command =
   case command of
     ProtoRl.RlStart start -> do
       ensureCommandSubstrate substrate (ProtoRl.srlSubstrate start)
-      pure
-        ( makeCommandPublication
-            "StartRLRun"
-            (ProtoRl.rlCommandTopic substrate)
-            (ProtoRl.renderRlCommand command)
-        )
+      makeCommandPublication
+        "StartRLRun"
+        RlCommandRoute
+        substrate
+        command
+    ProtoRl.RlStartAlphaZero start -> do
+      ensureCommandSubstrate substrate (ProtoRl.sazSubstrate start)
+      _ <- PlanCommand.validateStartAlphaZeroRun start
+      makeCommandPublication
+        "StartAlphaZeroRun"
+        RlCommandRoute
+        substrate
+        command
     ProtoRl.RlStop _ ->
-      pure
-        ( makeCommandPublication
-            "StopRLRun"
-            (ProtoRl.rlCommandTopic substrate)
-            (ProtoRl.renderRlCommand command)
-        )
+      makeCommandPublication "StopRLRun" RlCommandRoute substrate command
 
 tuneCommandPublication
   :: Substrate -> ProtoTune.TuneCommand -> Either Text WorkflowCommandPublication
 tuneCommandPublication substrate command =
   case command of
     ProtoTune.TuneStart start -> do
-      ensureCommandSubstrate substrate (ProtoTune.ssSubstrate start)
-      pure
-        ( makeCommandPublication
-            "StartSweep"
-            (ProtoTune.tuneCommandTopic substrate)
-            (ProtoTune.renderTuneCommand command)
-        )
+      let unresolved =
+            ProtoTune.ssPlanId start == "browser-unresolved"
+              && ProtoTune.ssResolvedPlan start == "browser-unresolved"
+      (prepared, _) <-
+        if unresolved
+          then PlanCommand.prepareStartSweep start
+          else do
+            plan <- PlanCommand.validateStartSweep start
+            pure (start, plan)
+      ensureCommandSubstrate substrate (ProtoTune.ssSubstrate prepared)
+      makeCommandPublication
+        "StartSweep"
+        TuneCommandRoute
+        substrate
+        (ProtoTune.TuneStart prepared)
     ProtoTune.TuneStop _ ->
-      pure
-        ( makeCommandPublication
-            "StopSweep"
-            (ProtoTune.tuneCommandTopic substrate)
-            (ProtoTune.renderTuneCommand command)
-        )
+      makeCommandPublication "StopSweep" TuneCommandRoute substrate command
 
-makeCommandPublication :: Text -> Text -> Text -> WorkflowCommandPublication
-makeCommandPublication commandName topic payload =
-  WorkflowCommandPublication
-    { workflowCommandTopic = TopicName ("persistent://public/default/" <> topic)
-    , workflowCommandPayload = payload
-    , workflowCommandName = commandName
-    }
+makeCommandPublication
+  :: Text
+  -> ProtocolRoute command
+  -> Substrate
+  -> command
+  -> Either Text WorkflowCommandPublication
+makeCommandPublication commandName route substrate command =
+  case topicFor route substrate of
+    Left err -> Left (Text.pack (show err))
+    Right topic -> Right (WorkflowCommandPublication topic command commandName)
 
 ensureCommandSubstrate :: Substrate -> Substrate -> Either Text ()
 ensureCommandSubstrate expected actual
@@ -1295,23 +1367,19 @@ ensureCommandSubstrate expected actual
             <> renderSubstrate expected
         )
 
-workflowCommandAccepted :: Text -> WorkflowCommandPublication -> Text -> EndpointResponse
-workflowCommandAccepted runId publicationCommand messageId =
+workflowCommandAccepted :: Text -> Text -> Topic command -> Text -> EndpointResponse
+workflowCommandAccepted runId commandName commandTopic messageId =
   EndpointResponse
     200
     ( Text.unlines
         [ "kind: WorkflowCommandAck"
         , "run-id: " <> runId
-        , "command: " <> workflowCommandName publicationCommand
+        , "command: " <> commandName
         , "status: published"
-        , "topic: " <> commandTopicText (workflowCommandTopic publicationCommand)
+        , "topic: " <> topicName commandTopic
         , "message-id: " <> messageId
         ]
     )
-
-commandTopicText :: TopicName -> Text
-commandTopicText (TopicName topic) =
-  topic
 
 runIdFromCommandPath :: Text -> Text
 runIdFromCommandPath path =

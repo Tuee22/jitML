@@ -415,13 +415,14 @@ Run AlphaZero self-play.
 Runs a bounded AlphaZero self-play generation through the selected substrate MLP device.
 
 Usage:
-  jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
+  jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--generations <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
 
 Options:
   --substrate <substrate>  Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda).
   --seed <word64>          Self-play seed.
   --game <game>            AlphaZero game (connect4, othello, hex, or gomoku).
   --games <n>              Number of self-play games.
+  --generations <n>        Number of self-play training generations.
   --sims <n>               MCTS simulations per move.
   --max-plies <n>          Maximum plies per self-play game.
   --updates <n>            Policy/value gradient updates.

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/apple_silicon_metal_headless_builds.md, documents/engineering/numerical_core.md, documents/engineering/product_completion_contract.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
+**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/apple_silicon_metal_headless_builds.md, documents/engineering/numerical_core.md, documents/engineering/product_completion_contract.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md, documents/engineering/run_contract.md
 **Generated sections**: command-tree, command-registry
 
 > **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
@@ -31,20 +31,16 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (2026-07-11):** The Phase `19`–`34` product chain is
-> closed. Phase `31` restored the no-caveat product claim by joining the three
-> committed per-lane fragments on `linux-cpu`: `linux-cpu`,
-> `linux-cuda`, and `apple-silicon`, each with **55** ProductRows, for **165**
-> lane-row evidence records. The report artifacts are
-> [`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md),
-> [`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`](DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md),
-> and
-> [`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`](DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md).
-> Phase `29` contributes the 2026-07-10 `linux-cuda` fragment: publisher
-> **55 / 55**, ProductRow integration **56 / 56**, `jitml test all
-> --linux-cuda` **10 / 10**, live CUDA e2e Playwright **71 / 71** plus Haskell
-> e2e **27 / 27**, and the Phase `29.4` timing table **55 / 55** rows faster
-> on `linux-cuda` than `linux-cpu`. The current execution-ordered status lives in
+> **Current product status (2026-07-16): Sprint `12.16` is Active.** Sprints
+> `2.9` and `3.7` are Done. Sprint `3.7` acceptance exercised the exact
+> retained-cluster command twice: the first invocation took the mutating path
+> and exited `0` after 157 steps, while the identical second invocation took
+> the retained no-op path and exited `3` without changing publication, stamp,
+> edge, node, PVC, Helm, Pod, broker, or image identities. `jitml cluster
+> status` reports readiness only from the live cluster publication and fails
+> closed for missing, corrupt, or evidence-free bytes. Sprint `12.16` now owns
+> the active unfiltered and canonical Linux CPU validation gate. The only
+> current status ledger is
 > [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 ---
@@ -55,7 +51,7 @@ The result is:
 
 **Cluster & storage** — [Cluster topology and Kind](#cluster-topology-and-kind) · [Envoy Gateway API](#envoy-gateway-api-a-single-localhost-socket) · [Helm chart layout](#helm-chart-layout) · [Harbor](#harbor-as-the-registry) · [MinIO](#minio-object-store) · [TensorBoard event storage](#tensorboard-event-storage) · [Pulsar](#pulsar-as-the-control-plane--data-plane-bus) · [PostgreSQL](#postgresql) · [TensorBoard / Prometheus / Grafana](#tensorboard-prometheus-grafana-as-first-class)
 
-**CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Doctrine scope](#doctrine-scope)
+**CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Typed run contracts](#typed-run-contracts) · [Doctrine scope](#doctrine-scope)
 
 **Numerical & RL core** — [Product completion contract](#product-completion-contract) · [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) · [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
 
@@ -105,10 +101,12 @@ must have all of the following:
    seeded synthetic checkpoint;
 7. integration and e2e tests named for that exact row.
 
-The DSL may not represent illegal state. Product inference accepts an
-`InferenceEligible` artifact minted from a completed training witness; declared
-experiments, partial checkpoints, failed runs, seeded demo fixtures, and static
-matrix rows cannot decode as inference targets.
+The DSL may not represent illegal state. Per the
+[typed run-contract doctrine](#typed-run-contracts), product inference accepts
+an `InferenceEligible` projection only from opaque completed-run evidence;
+declared experiments, partial checkpoints, failed runs, seeded demo fixtures,
+and static matrix rows cannot cross the raw-to-validated boundary as inference
+targets.
 
 Fake, mock, deterministic, synthetic, and hardcoded helpers may exist only in
 explicitly named test/scaffold namespaces. They cannot satisfy a product row,
@@ -253,7 +251,7 @@ Shape:
 
 - The clustered `jitml-service` Deployment runs on every substrate (stateless; pod anti-affinity = one per node). On Apple Silicon its Dhall sets `inferenceMode = ForwardToHost`, so it **still** performs Pulsar fan-in/fan-out, demo proxying, trial-state persistence to MinIO bucket `jitml-trials`, and placement planning, but it forwards the actual Metal execution to the host daemon. The placement rule is by workload kind plus device capability: Linux CPU/CUDA device work may become in-cluster Jobs, while Apple Metal-backed inference, training, RL, tuning trials, and AlphaZero value/policy work are host-resident.
 - `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall` runs **host-native** on Apple (Dhall: `residency = Host`, `inferenceMode = SelfInference`; no HTTP listener; Pulsar subscriber only). `./bootstrap/apple-silicon.sh` only performs stage-0 host gates and builds `./.build/jitml`; it then delegates to `./.build/jitml bootstrap --apple-silicon`, which writes the host and cluster Dhall files, brings up Kind, runs the phased Helm deploy from [Helm chart layout](#helm-chart-layout), and patches the host Dhall once the cluster publication is known.
-- The cluster daemon forwards raw inference-domain payloads on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic, runs the Metal-backed Engine path, and publishes the matching `InferenceResult` / `CheckpointCompareResult` / `AdversarialMoveResult` directly to the request's reply topic, such as `inference.result.apple-silicon`. The same host-resident pattern covers non-inference Metal work through `training.host-command.apple-silicon`, `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`; focused live tests and the full Apple lane assert host-command forwarding and no Apple Metal workload Jobs, and the final ledger audit is closed in [DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+- The cluster daemon decodes inference-domain commands and publishes their canonical typed encoding on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic, runs the Metal-backed Engine path, and publishes the matching `InferenceResult` / `CheckpointCompareResult` / `AdversarialMoveResult` directly to the request's reply topic, such as `inference.result.apple-silicon`. The same host-resident pattern covers non-inference Metal work through `training.host-command.apple-silicon`, `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`; focused live tests and the full Apple lane assert host-command forwarding and no Apple Metal workload Jobs. Current cleanup status lives in [DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 - The host daemon **reads and writes large artifacts directly to MinIO** through the routed `/minio/s3` surface — same protocol the cluster daemon uses. New snapshot weights, optimizer state, and inference outputs go to MinIO straight from the host; the ACK envelope just references the MinIO keys. This keeps Pulsar lean and lets MinIO's optimistic concurrency on HEAD updates serialize concurrent commits (see [Checkpoint snapshot model](#checkpoint-object-layout)).
 - On an Apple cache miss, the host daemon renders MSL plus launch metadata into
   the content-addressed cache, then calls the fixed host Metal bridge. The bridge
@@ -601,7 +599,7 @@ jitml-checkpoints/
 Three object classes, two write protocols:
 
 - **`blobs/<sha256>`** — write-once content-addressed payloads. Each blob's key *is* `sha256(its bytes)`. PUTs use `If-None-Match: *` and treat `412 Precondition Failed` as success (the bytes already exist by definition). One checkpoint produces **many blobs**: one per model layer's weights (`encoder.weight`, `encoder.bias`, `head.weight`, …), plus one for optimizer state, one for RNG state, and (RL only) one each for replay buffer and exploration cache. Per-layer granularity is what makes dedup across checkpoints automatic — two consecutive checkpoints that differ only in their final layer share every other layer's blob by content hash.
-- **`manifests/<sha256>`** — write-once content-addressed CBOR objects naming the blob SHAs that constitute one logical checkpoint plus the metadata needed to interpret them: the parent manifest's SHA (for linear history), the layer-name → blob-SHA map, the step count, the resolved Dhall hash, the substrate that produced the bytes. Same `If-None-Match: *` write protocol. The manifest's SHA is the canonical *checkpoint id* used by Pulsar `CheckpointDone` events, RPC envelopes, and `--resume <checkpoint-id>`.
+- **`manifests/<sha256>`** — write-once content-addressed CBOR objects naming the blob SHAs that constitute one logical checkpoint plus the metadata needed to interpret them: the parent manifest's SHA (for linear history), the layer-name → blob-SHA map, the step count, the resolved Dhall hash, the substrate that produced the bytes. Same `If-None-Match: *` write protocol. The manifest's SHA is the canonical *checkpoint id* used by candidate and completed checkpoint events, RPC envelopes, and `--resume <checkpoint-id>`.
 - **`pointers/*`** — the only mutable objects. Each pointer's body is a 32-byte manifest SHA. Updates use S3 conditional `PUT` with `If-Match: <etag>` — textbook compare-and-swap. The `pointers/latest` update is the **single atomic commit point** for a checkpoint: layer-level blob writes can happen in any order and may even leave orphans on failure, but the manifest is only adopted as HEAD when its pointer update succeeds. Optimistic concurrency therefore applies to the **entire snapshot**, not per layer — which is what guarantees a linear sequence of checkpoints with no orphan branches or split heads.
 
 Current checked-in code implements the key renderers, manifest CBOR codec,
@@ -643,7 +641,21 @@ writeCheckpoint payload = do
   pure (CheckpointId manifest)
 ```
 
-Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary, while `loadInferenceCheckpointWithWeights` decodes `.jmw1` weight blobs and feeds the selected substrate's weighted checkpoint runner (`runLinuxCpuWeightedCheckpointInference`, `runCudaWeightedCheckpointInference`, or `runMetalWeightedCheckpointInference`). The daemon `RunInference` dispatcher uses the same engine-backed checkpoint path before Pulsar `InferenceResult` publication. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
+Checkpoint inspection and resume at any point in training or hyperparameter
+search are symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a
+known manifest SHA from a candidate/completed checkpoint event) and fetch
+`manifests/<sha>`. Inference continues only after that manifest refines to an
+inference-eligible completed checkpoint; it then fetches only the `Weights`
+part's blob, skipping optimizer-state and replay-buffer blobs. The local
+`loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary,
+while `loadInferenceCheckpointWithWeights` decodes `.jmw1` weight blobs and
+feeds the selected substrate's weighted checkpoint runner
+(`runLinuxCpuWeightedCheckpointInference`,
+`runCudaWeightedCheckpointInference`, or
+`runMetalWeightedCheckpointInference`). The daemon `RunInference` dispatcher
+uses the same engine-backed checkpoint path before Pulsar `InferenceResult`
+publication. The snapshot the reader operates against is immutable, so
+concurrent training advances are invisible to it.
 
 ## Retention and GC
 
@@ -774,7 +786,12 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 > demo / CLI / daemon inference share the Engine path, topics are derived from
 > `JitML.Coordinator.Topology`, the `jitml-demo` workload runs the one `jitml`
 > binary with `activeRole = Webapp`, and browser inference panels are
-> websocket-driven. The topic family below is the current surface.
+> websocket-driven. Engine alone acquires compute subscriptions and retains an
+> opaque MinIO/Pulsar client with no Harbor or kubectl instance. Coordinator
+> reconciles the exact topic family, retains the full orchestration client, and
+> alone receives namespace Job/pod RBAC. Webapp retains no daemon clients, no
+> service-account token, and no GPU runtime/device request. The topic family
+> below is the current surface.
 
 Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, with the admin API routed at `/pulsar/admin`. The Pulsar WebSocket route is `/pulsar/ws`; it rewrites to `/ws` and targets the broker HTTP service (`pulsar-broker:8080`) with `webSocketServiceEnabled=true`. Live validation on 2026-05-19 publishes and consumes through that route with `JitML.Service.PulsarWebSocketSubprocess`; 2026-05-20 validation reconciles the substrate-scoped command/event family and publishes/consumes on `training.command.linux-cpu` from `jitml:local`. The same topic family includes Apple host-command topics for Metal-backed training, tuning, and RL placement. The image carries a pinned Node.js 22 runtime; the subprocess script uses `globalThis.WebSocket` when available and retains an `undici.WebSocket` fallback for older Node runtimes. The PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
 
@@ -783,24 +800,26 @@ Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `l
 | Topic | Direction | Carrying |
 |---|---|---|
 | `training.command.<mode>` | control plane → daemon | StartTraining, StopTraining, ResumeFromCheckpoint, AbortTraining |
-| `training.event.<mode>` | daemon → control plane / frontend | StepDone, EpochDone, EvalDone, CheckpointDone, MetricUpdate, TrainingFinished, TrainingFailed |
+| `training.event.<mode>` | daemon → control plane / frontend | `EpochCompleted`; candidate `CheckpointDone`; proof-bearing `CompletedCheckpointDone`; `TrainingFailed` |
 | `tune.command.<mode>` | control plane → daemon | RunTrial, StopTrial |
-| `tune.event.<mode>` | daemon → control plane / frontend | TrialStarted, TrialMetricUpdate, TrialFinished, TrialFailed (wire-format protobuf messages; the durable `TrialEvent` CBOR record in the `jitml-trials` MinIO bucket — see [Trial storage and resume](#trial-storage-and-resume) — is *constructed from* these wire events at trial-end, not the same type) |
+| `tune.event.<mode>` | daemon → control plane / frontend | `TrialStarted`, `TrialFinished`, proof-free `SweepFinished`, and proof-bearing `SweepCompleted` (wire-format protobuf messages; the durable `TrialEvent` CBOR record in the `jitml-trials` MinIO bucket — see [Trial storage and resume](#trial-storage-and-resume) — is *constructed from* these wire events at trial-end, not the same type) |
 | `rl.command.<mode>` | control plane → daemon | StartRLRun, StopRLRun |
-| `rl.event.<mode>` | daemon → control plane / frontend | EpisodeDone, EvalDone, CheckpointDone, MetricUpdate |
+| `rl.event.<mode>` | daemon → control plane / frontend | `EpisodeDone`, `EvalDone`, candidate `CheckpointDoneRL`, proof-bearing `CompletedCheckpointDoneRL`, `MetricUpdate`, replay/animation, and AlphaZero generation/arena events |
 | `inference.request.<mode>` | demo frontend → daemon | inference requests (when demo is in inference mode) |
 | `inference.result.<mode>` | daemon → demo frontend | inference results |
-| `inference.command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | forwarded raw inference-domain command payloads (`RunInference`, `CheckpointCompareCommand`, `AdversarialMoveCommand`) |
+| `gc.event.<mode>` | daemon → control plane / observability | typed `GcReapedEvent` resource-reaping outcomes |
+| `workflow.status.<mode>` | daemon → control plane / frontend | normalized workflow status projections |
+| `inference.command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | canonical typed inference-domain commands (`RunInference`, `CheckpointCompareCommand`, `AdversarialMoveCommand`) |
 | `training.host-command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | host-resident Metal-backed training starts |
 | `tune.host-command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | host-resident Metal-backed tuning starts |
 | `rl.host-command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | host-resident Metal-backed RL starts |
 
 `JitML.Cluster.PulsarBootstrap.pulsarTopics` registers exactly this derived
-31-topic family during bootstrap: command/event/request/result/gc topics for
+34-topic family during bootstrap: command/event/request/result/status/gc topics for
 each substrate, the Apple-only internal inference command topic, and the Apple
 host-command topics for Metal-backed Training/RL/Tune starts.
 
-The `inference.command.apple-silicon` internal topic only exists on Apple Silicon. On Linux substrates the orchestrator pod runs inference in-process, so the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair is the only inference topology. On Apple Silicon the cluster orchestrator forwards each inference-domain request payload to the host daemon unchanged; the host Engine consumes it, executes on Metal, and publishes the result directly to the request's reply topic.
+The `inference.command.apple-silicon` internal topic only exists on Apple Silicon. On Linux substrates the orchestrator pod runs inference in-process, so the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair is the only inference topology. On Apple Silicon the cluster orchestrator strictly decodes each inference-domain request and republishes the typed value through the host route's canonical encoder; the host Engine consumes it, executes on Metal, and publishes the result directly to the request's reply topic.
 
 **Internal forwarded payload (Apple Silicon `inference.command.apple-silicon`):**
 
@@ -826,39 +845,55 @@ broker use the repo-local topic spool at `./.build/runtime/pulsar/`. Tests use
 this explicit filesystem harness; runtime Pulsar endpoints come from typed
 configuration, not process environment variables.
 
-**At-least-once delivery.** Per doctrine §At-Least-Once Event Processing,
-every Pulsar message handler is idempotent: idempotency is enforced via MinIO
-`If-None-Match: *` writes on content-addressed blobs (a redelivered message
-produces the same SHA, the second PUT returns `412 Precondition Failed`, the
-handler treats it as success). Redelivery on broker restart or consumer crash is
-expected and benign. Handlers classify transient failures using the shared
-[Retry policy](#retry-policy); a `Fatal` classification negatively-acks the
-message and lets the broker redeliver after backoff. Idempotency keys derive
-from the protobuf message hash; the daemon does not trust client-supplied IDs.
-The current Haskell surface derives the daemon subscription plan from
-`BootConfig`, routes both bare and `persistent://public/default/...` broker
-topic names to handler domains, registers the matching substrate-scoped topic
-family during bootstrap, renders the planned daemon topics under
-`pulsar_subscriptions` in the service startup summary, records startup
-acquisition results under `pulsar_subscription_status`, opens the routed
-WebSocket consumer endpoint for startup subscription probes, sizes the
-per-domain dedup caches from `LiveConfig.dedupCacheSize`, exposes the combined
-`DaemonServiceClient` interpreter for all four daemon capability classes,
-exercises `pulsarSubscribe` plus a bounded acquired-subscription consumer batch
-through the typed boundary in `jitml-daemon-lifecycle`, and starts held-open
-workers in the normal `jitml service` serve path with one shared process-lifetime
-dedup router. Live Linux CPU validation on 2026-05-21 proves that normal
-service path handles `RunInference` through that held-open worker path and
-publishes the expected `InferenceResult` without `--consume-once`, proves
-duplicate payloads produce exactly one matching `InferenceResult`, and proves a
-missing-checkpoint dispatch failure is negative-acked until broker redelivery
-publishes the result after the checkpoint is seeded. 2026-05-23 CUDA
-service-pod RuntimeClass validation runs the actual `jitml-service` pod on the
-single `jitml-linux-cuda-control-plane` node and confirms `nvidia-smi -L` inside
-that container. 2026-05-23 Apple Silicon host validation runs the generated
-`./.build/conf/host/apple-silicon.dhall` with
-`jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
-probes, and acquires `inference.command.apple-silicon` as `jitml-host`.
+**At-least-once delivery.** Per doctrine §At-Least-Once Event Processing and
+[Delivery and settlement](documents/engineering/run_contract.md#delivery-and-settlement),
+logical event identity and broker delivery identity are distinct. Redelivery is
+expected: an identical semantic event is idempotent, while a conflicting event
+with the same identity is a protocol violation. Each broker message becomes an
+opaque receipt-bearing `Delivery event`; the handler returns exactly one
+`Disposition`, and the persistent consumer interpreter performs settlement.
+Application code cannot acknowledge by topic plus payload, acknowledge a
+different delivery, or omit or repeat settlement.
+
+Idempotent artifact effects continue to use MinIO `If-None-Match: *` writes on
+content-addressed blobs. The current persistent consumer turns handler failure
+into a receipt-bound Nack so Pulsar may redeliver. Before selecting that
+disposition, retryable dispatch reads the active production
+[Retry policy](#retry-policy) and performs its monotonic schedule without
+replacing broker settlement identity. After strict typed decode, the daemon derives semantic
+identity from an opaque `PlanId`, the decoded command kind, and its logical key;
+alternate encodings of the same command therefore deduplicate while distinct
+plans cannot collide merely because their payload bytes match.
+
+Inference batches commit semantic dedup state one command at a time. Cancelling
+a later command restores only that command's in-progress transition; earlier
+successful commands remain committed, so a whole-batch Nack and broker
+redelivery cannot replay their external effects. This is idempotent
+at-least-once handling, not an atomic batch transaction or a globally
+exactly-once broker guarantee.
+
+The current daemon derives opaque typed subscriptions from `BootConfig`, opens
+one persistent consumer interpreter per subscription, decodes each broker
+message into a receipt-bearing `Delivery event`, and applies the handler's one
+`Disposition` internally. Broker message ids remain private to the transport;
+reconnect resends pending settlement before requesting another delivery.
+Commanded settlements and deliveries racing with drain remain hidden until
+their socket writes have flushed and every receipt has been confirmed; only
+then may the bridge report `Drained`. Settlement, drain/protocol, bridge-process,
+and owned-cleanup failures remain typed and take precedence over a racing
+cancellation. Borrowed daemon subscriptions survive cleanup, while owned
+ephemeral subscriptions are deleted idempotently. The runtime derives
+`/readyz` from its closed
+`Starting`/`Ready`/`Degraded`/`Draining` state and dispatches non-empty indexed
+workload effects whose result type is fixed by the effect kind.
+
+Apple Metal-backed Training/Tune/RL/AlphaZero Starts use typed host-command
+routes and register a supervised action under a refined workload-family plus
+experiment-hash key before its body can run. Stop claims exactly one live key,
+cancels and joins that action, and reports success only after observing the
+cancellation tombstone. Duplicate/reused Starts and unknown, stopping, or
+already-terminal Stops fail closed; bounded daemon drain closes admission and
+joins all remaining actions. Sprint `12.16` validation remains open.
 
 ---
 
@@ -936,7 +971,7 @@ code-quality execution path.
 
 Per doctrine §Command Topology, commands are modelled as ordinary Haskell data types and the parser is generated from a separate `CommandSpec`. The current supported executable is `app/Main.hs` → `jitml` (control plane, daemon, Coordinator, Engine, and Webapp roles). The Kubernetes workload named `jitml-demo` is a Helm release/service/image tag that runs `jitml service --config /etc/jitml/BootConfig.dhall` with `activeRole = Webapp`; it is not a separate Cabal executable.
 
-This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `test`, `lint`, `docs`, `project`, `internal`) hold substrate bootstrap, lifecycle, reinforcement-learning, testing/tooling, project config, and internal support surfaces. Sub-ADTs that model >2-state workflows — `ClusterCommand` and the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers. Sprint `3.7` keeps the cluster lifecycle contract strict: `cluster up` performs the live lower-level Kind/Helm reconcile promised by the generated command docs, and `cluster status` reports ready only from a publication carrying live readiness evidence.
+This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `test`, `lint`, `docs`, `project`, `internal`) hold substrate bootstrap, lifecycle, reinforcement-learning, testing/tooling, project config, and internal support surfaces. Sub-ADTs that model >2-state workflows — `ClusterCommand` and the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers. Sprint `3.7` validated both the exact mutating reconcile and the retained exit-`3` no-op path; `cluster status` reports ready only from a publication carrying live readiness evidence.
 
 **Generated mirror.** Every command-surface artifact in this README — the registry snapshot, the command tree, and generated help fragments — is rendered from `CommandSpec` by `jitml docs generate`.
 
@@ -1026,7 +1061,7 @@ mindmap
 | `jitml rl train` | Train an RL policy. | `jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--algorithm <algorithm>] [--dry-run] [--plan-file <path>]` |
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
-| `jitml rl alphazero self-play` | Run AlphaZero self-play. | `jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]` |
+| `jitml rl alphazero self-play` | Run AlphaZero self-play. | `jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--game <game>] [--games <n>] [--generations <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]` |
 | `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--experiment-hash <experiment-hash>]` |
 | `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]` |
 | `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
@@ -1067,6 +1102,18 @@ mindmap
 | `jitml commands` | Print the command registry. | `jitml commands [--tree] [--json]` |
 | `jitml help` | Print focused command help. | `jitml help [-- <subcommand...>]` |
 <!-- jitml:command-registry:end -->
+
+`jitml inference run` is a short-lived Pulsar client, not an alternate inference
+engine. It opens one `Owned`, `FromLatest` cursor on the derived Engine reply
+topic before publishing the typed request to `inference.request.<mode>`, then
+waits for the Engine result matching both the request `callId` and experiment
+hash. A same-call result for another experiment is unrelated. On every exit
+path the CLI cancels and joins that consumer before performing the bounded,
+cancellation-safe subscription `DELETE`. Live request/reply transport failures
+remain `PulsarFailed` rather than being misreported as a missing checkpoint. A
+cleanup failure remains observable as secondary failure detail without hiding
+the primary timeout/publication failure, and asynchronous cancellation retains
+its original identity.
 
 RL and tuning training commands print their durable artifact keys in the command
 summary: `jitml rl train` emits checkpoint plus `rl-replay` keys, `jitml rl
@@ -1113,6 +1160,14 @@ flowchart LR
     App["App<br/><i>ReaderT Env IO;</i><br/><i>owns process exit</i>"]
     Spec --> Parser --> Docs --> Commands --> Sub --> App
 ```
+
+`JitML.Sub.Outcome` owns the current interpreter result:
+`ProcessSucceeded ProcessTranscript | ProcessFailed ProcessFailure`.
+`JitML.Sub.Stream.runStreaming` and `capture` return that closed sum.
+`ProcessTranscript` retains the rendered command, stdout, stderr, working
+directory, and monotonic duration; opaque `ProcessFailure` adds the genuinely
+non-zero exit status, and `AppError.SubprocessFailed` carries that complete
+failure without a parallel command/exit/text tuple.
 
 `app/Main.hs` is a six-line shim into `App.main`. Logic that fits in any of the upper tiers stays out of `app/`. Module layout lives at [Repository layout (target)](#repository-layout-target).
 
@@ -1162,29 +1217,203 @@ Per doctrine §Error Handling for the typed-domain-ADT discipline and single ren
 
 `test all`, `lint *`, and `docs check` communicate pass/fail by exit code only; their stdout is the rendered Plan, snapshot output, or summary block — never a status string for callers to grep.
 
-The daemon classifies thrown errors as `Recoverable` or `Fatal`. `Recoverable` logs structured JSON and continues after retry per [Retry policy](#retry-policy); `Fatal` drains in-flight work, emits a final structured event, and exits. The full daemon contract (`/healthz`, `/readyz`, `/metrics`, structured JSON logging, drain-on-SIGTERM, `BootConfig`/`LiveConfig` split with SIGHUP hot reload) is doctrine §Long-Running Daemons in the Same Binary; jitML opts in (see [Doctrine scope](#doctrine-scope)).
+The current daemon maps closed `ServiceError` kinds into `AppError`, exposes a
+typed retry scheduler, and drains actual Engine/Webapp processes on signals.
+The production `jitml` executable is linked with the threaded RTS, and the
+daemon-lifecycle stanza probes the actual built binary with `+RTS -N1`.
+Its structured JSON stderr sink reads the atomic LiveConfig threshold for every
+emission, and retryable actions use real monotonic sleeps/backoff from the
+active policy. Those Sprint `12.16` implementation surfaces remain open pending
+the full sprint validation gate. The full target daemon contract (`/healthz`, `/readyz`,
+`/metrics`, structured JSON logging, drain-on-SIGTERM, and the
+`BootConfig`/`LiveConfig` split with SIGHUP hot reload) is doctrine
+§Long-Running Daemons in the Same Binary; jitML opts in (see
+[Doctrine scope](#doctrine-scope)).
 
 ### Capability classes and the service-error union
 
-Per doctrine §Capability Classes and Service Errors. jitML's capability typeclasses are `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`; each capability's typed error injects into a unified `ServiceError` via `AsServiceError`.
+Per doctrine §Capability Classes and Service Errors. jitML's capability
+typeclasses are `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`; each
+capability's typed error injects into a unified `ServiceError` via
+`AsServiceError`. `DaemonRuntime` retains a closed role projection: Engine's
+opaque interpreter has only `HasMinIO`/`HasPulsar`, Coordinator owns the full
+orchestration interpreter, and Webapp owns no daemon-client settings.
 
 ### Retry policy
 
-Per doctrine §Retry Policy as First-Class Values. jitML's `RetryPolicy` value is consumed by reconcilers, the Pulsar consumer (alongside its at-least-once guarantee — see [Pulsar as the control-plane ↔ data-plane bus](#pulsar-as-the-control-plane--data-plane-bus)), and capability-call wrappers.
+Per doctrine §Retry Policy as First-Class Values. jitML's typed `RetryPolicy`
+supports `Once`, total-attempt `LinearN`/`ExponentialN`, and monotonic-deadline
+`RetryUntil`. The production scheduler performs real sleeps/backoff, stops
+immediately on fatal errors, and captures the current LiveConfig policy for
+each newly dispatched action; Coordinator topic acquisition uses its startup
+snapshot. Deterministic tests inject the clock and sleeper. Full Sprint `12.16`
+validation remains open.
 
 ### Daemon environment: Env, BootConfig, LiveConfig
 
 Per doctrine §Application Environment and §Long-Running Daemons for the `ReaderT Env IO` shape, SIGHUP semantics, and drain contract. jitML's keys:
 
-- **`BootConfig`** (immutable post-launch): listening port, MinIO endpoint, Pulsar broker URL, Harbor registry, kubeconfig path, drain deadline.
-- **`LiveConfig`** (hot-reloadable via SIGHUP): log level, request-timeout budgets, retry-policy values from [Retry policy](#retry-policy), inference batching/SLO knobs, and per-domain Pulsar dedup cache size/TTL.
-- **`RunConfig`** (per dispatched worker Job): the train/tune/rl run parameters (seed, epochs, batch size, max steps, eval episodes, sampler/scheduler/pruner, trial budgets, SL caps) are handed to worker Jobs as a typed Dhall `RunConfig` decoded through the same `loadBootConfig`-style path — not as `JITML_*` environment variables; worker Jobs mount the service ConfigMap to read `BootConfig` for substrate/Pulsar wiring, and the experiment hash is a CLI argument. If a mounted `RunConfig.dhall` exists but fails to decode, the worker must fail with a typed configuration error; env/default fallbacks are only for explicit non-Job developer invocations where no mounted file exists.
+- **`BootConfig`** (immutable post-launch): active role, substrate, residency,
+  inference mode, Pulsar service/admin URLs, MinIO endpoint, Harbor registry,
+  the residency-checked optional HTTP listener, and the Webapp-only Pulsar
+  WebSocket URL. The drain deadline belongs to `LiveConfig`; kubeconfig is not a
+  BootConfig field.
+- **`LiveConfig`** (hot-reloadable via SIGHUP): the operational surface is the
+  structured-log threshold, retry policy, positive inference batch size and
+  maximum latency, per-domain Pulsar dedup cache size/TTL, and graceful-drain
+  deadline. The daemon rereads the adjacent file, increments generation only
+  after a valid changed snapshot, retains last-good state on malformed live
+  input, and treats any BootConfig change as restart-required drain. The logger
+  reads every emission, each new retry action and inference batch captures the
+  current policy, active dedup routers consult current bounds, and shutdown plus
+  Apple-host drain read the current deadline. A reload never mutates an already
+  admitted batch window. These Sprint `12.16` readers are implemented; the
+  sprint remains Active until its full validation gate passes.
+- **`RunConfig`** (per dispatched worker Job): the versioned Dhall value is a
+  transport boundary, not proof that the run is legal. Supervised
+  `TrainingRunConfig`, `TuneRunConfig`, and `AlphaZeroRunConfig` mounts contain
+  a canonical versioned resolved plan, its derived `PlanId`, and the operational
+  Pulsar endpoint. Their workers re-refine the transport and
+  require canonical-plan and identity equality before any trial, game,
+  dataset, training, checkpoint, or publication effect; they do not reconstruct
+  axes or budgets from primitive mount fields. Traditional RL retains a
+  primitive mounted record until its downstream owning sprint adopts the same
+  boundary. Env/default fallbacks remain only for explicit non-Job developer
+  invocations where no mounted value exists. See
+  [Typed run contracts](#typed-run-contracts).
 
-`Env` additionally carries the structured logger, metrics handle, shutdown signal, and explicit test hooks (e.g., a `clock` field so determinism tests can fix time). The lifecycle is exercised by the [`jitml-daemon-lifecycle`](#test-suite-stanzas) test stanza.
+`Env` carries cache/data directories, output format/color, a typed subprocess-
+outcome logger, and an injectable monotonic clock. Daemon metrics and shutdown
+state live in the daemon runtime/control values rather than imaginary `Env`
+fields. The lifecycle is exercised by the
+[`jitml-daemon-lifecycle`](#test-suite-stanzas) test stanza.
 
 ### Progressive introspection
 
 Per doctrine §Progressive Introspection: `jitml commands`, `jitml commands --tree`, `jitml commands --json`, `jitml help <subcommand>`.
+
+---
+
+# Typed run contracts
+
+The binding target for every evidence-bearing training, tuning, self-play,
+inference, GC, and live-test run is a functional core with one resource-safe
+interpreter. The required flow is:
+
+`raw DTO → validated RunPlan → running protocol → completed evidence`.
+
+External configuration and wire payloads are necessarily capable of containing
+invalid data. They remain explicitly raw and versioned until one pure refinement
+function accumulates validation errors. Only its opaque result crosses into the
+core. Proof-bearing values are never generic-decoded directly; deserialization
+produces a raw DTO and re-runs refinement.
+
+The representation technique follows the invariant:
+
+- positive quantities carry phantom units where dimensional confusion is the
+  risk, so evaluation episodes cannot become optimizer iterations and rollout
+  ticks per environment cannot be compared with total environment transitions;
+- closed sums and GADTs encode mutually exclusive placement, phase, algorithm,
+  environment, and action-domain alternatives;
+- hidden constructors and smart constructors validate relational or runtime
+  facts such as finite measurements, non-empty seed cohorts, unique event ids,
+  and passing criteria;
+- ordinary runtime state is a closed sum whose variants are all legal, never a
+  record of independent `Bool` and `Maybe` fields.
+
+At the completed Sprint `10.12` boundary, broker receipt identity, settlement,
+closed daemon state, indexed daemon effects, hidden-constructor validated
+plans, positive unit-indexed quantities, finite measurements, plan-bound
+semantic event identity, and the pure total evidence reducer follow this
+contract. Sprint `9.17` closed Tuning and AlphaZero
+serialization/execution of the same resolved plan across local, Linux worker,
+and Apple host routes, and their plan-correlated completion events enter exact
+shared contracts. Sprint `10.12` closed supervised worker-plan adoption plus
+refined completion/checkpoint proof. Traditional-RL worker-plan adoption, the
+shared live-workflow interpreter, and journal-derived reports remain the numerically
+ordered downstream work listed in
+[the development plan](DEVELOPMENT_PLAN/README.md#closure-status).
+
+One resolved `RunPlan kind` and stable `PlanId` must drive command rendering, worker
+execution, event correlation, evidence requirements, checkpoint completion, and
+tests. A field is interpreted exactly once. Training and evaluation are distinct
+plans, and ordered training summaries are distinct from keyed final-policy
+evaluation sets.
+
+Supervised commands refine to hidden `SupervisedPlan`: exact positive epochs,
+training examples, evaluation examples, batch examples, and optimizer updates,
+with `updates = epochs * ceil(trainingExamples / batchExamples)`. Its canonical
+version-`1` encoding and content-derived `PlanId` are the only semantic worker
+inputs. `TrainingRunConfig` contains that transport, identity, and the
+operational Pulsar endpoint; workers re-refine and require command, canonical
+transport, and identity equality instead of clamping or applying defaults.
+
+Completion bytes decode through versioned `RawCompletedTraining`. Typed finite
+criteria derive their verdict; hidden `PassedMeasurement` values cannot be
+deserialized directly, and `CompletedTraining` requires a non-empty collection
+of them plus exact observed-budget equality, revalidated training evidence, and
+the originating `PlanId`. Checkpoint bytes likewise decode through versioned
+`RawCheckpointEnvelope` / `RawCheckpointManifest`, so persistence remains a raw
+boundary rather than a proof constructor.
+
+Protocol evidence must be accumulated by a pure total reducer. Completion requires
+the plan's exact evidence contract and terminal workload success; either may
+arrive first, but neither alone mints `CompletedRunEvidence`. Reducers use
+semantic event identity, exact keyed coverage, finite values, and non-empty
+collections. Identical broker redeliveries are idempotent; conflicting
+duplicates, gaps, wrong plan ids, malformed values, and incomplete terminal
+evidence are explicit failures.
+
+Persistence and proof use distinct protocol variants. Training publishes
+`TrainingCheckpoint` candidates or `TrainingCompletedCheckpoint` values with a
+mandatory hidden completion wrapper; RL uses `RlCheckpoint` or
+`RlCompletedCheckpoint`; tuning uses proof-free `TuneSweepFinished` or
+proof-bearing `TuneSweepCompleted`. The completed variants encode their
+mandatory proof as a nested versioned raw DTO and re-refine it on decode; none
+uses `Maybe CompletedTraining` as a completion gate.
+
+One resource-safe live-workflow interpreter must own subscribe-before-publish
+ordering, receipt-bound delivery settlement, host-versus-cluster placement,
+terminal-state observation, diagnostics, and subscription/Job cleanup for
+every scenario that claims protocol completion. Reports are pure projections
+of append-only scenario journals and actual invocation outcomes (`Passed`,
+`Failed`, or `NotRun`); a failure retains the command plus both output streams.
+Secondary probes, fabricated counts, empty-aggregate defaults, and stdout-prefix
+assertions are not completion evidence.
+
+Inference batching has two monotonic boundaries. Admission captures a
+handler/publication-entry deadline at the configured latency, while sparse
+collection closes at `admission + min(1 ms, latency / 10)` so an under-capacity
+batch reaches Engine with most of its SLO still available. If the handler has
+not returned when its timeout expires, the transport cancels it and Nacks the
+admitted receipt set; command-level semantic commits completed earlier in the
+batch remain committed. Engine samples the same deadline immediately before
+each Pulsar publication and refuses to enter that side effect after expiry. A
+handler decision that does return is never converted into a later clock-based
+Nack, because its publication may already be externally visible. The deadline
+therefore does not promise broker acknowledgement or publication completion by
+that instant, and Pulsar delivery remains at-least-once.
+
+Short-lived `Owned` CLI reply consumers use a `FromLatest` cursor, match both
+`callId` and experiment hash, then cancel and join before bounded,
+cancellation-safe deletion. Settlement, drain/protocol, bridge-process, and
+cleanup failures remain typed; only a completely successful drain and cleanup
+rethrows the original asynchronous cancellation identity.
+
+The uniform Sprint `12.11` WorkflowMatrix instead validates public CLI execution:
+each cell is one typed `Subprocess`, rendered canonically and checked through its
+real `ProcessOutcome`. Its commands either expose no correlated outer event
+subscription or own request/reply internally, so the matrix does not fabricate
+a broker subscription or completed-run witness. Exact Apple host-command
+forwarding and daemon duplicate-delivery cases are separately labelled
+transport/placement smokes and cannot satisfy a workflow-completion claim.
+
+The jitML-specific plan, protocol instances, lifecycle join, evidence contracts,
+and verification rules live in
+[Typed Run Contract](documents/engineering/run_contract.md). Adoption and
+deletion status live only in
+[the development plan](DEVELOPMENT_PLAN/README.md#closure-status) and its
+[legacy ledger](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ---
 
@@ -1320,7 +1549,15 @@ in
 
 # Hyperparameter tuning, first-class
 
-A `Tuning` block in any experiment Dhall converts a single-run definition into a multi-trial sweep. The same Dhall describes a single training run (no `tuning`) or a 128-trial sweep (`tuning = Some Tuning::{ … }`); CLI flags (`--sampler …`, `--scheduler …`, `--pruner …`) *override* the Dhall on each axis, never replace it. The resolved experiment is the only input to plan rendering, local tune artifacts, daemon `TuneRunConfig`, worker trial selection, checkpoint promotion, and report-card measurements; displaying overrides without applying them to the actual sweep is a bug, not an alternate mode.
+A `Tuning` block in any experiment Dhall converts a single-run definition into a multi-trial sweep. The same Dhall describes a single training run (no `tuning`) or a 128-trial sweep (`tuning = Some Tuning::{ … }`); CLI flags (`--sampler …`, `--scheduler …`, `--pruner …`) *override* the Dhall on each axis, never replace it. The resolved experiment is refined into one hidden `TuningPlan` with positive trial, parallelism, promotion, and per-trial-update quantities. Its canonical versioned encoding and derived `PlanId` are the only semantic inputs mounted in daemon `TuneRunConfig` and consumed by local, Linux worker, and Apple host execution. Displaying overrides without applying them to the actual sweep, or reconstructing worker semantics from a second primitive record, is a bug, not an alternate mode.
+
+Product Tune evidence is compiled from the registered hyperparameter-tuning
+`ProductRow` and the named Catalog schedule: TPE sampling with seed `1729`, ASHA
+scheduling, `MedianPruner`, `128` trials, `6` optimizer updates per trial, and
+parallelism `1`. Its registered convergence bar is best objective target `1.0`
+with slack `0.05`. Reduced trial/update configurations remain useful explicitly
+labelled transport or lifecycle smokes, but they cannot mint product completion
+or satisfy that row's convergence claim.
 
 ## Search-space declaration
 
@@ -1468,6 +1705,15 @@ data PbtEvent
 (`trial-checkpoint-*`) and a content-addressed `tune-trials` artifact key for
 the measured preview sweep. Daemon-dispatched tune workers persist the trial
 transcript and promote the measured trial weights into `jitml-checkpoints`.
+The `StartSweep` command carries the resolved plan transport and `PlanId`, and
+every `TrialStarted`, `TrialFinished`, `SweepFinished`, and `SweepCompleted`
+event carries that same identity. `SweepFinished` reports exact terminal counts
+and a finite best objective but is a proof-free candidate. Completion is a pure
+contract requiring the exact zero-based trial range and exactly one
+`SweepCompleted`, whose hidden wrapper carries mandatory, re-refined
+`CompletedTraining`. Wrong-plan events, gaps, conflicting
+duplicates, budget mismatches, and non-finite objectives are typed violations;
+identical semantic redeliveries are idempotent.
 
 **Canonical replay order.** On resume, events are read out of MinIO and sorted by `(teStrategyStep, teIntraStepRank)`. **Not** by `teCreatedAtNs`, **not** by wall-clock arrival, **not** by trial-hash — wall-clock order is non-reproducible under parallelism, and a sort that depends on it would re-introduce the determinism gap. The strategy-emitted `(step, rank)` tuple is the canonical ordering because the strategy itself is the only thing that knows which trials belong to which generation/cursor position.
 
@@ -1900,31 +2146,35 @@ TensorBoard is the canonical visualisation sink (writes to MinIO bucket `jitml-t
 
 ## Evaluator
 
-Runs a policy on a fresh seed pool; returns mean ± std reward and per-episode length:
+Runs a policy on a validated non-empty seed cohort. Evaluation counts and
+episode horizons are positive quantities with different units; rewards are
+finite by construction, and individual outcomes are keyed rather than ordered
+by broker arrival:
 
 ```haskell
-data EvalConfig = EvalConfig
-  { nEpisodes     :: Int
-  , deterministic :: Bool                                  -- True ⇒ uses `mode`, not `sample`
-  , maxStepsPerEp :: Maybe Int
-  , evalSeed      :: Seed
+-- Example: Target evaluator boundary; concrete ownership lives in run_contract.md.
+data EvaluationPlan = EvaluationPlan
+  { episodeCount :: Quantity 'EvaluationEpisode
+  , horizon      :: Quantity 'EpisodeStep
+  , seedCohort   :: NonEmpty Seed
+  , policyMode   :: EvaluationPolicyMode
   }
 
-data EvalResult = EvalResult
-  { meanReward     :: Double
-  , stdReward      :: Double
-  , meanEpisodeLen :: Double
-  , perEpisode     :: [EpisodeStats]
-  }
-
-evaluatePolicy :: Policy obs act -> Env obs act -> EvalConfig -> IO EvalResult
+newtype EvaluationSet =
+  EvaluationSet (Map EvaluationEpisodeId EpisodeOutcome)
 ```
 
-The convergence check in [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) lives directly on top of this primitive.
+The convergence check in
+[Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl)
+consumes a complete `EvaluationSet`; it never infers a learning curve from that
+set's delivery order.
 
 ## Training loops as typed pipelines
 
-The load-bearing primitive — the actual `learn()` shape — comes in two variants, indexed by algorithm class so a wrong-loop-for-wrong-algo is a type error.
+The load-bearing primitive — the actual `learn()` shape — comes in two variants,
+indexed by algorithm class so a wrong-loop-for-wrong-algo is a type error. The
+records below describe raw/config-facing choices; execution consumes their
+validated, dimensionally checked `RunPlan`, not these primitive values directly.
 
 ```haskell
 -- On-policy loop (PPO, A2C, MaskablePPO, RecurrentPPO, TRPO)
@@ -2083,16 +2333,12 @@ Algorithm defaults are pinned via SB3 RL Zoo3 as a sanity check, not as a source
 
 # Convergence and determinism checks for RL
 
-> **Reopened 2026-07-05 (realness audit):** the methodology below is the intended
-> contract, but the implementation does **not** currently satisfy it. The
-> `final_reward` fed into the convergence assertion is measured from a **hardcoded
-> expert controller** (`canonicalDiscreteEvaluation` / `*ExpertAction` in
-> `src/JitML/App.hs`), not from the trained policy, and each product row's
-> convergence bar is seeded with `coMetricValue = literatureTarget` so the pass
-> check reduces to `target ≥ target − slack` (a tautology). **Reopened Phase `25`**
-> owns removing the expert-controller path so reward comes from the trained policy,
-> and **reopened Phase `19`** owns making the bar an external constant that is never
-> derived from the measured value. See
+> **Reopened 2026-07-12 (typed-run-contract audit):** retained broker evidence
+> showed a numerically successful PPO run, but the live harness could still lose,
+> partially collect, or misclassify that evidence. The worker's final-policy
+> evaluations were also treated as an ordered learning curve, and evaluation
+> counts were reused as training controls. The methodology below is binding only
+> through a validated RL plan and complete typed evidence contract. See
 > [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 RL correctness is harder to validate than SL because the reward
@@ -2131,14 +2377,15 @@ read a committed numerical fixture:
    The comparison is run-to-run; no committed reference. Enforces the
    determinism claim through the checkpoint boundary.
 
-4. **Curve sanity (properties, not fixtures).**
-   Across the per-evaluation reward curve (20 evaluations across the
-   budget) assert: the curve is non-decreasing modulo a per-class
-   noise window, the second half median improves over the first half
-   median by at least a per-(env, algo) margin, no evaluation produces
-   NaN/Inf reward, and the final evaluation clears the convergence
-   threshold from (2). No per-evaluation fixture is stored; the per-host
-   distribution is computed at test time and discarded.
+4. **Learning-curve and final-quality properties, separately.**
+   `LearningCurve` is an ordered, non-empty vector of actual trainer
+   `IterationSummary` values and may be checked for improvement modulo a
+   per-class noise window. `EvaluationSet` is an exact map keyed by evaluation
+   episode id; its complete finite reward cohort supplies the final median in
+   (2). Arrival order, the latter half of a final evaluation set, or a partial
+   set is never called a learning curve. No numerical fixture is stored; both
+   values are derived from the completed run journal and discarded after the
+   test.
 
 Wall-clock perf is **not** part of the bit-determinism contract and is
 not asserted against a stored fixture; per-host throughput varies and a
@@ -2265,6 +2512,14 @@ an `alphazero-transcript` artifact containing sampled states, MCTS visit
 distributions, and value targets for replay/inspection. The command accepts
 `--game connect4|othello|hex|gomoku`; each game resolves its own initial state,
 observation size, action count, transcript id, and policy/value checkpoint tensor.
+The raw command is refined once into an `AlphaZeroPlan` whose positive,
+dimension-specific quantities distinguish generations, self-play games,
+simulations per move, maximum plies, optimizer updates, and arena games. The
+same canonical versioned plan and `PlanId` drive direct execution,
+daemon-dispatched Linux Jobs, and the Apple host-command route. Completion
+requires the exact zero-based `GenerationCompleted` range plus exactly one
+finite, plan-correlated `ArenaCompleted` event; the worker does not clamp or
+reconstruct these budgets from a second configuration record.
 
 ### Arena gating
 
@@ -2322,7 +2577,9 @@ A checkpoint is **N + 1 content-addressed objects** in MinIO — not one monolit
 | `exploration_cache.bin` | MCTS / AlphaZero-style RL | path-dependent state, see [Persistent MCTS state](#persistent-mcts-state) |
 | `manifests/<sha256>` (CBOR) | always | names the SHAs above and carries lineage |
 
-The manifest SHA is the canonical *checkpoint id*. It is the value carried by `CheckpointDone` Pulsar events, by RPC envelopes' `starting-snapshot` field, and by `--resume <checkpoint-id>` on the CLI.
+The manifest SHA is the canonical *checkpoint id*. It is the value carried by
+candidate and completed checkpoint Pulsar events, by RPC envelopes'
+`starting-snapshot` field, and by `--resume <checkpoint-id>` on the CLI.
 
 ## The dense weight blob format (`.jmw1`)
 
@@ -2380,7 +2637,9 @@ data CheckpointManifest = CheckpointManifest
   , cmParts          :: ![CheckpointPart]    -- canonical-ordered by role
   , cmMetrics        :: ![(Text, Double)]    -- metric snapshot at this checkpoint (sorted by metric name)
   , cmBudgetHash     :: !Hash32              -- fixed TrainingBudget identity
-  , cmCompleted      :: !CompletedTraining   -- proof the fixed budget ran
+  , cmPlanId         :: !(Maybe PlanId)       -- absent on a candidate; must match completion
+  , cmCompleted      :: !(Maybe CompletedTraining)
+                                                -- absent on a candidate; mandatory in the proof type
   , cmConvergence    :: !ConvergenceStats    -- model-owned metric payload
   , cmTensorBoardRun :: !Text                -- scalar run/prefix for UI links
   , cmParentManifest :: !(Maybe Hash32)      -- lineage chain; set on resume
@@ -2394,7 +2653,26 @@ data CheckpointPart = CheckpointPart
   }
 ```
 
-`sha256(canonical_cbor(manifest))` *is* the manifest's address. The pointers' bodies are 32-byte SHAs of manifests; the manifest is the deterministic identity of the checkpoint.
+`sha256(canonical_cbor(versioned raw manifest envelope))` *is* the manifest's
+address. The pointers' bodies are 32-byte SHAs of manifests; the manifest is
+the deterministic identity of the checkpoint.
+
+Persistence uses a versioned `RawCheckpointEnvelope` whose
+`RawCheckpointManifest` contains `Maybe Text` plan identity and
+`Maybe RawCompletedTraining`, not a generic serialization path into the proof
+types. Decoding revalidates finite manifest fields and re-refines the completion
+DTO. `requireInferenceEligibleCheckpoint` then requires the manifest and
+completion `PlanId`s to match, exact equality between completion's observed
+budget and both its target and the manifest step, mirrored training evidence,
+non-empty passing criteria, TensorBoard metadata, and model-family layout. Its
+result is hidden `CompletedCheckpoint` (also exposed to inference as
+`InferenceEligibleCheckpoint`).
+
+Pre-10.12 manifest bytes are accepted only through decoder-only legacy DTOs.
+Their stored pass verdict is recomputed and checked, then discarded; because
+the legacy wire has no canonical `PlanId`, the decoded manifest is retained as
+an inspectable/resumable candidate with no completion proof and can never be
+inference eligible.
 
 ## Bit-determinism contract
 
@@ -2531,7 +2809,7 @@ PureScript framework, signals model fits live-events well).
 ## Backend integration
 
 - **REST + JSON** for one-shot operations (`/api/experiments`, `/api/checkpoints`, `/api/runs`, `/api/trials`).
-- **WebSocket** for live event streams: the frontend connects to `/api/ws` (served by `jitml-demo`), which in turn subscribes to `training.event.<mode>` / `rl.event.<mode>` / `tune.event.<mode>` on Pulsar and proxies the relevant subset to the connected client. The frontend never connects to Pulsar directly — Envoy is the single localhost socket.
+- **WebSocket** for live event streams: the frontend connects to `/api/ws` (served by `jitml-demo`), which in turn subscribes to `training.event.<mode>` / `rl.event.<mode>` / `tune.event.<mode>` on Pulsar and proxies the relevant subset to the connected client. The frontend never connects to Pulsar directly — Envoy is the single localhost socket. Each Halogen subscription owns its browser socket and closes it on component disposal; the server independently watches peer close/EOF so full-page or browser teardown cancels and joins a quiet Pulsar bridge even when no frame is being written.
 
 ## Stance
 
@@ -2539,11 +2817,11 @@ The PureScript frontend is not a metrics dashboard with passive read-only panes;
 
 ## Panels
 
-Every panel renders inside a slim shared header (`Chrome.Header` — the `jitML` wordmark plus a `[home]` link to `#portals`), so the directory is one click away from any view. The hash dispatcher disposes the previous Halogen root before mounting the next panel, so hash navigation leaves a single active app root. The empty-hash landing routes to the portals home below; the named `#mnist-live-inference` / `#cifar-imagenet-upload` / `#training-progress` / `#hyperparameter-sweep` / `#rl-trajectory` / `#connect4-human-vs-alphazero` hashes continue to address each panel directly.
+Every panel renders inside a slim shared header (`Chrome.Header` — the `jitML` wordmark plus a `[home]` link to `#portals`), so the directory is one click away from any view. The hash dispatcher disposes the previous Halogen root before mounting the next panel, so hash navigation leaves a single active app root; disposal also unsubscribes the cleanup-bearing stream emitter, clears its callbacks, and closes its WebSocket. The empty-hash landing routes to the portals home below; the named `#mnist-live-inference` / `#cifar-imagenet-upload` / `#training-progress` / `#hyperparameter-sweep` / `#rl-trajectory` / `#connect4-human-vs-alphazero` hashes continue to address each panel directly.
 
 - **Portals home.** Default landing for `127.0.0.1:<edge-port>/`. A two-column directory: the left column lists the in-SPA panels from `web/src/PanelRegistry.purs`; the right column lists every Envoy-routed admin portal from `web/src/Generated/AdminPortals.purs` (generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` — Grafana, Prometheus, TensorBoard, Harbor, MinIO console, Pulsar admin). Admin consoles open as top-level reverse-proxied links, not iframes: Grafana, Prometheus, TensorBoard, Harbor, MinIO, and Pulsar each own their auth, CSP, base-path, websocket, and internal navigation behavior. The consistent jitML UI is the generated portal directory plus shared chrome. The home page is an unauthenticated directory of upstreams, not a sign-in surface; each upstream owns its own auth (see [TLS posture](#envoy-gateway-api-a-single-localhost-socket) above). The list stays in sync with the chart's HTTPRoutes because the registry is the single source of truth, gated by `jitml docs check`.
 - **Run list.** All experiments + runs from MinIO `jitml-checkpoints`, with status, lineage tree, and one-click "branch a new run from this checkpoint."
-- **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Shows TensorBoard run context and checkpoint overlays for the selected experiment, with the full TensorBoard console available through the portals home as a top-level route. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, change `LiveConfig` knobs (LR schedule, log level, retry budgets) and apply via SIGHUP. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
+- **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Shows TensorBoard run context and checkpoint overlays for the selected experiment, with the full TensorBoard console available through the portals home as a top-level route. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, and change run controls through their typed command surface. The daemon `LiveConfig` now carries operational dynamic log, retry, inference-batch/latency, dedup, and drain controls, each with a real runtime reader; Sprint `12.16` remains Active pending validation. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
 - **RL panel.** Episode-reward distribution (live), env render preview (canvas-rendered from `EpisodeFrame` events), replay-buffer fill, exploration rate. **Interactive controls:** start / pause / stop, swap policy, force-evaluate, scrub through a recorded trajectory.
 - **Hyperparameter panel.** Pareto frontier (live; populated by NSGA-II for multi-objective sweeps), trial-by-trial heatmap, per-axis (sampler / scheduler / pruner) state, PBT population view + hyperparameter-mutation lineage tree, trial detail drill-down. **Interactive controls:** launch a sweep, kill an individual trial, pin a trial as the "promote" candidate.
 - **MNIST handwriting panel.** A canvas component the user draws on with mouse or touchpad. The drawing is downsampled to 28×28, normalised, and fired at `inference.request.<mode>` against the configured MNIST checkpoint. The result panel shows the predicted class plus the full softmax distribution as a bar chart, updated live as the user draws (re-inference on stroke-end). The checkpoint is configurable to any committed MNIST run; the user can flip between the shallow-MLP run and the LeNet-5 CNN run to compare predictions side by side.
@@ -2598,7 +2876,7 @@ under `jitml lint *` / `jitml check-code`.
 | Parser | `jitml-unit` |
 | Property | `jitml-unit` |
 | Snapshot (pure-renderer output only) | `jitml-unit` |
-| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
+| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends`, `jitml-negative-controls`, `jitml-model-convergence` (the canonical, HPO, backend, product-negative, and product-measurement stanzas are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
@@ -2612,15 +2890,17 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: catalog properties, run-to-run trajectory determinism, fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
-| `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, typed live-plan checks, and the closed no-caveat live path: it brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves all-model fixed-budget training/checkpoint/inference/animation/replay/tuning interactions, rejects inference before training completion, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-negative-controls` | Integration (project-specific) | `TestNegativeControls` | production-path mutation controls that must reject malformed plans, fabricated completion, wrong-plan events, incomplete evidence, delivery-settlement failure, and declared/static product evidence |
+| `jitml-model-convergence` | Integration (project-specific) | `TestModelConvergence` | one contract-driven scenario per ProductRow: train from the resolved plan, consume completed evidence, evaluate the served artifact, and assert its external convergence/performance bars |
+| `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | probe the actual production binary with `+RTS -N1`, spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
+| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Local route/bucket/publication/contract/demo checks plus the target contract-driven live path: acquire an ephemeral Kind cluster, execute the scenario matrix through `runLiveWorkflow`, project browser assertions from completed journals, and release every owned resource; see [E2E cohorts](#e2e-cohorts) below. |
 
 `TestAll` fans out to every stanza above. It does not run lint, style, or
 code-quality gates; `jitml lint all` and `jitml check-code` are the separate
 code-quality surfaces.
 
-The canonical local test gate runs the eight test-only stanzas and prints the
-typed report-card block. The canonical code-quality gate runs separately inside
+The canonical local test gate runs the ten test-only stanzas and projects its
+report from actual invocation results. The canonical code-quality gate runs separately inside
 `jitml:local`, where the image contains the style-tool GHC/tools.
 
 Notes on the mapping:
@@ -2633,14 +2913,13 @@ Notes on the mapping:
 local and deterministic — here "local" means *no live cluster is required*, **not**
 that the suite runs on a bare host. On Linux the native-kernel stanzas compile
 against the in-image toolchain, so the suite runs inside `jitml:local` (see
-[Execution venue](#execution-venue-linux-runs-in-the-container)). Live
+[Execution venue](#execution-venue-one-real-lane-per-substrate). Live
 infrastructure work is reached by explicit command
 paths, not process environment variables: `jitml bootstrap --<substrate>` applies
-the local Kind/Helm stack directly, and the target Kind/Helm/Playwright
-e2e path is a separately invoked orchestration path that creates an ephemeral
-cluster, builds Helm dependencies, mutates image/runtime state, polls live
-routes, and tears everything down via `bracket`. `JitML.Test.LivePlan` records
-that typed sequence without running it by default.
+the local Kind/Helm stack directly. The live workflow interpreter owns the
+ephemeral Kind/Helm/Playwright resources and cleanup described by
+[Functional core, imperative shell](documents/engineering/run_contract.md#functional-core-imperative-shell);
+the local suite validates the plan and reducer without claiming live completion.
 
 ### Execution venue (one real lane per substrate)
 
@@ -2688,7 +2967,13 @@ naming the missing `.build/runtime/cluster-publication.json`.
 
 ### E2E cohorts
 
-Per doctrine §Ephemeral-Cluster Infrastructure Tests, the `jitml-e2e` driver owns the target lifecycle of an **ephemeral** Kind stack — a distinct cluster name per run, brought up by `jitml bootstrap` (phased Helm rollout), exercised, then torn down by `jitml cluster down`. The e2e cluster is **distinct** from the developer's local bootstrap Kind: different lifetime; the e2e teardown never touches the dev cluster. Always-teardown via `bracket`. A typed `helm dependency build chart` step precedes live apply. Playwright drives the no-caveat demo surface end to end against the real Envoy routes. Target cohorts:
+Per doctrine §Ephemeral-Cluster Infrastructure Tests, the `jitml-e2e` driver
+uses a distinct ephemeral Kind stack per run. Ownership is explicit: borrowed
+developer clusters are never deleted, while the shared live-workflow interpreter
+releases owned clusters, Jobs, subscriptions, and temporary objects through its
+single resource scope. A typed `helm dependency build chart` step precedes live
+apply. Playwright drives the demo through the real Envoy routes, and its claims
+are projections of the same completed scenario journal. Target cohorts:
 
 1. **Workflow controls.** Start, pause, resume, stop, and inspect SL, RL, AlphaZero, and tuning runs from the UI; assert the command endpoint publishes the intended typed command and the run reaches the expected live state.
 2. **Supervised models.** For every supported SL catalog row, start or select a trained run, verify training metrics and checkpoint creation, then drive the appropriate inference interaction: digit drawing for MNIST, image upload for CIFAR/Tiny ImageNet, tensor/regression input for tabular and generic models.
@@ -2780,43 +3065,58 @@ Every entry has a paired `--write` mode per doctrine §Paired check and write se
 
 # `jitml test all`
 
-The canonical test command. `cabal test` is the real test runner; `jitml test
-all` is a thin wrapper that runs the explicit test-only stanza list and then
-prints a typed report-card summary. Four phases when `--live` is selected:
+The canonical test command. `cabal test` remains the real stanza runner;
+`jitml test all` interprets the explicit ten-stanza plan and reports what
+actually happened:
 
-1. **Delegates to `cabal test`.** Runs every test-only `test-suite` stanza above.
-2. **Reads the report-card knobs.** The local wrapper parses the pinned knob block in `cabal.project` and records the target stanza list that actually ran.
-3. **Collects live measurements when requested.** `--live` appends SL final loss,
-   RL final reward, AlphaZero arena win rate, tuning objective, daemon health,
-   and JIT cache hit-rate. A source that is not
-   reachable on the current host is rendered as `unavailable`.
-4. **Prints a single tidy summary block** on stdout.
+1. Each attempted stanza produces `Passed transcript` or `Failed failure`;
+   fail-fast leaves later targets as `NotRun blockedBy` rather than counting
+   them as passes.
+2. Each stanza has its own Cabal process invocation. The append-only invocation
+   journal retains the rendered command, stdout, stderr, working directory, and
+   monotonic duration for every attempted stanza; failures additionally retain
+   their genuinely non-zero exit status. A `NotRun` row retains both its planned
+   command and the complete failure that blocked it.
+3. Evidence-bearing live workflow cases use the common resource-safe
+   interpreter internally, so their assertions consume decoded events,
+   workload observations, settlement decisions, diagnostics, cleanup outcomes,
+   and opaque completion evidence from one scenario journal. The typed
+   executable WorkflowMatrix retains uniform public-CLI outcome coverage;
+   exact Apple forwarding/placement and duplicate-delivery cases are explicitly
+   scoped transport smokes, never completion evidence.
+4. Suite status, pass/fail/not-run counts, and total duration are derived only
+   from the invocation journal, which is printed before the original failure is
+   propagated.
 
-Current local example:
+Representative output shape:
 
-```
+```text
 jitML POC report card
 knobs:
-  sl_epochs: 5
-  sl_batch: 64
-  rl_steps: 100000
   ...
 stanzas:
   jitml-unit: PASS
+  jitml-integration: FAIL
+  jitml-sl-canonicals: NOT-RUN (blocked by jitml-integration)
   ...
-  jitml-e2e: PASS
 cabal_test:
-  passed: 8
-  failed: 0
-  duration_seconds: 0
+  status: failed
+  passed: 1
+  failed: 1
+  not_run: 8
+  duration_seconds: ...
+  duration_nanoseconds: ...
+invocation_journal:
+  ...
 ```
 
 `jitml test all` is a Plan/Apply command per doctrine §Plan / Apply.
-`--dry-run` prints the rendered plan and exits 0. The summary block is rendered
-by a pure function over a typed `ReportCard` value and the target stanza names.
-Without a substrate flag, the current non-dry-run wrapper invokes `cabal test`
-with the explicit eight test-only stanza names, parses the `cabal.project`
-report-card knob block, and prints the report card after Cabal succeeds.
+`--dry-run` prints the rendered plan and exits 0. The invocation runner no
+longer declares pass counts or fabricates green rows. `--live` still appends
+some post-test global measurements rather than importing them from the stanza
+scenario journals; that separate reporting residue remains tracked by Sprint
+`34.3` in the
+[legacy ledger](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 **Substrate selection.** Passing one of `--apple-silicon | --linux-cpu |
 --linux-cuda` (mirroring `jitml bootstrap`) restricts the substrate-partitioned
@@ -2831,7 +3131,8 @@ bindings link in), so no one hand-passes the cabal flag. Before running a
 hardware lane it probes the substrate's runtime (GPU+CUDA toolkit / oneDNN /
 Metal) and aborts with a clear message if it is absent — a missing-hardware run
 fails by design rather than degrading. Without a substrate flag the wrapper
-keeps its legacy single-`cabal test` behavior. The
+still invokes every selected stanza separately; it simply omits the substrate
+runtime probe, `JITML_SUBSTRATE`, backend tasty filter, and CUDA build flag. The
 `bootstrap/<substrate>.sh test` scripts pass the matching flag, so they are now
 the supported one-shot way to run a substrate's full surface. `--live` keeps those values as
 per-host telemetry; they are not stored as cross-run reference fixtures (see
@@ -2976,6 +3277,10 @@ Binding project doctrine, in order:
 - Project Structure (library-first; instantiated by [Repository layout (target)](#repository-layout-target))
 - Command Topology
 - GADT-Indexed State Machines (training lifecycle, RL run lifecycle, tuning sweep lifecycle)
+- Typed Run Contracts (raw-to-validated refinement, unit-indexed quantities,
+  kind-indexed plans/events/evidence, pure total reducers, opaque completion
+  witnesses, and one functional-core/imperative-shell interpreter; see
+  [Typed run contracts](#typed-run-contracts))
 - Progressive Introspection
 - Automatically Generated Documentation
 - Generated Artifacts (paired check/write for generated sections and tracked generated files: route tables, Grafana dashboards, PureScript contracts, CLI help, markdown docs, manpages, shell completions, and chart YAML rendered from Haskell registries)
@@ -2988,14 +3293,25 @@ Binding project doctrine, in order:
 - Retry Policy as First-Class Values
 - Prerequisites as Typed Effects (bootstrap scripts' contract is also encoded as a typed DAG)
 - Application Environment (`ReaderT Env IO`)
-- **Long-Running Daemons in the Same Binary** — `jitml service` is a real daemon with `BootConfig`/`LiveConfig` Dhall, SIGHUP hot reload, `/healthz`/`/readyz`/`/metrics`, structured JSON logging on stderr, recoverable-vs-fatal error kinds. (Contrast: sibling projects may opt out; jitML opts in.)
-- At-Least-Once Event Processing (Pulsar consumer semantics)
+- **Long-Running Daemons in the Same Binary** — `jitml service` has refined
+  `BootConfig`/operational `LiveConfig` Dhall, actual SIGHUP reload and signal
+  drain, `/healthz`/`/readyz`/`/metrics`, closed service-error kinds, an
+  operational structured stderr sink, dynamic filter/retry/batch/SLO readers,
+  the live Coordinator interpreter, and the keyed Apple host registry. Those
+  Sprint `12.16` additions are implemented and Active pending their full
+  validation gate.
+  (Contrast: sibling projects may opt out; jitML opts in.)
+- At-Least-Once Event Processing (semantic event identity distinct from opaque
+  broker delivery receipts; one interpreter-owned settlement decision per
+  delivery)
 - Reconcilers: Idempotent Mutation as a Single Command (`bootstrap`, `cluster up`, `docs generate`, `lint --write`)
 - Lint, Format, and Code-Quality Stack — adopted with jitML's container-exclusive code-quality domain: the mandatory `jitml:local` image build installs the style GHC/tools and runs the Haskell style gate; host lint/check-code commands are unsupported and do not discover or bootstrap style tools; test commands do not run style or code-quality gates.
 - Testing Doctrine
 - Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + typed-process + temporary; snapshot comparisons for pure-renderer output use `tasty-hunit` text/byte equality rather than `tasty-golden`, since the project forbids numerical fixtures per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets))
 - Test Categories (each of the seven mapped to a `jitml-*` stanza in [Test-suite stanzas](#test-suite-stanzas), including Daemon Lifecycle and Ephemeral-Cluster Infrastructure)
-- Test Organization (one `test-suite` stanza per tier; project-specific stanzas under §Test Organization → project-specific stanzas)
+- Test Organization (one `test-suite` stanza per tier; project-specific stanzas
+  under §Test Organization → project-specific stanzas; live scenarios share the
+  run-contract interpreter and reports project actual invocation/journal results)
 - Substrate-Affinity Phasing (forward-only phase dependencies + single-accelerator phase validation; instantiated by [Substrate-affinity phasing](#substrate-affinity-phasing) and bound, with deterministic enforcement, by [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](DEVELOPMENT_PLAN/development_plan_standards.md))
 
 Out of scope (informational only):

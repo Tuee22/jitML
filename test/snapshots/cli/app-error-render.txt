@@ -2,9 +2,23 @@ prerequisite unmet: ghc-9.12.4
 description: GHC 9.12.4 is required.
 remedy: ghcup install ghc 9.12.4
 ---
-subprocess failed: kubectl get pods
+subprocess failed:
+command: kubectl get pods
 exit: 1
+working-directory: /work/jitML
+duration-nanoseconds: 125000000
+stdout: pod-a Running
+
 stderr: kubectl failed
+---
+subprocess attempt failed:
+command: docker run playwright
+exit: (unavailable; no exit status observed)
+working-directory: /work/jitML
+duration-nanoseconds: 25000000
+stdout: (unavailable; capture did not complete)
+stderr: (unavailable; capture did not complete)
+exception: docker: executable not found
 ---
 minio failed: bucket unavailable
 ---
@@ -43,5 +57,7 @@ checkpoint write conflict: latest pointer etag changed
 inference checkpoint missing: abc123
 ---
 inference manifest sha mismatch: abc123: requested deadbeef
+---
+training prerequisite unmet: dataset staging is incomplete
 ---
 docs generate: no changes

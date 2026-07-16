@@ -668,7 +668,15 @@ trainArchitectureWithDevice device spec config dataset
             foldM
               ( \acc _epoch -> case acc of
                   Left err -> pure (Left err)
-                  Right states -> trainEpoch device adamConfig (clfClasses config) labels states inputs
+                  Right states ->
+                    trainEpoch
+                      (clfBatchSize config)
+                      device
+                      adamConfig
+                      (clfClasses config)
+                      labels
+                      states
+                      inputs
               )
               (Right states0)
               [1 .. max 1 (clfEpochs config)]
@@ -769,7 +777,15 @@ trainArchitectureWithDeviceSelected device spec config trainSet validationSet
               ( \acc _epoch -> case acc of
                   Left err -> pure (Left err)
                   Right (states, best) -> do
-                    stepE <- trainEpoch device adamConfig (clfClasses config) labels states inputs
+                    stepE <-
+                      trainEpoch
+                        (clfBatchSize config)
+                        device
+                        adamConfig
+                        (clfClasses config)
+                        labels
+                        states
+                        inputs
                     case stepE of
                       Left err -> pure (Left err)
                       Right states' -> do
@@ -828,14 +844,15 @@ architectureLayerWeights =
   layerWeights (MeanPoolState _) = []
 
 trainEpoch
-  :: MlpDevice
+  :: Int
+  -> MlpDevice
   -> AdamConfig
   -> Int
   -> [Int]
   -> [LayerState]
   -> BatchRep
   -> IO (Either Text [LayerState])
-trainEpoch device adamConfig numClasses labels states (FlatBatch inputs) =
+trainEpoch batchSize device adamConfig numClasses labels states (FlatBatch inputs) =
   foldM
     ( \acc (batchInputs, batchLabels) -> case acc of
         Left err -> pure (Left err)
@@ -843,8 +860,8 @@ trainEpoch device adamConfig numClasses labels states (FlatBatch inputs) =
           trainBatch device adamConfig numClasses batchLabels current (FlatBatch batchInputs)
     )
     (Right states)
-    (miniBatches architectureTrainingBatchSize inputs labels)
-trainEpoch _ _ _ _ _ (TokenBatch _) =
+    (miniBatches batchSize inputs labels)
+trainEpoch _ _ _ _ _ _ (TokenBatch _) =
   pure (Left "trainArchitectureWithDevice: top-level epoch expected flat inputs")
 
 trainBatch
@@ -865,9 +882,6 @@ trainBatch device adamConfig numClasses labels states inputs = do
       pure (fmap fst backE)
     Right (TokenBatch _, _) ->
       pure (Left "trainArchitectureWithDevice: final layer produced token representation")
-
-architectureTrainingBatchSize :: Int
-architectureTrainingBatchSize = 128
 
 miniBatches :: Int -> [Vector Double] -> [Int] -> [([Vector Double], [Int])]
 miniBatches size inputs labels =

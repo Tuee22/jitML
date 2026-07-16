@@ -54,6 +54,23 @@ panelName = "hyperparameter-sweep"
 defaultExperimentHash :: String
 defaultExperimentHash = "product-row-hyperparameter-tuning"
 
+defaultPlanBudget :: Contracts.TunePlanBudget
+defaultPlanBudget =
+  { trials: 8
+  , parallelism: 8
+  , promotions: 1
+  , optimizerUpdatesPerTrial: 100
+  }
+
+defaultSampler :: String
+defaultSampler = "TPE"
+
+defaultScheduler :: String
+defaultScheduler = "ASHA"
+
+defaultPruner :: String
+defaultPruner = "MedianPruner"
+
 renderTrialFrame :: Int -> Int -> Number -> Boolean -> String -> TuneTrialFrame
 renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
   Contracts.renderTuneTrialFrame
@@ -62,9 +79,9 @@ renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
     trialSeed
     objective
     pruned
-    "TPE"
-    "median"
-    "none"
+    defaultSampler
+    defaultScheduler
+    defaultPruner
     parametersJson
     ""
 
@@ -181,7 +198,14 @@ component =
   commandPayload command =
     case command of
       "start" ->
-        Contracts.renderStartTuneCommand defaultExperimentHash "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
+        Contracts.renderStartTuneCommand
+          defaultExperimentHash
+          "experiments/mnist-tune.dhall"
+          1
+          defaultPlanBudget
+          defaultSampler
+          defaultScheduler
+          defaultPruner
       _ ->
         Contracts.renderStopTuneCommand defaultExperimentHash
 

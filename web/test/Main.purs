@@ -462,6 +462,10 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               <> "seed: 1\n"
               <> "epochs: 2\n"
               <> "batch-size: 32\n"
+              <> "plan-id: browser-unresolved\n"
+              <> "resolved-plan: browser-unresolved\n"
+              <> "training-examples: 2000\n"
+              <> "evaluation-examples: 1000\n"
           )
       Contracts.renderStopTrainingCommand Training.defaultExperimentHash false
         `shouldEqual`
@@ -480,7 +484,14 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               <> "max-steps: 128\n"
               <> "eval-episodes: 4\n"
           )
-      Contracts.renderStartTuneCommand Tune.defaultExperimentHash "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
+      Contracts.renderStartTuneCommand
+        Tune.defaultExperimentHash
+        "experiments/mnist-tune.dhall"
+        1
+        Tune.defaultPlanBudget
+        Tune.defaultSampler
+        Tune.defaultScheduler
+        Tune.defaultPruner
         `shouldEqual`
           ( "kind: StartSweep\n"
               <> "experiment-hash: product-row-hyperparameter-tuning\n"
@@ -490,8 +501,12 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               <> "trial-budget: 8\n"
               <> "budget-per-trial: 100\n"
               <> "sampler: TPE\n"
-              <> "scheduler: median\n"
-              <> "pruner: none\n"
+              <> "scheduler: ASHA\n"
+              <> "pruner: MedianPruner\n"
+              <> "parallelism: 8\n"
+              <> "promotions: 1\n"
+              <> "plan-id: browser-unresolved\n"
+              <> "resolved-plan: browser-unresolved\n"
           )
       Contracts.parseWorkflowCommandAck
         "kind: WorkflowCommandAck\nrun-id: product-row-mnist-deep-mlp\ncommand: StopTraining\nstatus: published\n"

@@ -2,6 +2,10 @@
 
 module JitML.Proto.Training
   ( CheckpointDone (..)
+  , CompletedCheckpointDone
+  , ccdCheckpoint
+  , ccdCompletedTraining
+  , completeCheckpointDone
   , EpochCompleted (..)
   , StartTraining (..)
   , StopTraining (..)
@@ -12,24 +16,23 @@ module JitML.Proto.Training
   , decodeTrainingEventProto
   , encodeTrainingCommandProto
   , encodeTrainingEventProto
-  , parseTrainingCheckpointDone
   , parseTrainingCommand
+  , parseTrainingEvent
   , renderTrainingCommand
   , renderTrainingEvent
-  , trainingCommandTopic
-  , trainingEventTopic
   )
 where
 
 import Data.ByteString (ByteString)
-import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 
 import JitML.Proto.Wire
-  ( boolField
+  ( ProtoField (..)
+  , ProtoValue (..)
+  , boolField
   , decodeMessage
   , doubleField
   , encodeMessage
@@ -48,6 +51,7 @@ import JitML.Proto.Wire
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 import JitML.Training.Budget
   ( CompletedTraining
+  , completedTrainingObservedUnits
   , decodeCompletedTraining
   , encodeCompletedTraining
   , parseCompletedTraining
@@ -61,6 +65,10 @@ data StartTraining = StartTraining
   , stSeed :: Word64
   , stEpochs :: Word32
   , stBatchSize :: Word32
+  , stPlanId :: Text
+  , stResolvedPlan :: Text
+  , stTrainingExamples :: Word32
+  , stEvaluationExamples :: Word32
   }
   deriving stock (Eq, Show)
 
@@ -88,9 +96,32 @@ data CheckpointDone = CheckpointDone
   , cdTrialSha :: Maybe Text
   , cdRunUuid :: Text
   , cdMetricsAtStep :: [(Text, Double)]
-  , cdCompletedTraining :: Maybe CompletedTraining
   }
   deriving stock (Eq, Show)
+
+-- | A persisted checkpoint paired with a mandatory, re-refined completion
+-- witness. The constructor is hidden so a malformed candidate cannot be
+-- promoted merely by deserialising a record containing a pass flag.
+data CompletedCheckpointDone = CompletedCheckpointDone
+  { ccdCheckpoint :: CheckpointDone
+  , ccdCompletedTraining :: CompletedTraining
+  }
+  deriving stock (Eq, Show)
+
+completeCheckpointDone
+  :: CheckpointDone
+  -> CompletedTraining
+  -> Either Text CompletedCheckpointDone
+completeCheckpointDone checkpoint completed = do
+  validateCheckpointDone checkpoint
+  if cdStep checkpoint /= completedTrainingObservedUnits completed
+    then Left "checkpoint step does not match completed-training observed units"
+    else
+      Right
+        CompletedCheckpointDone
+          { ccdCheckpoint = checkpoint
+          , ccdCompletedTraining = completed
+          }
 
 data TrainingFailed = TrainingFailed
   { tfExperimentHash :: Text
@@ -108,16 +139,9 @@ data TrainingCommand
 data TrainingEvent
   = TrainingEpoch EpochCompleted
   | TrainingCheckpoint CheckpointDone
+  | TrainingCompletedCheckpoint CompletedCheckpointDone
   | TrainingFailure TrainingFailed
   deriving stock (Eq, Show)
-
-trainingCommandTopic :: Substrate -> Text
-trainingCommandTopic substrate =
-  "training.command." <> renderSubstrate substrate
-
-trainingEventTopic :: Substrate -> Text
-trainingEventTopic substrate =
-  "training.event." <> renderSubstrate substrate
 
 renderTrainingCommand :: TrainingCommand -> Text
 renderTrainingCommand command =
@@ -131,6 +155,10 @@ renderTrainingCommand command =
         , "seed: " <> Text.pack (show (stSeed envelope))
         , "epochs: " <> Text.pack (show (stEpochs envelope))
         , "batch-size: " <> Text.pack (show (stBatchSize envelope))
+        , "plan-id: " <> stPlanId envelope
+        , "resolved-plan: " <> stResolvedPlan envelope
+        , "training-examples: " <> Text.pack (show (stTrainingExamples envelope))
+        , "evaluation-examples: " <> Text.pack (show (stEvaluationExamples envelope))
         ]
     TrainingStop envelope ->
       Text.unlines
@@ -140,27 +168,46 @@ renderTrainingCommand command =
         ]
 
 parseTrainingCommand :: Text -> Maybe TrainingCommand
-parseTrainingCommand payload =
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-   in case value "kind" of
-        Just "StartTraining" ->
-          TrainingStart
-            <$> ( StartTraining
-                    <$> value "experiment-hash"
-                    <*> value "dhall-object-key"
-                    <*> (value "substrate" >>= parseSubstrate)
-                    <*> (value "seed" >>= readText)
-                    <*> (value "epochs" >>= readText)
-                    <*> (value "batch-size" >>= readText)
-                )
-        Just "StopTraining" ->
-          TrainingStop
-            <$> ( StopTraining
-                    <$> value "experiment-hash"
-                    <*> (value "drain" >>= readText)
-                )
-        _ -> Nothing
+parseTrainingCommand payload = do
+  fields <- traverse parseField (Text.lines payload)
+  kind <- requiredField "kind" fields
+  case kind of
+    "StartTraining" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "dhall-object-key"
+        , "substrate"
+        , "seed"
+        , "epochs"
+        , "batch-size"
+        , "plan-id"
+        , "resolved-plan"
+        , "training-examples"
+        , "evaluation-examples"
+        ]
+        fields
+      TrainingStart
+        <$> ( StartTraining
+                <$> requiredField "experiment-hash" fields
+                <*> requiredField "dhall-object-key" fields
+                <*> (requiredField "substrate" fields >>= parseSubstrate)
+                <*> requiredReadField "seed" fields
+                <*> requiredPositiveReadField "epochs" fields
+                <*> requiredPositiveReadField "batch-size" fields
+                <*> requiredField "plan-id" fields
+                <*> requiredField "resolved-plan" fields
+                <*> requiredPositiveReadField "training-examples" fields
+                <*> requiredPositiveReadField "evaluation-examples" fields
+            )
+    "StopTraining" -> do
+      requireOnlyFields ["kind", "experiment-hash", "drain"] fields
+      TrainingStop
+        <$> ( StopTraining
+                <$> requiredField "experiment-hash" fields
+                <*> requiredReadField "drain" fields
+            )
+    _ -> Nothing
 
 encodeTrainingCommandProto :: TrainingCommand -> ByteString
 encodeTrainingCommandProto command =
@@ -173,11 +220,14 @@ encodeTrainingCommandProto command =
 decodeTrainingCommandProto :: ByteString -> Either Text TrainingCommand
 decodeTrainingCommandProto bytes = do
   fields <- decodeMessage bytes
-  case (fieldMessage 1 fields, fieldMessage 2 fields) of
-    (Just startBytes, Nothing) ->
+  case fields of
+    [ProtoField 1 (LengthDelimited startBytes)] ->
       TrainingStart <$> decodeStartTrainingProto startBytes
-    (Nothing, Just stopBytes) ->
+    [ProtoField 2 (LengthDelimited stopBytes)] ->
       TrainingStop <$> decodeStopTrainingProto stopBytes
+    [ProtoField fieldNumber _]
+      | fieldNumber `elem` [1, 2] ->
+          Left "TrainingCommand oneof body has the wrong protobuf wire type"
     _ -> Left "expected exactly one TrainingCommand oneof field"
 
 encodeTrainingEventProto :: TrainingEvent -> ByteString
@@ -187,24 +237,27 @@ encodeTrainingEventProto event =
       encodeMessage [messageField 1 (encodeEpochCompletedProto epoch)]
     TrainingCheckpoint checkpoint ->
       encodeMessage [messageField 2 (encodeCheckpointDoneProto checkpoint)]
+    TrainingCompletedCheckpoint completed ->
+      encodeMessage [messageField 4 (encodeCompletedCheckpointDoneProto completed)]
     TrainingFailure failure ->
       encodeMessage [messageField 3 (encodeTrainingFailedProto failure)]
 
 decodeTrainingEventProto :: ByteString -> Either Text TrainingEvent
 decodeTrainingEventProto bytes = do
   fields <- decodeMessage bytes
-  let body =
-        ( fieldMessage 1 fields
-        , fieldMessage 2 fields
-        , fieldMessage 3 fields
-        )
-  case body of
-    (Just epochBytes, Nothing, Nothing) ->
+  case fields of
+    [ProtoField 1 (LengthDelimited epochBytes)] ->
       TrainingEpoch <$> decodeEpochCompletedProto epochBytes
-    (Nothing, Just checkpointBytes, Nothing) ->
+    [ProtoField 2 (LengthDelimited checkpointBytes)] ->
       TrainingCheckpoint <$> decodeCheckpointDoneProto checkpointBytes
-    (Nothing, Nothing, Just failureBytes) ->
+    [ProtoField 3 (LengthDelimited failureBytes)] ->
       TrainingFailure <$> decodeTrainingFailedProto failureBytes
+    [ProtoField 4 (LengthDelimited completedBytes)] ->
+      TrainingCompletedCheckpoint
+        <$> decodeCompletedCheckpointDoneProto completedBytes
+    [ProtoField fieldNumber _]
+      | fieldNumber `elem` [1 .. 4] ->
+          Left "TrainingEvent oneof body has the wrong protobuf wire type"
     _ -> Left "expected exactly one TrainingEvent oneof field"
 
 renderTrainingEvent :: TrainingEvent -> Text
@@ -217,62 +270,150 @@ renderTrainingEvent envelope =
         , "epoch: " <> Text.pack (show (ecEpoch e))
         , "loss: " <> Text.pack (show (ecLoss e))
         , "validation-loss: " <> Text.pack (show (ecValidationLoss e))
+        , "timestamp-ns: " <> Text.pack (show (ecTimestampNs e))
         ]
     TrainingCheckpoint c ->
-      Text.unlines
-        ( [ "kind: CheckpointDone"
-          , "experiment-hash: " <> cdExperimentHash c
-          , "manifest-sha: " <> cdManifestSha c
-          , "step: " <> Text.pack (show (cdStep c))
-          , "pointer-key: " <> cdPointerKey c
-          , "epoch: " <> Text.pack (show (cdEpoch c))
-          , "run-uuid: " <> cdRunUuid c
-          ]
-            <> maybe [] (\trialSha -> ["trial-sha: " <> trialSha]) (cdTrialSha c)
-            <> fmap renderMetric (cdMetricsAtStep c)
-            <> maybe
-              []
-              (\completed -> ["completed-training: " <> renderCompletedTraining completed])
-              (cdCompletedTraining c)
-        )
+      renderCheckpointDone "CheckpointCandidate" c []
+    TrainingCompletedCheckpoint completed ->
+      renderCheckpointDone
+        "CheckpointCompleted"
+        (ccdCheckpoint completed)
+        [ "completed-training: "
+            <> renderCompletedTraining (ccdCompletedTraining completed)
+        ]
     TrainingFailure f ->
       Text.unlines
         [ "kind: TrainingFailed"
         , "experiment-hash: " <> tfExperimentHash f
-        , "error-code: " <> tfErrorCode f
-        , "error-text: " <> tfErrorText f
+        , "error-code: " <> sanitizeScalar (tfErrorCode f)
+        , "error-text: " <> sanitizeScalar (tfErrorText f)
+        , "timestamp-ns: " <> Text.pack (show (tfTimestampNs f))
         ]
 
-parseTrainingCheckpointDone :: Text -> Maybe CheckpointDone
-parseTrainingCheckpointDone payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "CheckpointDone" <- value "kind"
-  experimentHash <- value "experiment-hash"
-  manifestSha <- value "manifest-sha"
-  step <- value "step" >>= readText
-  pointerKey <- value "pointer-key"
-  let epoch = fromMaybe 0 (value "epoch" >>= readText)
-      runUuid = fromMaybe pointerKey (value "run-uuid")
-      trialSha = value "trial-sha"
-      metrics = mapMaybe parseMetric [metric | ("metric", metric) <- fields]
-      completed = value "completed-training" >>= parseCompletedTraining
-  pure
-    CheckpointDone
-      { cdExperimentHash = experimentHash
-      , cdManifestSha = manifestSha
-      , cdStep = step
-      , cdPointerKey = pointerKey
-      , cdEpoch = epoch
-      , cdTrialSha = trialSha
-      , cdRunUuid = runUuid
-      , cdMetricsAtStep = metrics
-      , cdCompletedTraining = completed
-      }
+-- | Decode exactly one event shape emitted by 'renderTrainingEvent'. Malformed
+-- optional fields, duplicate scalar fields, unknown fields, and non-finite
+-- measurements are rejected instead of being silently discarded.
+parseTrainingEvent :: Text -> Maybe TrainingEvent
+parseTrainingEvent payload = do
+  fields <- traverse parseField (Text.lines payload)
+  kind <- requiredField "kind" fields
+  case kind of
+    "EpochCompleted" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "epoch"
+        , "loss"
+        , "validation-loss"
+        , "timestamp-ns"
+        ]
+        fields
+      TrainingEpoch
+        <$> ( EpochCompleted
+                <$> requiredField "experiment-hash" fields
+                <*> requiredReadField "epoch" fields
+                <*> requiredFiniteField "loss" fields
+                <*> requiredFiniteField "validation-loss" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    "CheckpointCandidate" -> do
+      requireOnlyFields
+        [ "kind"
+        , "protocol-version"
+        , "experiment-hash"
+        , "manifest-sha"
+        , "step"
+        , "pointer-key"
+        , "epoch"
+        , "run-uuid"
+        , "trial-sha"
+        , "metric"
+        ]
+        fields
+      requiredTextProtocolVersion fields
+      trialSha <- optionalField "trial-sha" fields
+      metrics <- traverse parseFiniteMetric (fieldValues "metric" fields)
+      checkpoint <-
+        CheckpointDone
+          <$> requiredField "experiment-hash" fields
+          <*> requiredField "manifest-sha" fields
+          <*> requiredReadField "step" fields
+          <*> requiredField "pointer-key" fields
+          <*> requiredReadField "epoch" fields
+          <*> pure trialSha
+          <*> requiredField "run-uuid" fields
+          <*> pure metrics
+      eitherToMaybe (validateCheckpointDone checkpoint)
+      pure (TrainingCheckpoint checkpoint)
+    "CheckpointCompleted" -> do
+      requireOnlyFields
+        [ "kind"
+        , "protocol-version"
+        , "experiment-hash"
+        , "manifest-sha"
+        , "step"
+        , "pointer-key"
+        , "epoch"
+        , "run-uuid"
+        , "trial-sha"
+        , "metric"
+        , "completed-training"
+        ]
+        fields
+      requiredTextProtocolVersion fields
+      trialSha <- optionalField "trial-sha" fields
+      metrics <- traverse parseFiniteMetric (fieldValues "metric" fields)
+      completed <- requiredField "completed-training" fields >>= parseCompletedTraining
+      checkpoint <-
+        CheckpointDone
+          <$> requiredField "experiment-hash" fields
+          <*> requiredField "manifest-sha" fields
+          <*> requiredReadField "step" fields
+          <*> requiredField "pointer-key" fields
+          <*> requiredReadField "epoch" fields
+          <*> pure trialSha
+          <*> requiredField "run-uuid" fields
+          <*> pure metrics
+      TrainingCompletedCheckpoint
+        <$> eitherToMaybe (completeCheckpointDone checkpoint completed)
+    "TrainingFailed" -> do
+      requireOnlyFields
+        [ "kind"
+        , "experiment-hash"
+        , "error-code"
+        , "error-text"
+        , "timestamp-ns"
+        ]
+        fields
+      TrainingFailure
+        <$> ( TrainingFailed
+                <$> requiredField "experiment-hash" fields
+                <*> requiredSingleLineField "error-code" fields
+                <*> requiredSingleLineField "error-text" fields
+                <*> requiredReadField "timestamp-ns" fields
+            )
+    _ -> Nothing
 
 renderMetric :: (Text, Double) -> Text
 renderMetric (name, value) =
   "metric: " <> name <> "=" <> Text.pack (show value)
+
+renderCheckpointDone :: Text -> CheckpointDone -> [Text] -> Text
+renderCheckpointDone kind checkpoint extraFields =
+  Text.unlines
+    ( [ "kind: " <> kind
+      , "protocol-version: " <> Text.pack (show protocolVersion)
+      , "experiment-hash: " <> cdExperimentHash checkpoint
+      , "manifest-sha: " <> cdManifestSha checkpoint
+      , "step: " <> Text.pack (show (cdStep checkpoint))
+      , "pointer-key: " <> cdPointerKey checkpoint
+      , "epoch: " <> Text.pack (show (cdEpoch checkpoint))
+      , "run-uuid: " <> cdRunUuid checkpoint
+      ]
+        <> maybe [] (\trialSha -> ["trial-sha: " <> trialSha]) (cdTrialSha checkpoint)
+        <> fmap renderMetric (cdMetricsAtStep checkpoint)
+        <> extraFields
+    )
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =
@@ -290,6 +431,71 @@ parseMetric field = do
       value <- readText (Text.strip (Text.drop 1 rest))
       pure (Text.strip name, value)
 
+parseFiniteMetric :: Text -> Maybe (Text, Double)
+parseFiniteMetric field = do
+  (name, value) <- parseMetric field
+  if Text.null name || not (finiteDouble value)
+    then Nothing
+    else Just (name, value)
+
+fieldValues :: Text -> [(Text, Text)] -> [Text]
+fieldValues key fields =
+  [value | (candidate, value) <- fields, candidate == key]
+
+requiredField :: Text -> [(Text, Text)] -> Maybe Text
+requiredField key fields =
+  case fieldValues key fields of
+    [value]
+      | not (Text.null value) -> Just value
+    _ -> Nothing
+
+requiredSingleLineField :: Text -> [(Text, Text)] -> Maybe Text
+requiredSingleLineField key fields = do
+  value <- requiredField key fields
+  if Text.any (`elem` ['\n', '\r']) value
+    then Nothing
+    else Just value
+
+optionalField :: Text -> [(Text, Text)] -> Maybe (Maybe Text)
+optionalField key fields =
+  case fieldValues key fields of
+    [] -> Just Nothing
+    [value]
+      | not (Text.null value) -> Just (Just value)
+    _ -> Nothing
+
+requiredReadField :: (Read value) => Text -> [(Text, Text)] -> Maybe value
+requiredReadField key fields =
+  requiredField key fields >>= readText
+
+requiredPositiveReadField :: Text -> [(Text, Text)] -> Maybe Word32
+requiredPositiveReadField key fields = do
+  value <- requiredReadField key fields
+  if value == 0 then Nothing else Just value
+
+requiredTextProtocolVersion :: [(Text, Text)] -> Maybe ()
+requiredTextProtocolVersion fields = do
+  version <- requiredReadField "protocol-version" fields
+  if version == protocolVersion then Just () else Nothing
+
+requiredFiniteField :: Text -> [(Text, Text)] -> Maybe Double
+requiredFiniteField key fields = do
+  value <- requiredReadField key fields
+  if finiteDouble value then Just value else Nothing
+
+finiteDouble :: Double -> Bool
+finiteDouble value =
+  not (isNaN value || isInfinite value)
+
+requireOnlyFields :: [Text] -> [(Text, Text)] -> Maybe ()
+requireOnlyFields allowed fields
+  | all ((`elem` allowed) . fst) fields = Just ()
+  | otherwise = Nothing
+
+sanitizeScalar :: Text -> Text
+sanitizeScalar =
+  Text.replace "\r" " " . Text.replace "\n" " "
+
 readText :: (Read a) => Text -> Maybe a
 readText =
   readMaybe . Text.unpack
@@ -303,11 +509,16 @@ encodeStartTrainingProto start =
     , uint64Field 4 (stSeed start)
     , uint32Field 5 (stEpochs start)
     , uint32Field 6 (stBatchSize start)
+    , stringField 7 (stPlanId start)
+    , stringField 8 (stResolvedPlan start)
+    , uint32Field 9 (stTrainingExamples start)
+    , uint32Field 10 (stEvaluationExamples start)
     ]
 
 decodeStartTrainingProto :: ByteString -> Either Text StartTraining
 decodeStartTrainingProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "StartTraining" [1 .. 10] fields
   StartTraining
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "dhall_object_key" (fieldString 2 fields)
@@ -315,8 +526,12 @@ decodeStartTrainingProto bytes = do
             >>= requireParsed "substrate" parseSubstrate
         )
     <*> require "seed" (fieldWord64 4 fields)
-    <*> require "epochs" (fieldWord32 5 fields)
-    <*> require "batch_size" (fieldWord32 6 fields)
+    <*> requirePositiveWord32 "epochs" (fieldWord32 5 fields)
+    <*> requirePositiveWord32 "batch_size" (fieldWord32 6 fields)
+    <*> requireNonEmptyText "plan_id" (fieldString 7 fields)
+    <*> requireNonEmptyText "resolved_plan" (fieldString 8 fields)
+    <*> requirePositiveWord32 "training_examples" (fieldWord32 9 fields)
+    <*> requirePositiveWord32 "evaluation_examples" (fieldWord32 10 fields)
 
 encodeStopTrainingProto :: StopTraining -> ByteString
 encodeStopTrainingProto stop =
@@ -328,6 +543,7 @@ encodeStopTrainingProto stop =
 decodeStopTrainingProto :: ByteString -> Either Text StopTraining
 decodeStopTrainingProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "StopTraining" [1, 2] fields
   StopTraining
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "drain" (fieldBool 2 fields)
@@ -345,11 +561,12 @@ encodeEpochCompletedProto epoch =
 decodeEpochCompletedProto :: ByteString -> Either Text EpochCompleted
 decodeEpochCompletedProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "EpochCompleted" [1 .. 5] fields
   EpochCompleted
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "epoch" (fieldWord32 2 fields)
-    <*> require "loss" (fieldDouble 3 fields)
-    <*> require "validation_loss" (fieldDouble 4 fields)
+    <*> requireFiniteDouble "loss" (fieldDouble 3 fields)
+    <*> requireFiniteDouble "validation_loss" (fieldDouble 4 fields)
     <*> require "timestamp_ns" (fieldWord64 5 fields)
 
 encodeCheckpointDoneProto :: CheckpointDone -> ByteString
@@ -366,32 +583,52 @@ encodeCheckpointDoneProto checkpoint =
       <> fmap
         (messageField 8 . encodeScalarMetricProto)
         (cdMetricsAtStep checkpoint)
-      <> maybe
-        []
-        (\completed -> [messageField 9 (encodeCompletedTraining completed)])
-        (cdCompletedTraining checkpoint)
+      <> [uint32Field 9 protocolVersion]
 
 decodeCheckpointDoneProto :: ByteString -> Either Text CheckpointDone
 decodeCheckpointDoneProto bytes = do
   fields <- decodeMessage bytes
+  requireCheckpointDoneProtoFields fields
+  version <- require "protocol_version" (fieldWord32 9 fields)
+  requireProtocolVersion "CheckpointDone" version
   metrics <-
     traverse
       decodeScalarMetricProto
       =<< require "metrics_at_step" (fieldMessages 8 fields)
-  completed <-
-    case fieldMessage 9 fields of
-      Nothing -> Right Nothing
-      Just completedBytes -> Just <$> decodeCompletedTraining completedBytes
-  CheckpointDone
-    <$> require "experiment_hash" (fieldString 1 fields)
-    <*> require "manifest_sha" (fieldString 2 fields)
-    <*> require "step" (fieldWord64 3 fields)
-    <*> require "pointer_key" (fieldString 4 fields)
-    <*> require "epoch" (fieldWord32 5 fields)
-    <*> pure (fieldString 6 fields)
-    <*> require "run_uuid" (fieldString 7 fields)
-    <*> pure metrics
-    <*> pure completed
+  checkpoint <-
+    CheckpointDone
+      <$> require "experiment_hash" (fieldString 1 fields)
+      <*> require "manifest_sha" (fieldString 2 fields)
+      <*> require "step" (fieldWord64 3 fields)
+      <*> require "pointer_key" (fieldString 4 fields)
+      <*> require "epoch" (fieldWord32 5 fields)
+      <*> pure (fieldString 6 fields)
+      <*> require "run_uuid" (fieldString 7 fields)
+      <*> pure metrics
+  validateCheckpointDone checkpoint
+  Right checkpoint
+
+encodeCompletedCheckpointDoneProto :: CompletedCheckpointDone -> ByteString
+encodeCompletedCheckpointDoneProto completed =
+  encodeMessage
+    [ uint32Field 1 protocolVersion
+    , messageField 2 (encodeCheckpointDoneProto (ccdCheckpoint completed))
+    , messageField 3 (encodeCompletedTraining (ccdCompletedTraining completed))
+    ]
+
+decodeCompletedCheckpointDoneProto
+  :: ByteString
+  -> Either Text CompletedCheckpointDone
+decodeCompletedCheckpointDoneProto bytes = do
+  fields <- decodeMessage bytes
+  requireExactProtoFields "CompletedCheckpointDone" [1, 2, 3] fields
+  version <- require "protocol_version" (fieldWord32 1 fields)
+  requireProtocolVersion "CompletedCheckpointDone" version
+  checkpointBytes <- require "checkpoint" (fieldMessage 2 fields)
+  completionBytes <- require "completed_training" (fieldMessage 3 fields)
+  checkpoint <- decodeCheckpointDoneProto checkpointBytes
+  completed <- decodeCompletedTraining completionBytes
+  completeCheckpointDone checkpoint completed
 
 encodeScalarMetricProto :: (Text, Double) -> ByteString
 encodeScalarMetricProto (tag, value) =
@@ -403,9 +640,13 @@ encodeScalarMetricProto (tag, value) =
 decodeScalarMetricProto :: ByteString -> Either Text (Text, Double)
 decodeScalarMetricProto bytes = do
   fields <- decodeMessage bytes
-  (,)
-    <$> require "tag" (fieldString 1 fields)
-    <*> require "value" (fieldDouble 2 fields)
+  requireExactProtoFields "ScalarMetric" [1, 2] fields
+  metric <-
+    (,)
+      <$> require "tag" (fieldString 1 fields)
+      <*> requireFiniteDouble "value" (fieldDouble 2 fields)
+  validateMetric metric
+  Right metric
 
 encodeTrainingFailedProto :: TrainingFailed -> ByteString
 encodeTrainingFailedProto failure =
@@ -419,6 +660,7 @@ encodeTrainingFailedProto failure =
 decodeTrainingFailedProto :: ByteString -> Either Text TrainingFailed
 decodeTrainingFailedProto bytes = do
   fields <- decodeMessage bytes
+  requireExactProtoFields "TrainingFailed" [1 .. 4] fields
   TrainingFailed
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "error_code" (fieldString 2 fields)
@@ -432,3 +674,92 @@ require fieldName =
 requireParsed :: Text -> (a -> Maybe b) -> a -> Either Text b
 requireParsed fieldName parseValue value =
   maybe (Left ("invalid protobuf field: " <> fieldName)) Right (parseValue value)
+
+protocolVersion :: Word32
+protocolVersion = 1
+
+requireProtocolVersion :: Text -> Word32 -> Either Text ()
+requireProtocolVersion messageName version
+  | version == protocolVersion = Right ()
+  | otherwise =
+      Left
+        ( "unsupported "
+            <> messageName
+            <> " protocol version: "
+            <> Text.pack (show version)
+        )
+
+requireFiniteDouble :: Text -> Maybe Double -> Either Text Double
+requireFiniteDouble fieldName maybeValue = do
+  value <- require fieldName maybeValue
+  if finiteDouble value
+    then Right value
+    else Left ("non-finite protobuf field: " <> fieldName)
+
+requireExactProtoFields :: Text -> [Word64] -> [ProtoField] -> Either Text ()
+requireExactProtoFields messageName expected fields =
+  let actual = fmap protoFieldNumber fields
+      missing = filter (`notElem` actual) expected
+      unexpected = filter (`notElem` expected) actual
+      duplicate = any (\fieldNumber -> length (filter (== fieldNumber) actual) /= 1) expected
+   in if null missing && null unexpected && not duplicate
+        then Right ()
+        else Left ("unexpected, duplicate, or missing protobuf fields in " <> messageName)
+
+requireCheckpointDoneProtoFields :: [ProtoField] -> Either Text ()
+requireCheckpointDoneProtoFields fields =
+  let actual = fmap protoFieldNumber fields
+      required = [1, 2, 3, 4, 5, 7, 9]
+      allowed = [1 .. 9]
+      missing = filter (`notElem` actual) required
+      unexpected = filter (`notElem` allowed) actual
+      singular = [1, 2, 3, 4, 5, 6, 7, 9]
+      duplicate = any (\fieldNumber -> length (filter (== fieldNumber) actual) > 1) singular
+   in if null missing && null unexpected && not duplicate
+        then Right ()
+        else Left "unexpected, duplicate, or missing protobuf fields in CheckpointDone"
+
+validateCheckpointDone :: CheckpointDone -> Either Text ()
+validateCheckpointDone checkpoint = do
+  requireNonBlank "experiment_hash" (cdExperimentHash checkpoint)
+  requireNonBlank "manifest_sha" (cdManifestSha checkpoint)
+  requireNonBlank "pointer_key" (cdPointerKey checkpoint)
+  requireNonBlank "run_uuid" (cdRunUuid checkpoint)
+  case cdTrialSha checkpoint of
+    Nothing -> Right ()
+    Just trialSha -> requireNonBlank "trial_sha" trialSha
+  if cdStep checkpoint == 0
+    then Left "checkpoint step must be positive"
+    else traverse_ validateMetric (cdMetricsAtStep checkpoint)
+
+validateMetric :: (Text, Double) -> Either Text ()
+validateMetric (name, value) = do
+  requireNonBlank "metric tag" name
+  if finiteDouble value
+    then Right ()
+    else Left ("checkpoint metric must be finite: " <> name)
+
+requireNonBlank :: Text -> Text -> Either Text ()
+requireNonBlank fieldName value
+  | Text.null (Text.strip value) = Left ("empty field: " <> fieldName)
+  | otherwise = Right ()
+
+traverse_ :: (a -> Either error ()) -> [a] -> Either error ()
+traverse_ f = foldr (\value rest -> f value >> rest) (Right ())
+
+eitherToMaybe :: Either error value -> Maybe value
+eitherToMaybe = either (const Nothing) Just
+
+requireNonEmptyText :: Text -> Maybe Text -> Either Text Text
+requireNonEmptyText fieldName maybeValue = do
+  value <- require fieldName maybeValue
+  if Text.null (Text.strip value)
+    then Left ("empty protobuf field: " <> fieldName)
+    else Right value
+
+requirePositiveWord32 :: Text -> Maybe Word32 -> Either Text Word32
+requirePositiveWord32 fieldName maybeValue = do
+  value <- require fieldName maybeValue
+  if value == 0
+    then Left ("non-positive protobuf field: " <> fieldName)
+    else Right value

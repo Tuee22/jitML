@@ -1,6 +1,6 @@
 # Phase 25: Real RL Algorithms & Environments
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md), [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md)
 **Generated sections**: none
@@ -11,7 +11,14 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-10 after the 2026-07-08 expanded product
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `25.4`). RL execution
+still overloads evaluation counts and step limits as training dimensions,
+reconstructs measured counters in callers, and represents incompatible
+algorithm/environment combinations before runtime validation. Sprint `25.4` is
+blocked by Sprint `21.4`. Sprints `25.1`–`25.3` remain Done on their retained
+environment and algorithm implementations.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-10 after the 2026-07-08 expanded product
 end-state). Phase `24` is Done. RL product evidence comes from trained-policy
 evaluation, not scripted controllers; HER reports real greedy goal-conditioned
 rollouts; the production trainer uses a real `JitML.RL.VecEnv` seam for
@@ -295,9 +302,72 @@ is re-cleared under the vectorized and widened regime; `jitml-model-convergence
 --linux-cpu` passed **111 / 111**, including all RL rows and their non-wall-clock
 inference-performance floors.
 
+## Sprint 25.4: Dimensionally Correct RL Plans and Evidence [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/App.hs`,
+`src/JitML/RL/Framework.hs`, `src/JitML/RL/Algorithms/Registry.hs`,
+`src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/VecEnv.hs`,
+`src/JitML/Service/RunConfig.hs`, `src/JitML/Proto/Rl.hs`,
+`test/rl-canonicals/Main.hs`
+**Blocked by**: Sprint `21.4`
+**Docs to update**: `../README.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Compile every RL request into a dimensionally correct plan whose training,
+learning-curve, and final-evaluation quantities cannot be confused. This sprint
+owns the RL portions of [Exit Definition](README.md#exit-definition) items `30`
+and `31`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Encode action domain in the algorithm/environment cohort so incompatible
+  discrete, continuous, and goal-conditioned pairs cannot be constructed.
+- Compile a `TrainingPlan` and separate `EvaluationPlan`; evaluation episode
+  count cannot determine optimizer iterations, rollout length, or environment
+  transition budget.
+- Centralize dimensional arithmetic, including
+  `ceil(total transitions / (rollout ticks per env * vector env count))`, in the
+  pure plan compiler.
+- Replace positional primitive arguments and `max 1` repairs with a validated
+  `CompiledRlPlan` consumed by trainers.
+- Have trainers return measured typed transition/update counters rather than
+  reconstructing them in callers.
+- Publish ordered `IterationSummary` learning evidence separately from a keyed,
+  exact `EvaluationSet`; medians require non-empty finite measurements.
+- Remove redundant `algorithm`/`trainerKind` representations once the typed
+  cohort registry drives dispatch.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `21.4` provides phase-specific evidence payloads.
+- Implement the typed cohort/plan compiler and migrate all production trainers.
+- Remove overloaded fields, clamps, positional trainer calls, and reconstructed
+  counters after compatibility tests pass.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — dimensionally correct RL plan
+  compilation and separated learning/evaluation evidence.
 - `documents/engineering/training_workloads.md` — RL environment catalog, the
   distinct-algorithm update-math ownership, and the vectorized environment
   execution model (~16 parallel env instances batched through the network per

@@ -18,6 +18,7 @@ module JitML.Service.DhallSchema
   , liveConfigSchema
   , trainingRunConfigSchema
   , tuneRunConfigSchema
+  , alphaZeroRunConfigSchema
   , rlRunConfigSchema
   , trainingEvidenceConfigSchema
   , completedTrainingWitnessConfigSchema
@@ -39,7 +40,8 @@ import Dhall.Src (Src)
 import JitML.Service.BootConfig (rawBootConfigDecoder)
 import JitML.Service.LiveConfig (liveConfigDecoder)
 import JitML.Service.RunConfig
-  ( completedTrainingWitnessConfigDecoder
+  ( alphaZeroRunConfigDecoder
+  , completedTrainingWitnessConfigDecoder
   , inferenceSelectorConfigDecoder
   , rlRunConfigDecoder
   , trainingEvidenceConfigDecoder
@@ -78,6 +80,9 @@ trainingRunConfigSchema = reflectedSchemaText trainingRunConfigDecoder
 tuneRunConfigSchema :: Text
 tuneRunConfigSchema = reflectedSchemaText tuneRunConfigDecoder
 
+alphaZeroRunConfigSchema :: Text
+alphaZeroRunConfigSchema = reflectedSchemaText alphaZeroRunConfigDecoder
+
 rlRunConfigSchema :: Text
 rlRunConfigSchema = reflectedSchemaText rlRunConfigDecoder
 
@@ -108,6 +113,8 @@ runSchemaDhall =
     , trainingRunConfigSchema
     , "\nlet TuneRunConfig : Type =\n"
     , tuneRunConfigSchema
+    , "\nlet AlphaZeroRunConfig : Type =\n"
+    , alphaZeroRunConfigSchema
     , "\nlet RlRunConfig : Type =\n"
     , rlRunConfigSchema
     , "\nin  { TrainingEvidence = TrainingEvidence"
@@ -115,6 +122,7 @@ runSchemaDhall =
     , "\n    , InferenceSelector = InferenceSelector"
     , "\n    , TrainingRunConfig = TrainingRunConfig"
     , "\n    , TuneRunConfig = TuneRunConfig"
+    , "\n    , AlphaZeroRunConfig = AlphaZeroRunConfig"
     , "\n    , RlRunConfig = RlRunConfig"
     , "\n    }\n"
     ]
@@ -127,6 +135,7 @@ configSchemas =
   , ("LiveConfig", liveConfigSchema)
   , ("TrainingRunConfig", trainingRunConfigSchema)
   , ("TuneRunConfig", tuneRunConfigSchema)
+  , ("AlphaZeroRunConfig", alphaZeroRunConfigSchema)
   , ("RlRunConfig", rlRunConfigSchema)
   , ("InferenceSelector", inferenceSelectorConfigSchema)
   ]

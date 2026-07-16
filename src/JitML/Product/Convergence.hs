@@ -15,8 +15,13 @@ import Data.Text (Text)
 
 import JitML.SL.ConvergenceThresholds (SlConvergenceThreshold (..))
 import JitML.Training.Budget
-  ( ConvergenceObservation (..)
+  ( ConvergenceObservation
   , MetricGoal (..)
+  , coMetricGoal
+  , coMetricName
+  , coMetricValue
+  , coThreshold
+  , measureCriterion
   )
 
 data ConvergenceBar = ConvergenceBar
@@ -25,7 +30,6 @@ data ConvergenceBar = ConvergenceBar
   , convergenceLiteratureTarget :: Double
   , convergenceSlack :: Double
   , convergenceThreshold :: Double
-  , convergencePinnedObservation :: ConvergenceObservation
   }
   deriving stock (Eq, Show)
 
@@ -42,14 +46,6 @@ mkConvergenceBar metricName goal target slack =
     , convergenceLiteratureTarget = target
     , convergenceSlack = slack
     , convergenceThreshold = threshold
-    , convergencePinnedObservation =
-        ConvergenceObservation
-          { coMetricName = metricName
-          , coMetricValue = target
-          , coMetricGoal = goal
-          , coThreshold = Just threshold
-          , coPassed = True
-          }
     }
  where
   threshold =
@@ -64,14 +60,7 @@ barFromObservation slack observation =
     , convergenceMetricGoal = coMetricGoal observation
     , convergenceLiteratureTarget = coMetricValue observation
     , convergenceSlack = slack
-    , convergenceThreshold =
-        case coThreshold observation of
-          Just threshold -> threshold
-          Nothing ->
-            case coMetricGoal observation of
-              MetricMaximise -> coMetricValue observation - slack
-              MetricMinimise -> coMetricValue observation + slack
-    , convergencePinnedObservation = observation
+    , convergenceThreshold = coThreshold observation
     }
 
 classificationAccuracyBar :: Text -> SlConvergenceThreshold -> ConvergenceBar
@@ -92,16 +81,8 @@ evaluateConvergence bar (MeasuredMetrics metrics) =
     Nothing ->
       Left ("missing convergence metric: " <> convergenceMetricName bar)
     Just value ->
-      Right
-        ConvergenceObservation
-          { coMetricName = convergenceMetricName bar
-          , coMetricValue = value
-          , coMetricGoal = convergenceMetricGoal bar
-          , coThreshold = Just (convergenceThreshold bar)
-          , coPassed = passes value
-          }
- where
-  passes value =
-    case convergenceMetricGoal bar of
-      MetricMaximise -> value >= convergenceThreshold bar
-      MetricMinimise -> value <= convergenceThreshold bar
+      measureCriterion
+        (convergenceMetricName bar)
+        (convergenceMetricGoal bar)
+        (convergenceThreshold bar)
+        value

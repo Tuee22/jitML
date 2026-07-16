@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md
+**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, numerical_core.md, run_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md
 **Generated sections**: none
 
 > **Purpose**: Define the non-negotiable completion proof for jitML's documented
@@ -10,38 +10,19 @@
 > treat catalog rows, fake scaffolds, or representative smoke checks as product
 > completion.
 
-## Current Product State
+## Status Ownership
 
-The current product chain is closed after Phase `31` aggregation in
-[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md). The
-55-row product matrix, standing external-truth gates added by Phases `32`–`34`,
-and refreshed `linux-cpu`/`linux-cuda`/`apple-silicon` evidence are the required
-inputs. Phase `31` joined those committed fragments on `linux-cpu`: **55**
-ProductRows per lane and **165** lane-row evidence records across the three
-report artifacts under
-[../../DEVELOPMENT_PLAN/attestations/](../../DEVELOPMENT_PLAN/attestations/).
-Historical green runs remain dated evidence for the surfaces they actually
-exercised. The 2026-07-05 realness audit, below, explains why those standing
-gates are required.
+Current phase state, remaining work, blockers, and validation evidence live only
+in [Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status).
+This document states the product bar and does not infer closure from historical
+pass counts or committed report artifacts.
 
-> **2026-07-05 realness-audit reopen.** The audit found the Phase `19`–`31`
-> closure was **satisfiable by fabrication**: every gate that graded a product
-> row was authored and tuned by the same process it graded, so a row could pass
-> with no real learning. A `convergenceBar` could be set equal to the measured
-> value it checked; an `InferenceEligible` reference could be minted from a
-> fabricated `CompletedTraining` witness; the "scaffold lint" was only a denylist
-> of the previous iteration's fossil names; and an RL row's "measured" reward was
-> a scripted expert controller rather than a rollout of the trained policy.
-> Because these gates were **self-referential** — the grader and the graded were
-> the same process — more internal validation could not close the gap. The
-> no-caveat product claim was therefore reopened until each row was graded
-> against external ground truth the implementer cannot author or tune, by the
-> harness in
-> [../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md),
-> [../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md),
-> and [../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md](../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md).
-> Those phases own the harness; this contract states the bar, not its
-> implementation.
+The 2026-07-05 realness audit established a lasting design constraint: a product
+gate must not be satisfiable by a self-authored measured value, fabricated
+completion witness, scripted-controller reward, or name-based scaffold denylist.
+That finding motivates the external-truth conditions below. The run mechanism
+that prevents raw or partial evidence from manufacturing completion is
+[Typed Run Contract](run_contract.md).
 
 The completion bar is intentionally stricter than "a command exists" or "a row
 appears in a generated matrix". A row is complete only when the same canonical
@@ -131,6 +112,17 @@ without integration/e2e ids. Browser contracts and workflow-matrix projections
 are generated from the registry; hand-maintained duplicate row lists are not
 closure evidence.
 
+`trainingBudget` is the row's real execution schedule, not a report-card
+default. Supervised ProductRows use the `5`- or `10`-epoch schedule registered
+for that row. Traditional RL ProductRows use the aggregate environment
+transition count derived by `JitML.RL.ProductBudget`; that count includes
+vector-environment multiplicity and each trainer's indivisible rollout,
+episode, ARS-direction, or HER-episode granularity. The smaller RL requested
+step floor is only an input to that planner. The report-card knobs
+`sl_epochs=5` and `rl_steps=100_000` parameterize canonical measurement
+stanzas; neither value is ProductRow completion evidence, and neither can mint
+`CompletedTraining`.
+
 ## Real-ML Rules
 
 Production ML paths must satisfy all rules below:
@@ -180,51 +172,26 @@ passing per-game arena win-rate observation, and an
 ## Type-State DSL Contract
 
 It must be impossible to represent "run inference on an untrained model" in the
-DSL accepted by product commands. The Haskell boundary is the opaque
-`JitML.Product.Pipeline.ModelRef (state :: ModelState)` pipeline:
+DSL accepted by product commands. The generic transition from raw request to
+opaque completed evidence is owned by
+[Typed Run Contract](run_contract.md). The product pipeline is its model-facing
+projection: declared, running, completed-training, and inference-eligible phases
+have phase-specific payloads rather than one record whose independent `Maybe`
+fields can disagree.
 
-```haskell
-data ModelState = Declared | TrainingStarted | TrainingCompleted | InferenceEligible
+`CompletedTraining` is refined only from `CompletedRunEvidence` containing the
+exact observed unit-indexed budget, initial/final learned-state hashes, measured
+positive update counters, dataset-read provenance where applicable, finite
+criterion-evaluated measurements, TensorBoard metadata, terminal checkpoint,
+and matching `PlanId`. A freely constructible `passed` boolean, declared metric,
+checkpoint pointer, or direct CBOR/Dhall decode cannot produce it.
 
-declareExperiment :: Text -> Experiment Declared
-declareModel :: Experiment Declared -> ModelRef Declared
-startTraining :: ModelRef Declared -> ModelRef TrainingStarted
-
-train
-  :: ModelRef TrainingStarted
-  -> CompletedTraining
-  -> m (ModelRef TrainingCompleted)
-
-markInferenceEligible
-  :: Text
-  -> ModelRef TrainingCompleted
-  -> CompletedTraining
-  -> Either Text (ModelRef InferenceEligible)
-
-infer
-  :: InferenceEligibleRef
-  -> CheckpointManifest
-  -> InputBatch
-  -> m OutputBatch
-```
-
-`CompletedTraining` can only be built with the Sprint `21.1` training evidence:
-initial weight hash, final weight hash, positive update count, dataset SHA at
-read time, fixed-budget completion, TensorBoard metadata, and passing numeric
-convergence observations. `markInferenceEligible` promotes only a
-`TrainingCompleted` reference carrying that exact witness and rejects mismatches
-or failed convergence. `InferenceEligibleRef` is minted from a validated
-`InferenceEligibleCheckpoint` at the checkpoint loader boundary before any
-substrate runner receives weights.
-
-Dhall mirrors the same state boundary with separate records for declared
-experiments, completed-training witnesses, and inference selectors in
-`dhall/project/Schema.dhall` and `dhall/run/Schema.dhall`.
-`tryLoadInferenceSelectorConfig` validates the selector/witness hash match,
-completed-training provenance, passing convergence, changed weight hashes,
-positive update count, and dataset-read SHA. A manifest or selector with
-missing, partial, synthetic, seeded-demo, or failed-training provenance cannot
-decode as an inference target.
+Dhall selectors and checkpoint manifests are raw persisted DTOs. Loaders decode
+them, re-run semantic refinement, and mint an opaque
+`InferenceEligibleCheckpoint` only when artifact identity and completed evidence
+agree. Missing, partial, synthetic, seeded-demo, failed-training, wrong-plan, or
+non-finite provenance remains a typed rejection before any substrate runner
+receives weights.
 
 ## Demo Contract
 
@@ -270,7 +237,7 @@ Every product row owns all of the following test evidence:
 | Evidence | Required behavior |
 |----------|-------------------|
 | Catalog parity | Generated docs/browser matrix exactly matches the typed product matrix. |
-| Integration | The row trains through the real command path, verifies data, updates learned state, writes a completed checkpoint, rejects inference before completion, and records evidence from the product-row publisher manifest rather than from synthetic row-local hashes or loss curves. |
+| Integration | The row trains through the real command path and common run interpreter, verifies data, updates learned state, reaches terminal success, satisfies its exact event/evidence contract, writes a completed checkpoint, rejects inference before completion, and records the resulting `CompletedRunEvidence` journal rather than reconstructing evidence from declarations or synthetic row-local hashes/curves. |
 | E2E | The live demo renders or interacts with that row through an inference-eligible artifact. |
 | Negative | Missing dataset, missing cluster, malformed checkpoint, untrained checkpoint, and unsupported substrate fail closed. |
 | Lane | The same row is validated on `linux-cpu`; accelerator phases separately validate `linux-cuda` and `apple-silicon` without requiring both accelerators in one phase. |
@@ -286,22 +253,15 @@ and [../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.m
 
 ## Phase Validation Boundary
 
-Phases `19` through `31` implement this contract in order. Phases `19` through
-`28` close on `linux-cpu` only. Phase `29` closes on `linux-cpu` plus
-`linux-cuda`. Phase `30` closes on `linux-cpu` plus `apple-silicon`. Phase `31`
-is a `linux-cpu`-only aggregation phase that consumes committed lane artifacts
-and does not rerun accelerator lanes. The Phase `31` join requires all three
-committed report-card fragments to carry every current `ProductRow.rowId`, the
-row's catalog/integration/e2e/negative evidence, and the lane-specific
-`DeviceEvidence` cell.
+The product proof follows the project's single-accelerator phase rule and joins
+lane evidence only through the plan's designated aggregation phase. Exact phase
+order, lane assignment, reopen status, blockers, and current validation evidence
+live in [Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
-Phases `32` through `34`, added by the 2026-07-05 realness audit, extend this
-boundary on `linux-cpu` only and introduce no accelerator gate. Phase `32`
-installs the `jitml-negative-controls` stanza, the frozen external bars, and the
-provenance binding; Phase `33` installs the per-model `jitml-model-convergence`
-suite; Phase `34` makes closure status evidence-derived and installs the
-standing adversarial realness audit. Those phases reclosed on 2026-07-06 after
-`jitml-negative-controls` passed **3 / 3** and `jitml-model-convergence` passed
-**111 / 111** on `linux-cpu`. The plan in
-[../../DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md) owns their
-sprint status; this contract does not duplicate it.
+## Cross-References
+
+- [Typed Run Contract](run_contract.md)
+- [Training Metrics and Data Splits](training_metrics_and_splits.md)
+- [Checkpoint Format](checkpoint_format.md)
+- [Unit Testing Policy](unit_testing_policy.md)
+- [Development Plan](../../DEVELOPMENT_PLAN/README.md)

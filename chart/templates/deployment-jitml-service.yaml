@@ -15,6 +15,8 @@ spec:
       app: jitml-service
   template:
     metadata:
+      annotations:
+        checksum/live-config: {{ include (print $.Template.BasePath "/configmap-jitml-service.yaml") . | sha256sum | quote }}
       labels:
         app: jitml-service
         jitml.substrate: linux-cpu
@@ -22,7 +24,8 @@ spec:
         jitml.compute: "true"
         jitml.compute-scope: service
     spec:
-      serviceAccountName: jitml-service
+      serviceAccountName: jitml-engine
+      automountServiceAccountToken: false
       nodeSelector:
         jitml.node-role/compute: "true"
       affinity:
@@ -47,6 +50,21 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
           volumeMounts:
             - name: jit-cache
               mountPath: /opt/build
@@ -59,3 +77,55 @@ spec:
         - name: service-config
           configMap:
             name: jitml-service-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jitml-coordinator
+  namespace: platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jitml-coordinator
+  template:
+    metadata:
+      annotations:
+        checksum/live-config: {{ include (print $.Template.BasePath "/configmap-jitml-service.yaml") . | sha256sum | quote }}
+      labels:
+        app: jitml-coordinator
+        jitml.substrate: linux-cpu
+        jitml.role: coordinator
+        jitml.compute: "false"
+    spec:
+      serviceAccountName: jitml-coordinator
+      containers:
+        - name: jitml-coordinator
+          image: jitml:local
+          imagePullPolicy: IfNotPresent
+          command: ["jitml"]
+          args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          volumeMounts:
+            - name: service-config
+              mountPath: /etc/jitml
+      volumes:
+        - name: service-config
+          configMap:
+            name: jitml-coordinator-config

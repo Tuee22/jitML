@@ -1,6 +1,6 @@
 # Phase 19: Product Truth Gates & Registry
 
-**Status**: Done
+**Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
@@ -12,7 +12,13 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
+⏸️ **Blocked** (reopened 2026-07-12 for Sprint `19.4`). The product
+registry does not yet project each row into one validated kind-indexed run plan
+and evidence capability, so declared identifiers and optional handles can still
+stand in for executable evidence. Sprint `19.4` is blocked by Sprint `12.16`.
+Sprints `19.1`–`19.3` remain Done on their retained matrix/status surfaces.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
 2026-07-01 model-runtime audit reopened product closure and chose to implement
 the documented surface for real rather than narrow the docs. Phases `0`–`18`
 remain historical evidence for their owned surfaces; the current product chain is
@@ -193,9 +199,64 @@ docker compose run --rm jitml jitml check-code                  # passed
   on the full Phase `19`–`34` predicate, and the required validation includes
   `jitml-negative-controls` plus `jitml-model-convergence`.
 
+## Sprint 19.4: Product Registry Plan and Evidence Projection [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Product/Matrix.hs`,
+`src/JitML/Product/Convergence.hs`, `src/JitML/Test/WorkflowMatrix.hs`,
+`src/JitML/Test/Report.hs`, `test/unit/Main.hs`
+**Blocked by**: Sprint `12.16`
+**Docs to update**: `../README.md`,
+`../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/run_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the canonical product registry a total typed projection into executable
+plans and required evidence rather than a registry of labels and optional
+handles. This sprint owns the registry portions of
+[Exit Definition](README.md#exit-definition) items `30`, `31`, and `34`.
+The binding design is
+[README.md → Typed run contracts](../README.md#typed-run-contracts).
+
+### Deliverables
+
+- Give every product row a kind-indexed descriptor that projects through one
+  total function to a validated `RunPlan kind` or a typed configuration error.
+- Encode row capability as a closed sum, so a declared/unsupported row cannot
+  carry measured completion handles and a real row cannot omit its plan,
+  criterion, integration contract, or evidence requirements.
+- Derive workflow matrix cells and report row identity from the same projection;
+  reject duplicate, orphaned, or unprojectable rows.
+- Replace report projections based only on declared test ids with projections
+  over completed scenario evidence keyed by `rowId` and `PlanId`.
+- Keep matrix membership and public row identity stable while downstream state
+  payloads migrate in Sprint `21.4`.
+
+### Validation
+
+```bash
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Blocked until Sprint `12.16` supplies the completed scenario-evidence type and
+  interpreter journal.
+- Implement the total product-row projection and migrate workflow/report
+  enumeration.
+- Retire declared-id-only report projections after all rows use typed evidence.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
+- `documents/engineering/run_contract.md` — total product-row projection into a
+  validated plan and required evidence contract.
 - `documents/engineering/product_completion_contract.md` — record the matrix
   floor and the per-row convergence bars as the binding closure surface.
 - `documents/engineering/unit_testing_policy.md` — ownership of the matrix parity,

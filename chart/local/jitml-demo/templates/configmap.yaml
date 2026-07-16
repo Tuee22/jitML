@@ -22,10 +22,10 @@ data:
     , webappPulsarWsUrl = Some "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
     }
   LiveConfig.dhall: |
-    { logLevel = Info
-    , retryPolicy = ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
+    { logLevel = < Debug | Info | Warn | Error >.Info
+    , retryPolicy = < Once | LinearN : { attempts : Natural, delayMillis : Natural } | ExponentialN : { attempts : Natural, baseMillis : Natural, capMillis : Natural } | RetryUntil : { deadlineMillis : Natural } >.ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
     , inferenceBatchSize = 64
-    , inferenceMaxLatencyMillis = 25
+    , inferenceMaxLatencyMillis = 5000
     , dedupCacheSize = 4096
     , dedupCacheTtlSeconds = 3600
     , drainDeadlineSeconds = 30

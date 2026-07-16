@@ -3,8 +3,6 @@
 module JitML.Observability.TbSidecar
   ( checkpointDoneToMarker
   , dispatchCheckpointDone
-  , dispatchCheckpointPayload
-  , dispatchTensorBoardSideEffect
   , writeCheckpointSidecar
   )
 where
@@ -18,10 +16,7 @@ import JitML.Observability.TensorBoard
   , checkpointSidecarKey
   , encodeTbCheckpointMarker
   )
-import JitML.Proto.Training
-  ( CheckpointDone (..)
-  , parseTrainingCheckpointDone
-  )
+import JitML.Proto.Training (CheckpointDone (..))
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag
@@ -29,15 +24,15 @@ import JitML.Service.Capabilities
   , ObjectKey (..)
   , ObjectRef (..)
   )
-import JitML.Service.Consumer (EventDomain (..))
 import JitML.Service.Retry (ServiceError)
 
--- | Sprint 4.6 wiring: take a `CheckpointDone`-shaped record (step,
--- manifest sha, experiment hash, etc.) and write the typed
+-- | Sprint 4.6 wiring: take checkpoint-candidate fields (step, manifest SHA,
+-- experiment hash, etc.) and write the typed
 -- `TbCheckpointMarker` CBOR sidecar to the canonical key produced by
 -- `checkpointSidecarKey`. Returns the broker-assigned ETag on success or
--- the typed `ServiceError` from the failed PUT. The caller can wire this
--- into the daemon's `CheckpointDone` handler.
+-- the typed `ServiceError` from the failed PUT. Sidecar persistence records
+-- observability metadata only; it does not promote a candidate checkpoint to
+-- completed or inference-eligible state.
 writeCheckpointSidecar
   :: (HasMinIO m)
   => Text
@@ -56,11 +51,12 @@ writeCheckpointSidecar experimentHash step manifestSha marker = do
   putBlobBytesIfAbsent ref payload
 
 -- | Consumer-domain entry point: route a typed `TbCheckpointMarker`
--- (the in-memory shape of a `CheckpointDone` event) into the sidecar
+-- (the in-memory shape projected from a checkpoint candidate) into the sidecar
 -- writer using the marker's own `tcmExperimentSha` / `tcmStep` /
--- `tcmManifestSha` fields. This is the function the daemon's
--- per-domain dispatcher calls when an `inference.event.<substrate>`
--- envelope deserialises to a `CheckpointDone`. The key derivation
+-- `tcmManifestSha` fields. A typed training-event handler may call this for a
+-- `TrainingCheckpoint` candidate or for the candidate nested inside a
+-- `TrainingCompletedCheckpoint`; the distinction is retained outside this
+-- observability adapter. The key derivation
 -- and write semantics are identical to `writeCheckpointSidecar`;
 -- this variant just removes the field-redundancy at the call site.
 dispatchCheckpointDone
@@ -85,24 +81,3 @@ checkpointDoneToMarker checkpoint =
     , tcmRunUuid = cdRunUuid checkpoint
     , tcmMetricsAtStep = cdMetricsAtStep checkpoint
     }
-
-dispatchCheckpointPayload
-  :: (HasMinIO m)
-  => Text
-  -> m (Maybe (Either ServiceError ETag))
-dispatchCheckpointPayload payload =
-  case parseTrainingCheckpointDone payload of
-    Nothing -> pure Nothing
-    Just checkpoint -> Just <$> dispatchCheckpointDone (checkpointDoneToMarker checkpoint)
-
-dispatchTensorBoardSideEffect
-  :: (HasMinIO m)
-  => EventDomain
-  -> Text
-  -> m (Maybe (Either ServiceError ETag))
-dispatchTensorBoardSideEffect domain payload =
-  case domain of
-    TrainingDomain -> dispatchCheckpointPayload payload
-    InferenceDomain -> dispatchCheckpointPayload payload
-    TuneDomain -> pure Nothing
-    RlDomain -> pure Nothing

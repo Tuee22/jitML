@@ -13,6 +13,7 @@ module JitML.Service.Http
 where
 
 import Control.Concurrent (forkFinally, killThread)
+import Control.Concurrent.Async (race)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
 import Control.Exception qualified
@@ -78,7 +79,8 @@ data HttpRequest = HttpRequest
 -- 'webSocketRouteHandler' with a typed @writeFrame :: Text -> IO Bool@
 -- callback the handler uses to publish text frames downstream. The
 -- callback returns 'False' when the client has disconnected so the
--- bridge can exit its consumer loop cleanly.
+-- bridge can exit its consumer loop cleanly. The listener also watches the
+-- peer read side so a quiet stream releases when the browser leaves.
 data WebSocketRoute = WebSocketRoute
   { webSocketRoutePath :: Text
   , webSocketRouteHandler :: (Text -> IO Bool) -> IO ()
@@ -177,12 +179,13 @@ serveAcceptedConnection listenerSocket routes wsRoutes =
     serveConnection connection routes wsRoutes
 
 serveAcceptedConnectionForked :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
-serveAcceptedConnectionForked listenerSocket routes wsRoutes = do
-  (connection, _peer) <- accept listenerSocket
-  void $
-    forkFinally
-      (serveConnection connection routes wsRoutes)
-      (const (close connection))
+serveAcceptedConnectionForked listenerSocket routes wsRoutes =
+  Control.Exception.mask $ \restore -> do
+    (connection, _peer) <- restore (accept listenerSocket)
+    void $
+      forkFinally
+        (restore (serveConnection connection routes wsRoutes))
+        (const (close connection))
 
 serveConnection :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
 serveConnection connection routes wsRoutes = do
@@ -210,15 +213,29 @@ wsRouteFor request wsRoutes =
 -- | After the upgrade handshake, run the route's handler against a
 -- @write :: Text -> IO Bool@ callback that pushes one server-side text
 -- frame per call. The callback returns 'False' on a write failure
--- (client disconnected) so the bridge exits its consumer loop. A
--- close frame is sent on a clean exit.
+-- (client disconnected) so the bridge exits its consumer loop. A concurrent
+-- read-side watcher cancels the handler when the peer closes or sends an
+-- unsupported client frame, so a quiet stream cannot retain its Pulsar
+-- subprocess after the browser leaves. A close frame is sent on a clean exit.
 runWebSocketHandler :: Socket -> WebSocketRoute -> IO ()
 runWebSocketHandler connection route = do
   let writeFrame payload = do
         sendAllSafe connection (encodeTextFrame payload)
-  webSocketRouteHandler route writeFrame
+  _ <-
+    race
+      (webSocketRouteHandler route writeFrame)
+      (waitForWebSocketPeerEnd connection)
   _ <- sendAllSafe connection encodeCloseFrame
   pure ()
+
+-- | Webapp stream routes are server-push-only: the client never has a data
+-- message to send. Reading any peer frame is therefore a terminal protocol
+-- event (normally the masked WebSocket close frame); an empty read is TCP EOF.
+-- Racing this watcher with the route handler makes peer disconnect observable
+-- even when the Pulsar stream is quiet and the write callback is never called.
+waitForWebSocketPeerEnd :: Socket -> IO ()
+waitForWebSocketPeerEnd connection =
+  void (recv connection 4096)
 
 -- | Send all bytes through the socket; return 'True' on success,
 -- 'False' on any 'IOException' so the bridge cleanly exits without

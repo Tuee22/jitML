@@ -12,7 +12,6 @@ ARG NODE_VERSION=22.16.0
 # compiler + dev-library metapackages directly so Nsight is never fetched.
 ARG CUDA_TOOLKIT_PACKAGE="cuda-compiler-12-8 cuda-libraries-dev-12-8 cuda-nvrtc-dev-12-8 cuda-nvml-dev-12-8"
 ARG CUDNN_PACKAGE=libcudnn9-dev-cuda-12
-ARG ALE_VERSION=v0.12.0
 ARG ALE_COMMIT=94c24368664b8539c53857522e50652ddcc44b20
 ARG TARGETARCH
 
@@ -59,13 +58,18 @@ RUN apt-get update \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Build Arcade Learning Environment from a pinned upstream source commit. Ubuntu
-# 24.04 does not provide `libale-dev`, and commercial ROM bytes are never baked
-# into the image; callers provide an explicit uncommitted ROM path at runtime.
-RUN git clone --depth 1 --branch "${ALE_VERSION}" \
-        https://github.com/Farama-Foundation/Arcade-Learning-Environment.git \
-        /tmp/arcade-learning-environment \
+# Build Arcade Learning Environment v0.12.0 from its pinned upstream source
+# commit. Fetch the immutable commit directly: upstream release tags may be
+# moved when their release workflow is repaired, but that must not change this
+# image's source. Ubuntu 24.04 does not provide `libale-dev`, and commercial ROM
+# bytes are never baked into the image; callers provide an explicit uncommitted
+# ROM path at runtime.
+RUN git init /tmp/arcade-learning-environment \
     && cd /tmp/arcade-learning-environment \
+    && git remote add origin \
+        https://github.com/Farama-Foundation/Arcade-Learning-Environment.git \
+    && git fetch --depth 1 origin "${ALE_COMMIT}" \
+    && git checkout --detach FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${ALE_COMMIT}" \
     && cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
@@ -170,8 +174,8 @@ COPY . .
 # `jitml check-code` runs, which has no --jobs flag of its own and otherwise
 # defaults to one GHC per core. On a 16-core / 15GiB host that fans out to 16
 # concurrent GHC processes and OOM-SIGSEGVs the compile; `jobs: 1` keeps the
-# warning-clean build serial and within memory. The explicit `--jobs=2` on
-# the binary build below still overrides this for the (heap-capped) exe build.
+# warning-clean build serial and within memory. The explicit `--jobs=1` on
+# the binary build below reinforces that serial limit for the heap-capped exe.
 RUN printf 'jobs: 1\n' >> /root/.cabal/config \
     && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M2G -RTS" exe:jitml \
     && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \

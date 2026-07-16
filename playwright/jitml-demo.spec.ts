@@ -698,6 +698,70 @@ test("training panel renders a loss curve", async ({ page }) => {
   await expect(page.locator("#training-progress")).toBeVisible();
 });
 
+test("hash navigation closes the disposed panel WebSocket", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket;
+    const lifecycle = { opened: 0, closeCalls: 0, callbacksCleared: 0 };
+    Object.defineProperty(window, "__jitmlWebSocketLifecycle", {
+      configurable: true,
+      value: lifecycle,
+    });
+    class TrackedWebSocket extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        lifecycle.opened += 1;
+      }
+
+      override close(code?: number, reason?: string): void {
+        lifecycle.closeCalls += 1;
+        if (
+          this.onmessage === null &&
+          this.onerror === null &&
+          this.onclose === null
+        ) {
+          lifecycle.callbacksCleared += 1;
+        }
+        super.close(code, reason);
+      }
+    }
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      value: TrackedWebSocket,
+    });
+  });
+  await loadPanel(page, "mnist-live-inference");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as typeof window & {
+          __jitmlWebSocketLifecycle: {
+            opened: number;
+            closeCalls: number;
+            callbacksCleared: number;
+          };
+        }).__jitmlWebSocketLifecycle.opened
+      )
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(() => {
+    window.location.hash = "portals";
+  });
+  await expect(page.locator("#portals")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as typeof window & {
+          __jitmlWebSocketLifecycle: {
+            opened: number;
+            closeCalls: number;
+            callbacksCleared: number;
+          };
+        }).__jitmlWebSocketLifecycle
+      )
+    )
+    .toEqual({ opened: 1, closeCalls: 1, callbacksCleared: 1 });
+});
+
 test("tune panel renders the trial heatmap", async ({ page }) => {
   await loadPanel(page, "hyperparameter-sweep");
   await expect(page.locator("#hyperparameter-sweep")).toBeVisible();

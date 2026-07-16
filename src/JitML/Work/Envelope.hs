@@ -51,7 +51,7 @@ module JitML.Work.Envelope
 where
 
 import Data.Either (isRight)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -61,10 +61,10 @@ import Data.Word (Word64)
 import JitML.Checkpoint.Format
   ( CheckpointManifest
   , latestPointerKey
-  , manifestCompletedTraining
+  , manifestContentSha
   , manifestExperiment
   , manifestStep
-  , manifestTrainingEvidence
+  , requireCompletedCheckpoint
   )
 import JitML.Coordinator.Topology (Workflow (..))
 import JitML.Substrate (Substrate)
@@ -101,8 +101,11 @@ artifactRefStep = arStep
 mintArtifactRef :: CheckpointManifest -> Maybe ArtifactRef
 mintArtifactRef manifest
   | manifestStep manifest >= 1
-      && isJust (manifestCompletedTraining manifest)
-      && isRight (manifestTrainingEvidence manifest) =
+      && isRight
+        ( requireCompletedCheckpoint
+            (manifestContentSha manifest)
+            manifest
+        ) =
       Just ArtifactRef {arExperiment = manifestExperiment manifest, arStep = manifestStep manifest}
   | otherwise = Nothing
 
@@ -204,9 +207,9 @@ consumesArtifact :: Workflow -> Bool
 consumesArtifact Infer = True
 consumesArtifact _ = False
 
--- | Producer-side dedup keyed by 'CallId' as a __pure fold__ over the work log,
--- so at-least-once delivery becomes effectively-once. Returns the commands in
--- first-seen order with later duplicates dropped.
+-- | Semantic dedup keyed by 'CallId' as a __pure fold__ over the work log.
+-- Broker delivery remains at-least-once; this projection returns commands in
+-- first-seen order with later semantic duplicates dropped.
 dedupByCallId :: [WorkCommand] -> [WorkCommand]
 dedupByCallId = reverse . snd . foldl' step (Set.empty, [])
  where

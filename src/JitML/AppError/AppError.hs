@@ -7,9 +7,12 @@ where
 import Data.Text (Text)
 import System.Exit (ExitCode (..))
 
+import JitML.Sub.Outcome (ProcessAttemptFailure, ProcessFailure)
+
 data AppError
   = PrerequisiteUnmet Text Text (Maybe Text)
-  | SubprocessFailed Text ExitCode Text
+  | SubprocessFailed ProcessFailure
+  | SubprocessAttemptFailed ProcessAttemptFailure
   | MinIOFailed Text
   | PulsarFailed Text
   | HarborFailed Text

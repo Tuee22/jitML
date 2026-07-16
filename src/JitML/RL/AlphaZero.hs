@@ -36,7 +36,9 @@ module JitML.RL.AlphaZero
   , initialOthello
   , initialStateFor
   , isLegalMove
+  , legalMoves
   , maxPliesFor
+  , normaliseForcedPass
   , observationSizeFor
   , othelloActionCount
   , othelloApplyMove
@@ -241,19 +243,60 @@ normalizeGameName raw =
 
 applyMove :: Int -> GameState -> GameState
 applyMove candidate state =
-  case nextLegalMove (gameName state) candidate state of
-    Nothing -> state
-    Just legal ->
-      case gameName state of
-        "connect4" -> applyConnect4Move legal state
-        "othello" -> applyOthelloMove legal state
-        "hex" -> applyHexMove legal state
-        "gomoku" -> applyGomokuMove legal state
-        _ ->
-          state
-            { gameMoves = gameMoves state <> [legal `mod` 7]
-            , gameCurrentPlayer = negate (gameCurrentPlayer state)
-            }
+  let playable = normaliseForcedPass state
+   in if isLegalMove (gameName playable) candidate playable
+        then case gameName playable of
+          "connect4" -> applyConnect4Move candidate playable
+          "othello" -> applyOthelloMove candidate playable
+          "hex" -> applyHexMove candidate playable
+          "gomoku" -> applyGomokuMove candidate playable
+          _ ->
+            playable
+              { gameMoves = gameMoves playable <> [candidate `mod` 7]
+              , gameCurrentPlayer = negate (gameCurrentPlayer playable)
+              }
+        else playable
+
+-- | The exact legal-action surface for the player to move. AlphaZero policy
+-- targets and arena opponents consume this list directly: illegal action
+-- indices are never remapped onto a different move.
+legalMoves :: GameState -> [Int]
+legalMoves state =
+  case gameName state of
+    "connect4" ->
+      [ column
+      | column <- [0 .. connect4ActionCount - 1]
+      , length (filter (== column) (gameMoves state)) < 6
+      ]
+    "othello" ->
+      let (player, board) = othelloReplay (gameMoves state)
+       in [ cell
+          | cell <- [0 .. othelloActionCount - 1]
+          , IntMap.notMember cell board
+          , not (null (othelloFlipsFor board player cell))
+          ]
+    "hex" -> unoccupiedCells hexActionCount state
+    "gomoku" -> unoccupiedCells gomokuActionCount state
+    _ -> []
+ where
+  unoccupiedCells actionCount gameState =
+    let occupied = IntSet.fromList (fmap (`mod` actionCount) (filter (>= 0) (gameMoves gameState)))
+     in [cell | cell <- [0 .. actionCount - 1], IntSet.notMember cell occupied]
+
+-- | Apply Othello's mandatory pass before policy evaluation. Othello has no
+-- learned pass action: when the current player has no placement but the game
+-- is still live, the turn advances and a @-1@ transcript marker keeps replay,
+-- board encoding, and value-target point of view in sync.
+normaliseForcedPass :: GameState -> GameState
+normaliseForcedPass state
+  | gameName state == "othello"
+      && gameOutcome state == GameInProgress
+      && null (legalMoves state) =
+      state
+        { gameMoves = gameMoves state <> [-1]
+        , gameCurrentPlayer = negate (gameCurrentPlayer state)
+        }
+  | otherwise = state
 
 applyConnect4Move :: Int -> GameState -> GameState
 applyConnect4Move column state =

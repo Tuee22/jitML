@@ -49,6 +49,7 @@ import JitML.Engines.Loader
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
+  , renderKernelArtifactError
   )
 import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
@@ -201,7 +202,8 @@ runMetalWeightedKernel env source hash input weights = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("apple-silicon weighted metadata cache failed: " <> err))
+      pure
+        (Left ("apple-silicon weighted metadata cache failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
       case runtimeSourceMetalFamily source of
@@ -239,7 +241,7 @@ runMetalKernel env source hash input = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("apple-silicon metadata cache failed: " <> err))
+      pure (Left ("apple-silicon metadata cache failed: " <> renderKernelArtifactError err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
       case runtimeSourceMetalFamily source of

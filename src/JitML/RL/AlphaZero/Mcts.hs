@@ -81,6 +81,11 @@ data NodeEval = NodeEval
   { evalPriors :: [Double]
   , evalValue :: Double
   , evalTerminal :: Bool
+  , evalPlayerToMove :: Maybe Int
+  -- ^ Actual player represented by this position. @Nothing@ preserves the
+  -- generic alternating-player mechanics used by MCTS unit callers; game
+  -- oracles set @Just player@ so Othello's forced pass backs values up with
+  -- the correct sign when the same player moves on both sides of an edge.
   }
   deriving stock (Eq, Show)
 
@@ -98,7 +103,7 @@ type PriorOracleIO = [Int] -> IO (Either Text NodeEval)
 -- | Neutral default for mechanics tests and non-network callers: uniform
 -- priors (empty list ⇒ uniform expansion), zero value, never terminal.
 defaultPriorOracle :: PriorOracle
-defaultPriorOracle _ = NodeEval [] 0.0 False
+defaultPriorOracle _ = NodeEval [] 0.0 False Nothing
 
 data MctsEdge = MctsEdge
   { edgeAction :: Int
@@ -114,15 +119,30 @@ data MctsNode = MctsNode
   , nodeChildren :: [MctsEdge]
   , nodeVisits :: Int
   , nodeExpanded :: Bool
+  , nodePlayerToMove :: Maybe Int
   }
   deriving stock (Eq, Show)
 
 initialNode :: MctsNode
-initialNode = MctsNode {nodeMoves = [], nodeChildren = [], nodeVisits = 0, nodeExpanded = False}
+initialNode =
+  MctsNode
+    { nodeMoves = []
+    , nodeChildren = []
+    , nodeVisits = 0
+    , nodeExpanded = False
+    , nodePlayerToMove = Nothing
+    }
 
 -- | A fresh, unexpanded node at the given move-path from the search root.
 freshNode :: [Int] -> MctsNode
-freshNode moves = MctsNode {nodeMoves = moves, nodeChildren = [], nodeVisits = 0, nodeExpanded = False}
+freshNode moves =
+  MctsNode
+    { nodeMoves = moves
+    , nodeChildren = []
+    , nodeVisits = 0
+    , nodeExpanded = False
+    , nodePlayerToMove = Nothing
+    }
 
 -- | PUCT exploration score for one edge.
 ucbScore :: MctsConfig -> Int -> MctsEdge -> Double
@@ -157,14 +177,29 @@ expandNode :: NodeEval -> MctsConfig -> MctsNode -> MctsNode
 expandNode ev config node =
   let n = mctsActionSpace config
       raw = take n (evalPriors ev <> repeat 0.0)
-      priors = if all (<= 0) raw then replicate n 1.0 else raw
+      -- An empty/all-zero prior is the generic oracle's request for a uniform
+      -- full action space. A game oracle supplies a non-empty masked prior;
+      -- zero entries there are illegal actions and must not become edges.
+      priors = if all (<= 0) raw then replicate n 1.0 else fmap (max 0.0) raw
       total = sum priors
       norm = fmap (\p -> p / (if total <= 0 then 1.0 else total)) priors
       edges =
         [ MctsEdge {edgeAction = a, edgeVisits = 0, edgeTotalValue = 0.0, edgePrior = p, edgeChild = Nothing}
         | (a, p) <- zip [0 ..] norm
+        , p > 0.0
         ]
-   in node {nodeChildren = edges, nodeExpanded = True}
+   in node
+        { nodeChildren = edges
+        , nodeExpanded = True
+        , nodePlayerToMove = evalPlayerToMove ev
+        }
+
+backupValue :: MctsNode -> MctsNode -> Double -> Double
+backupValue parent child childValue =
+  case (nodePlayerToMove parent, nodePlayerToMove child) of
+    (Just parentPlayer, Just childPlayer)
+      | parentPlayer == childPlayer -> childValue
+    _ -> negate childValue
 
 -- | One MCTS simulation from @node@ at search @depth@. Returns the updated node
 -- and the value backed up to this node, from the perspective of the player to
@@ -177,13 +212,25 @@ simulate oracle config depth node
   | not (nodeExpanded node) =
       let ev = oracle (nodeMoves node)
        in if evalTerminal ev || depth >= mctsMaxDepth config
-            then (node {nodeVisits = nodeVisits node + 1, nodeExpanded = True}, evalValue ev)
+            then
+              ( node
+                  { nodeVisits = nodeVisits node + 1
+                  , nodeExpanded = True
+                  , nodePlayerToMove = evalPlayerToMove ev
+                  }
+              , evalValue ev
+              )
             else
               let expanded = expandNode ev config node
                in (expanded {nodeVisits = nodeVisits node + 1}, evalValue ev)
   | null (nodeChildren node) =
       let ev = oracle (nodeMoves node)
-       in (node {nodeVisits = nodeVisits node + 1}, evalValue ev)
+       in ( node
+              { nodeVisits = nodeVisits node + 1
+              , nodePlayerToMove = evalPlayerToMove ev
+              }
+          , evalValue ev
+          )
   | otherwise =
       case selectEdge config node of
         Nothing -> (node, 0.0)
@@ -191,7 +238,7 @@ simulate oracle config depth node
           let action = edgeAction edge
               child0 = fromMaybe (freshNode (nodeMoves node <> [action])) (edgeChild edge)
               (child', childValue) = simulate oracle config (depth + 1) child0
-              backed = negate childValue
+              backed = backupValue node child' childValue
               edge' =
                 edge
                   { edgeChild = Just child'
@@ -214,7 +261,15 @@ simulateIO oracle config depth node
           Left err -> Left err
           Right ev ->
             if evalTerminal ev || depth >= mctsMaxDepth config
-              then Right (node {nodeVisits = nodeVisits node + 1, nodeExpanded = True}, evalValue ev)
+              then
+                Right
+                  ( node
+                      { nodeVisits = nodeVisits node + 1
+                      , nodeExpanded = True
+                      , nodePlayerToMove = evalPlayerToMove ev
+                      }
+                  , evalValue ev
+                  )
               else
                 let expanded = expandNode ev config node
                  in Right (expanded {nodeVisits = nodeVisits node + 1}, evalValue ev)
@@ -223,7 +278,14 @@ simulateIO oracle config depth node
       pure $
         case evResult of
           Left err -> Left err
-          Right ev -> Right (node {nodeVisits = nodeVisits node + 1}, evalValue ev)
+          Right ev ->
+            Right
+              ( node
+                  { nodeVisits = nodeVisits node + 1
+                  , nodePlayerToMove = evalPlayerToMove ev
+                  }
+              , evalValue ev
+              )
   | otherwise =
       case selectEdge config node of
         Nothing -> pure (Right (node, 0.0))
@@ -235,7 +297,7 @@ simulateIO oracle config depth node
             case childResult of
               Left err -> Left err
               Right (child', childValue) ->
-                let backed = negate childValue
+                let backed = backupValue node child' childValue
                     edge' =
                       edge
                         { edgeChild = Just child'
@@ -296,7 +358,16 @@ applyRootNoise config seed ev
       let n = max 1 (mctsActionSpace config)
           weight = min 1.0 (max 0.0 (mctsRootDirichletWeight config))
           base = normalisePrior n (evalPriors ev)
-          noise = deterministicDirichlet n (mctsRootDirichletAlpha config) seed
+          -- Root noise explores only actions admitted by the oracle. Mixing a
+          -- full-space Dirichlet vector into a legal-action mask would revive
+          -- illegal zero-prior actions.
+          rawNoise = deterministicDirichlet n (mctsRootDirichletAlpha config) seed
+          supportedNoise = zipWith (\p eta -> if p > 0.0 then eta else 0.0) base rawNoise
+          noiseTotal = sum supportedNoise
+          noise =
+            if noiseTotal <= 0.0
+              then base
+              else fmap (/ noiseTotal) supportedNoise
           mixed = zipWith (\p eta -> (1.0 - weight) * p + weight * eta) base noise
        in ev {evalPriors = mixed}
 

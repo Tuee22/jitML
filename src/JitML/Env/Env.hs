@@ -8,11 +8,9 @@ module JitML.Env.Env
 where
 
 import Control.Monad.Reader (ReaderT)
-import Data.Text (Text)
 import Path (Abs, Dir, Path)
-import System.Exit (ExitCode)
 
-import JitML.Sub.Subprocess (Subprocess)
+import JitML.Sub.Outcome (ProcessOutcome)
 
 type App = ReaderT Env IO
 
@@ -21,7 +19,7 @@ data Env = Env
   , envDataDir :: Path Abs Dir
   , envFormat :: OutputFormat
   , envColor :: ColorMode
-  , envLogger :: Subprocess -> ExitCode -> Text -> IO ()
+  , envLogger :: ProcessOutcome -> IO ()
   , envClock :: IO MonotonicTime
   }
 

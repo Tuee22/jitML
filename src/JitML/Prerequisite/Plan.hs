@@ -14,10 +14,10 @@ import Data.List (find)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Exit (ExitCode (..))
 
 import JitML.Prerequisite.Reconcile (PrerequisiteError, transitiveClosure)
 import JitML.Prerequisite.Types (NodeId (..), Prerequisite (..), PrerequisiteRemediation (..))
+import JitML.Sub.Outcome (ProcessFailure, ProcessOutcome (..))
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (SubprocessEnv, runStreaming)
 
@@ -37,7 +37,7 @@ data PrerequisitePlanStep = PrerequisitePlanStep
 
 data PrerequisitePlanError
   = PrerequisitePlanMissingRemediation NodeId Text
-  | PrerequisitePlanRemediationFailed NodeId Text ExitCode Text
+  | PrerequisitePlanRemediationFailed NodeId ProcessFailure
   | PrerequisitePlanPostconditionFailed NodeId Text
   deriving stock (Eq, Show)
 
@@ -117,19 +117,15 @@ applyPrerequisitePlan subprocessEnv prerequisites plan =
                 (fromMaybe "(none)" (prerequisiteStepRemedyHint step))
             )
       Just remediationValue -> do
-        let commandText = renderSubprocess (remediationCommand remediationValue)
-        (exitCode, _stdoutText, stderrText) <-
-          runStreaming subprocessEnv (remediationCommand remediationValue)
-        case exitCode of
-          ExitSuccess -> validatePostcondition step
-          _ ->
+        outcome <- runStreaming subprocessEnv (remediationCommand remediationValue)
+        case outcome of
+          ProcessSucceeded _ -> validatePostcondition step
+          ProcessFailed failure ->
             pure $
               Left
                 ( PrerequisitePlanRemediationFailed
                     (prerequisiteStepNodeId step)
-                    commandText
-                    exitCode
-                    stderrText
+                    failure
                 )
 
   validatePostcondition step =
