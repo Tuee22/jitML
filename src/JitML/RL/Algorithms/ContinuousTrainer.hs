@@ -64,7 +64,7 @@ import System.Random qualified as Random
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
-  , AdamState
+  , AdamState (..)
   , MlpForward (..)
   , MlpGradient (..)
   , MlpParams (..)
@@ -194,6 +194,10 @@ data ContinuousIterationStat = ContinuousIterationStat
 data ContinuousTrainResult = ContinuousTrainResult
   { contResultStats :: ![ContinuousIterationStat]
   , contResultFinalActor :: !MlpParams
+  , contResultActorOptimizerSteps :: !Int
+  -- ^ Adam applications executed against 'contResultFinalActor'. Critic and
+  -- entropy-temperature updates are deliberately excluded because neither is
+  -- part of the flattened learned-state tensor returned for evidence.
   , contResultConfig :: !ContinuousTrainConfig
   }
   deriving stock (Eq, Show)
@@ -333,6 +337,7 @@ loopEither environment config countTable update nets opt gen buffer step state e
             ContinuousTrainResult
               { contResultStats = reverse stats
               , contResultFinalActor = acActor nets
+              , contResultActorOptimizerSteps = adamStep_ (acActorAdam opt)
               , contResultConfig = config
               }
         )
@@ -795,13 +800,13 @@ initialContinuousActor config =
         else base
 
 pendulumSacWarmStartActor :: ContinuousTrainConfig -> MlpParams -> MlpParams
-pendulumSacWarmStartActor config _params0 =
+pendulumSacWarmStartActor config params0 =
   fst $
     Data.List.foldl'
       ( \(params, adam) _ ->
           Data.List.foldl' warmStartSample (params, adam) pendulumWarmStartSamples
       )
-      (mlpInit (continuousActorShape config) 42, adamInit (continuousActorShape config))
+      (params0, adamInit (continuousActorShape config))
       [1 .. (800 :: Int)]
  where
   adamCfg = defaultAdamConfig {adamLearningRate = 1.0e-3}

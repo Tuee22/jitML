@@ -49,7 +49,7 @@ allProductPhaseStatuses =
       [ sprint "19.1" "Product Matrix Authority" Done
       , sprint "19.2" "Phase Status Registry" Done
       , sprint "19.3" "Status Truth Enforcement" Done
-      , sprint "19.4" "Product Registry Plan and Evidence Projection" Blocked
+      , sprint "19.4" "Product Registry Plan and Evidence Projection" Active
       ]
   , productPhase
       20
@@ -79,17 +79,17 @@ allProductPhaseStatuses =
       23
       "General Differentiable Layer Engine"
       "DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md"
-      [ sprint "23.1" "Typed Layer IR + Reverse-Mode Autodiff" Done
-      , sprint "23.2" "oneDNN Layer Kernels for Training" Done
-      , sprint "23.3" "Layer-Graph Checkpoints + Inference" Done
+      [ sprint "23.1" "Typed Layer IR + Reverse-Mode Autodiff" Blocked
+      , sprint "23.2" "oneDNN Layer Kernels for Training" Blocked
+      , sprint "23.3" "Layer-Graph Checkpoints + Inference" Blocked
       ]
   , productPhase
       24
       "Real Supervised Architectures"
       "DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md"
-      [ sprint "24.1" "Literal Architectures" Done
-      , sprint "24.2" "Convergence and Evidence" Done
-      , sprint "24.3" "CompletedTraining SL Manifests" Done
+      [ sprint "24.1" "Literal Architectures" Blocked
+      , sprint "24.2" "Convergence and Evidence" Blocked
+      , sprint "24.3" "CompletedTraining SL Manifests" Blocked
       ]
   , productPhase
       25
@@ -156,7 +156,7 @@ allProductPhaseStatuses =
       "External-Truth Realness Harness & Negative-Control Gate"
       "DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md"
       [ sprint "32.1" "Negative-Control Suite" Done
-      , sprint "32.2" "External Bars, No-Self-Referential-Gate Lint, Provenance Binding" Done
+      , sprint "32.2" "External Bars, No-Self-Referential-Gate Lint, Provenance Binding" Blocked
       , sprint "32.3" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
       , sprint "32.4" "RunContract Negative Controls and Properties" Blocked
       ]

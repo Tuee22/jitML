@@ -47,7 +47,7 @@ import System.Random qualified as Random
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
-  , AdamState
+  , AdamState (..)
   , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
@@ -133,6 +133,10 @@ data HerIterationStat = HerIterationStat
 data HerTrainResult = HerTrainResult
   { herResultStats :: ![HerIterationStat]
   , herResultFinalParams :: !MlpParams
+  , herResultOptimizerSteps :: !Int
+  -- ^ Adam applications executed against the final online goal-conditioned Q
+  -- tensor. This is measured from the optimizer state rather than inferred
+  -- from the episode budget because replay readiness can delay updates.
   , herResultConfig :: !HerTrainConfig
   }
   deriving stock (Eq, Show)
@@ -198,12 +202,15 @@ episodeLoopEither
   -> [HerIterationStat]
   -> IO (Either Text HerTrainResult)
 episodeLoopEither config update online target adam gen buffer episode successes stats
+  | herUpdatesPerEpisode config <= 0 =
+      pure (Left "HER updates per episode must be positive")
   | episode >= herEpisodes config =
       pure
         ( Right
             HerTrainResult
               { herResultStats = reverse stats
               , herResultFinalParams = online
+              , herResultOptimizerSteps = adamStep_ adam
               , herResultConfig = config
               }
         )
@@ -229,7 +236,7 @@ episodeLoopEither config update online target adam gen buffer episode successes 
               Right (o', a') -> runUpdates (i - 1 :: Int) o' a' g'
       updateResult <-
         if length newBuffer >= herBatchSize config
-          then runUpdates (max 1 (herUpdatesPerEpisode config)) online adam gen2
+          then runUpdates (herUpdatesPerEpisode config) online adam gen2
           else pure (Right (online, adam, gen2))
       case updateResult of
         Left err -> pure (Left err)

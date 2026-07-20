@@ -45,6 +45,7 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , mctsVisitDistribution
   , mctsVisitDistributionWithDevice
   , PolicyValueTrainingSample (..)
+  , policyValueTrainingSamplesSha256
   , trainPolicyValueNetOnSamples
   , trainPolicyValueNetOnSamplesCuda
   , trainPolicyValueNetOnSamplesOneDnn
@@ -69,19 +70,27 @@ module JitML.RL.AlphaZero.PolicyValueNet
 where
 
 import Control.Monad (foldM)
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Char (intToDigit)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet qualified as IntSet
 import Data.List qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
+import Data.Word (Word8)
 import System.Random qualified as Random
 
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
+  , MlpGradient (..)
   , MlpParams (..)
   , MlpShape (..)
   , PolicyValueOutput (..)
@@ -92,12 +101,13 @@ import JitML.Numerics.Mlp
   , mlpOutputs
   , mlpParamsFromFlat
   , mlpParamsToFlat
+  , mlpZeroGradient
   , paramShape
   , policyValueBackward
   , policyValueForward
   , policyValueFromForward
-  , policyValueOutputGradient
   , sampleCategorical
+  , softmax
   )
 import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
@@ -400,53 +410,116 @@ data PolicyValueTrainingSample = PolicyValueTrainingSample
   }
   deriving stock (Eq, Show)
 
--- | Train the policy/value net on a batch of samples for @passes@
--- gradient descent passes. Uses Adam (Sprint 13.8 reused).
+-- | Content address the exact, ordered self-play training samples.  The
+-- binary framing covers every state, visit-distribution, and outcome field;
+-- callers can therefore bind completion evidence to the data actually read
+-- by the policy/value optimiser instead of to an experiment identifier.
+policyValueTrainingSamplesSha256 :: [PolicyValueTrainingSample] -> Text
+policyValueTrainingSamplesSha256 samples =
+  hexBytes
+    ( SHA256.hash
+        ( LazyByteString.toStrict
+            ( Builder.toLazyByteString
+                ( Builder.byteString "jitml-alphazero-training-samples-v1\NUL"
+                    <> countBuilder samples
+                    <> foldMap sampleBuilder samples
+                )
+            )
+        )
+    )
+ where
+  sampleBuilder sample =
+    stateBuilder (sampleState sample)
+      <> vectorBuilder (sampleVisitDist sample)
+      <> Builder.doubleBE (sampleOutcome sample)
+
+  stateBuilder state =
+    textBuilder (gameName state)
+      <> countBuilder (gameMoves state)
+      <> foldMap (Builder.int64BE . fromIntegral) (gameMoves state)
+      <> Builder.int64BE (fromIntegral (gameCurrentPlayer state))
+
+  vectorBuilder values =
+    Builder.word64BE (fromIntegral (VU.length values))
+      <> foldMap Builder.doubleBE (VU.toList values)
+
+  textBuilder value =
+    let bytes = Text.Encoding.encodeUtf8 value
+     in Builder.word64BE (fromIntegral (ByteString.length bytes))
+          <> Builder.byteString bytes
+
+  countBuilder :: [value] -> Builder.Builder
+  countBuilder = Builder.word64BE . fromIntegral . length
+
+  hexBytes = Text.pack . concatMap hexByte . ByteString.unpack
+  hexByte :: Word8 -> String
+  hexByte byte =
+    [ intToDigit (fromIntegral byte `div` 16)
+    , intToDigit (fromIntegral byte `mod` 16)
+    ]
+
+-- | Train the policy/value net for an exact number of declared optimiser
+-- updates.  Each update evaluates every sample against one immutable parameter
+-- snapshot, averages the resulting gradients, and performs exactly one Adam
+-- step.  Empty data and non-positive update counts fail before any training.
 trainPolicyValueNetOnSamples
   :: PolicyValueNet
   -> AdamState
   -> Double -- learning rate
-  -> Int -- passes
+  -> Int -- exact optimiser updates
   -> [PolicyValueTrainingSample]
-  -> (PolicyValueNet, AdamState)
-trainPolicyValueNetOnSamples net0 adam0 lr passes samples =
-  let adamConfig = defaultAdamConfig {adamLearningRate = lr}
-      onePass (net, adam) =
-        Data.List.foldl'
-          ( \(n, a) trainingSample ->
-              let pv = networkPolicyValue n (sampleState trainingSample)
-                  policy = pvPolicy pv
-                  -- Policy loss gradient (cross-entropy with MCTS visit dist):
-                  -- d/dlogit_i CE = softmax_i - target_i
-                  dLogits =
-                    VU.zipWith (-) policy (sampleVisitDist trainingSample)
-                  -- Value loss gradient (MSE):
-                  -- d/dvalue 0.5 * (v - outcome)^2 = (v - outcome)
-                  dValue = pvValue pv - sampleOutcome trainingSample
-                  grad = policyValueBackward (pvnParams n) pv dLogits dValue
-                  (newParams, newAdam) =
-                    adamStep adamConfig a (pvnParams n) grad
-               in (n {pvnParams = newParams}, newAdam)
-          )
-          (net, adam)
-          samples
-   in Data.List.foldl' (\(n, a) _ -> onePass (n, a)) (net0, adam0) [1 .. passes]
+  -> Either Text (PolicyValueNet, AdamState)
+trainPolicyValueNetOnSamples net0 adam0 lr updates samples = do
+  validatePolicyValueTrainingInputs net0 lr updates samples
+  Right
+    ( Data.List.foldl'
+        oneUpdate
+        (net0, adam0)
+        [1 .. updates]
+    )
+ where
+  adamConfig = defaultAdamConfig {adamLearningRate = lr}
+  sampleCount :: Double
+  sampleCount = fromIntegral (length samples)
+
+  oneUpdate (net, adam) _ =
+    let params = pvnParams net
+        summedGradient =
+          Data.List.foldl'
+            ( \gradient trainingSample ->
+                addMlpGradient gradient (sampleGradient net trainingSample)
+            )
+            (mlpZeroGradient (paramShape params))
+            samples
+        meanGradient = scaleMlpGradient (1.0 / sampleCount) summedGradient
+        (newParams, newAdam) = adamStep adamConfig adam params meanGradient
+     in (net {pvnParams = newParams}, newAdam)
+
+  sampleGradient net trainingSample =
+    let pv = networkPolicyValue net (sampleState trainingSample)
+        -- Policy loss gradient (cross-entropy with MCTS visit dist):
+        -- d/dlogit_i CE = softmax_i - target_i.
+        dLogits = VU.zipWith (-) (pvPolicy pv) (sampleVisitDist trainingSample)
+        -- Value loss gradient (MSE):
+        -- d/dvalue 0.5 * (v - outcome)^2 = (v - outcome).
+        dValue = pvValue pv - sampleOutcome trainingSample
+     in policyValueBackward (pvnParams net) pv dLogits dValue
 
 -- | Sprint 13.8 / 13.9 — the CUDA-backed analogue of
--- 'trainPolicyValueNetOnSamples'. The per-sample network forward and
--- backward passes run on the GPU through the generated nvcc MLP kernels
+-- 'trainPolicyValueNetOnSamples'. The batched network forward and backward
+-- passes run on the GPU through the generated nvcc MLP kernels
 -- ('JitML.Numerics.MlpCuda'); the policy/value loss-gradient assembly
 -- ('policyValueOutputGradient') and the Adam update stay on the host. The
--- algorithm, sample contract, and Adam math are identical to the pure
--- version — only the network forward/backward backend changes. Returns
--- 'Left' when the CUDA runtime / compile is unavailable so callers can
--- fall back to 'trainPolicyValueNetOnSamples'.
+-- algorithm, sample contract, averaged gradient, and Adam math are identical
+-- to the pure version — only the network forward/backward backend changes.
+-- Returns 'Left' when the CUDA runtime / compile is unavailable so callers can
+-- fail closed without falling back to 'trainPolicyValueNetOnSamples'.
 trainPolicyValueNetOnSamplesCuda
   :: Env
   -> PolicyValueNet
   -> AdamState
   -> Double -- learning rate
-  -> Int -- passes
+  -> Int -- exact optimiser updates
   -> [PolicyValueTrainingSample]
   -> IO (Either Text (PolicyValueNet, AdamState))
 trainPolicyValueNetOnSamplesCuda env = trainPolicyValueNetOnSamplesWithDevice (cudaMlpDevice env)
@@ -474,7 +547,7 @@ trainPolicyValueNetOnSamplesMetal
 trainPolicyValueNetOnSamplesMetal env = trainPolicyValueNetOnSamplesWithDevice (metalMlpDevice env)
 
 -- | AlphaZero PolicyValueNet training through an injected MLP device backend.
--- The per-sample network forward and backward passes run on the device through
+-- The batched network forward and backward passes run on the device through
 -- the generated MLP kernels; the policy/value loss-gradient assembly
 -- ('policyValueOutputGradient') and the Adam update stay on the host. The
 -- algorithm, sample contract, and Adam math are identical to the pure
@@ -485,33 +558,111 @@ trainPolicyValueNetOnSamplesWithDevice
   -> PolicyValueNet
   -> AdamState
   -> Double -- learning rate
-  -> Int -- passes
+  -> Int -- exact optimiser updates
   -> [PolicyValueTrainingSample]
   -> IO (Either Text (PolicyValueNet, AdamState))
-trainPolicyValueNetOnSamplesWithDevice device net0 adam0 lr passes samples =
-  foldM onePass (Right (net0, adam0)) [1 .. passes]
+trainPolicyValueNetOnSamplesWithDevice device net0 adam0 lr updates samples =
+  case validatePolicyValueTrainingInputs net0 lr updates samples of
+    Left err -> pure (Left err)
+    Right () -> foldM oneUpdate (Right (net0, adam0)) [1 .. updates]
  where
   adamConfig = defaultAdamConfig {adamLearningRate = lr}
-  onePass acc _ = foldM stepSample acc samples
-  stepSample (Left e) _ = pure (Left e)
-  stepSample (Right (n, a)) trainingSample = do
-    let params = pvnParams n
-        actionCount = pvnActionCount n
-        input = encodeGameState n (sampleState trainingSample)
-        outputs = mlpOutputs (paramShape params)
-    fwdResult <- fmap (policyValueFromForward actionCount) <$> mlpdForward device params input
+  sampleCount = length samples
+  inputs = fmap (encodeGameState net0 . sampleState) samples
+
+  oneUpdate (Left err) _ = pure (Left err)
+  oneUpdate (Right (net, adam)) _ = do
+    let params = pvnParams net
+        actionCount = pvnActionCount net
+    fwdResult <- mlpdForwardBatch device params inputs
     case fwdResult of
-      Left e -> pure (Left e)
-      Right pv -> do
-        let dLogits = VU.zipWith (-) (pvPolicy pv) (sampleVisitDist trainingSample)
-            dValue = pvValue pv - sampleOutcome trainingSample
-            dLdy = policyValueOutputGradient outputs pv dLogits dValue
-        gradResult <- mlpdBackward device params (pvForward pv) dLdy
-        case gradResult of
-          Left e -> pure (Left e)
-          Right grad ->
-            let (newParams, newAdam) = adamStep adamConfig a params grad
-             in pure (Right (n {pvnParams = newParams}, newAdam))
+      Left err -> pure (Left err)
+      Right rawOutputs
+        | length rawOutputs /= sampleCount ->
+            pure (Left "AlphaZero device forward returned the wrong sample count")
+        | otherwise -> do
+            let outputGradients =
+                  zipWith
+                    (policyValueRawOutputGradient actionCount)
+                    rawOutputs
+                    samples
+            gradResult <- mlpdBatchGradient device params (zip inputs outputGradients)
+            case gradResult of
+              Left err -> pure (Left err)
+              Right summedGradient ->
+                let meanGradient =
+                      scaleMlpGradient
+                        (1.0 / fromIntegral sampleCount)
+                        summedGradient
+                    (newParams, newAdam) = adamStep adamConfig adam params meanGradient
+                 in pure (Right (net {pvnParams = newParams}, newAdam))
+
+validatePolicyValueTrainingInputs
+  :: PolicyValueNet
+  -> Double
+  -> Int
+  -> [PolicyValueTrainingSample]
+  -> Either Text ()
+validatePolicyValueTrainingInputs net learningRate updates samples
+  | updates <= 0 = Left "AlphaZero optimiser update count must be positive"
+  | null samples = Left "AlphaZero optimiser requires non-empty training samples"
+  | isNaN learningRate || isInfinite learningRate || learningRate <= 0.0 =
+      Left "AlphaZero optimiser learning rate must be finite and positive"
+  | pvnActionCount net <= 0 = Left "AlphaZero policy action count must be positive"
+  | Just observed <-
+      Data.List.find
+        (/= pvnActionCount net)
+        (fmap (VU.length . sampleVisitDist) samples) =
+      Left
+        ( "AlphaZero visit-distribution width mismatch: expected "
+            <> Text.pack (show (pvnActionCount net))
+            <> ", observed "
+            <> Text.pack (show observed)
+        )
+  | otherwise = Right ()
+
+-- | Build the policy/value output gradient directly from a batched device
+-- output vector.  This is the same softmax/tanh head math used by
+-- 'policyValueOutputGradient', without inventing a per-sample forward cache.
+policyValueRawOutputGradient
+  :: Int
+  -> Vector Double
+  -> PolicyValueTrainingSample
+  -> Vector Double
+policyValueRawOutputGradient actionCount output trainingSample =
+  let logits = VU.take actionCount output
+      policy = softmax logits
+      dLogits = VU.zipWith (-) policy (sampleVisitDist trainingSample)
+      value =
+        if VU.length output > actionCount
+          then tanh (output VU.! actionCount)
+          else 0.0
+      dValue = value - sampleOutcome trainingSample
+      valueGradient = dValue * (1.0 - value * value)
+      tailCount = max 0 (VU.length output - actionCount)
+      tailGradients =
+        if tailCount == 0
+          then VU.empty
+          else VU.cons valueGradient (VU.replicate (tailCount - 1) 0.0)
+   in dLogits VU.++ tailGradients
+
+addMlpGradient :: MlpGradient -> MlpGradient -> MlpGradient
+addMlpGradient left right =
+  MlpGradient
+    { gradW1 = VU.zipWith (+) (gradW1 left) (gradW1 right)
+    , gradB1 = VU.zipWith (+) (gradB1 left) (gradB1 right)
+    , gradW2 = VU.zipWith (+) (gradW2 left) (gradW2 right)
+    , gradB2 = VU.zipWith (+) (gradB2 left) (gradB2 right)
+    }
+
+scaleMlpGradient :: Double -> MlpGradient -> MlpGradient
+scaleMlpGradient factor gradient =
+  MlpGradient
+    { gradW1 = VU.map (* factor) (gradW1 gradient)
+    , gradB1 = VU.map (* factor) (gradB1 gradient)
+    , gradW2 = VU.map (* factor) (gradW2 gradient)
+    , gradB2 = VU.map (* factor) (gradB2 gradient)
+    }
 
 -- | Sprint 13.9 — serialize a trained network's parameters to the flat
 -- @Double@ list the checkpoint @.jmw1@ weight blob carries
@@ -684,7 +835,10 @@ runOneGenerationOfSelfPlay net adam selfPlayGames maxPlies sims gradientUpdates 
           [0 .. selfPlayGames - 1]
       samples = concat games
       (trainedNet, trainedAdam) =
-        trainPolicyValueNetOnSamples net adam 1.0e-3 gradientUpdates samples
+        either
+          (error . Text.unpack)
+          id
+          (trainPolicyValueNetOnSamples net adam 1.0e-3 gradientUpdates samples)
       winRate = arenaWinRateAgainstUniform trainedNet arenaGames maxPlies (seed + 7919)
    in GenerationResult
         { genNet = trainedNet

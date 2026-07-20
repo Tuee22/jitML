@@ -171,8 +171,9 @@ joins the short-lived consumer before a bounded, cancellation-safe subscription
 observed during cancellation remain typed; only a fully successful drain and
 cleanup rethrows the original asynchronous-cancellation identity. Product Tune
 evidence likewise comes from the registered `ProductRow` and Catalog
-schedule—TPE/ASHA/`MedianPruner`, `128` trials, seed `1729`, `6` optimizer
-updates per trial, parallelism `1`, target `1.0`, slack `0.05`—and a reduced
+schedule—TPE/ASHA/`MedianPruner`, `128` trials, seed `1729`, a `1000`-optimizer-
+update ceiling allocated through eta-derived measured rungs, parallelism `1`,
+target `1.0`, slack `0.05`—and a reduced
 transport/lifecycle smoke cannot mint completion. See
 [Typed Run Contract → Delivery and Settlement](run_contract.md#delivery-and-settlement).
 

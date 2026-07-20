@@ -204,7 +204,10 @@ productPpoCountBetaFor VariantRecurrentPPO "key-door-grid" = 4.0
 productPpoCountBetaFor _ name | name /= "mountain-car" = 0.0
 productPpoCountBetaFor VariantTRPO _ = 5.0
 productPpoCountBetaFor VariantRecurrentPPO _ = 4.0
-productPpoCountBetaFor VariantMaskablePPO _ = 8.0
+-- MountainCar has no illegal-action mask, so MaskablePPO must retain PPO's
+-- exploration strength there.  Keeping a weaker variant-only bonus made the
+-- otherwise equivalent seed-42 product row miss the frozen convergence bar.
+productPpoCountBetaFor VariantMaskablePPO _ = 10.0
 productPpoCountBetaFor _ _ = 10.0
 
 defaultPpoTrainConfig :: PpoTrainConfig
@@ -279,6 +282,11 @@ data PpoIterationStat = PpoIterationStat
 data PpoTrainResult = PpoTrainResult
   { resultIterations :: ![PpoIterationStat]
   , resultFinalParams :: !MlpParams
+  , resultOptimizerSteps :: !Int
+  -- ^ Optimizer applications that changed the returned combined policy/value
+  -- tensor. PPO-family minibatch Adam steps count once each. TRPO additionally
+  -- counts each accepted actor natural-gradient application; its value-head
+  -- Adam applications are read from the same optimizer state.
   , resultConfig :: !PpoTrainConfig
   }
   deriving stock (Eq, Show)
@@ -1609,18 +1617,29 @@ trainPpoInEnvironment environment config = do
       initialAdam = adamInit shape
   -- One visitation table for the whole run, mutated across rollouts.
   countTable <- CountExploration.newCountTable
-  (_, _, _, _, stats, finalParams) <-
+  (_, _, _, finalAdam, stats, finalParams, trpoActorSteps) <-
     foldM
-      ( \(state, gen, params, adam, stats, _) iteration -> do
+      ( \(state, gen, params, adam, stats, _, actorSteps) iteration -> do
           (rollout, nextState, nextGen) <-
             collectRolloutInEnvironment countTable environment config params state gen
           let (advs, targets) = computeAdvantages config rollout
               normAdvs = standardise advs
               triples = zip3 (rolloutSteps rollout) normAdvs targets
               (paramsAfter, adamAfter) = ppoUpdate config params adam triples
+              actorStepsAfter =
+                actorSteps
+                  + if trpoActorParametersChanged config params paramsAfter then 1 else 0
               episodeReturns = rolloutEpisodes rollout
               stat = rolloutSummary iteration episodeReturns
-          pure (nextState, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
+          pure
+            ( nextState
+            , nextGen
+            , paramsAfter
+            , adamAfter
+            , stats <> [stat]
+            , paramsAfter
+            , actorStepsAfter
+            )
       )
       ( envInitial environment
       , Random.mkStdGen (ppoSeed config + 1)
@@ -1628,12 +1647,14 @@ trainPpoInEnvironment environment config = do
       , initialAdam
       , [] :: [PpoIterationStat]
       , initialParams
+      , 0 :: Int
       )
       [0 .. ppoNumIterations config - 1]
   pure
     PpoTrainResult
       { resultIterations = stats
       , resultFinalParams = finalParams
+      , resultOptimizerSteps = adamStep_ finalAdam + trpoActorSteps
       , resultConfig = config
       }
 
@@ -1720,22 +1741,24 @@ trainPpoOnDeviceWithEnvironment device environment config = do
           , initialAdam
           , [] :: [PpoIterationStat]
           , initialParams
+          , 0 :: Int
           )
       )
       [0 .. ppoNumIterations config - 1]
   pure $
     fmap
-      ( \(_, _, _, _, stats, finalParams) ->
+      ( \(_, _, _, finalAdam, stats, finalParams, trpoActorSteps) ->
           PpoTrainResult
             { resultIterations = stats
             , resultFinalParams = finalParams
+            , resultOptimizerSteps = adamStep_ finalAdam + trpoActorSteps
             , resultConfig = config
             }
       )
       result
  where
   step _ (Left e) _ = pure (Left e)
-  step countTable (Right (vecEnv, gen, params, adam, stats, _)) iteration = do
+  step countTable (Right (vecEnv, gen, params, adam, stats, _, actorSteps)) iteration = do
     collected <-
       collectRolloutVectorizedOnDevice
         device
@@ -1754,11 +1777,38 @@ trainPpoOnDeviceWithEnvironment device environment config = do
         case updated of
           Left e -> pure (Left e)
           Right (paramsAfter, adamAfter) ->
-            let stat = rolloutSummary iteration (rolloutEpisodes rollout)
+            let actorStepsAfter =
+                  actorSteps
+                    + if trpoActorParametersChanged config params paramsAfter then 1 else 0
+                stat = rolloutSummary iteration (rolloutEpisodes rollout)
              in pure
                   ( Right
-                      (nextVecEnv, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
+                      ( nextVecEnv
+                      , nextGen
+                      , paramsAfter
+                      , adamAfter
+                      , stats <> [stat]
+                      , paramsAfter
+                      , actorStepsAfter
+                      )
                   )
+
+-- | TRPO's critic pass restores the shared trunk and policy-output slices
+-- exactly, so a difference in any of those slices after a complete rollout
+-- update proves that the actor line search accepted and applied one step.
+trpoActorParametersChanged :: PpoTrainConfig -> MlpParams -> MlpParams -> Bool
+trpoActorParametersChanged config before after =
+  ppoVariant config == VariantTRPO
+    && ( paramW1 before /= paramW1 after
+           || paramB1 before /= paramB1 after
+           || VU.take policyWeightCount (paramW2 before)
+             /= VU.take policyWeightCount (paramW2 after)
+           || VU.take actionCount (paramB2 before)
+             /= VU.take actionCount (paramB2 after)
+       )
+ where
+  actionCount = ppoActionCount config
+  policyWeightCount = actionCount * mlpHidden (paramShape before)
 
 collectRolloutVectorizedOnDevice
   :: MlpDevice

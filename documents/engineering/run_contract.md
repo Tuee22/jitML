@@ -82,6 +82,7 @@ data Unit
   = Epoch
   | EnvTransition
   | RolloutTickPerEnv
+  | VectorEnvironment
   | EpisodeStep
   | EvaluationEpisode
   | OptimizerUpdate
@@ -106,8 +107,9 @@ transition budget. One pure plan compiler owns dimensional arithmetic such as
 vector-environment multiplication and ceiling division for rollout iterations.
 Callers never reconstruct completed work from configuration values.
 
-Closed sums and GADTs model mutually exclusive choices such as cluster versus
-host placement and discrete versus continuous action domains. Opaque smart
+Closed sums and GADTs model mutually exclusive choices such as cluster, host,
+or direct in-process plan placement and discrete versus continuous action
+domains. Opaque smart
 constructors handle relational or runtime invariants such as unique seed
 cohorts and exact keyed event coverage. Arbitrary text and runtime facts are not
 promoted to the type level merely for novelty; the goal is a small, reviewable
@@ -142,6 +144,28 @@ publication. A missing, malformed, non-canonical, version-incompatible, or
 identity-mismatched plan is a typed failure; workers do not clamp quantities or
 recover semantic defaults from environment variables. The same transport
 drives local execution, Linux Jobs, and Apple host commands.
+
+Supervised V2 persists that identity through a closed origin sum. ProductRow
+publication uses `RawProductRowProjectionOrigin` and binds the addressed payload
+row plus `PlanId` to one exact supported-substrate projection. A generic
+public/daemon supervised command instead uses
+`RawGenericSupervisedExecutionOrigin(rowId, canonicalPlanTransport)`. Loading
+requires the origin row, payload row, and authoritative canonical
+problem/ProductRow to agree, reparses and re-refines the complete exact plan,
+requires canonical rendering and `PlanId` equality, binds the selected substrate
+and manifest experiment to that plan, and rejects collision with a ProductRow
+experiment hash. The addressed composite origin, not `PlanId` alone, binds the
+canonical row semantics. See
+[Checkpoint Format → Frozen V1 and Exact Supervised V2](checkpoint_format.md#frozen-v1-and-exact-supervised-v2)
+for the byte contract and migration rule.
+
+Generic execution also consumes that plan's seed: the supervised boundary
+requires exactly one refined seed, rejects device-trainer `Int` overflow, and
+uses it for model initialization and deterministic epoch ordering. Local generic
+experiment identity hashes the Dhall path plus canonical row/dataset/model,
+substrate, seed, epoch/training/evaluation/batch budgets, and therefore the
+derived optimizer-update budget. These are execution inputs, not metadata that
+may be replaced by canonical-row defaults after plan refinement.
 
 ## Protocol and Evidence Contracts
 
@@ -196,6 +220,15 @@ weight-delta and dataset-read evidence, the originating `PlanId`, and a
 failed criterion, a unit/kind mismatch, an underrun, or an overrun therefore
 cannot construct completion. Generic CBOR decoding cannot bypass those checks.
 
+For supervised V2, persisted metadata must re-bind that witness rather than
+merely repeat its `PlanId`. Every completed convergence observation has one
+unique equal-valued manifest metric row. TensorBoard run id equals the manifest
+experiment, its log prefix is `jitml-tensorboard/<experiment>`, and its ordered
+scalar tags equal the completed convergence metric names. The runtime,
+manifest, and completed witness also carry the canonical pinned
+training/evaluation dataset-read digest for the origin row; synchronized forged
+digest fields remain invalid.
+
 Protocol terminals preserve the distinction between persistence and proof:
 
 - `TrainingCheckpoint CheckpointDone` is a candidate; only
@@ -220,6 +253,49 @@ named and tested as such; it is not presented as a complete iteration curve.
 Any later learning-curve contract must be backed by per-epoch publication and a
 separate ordered evidence type.
 
+For a generic supervised command, exact finite completion of the plan and
+passing the canonical row's convergence criterion are separate outcomes.
+Structural or identity mismatches are hard failures. A finite below-bar result
+is successful training but returns a typed completion miss, writes no eligible
+V2 checkpoint, and emits no completed-checkpoint event. Consequently a public
+process-outcome check may pass while a live contract that explicitly requires
+proof-bearing checkpoint evidence remains incomplete. A passing generic result
+may write a generic-origin V2, but it is not relabelled as ProductRow evidence.
+Absent legacy initial/final weight-list projections do not gate that miss; exact
+initial/final JMW1 bytes remain the required evidence, and any supplied legacy
+projection must equal them.
+
+A completed V2 event is publication after commit, not a promise to commit. The
+writer first reads the current latest-pointer expectation (the current MinIO
+ETag when live), performs the CAS, and requires `PointerWritten` for the exact
+stored manifest address. A conflict or wrong-manifest acknowledgement is a
+typed failure, and the completed-checkpoint event is not published. Candidate
+and completed persistence are separate Store operations: candidates return
+opaque `StoredCandidateCheckpoint` without writing `latest`; completed writers
+take mandatory `CompletedTraining` and return opaque
+`StoredCompletedCheckpoint` only after exact CAS adoption.
+
+Persistence proof is stronger than structural completion refinement. Latest
+admission reads exact pointer body `P1`, fetches the exact addressed manifest,
+verifies either canonical V1 bytes or the V2 outer and embedded body identities,
+reads exact pointer body `P2`, and requires `P1 == P2` before any referenced
+blob is fetched. It then independently verifies every blob's object key, exact
+bytes, content address,
+JMW1 encoding/shape, and graph-derived slice binding. A known manifest address
+performs the same manifest/blob admission without pointer reads. Only after
+that process may `requireAdmittedCompletedCheckpoint` produce Store's opaque
+`AdmittedCompletedCheckpoint`; `JitML.Product.Pipeline` consumes that value and
+Store does not import Pipeline. Immutable create conflicts are idempotent only
+after an exact read proves byte equality, while pointer changes/CAS conflicts
+remain typed rejection outcomes. Local persistence's `CheckpointWriteError`
+separates invalid input, immutable-object conflict, pointer-CAS conflict, and
+filesystem failure; MinIO conflicts remain typed `ServiceError`. Sprint `10.12`
+is Done after its full validation and governed-document gates passed.
+Supervised completion still requires V2. The completed V1 refinement is
+restricted to canonical non-supervised ProductRows and additionally binds each
+manifest transcript pointer to its exact fetched bytes; generic/non-product V1
+and supervised V1 cannot cross that Product completion boundary.
+
 RL has distinct evidence types for ordered training-iteration summaries and the
 keyed final-policy evaluation cohort. Event arrival order, or the tail of final
 evaluation episodes, can never be interpreted as a learning curve.
@@ -233,6 +309,7 @@ Placement is a closed sum, never a `Maybe` handle:
 data Placement
   = ClusterJob JobHandle
   | HostRun HostRunHandle
+  | RequestReply RequestHandle
 
 data WorkloadObservation
   = Missing
@@ -368,7 +445,8 @@ runLiveWorkflow
 
 The interpreter:
 
-1. acquires the validated, plan-bound host or cluster placement;
+1. acquires the validated, plan-bound Job, host-run, or request/reply
+   placement;
 2. opens the scoped typed subscription and waits for its persistent session to
    report connected before publishing the command;
 3. renders commands and topics only through their protocol/topology owners;
@@ -379,8 +457,9 @@ The interpreter:
 6. captures diagnostics while the event subscription and placement are both
    still owned;
 7. settles each delivery exactly once; and
-8. releases the subscription, then the Job/host placement, then any outer
-   temporary-object fixtures under `bracket`/supervised-`Async` semantics.
+8. releases the subscription, then the Job, host-run, or request/reply
+   placement, then any outer temporary-object fixtures under
+   `bracket`/supervised-`Async` semantics.
 
 The Sprint `12.11` `WorkflowMatrix` is a different boundary: it executes every
 public CLI leaf as a typed `Subprocess` and validates the real process outcome
@@ -469,6 +548,83 @@ states. The invocation-journal half of this boundary is implemented. The
 surviving post-test global measurement probes are a separately owned legacy row;
 see [Legacy Tracking → Pending Removal](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md#pending-removal).
 
+### Product registry projection and report admission
+
+Every `ProductRow` crosses one total refinement in
+`JitML.Product.Matrix.projectProductRow`. The row's closed capability refines to
+an opaque `ProductProjection kind` containing its validated convergence bar,
+exact `TrainingBudget`, kind-indexed descriptor and evidence requirement,
+resolved workload plan, semantic `PlanId`, substrate, and canonical internal
+executor argv. `projectProductRows` accumulates row errors, rejects duplicate
+identities, preserves input order, and returns an opaque
+`ProductProjectionBatch`. Workflow matrix cells and the internal product-row
+publisher consume this projection rather than dispatching or defaulting from a
+raw `RowClass`.
+
+The publisher executes the descriptor and resolved plan exactly. Its command is
+`jitml internal train-and-publish-product-rows --<substrate> --row <rowId>`;
+the row selector is authoritative and conflicts with the compatibility
+`JITML_PRODUCT_ROW_FILTER` fail closed. Product execution does not accept the
+historical `JITML_PRODUCT_SL_*`, `JITML_PRODUCT_RL_*`,
+`JITML_PRODUCT_AZ_*`, or `JITML_PRODUCT_TUNE_*` semantic overrides. Dataset or
+experiment configuration is loaded only after projection and must agree with
+the projected descriptor. The direct publisher uses the explicit
+`InProcessRun` plan placement on every substrate, and every semantic axis,
+including RL vector-environment multiplicity and the seed cohort, participates
+in the resolved plan identity.
+
+For supervised ProductRows, the publisher accepts the trainer's processed
+examples only when they equal `epochs * trainingExamples`, then constructs the
+canonical four-row finite metric vector in order: `train_loss`,
+`validation_loss`, `examples_processed`, and the row's named held-out
+convergence metric. Missing, extra, duplicate, renamed, reordered, or non-finite
+rows cannot enter Product-origin completion.
+
+For every family, a successful write is only a receipt. The publisher
+known-address re-admits that exact stored manifest through Store and marks the
+row eligible only after the stored/admitted address, projected `rowId`,
+`PlanId`, full `CompletedTraining`, canonical row lookup, and family-specific
+runtime provenance agree. Supervised rows require Product-origin V2. RL,
+AlphaZero, and tuning retain canonical Product V1; their exact trajectory,
+self-play transcript, or tuning-v2 transcript is written first, and its
+content-addressed pointer is supplied to the checkpoint writer so Store
+admission physically binds it. The opaque publisher batch audit requires the
+projected order and denominator, unique row/experiment/manifest identities,
+canonical artifact receipts, exact manifest-pointer/receipt equality, one
+companion pointer for every non-supervised row, no companion pointer for
+supervised rows, and exactly one tuning-v2 transcript for the tuning row.
+
+Reporting is a second nominal boundary, not a text-table join. A private
+`ProductScenarioCompletion kind` can be created only from Store's opaque
+`AdmittedCompletedCheckpoint`. Its persisted manifest and admitted completion
+must exactly match the projection's experiment, canonical ProductRow `rowId`,
+`PlanId`, complete budget, budget/evidence kind, criterion, every dimensionally
+defined update-count relation, and family-specific runtime provenance.
+Traditional RL retains the measured positive trainer update count from the
+admitted completion; it deliberately does not compare that value with the
+current descriptor field that mixes iterations, transitions, and optimizer
+epochs. Sprint `25.4` replaces that field with typed measured counters and owns
+the exact RL comparison. Supervised rows require a matching
+Product-origin V2 payload; non-supervised rows reject an unexpected supervised
+payload. A reportable row can then be minted only from a successful opaque
+`CompletedRunEvidence` carrying that same kind-indexed completion, and it
+retains the admitted manifest SHA. Joining those values against the common
+`ProductProjectionBatch` yields an opaque `CompletedProductScenarioReport` and
+rejects missing, duplicate, orphaned, wrong-plan, or wrong-lane evidence.
+Registry ids, declared test ids, generic payloads, and the legacy seven-column
+lane table cannot populate `ReportMeasurements`.
+`measuredProductRowEvidence = Nothing` means product evidence was not requested;
+when the selected live targets request product evidence and no opaque
+cross-process completed-scenario journal is available, collection fails closed
+before launching measurement effects. Sprint `28.4` supplies that journal
+reader.
+
+A passing generic-origin supervised V2 remains outside this admission boundary.
+Its embedded exact plan may make it inference eligible, but its non-product
+experiment identity and generic origin cannot be substituted for the projected
+row's ProductRow-origin artifact or completed scenario journal. Matching a
+`PlanId` without the addressed Product composite origin is insufficient.
+
 ## Workload Instances
 
 - **Supervised learning** requires the exact training budget, observed update
@@ -488,9 +644,14 @@ see [Legacy Tracking → Pending Removal](../../DEVELOPMENT_PLAN/legacy-tracking
   parallelism, retains pruned outcomes instead of dropping trial keys, persists
   every transcript, and checkpoints exactly the promoted frontier. Replayable
   sampler state and promoted-checkpoint evidence compose with that completion
-  contract. Product evidence for the registered hyperparameter-tuning
+  contract. Product publication renders one `tune-trials-v2` transcript that
+  binds the projected row, `PlanId`, experiment, dataset-at-read SHA, best
+  final JMW1 SHA, and exact ordered contiguous trial executions; exactly one
+  execution is promoted and it must equal the selected best trial. Product
+  evidence for the registered hyperparameter-tuning
   `ProductRow` uses the Catalog's TPE/ASHA/`MedianPruner` schedule: `128` trials,
-  seed `1729`, `6` optimizer updates per trial, parallelism `1`, and a best-
+  seed `1729`, a `1000`-optimizer-update ceiling allocated through eta-derived
+  measured rungs with real early stopping, parallelism `1`, and a best-
   objective target of `1.0` with slack `0.05`. A reduced smoke plan may validate
   transport or lifecycle mechanics but cannot mint completion for that row.
 - **AlphaZero** separates generations, self-play games, simulations per move,

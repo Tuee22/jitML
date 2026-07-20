@@ -21,14 +21,8 @@ where
 
 import Data.Text (Text)
 
-import JitML.Checkpoint.Format
-  ( CompletedCheckpoint
-  , InferenceEligibleCheckpoint
-  , eligibleCheckpointCompletedTraining
-  , eligibleCheckpointManifest
-  , eligibleCheckpointManifestSha
-  , manifestExperiment
-  )
+import JitML.Checkpoint.Format (manifestExperiment)
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Product.Matrix (ModelState (..))
 import JitML.Training.Budget
   ( CompletedTraining
@@ -84,7 +78,7 @@ completeTraining ref completed =
     }
 
 markInferenceEligible
-  :: CompletedCheckpoint
+  :: CheckpointStore.AdmittedCompletedCheckpoint
   -> ModelRef 'TrainingCompleted
   -> Either Text InferenceEligibleRef
 markInferenceEligible eligible ref
@@ -95,15 +89,20 @@ markInferenceEligible eligible ref
   | otherwise =
       Right (inferenceEligibleModelRef eligible)
  where
-  manifest = eligibleCheckpointManifest eligible
-  completed = eligibleCheckpointCompletedTraining eligible
+  admitted = CheckpointStore.admittedCompletedCheckpoint eligible
+  manifest = CheckpointStore.admittedCheckpointManifest admitted
+  completed = CheckpointStore.admittedCompletedTraining eligible
 
-inferenceEligibleModelRef :: InferenceEligibleCheckpoint -> InferenceEligibleRef
+inferenceEligibleModelRef
+  :: CheckpointStore.AdmittedCompletedCheckpoint
+  -> InferenceEligibleRef
 inferenceEligibleModelRef eligible =
-  let manifest = eligibleCheckpointManifest eligible
-      completed = eligibleCheckpointCompletedTraining eligible
+  let admitted = CheckpointStore.admittedCompletedCheckpoint eligible
+      manifest = CheckpointStore.admittedCheckpointManifest admitted
+      completed = CheckpointStore.admittedCompletedTraining eligible
    in ModelRef
         { modelRefExperimentHash = manifestExperiment manifest
-        , modelRefManifestSha = Just (eligibleCheckpointManifestSha eligible)
+        , modelRefManifestSha =
+            Just (CheckpointStore.admittedCheckpointManifestSha admitted)
         , modelRefCompletedTraining = Just completed
         }

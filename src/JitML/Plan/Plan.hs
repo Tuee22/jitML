@@ -41,6 +41,7 @@ module JitML.Plan.Plan
   , runPlanExperimentId
   , runPlanId
   , runPlanPlacement
+  , runPlanRlBudget
   , runPlanSeeds
   , runPlanSubjectId
   , runPlanSubstrate
@@ -108,6 +109,7 @@ data Unit
   = Epoch
   | EnvTransition
   | RolloutTickPerEnv
+  | VectorEnvironment
   | EpisodeStep
   | EvaluationEpisode
   | OptimizerUpdate
@@ -168,6 +170,7 @@ eventIdText (EventId value) = value
 data RunPlacement
   = ClusterRun
   | HostRun
+  | InProcessRun
   deriving stock (Eq, Ord, Show)
 
 data PlanError
@@ -198,6 +201,7 @@ data RawRunBudget (kind :: RunKind) where
   RawRlBudget
     :: { rawRlEnvironmentTransitions :: Integer
        , rawRlRolloutTicksPerEnv :: Integer
+       , rawRlVectorEnvironments :: Integer
        , rawRlEpisodeSteps :: Integer
        , rawRlEvaluationEpisodes :: Integer
        , rawRlOptimizerUpdates :: Integer
@@ -250,6 +254,7 @@ data RunBudget (kind :: RunKind) where
   RlBudget
     :: Quantity 'EnvTransition
     -> Quantity 'RolloutTickPerEnv
+    -> Quantity 'VectorEnvironment
     -> Quantity 'EpisodeStep
     -> Quantity 'EvaluationEpisode
     -> Quantity 'OptimizerUpdate
@@ -275,21 +280,51 @@ deriving instance Show (RunBudget kind)
 -- | A resolved run plan.  Its constructor is intentionally private: callers
 -- receive one only through 'resolveRun'.
 data RunPlan (kind :: RunKind) = RunPlan
-  { runPlanVersion :: Word64
-  , resolvedRunKind :: RunKindWitness kind
-  , runPlanExperimentId :: Text
-  , runPlanSubjectId :: Text
-  , runPlanArtifactId :: Text
-  , runPlanTopicId :: Text
-  , runPlanSubstrate :: Substrate
-  , runPlanPlacement :: RunPlacement
-  , runPlanSeeds :: SeedCohort
-  , resolvedRunBudget :: RunBudget kind
-  , runPlanId :: PlanId
+  { resolvedPlanVersion :: Word64
+  , resolvedPlanKind :: RunKindWitness kind
+  , resolvedPlanExperimentId :: Text
+  , resolvedPlanSubjectId :: Text
+  , resolvedPlanArtifactId :: Text
+  , resolvedPlanTopicId :: Text
+  , resolvedPlanSubstrate :: Substrate
+  , resolvedPlanPlacement :: RunPlacement
+  , resolvedPlanSeeds :: SeedCohort
+  , resolvedPlanBudget :: RunBudget kind
+  , resolvedPlanIdentity :: PlanId
   }
 
 deriving instance Eq (RunPlan kind)
 deriving instance Show (RunPlan kind)
+
+-- These are ordinary read-only functions rather than exported record field
+-- selectors.  Exporting a selector for a hidden constructor would still allow
+-- downstream record update to forge a resolved plan.
+runPlanVersion :: RunPlan kind -> Word64
+runPlanVersion = resolvedPlanVersion
+
+runPlanExperimentId :: RunPlan kind -> Text
+runPlanExperimentId = resolvedPlanExperimentId
+
+runPlanSubjectId :: RunPlan kind -> Text
+runPlanSubjectId = resolvedPlanSubjectId
+
+runPlanArtifactId :: RunPlan kind -> Text
+runPlanArtifactId = resolvedPlanArtifactId
+
+runPlanTopicId :: RunPlan kind -> Text
+runPlanTopicId = resolvedPlanTopicId
+
+runPlanSubstrate :: RunPlan kind -> Substrate
+runPlanSubstrate = resolvedPlanSubstrate
+
+runPlanPlacement :: RunPlan kind -> RunPlacement
+runPlanPlacement = resolvedPlanPlacement
+
+runPlanSeeds :: RunPlan kind -> SeedCohort
+runPlanSeeds = resolvedPlanSeeds
+
+runPlanId :: RunPlan kind -> PlanId
+runPlanId = resolvedPlanIdentity
 
 mkQuantity
   :: Text
@@ -337,17 +372,17 @@ resolveRun raw =
           )
         identity = PlanId (sha256Text (canonicalPlan planWithoutId))
      in RunPlan
-          { runPlanVersion = version
-          , resolvedRunKind = rawRunKind raw
-          , runPlanExperimentId = experimentId
-          , runPlanSubjectId = subjectId
-          , runPlanArtifactId = artifactId
-          , runPlanTopicId = topicId
-          , runPlanSubstrate = rawRunSubstrate raw
-          , runPlanPlacement = placement
-          , runPlanSeeds = seeds
-          , resolvedRunBudget = budget
-          , runPlanId = identity
+          { resolvedPlanVersion = version
+          , resolvedPlanKind = rawRunKind raw
+          , resolvedPlanExperimentId = experimentId
+          , resolvedPlanSubjectId = subjectId
+          , resolvedPlanArtifactId = artifactId
+          , resolvedPlanTopicId = topicId
+          , resolvedPlanSubstrate = rawRunSubstrate raw
+          , resolvedPlanPlacement = placement
+          , resolvedPlanSeeds = seeds
+          , resolvedPlanBudget = budget
+          , resolvedPlanIdentity = identity
           }
 
 validateBudget
@@ -367,13 +402,20 @@ validateBudget rawBudget =
           trainingExamples
           batchExamples
           optimizerUpdates
-    RawRlBudget transitions rolloutTicks episodeSteps evaluationEpisodes optimizerUpdates ->
-      RlBudget
-        <$> mkQuantity "environment-transitions" transitions
-        <*> mkQuantity "rollout-ticks-per-environment" rolloutTicks
-        <*> mkQuantity "episode-steps" episodeSteps
-        <*> mkQuantity "evaluation-episodes" evaluationEpisodes
-        <*> mkQuantity "optimizer-updates" optimizerUpdates
+    RawRlBudget
+      transitions
+      rolloutTicks
+      vectorEnvironments
+      episodeSteps
+      evaluationEpisodes
+      optimizerUpdates ->
+        RlBudget
+          <$> mkQuantity "environment-transitions" transitions
+          <*> mkQuantity "rollout-ticks-per-environment" rolloutTicks
+          <*> mkQuantity "vector-environments" vectorEnvironments
+          <*> mkQuantity "episode-steps" episodeSteps
+          <*> mkQuantity "evaluation-episodes" evaluationEpisodes
+          <*> mkQuantity "optimizer-updates" optimizerUpdates
     RawTuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       TuningBudget
         <$> mkQuantity "trials" trials
@@ -437,6 +479,7 @@ validatePlacement
 validatePlacement AppleSilicon HostRun = Success HostRun
 validatePlacement LinuxCPU ClusterRun = Success ClusterRun
 validatePlacement LinuxCUDA ClusterRun = Success ClusterRun
+validatePlacement _ InProcessRun = Success InProcessRun
 validatePlacement substrate placement = failure (InvalidRunPlacement substrate placement)
 
 validateSeedCohort :: [Word64] -> Validation (NonEmpty PlanError) SeedCohort
@@ -469,7 +512,7 @@ duplicateSeeds values =
 
 runPlanBudgetSummary :: RunPlan kind -> [(Text, Word64)]
 runPlanBudgetSummary plan =
-  case resolvedRunBudget plan of
+  case resolvedPlanBudget plan of
     SupervisedBudget epochs trainingExamples evaluationExamples batchExamples optimizerUpdates ->
       [ ("epochs", quantityValue epochs)
       , ("training-examples", quantityValue trainingExamples)
@@ -477,13 +520,20 @@ runPlanBudgetSummary plan =
       , ("batch-examples", quantityValue batchExamples)
       , ("optimizer-updates", quantityValue optimizerUpdates)
       ]
-    RlBudget transitions rolloutTicks episodeSteps evaluationEpisodes optimizerUpdates ->
-      [ ("environment-transitions", quantityValue transitions)
-      , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
-      , ("episode-steps", quantityValue episodeSteps)
-      , ("evaluation-episodes", quantityValue evaluationEpisodes)
-      , ("optimizer-updates", quantityValue optimizerUpdates)
-      ]
+    RlBudget
+      transitions
+      rolloutTicks
+      vectorEnvironments
+      episodeSteps
+      evaluationEpisodes
+      optimizerUpdates ->
+        [ ("environment-transitions", quantityValue transitions)
+        , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
+        , ("vector-environments", quantityValue vectorEnvironments)
+        , ("episode-steps", quantityValue episodeSteps)
+        , ("evaluation-episodes", quantityValue evaluationEpisodes)
+        , ("optimizer-updates", quantityValue optimizerUpdates)
+        ]
     TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       [ ("trials", quantityValue trials)
       , ("parallel-trials", quantityValue parallelTrials)
@@ -507,9 +557,35 @@ runPlanTuningBudget
      , Quantity 'PerTrialOptimizerUpdate
      )
 runPlanTuningBudget plan =
-  case resolvedRunBudget plan of
+  case resolvedPlanBudget plan of
     TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       (trials, parallelTrials, promotions, perTrialOptimizerUpdates)
+
+runPlanRlBudget
+  :: RunPlan 'ReinforcementLearning
+  -> ( Quantity 'EnvTransition
+     , Quantity 'RolloutTickPerEnv
+     , Quantity 'VectorEnvironment
+     , Quantity 'EpisodeStep
+     , Quantity 'EvaluationEpisode
+     , Quantity 'OptimizerUpdate
+     )
+runPlanRlBudget plan =
+  case resolvedPlanBudget plan of
+    RlBudget
+      transitions
+      rolloutTicks
+      vectorEnvironments
+      episodeSteps
+      evaluationEpisodes
+      optimizerUpdates ->
+        ( transitions
+        , rolloutTicks
+        , vectorEnvironments
+        , episodeSteps
+        , evaluationEpisodes
+        , optimizerUpdates
+        )
 
 runPlanSupervisedBudget
   :: RunPlan 'SupervisedTraining
@@ -520,7 +596,7 @@ runPlanSupervisedBudget
      , Quantity 'OptimizerUpdate
      )
 runPlanSupervisedBudget plan =
-  case resolvedRunBudget plan of
+  case resolvedPlanBudget plan of
     SupervisedBudget epochs trainingExamples evaluationExamples batchExamples optimizerUpdates ->
       (epochs, trainingExamples, evaluationExamples, batchExamples, optimizerUpdates)
 
@@ -534,7 +610,7 @@ runPlanAlphaZeroBudget
      , Quantity 'ArenaGame
      )
 runPlanAlphaZeroBudget plan =
-  case resolvedRunBudget plan of
+  case resolvedPlanBudget plan of
     AlphaZeroBudget generations selfPlayGames simulations maxPlies optimizerUpdates arenaGames ->
       (generations, selfPlayGames, simulations, maxPlies, optimizerUpdates, arenaGames)
 
@@ -628,13 +704,20 @@ budgetSummary budget =
       , ("batch-examples", quantityValue batchExamples)
       , ("optimizer-updates", quantityValue optimizerUpdates)
       ]
-    RlBudget transitions rolloutTicks episodeSteps evaluationEpisodes optimizerUpdates ->
-      [ ("environment-transitions", quantityValue transitions)
-      , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
-      , ("episode-steps", quantityValue episodeSteps)
-      , ("evaluation-episodes", quantityValue evaluationEpisodes)
-      , ("optimizer-updates", quantityValue optimizerUpdates)
-      ]
+    RlBudget
+      transitions
+      rolloutTicks
+      vectorEnvironments
+      episodeSteps
+      evaluationEpisodes
+      optimizerUpdates ->
+        [ ("environment-transitions", quantityValue transitions)
+        , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
+        , ("vector-environments", quantityValue vectorEnvironments)
+        , ("episode-steps", quantityValue episodeSteps)
+        , ("evaluation-episodes", quantityValue evaluationEpisodes)
+        , ("optimizer-updates", quantityValue optimizerUpdates)
+        ]
     TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       [ ("trials", quantityValue trials)
       , ("parallel-trials", quantityValue parallelTrials)
@@ -659,6 +742,7 @@ renderRunKind AlphaZeroSelfPlayWitness = "alphazero-self-play"
 renderPlacement :: RunPlacement -> Text
 renderPlacement ClusterRun = "cluster"
 renderPlacement HostRun = "host"
+renderPlacement InProcessRun = "in-process"
 
 canonicalFields :: [Text] -> Text
 canonicalFields =

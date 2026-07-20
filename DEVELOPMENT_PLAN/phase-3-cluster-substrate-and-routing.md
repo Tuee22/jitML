@@ -20,7 +20,7 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-07-16 for Sprint `3.7`). The retained
+✅ **Done** (reopened and re-closed 2026-07-15 for Sprint `3.7`). The retained
 `linux-cpu` acceptance ran the exact supported `jitml cluster up --substrate
 linux-cpu` command twice. The first invocation retained the edge port, four Kind
 nodes, and 20 PVCs while executing 157 live steps in 2692 seconds and exiting
@@ -506,7 +506,7 @@ assumptions.
 
 ## Sprint 3.7: Live Cluster Lifecycle and Publication Truth [✅ Done]
 
-**Status**: Done (reopened and re-closed 2026-07-16)
+**Status**: Done (reopened and re-closed 2026-07-15)
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Bootstrap.hs`,
 `src/JitML/Cluster/Publication.hs`, `src/JitML/Cluster/ReconcileStamp.hs`,
 `src/JitML/Cluster/PulsarBootstrap.hs`, `chart/values/pulsar.yaml`,

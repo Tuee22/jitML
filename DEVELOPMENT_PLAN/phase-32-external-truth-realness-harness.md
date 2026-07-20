@@ -7,17 +7,24 @@
 
 > **Purpose**: Grade "Done" against external ground truth the implementer cannot
 > author or tune. Install a standing negative-control suite (known fakes must be
-> rejected), frozen external convergence bars, provenance binding, and a typed
+> rejected), frozen external convergence bars, provenance-binding controls, and a typed
 > `Measured`/`Declared` split, so no future fabrication can pass a self-authored
 > gate — the recurring failure mode this whole reopen exists to end.
 
 ## Phase State
 
-⏸️ **Blocked** (reopened 2026-07-12 for Sprint `32.4`). The standing
-negative controls do not yet cover invalid plans, incomplete/conflicting event
-sets, non-finite measurements, settlement failures, or lifecycle arrival-order
-permutations. Sprint `32.4` is blocked by Sprint `31.3`. Sprints `32.1`–`32.3`
-remain Done on their retained external-bar and anti-scaffold surfaces.
+⏸️ **Blocked** (reopened 2026-07-18 at Sprint `32.2`). The retained
+external-bar predicate is independent, but it is not yet bound to the exact
+Store-admitted manifest and exact served blob bytes. Sprint `32.2` is blocked
+by Sprint `31.3`; Sprint `32.4` is then blocked by Sprint `32.2`. Sprints
+`32.1` and `32.3` remain Done on their retained negative-control and
+Measured/Declared surfaces.
+
+Sprint `31.3` is downstream of the reopened exact-artifact chain beginning at
+Sprints `10.6` and `10.12`. Phase `32` tests that the admitted boundary rejects
+known fakes; it does not own the V2 representation, blob/hash binding, stable
+read, or proof constructor. Those primary obligations are Sprints `10.6` and
+`10.12`.
 
 **Historical retained closure.** ✅ **Done**. This phase exists because the 2026-07-05 realness audit found that
 every prior product closure was graded by self-authored, self-referential gates
@@ -35,10 +42,10 @@ individual gates onto it. It depends on Phases `19`–`31`.
 The repository owns a `jitml-negative-controls` test stanza and a set of harness
 primitives that make items `1`–`24` of the [Exit Definition](README.md#exit-definition)
 non-gameable, enforcing new items `25`–`28`. A gate that cannot reject a committed
-known-fake artifact fails the build. No convergence or eligibility threshold may be a
-function of the value it checks. Every reported metric is recomputed at read time
-from the served artifact. A stand-in is typed `Declared` and cannot be reported as
-`Measured`/`Real`.
+known-fake artifact fails the build. No convergence or eligibility threshold may
+be a function of the value it checks. Every reported metric is recomputed from
+the opaque admitted artifact and compared with its journal evidence. A stand-in
+is typed `Declared` and cannot be reported as `Measured`/`Real`.
 
 ## Sprint 32.1: Negative-Control Suite [✅ Done]
 
@@ -76,17 +83,21 @@ docker compose run --rm jitml jitml check-code
 
 - Implemented `NegativeControls.hs` and the stanza; the committed known-fakes are rejected by the standing gate; `docker compose run --rm jitml env JITML_SUBSTRATE=linux-cpu cabal test jitml-negative-controls --test-options='--hide-successes --color=never'` passed 3/3 on 2026-07-06.
 
-## Sprint 32.2: External Bars, No-Self-Referential-Gate Lint, Provenance Binding [✅ Done]
+## Sprint 32.2: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `src/JitML/Product/ExternalBars.hs`, `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Checkpoint/Format.hs`, `test/unit/Main.hs`
+**Blocked by**: Sprint `31.3`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/determinism_contract.md`, `system-components.md`
 
 ### Objective
 
-Convergence bars are frozen external literature constants; a lint bans any threshold
-derived from the value it checks; reported metrics are recomputed from the served
-artifact.
+Convergence bars are frozen external literature constants and a lint bans any
+threshold derived from the value it checks. Persisted artifact binding is
+implemented by Sprints `10.6`/`10.12`; this sprint owns the independent
+external-truth predicates used to grade that boundary and, after aggregation,
+the proof that a reported measurement was recomputed from the exact admitted
+bytes subsequently served.
 
 ### Deliverables
 
@@ -95,8 +106,14 @@ artifact.
   measurements" invariant.
 - A lint (`ProductTruth.hs`) statically rejects the `mkConvergenceBar … measuredValue 0.0`
   / `threshold = measured` pattern anywhere on a product path.
-- `Checkpoint/Format.hs` re-derives `coPassed` at decode against the external bar (not
-  the stored boolean) and asserts the served-weights hash equals the checkpoint hash.
+- The external-bar predicate re-derives `coPassed` from finite measurements
+  rather than trusting a stored boolean. Current served-weight, manifest, blob,
+  and dataset binding is not minted here; Sprint `10.12` exposes only an opaque
+  admitted artifact for this harness to challenge.
+- Bind the aggregated ProductRow claim to that opaque admitted manifest address
+  and its exact served `supervised.weights` bytes, recompute the reported metric
+  through the admitted runtime, and reject metadata-consistent byte
+  substitution.
 
 ### Validation
 
@@ -106,10 +123,20 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Closure Evidence
+### Historical Closure Evidence
 
-- Implemented the module, lint, and decode change; migrate the reopened gate phases
-  (`19`/`21`) onto `ExternalBars`.
+- Implemented the module and lint and exercised the former decode-time check.
+  That old re-encoded-manifest/served-weight assertion is historical and does
+  not close exact V2 persistence or admission; the retained closure here is the
+  external-bar and no-self-reference grader.
+
+### Remaining Work
+
+- Blocked until Sprint `31.3` produces the versioned aggregate evidence bound to
+  Sprint `10.12`'s opaque admitted artifact.
+- Recompute the external-bar measurement from the exact admitted manifest and
+  served weight bytes, then add substitution controls that retain matching
+  metadata while changing either byte object.
 
 ## Sprint 32.3: Measured/Declared Type Split & Behavioral Scaffold Lint [✅ Done]
 
@@ -148,7 +175,7 @@ docker compose run --rm jitml jitml check-code
 **Implementation**: `src/JitML/Test/NegativeControls.hs`,
 `src/JitML/Test/RunContract.hs`, `test/negative-controls/Main.hs`,
 `test/unit/Main.hs`
-**Blocked by**: Sprint `31.3`
+**Blocked by**: Sprint `32.2`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -171,6 +198,10 @@ The binding design is
 - Add event fixtures for gaps, conflicting duplicates, wrong `PlanId`, malformed
   payloads, non-finite measurements, missing terminal events, and completion
   before the declared budget.
+- Add journal fixtures that report storage success or caller-held completion but
+  omit, substitute, or mismatch the opaque Store-admitted artifact identity;
+  each must be rejected as ineligible without recreating admission logic in the
+  harness.
 - Property-test permutation invariance for independent events, idempotence for
   identical redelivery, deterministic rejection of conflicting duplicates, and
   exact missing-evidence diagnostics.
@@ -190,10 +221,10 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `31.3` produces the versioned journal and aggregate
-  evidence boundary graded by these controls.
+- Blocked until Sprint `32.2` binds the versioned aggregate evidence to the
+  exact admitted bytes graded by these controls.
 - Add the invalid-plan, invalid-evidence, settlement, lifecycle-order, and
-  reducer property suites.
+  reducer property suites, including storage-success-without-admission cases.
 - Make contract-negative coverage mandatory for every product row/workflow.
 
 ## Documentation Requirements

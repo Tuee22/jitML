@@ -11,12 +11,14 @@ module JitML.Plan.Command
   ( prepareStartAlphaZeroRun
   , prepareStartTraining
   , prepareStartSweep
+  , prepareStartSweepWithExecutionSpec
   , rawAlphaZeroPlanForCommand
   , rawSupervisedPlanForCommand
   , rawTuningPlanForCommand
   , validateStartAlphaZeroRun
   , validateStartTraining
   , validateStartSweep
+  , validateStartSweepWithExecutionSpec
   )
 where
 
@@ -52,13 +54,16 @@ import JitML.Plan.Workload
   , resolveAlphaZeroPlan
   , resolveSupervisedPlan
   , resolveTuningPlan
+  , resolveTuningPlanWithExecutionSpec
   , supervisedPlanId
+  , tuningPlanExecutionSpec
   , tuningPlanId
   )
 import JitML.Proto.Rl (StartAlphaZeroRun (..))
 import JitML.Proto.Training (StartTraining (..))
 import JitML.Proto.Tune (StartSweep (..))
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Tune.Catalog (TuningExecutionSpec)
 
 prepareStartTraining
   :: StartTraining
@@ -123,17 +128,69 @@ supervisedOptimizerUpdates epochs trainingExamples batchExamples
 prepareStartSweep :: StartSweep -> Either Text (StartSweep, TuningPlan)
 prepareStartSweep raw = do
   plan <- resolveValidation (resolveTuningPlan (rawTuningPlanForCommand raw))
+  pure (attachTuningPlan raw plan, plan)
+
+-- | Prepare a tuning command from the complete normalized execution spec.
+-- Dhall-backed producers use this entrypoint so search spaces, objectives, and
+-- scheduler/pruner parameters participate in both refinement and 'PlanId'.
+prepareStartSweepWithExecutionSpec
+  :: TuningExecutionSpec
+  -> StartSweep
+  -> Either Text (StartSweep, TuningPlan)
+prepareStartSweepWithExecutionSpec executionSpec raw = do
+  plan <-
+    resolveValidation
+      ( resolveTuningPlanWithExecutionSpec
+          executionSpec
+          (rawTuningPlanForCommand raw)
+      )
+  pure (attachTuningPlan raw plan, plan)
+
+attachTuningPlan :: StartSweep -> TuningPlan -> StartSweep
+attachTuningPlan raw plan =
   let prepared =
         raw
           { ssPlanId = planIdText (tuningPlanId plan)
           , ssResolvedPlan = renderTuningPlanTransport plan
           }
-  pure (prepared, plan)
+   in prepared
 
 validateStartSweep :: StartSweep -> Either Text TuningPlan
 validateStartSweep command = do
-  expected <- resolveValidation (resolveTuningPlan (rawTuningPlanForCommand command))
   transported <- resolveValidation (parseTuningPlanTransport (ssResolvedPlan command))
+  validateTransportedStartSweep
+    (tuningPlanExecutionSpec transported)
+    command
+    transported
+
+-- | Validate a tuning command against an independently retained normalized
+-- execution spec.  This is the producer/config-agreement gate; ordinary
+-- workers can use 'validateStartSweep', whose canonical transport already
+-- carries and re-refines that same complete spec.
+validateStartSweepWithExecutionSpec
+  :: TuningExecutionSpec
+  -> StartSweep
+  -> Either Text TuningPlan
+validateStartSweepWithExecutionSpec executionSpec command = do
+  transported <- resolveValidation (parseTuningPlanTransport (ssResolvedPlan command))
+  requireEqual
+    "tuning execution spec"
+    executionSpec
+    (tuningPlanExecutionSpec transported)
+  validateTransportedStartSweep executionSpec command transported
+
+validateTransportedStartSweep
+  :: TuningExecutionSpec
+  -> StartSweep
+  -> TuningPlan
+  -> Either Text TuningPlan
+validateTransportedStartSweep executionSpec command transported = do
+  expected <-
+    resolveValidation
+      ( resolveTuningPlanWithExecutionSpec
+          executionSpec
+          (rawTuningPlanForCommand command)
+      )
   requireEqual "tuning plan-id" (planIdText (tuningPlanId expected)) (ssPlanId command)
   requireEqual "tuning transported plan" expected transported
   requireEqual

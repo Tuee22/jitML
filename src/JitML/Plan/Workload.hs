@@ -39,6 +39,7 @@ module JitML.Plan.Workload
   , resolveAlphaZeroPlan
   , resolveSupervisedPlan
   , resolveTuningPlan
+  , resolveTuningPlanWithExecutionSpec
   , supervisedPlanBatchExamples
   , supervisedPlanEpochs
   , supervisedPlanEvaluationExamples
@@ -47,6 +48,8 @@ module JitML.Plan.Workload
   , supervisedPlanRunPlan
   , supervisedPlanTrainingExamples
   , tuningPlanId
+  , tuningPlanExecutionSpec
+  , tuningPlanMaxPerTrialUpdates
   , tuningPlanParallelism
   , tuningPlanPerTrialUpdates
   , tuningPlanPromotions
@@ -64,6 +67,7 @@ import Data.Char (digitToInt, intToDigit, isHexDigit)
 import Data.Either.Combinators (rightToMaybe)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -71,6 +75,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64)
+import Numeric.Natural (Natural)
 import Text.Read (readMaybe)
 
 import JitML.Plan.Plan
@@ -103,17 +108,31 @@ import JitML.Plan.Plan
   , runPlanVersion
   , seedCohortValues
   )
+import JitML.SL.Architecture qualified as Architecture
+import JitML.SL.Canonicals qualified as Canonicals
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 import JitML.Tune.Catalog
   ( Pruner (..)
   , Sampler (..)
   , Scheduler (..)
+  , TuningExecutionSpec (..)
+  , legacyTuningExecutionSpec
+  , parseTuningExecutionSpec
   , prunerCatalog
   , prunerFromText
+  , renderTuningExecutionSpec
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
   , schedulerFromText
+  , tuningPrunerKind
+  , tuningSamplerKind
+  , tuningSamplerSeed
+  , tuningSchedulerEta
+  , tuningSchedulerKind
+  , tuningSchedulerMaxBudget
+  , tuningSchedulerParallelism
+  , validateTuningExecutionSpec
   )
 
 -- | Raw supervised semantics from a command boundary.  The wrapper keeps the
@@ -128,10 +147,16 @@ newtype RawSupervisedPlan = RawSupervisedPlan
 -- obtain one only by resolving raw command values or by parsing and
 -- re-refining the canonical versioned transport.
 data SupervisedPlan = SupervisedPlan
-  { supervisedPlanRunPlan :: RunPlan 'SupervisedTraining
-  , supervisedPlanId :: PlanId
+  { internalSupervisedPlanRunPlan :: RunPlan 'SupervisedTraining
+  , internalSupervisedPlanId :: PlanId
   }
   deriving stock (Eq, Show)
+
+supervisedPlanRunPlan :: SupervisedPlan -> RunPlan 'SupervisedTraining
+supervisedPlanRunPlan = internalSupervisedPlanRunPlan
+
+supervisedPlanId :: SupervisedPlan -> PlanId
+supervisedPlanId = internalSupervisedPlanId
 
 supervisedPlanEpochs :: SupervisedPlan -> Quantity 'Epoch
 supervisedPlanEpochs plan =
@@ -186,13 +211,32 @@ data RawTuningPlan = RawTuningPlan
 -- | A fully refined tuning plan.  Its identity covers the common run plan and
 -- all three closed axes; operational endpoints deliberately live outside it.
 data TuningPlan = TuningPlan
-  { tuningPlanRunPlan :: RunPlan 'HyperparameterTuning
-  , tuningPlanSampler :: Sampler
-  , tuningPlanScheduler :: Scheduler
-  , tuningPlanPruner :: Pruner
-  , tuningPlanId :: PlanId
+  { internalTuningPlanRunPlan :: RunPlan 'HyperparameterTuning
+  , internalTuningPlanSampler :: Sampler
+  , internalTuningPlanScheduler :: Scheduler
+  , internalTuningPlanPruner :: Pruner
+  , internalTuningPlanExecutionSpec :: TuningExecutionSpec
+  , internalTuningPlanId :: PlanId
   }
   deriving stock (Eq, Show)
+
+tuningPlanRunPlan :: TuningPlan -> RunPlan 'HyperparameterTuning
+tuningPlanRunPlan = internalTuningPlanRunPlan
+
+tuningPlanSampler :: TuningPlan -> Sampler
+tuningPlanSampler = internalTuningPlanSampler
+
+tuningPlanScheduler :: TuningPlan -> Scheduler
+tuningPlanScheduler = internalTuningPlanScheduler
+
+tuningPlanPruner :: TuningPlan -> Pruner
+tuningPlanPruner = internalTuningPlanPruner
+
+tuningPlanExecutionSpec :: TuningPlan -> TuningExecutionSpec
+tuningPlanExecutionSpec = internalTuningPlanExecutionSpec
+
+tuningPlanId :: TuningPlan -> PlanId
+tuningPlanId = internalTuningPlanId
 
 tuningPlanTrials :: TuningPlan -> Quantity 'Trial
 tuningPlanTrials plan =
@@ -210,7 +254,12 @@ tuningPlanPromotions plan =
    in promotions
 
 tuningPlanPerTrialUpdates :: TuningPlan -> Quantity 'PerTrialOptimizerUpdate
-tuningPlanPerTrialUpdates plan =
+tuningPlanPerTrialUpdates = tuningPlanMaxPerTrialUpdates
+
+-- | Per-trial optimizer-update ceiling.  Early scheduler/pruner termination
+-- may produce a lower observed update count for an individual trial.
+tuningPlanMaxPerTrialUpdates :: TuningPlan -> Quantity 'PerTrialOptimizerUpdate
+tuningPlanMaxPerTrialUpdates plan =
   let (_, _, _, updates) = runPlanTuningBudget (tuningPlanRunPlan plan)
    in updates
 
@@ -234,11 +283,20 @@ data RawAlphaZeroPlan = RawAlphaZeroPlan
   deriving stock (Eq, Show)
 
 data AlphaZeroPlan = AlphaZeroPlan
-  { alphaZeroPlanRunPlan :: RunPlan 'AlphaZeroSelfPlay
-  , alphaZeroPlanGame :: AlphaZeroGame
-  , alphaZeroPlanId :: PlanId
+  { internalAlphaZeroPlanRunPlan :: RunPlan 'AlphaZeroSelfPlay
+  , internalAlphaZeroPlanGame :: AlphaZeroGame
+  , internalAlphaZeroPlanId :: PlanId
   }
   deriving stock (Eq, Show)
+
+alphaZeroPlanRunPlan :: AlphaZeroPlan -> RunPlan 'AlphaZeroSelfPlay
+alphaZeroPlanRunPlan = internalAlphaZeroPlanRunPlan
+
+alphaZeroPlanGame :: AlphaZeroPlan -> AlphaZeroGame
+alphaZeroPlanGame = internalAlphaZeroPlanGame
+
+alphaZeroPlanId :: AlphaZeroPlan -> PlanId
+alphaZeroPlanId = internalAlphaZeroPlanId
 
 alphaZeroPlanGenerations :: AlphaZeroPlan -> Quantity 'Generation
 alphaZeroPlanGenerations plan =
@@ -275,6 +333,7 @@ data WorkloadPlanError
   | UnknownTuningSampler Text
   | UnknownTuningScheduler Text
   | UnknownTuningPruner Text
+  | InvalidTuningExecutionSpec Text
   | UnknownAlphaZeroGame Text
   | InvalidTransportLine Int Text
   | DuplicateTransportField Text
@@ -298,14 +357,213 @@ resolveTuningPlan raw =
       <*> validatePruner (rawTuningPruner raw)
  where
   assemble runPlan sampler scheduler pruner =
-    TuningPlan runPlan sampler scheduler pruner
-      <$> workloadPlanId
-        "jitml-tuning-plan-v1"
-        (runPlanId runPlan)
-        [ showText sampler
-        , showText scheduler
-        , showText pruner
-        ]
+    let (trials, parallelism, _, updates) = runPlanTuningBudget runPlan
+        runSeed = fromIntegral (NonEmpty.head (seedCohortValues (runPlanSeeds runPlan)))
+        spec =
+          legacyTuningExecutionSpec
+            sampler
+            scheduler
+            pruner
+            runSeed
+            (fromIntegral (quantityValue trials))
+            (fromIntegral (quantityValue parallelism))
+            (fromIntegral (quantityValue updates))
+     in assembleTuningPlan runPlan sampler scheduler pruner spec
+
+-- | Refine a tuning request with its complete normalized execution spec.
+-- ProductRow/Dhall callers use this boundary so all semantics that can change
+-- execution are validated against the common run budget and bound into PlanId.
+resolveTuningPlanWithExecutionSpec
+  :: TuningExecutionSpec
+  -> RawTuningPlan
+  -> Validation (NonEmpty WorkloadPlanError) TuningPlan
+resolveTuningPlanWithExecutionSpec executionSpec raw =
+  flattenValidation $
+    assemble
+      <$> mapValidationErrors CommonRunPlanError (resolveRun (rawTuningRun raw))
+      <*> validateSampler (rawTuningSampler raw)
+      <*> validateScheduler (rawTuningScheduler raw)
+      <*> validatePruner (rawTuningPruner raw)
+ where
+  assemble runPlan sampler scheduler pruner =
+    andThenValidation
+      (validateResolvedTuningExecutionSpec runPlan sampler scheduler pruner executionSpec)
+      (\() -> assembleTuningPlan runPlan sampler scheduler pruner executionSpec)
+
+assembleTuningPlan
+  :: RunPlan 'HyperparameterTuning
+  -> Sampler
+  -> Scheduler
+  -> Pruner
+  -> TuningExecutionSpec
+  -> Validation (NonEmpty WorkloadPlanError) TuningPlan
+assembleTuningPlan runPlan sampler scheduler pruner executionSpec =
+  TuningPlan runPlan sampler scheduler pruner executionSpec
+    <$> workloadPlanId
+      "jitml-tuning-plan-v2"
+      (runPlanId runPlan)
+      [renderTuningExecutionSpec executionSpec]
+
+validateResolvedTuningExecutionSpec
+  :: RunPlan 'HyperparameterTuning
+  -> Sampler
+  -> Scheduler
+  -> Pruner
+  -> TuningExecutionSpec
+  -> Validation (NonEmpty WorkloadPlanError) ()
+validateResolvedTuningExecutionSpec runPlan sampler scheduler pruner spec =
+  case validateTuningExecutionSpec spec >> validateBindings of
+    Left err -> workloadFailure (InvalidTuningExecutionSpec err)
+    Right () -> Success ()
+ where
+  (trials, parallelism, promotions, updates) = runPlanTuningBudget runPlan
+  runSeed = NonEmpty.head (seedCohortValues (runPlanSeeds runPlan))
+  specSampler = tuningExecutionSampler spec
+  specScheduler = tuningExecutionScheduler spec
+  specPruner = tuningExecutionPruner spec
+  guaranteedPromotionCapacity =
+    guaranteedReachedCeilingTrials spec
+  validateBindings = do
+    requireEqual "sampler kind" sampler (tuningSamplerKind specSampler)
+    requireEqual "scheduler kind" scheduler (tuningSchedulerKind specScheduler)
+    requireEqual "pruner kind" pruner (tuningPrunerKind specPruner)
+    requireInteger "run seed" (toInteger runSeed) (toInteger (tuningSamplerSeed specSampler))
+    architectureHeadroom <- tuningArchitectureSeedHeadroom spec
+    if toInteger runSeed
+      + toInteger (tuningExecutionTrials spec)
+      - 1
+      + architectureHeadroom
+      > toInteger (maxBound :: Int)
+      then
+        Left
+          ( "run seed plus the zero-based trial index and architecture seed headroom exceeds the platform Int range: headroom="
+              <> showText architectureHeadroom
+          )
+      else Right ()
+    requireInteger
+      "trial count"
+      (toInteger (quantityValue trials))
+      (toInteger (tuningExecutionTrials spec))
+    requireInteger
+      "parallelism"
+      (toInteger (quantityValue parallelism))
+      (toInteger (tuningExecutionParallelism spec))
+    requireInteger
+      "scheduler parallelism"
+      (toInteger (quantityValue parallelism))
+      (toInteger (tuningSchedulerParallelism specScheduler))
+    if quantityValue promotions == 0
+      then Left "promotion count must be positive"
+      else
+        if toInteger (quantityValue promotions) > toInteger guaranteedPromotionCapacity
+          then
+            Left
+              ( "promotion count exceeds the scheduler/pruner guaranteed frontier: plan="
+                  <> showText (quantityValue promotions)
+                  <> ", guaranteed="
+                  <> showText guaranteedPromotionCapacity
+              )
+          else Right ()
+    requireInteger
+      "max optimizer updates per trial"
+      (toInteger (quantityValue updates))
+      (toInteger (tuningSchedulerMaxBudget specScheduler))
+  requireEqual label expected observed
+    | expected == observed = Right ()
+    | otherwise =
+        Left
+          ( label
+              <> " mismatch: plan="
+              <> showText expected
+              <> ", execution-spec="
+              <> showText observed
+          )
+  requireInteger label expected observed
+    | expected == observed = Right ()
+    | otherwise =
+        Left
+          ( label
+              <> " mismatch: plan="
+              <> showText expected
+              <> ", execution-spec="
+              <> showText observed
+          )
+
+-- A promotion can only name a trial that actually reaches the configured
+-- per-trial ceiling.  With an active pruner, objective values can make every
+-- eligible trial except the first same-rung observation stop, so one is the
+-- only value guaranteed independently of metrics.  Without a pruner, the
+-- scheduler's deterministic cohort/rung reductions give a tighter bound.
+guaranteedReachedCeilingTrials :: TuningExecutionSpec -> Natural
+guaranteedReachedCeilingTrials spec
+  | tuningPrunerKind (tuningExecutionPruner spec) /= NoPruner = 1
+  | schedulerKind == Fifo = trials
+  | schedulerRungs == 0 = trials
+  | schedulerKind == SuccessiveHalving = reduceAcrossRungs trials
+  | schedulerKind == ASHA = 1
+  | schedulerKind == Hyperband = 0
+  | otherwise =
+      let (fullCohorts, remainder) = trials `divMod` cohortWidth
+          fullSurvivors = fullCohorts * reduceAcrossRungs cohortWidth
+          remainderSurvivors = if remainder == 0 then 0 else reduceAcrossRungs remainder
+       in fullSurvivors + remainderSurvivors
+ where
+  trials = tuningExecutionTrials spec
+  parallelism = tuningExecutionParallelism spec
+  scheduler = tuningExecutionScheduler spec
+  schedulerKind = tuningSchedulerKind scheduler
+  eta = tuningSchedulerEta scheduler
+  maxBudget = tuningSchedulerMaxBudget scheduler
+  schedulerRungs = countSchedulerRungs eta maxBudget
+  cohortWidth =
+    case schedulerKind of
+      ASHA -> parallelism
+      Hyperband -> parallelism
+      _ -> trials
+  reduceAcrossRungs = applyN schedulerRungs (`ceilNatural` eta)
+
+countSchedulerRungs :: Natural -> Natural -> Natural
+countSchedulerRungs eta maxBudget = go 1 0
+ where
+  go current count
+    | current >= maxBudget = count
+    | current > maxBudget `div` eta = count + 1
+    | otherwise = go (current * eta) (count + 1)
+
+ceilNatural :: Natural -> Natural -> Natural
+ceilNatural numerator denominator =
+  (numerator + denominator - 1) `div` denominator
+
+applyN :: Natural -> (value -> value) -> value -> value
+applyN 0 _ value = value
+applyN count step value = applyN (count - 1) step (step value)
+
+tuningArchitectureSeedHeadroom :: TuningExecutionSpec -> Either Text Integer
+tuningArchitectureSeedHeadroom spec =
+  case matchingProblems of
+    [problem] -> Right (Architecture.architectureSeedHeadroomForProblem problem)
+    []
+      | tuningExecutionDataset spec == "synthetic"
+          && tuningExecutionModel spec == "Dense" ->
+          Right
+            ( Architecture.architectureSeedHeadroomForProblem
+                (Canonicals.CanonicalProblem "legacy-tune-dense" "synthetic" "Dense" 0)
+            )
+      | otherwise ->
+          Left
+            ( "tuning execution spec has no canonical dataset/model problem: "
+                <> tuningExecutionDataset spec
+                <> "/"
+                <> tuningExecutionModel spec
+            )
+    _ -> Left "tuning execution spec dataset/model resolves ambiguously"
+ where
+  matchingProblems =
+    [ problem
+    | problem <- Canonicals.canonicalProblems
+    , Canonicals.problemDataset problem == tuningExecutionDataset spec
+    , Canonicals.problemModel problem == tuningExecutionModel spec
+    ]
 
 resolveAlphaZeroPlan
   :: RawAlphaZeroPlan
@@ -429,10 +687,11 @@ renderTuningPlanTransport plan =
         , ("sampler", showText (tuningPlanSampler plan))
         , ("scheduler", showText (tuningPlanScheduler plan))
         , ("pruner", showText (tuningPlanPruner plan))
+        , ("execution-spec-hex", encodeTextHex (renderTuningExecutionSpec (tuningPlanExecutionSpec plan)))
         , ("trials", showQuantity (tuningPlanTrials plan))
         , ("parallel-trials", showQuantity (tuningPlanParallelism plan))
         , ("promotions", showQuantity (tuningPlanPromotions plan))
-        , ("per-trial-optimizer-updates", showQuantity (tuningPlanPerTrialUpdates plan))
+        , ("max-optimizer-updates-per-trial", showQuantity (tuningPlanMaxPerTrialUpdates plan))
         ]
 
 renderAlphaZeroPlanTransport :: AlphaZeroPlan -> Text
@@ -477,9 +736,9 @@ parseTuningPlanTransport
 parseTuningPlanTransport input =
   andThenValidation
     (parseTuningRawTransport input)
-    ( \(declaredPlanId, raw) ->
+    ( \(declaredPlanId, raw, executionSpec) ->
         andThenValidation
-          (resolveTuningPlan raw)
+          (resolveTuningPlanWithExecutionSpec executionSpec raw)
           (verifyTuningPlanId declaredPlanId)
     )
 
@@ -544,7 +803,7 @@ parseSupervisedRawTransport input =
 
 parseTuningRawTransport
   :: Text
-  -> Validation (NonEmpty WorkloadPlanError) (Text, RawTuningPlan)
+  -> Validation (NonEmpty WorkloadPlanError) (Text, RawTuningPlan, TuningExecutionSpec)
 parseTuningRawTransport input =
   andThenValidation
     (parseTransportFields tuningTransportFields input)
@@ -557,10 +816,20 @@ parseTuningRawTransport input =
           <*> requiredField "sampler" fields
           <*> requiredField "scheduler" fields
           <*> requiredField "pruner" fields
+          <*> tuningExecutionSpecField fields
     )
  where
-  build declaredPlanId _version _kind runPlan sampler scheduler pruner =
-    (declaredPlanId, RawTuningPlan runPlan sampler scheduler pruner)
+  build declaredPlanId _version _kind runPlan sampler scheduler pruner executionSpec =
+    (declaredPlanId, RawTuningPlan runPlan sampler scheduler pruner, executionSpec)
+
+tuningExecutionSpecField
+  :: Map Text Text
+  -> Validation (NonEmpty WorkloadPlanError) TuningExecutionSpec
+tuningExecutionSpecField fields =
+  andThenValidation (hexTextField "execution-spec-hex" fields) $ \encoded ->
+    case parseTuningExecutionSpec encoded of
+      Left err -> workloadFailure (InvalidTuningExecutionSpec err)
+      Right spec -> Success spec
 
 parseAlphaZeroRawTransport
   :: Text
@@ -620,7 +889,7 @@ tuningRawRun fields =
             <$> integerField "trials" fields
             <*> integerField "parallel-trials" fields
             <*> integerField "promotions" fields
-            <*> integerField "per-trial-optimizer-updates" fields
+            <*> integerField "max-optimizer-updates-per-trial" fields
         )
 
 alphaZeroRawRun
@@ -662,10 +931,11 @@ tuningTransportFields =
     <> [ "sampler"
        , "scheduler"
        , "pruner"
+       , "execution-spec-hex"
        , "trials"
        , "parallel-trials"
        , "promotions"
-       , "per-trial-optimizer-updates"
+       , "max-optimizer-updates-per-trial"
        ]
 
 alphaZeroTransportFields :: [Text]
@@ -820,6 +1090,7 @@ placementField fields =
     case raw of
       "cluster" -> Success ClusterRun
       "host" -> Success HostRun
+      "in-process" -> Success InProcessRun
       _ -> workloadFailure (InvalidTransportValue "placement" raw)
 
 seedsField
@@ -844,6 +1115,7 @@ renderTransportFields =
 renderPlacement :: RunPlacement -> Text
 renderPlacement ClusterRun = "cluster"
 renderPlacement HostRun = "host"
+renderPlacement InProcessRun = "in-process"
 
 renderSeeds :: RunPlan kind -> Text
 renderSeeds =

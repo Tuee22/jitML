@@ -49,11 +49,17 @@ library
         JitML.Codegen.MlpMetal
         JitML.Codegen.MlpOneDnn
         JitML.Codegen.OneDnn
+        JitML.Codegen.RuntimeOperationsCpu
+        JitML.Codegen.RuntimeOperationsCuda
+        JitML.Codegen.RuntimeOperationsMetal
         JitML.Codegen.RuntimeSource
         JitML.Codegen.SourceFile
         JitML.Checkpoint.Format
         JitML.Checkpoint.Store
+        JitML.Checkpoint.WeightCodec
+        JitML.Checkpoint.Writer
         JitML.Inference.AdversarialMove
+        JitML.Inference.Command
         JitML.Inference.Decode
         JitML.Cluster.DockerImage
         JitML.Cluster.EdgePort
@@ -88,6 +94,10 @@ library
         JitML.Engines.MetalRuntime
         JitML.Engines.OneDnnRuntime
         JitML.Engines.Rng
+        JitML.Engines.RuntimeOperations
+        JitML.Engines.RuntimeOperationsCuda
+        JitML.Engines.RuntimeOperationsDevice
+        JitML.Engines.RuntimeOperationsMetal
         JitML.Engines.Tuning
         JitML.Engines.TuningBenchmark
         JitML.Engines.TuningCache
@@ -127,12 +137,15 @@ library
         JitML.Plan.Render
         JitML.Plan.Command
         JitML.Plan.Workload
+        JitML.Product.Benchmark
+        JitML.Product.Completion
         JitML.Product.Convergence
         JitML.Product.Evidence
         JitML.Product.ExternalBars
         JitML.Product.Matrix
         JitML.Product.PhaseStatus
         JitML.Product.Pipeline
+        JitML.Product.Publisher
         JitML.Project.Config
         JitML.Proto.Gc
         JitML.Proto.Inference
@@ -193,6 +206,7 @@ library
         JitML.RL.AlphaZero.SelfPlay
         JitML.RL.AsyncBuffer
         JitML.RL.Buffer
+        JitML.RL.Command
         JitML.RL.ConvergenceThresholds
         JitML.RL.CountExploration
         JitML.RL.EpisodeEnvelope
@@ -203,6 +217,7 @@ library
         JitML.RL.RewardShaping
         JitML.RL.Schema
         JitML.RL.Simulator
+        JitML.RL.TrainerExecution
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Run.Contract
@@ -213,6 +228,7 @@ library
         JitML.Service.RoleLifecycle
         JitML.Service.Capabilities
         JitML.Service.Clients
+        JitML.Service.Command
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
@@ -245,13 +261,16 @@ library
         JitML.SL.ConvergenceThresholds
         JitML.SL.Dataset
         JitML.SL.Regression
+        JitML.SL.RuntimeArtifact
         JitML.SL.TinyImageNet
+        JitML.SL.TrainingExecution
         JitML.Storage.Buckets
         JitML.Sub.Outcome
         JitML.Sub.Render
         JitML.Sub.Stream
         JitML.Sub.Subprocess
         JitML.Substrate
+        JitML.Test.Command
         JitML.Test.HostWorkloadRegistry
         JitML.Test.InferenceBatch
         JitML.Test.LiveEvidence
@@ -276,6 +295,7 @@ library
         JitML.Test.WorkflowMatrix
         JitML.Training.Budget
         JitML.Tune.Catalog
+        JitML.Tune.Command
         JitML.Tune.Resume
         JitML.Web.AdminPortals
         JitML.Web.Bundle
@@ -292,6 +312,11 @@ library
 
     hs-source-dirs:   src gen
     other-modules:
+        JitML.Product.Publisher.Audit
+        JitML.Product.Publisher.TuningTranscript
+        JitML.RL.Command.AlphaZero
+        JitML.RL.Command.Options
+        JitML.RL.Command.Types
         JitML.Service.Pulsar.Bridge
         JitML.Service.Pulsar.Internal
         JitML.Sub.Piped
@@ -371,9 +396,17 @@ test-suite jitml-unit
     main-is:          Main.hs
     hs-source-dirs:   test/unit
     other-modules:
+        CheckpointV1Admission
         DurableStateTopology
+        ProductExperimentExactness
+        ProductTuneTranscript
         ProtocolCodec
         ReconcileStamp
+        RegressionStandardization
+        RuntimeOperationsAccelerators
+        SupervisedCheckpointV2
+        SupervisedRuntimeArtifact
+        SupervisedTrainingSeed
 
     default-language: GHC2024
     ghc-options:
@@ -392,9 +425,11 @@ test-suite jitml-unit
         exceptions,
         filepath,
         jitml,
+        mtl,
         optparse-applicative,
         path,
         path-io,
+        serialise,
         tasty,
         tasty-hunit,
         tasty-quickcheck,
@@ -502,7 +537,8 @@ test-suite jitml-hyperparameter
         jitml,
         tasty,
         tasty-hunit,
-        text
+        text,
+        vector
 
 test-suite jitml-backends
     type:             exitcode-stdio-1.0

@@ -7,7 +7,7 @@
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
 > current local PureScript shell, browser-contract renderer, bundle/panel
-> metadata, demo-route manifest, Playwright scaffold, and `jitml-demo` Webapp
+> metadata, demo-route manifest, live Playwright suite, and `jitml-demo` Webapp
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
@@ -247,8 +247,9 @@ animation and replay frames, drives a CSS-transform live environment animation
 (a cart-pole scene plus a per-dimension observation strip and a recent-reward
 sparkline) from `RlAnimationFrame.observation`, and exposes prev/next replay
 scrub controls over the received `RlReplayFrame` list. These render surfaces
-compile and pass the contract spec through `jitml lint purescript`; live
-Playwright product proof of the animations is Phase `14` work. `Panels.Stream`
+compile and pass the contract spec through `jitml lint purescript`; the
+completed Phase `14` live Playwright matrix exercises their product behavior.
+`Panels.Stream`
 opens the live
 WebSocket route, reports connection failures through typed actions, and the
 RL/training/tune panels convert incoming frame text through generated stream
@@ -279,8 +280,10 @@ command route accepts
 `/api/runs/<run-id>/command`, reads the POST body, resolves live-substrate
 command envelopes, publishes protocol-supported training/RL/tune commands
 when a live publication is supplied, and returns a typed acknowledgement.
-Without a publication it fails closed with `503`; persisted cross-session
-status tracking remains open. A stream route requested as plain HTTP returns
+Without a publication it fails closed with `503`; with a publication the
+Engine lifecycle projector publishes reconciled queued/running/failed/done
+status on `workflow.status.<substrate>`, bridged to the browser through
+`/api/ws/workflow`. A stream route requested as plain HTTP returns
 `503 live stream requires WebSocket upgrade`; upgraded clients are bridged to
 Pulsar event topics by `liveDemoWebSocketRoutes`.
 
@@ -315,8 +318,8 @@ runtime/budget envelope, but CUDA execution belongs to the Engine role.
 
 ## Playwright E2E
 
-`playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
-`JitML.Test.LivePlan` records the target
+`playwright/jitml-demo.spec.ts` is the current live-only TypeScript Playwright
+suite. `JitML.Test.LivePlan` records the typed
 `docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=<substrate> mcr.microsoft.com/playwright:v1.49.1-noble ... playwright test --config playwright/playwright.config.ts`
 step after the Helm dependency build and the `jitml bootstrap` live-cluster
 rollout. The default `jitml-e2e` Cabal body validates that typed Playwright
@@ -324,7 +327,7 @@ command shape without starting the live stack; `jitml test jitml-e2e --live
 --linux-cpu` selects or bootstraps the live cluster and runs it. The checked-in spec is live-only: it reads
 `.build/runtime/cluster-publication.json`, navigates to the published edge
 route, and fails fast when no live publication exists. The historical matrix
-covers the smoke shell plus the eight current panel hashes:
+covers the smoke shell plus the original eight-panel cohort:
 
 - Portals home: load the empty-hash root and assert both the panels
   column (`#jitml-portals-panels`) and the admin-portals column
@@ -332,16 +335,16 @@ covers the smoke shell plus the eight current panel hashes:
   the expected root-relative `href` matching the route registry.
 - Shared header: for each named panel hash, assert `#jitml-chrome`
   mounts and the `#jitml-chrome-home` anchor links to `#portals`.
-- MNIST/generic/CIFAR/checkpoint compare/Connect 4: current panel reachability
-  can issue the REST calls and assert typed response envelopes; Phase `14`
-  expands that into no-caveat model artifact selection and rendered product
-  state.
+- MNIST/generic/CIFAR/checkpoint compare/Connect 4: the original reachability
+  cases issued REST calls and asserted typed response envelopes; completed
+  Phase `14` expanded them into no-caveat model artifact selection and rendered
+  product state.
 - RL trajectory: load the trajectory panel through the live edge route.
 - Training / Tune: load the streaming metric panels through the live edge
   route.
 
-The product matrix covers every documented model family with refined
-`InferenceEligibleCheckpoint` artifacts, visible completion/convergence
+The product matrix covers every documented model family with Store-admitted
+completed checkpoint artifacts, visible completion/convergence
 projections, negative infer-before-complete checks, RL animations from trained
 policies, adversarial-game boards from trained policy/value checkpoints,
 transcript replay, tuning controls, and TensorBoard/checkpoint links. Current

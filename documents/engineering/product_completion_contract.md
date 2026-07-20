@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, numerical_core.md, run_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md
+**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, checkpoint_format.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, numerical_core.md, run_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md
 **Generated sections**: none
 
 > **Purpose**: Define the non-negotiable completion proof for jitML's documented
@@ -93,10 +93,7 @@ Each row carries these machine-checkable fields:
 | `trainingBudget` | Fixed terminating budget used by the row's training or tuning run. |
 | `convergenceBar` | Per-row metric, direction, literature target, slack, and threshold; representative category thresholds cannot satisfy another row. |
 | `deviceClaim` | The substrate-backed execution claim the row must prove before product closure. |
-| `trainingEvidence` | Proof that training ran for the declared fixed budget and parameters changed from initialization. |
-| `deviceEvidence` | Proof that the selected substrate device executed the forward/backward/update-critical kernels, or an explicit non-product classification if no device-backed model is claimed. |
-| `checkpointEvidence` | `CompletedTraining` witness plus convergence metrics in the checkpoint manifest. |
-| `demoEvidence` | Browser contract and panel path that renders the trained artifact, not only the row name. |
+| `productCapability` | Closed executable capability carrying a kind-indexed plan descriptor and same-kind evidence requirements. An unsupported declaration carries only its reason and cannot project into an executable scenario. |
 | `integrationTest` | Test identifier that executes the row through the real training/checkpoint path. |
 | `e2eTest` | Test identifier that renders or interacts with the row through the live demo app. |
 | `demoPanel` | Browser panel that must render the row from an inference-eligible trained artifact. |
@@ -111,6 +108,18 @@ documented floor, documented floor members missing from the registry, and rows
 without integration/e2e ids. Browser contracts and workflow-matrix projections
 are generated from the registry; hand-maintained duplicate row lists are not
 closure evidence.
+
+`projectProductRow` is the one refinement boundary from a raw registry row to
+an opaque, kind-indexed `ProductProjection`. It validates the declaration,
+budget kind, convergence bar, descriptor/row-class agreement, and complete
+resolved workload plan, then retains the semantic `PlanId`, exact execution
+descriptor, evidence requirements, substrate, and internal executor command.
+`projectProductRows` additionally rejects duplicate identities and returns an
+opaque, order-preserving `ProductProjectionBatch`. Workflow cells, execution,
+and completed-report joins consume that batch; none may reinterpret `rowClass`
+or copy plan inputs from registry labels. The transitional optional evidence
+handle fields on the raw row side are rejected when populated and are removed
+by Sprint `21.4`; they are not completion evidence.
 
 `trainingBudget` is the row's real execution schedule, not a report-card
 default. Supervised ProductRows use the `5`- or `10`-epoch schedule registered
@@ -163,11 +172,10 @@ shape, action count, self-play command (`--game <id>`), MCTS visit distribution
 targets, outcome labels, and policy/value checkpoint tensor name. Self-play
 evidence must show network-backed priors and leaf values, persistent per-game
 MCTS cache state across moves, deterministic root-noise seeding, and the row's
-own transcript/game id. Each row carries training, device, and checkpoint
-evidence handles; its checkpoint manifest carries a `CompletedTraining` witness
-with the initial/final policy-value network hashes, positive generation count,
-passing per-game arena win-rate observation, and an
-`InferenceEligibleCheckpoint` proof from the checkpoint loader boundary.
+own transcript/game id. The checkpoint manifest carries a `CompletedTraining`
+witness with the initial/final policy-value network hashes, positive generation
+count, passing per-game arena win-rate observation, and an opaque
+`AdmittedCompletedCheckpoint` from the Store loader boundary.
 
 ## Type-State DSL Contract
 
@@ -179,16 +187,79 @@ projection: declared, running, completed-training, and inference-eligible phases
 have phase-specific payloads rather than one record whose independent `Maybe`
 fields can disagree.
 
-`CompletedTraining` is refined only from `CompletedRunEvidence` containing the
-exact observed unit-indexed budget, initial/final learned-state hashes, measured
-positive update counters, dataset-read provenance where applicable, finite
-criterion-evaluated measurements, TensorBoard metadata, terminal checkpoint,
-and matching `PlanId`. A freely constructible `passed` boolean, declared metric,
-checkpoint pointer, or direct CBOR/Dhall decode cannot produce it.
+`CompletedTraining` is refined from the exact observed unit-indexed budget,
+initial/final learned-state hashes, measured positive update counters,
+dataset-read provenance where applicable, finite criterion-evaluated
+measurements, TensorBoard metadata, and matching `PlanId`. Product reporting
+does not admit that caller-held value directly. Store first re-reads the exact
+persisted manifest and physical payload graph and returns opaque
+`AdmittedCompletedCheckpoint`. A private kind-indexed
+`ProductScenarioCompletion` accepts only that value when its manifest
+experiment, canonical `rowId`, manifest/completion `PlanId`, full completion
+identity, budget/evidence kind, criterion, every dimensionally defined
+update-count relation, and family-specific runtime provenance exactly match the
+row projection. Traditional RL retains its admitted positive measured trainer
+count without equating it to the current descriptor that mixes iterations,
+transitions, and optimizer epochs; Sprint `25.4` owns that typed exact
+comparison. Only a successful opaque
+`CompletedRunEvidence` carrying that completion can mint reportable scenario
+evidence; the evidence retains the admitted manifest SHA. The final report is
+an opaque batch join that rejects missing, duplicate, orphan, wrong-plan, and
+wrong-lane scenarios. A freely constructible `passed` boolean, declared
+metric, checkpoint pointer, caller-held completion, generic evidence payload,
+or direct CBOR/Dhall decode cannot cross either boundary.
 
-Dhall selectors and checkpoint manifests are raw persisted DTOs. Loaders decode
-them, re-run semantic refinement, and mint an opaque
-`InferenceEligibleCheckpoint` only when artifact identity and completed evidence
+Supervised V2 makes that provenance distinction nominal. The ProductRow
+publisher writes `RawProductRowProjectionOrigin`, which must resolve the row and
+`PlanId` to exactly one supported-substrate projection and use the row's
+authoritative experiment hash. Public/daemon supervised commands write
+`RawGenericSupervisedExecutionOrigin(rowId, canonicalPlanTransport)` with their
+canonical row identity, exact plan transport, and a non-product experiment
+identity. In both cases the addressed row/origin composite binds canonical row
+semantics; `PlanId` alone does not. A passing generic-origin V2 can satisfy its
+own inference-eligibility checks, but it cannot be admitted as ProductRow
+scenario/report evidence. A finite below-bar generic run is successful training
+with no eligible checkpoint or completed-checkpoint event; absence of optional
+legacy weight-list projections does not change that miss. It is not a failed
+metric disguised as product completion. The exact wire rules are owned by
+[Checkpoint Format](checkpoint_format.md#frozen-v1-and-exact-supervised-v2).
+
+Product-origin admission also checks observations rather than declarations. The
+publisher requires exact processed examples and constructs the canonical four
+finite metric rows (`train_loss`, `validation_loss`, `examples_processed`, and
+the row's named held-out convergence metric). V2 refinement then binds every
+completed convergence observation to one unique equal-valued manifest row,
+binds TensorBoard run/prefix/tags to the manifest experiment and completed
+metric names, and requires runtime, manifest, and completion dataset digests to
+equal the canonical pinned training/evaluation read digest for that row.
+Completed-checkpoint publication additionally requires the current-pointer CAS
+to return `PointerWritten` for that exact manifest before the event is emitted;
+a retained immutable snapshot with a pointer conflict is not product adoption.
+
+Publisher eligibility requires a second read boundary after that write. The
+exact stored address is re-admitted through Store; the stored/admitted manifest
+SHA, projected `rowId` and `PlanId`, complete `CompletedTraining`, canonical
+row lookup, and family runtime provenance must all agree before the row counts
+as eligible. Supervised ProductRows require Product-origin V2. RL, AlphaZero,
+and tuning retain canonical non-supervised Product V1, but their exact
+trajectory, self-play transcript, or tuning-v2 transcript is written first and
+its content-addressed receipt is bound into the manifest. The full publisher
+batch and independent integration inventory require all 55 projections in
+registry order, 55 unique admitted manifest addresses, canonical unique
+companion keys, no missing/orphan/substituted pointer, and exactly one
+tuning-v2 transcript.
+
+That tuning transcript binds `row-id`, `plan-id`, experiment hash,
+dataset-at-read SHA, best-final-JMW1 SHA, and the exact ordered contiguous trial
+executions. It is valid only when exactly one execution is promoted and equals
+the selected best trial, all persisted numerical values are finite, observed
+trial/update counts match completion, and completion contains exactly one
+equal-valued `best_objective` measurement.
+
+Dhall selectors and checkpoint manifests are raw persisted DTOs. Store loaders
+start from an opaque persisted address, verify the exact manifest and physical
+blob bytes, re-run semantic refinement, and return opaque
+`AdmittedCompletedCheckpoint` only when artifact identity and completed evidence
 agree. Missing, partial, synthetic, seeded-demo, failed-training, wrong-plan, or
 non-finite provenance remains a typed rejection before any substrate runner
 receives weights.
@@ -229,6 +300,18 @@ Playwright guard asserts the browser posts `product-row-*` hashes and does not
 render `*-demo-weights`; Phase `28` converts that browser proof into one
 integration/e2e evidence row per ProductRow and keeps the active work on the
 per-row `linux-cpu` report card.
+
+The all-row form above is orchestration shorthand. Each projected row's exact
+executor argv is
+`jitml internal train-and-publish-product-rows --<substrate> --row <rowId>`.
+The authoritative row selector rejects repeated/multi-row values
+and conflicts with `JITML_PRODUCT_ROW_FILTER`; execution uses direct
+`InProcessRun` placement and consumes the projection's seed, budget, dimensions,
+RL vector-environment count, and kind-indexed descriptor. The semantic
+`JITML_PRODUCT_SL_*`, `JITML_PRODUCT_RL_*`, `JITML_PRODUCT_AZ_*`, and
+`JITML_PRODUCT_TUNE_*` override families do not alter this path. When a live
+report requests product evidence, absence of an opaque completed-scenario
+journal is a failure, not an omitted report section.
 
 ## Test Contract
 

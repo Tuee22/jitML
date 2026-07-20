@@ -18,8 +18,8 @@
 --     'WorkCommand' or a typed 'WorkRejection' — never a silent bad state.
 --   * __A serveable 'ArtifactRef' is unrepresentable unless it comes from a
 --     completed derivation.__ 'ArtifactRef' is opaque; the only way to obtain one
---     is 'mintArtifactRef', which yields 'Just' only when a checkpoint manifest
---     has @step ≥ 1@ (the coordinator writes the 'readinessSentinelKey' last).
+--     is 'mintArtifactRef' from Store's opaque, completed persisted admission
+--     (the coordinator writes the 'readinessSentinelKey' last).
 module JitML.Work.Envelope
   ( -- * Correlation + addressing
     CallId (..)
@@ -50,7 +50,6 @@ module JitML.Work.Envelope
   )
 where
 
-import Data.Either (isRight)
 import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -59,13 +58,11 @@ import Data.Text qualified as Text
 import Data.Word (Word64)
 
 import JitML.Checkpoint.Format
-  ( CheckpointManifest
-  , latestPointerKey
-  , manifestContentSha
+  ( latestPointerKey
   , manifestExperiment
   , manifestStep
-  , requireCompletedCheckpoint
   )
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Coordinator.Topology (Workflow (..))
 import JitML.Substrate (Substrate)
 
@@ -80,8 +77,9 @@ newtype SubjectRef = SubjectRef {unSubjectRef :: Text}
 
 -- | A reference to a __derived__ artifact (a trained checkpoint). The
 -- constructor is intentionally not exported: the only way to obtain an
--- 'ArtifactRef' is 'mintArtifactRef' from a completed training derivation, so
--- "infer over an underived/untrained model" is unrepresentable in the domain.
+-- 'ArtifactRef' is 'mintArtifactRef' from Store's completed persisted
+-- admission, so "infer over an underived/untrained model" is unrepresentable
+-- in the domain.
 data ArtifactRef = ArtifactRef
   { arExperiment :: Text
   , arStep :: Word64
@@ -94,20 +92,21 @@ artifactRefExperiment = arExperiment
 artifactRefStep :: ArtifactRef -> Word64
 artifactRefStep = arStep
 
--- | Mint a serveable 'ArtifactRef' from a completed training derivation. Returns
--- 'Just' only when the checkpoint manifest has advanced at least one step
--- (@step ≥ 1@) — i.e. real training happened. A @step 0@ / untrained manifest
--- yields 'Nothing', so it can never back a served inference.
-mintArtifactRef :: CheckpointManifest -> Maybe ArtifactRef
-mintArtifactRef manifest
-  | manifestStep manifest >= 1
-      && isRight
-        ( requireCompletedCheckpoint
-            (manifestContentSha manifest)
-            manifest
-        ) =
-      Just ArtifactRef {arExperiment = manifestExperiment manifest, arStep = manifestStep manifest}
-  | otherwise = Nothing
+-- | Mint a serveable 'ArtifactRef' only from Store's opaque completed
+-- admission. Exact persisted outer/body/blob verification and completion
+-- refinement have therefore already succeeded; an in-memory manifest cannot
+-- call this boundary.
+mintArtifactRef
+  :: CheckpointStore.AdmittedCompletedCheckpoint
+  -> ArtifactRef
+mintArtifactRef completedAdmission =
+  ArtifactRef
+    { arExperiment = manifestExperiment manifest
+    , arStep = manifestStep manifest
+    }
+ where
+  admitted = CheckpointStore.admittedCompletedCheckpoint completedAdmission
+  manifest = CheckpointStore.admittedCheckpointManifest admitted
 
 -- | The MinIO object key for the @.ready@ sentinel the coordinator writes
 -- __last__, next to the experiment's @latest@ pointer. Its presence is the
@@ -168,9 +167,10 @@ renderWorkRejection (ArtifactNotReady workflow) =
 
 -- | Parse a raw (already-field-extracted) wire command into a validated
 -- 'WorkCommand', or a typed 'WorkRejection'. The @artifactRef@ is supplied as a
--- pre-minted 'Maybe ArtifactRef' (minting happens against the live manifest via
--- 'mintArtifactRef'); an artifact-consuming workflow with no ready artifact is
--- rejected rather than silently served from an untrained model.
+-- pre-minted 'Maybe ArtifactRef' (minting happens from Store's opaque completed
+-- admission via 'mintArtifactRef'); an artifact-consuming workflow with no
+-- ready artifact is rejected rather than silently served from an untrained
+-- model.
 parseWorkCommand
   :: Workflow
   -> Substrate

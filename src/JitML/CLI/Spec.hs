@@ -263,7 +263,7 @@ tuneCommand =
         Nothing
         "name"
         False
-        "Override the tuning scheduler axis (Fifo, SuccessiveHalving, Hyperband, ASHA)."
+        "Override the tuning scheduler axis (Fifo, SuccessiveHalving, ASHA; Hyperband is rejected until bracket semantics are configured)."
     , value
         "pruner"
         Nothing
@@ -547,10 +547,21 @@ internalCommand =
         "train-and-publish-product-rows"
         "Train and publish product row checkpoints."
         "Trains the ProductRow matrix on the selected substrate, writes inference-eligible checkpoints into the local product-row artifact namespace, and mirrors them to live MinIO when a live publication is present."
-        substrateFlags
+        ( substrateFlags
+            <> [ value
+                   "row"
+                   Nothing
+                   "row-id"
+                   False
+                   "Execute exactly one ProductRow. If JITML_PRODUCT_ROW_FILTER is also set, it must select the same single row."
+               ]
+        )
         [ Example
             "jitml internal train-and-publish-product-rows --linux-cpu"
             "Train and publish product-row artifacts for the Linux CPU lane."
+        , Example
+            "jitml internal train-and-publish-product-rows --linux-cpu --row mnist-shallow-mlp"
+            "Train and publish exactly one projected ProductRow."
         ]
     , leaf
         "benchmark-product-row-wall-clock"

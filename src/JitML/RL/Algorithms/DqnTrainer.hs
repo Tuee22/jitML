@@ -20,8 +20,9 @@
 -- forward/backward and replay buffer surface is the same across all
 -- 7 off-policy algorithms; the variation is the target formula.
 --
--- Bit-deterministic on the same substrate / same seed (pure Haskell
--- chain-rule backprop, seeded 'StdGen').
+-- Bit-deterministic on the same substrate / same seed: exploration and replay
+-- use the seeded 'StdGen', while policy forwards and gradient updates stay on
+-- the selected deterministic device implementation.
 module JitML.RL.Algorithms.DqnTrainer
   ( DqnTrainConfig (..)
   , defaultDqnTrainConfig
@@ -51,7 +52,7 @@ import System.Random qualified as Random
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
-  , AdamState
+  , AdamState (..)
   , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
@@ -64,7 +65,7 @@ import JitML.Numerics.Mlp
   , mlpInit
   )
 import JitML.Numerics.MlpCuda (cudaMlpDevice)
-import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
@@ -146,6 +147,8 @@ data DqnIterationStat = DqnIterationStat
 data DqnTrainResult = DqnTrainResult
   { dqnResultStats :: ![DqnIterationStat]
   , dqnResultFinalParams :: !MlpParams
+  , dqnResultOptimizerSteps :: !Int
+  -- ^ Adam applications executed against the final online-Q tensor.
   , dqnResultConfig :: !DqnTrainConfig
   }
   deriving stock (Eq, Show)
@@ -156,6 +159,7 @@ trainDqnOnCartpole config = do
       initialParams = initialDqnParams config
   -- Replay buffer carried as a list (ring-buffer semantics via take + cons).
   loop
+    pureReferenceMlpDevice
     cartPoleEnvironment
     config
     (\online target adam batch -> pure (dqnUpdate config online target adam batch))
@@ -172,7 +176,8 @@ trainDqnOnCartpole config = do
     [] -- iteration stats
 
 loop
-  :: SimulatedEnvironment state
+  :: MlpDevice
+  -> SimulatedEnvironment state
   -> DqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
   -- ^ minibatch update: online → target → adam → batch → (online', adam')
@@ -188,9 +193,10 @@ loop
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
   -> IO DqnTrainResult
-loop environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+loop device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      device
       environment
       config
       (\o t a batch -> Right <$> update o t a batch)
@@ -208,7 +214,8 @@ loop environment config update online target adam gen buffer step state episodeL
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: SimulatedEnvironment state
+  :: MlpDevice
+  -> SimulatedEnvironment state
   -> DqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
   -- ^ minibatch update: online → target → adam → batch → either fault or (online', adam')
@@ -224,13 +231,14 @@ loopEither
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
   -> IO (Either Text DqnTrainResult)
-loopEither environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loopEither device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= dqnNumSteps config =
       pure
         ( Right
             DqnTrainResult
               { dqnResultStats = reverse stats
               , dqnResultFinalParams = online
+              , dqnResultOptimizerSteps = adamStep_ adam
               , dqnResultConfig = config
               }
         )
@@ -240,113 +248,118 @@ loopEither environment config update online target adam gen buffer step state ep
           (u, gen1) = Random.uniformR (0.0 :: Double, 1.0) gen
           (actionU, gen2) =
             Random.uniformR (0 :: Int, dqnActionCount config - 1) gen1
-          qValues =
-            VU.toList
-              (forwardOutput (mlpForward online obs))
-          greedyAction =
-            argmax qValues
-          action =
-            if u < epsilon
-              then actionU
-              else greedyAction
-          stepResult = envStep environment state action
-          -- True environment termination (pole fell / out of bounds). Only
-          -- this stops Bellman bootstrapping.
-          envDone = simStepDone stepResult
-          -- Episode reset also fires on the time limit, but a time-limit
-          -- truncation is NOT a terminal state: bootstrapping must continue
-          -- through it, otherwise the net learns that long-survival states
-          -- are worth only their immediate reward and never reaches 500.
-          timeLimit = episodeLen + 1 >= dqnMaxEpisodeSteps config
-          terminal = envDone || timeLimit
-          nextObs = obsVector environment (simStepState stepResult)
-          transition =
-            Transition
-              { transObs = obs
-              , transAction = action
-              , transReward =
-                  simStepReward stepResult
-                    + RewardShaping.shapingBonus (envName environment) (dqnGamma config) obs nextObs
-              , transNextObs = nextObs
-              , transDone = envDone
-              }
-          newBuffer =
-            take (dqnReplayCapacity config) (transition : buffer)
-          nextEpisodeReturn = episodeReturn + simStepReward stepResult
-          (nextState, nextEpisodeLen, finalReturn, newEpisodes) =
-            if terminal
-              then
-                ( envInitial environment
-                , 0
-                , 0.0
-                , nextEpisodeReturn : episodes
-                )
-              else
-                ( simStepState stepResult
-                , episodeLen + 1
-                , nextEpisodeReturn
-                , episodes
-                )
-      -- Do a gradient update if we've collected enough transitions.
-      updateResult <-
-        if step + 1 >= dqnTrainStart config
-          && (step + 1) `mod` dqnUpdateFrequency config == 0
-          && length newBuffer >= dqnBatchSize config
-          then do
-            let (batch, gen2b) =
-                  sampleBatch (dqnBatchSize config) newBuffer gen2
-            fmap (\(onlineUpd, adamUpd) -> (onlineUpd, adamUpd, gen2b)) <$> update online target adam batch
-          else pure (Right (online, adam, gen2))
-      case updateResult of
+      actionResult <-
+        if u < epsilon
+          then pure (Right actionU)
+          else do
+            forwardResult <- mlpdForward device online obs
+            pure $
+              case forwardResult of
+                Left err ->
+                  Left ("dqn device forward kernel failed mid-run (behavior policy): " <> err)
+                Right forward -> Right (argmax (VU.toList (forwardOutput forward)))
+      case actionResult of
         Left err -> pure (Left err)
-        Right (onlineNext, adamNext, gen3) -> do
-          -- On episode reset use the env's exploring-start distribution when it
-          -- has one (mountain-car) so the value net sees the high-return region
-          -- and bootstraps outward; otherwise reset to the fixed initial state.
-          let (resetState, gen4) =
+        Right action -> do
+          let stepResult = envStep environment state action
+              -- True environment termination (pole fell / out of bounds). Only
+              -- this stops Bellman bootstrapping.
+              envDone = simStepDone stepResult
+              -- Episode reset also fires on the time limit, but a time-limit
+              -- truncation is NOT a terminal state: bootstrapping must continue
+              -- through it, otherwise the net learns that long-survival states
+              -- are worth only their immediate reward and never reaches 500.
+              timeLimit = episodeLen + 1 >= dqnMaxEpisodeSteps config
+              terminal = envDone || timeLimit
+              nextObs = obsVector environment (simStepState stepResult)
+              transition =
+                Transition
+                  { transObs = obs
+                  , transAction = action
+                  , transReward =
+                      simStepReward stepResult
+                        + RewardShaping.shapingBonus (envName environment) (dqnGamma config) obs nextObs
+                  , transNextObs = nextObs
+                  , transDone = envDone
+                  }
+              newBuffer =
+                take (dqnReplayCapacity config) (transition : buffer)
+              nextEpisodeReturn = episodeReturn + simStepReward stepResult
+              (nextState, nextEpisodeLen, finalReturn, newEpisodes) =
                 if terminal
-                  then trainingResetState environment gen3
-                  else (nextState, gen3)
-          -- Periodic target-net hard copy.
-          let targetNext =
-                if (step + 1) `mod` dqnTargetUpdateInterval config == 0
-                  then onlineNext
-                  else target
-          -- Record stat at intervals.
-          let statsNext =
-                if (step + 1) `mod` dqnStatInterval config == 0
                   then
-                    let recent = take 100 newEpisodes
-                        meanR =
-                          if null recent
-                            then 0.0
-                            else sum recent / fromIntegral (length recent)
-                        lastR = case newEpisodes of
-                          (r : _) -> r
-                          [] -> 0.0
-                     in DqnIterationStat
-                          { dqnIterStep = step + 1
-                          , dqnIterEpisodes = length newEpisodes
-                          , dqnIterMeanReward = meanR
-                          , dqnIterLastEpisodeReward = lastR
-                          }
-                          : stats
-                  else stats
-          loopEither
-            environment
-            config
-            update
-            onlineNext
-            targetNext
-            adamNext
-            gen4
-            newBuffer
-            (step + 1)
-            resetState
-            nextEpisodeLen
-            finalReturn
-            newEpisodes
-            statsNext
+                    ( envInitial environment
+                    , 0
+                    , 0.0
+                    , nextEpisodeReturn : episodes
+                    )
+                  else
+                    ( simStepState stepResult
+                    , episodeLen + 1
+                    , nextEpisodeReturn
+                    , episodes
+                    )
+          -- Do a gradient update if we've collected enough transitions.
+          updateResult <-
+            if step + 1 >= dqnTrainStart config
+              && (step + 1) `mod` dqnUpdateFrequency config == 0
+              && length newBuffer >= dqnBatchSize config
+              then do
+                let (batch, gen2b) =
+                      sampleBatch (dqnBatchSize config) newBuffer gen2
+                fmap (\(onlineUpd, adamUpd) -> (onlineUpd, adamUpd, gen2b)) <$> update online target adam batch
+              else pure (Right (online, adam, gen2))
+          case updateResult of
+            Left err -> pure (Left err)
+            Right (onlineNext, adamNext, gen3) -> do
+              -- On episode reset use the env's exploring-start distribution when it
+              -- has one (mountain-car) so the value net sees the high-return region
+              -- and bootstraps outward; otherwise reset to the fixed initial state.
+              let (resetState, gen4) =
+                    if terminal
+                      then trainingResetState environment gen3
+                      else (nextState, gen3)
+              -- Periodic target-net hard copy.
+              let targetNext =
+                    if (step + 1) `mod` dqnTargetUpdateInterval config == 0
+                      then onlineNext
+                      else target
+              -- Record stat at intervals.
+              let statsNext =
+                    if (step + 1) `mod` dqnStatInterval config == 0
+                      then
+                        let recent = take 100 newEpisodes
+                            meanR =
+                              if null recent
+                                then 0.0
+                                else sum recent / fromIntegral (length recent)
+                            lastR = case newEpisodes of
+                              (r : _) -> r
+                              [] -> 0.0
+                         in DqnIterationStat
+                              { dqnIterStep = step + 1
+                              , dqnIterEpisodes = length newEpisodes
+                              , dqnIterMeanReward = meanR
+                              , dqnIterLastEpisodeReward = lastR
+                              }
+                              : stats
+                      else stats
+              loopEither
+                device
+                environment
+                config
+                update
+                onlineNext
+                targetNext
+                adamNext
+                gen4
+                newBuffer
+                (step + 1)
+                resetState
+                nextEpisodeLen
+                finalReturn
+                newEpisodes
+                statsNext
 
 -- | Reset for a fresh training episode, drawing from the env's exploring-start
 -- distribution ('envTrainingStart', currently only mountain-car) when present,
@@ -415,7 +428,7 @@ dqnUpdate config online target adam batch =
         defaultAdamConfig {adamLearningRate = dqnLearningRate config}
       -- All per-sample gradients are evaluated at the *same* online params
       -- (a true minibatch gradient), then averaged for one Adam step. This
-      -- matches the batched CUDA path ('dqnUpdateCuda') exactly and is the
+      -- matches the batched device path ('dqnUpdateDevice') exactly and is the
       -- standard DQN update — the previous per-transition Adam step (one
       -- optimiser step per batch element) over-fit each minibatch and
       -- destabilised learning.
@@ -431,13 +444,15 @@ dqnUpdate config online target adam batch =
    in adamStep adamConfig adam online meanGradient
 
 -- | The per-transition DQN loss gradient w.r.t. the Q-network output: the
--- TD residual @Q(s,a) - target@ placed at the taken-action index, zero
--- elsewhere. The Bellman target uses the target net's next-state Q
+-- canonical kappa-1 Huber derivative of the TD residual @Q(s,a) - target@
+-- placed at the taken-action index, zero elsewhere. Bounding the derivative
+-- prevents stale target-network estimates from producing unbounded replay
+-- updates. The Bellman target uses the target net's next-state Q
 -- (@nextQ@); Double-DQN (van Hasselt et al. 2016) selects the next action
 -- with the online net (@onlineNextQ@, forced only when @dqnUseDouble@) and
 -- evaluates it with the target net. Factored out of 'dqnUpdate' so the
--- pure CPU path and the batched CUDA path ('dqnUpdateCuda') compute the
--- identical loss gradient; only the backward backend differs.
+-- pure CPU path and every batched device backend ('dqnUpdateDevice') compute
+-- the identical loss gradient; only the forward/backward backend differs.
 dqnResidualDLdy
   :: DqnTrainConfig
   -> [Double]
@@ -449,7 +464,7 @@ dqnResidualDLdy
   -> Transition
   -> Vector Double
 dqnResidualDLdy config qVec nextQ onlineNextQ trans =
-  VU.generate (length qVec) (\i -> if i == actionIx then residual else 0.0)
+  VU.generate (length qVec) (\i -> if i == actionIx then residualGradient else 0.0)
  where
   actionIx = transAction trans
   qSa
@@ -478,6 +493,7 @@ dqnResidualDLdy config qVec nextQ onlineNextQ trans =
       (transDone trans)
       bootstrapNextQ
   residual = qSa - tdTarget
+  residualGradient = DqnLoss.dqnHuberGradient 1.0 residual
 
 -- | Sum a non-empty list of MLP gradients component-wise. Used to form the
 -- minibatch gradient before averaging in 'dqnUpdate'.
@@ -511,9 +527,9 @@ obsVector environment =
 -- | Sprint 13.8 — train DQN (and the discrete off-policy family it
 -- templates) on cartpole with the Q-network forward + backward running on
 -- the GPU through the batched device primitives. The env loop, replay
--- buffer, epsilon-greedy, and target-net copy are unchanged (shared with
--- the pure 'trainDqnOnCartpole' via the parameterised 'loop'); only the
--- minibatch gradient update runs on the device ('dqnUpdateCuda'). The
+-- buffer and target-net copy are unchanged (shared with the pure
+-- 'trainDqnOnCartpole' via the parameterised 'loop'). Greedy behavior-policy
+-- actions and minibatch updates both run through the selected device; the
 -- loss-gradient head ('dqnResidualDLdy') is shared with the pure path.
 trainDqnOnCartpoleCuda :: Env -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnCartpoleCuda env = trainDqnOnDevice (cudaMlpDevice env)
@@ -527,9 +543,9 @@ trainDqnOnCartpoleMetal :: Env -> DqnTrainConfig -> IO (Either Text DqnTrainResu
 trainDqnOnCartpoleMetal env = trainDqnOnDevice (metalMlpDevice env)
 
 -- | DQN training through an injected MLP device backend. The env loop, replay
--- buffer, epsilon-greedy, and target-net copy are shared with the pure
--- 'trainDqnOnCartpole' via the parameterised 'loop'; only the minibatch
--- gradient update runs on the device ('dqnUpdateDevice').
+-- buffer, epsilon schedule, and target-net copy are shared with the pure
+-- 'trainDqnOnCartpole' via the parameterised 'loop'; greedy policy forwards
+-- and minibatch updates run through the injected device.
 trainDqnOnDevice :: MlpDevice -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnDevice device =
   trainDqnOnDeviceWithSimulatedEnvironment device cartPoleEnvironment
@@ -545,6 +561,7 @@ trainDqnOnDeviceWithSimulatedEnvironment device environment config = do
   let shape = dqnMlpShape config
       initialParams = initialDqnParams config
   loopEither
+    device
     environment
     config
     (dqnUpdateDevice device config)
@@ -573,44 +590,59 @@ initialDqnParams config =
   mlpInit (dqnMlpShape config) (dqnSeed config)
 
 evaluateDqnPolicyWithEnvironment
-  :: SomeSimulatedEnvironment
+  :: MlpDevice
+  -> SomeSimulatedEnvironment
   -> DqnTrainConfig
   -> MlpParams
   -> Int
-  -> [(Double, Int)]
-evaluateDqnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
-  replicate (max 1 episodeCount) (evaluateEpisode environment config params)
+  -> IO (Either Text [(Double, Int)])
+evaluateDqnPolicyWithEnvironment device (SomeSimulatedEnvironment environment) config params episodeCount =
+  collect (max 1 episodeCount) []
+ where
+  collect remaining episodes
+    | remaining <= 0 = pure (Right (reverse episodes))
+    | otherwise = do
+        episodeResult <- evaluateEpisode device environment config params
+        case episodeResult of
+          Left err -> pure (Left err)
+          Right episode -> collect (remaining - 1) (episode : episodes)
 
 evaluateEpisode
-  :: SimulatedEnvironment state
+  :: MlpDevice
+  -> SimulatedEnvironment state
   -> DqnTrainConfig
   -> MlpParams
-  -> (Double, Int)
-evaluateEpisode environment config params = go (envInitial environment) 0 0.0
+  -> IO (Either Text (Double, Int))
+evaluateEpisode device environment config params = go (envInitial environment) 0 0.0
  where
   go state episodeLen episodeReturn
-    | episodeLen >= dqnMaxEpisodeSteps config = (episodeReturn, episodeLen)
-    | otherwise =
+    | episodeLen >= dqnMaxEpisodeSteps config = pure (Right (episodeReturn, episodeLen))
+    | otherwise = do
         let obs = obsVector environment state
-            qValues = VU.toList (forwardOutput (mlpForward params obs))
-            action = maskedArgmax (envActionMask environment <*> Just state) qValues
-            stepResult = envStep environment state action
-            nextReturn = episodeReturn + simStepReward stepResult
-            nextLen = episodeLen + 1
-         in if simStepDone stepResult
-              then (nextReturn, nextLen)
+        forwardResult <- mlpdForward device params obs
+        case forwardResult of
+          Left err ->
+            pure (Left ("dqn device forward kernel failed during evaluation: " <> err))
+          Right forward -> do
+            let qValues = VU.toList (forwardOutput forward)
+                action = maskedArgmax (envActionMask environment <*> Just state) qValues
+                stepResult = envStep environment state action
+                nextReturn = episodeReturn + simStepReward stepResult
+                nextLen = episodeLen + 1
+            if simStepDone stepResult
+              then pure (Right (nextReturn, nextLen))
               else go (simStepState stepResult) nextLen nextReturn
 
--- | Minibatch DQN gradient update through the batched CUDA primitives:
+-- | Minibatch DQN gradient update through batched device primitives:
 -- batched forward of the online net at the batch states (Q(s,·)) and the
 -- target net at the next states (Q(s',·)) — plus the online net at the
--- next states for Double-DQN action selection — then the per-sample TD
+-- next states for Double-DQN action selection — then the per-sample Huber
 -- residual gradient ('dqnResidualDLdy'), one batched device backward (mean
 -- gradient over the minibatch), and one Adam step. Fails closed on a device
 -- `Left` (Sprint 8.11) — the dispatch `probeMlpDevice` gate already confirmed
 -- the kernel runs, so a mid-run fault is genuine, not a pure-fallback cue.
--- (Minibatch GD vs. the pure path's per-sample online SGD — standard for a
--- batched DQN.)
+-- Both the pure and device paths form one mean minibatch gradient and apply one
+-- Adam step; only the forward/backward backend differs.
 dqnUpdateDevice
   :: MlpDevice
   -> DqnTrainConfig

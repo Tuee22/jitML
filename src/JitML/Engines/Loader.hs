@@ -4,6 +4,7 @@ module JitML.Engines.Loader
   ( KernelArtifact (..)
   , KernelArtifactError (..)
   , ensureKernelArtifact
+  , loadKernelLibrary
   , renderKernelArtifactError
   , withKernelSymbol
   )
@@ -141,6 +142,13 @@ withKernelSymbol artifactPath symbolName useSymbol = do
   dynamicLibrary <- cachedKernelLibrary artifactPath
   symbol <- dlsym dynamicLibrary symbolName
   useSymbol symbol
+
+-- | Load an already-built shared artifact without resolving a symbol.  This
+-- gives callers a distinct exception boundary for @dlopen@ versus @dlsym@.
+loadKernelLibrary :: FilePath -> IO ()
+loadKernelLibrary artifactPath = do
+  _ <- cachedKernelLibrary artifactPath
+  pure ()
 
 cachedKernelLibrary :: FilePath -> IO DL
 cachedKernelLibrary artifactPath =

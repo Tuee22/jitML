@@ -18,8 +18,12 @@ counts.
 
 ## Execution Boundary
 
-Training and evaluation select a substrate device and run the model's literal
-layer graph through that device. The validated workload plan and the completed
+Training and evaluation select a substrate device and run the current
+`[LayerSpec]` / `[LayerState]` executable through that device. Sprint `10.6`
+persists this exact executed program; it does not substitute the parallel
+descriptive `archLayerGraph`. Blocked Sprint `23.1` owns replacing both with one
+typed graph, and Blocked Sprint `24.1` owns constructing each literal named
+architecture on that graph. The validated workload plan and the completed
 evidence required around numerical execution are owned by
 [Typed Run Contract](run_contract.md); inference eligibility is owned by
 [Checkpoint Format](checkpoint_format.md) and
@@ -50,18 +54,17 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 
 ## Typed Layer Graph and Autodiff
 
-`LayerGraph` is the sole graph representation used by training, checkpointing,
-and graph inference. Parameterized nodes apply kind-specific input transforms
-and backward transforms before their affine projection; convolution nodes lower
-to convolution training primitives on the oneDNN path, attention and gated
-nodes retain their distinct transforms, normalization computes normalized
-outputs, and pooling operates over its defined windows. The pure reference
-algebra and backend checks compare those per-kind semantics rather than treating
-every tag as a dense or identity alias. Historical audit and validation details
-remain in
+The target `LayerGraph` is the sole representation used by training,
+checkpointing, and graph inference. The current tree has not reached that
+target: `archLayerGraph` describes the advertised feature topology, while the
+separate `[LayerSpec]` / `[LayerState]` program actually trains, serves, and is
+projected into supervised V2. Parameterized graph nodes already expose
+kind-specific transforms, but the remaining residual/direct-gradient,
+pooling/normalization-backward, shape-failure, and full finite-difference gaps
+keep Sprint `23.1` Blocked. Historical audit and validation details remain in
 [Phase 23](../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md).
 
-Phase `23` adds the executable typed layer-graph surface in
+Sprint `23.1` targets the executable typed layer-graph surface in
 `src/JitML/Numerics/LayerGraph.hs` and the public pure reverse-mode API in
 `src/JitML/Numerics/Autodiff.hs`. A `LayerGraph` carries input/output tensor
 shapes, ordered layer nodes, per-node training-vs-inference mode, activation,
@@ -75,10 +78,11 @@ input gradients and per-node parameter gradients. `JitML.Numerics.Mlp` is now
 the two-layer special case of that graph: its public `mlpBackward` and
 `mlpInputGradient` APIs lower the cached MLP forward pass into a two-node graph
 tape, call `Autodiff.runBackward`, and project the result back into the legacy
-`MlpGradient` record. `JitML.SL.Architecture` also attaches a literal
-`archLayerGraph` to every canonical supervised family so later execution,
-checkpointing, and inference work can consume the same topology instead of
-inferring architecture from a sequence of MLP helper blocks.
+`MlpGradient` record. `JitML.SL.Architecture` also attaches an
+`archLayerGraph` to every canonical supervised family, but that graph is not
+yet the program consumed by training, checkpointing, or inference. Sprint
+`23.1` must remove this dual representation rather than infer architecture from
+row names or certify the executable by inspecting the decorative graph.
 
 The Sprint `23.1` unit coverage checks four invariants: the MLP graph forward
 matches the historical MLP forward exactly; finite-difference gradient checks
@@ -101,21 +105,35 @@ full `LayerGraph.allLayerKinds` catalog and records per-node primitive evidence.
 Sprint `23.3` serializes that graph topology into checkpoints and runs
 checkpoint inference through the stored graph.
 
-Phase `24` Sprint `24.1` binds the canonical supervised rows to literal graph
+Blocked Sprint `24.1` must bind the canonical supervised rows to literal graph
 topology and feature metadata. `ArchitectureFeature` records the feature claims
 that product rows make (`Dense`, `BatchNorm`, `Dropout`, `Conv2D`, pooling,
 `GroupNorm`, residual, `BasicBlock`, `BottleneckBlock`, attention, patch
-embedding, `LayerNorm`, and `GeGLU`), while
-`architectureImplementedFeatures` derives the implemented feature set from
-`archLayerGraph`. The `jitml-sl-canonicals` gate rejects feature mismatches and
-checks the named topology counts: LeNet has two Conv2D nodes, ResNet-20 and
-ResNet-56 have 20 and 56 BasicBlock nodes, WideResNet-28-10 has 12
-GroupNorm-backed BasicBlock nodes, the small ViT has patch embedding,
-MultiHeadAttention, two LayerNorm nodes, and GeGLU, and ResNet-50 has 16
-BottleneckBlock nodes. Under Phase `24`'s remediation, the executed supervised
-path for these rows uses a real MLP-Mixer-style block with a token-mixing MLP and
-executed LayerNorm, so the ViT and deep rows train real token-mixing and
-normalization rather than the dense-GEMM stand-in.
+embedding, `LayerNorm`, and `GeGLU`), while the current
+`architectureImplementedFeatures` derives its answer from the non-executable
+`archLayerGraph`. The existing topology-count test therefore describes the
+intended graph; it does not prove what trained. The exact current
+`cifar10-vit` executable persisted by Sprint `10.6` uses patch size/stride
+`4/4` over `32×32×3`, 64-token mixing, executed LayerNorm, a token-mixing
+MLP, single-head attention, mean pooling, and a classifier. That is a real
+current Mixer computation rather than the earlier unnormalized patch bag, but
+it is not the declared two-head MultiHeadAttention/GeGLU small ViT and cannot
+close Phase `24`. Its V2 algebra is deliberately the pre-Sprint-`23.1`
+executable: token mixing replaces its input with the mixed result, attention
+returns attended values without an outer skip, and only an explicit residual
+layer adds a skip. Sprint `23.1` owns distinguishable corrected operations; it
+cannot reinterpret these V2 bytes.
+
+Within that current executable, attention backward stores Q/K/V, softmax
+weights, and output gradients in boxed vectors so indexed lookup is
+constant-time while preserving the original arithmetic and summation order.
+Inference/evaluation `forwardOnly` may transiently create the current layer's
+tape through `forwardLayer`, but projects the output immediately and does not
+accumulate tapes across the graph. The 4×4/64-token numerical path fits its RGB
+transform from the training partition only. Its measured diagnostic chronology
+and current validation state live in Sprint `10.6`; pre-algebra-correction
+artifacts cannot validate this contract. Exact V2 persistence does not repair
+the parallel descriptive `archLayerGraph` representation.
 
 Sprint `24.2` adds the supervised learning-evidence assertion layer in
 `JitML.Test.RowAssertions`. The assertion consumes measured row evidence from

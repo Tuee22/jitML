@@ -35,6 +35,8 @@ module JitML.Numerics.LayerGraph
   , graphParameterVector
   , replaceGraphParameterVector
   , maxFiniteDifferenceError
+  , parameterizedInputForward
+  , parameterizedInputBackward
   )
 where
 

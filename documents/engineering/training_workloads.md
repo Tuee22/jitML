@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
@@ -21,9 +21,11 @@ live-interpreter boundary is
 
 Every product workload must project its verified data, measured update counters,
 finite convergence measurements, terminal checkpoint, and domain-specific
-artifacts into opaque `CompletedRunEvidence`. A primitive budget record,
-declared metric, checkpoint pointer, or browser event cannot independently mint
-completion or inference eligibility.
+artifacts into opaque `CompletedRunEvidence`. Reportable Product completion
+also requires Store's opaque `AdmittedCompletedCheckpoint` for the exact
+persisted manifest and physical payload graph. A primitive budget record,
+declared metric, write receipt, caller-held completion, checkpoint pointer, or
+browser event cannot independently mint completion or inference eligibility.
 
 ## SL Training Loops
 
@@ -32,11 +34,13 @@ the canonical problem catalog and all-row trainable product cohort in
 `src/JitML/SL/Canonicals.hs`, typed dataset references in
 `src/JitML/SL/Dataset.hs`, the single-hidden-layer softmax primitive in
 `src/JitML/SL/Classifier.hs`, and the all-row substrate-backed architecture
-runtime in `src/JitML/SL/Architecture.hs`. Phase `24` moved the executed
-supervised architecture beyond that single-hidden-layer softmax primitive to a
-real MLP-Mixer-style path — a token-mixing MLP plus executed LayerNorm — at
-raised widths, so the trained topology matches the richer graph a product row
-documents rather than an un-normalized dense stand-in.
+runtime in `src/JitML/SL/Architecture.hs`. The current executable
+`[LayerSpec]` / `[LayerState]` path goes beyond that single-hidden-layer
+softmax primitive with patch, executed LayerNorm, token-mixing MLP, attention,
+and pooling operations. Sprint `10.6` persists that exact executable as V2.
+The parallel `archLayerGraph` is still descriptive rather than executable, so
+this exact current-Mixer persistence does not satisfy Blocked Phase `23`'s
+single typed graph or Blocked Phase `24`'s literal named architectures.
 
 - Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket
   `jitml-datasets`, exposes `fetchDatasetRef` and
@@ -53,25 +57,25 @@ The catalog names the intended no-caveat architecture set. Phase `24` Sprint
 `ProductRow.rowArchitectureFeatures` and rejects any row whose literal
 `archLayerGraph` lacks those features. A simplified trainable topology is still
 useful implementation evidence, but it cannot close a row that documents a
-richer architecture. The Phase `24` implementation closed the earlier
-dense-stand-in gap: the deep and ViT rows train a real token-mixing MLP with an executed
-LayerNorm (an MLP-Mixer block) at raised widths, so the executed model matches
-the documented architecture instead of an un-normalized bag-of-patches dense
-stand-in.
+richer architecture. The current deep/vision executable includes a real
+token-mixing MLP with executed LayerNorm instead of the earlier un-normalized
+bag of patches, but it remains distinct from the decorative graph and from the
+literal Phase `24` target. Exact V2 persistence must describe what ran; it
+cannot promote this current approximation into a literal architecture.
 
-| Current problem key | Owning module | Current validation |
-|---------------------|---------------|--------------------|
-| `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | Literal graph has Dense, two BatchNorm nodes, and two Dropout nodes; fixed-budget convergence, checkpoint reload, and inference eligibility remain later evidence gates |
-| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Literal LeNet-style graph has two Conv2D nodes, pooling, and a classifier head; fixed-budget convergence, checkpoint reload, and inference eligibility remain later evidence gates |
-| `fashion-mnist-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; SHA pins plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
-| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Literal small ResNet graph has Conv2D, BatchNorm, and two BasicBlock residual nodes; SHA pins and convergence evidence remain later gates |
-| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal graph has Conv2D, BatchNorm, global pooling, and 20 BasicBlock residual nodes; archive parser evidence remains separate |
-| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal graph has Conv2D, BatchNorm, global pooling, and 56 BasicBlock residual nodes; archive parser evidence remains separate |
-| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal WideResNet-28-10 graph has Conv2D, GroupNorm, global pooling, and 12 wide BasicBlock residual nodes; archive parser evidence remains separate |
-| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Literal small ViT graph has patch embedding, two LayerNorm nodes, MultiHeadAttention, GeGLU, token pooling, and a classifier head; the executed path uses a real token-mixing MLP + executed LayerNorm Mixer at raised widths rather than an un-normalized dense stand-in |
-| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | Literal ResNet-50 graph has Conv2D, BatchNorm, global pooling, and 16 BottleneckBlock residual nodes; archive SHA pin and Zip64/JPEG evidence remain separate |
-| `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense regression topology; parser, device-MSE trainer, fixed-budget RMSE/MSE convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| Current problem key | Owning module | Exact-V2 validation and later architecture boundary |
+|---------------------|---------------|-----------------------------------------------------|
+| `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Sprint `10.6` validated exact current-executable V2 publication, Store reload, and real `linux-cpu` trained-versus-loaded parity. That evidence does not close the later single-typed-graph/literal-architecture obligations. |
+| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | Sprint `10.6` validated exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The intended literal graph still has Dense, two BatchNorm nodes, and two Dropout nodes and remains owned by Phases `23`/`24`. |
+| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Sprint `10.6` validated exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The literal LeNet-style Conv2D/pooling/classifier graph remains owned by Phases `23`/`24`. |
+| `fashion-mnist-mlp` | `src/JitML/SL/Architecture.hs` | Sprint `10.6` validated SHA-bound exact current-executable V2 publication, Store reload, and real `linux-cpu` parity; later graph/literal-architecture proof remains separate. |
+| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Sprint `10.6` validated exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The intended Conv2D/BatchNorm/two-BasicBlock literal graph remains owned by Phases `23`/`24`. |
+| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Sprint `10.6` validated archive-bound exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The literal 20-BasicBlock graph remains owned by Phases `23`/`24`. |
+| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Sprint `10.6` validated archive-bound exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The literal 56-BasicBlock graph remains owned by Phases `23`/`24`. |
+| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Sprint `10.6` validated archive-bound exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The literal WideResNet-28-10/GroupNorm graph remains owned by Phases `23`/`24`. |
+| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Sprint `10.6` validated exact V2 publication, Store reload, and real `linux-cpu` parity for the current train-only RGB-standardized 4×4/64-token Mixer executable. The intended two-head MultiHeadAttention/GeGLU literal graph remains Blocked in Phases `23`/`24`. |
+| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | Sprint `10.6` validated archive-bound exact current-executable V2 publication, Store reload, and real `linux-cpu` parity. The literal 16-BottleneckBlock ResNet-50 graph remains owned by Phases `23`/`24`. |
+| `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Sprint `10.6` validated exact standardized-regression V2 publication, Store reload, and real `linux-cpu` parity. That evidence persists the current Dense executable and does not substitute for the later single-typed-graph obligation. |
 
 Convergence is accepted only where the test performs the row's declared fixed
 budget, verifies dataset bytes at the product read boundary, proves learned
@@ -101,13 +105,17 @@ experiment Dhall is resolved to a canonical row through
 `JitML.SL.Architecture.ArchitectureSpec`, and
 `JitML.SL.Architecture.trainArchitectureWithDevice` trains through the resolved
 substrate's JIT-compiled `MlpDevice`, selected by
-`mlpDeviceForSubstrate`. `jitml eval --checkpoint <id>` loads the
-named inference checkpoint's `.jmw1` weights and runs the substrate-bound
-weighted device forward; a missing pointer/manifest →
+`mlpDeviceForSubstrate`. `jitml eval --checkpoint <id>` admits the named
+immutable V2 address through Store, loads its exact `.jmw1` weights only from
+opaque `AdmittedCompletedCheckpoint`, and runs the substrate-bound weighted
+device forward; a missing pointer/manifest →
 `InferenceCheckpointMissing`, and incompatible manifest experiment/content SHA
-or tensor shape metadata fails closed before the runner is invoked. Sprint
-`10.6` adds model-family architecture, preprocessing, output-decoder, and
-weight-layout metadata to the checkpoint manifest consumed by this path.
+or tensor shape metadata fails closed before the runner is invoked. Supervised
+training now returns an exact V2 runtime program plus its initial and final
+JMW1 bytes. Publication derives architecture, preprocessing, output-decoder,
+and graph-ordered `Flat` layout metadata from that same refined runtime and
+uses the mandatory supervised V2 writer; it cannot reconstruct the artifact
+from a tensor name or a display-oriented weight list.
 
 Before any worker or host effect, `JitML.Plan.Command.prepareStartTraining`
 refines the raw `StartTraining` fields into hidden `SupervisedPlan`. The plan's
@@ -128,6 +136,41 @@ environment defaults. The Apple host-command route validates the same
 plan-bearing `StartTraining` command rather than creating a Linux-style mount,
 so direct execution, daemon-dispatched Linux Jobs, and host Metal execution all
 execute the same plan.
+
+That exact plan also determines the supervised V2 origin. ProductRow
+publication uses `RawProductRowProjectionOrigin`. Public `jitml train` and
+daemon `StartTraining` use
+`RawGenericSupervisedExecutionOrigin(rowId, canonicalPlanTransport)`, embedding
+the exact canonical problem-row identity and exact `SupervisedPlan` transport.
+Checkpoint refinement requires the origin row, payload row, and authoritative
+canonical problem/ProductRow to agree, reparses and canonicalizes the transport,
+then binds its substrate, experiment, epoch/update budget, and seed. The
+addressed composite origin binds those row semantics; `PlanId` alone does not.
+The generic origin is not permitted to occupy a ProductRow experiment hash.
+The complete wire and eligibility rules live in
+[Checkpoint Format → Frozen V1 and Exact Supervised V2](checkpoint_format.md#frozen-v1-and-exact-supervised-v2).
+
+Generic execution consumes the plan seed rather than merely persisting it.
+`supervisedExecutionSeed` requires exactly one refined plan seed, rejects an
+`Int` overflow, and passes that seed into classifier/regression initialization
+and deterministic classification epoch permutation; the canonical problem's
+default seed is not substituted. For local generic execution, the experiment
+address combines the selected Dhall path with a fingerprint of canonical row,
+dataset, model, substrate, seed, epoch budget, training/evaluation example
+budgets, and batch budget (which fixes the derived optimizer-update budget).
+Changing any one of those execution inputs changes experiment and `PlanId`
+identity.
+
+When a daemon-dispatched Linux worker has mounted `BootConfig`, it resolves the
+mounted in-cluster MinIO service and writes a passing completed V2 directly to
+MinIO before emitting the completed-checkpoint event. It does not route that
+durable write through a host-local mirror. Host-side developer execution
+without mounted services keeps its separately resolved local/edge path. Before
+the MinIO CAS, the worker reads the current latest-pointer ETag and passes that
+exact `Maybe ETag` as its expectation. Publication proceeds only when Store
+returns `PointerWritten` for the exact stored manifest; conflict or another
+manifest acknowledgement is a typed failure and emits no completed-checkpoint
+event. The Apple host path enforces the same order.
 
 The worker fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`
 through `JitML.SL.Dataset.fetchVerifiedDatasetArtifactBytes`, verifies the
@@ -155,28 +198,161 @@ CIFAR-10 and CIFAR-100 use `ArchiveArtifact` pins for the canonical Toronto
 binary tarballs, staged with `--artifact archive`, verified on read, and parsed
 by `JitML.SL.Classifier` from extracted CIFAR binary batch payloads into
 3072-feature labeled examples through the shared `JitML.SL.Archive` tar
-extractor. California Housing uses an `ArchiveArtifact` pin for
-`cal_housing.tgz`; after read-time verification, `JitML.SL.Regression` parses
-`CaliforniaHousing/cal_housing.data` from the archive into eight-feature
-regression examples with the raw target value, and the runtime standardizes
-feature columns and target values before training a one-output MSE regressor
-through the selected `MlpDevice`. Tiny ImageNet uses `JuicyPixels` plus a narrow
-Zip64-aware central-directory reader to decode JPEG tensors from the verified
-pinned archive.
+extractor. The parser transposes the archive's three channel-major 32x32 planes
+into pixel-major interleaved RGB, which is the tensor layout consumed by
+architecture patch extraction. California Housing uses an `ArchiveArtifact`
+pin for `cal_housing.tgz`; after read-time verification,
+`JitML.SL.Regression` parses `CaliforniaHousing/cal_housing.data` into
+eight-feature rows with the raw target value. Execution splits those raw rows
+into the exact training and held-out partitions first.
+`RegressionStandardization` then fits feature means/scales and target
+mean/scale from the raw training partition only and applies that one hidden,
+refined transform unchanged to both partitions. The persisted runtime uses the
+same feature transform at inference and inverse-transforms its one regression
+output into declared `median-house-value` units; held-out and inference values
+never influence fitted statistics. Tiny ImageNet uses `JuicyPixels` plus a
+narrow Zip64-aware central-directory reader to decode JPEG tensors from the
+verified pinned archive.
 `jitml train` routes staged CIFAR, Tiny ImageNet, and California archives
-through these archive-backed decoders before training. Successful supervised
-training flattens the trained weights, writes a `.jmw1` checkpoint manifest
-with PlanId-bound `CompletedTraining`, and records the read-time artifact digest
-in `manifestDatasetShaAtRead`. Protocol publication distinguishes
+through these archive-backed decoders before training. Canonical classification
+execution then permutes only the complete materialized training partition once
+per one-based epoch. Epoch `e` draws exactly `length trainSet` words from
+`splitMixWords` seeded by
+`deriveSplitMixSeed (SplitMixSeed (fromIntegral clfSeed)) (fromIntegral e)`,
+zips each whole labeled example with its word and original zero-based index,
+and stable-sorts ascending exactly on `(word, originalIndex)`. Validation and
+test partitions remain in their fixed decoded order. The permutation retains
+every training example exactly once, so authoritative example and batch
+quantities, mini-batch sizes/counts, `tmExamplesProcessed`, and the
+trainer-observed successful optimizer-update count are unchanged. The tuning
+exact-update trainer deliberately retains its fixed-order cyclic batch path;
+canonical ProductRow ordering does not redefine trial/rung replay.
+
+Every successful supervised execution returns required
+`tmSupervisedRuntimeProgram`, exact
+`tmInitialJmw1Bytes`, exact `tmFinalJmw1Bytes`, and
+`tmVerifiedDatasetShaAtRead`; optional list/digest projections are accepted only
+when they equal those exact values. The same return value carries
+`tmOptimizerUpdatesExecuted`, recorded only after all requested epoch/batch
+loops succeed, plus a mandatory finite, dimension-checked
+`tmParityProbeInput`/`tmParityProbeOutput` produced by the trained model on one
+exact held-out input. Classifier probes retain the semantic numerical output;
+California Housing retains a raw held-out feature row and the prediction after
+the persisted target inverse-transform. For datasets with separate image/label
+test objects, `datasetReadShaForArtifacts` covers the verified training and
+held-out objects actually read, in deterministic order. Archive-backed rows
+bind the exact verified archive from which the used partitions were
+materialized.
+
+V2 refinement independently derives the canonical pinned training/evaluation
+read digest for that exact origin row. The training-returned runtime payload,
+manifest, and `CompletedTraining` dataset fields must all equal it; giving all
+three the same forged digest does not bypass Product or generic admission.
+
+The runtime payload identifies the authoritative canonical supervised row and
+carries one closed origin. Product publication re-projects that addressed row
+and `PlanId` to exactly one supported substrate. Generic supervised publication
+binds its addressed origin row to the embedded canonical exact `SupervisedPlan`
+transport, whose plan experiment must be non-product. The addressed row/origin
+composite, not `PlanId` alone, authorizes the canonical runtime semantics. In
+both cases the family, task, production input/output dimensions, exact topology,
+preprocessing, decoder, completion budget, executed seed, selected substrate,
+and manifest experiment must agree with that origin-bound plan. Publication
+binds the completion/manifest initial and final weight hashes to the exact JMW1
+bytes and the dataset digest to the
+exact read-time bytes, then writes exactly one physical `supervised.weights`
+JMW1 object through the non-optional completed-supervised V2 writer. Per-layer
+parameters are derived virtual slices, not separately persisted objects.
+Generic V1 writers remain for non-supervised compatibility but reject an
+authoritative supervised ProductRow, supervised completion budget, or reserved
+supervised tensor identity. The Product-only V1 writer additionally accepts
+only a canonical non-supervised ProductRow and binds the exact already-written
+trajectory/AlphaZero/tuning companion pointer into its immutable manifest. The
+Writer and Product Publisher consume the
+training-returned optimizer-update count, compare it with the origin-bound
+`SupervisedPlan`, and require the completion and manifest to retain the same
+count. They do not derive a replacement count after training.
+
+The ProductRow publisher likewise owns the metric projection. It requires the
+observed processed-example count to equal
+`epochs * supervisedPlanTrainingExamples` exactly and constructs exactly four
+finite, uniquely named rows in canonical order: `train_loss`,
+`validation_loss`, `examples_processed`, and the held-out metric named by that
+row's convergence bar. A caller-supplied extra, reordered, duplicated, renamed,
+or non-finite metric vector cannot become Product-origin completion evidence.
+After writing, the publisher re-admits the exact stored immutable address and
+requires its manifest SHA, row/experiment, `PlanId`, full completion, and
+Product-origin V2 payload to match before the supervised row is eligible.
+
+Generic supervised checkpoint construction distinguishes a structural failure
+from a finite convergence miss. A finite run that completes its exact plan but
+misses the canonical row's unchanged bar exits successfully as training and
+writes no eligible V2 checkpoint or completed-checkpoint event. A passing run
+writes a generic-origin V2, but that origin remains distinct from ProductRow
+publication and cannot enter ProductRow reporting. Training summaries already
+emitted by the command are not promoted into checkpoint proof. The legacy
+initial/final weight lists are optional projections: their absence never gates
+the typed miss, while a supplied projection must still equal the exact decoded
+JMW1 vector.
+
+Protocol publication distinguishes
 `TrainingCheckpoint CheckpointDone`, an inspectable/resumable candidate with no
 proof, from `TrainingCompletedCheckpoint CompletedCheckpointDone`, whose hidden
 wrapper carries mandatory, re-refined completion. Completion metrics include
-train loss, validation loss, held-out metric, and examples processed. Phase
+train loss, validation loss, held-out metric, and examples processed. Completed
+V2 bytes re-bind each convergence observation to one unique,
+equal-valued manifest metric row; their TensorBoard run id equals the manifest
+experiment, log prefix equals `jitml-tensorboard/<experiment>`, and ordered
+scalar tags equal the completed convergence metric names. These protocol
+variants are carried through a Store-level candidate/completed persistence
+split. `writeLocalCandidateWeightCheckpoint` and
+`writeMinIOCandidateWeightCheckpoint` return opaque
+`StoredCandidateCheckpoint` and never publish the inference-selected `latest`
+pointer. Completed weight/supervised writers require `CompletedTraining`
+directly and return opaque `StoredCompletedCheckpoint` only after exact pointer
+CAS adoption; no completed persistence boundary takes `Maybe CompletedTraining`.
+Immutable create conflicts are accepted only after an exact-byte GET proves
+identity. Local writes expose `CheckpointWriteError`, distinguishing invalid
+input, immutable-object conflict, pointer-CAS conflict, and filesystem failure;
+MinIO uses typed `ServiceError`. Latest admission performs `P1` → exact addressed manifest outer/body
+→ exact `P2` equality, then independently fetches and binds the referenced
+blobs; known-address admission skips only the pointer reads. Product Pipeline
+consumes Store's opaque `AdmittedCompletedCheckpoint`, and Store does not import
+Pipeline. Sprint `10.12` is Done after its full validation and governed-document
+gates passed. Phase
 `22` removes canonical-key synthetic live fixtures
 from product workflow tests: product-row evidence uses real verified data or
 fails closed before training. Phase `13` promotes the earlier all-row
 staged-byte smoke into fixed-budget convergence, checkpoint reload, evaluation,
 and inference for every row; that gate is closed for the `linux-cpu` baseline.
+Strict V2 reload reconstructs the persisted runtime and routes input/output
+transforms, residual add, LayerNorm, token mixing, patch extraction, attention,
+mean pooling, and MLP through the selected engine's explicit callback record.
+The frozen pre-Sprint-`23.1` token-mix operation replaces its input, and the
+attention operation returns attended values without an implicit skip; only the
+explicit residual operation performs residual addition. Future corrected graph
+semantics require distinguishable operation/version metadata.
+The MLP callback is the real selected oneDNN, CUDA, or fixed-bridge Metal path.
+Linux CPU and Linux CUDA structural operations execute through generated,
+content-addressed `kernel.cc` / `kernel.cu` sources implementing the same
+version-`1`, capability-`0xff`, status-returning `double` C ABI. Apple Silicon
+uses generated MSL embedded in `.metal.json`, validates the same logical
+ABI/capability/symbol contract, and dispatches through the fixed bridge with
+fast math disabled and explicit `Double`↔fp32 transport. Integer arguments must
+be exactly fp32-representable, and finite/range/shape contracts are checked
+before dispatch. Compile, load, symbol, ABI, capability, contract,
+native-status, dispatch, and selected-backend MLP failures are typed. Selected
+production engines install no `RuntimeOperations.host*` callback and never
+select a pure/reference or cross-substrate fallback.
+
+The production trained-versus-Store V2 comparison uses maximum absolute
+difference `1e-9` for the `double` `linux-cpu` and `linux-cuda` structural ABIs.
+The fixed-bridge `apple-silicon` path has an explicit fp32 bound of `1e-5`.
+Those values govern only same-substrate reload parity. Sprint `10.6` validates
+the `linux-cpu` policy; the downstream Apple product lane owns the real-device
+retest and any evidence-driven fp32 tuning, so this sprint does not claim an
+Apple pass.
+
 `src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips
 for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
@@ -209,7 +385,19 @@ remaining supervised rows execute `10`. The `sl_epochs=5` report-card knob
 belongs to the canonical measurement stanza; it does not override a ProductRow
 schedule and cannot produce ProductRow completion evidence.
 
-Phase `12.16` aligns its live `StartTraining` integration request with the
+The `cifar10-vit` ProductRow uses 4×4/64-token geometry, **2,000** training
+examples, five epochs, batch size 128, **10,000** processed examples, and **80**
+successful optimizer updates. Its RGB statistics are fitted from the training
+partition only. The supervised recipe is likewise refined before execution:
+`fashion-mnist-resnet` uses `3e-3`, `cifar10-resnet20` uses `1.1e-3`,
+`cifar10-vit` uses `1.5e-3`, and the other eight rows use `1e-3`. The
+finite-positive rate participates in `PlanId`, is
+passed unchanged by Publisher, and is consumed by both classification and
+California Housing regression. No environment override or executor default
+reinterprets it. Measured chronology and current closure evidence live in
+Sprint `10.6`.
+
+Phase `12.16` aligned its live `StartTraining` integration request with the
 existing registered/ProductRow-publisher MNIST schedule: **10** epochs ×
 **7,000** training examples with **1,000** evaluation examples. The first
 unfiltered pre-gate rerun had instead requested **5** epochs × **4,096**
@@ -218,8 +406,9 @@ training examples with **1,024** evaluation examples and produced
 correctly could not mint `CompletedTraining` and timed out with incomplete
 evidence; the test schedule was corrected without lowering the bar. The focused
 live `StartTraining` case subsequently exited **0** and passed **1 / 1** in
-**32.54s**, including cleanup. The full unfiltered pre-gate rerun remains open
-while it runs.
+**32.54s**, including cleanup. The binding unfiltered integration gate later
+exited **0** and passed **155 / 155**, including all **18** Live cases, on the
+final immutable image.
 
 ## RL Framework Primitives
 
@@ -248,7 +437,10 @@ reward-derived algorithm-level projection helpers from canonical validation and
 writes `.jmw1` checkpoints plus line-oriented replay artifacts from `jitml rl
 train` / `jitml rl rollout`. Sprint `10.6` records RL policy model-family
 metadata, policy-distribution output decoders, and replay/transcript pointers in
-the checkpoint manifest. The product contract consumes those artifacts for the
+the checkpoint manifest. Product publication now writes the exact
+`rl-trajectory` first, binds its canonical key and content SHA into the
+completed Product V1 manifest, and re-admits both checkpoint and trajectory
+bytes before eligibility. The product contract consumes those artifacts for the
 full matrix: every algorithm must train for its fixed budget, evaluate,
 roll out, checkpoint, publish convergence statistics, and provide browser
 replay/animation payloads before it is treated as inference-eligible.
@@ -407,7 +599,13 @@ post-probe off-policy/continuous trainer update failures: DQN, QR-DQN, HER, and
 continuous actor-critic device trainers return `Left Text` for forward,
 batch-gradient, and input-gradient faults, and `runTrainerEpisodes` stops the
 run without bypassing the CLI/daemon error surface or publishing partial
-episodes.
+episodes. DQN's pure and device update paths share one kappa-1 Huber derivative
+over the Bellman TD residual, so each sample's residual-gradient contribution is
+clipped to `[-1, 1]` before the minibatch mean reaches Adam. Its greedy behavior
+policy and final trained-policy evaluation also use the selected fail-closed
+`MlpDevice`; the pure trainer supplies `pureReferenceMlpDevice` to the same
+loop. A device-trained DQN row therefore cannot select actions or publish its
+convergence metric from an unrecorded host-`Double` forward path.
 
 The same host-residency rule applies to supervised training, tuning trial
 training, and AlphaZero value/policy evaluation whenever the selected substrate
@@ -479,33 +677,11 @@ reopened under Sprint `21.4`; a rollout count must not be presented as that
 later proof. The runtime module, algorithm catalog, and trainer default agree
 on `max-kl = 0.01`, ten CG iterations, `cg-damping = 0.1`,
 `cg-residual-tol = 1e-10`, ten `0.8` backtracking candidates, ten critic passes,
-and the `0.001` critic learning rate. The current implementation passes its
-focused **17 / 17** scope and the full **517 / 517** `jitml-unit` stanza;
-Fourmolu is clean for the changed scope and focused HLint reports no hints.
-The container `jitml-rl-canonicals` lane with
-`JITML_SUBSTRATE=linux-cpu` passes **40 / 40** in **225.43s**. These gates are
-not ProductRow runtime convergence evidence. Phase `12.16`'s corrected
-immutable-image rollout is complete at
-`jitml:local@sha256:30eb596380d9e939ae5bd5e0a87757d557576ef7a32614e156953057eba8b813`:
-all five application pods are Ready with zero restarts on config image ID
-`sha256:560d1b72153a6d8acdf232facc986089c3a0a7f178cfb85627c2e25b34a0253a`.
-An exact no-publish CartPole run then completed **1,228,800** transitions and
-returned reward **500.0** in all **20** evaluation episodes, passing the
-unchanged **185** bar. Lunar Lander completed **2,400,000** transitions and
-returned **271.16021982** in all **20** evaluation episodes, passing the
-unchanged **155** bar. The installed publisher then regenerated both rows with
-**2** eligible, **0** unsupported, and **0** errors. Their focused artifact
-slice passes **2 / 2**, and each row's local/live pointers and manifest content
-SHAs agree. The installed immutable unfiltered `linux-cpu` producer subsequently
-exited **0** after traversing all **55** ProductRows and reported **55** rows,
-**55** eligible, **0** unsupported, and **0** errors; the corrected TRPO and
-AlphaZero manifests were reproduced. The exact `integration.product` selection
-then exited **0** and passed **55 / 55** in **0.01s**. The independent four-way
-verifier also exited **0** with `canonical_rows=55`, `local_namespaces=55`,
-`live_namespaces=55`, `local_pointers=55`, `live_pointers=55`,
-`local_manifests=55`, `live_manifests=55`, `four_way_matches=55`, `missing=0`,
-`extra=0`, `duplicates=0`, and `mismatches=0`. The unfiltered non-Live pre-gate
-and full canonical validation gates remain open.
+and the `0.001` critic learning rate. Validation counts, immutable-image
+identities, and ProductRow publisher evidence live in the authoritative
+[Development Plan Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status)
+and the owning [Phase 12](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
+and [Phase 19](../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md) documents.
 The ProductRow resolver explicitly tightens Lunar Lander to `max-kl = 0.002`;
 Sprint `25.4` must project that environment-specific choice through the typed
 traditional-RL plan rather than leaving it as an `App`-local override.
@@ -513,7 +689,12 @@ Sparse-goal on-policy product rows resolve
 their count-exploration coefficient by variant and environment before the
 generic zero fallback, so `MaskablePPO/key-door-grid` retains phase-aware
 position/key/door novelty during training while deterministic evaluation uses
-the learned masked policy without a reward bonus.
+the learned masked policy without a reward bonus. Mountain Car exposes no
+illegal-action mask, so its MaskablePPO row retains PPO's count-exploration
+strength rather than introducing a weaker variant-only training path. Current
+replay evidence and the remaining refresh gates live in
+[Phase 19 State](../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md#phase-state)
+and [Remaining Work](../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md#remaining-work).
 Per-algorithm trajectory `.txt` fixtures are explicitly
 **not** committed — see [unit_testing_policy.md → Snapshot Tests and
 the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
@@ -561,7 +742,9 @@ Sprint `9.12` adds shared terminal/winner/draw evaluators for every canonical
 game and writes local `.jmw1` policy/value checkpoints from
 `jitml rl alphazero self-play` together with a content-addressed
 `alphazero-transcript` artifact carrying the sampled states, MCTS visit
-distributions, and outcome labels consumed by replay/inspection surfaces. Sprint
+distributions, and outcome labels consumed by replay/inspection surfaces.
+Product publication writes that transcript first, binds its exact pointer into
+the Product V1 manifest, and requires Store re-admission before eligibility. Sprint
 `10.6` records AlphaZero policy/value model-family metadata, policy/value/MCTS
 output decoders, and transcript pointers in the manifest. Phase `13` / `14`
 still own full product-matrix consumption of those artifacts.
@@ -736,15 +919,22 @@ workers select trials from the versioned resolved `TuningPlan` and may not
 silently replace its axes with a catalog-wide product. `TuneRunConfig` carries
 only that canonical transport, its `PlanId`, and the Pulsar WebSocket endpoint.
 
-`JitML.Plan.Command.prepareStartSweep` refines the overridden command once into
-a hidden plan whose positive quantities distinguish trials, concurrent trials,
-promotions, and per-trial optimizer updates. Local execution, Linux Jobs, and
-the Apple host-command route all validate the same canonical plan and identity
-before trial, checkpoint, or publication effects. Trials execute in cohorts no
-wider than the resolved parallelism and each trains for the resolved update
-count. Scheduler ranking and pruning retain a terminal disposition for every
-trial; transcripts persist for all trials and only the exact resolved promotion
-frontier receives checkpoints. `TrialStarted`, `TrialFinished`,
+`JitML.Plan.Command.prepareStartSweepWithExecutionSpec` refines the overridden
+Dhall command once into a hidden plan whose positive quantities distinguish
+trials, concurrent trials, promotions, and the maximum optimizer-update budget
+per trial, while its normalized execution spec binds every search, objective,
+sampler, scheduler, and pruner field into the same `PlanId`. The older
+`prepareStartSweep` remains the compatibility adapter for primitive command
+DTOs. Local execution, Linux Jobs, and the Apple host-command route all
+re-refine the transported exact spec and validate the same canonical plan and
+identity before trial, checkpoint, or publication effects. Trials
+execute in cohorts no wider than the resolved parallelism. Fifo without a
+pruner consumes the ceiling; SuccessiveHalving and ASHA advance retained
+optimizer state through eta-derived measured rungs, and an active pruner may
+stop a trial at its configured measured checkpoint. Every terminal record
+retains its actual update count, objective trace, and scheduler/pruner
+disposition. Only trials that reached the ceiling are eligible for the exact
+resolved promotion frontier and checkpoints. `TrialStarted`, `TrialFinished`,
 `SweepFinished`, and `SweepCompleted` carry the same `PlanId`.
 `SweepFinished` reports exact completed, pruned, and promoted counts plus a
 finite best objective, but remains proof-free. `SweepCompleted` wraps those
@@ -758,8 +948,9 @@ violations.
 
 The registered `hyperparameter-tuning` ProductRow is also the live integration
 schedule; the test does not substitute a two-trial smoke fixture. It resolves
-`TPE` + `ASHA` + `MedianPruner`, **128 trials**, sweep seed **1729**, **6**
-optimizer updates per trial, and parallelism **1** from the ProductRow,
+`TPE` + `ASHA` + `MedianPruner`, **128 trials**, sweep seed **1729**, an exact
+**1000**-optimizer-update ceiling allocated through eta-derived measured rungs
+with real scheduler/pruner early stopping, and parallelism **1** from the ProductRow,
 `experiments/mnist-tune.dhall`, and the named `JitML.Tune.Catalog` defaults.
 The unchanged convergence contract maximises `best_objective` against target
 **1.0** with slack **0.05**, and is checked over the best promoted measured
@@ -844,7 +1035,13 @@ trial's trained weights as a `.jmw1` checkpoint, emits a `tune-trials` artifact,
 and promotes daemon-dispatched trial weights into `jitml-checkpoints` alongside
 the `jitml-trials` transcript. Sprint `10.6` records tuning model-family
 metadata, objective/regression output decoders, and trial transcript pointers in
-the checkpoint manifest. Phase `14` publishes browser sweep
+the checkpoint manifest. Product publication emits `tune-trials-v2` before
+the Product V1 checkpoint and binds its exact pointer. That transcript contains
+the projected row/plan/experiment, dataset-at-read SHA, best final JMW1 SHA,
+and exact ordered contiguous trials; it requires exactly one promoted best
+execution, finite values, and completion-equal trial/update/objective evidence.
+Store re-admission binds those bytes before the tuning row is eligible. Phase
+`14` publishes browser sweep
 controls/frontier state over the daemon's at-least-once `TuneHandler`. The
 current proto mirror covers local text command
 envelopes plus proto3-compatible byte envelopes for the command and event
@@ -852,12 +1049,14 @@ oneofs.
 
 ## Report-Card Measurements
 
-`jitml test all --live` derives workload measurements from the typed journals
-produced by the scenarios that actually ran: SL held-out loss, RL final-policy
-evaluation return, AlphaZero arena win rate, and tuning best objective, plus
-daemon/cache observations recorded in those journals. Reporting never launches
-a second measurement workflow or substitutes a fixture. `NotRequested`,
-`Unavailable reason`, and `Available evidence` are distinct states. See
+The intended reporting boundary derives workload measurements from the typed
+journals produced by the scenarios that actually ran. The current `--live`
+layer still launches separate post-test probes and represents optional results
+through the legacy absent / `MeasurementUnavailable` /
+`MeasurementAvailable Text` surface. Sprint `34.3` owns replacing those probes
+with journal-bound `NotRequested`, reasoned `Unavailable`, and `Available`
+evidence. Reporting must not substitute fixtures or treat those probes as Phase
+`12` completion evidence. See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
 
 There is no cross-substrate parity field: the determinism contract is

@@ -64,13 +64,13 @@ import Data.Text qualified as Text
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format (CheckpointManifest)
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Coordinator.Topology
   ( ProtocolRoute (InferenceHostCommandRoute, InferenceRequestRoute)
   , Topic
   , topicFor
   )
-import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Inference (InferenceCommand)
 import JitML.Proto.Rl
   ( RlCommand (..)
@@ -1008,7 +1008,11 @@ daemonWorkloadDispatcher command _eventId =
 
 daemonWorkloadDispatcherWithInference
   :: (HasMinIO m, HasPulsar m)
-  => (ProductPipeline.InferenceEligibleRef -> CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  => ( CheckpointStore.AdmittedCompletedCheckpoint
+       -> CheckpointManifest
+       -> [Double]
+       -> m (Either Text [Double])
+     )
   -> DaemonCommand
   -> EventId
   -> m (Either ServiceError ())
@@ -1022,14 +1026,14 @@ daemonWorkloadDispatcherWithInference runInference command _eventId =
     _nonInference -> rejectEngineNonInference command
 
 -- | Sprint 13.11 — daemon dispatch variant that threads the weighted inference
--- callback (`InferenceEligibleRef -> CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
+-- callback (`AdmittedCompletedCheckpoint -> CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
 -- so the substrate-bound runners can consume real `.jmw1`-decoded weight
 -- tensors instead of the removed manifest-only summary path. Used by
 -- `daemonWorkloadDispatcherForRuntime` whenever the loaded `BootConfig`
 -- requests `SelfInference` on `LinuxCPU` or `LinuxCUDA`.
 daemonWorkloadDispatcherWithWeightedInference
   :: (HasMinIO m, HasPulsar m)
-  => ( ProductPipeline.InferenceEligibleRef
+  => ( CheckpointStore.AdmittedCompletedCheckpoint
        -> CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]
@@ -1089,7 +1093,7 @@ daemonWorkloadDispatcherForwardingInference command eventId =
 -- values model). This is an alias for the weighted self-inference dispatcher.
 daemonWorkloadDispatcherHostingAppleInference
   :: (HasMinIO m, HasPulsar m)
-  => ( ProductPipeline.InferenceEligibleRef
+  => ( CheckpointStore.AdmittedCompletedCheckpoint
        -> CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]

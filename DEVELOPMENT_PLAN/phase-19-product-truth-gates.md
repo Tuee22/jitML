@@ -2,32 +2,53 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
+**Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [system-components.md](system-components.md), [development_plan_standards.md](development_plan_standards.md), [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md), [../README.md](../README.md), [../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md), [../documents/engineering/training_workloads.md](../documents/engineering/training_workloads.md), [../documents/engineering/unit_testing_policy.md](../documents/engineering/unit_testing_policy.md)
 **Generated sections**: none
 
 > **Purpose**: Install one typed product-truth registry and machine-checkable
-> gates so no fake, deterministic, static, seeded, or representative evidence can
-> satisfy the documented model product contract, and so the ambitious model
-> surface cannot be narrowed away by a later agent.
+> gates so no fabricated, static-fixture, or representative-only evidence can
+> satisfy the documented model product contract. Deterministic seeded executions
+> count only through exact completed evidence, and the ambitious model surface
+> cannot be narrowed away by a later agent.
 
 ## Phase State
 
-⏸️ **Blocked** (reopened 2026-07-12 for Sprint `19.4`). The product
-registry does not yet project each row into one validated kind-indexed run plan
-and evidence capability, so declared identifiers and optional handles can still
-stand in for executable evidence. Sprint `19.4` is blocked by Sprint `12.16`.
+🔄 **Active** (reopened 2026-07-12 for Sprint `19.4`; unblocked 2026-07-20
+after Phase `10` Sprint `10.12` closed). The total kind-indexed row projection, opaque projection
+batch, exact internal executor, completed-scenario report admission, and
+training/convergence corrections remain retained. The Sprint `19.4`
+implementation now makes both publisher eligibility and completed-scenario
+report admission consume Store's opaque admitted artifact. A write receipt or
+caller-held completion is insufficient: the exact persisted manifest and
+physical graph are re-read, then checked against projected row/experiment,
+`PlanId`, full completion identity, and family provenance. The sprint remains
+Active until the aligned-image focused rows, complete publisher, independent
+inventory, unit/integration, docs, and code-quality validation below pass.
 Sprints `19.1`–`19.3` remain Done on their retained matrix/status surfaces.
 
-**Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
-2026-07-01 model-runtime audit reopened product closure and chose to implement
-the documented surface for real rather than narrow the docs. Phases `0`–`18`
-remain historical evidence for their owned surfaces; the current product chain is
-blocked downstream on Phase `29` and Phase `31`. This phase owns the enforcement
-spine every later product phase is validated against: the typed product matrix,
-the Phase `19`–`34` status registry, the external convergence-bar boundary, and
-the docs-check closure-claim guard. The 2026-07-05 audit findings that reopened
-this phase are now covered by Phase `32` (`jitml-negative-controls` passed 3 / 3)
-and Phase `34` plan-truth governance.
+### Historical Publisher Evidence (diagnostic only)
+
+The pre-admission `linux-cpu` runs remain useful training diagnostics, not
+checkpoint eligibility evidence. The complete publisher traversed all **55**
+rows and reported **52 eligible**, **0 unsupported**, and **3 errors**; the
+failing rows were `cifar10-resnet20`, `DQN/cartpole`, and
+`DQN/mountain-car`. Focused source/image probes later cleared those frozen bars,
+and the tuning row emitted its v2 transcript. Those outcomes predate the exact
+V2 supervised artifact and persisted admission boundary, so neither the
+reported eligible count nor the stored objects can close Sprint `19.4`.
+
+**Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the
+2026-07-05 realness audit). The 2026-07-01 model-runtime audit reopened product
+closure and chose to implement the documented surface for real rather than
+narrow the docs. The then-current Phase `0`–`18` results remain historical
+evidence only; Phase `10` has since reopened for Sprints `10.6`/`10.12`. The
+2026-07-05 findings were covered on their retained surfaces by
+Sprints `32.1` and `34.1`; those historical gates do not satisfy the separately
+reopened Sprints `32.4` and `34.3`.
+
+The retained enforcement spine remains the typed product matrix, the Phase
+`19`–`34` status registry, the external convergence-bar boundary, and the
+docs-check closure-claim guard that every later product phase validates against.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -199,75 +220,126 @@ docker compose run --rm jitml jitml check-code                  # passed
   on the full Phase `19`–`34` predicate, and the required validation includes
   `jitml-negative-controls` plus `jitml-model-convergence`.
 
-## Sprint 19.4: Product Registry Plan and Evidence Projection [⏸️ Blocked]
+## Sprint 19.4: Product Registry Plan and Admitted Evidence Projection [🔄 Active]
 
-**Status**: Blocked
-**Implementation**: `src/JitML/Product/Matrix.hs`,
-`src/JitML/Product/Convergence.hs`, `src/JitML/Test/WorkflowMatrix.hs`,
-`src/JitML/Test/Report.hs`, `test/unit/Main.hs`
-**Blocked by**: Sprint `12.16`
+**Status**: Active
+**Implementation**: `src/JitML/Product/{Matrix,Convergence,Evidence,Publisher,Completion,Benchmark}.hs`,
+`src/JitML/Checkpoint/{Store,Writer}.hs`,
+`src/JitML/Plan/{Plan,Workload}.hs`,
+`src/JitML/{App,CLI/Spec,Inference/Command,RL/ProductBudget,RL/TrainerExecution,SL/TrainingExecution,Service/Command,Test/Command,Tune/Command}.hs`,
+`src/JitML/RL/Command.hs`, `src/JitML/RL/Command/{AlphaZero,Options,Types}.hs`,
+`src/JitML/RL/Algorithms/{DqnLoss,DqnTrainer}.hs`,
+`src/JitML/SL/{Classifier,TrainingExecution}.hs`,
+`src/JitML/Test/{WorkflowMatrix,Report,RunContract}.hs`,
+`test/{unit,integration,e2e,sl-canonicals}/Main.hs`
 **Docs to update**: `../README.md`,
+`../documents/engineering/checkpoint_format.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
-`../documents/engineering/run_contract.md`, `system-components.md`,
-`legacy-tracking-for-deletion.md`
+`../documents/engineering/run_contract.md`,
+`../documents/engineering/training_workloads.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`,
+`phase-10-checkpointing-and-inference.md`
 
 ### Objective
 
-Make the canonical product registry a total typed projection into executable
-plans and required evidence rather than a registry of labels and optional
-handles. This sprint owns the registry portions of
+The canonical product registry projects every row into one exact executable
+plan and accepts checkpoint evidence only as the opaque persisted artifact
+admitted by Sprint `10.12`. This sprint consumes admission; it does not define
+the checkpoint wire format, persist checkpoint objects, verify pointer/blob
+stability, or mint completion/inference eligibility. It owns the registry
+portions of
 [Exit Definition](README.md#exit-definition) items `30`, `31`, and `34`.
 The binding design is
 [README.md → Typed run contracts](../README.md#typed-run-contracts).
 
 ### Deliverables
 
-- Give every product row a kind-indexed descriptor that projects through one
-  total function to a validated `RunPlan kind` or a typed configuration error.
-- Encode row capability as a closed sum, so a declared/unsupported row cannot
-  carry measured completion handles and a real row cannot omit its plan,
-  criterion, integration contract, or evidence requirements.
-- Derive workflow matrix cells and report row identity from the same projection;
-  reject duplicate, orphaned, or unprojectable rows.
-- Replace report projections based only on declared test ids with projections
-  over completed scenario evidence keyed by `rowId` and `PlanId`.
-- Keep matrix membership and public row identity stable while downstream state
+- Every product row has a kind-indexed descriptor that projects through one total
+  function to a validated `RunPlan kind` or a typed configuration error.
+- Row capability is a closed sum, so a declared/unsupported row cannot carry
+  measured completion handles and a real row cannot omit its plan, criterion,
+  integration contract, or evidence requirements.
+- Workflow-matrix cells, report identity, and publisher identity derive from
+  the same projection and reject duplicate, orphaned, or unprojectable rows.
+- A publisher row counts as eligible only after Sprint `10.12` returns the
+  opaque Store-admitted artifact for that row's exact `rowId`, `PlanId`,
+  completed-training identity, and persisted artifact. Storage success and
+  caller-held or in-memory proof values do not increment the eligible count.
+- Supervised rows require their exact Product-origin V2 runtime. Canonical
+  non-supervised ProductRows retain V1, but the publisher writes the exact RL
+  trajectory, AlphaZero transcript, or tuning-v2 transcript first and binds its
+  content-addressed pointer into the manifest before Store re-admission.
+- Product report evidence is minted only from that opaque Store-admitted
+  completion and retains the admitted manifest SHA. Exact manifest experiment,
+  canonical row, `PlanId`, complete completion witness, budget/evidence kind,
+  criterion, every dimensionally defined update-count relation, and family
+  provenance must match the projection. Traditional RL retains the measured
+  positive trainer update count from the admitted completion, but does not
+  equate that count with the current overloaded RL descriptor; Sprint `25.4`
+  owns the typed transition/update projection that makes that comparison exact.
+- The full publisher and independent audit require exact agreement among all
+  55 projected rows, admitted artifacts, inventory entries, and the v2 tuning
+  transcript. The independent family inventory is 11 supervised V2, 39 RL V1,
+  four AlphaZero V1, and one tuning V1, with 44 unique companion pointers.
+- Matrix membership and public row identity remain stable while downstream state
   payloads migrate in Sprint `21.4`.
 
 ### Validation
 
 ```bash
+docker compose --progress plain build jitml
+docker compose run --rm jitml jitml internal train-and-publish-product-rows --linux-cpu --row cifar10-resnet20
+docker compose run --rm jitml jitml internal train-and-publish-product-rows --linux-cpu --row DQN/cartpole
+docker compose run --rm jitml jitml internal train-and-publish-product-rows --linux-cpu --row DQN/mountain-car
+docker compose run --rm jitml jitml internal train-and-publish-product-rows --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
 ### Remaining Work
 
-- Blocked until Sprint `12.16` supplies the completed scenario-evidence type and
-  interpreter journal.
-- Implement the total product-row projection and migrate workflow/report
-  enumeration.
-- Retire declared-id-only report projections after all rows use typed evidence.
+- Run the mandatory complete 55-row publisher from the same image. Closure
+  requires **55 admitted eligible**, **0 unsupported**, and **0 errors**; each
+  result matches the exact projected `rowId`, `PlanId`, completed-training
+  identity, and admitted persisted artifact. Earlier storage-success eligible
+  counts remain historical diagnostics.
+- Independently audit the exact artifact inventory and v2 tuning transcript
+  against the 55-row execution, with no duplicate, orphaned, substituted, or
+  unadmitted artifact.
+- Pass the aligned-image publisher, `jitml-unit`, `jitml-integration`,
+  `jitml-negative-controls`, `jitml-model-convergence`, `jitml docs check`,
+  and `jitml check-code` commands above, plus the three zero-tolerance Rule-M
+  scans in `development_plan_standards.md`.
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 - `documents/engineering/run_contract.md` — total product-row projection into a
-  validated plan and required evidence contract.
+  validated plan, Store-admitted publisher/report boundary, and required
+  evidence contract.
+- `documents/engineering/checkpoint_format.md` — distinguish supervised
+  V1 inspection/resume from canonical non-supervised Product V1 completed
+  admission and document exact companion-pointer binding.
 - `documents/engineering/product_completion_contract.md` — record the matrix
-  floor and the per-row convergence bars as the binding closure surface.
+  floor, per-row convergence bars, manifest-bound publication, and admitted
+  report evidence as the binding closure surface.
 - `documents/engineering/unit_testing_policy.md` — ownership of the matrix parity,
-  phase-status parity, and closure-claim tests.
-- `documents/engineering/system-components.md` (the `DEVELOPMENT_PLAN`
-  `system-components.md` inventory) — add the new `src/JitML/Product/*` registry
-  modules and the `src/JitML/Lint/Docs.hs` closure-claim scanner.
+  exact admission/report tests, independent inventory, phase-status parity, and
+  closure-claim tests.
+- `documents/engineering/training_workloads.md` — document companion-first
+  RL/AlphaZero/tuning publication and the exact tuning-v2 payload.
+- `system-components.md` — inventory the Store-admitted publisher, report,
+  companion-pointer, and independent 55-row audit surfaces.
 
 **Product docs to create/update:**
 - `README.md` — reopened product status and the registry-backed canonical tables.
 
 **Cross-references to add:**
 - Add this phase to `README.md`, `00-overview.md`, `system-components.md`, and
-  `development_plan_standards.md`.
+  `development_plan_standards.md`, plus the governed
+  `documents/engineering/training_workloads.md` workload contract.

@@ -5,9 +5,13 @@
 --
 -- @y_t = r_t + gamma * max_{a'} Q_target(s_{t+1}, a')@
 --
--- and the per-step loss is the mean-squared TD error:
+-- and a per-step scalar diagnostic is the mean-squared TD error:
 --
 -- @L^DQN = mean( (Q(s_t, a_t) - y_t)^2 )@
+--
+-- The production trainer backpropagates the canonical kappa-1 Huber
+-- derivative exposed here, bounding gradients from stale target-network
+-- estimates while preserving the TD residual in the quadratic region.
 --
 -- Inputs are already projected by the live network forward pass.
 -- 'dqnDoubleBellmanTarget' implements the Double-DQN variant where
@@ -16,6 +20,7 @@
 module JitML.RL.Algorithms.DqnLoss
   ( dqnBellmanTarget
   , dqnDoubleBellmanTarget
+  , dqnHuberGradient
   , dqnHuberLoss
   , dqnTdLoss
   , dqnTdResidual
@@ -60,7 +65,9 @@ dqnDoubleBellmanTarget = dqnBellmanTarget
 dqnTdResidual :: Double -> Double -> Double
 dqnTdResidual qValue target = qValue - target
 
--- | Mean-squared TD error: the canonical DQN loss.
+-- | Mean-squared TD-error diagnostic. The production DQN trainer uses the
+-- canonical kappa-1 Huber head ('dqnHuberGradient') for optimisation; this
+-- helper remains useful when reporting the unclipped residual magnitude.
 dqnTdLoss :: [Double] -> [Double] -> Double
 dqnTdLoss qValues targets
   | null targets = 0.0
@@ -68,6 +75,18 @@ dqnTdLoss qValues targets
       let n = fromIntegral (length targets) :: Double
           residuals = zipWith dqnTdResidual qValues targets
        in sum (fmap (\r -> r * r) residuals) / n
+
+-- | Derivative of the Huber loss with respect to its TD residual. Within
+-- @[-kappa, kappa]@ this is the residual itself; outside that interval it is
+-- clipped to @+/-kappa@. The canonical DQN trainer uses @kappa = 1@ so a stale
+-- target-network estimate cannot turn one replay sample into an unbounded
+-- update.
+dqnHuberGradient :: Double -> Double -> Double
+dqnHuberGradient kappa residual
+  | kappa <= 0.0 = 0.0
+  | residual < negate kappa = negate kappa
+  | residual > kappa = kappa
+  | otherwise = residual
 
 -- | Huber loss with the canonical @kappa = 1.0@ from the DQN reference
 -- implementation. Combines L2 behaviour near the origin with L1

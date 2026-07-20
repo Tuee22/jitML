@@ -28,19 +28,20 @@
 
 ## Phase Status
 
-🔄 **Active** (Sprint `12.16`; unblocked 2026-07-16 after Sprint `3.7`
-re-closed). The scoped live interpreter, exact reducers, closed Job observation,
-role-indexed daemon clients, keyed host-workload lifecycle, and journal-derived
-invocation/suite outcomes are implemented. The redirect-safe immutable image is
-built and rolled into the retained `linux-cpu` cluster with exact image, broker,
-topic, readiness, and zero-residue proof, and all five current-image focused
-live selectors plus the unfiltered integration pre-gate pass. The sprint
-remains open for a corrected immutable rebuild, the six canonical `linux-cpu`
-commands, and movement of its three validation-pending ledger rows to
-Completed. Canonical command `3 / 6` exposed a real quiet-WebSocket lifecycle
-leak and invalidated the first image-bound attempt, so the canonical block must
-restart from command `1 / 6` after rollout of the repair. Sprints
-`12.1`–`12.15` remain Done on their retained stanza and matrix surfaces.
+✅ **Done** (Sprint `12.16`; re-closed 2026-07-15 after Sprint `3.7`). The
+scoped live interpreter, exact reducers, closed Job observation, role-indexed
+daemon clients, keyed host-workload lifecycle, and journal-derived
+invocation/suite outcomes are implemented and validated. Immutable descriptor
+`sha256:6e0d57971bf8e6a7c996530a4b434a575237a570c745710f2a150a501da42aa0`
+passed the complete retained-cluster `linux-cpu` gate: unit **544 / 544**,
+integration **155 / 155** including **18 / 18** Live scenarios, Playwright **72
+/ 72**, Haskell e2e **29 / 29**, and the full aggregate's **11 / 11** reporter
+invocations with zero Failed or NotRun. Docs and code quality passed. Every
+post-command verifier retained **5 / 5** Ready application pods with zero
+restarts, three brokers, **34 / 34** topics, zero workload residue, and the
+healthy edge. The three Sprint `12.16` replacement-landed ledger rows are
+Completed. Sprints `12.1`–`12.15` remain Done on their retained stanza and
+matrix surfaces.
 
 **Historical retained closure.** ✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `12.15` —
 per-model fixed-budget integration/e2e matrix). The common-shape reopen remains
@@ -207,8 +208,9 @@ is present and the active Docker context answers `docker info`; when Docker is
 unreachable, the check fails closed instead of passing vacuously. `jitml test all`
 invokes Cabal through the typed `Subprocess` boundary after the Plan/Apply
 dry-run surface. Lint and code-quality commands run separately inside
-`jitml:local`. Sprint `12.16`'s remaining live work is validation of those
-implemented paths, not construction of a separate structural-only executor.
+`jitml:local`. Sprint `12.16` validated those implemented live paths on the
+binding immutable image; it did not construct a separate structural-only
+executor.
 
 ## Phase Summary
 
@@ -1460,10 +1462,10 @@ rejected before completion.
 
 - None.
 
-## Sprint 12.16: Functional-Core Live Workflow Interpreter [🔄 Active]
+## Sprint 12.16: Functional-Core Live Workflow Interpreter [✅ Done]
 
-**Status**: Active (implementation started 2026-07-14; unblocked 2026-07-16
-after Sprint `3.7` re-closed)
+**Status**: Done (implementation started 2026-07-14; unblocked and validated
+2026-07-15 after Sprint `3.7` re-closed)
 **Implementation**: `src/JitML/Test/WorkflowMatrix.hs`,
 `src/JitML/Test/LivePlan.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/Test/{RunContract,LiveWorkflow,LiveEvidence,PulsarTransport}.hs`,
@@ -1858,7 +1860,8 @@ The binding design is
 - The live Tune completion fixture now derives the registered
   `hyperparameter-tuning` ProductRow and `JitML.Tune.Catalog` schedule rather
   than a test-local miniature: TPE, ASHA, MedianPruner, seed **1729**, **128**
-  trials, **6** updates per trial, parallelism **1**, and exactly one promotion.
+  trials, a **1000**-optimizer-update ceiling allocated through measured
+  eta-derived rungs, parallelism **1**, and exactly one promotion.
   The unchanged **1.0** target and **0.05** slack remain binding. Its non-Live
   schedule/convergence regression passes **1 / 1**. The hot-reloaded registered
   live workflow now passes **1 / 1** in **21.10s**; exact post-immutable-rollout
@@ -1948,7 +1951,7 @@ The binding design is
   deletion. Cleanup now follows at most five HTTP(S)-only redirects while
   preserving `DELETE`; the real socket regression and the complete
   `PulsarTransport` group pass **1 / 1** and **32 / 32**.
-- On 2026-07-16 the redirect-safe supported build completed with embedded
+- On 2026-07-15 the redirect-safe supported build completed with embedded
   `jitml check-code: ok`; the frontend compiled **611 / 611** PureScript
   modules with **0** warnings and **0** errors. The resulting immutable image
   index is
@@ -2034,6 +2037,166 @@ The binding design is
   be built and rolled out. Because the source/image changed, canonical commands
   **1 / 6** and **2 / 6** above remain diagnostic history and the binding block
   restarts at **1 / 6** on the repaired image.
+- The first quiet-WebSocket repair image completed the supported build with
+  embedded `jitml check-code: ok`; its frontend compiled **611 / 611** modules
+  with zero warnings and zero errors. The immutable index is
+  `sha256:5060ce86a25bb1f5869dd366e0960cd16e9f55f2fc4e187c6cd2e462120a418f`,
+  with linux/amd64 manifest
+  `sha256:15094c97303dba3ebf46788a24c622943b28b06378913ab5700b8781e02dbf82`
+  and config image ID
+  `sha256:554ecbf9f2ff0f8809441f396c3d91aa65cd679ffd168c46fb62dc5815b1fc45`.
+  The installed binary accepted `+RTS -N1`; the supported retained-cluster
+  rollout again completed **156** steps. Independent proof recorded the exact
+  image tuple, **5 / 5** Ready application pods with zero restarts, three
+  brokers, **34 / 34** topics, and zero workload residue. The fresh Webapp pod
+  `c51c19bc-889d-44f4-8b68-b6094bd02795` stabilized at **14** PID-1 file
+  descriptors with zero direct children, Node processes, piped-process temp
+  directories, or `jitml-demo-bridge-*` cursors across all topics. The focused
+  hash-navigation browser cleanup regression passed **1 / 1** in **0.077s**
+  and the exact resource baseline then held for three consecutive samples.
+- On that image canonical command **1 / 6** passed **544 / 544** unit tests in
+  **93.715s**, followed by an exact zero-restart/zero-residue cluster proof.
+  Canonical command **2 / 6** then ran every integration case for
+  **1,698.420s**: **154 / 155** passed, including WorkflowMatrix **443.31s**,
+  StartRLRun **200.04s**, PPO convergence **733.96s**, inference **1.13s**,
+  resolved Tune **18.03s**, and AlphaZero dispatch **4.59s**. The sole failure
+  sampled `jitml-coordinator` on `rl.command.linux-cpu` with `consumers: []`.
+  Broker logs prove the healthy three-command consumer set hit the configured
+  `webSocketSessionIdleTimeoutMillis=300000` at `20:55:00.887Z`; the failing
+  stats response landed at `20:55:01.542Z`, and the bridge resubscribed at
+  `20:55:01.896Z` with cursor position unchanged. Coordinator and broker UIDs
+  and restart counts remained stable, later daemon dispatches succeeded, and
+  the complete failed-run post-state proof again reported the exact image,
+  **5 / 5** Ready apps, zero restarts, **34 / 34** topics, and zero residue.
+- The role-subscription live gate now polls the entire expected route set as one
+  sweep, requires two consecutive all-present sweeps, resets the streak on any
+  missing subscription, empty consumer array, command failure, malformed JSON,
+  or unexpected shape, and retains the last three complete sweep diagnostics on
+  exhaustion. Container Haskell lint passes and the focused live assertion
+  passes **1 / 1** in **12.71s**. Because this changes the test source, the
+  `5060ce86…` image and its command **1 / 6** result remain diagnostic history;
+  the binding image must be rebuilt and the canonical sequence restarted from
+  **1 / 6**.
+- The final repaired image completed the supported build with embedded
+  `jitml check-code: ok`, a **611 / 611** zero-warning PureScript build, and an
+  installed binary that accepts `+RTS -N1`. Its immutable index/descriptor is
+  `sha256:0c94a15d1c49a6ab13e91133c2e6d16a78029be3c7d873e4397f654260bb1e0d`,
+  with linux/amd64 manifest
+  `sha256:0b923416bb711b02b32e6cd82f4239d57fe3ba55597db7462b0f088960d5a57e`
+  and config image ID
+  `sha256:2f43386ea36737c9ed87a29134c1e93e1515b6ae771b302820d0f9d1a0fb7e2b`.
+  The supported retained-cluster rollout completed **156** steps. Independent
+  proof records that exact tuple on every node, **5 / 5** Ready application
+  pods with zero restarts, three unchanged brokers, **34 / 34** topics, and
+  zero workload residue. The fresh Webapp pod
+  `f89d9fc1-b3be-4e6a-8cff-e23a3befefb4` held **14** PID-1 file descriptors
+  with zero direct children, Node processes, piped-process temp directories,
+  or `jitml-demo-bridge-*` cursors for three consecutive samples. The focused
+  role-subscription gate passed **1 / 1** in **12.77s**, the hash-navigation
+  browser cleanup regression passed **1 / 1**, and the exact Webapp resource
+  baseline recovered for three further consecutive samples.
+- On that binding image, canonical command **1 / 6** passed **544 / 544** unit
+  tests in **40.70s** (**1** Passed, zero Failed, zero NotRun), and command
+  **2 / 6** passed **155 / 155** integration tests in **1,669.09s** (**1**
+  Passed, zero Failed, zero NotRun). Command **3 / 6** passed all **72 / 72**
+  Playwright cases and **29 / 29** Haskell e2e cases (**2** Passed, zero
+  Failed, zero NotRun). Immediate before/after resource proofs retained the
+  same Webapp UID, restart count zero, FD baseline **14**, zero child/Node/temp
+  residue, and zero bridge cursors on all **34** topics. The immutable-image
+  cluster verifier passed after each command.
+- The first binding-image attempt at canonical command **4 / 6**, `jitml test
+  all --live --linux-cpu`, is diagnostic history rather than closure evidence.
+  The Playwright, unit, integration, supervised-learning canonicals,
+  reinforcement-learning canonicals, and hyperparameter stanzas passed, but
+  `jitml-backends` failed **1 / 24** at the linux-cpu LayerGraph oneDNN
+  training assertion for layer-1 input-gradient tolerance. The fail-fast
+  report card therefore recorded **6** Passed invocations, **1** Failed, and
+  **4** NotRun. The post-failure immutable-image verifier passed with the exact
+  image tuple, **5 / 5** Ready application pods, zero restarts, three unchanged
+  brokers, **34 / 34** governed topics, zero workload residue, and a healthy
+  edge on port `9091`. The next bullet records the resulting repair; this
+  failed aggregate remains diagnostic history.
+- Root-cause isolation showed that the oneDNN affine ABI received the raw layer
+  input while the pure LayerGraph contract first applies the layer-kind input
+  transform. Conv2D is fixture layer index `1`, so its raw `WᵀdPre` first
+  exposed the missing backward transform. The oneDNN adapter now applies the
+  shared LayerGraph transform before device forward/weight-gradient work and
+  maps the device input gradient back through the shared inverse transform.
+  The focused assertion passed **1 / 1** three consecutive times, and the full
+  linux-cpu backend lane passed **24 / 24** (**1** Passed, zero Failed, zero
+  NotRun). Because this is production-source change, image `0c94a15d…` and its
+  canonical commands **1 / 6** through **3 / 6** remain diagnostic history. A
+  new immutable image, retained-cluster rollout, resource proof, and canonical
+  restart from command **1 / 6** are required.
+- The post-LayerGraph-fix supported build exited **0** with embedded
+  `jitml check-code: ok`, a **611 / 611** PureScript build with zero warnings
+  and zero errors, and an installed binary that accepts `+RTS -N1`. The new
+  immutable index/descriptor is
+  `sha256:6e0d57971bf8e6a7c996530a4b434a575237a570c745710f2a150a501da42aa0`,
+  with linux/amd64 manifest
+  `sha256:8c3c2bb3319b18e1b927cb5e73c88e8ffc55ff756806d7a8a795844975135899`
+  and config image ID
+  `sha256:d647ab711f7ff277121ac82390a6b4406cedd93c80422d86b3bf360d9bead432`.
+  The supported retained-cluster rollout then exited **0** after **156** steps.
+  Independent proof recorded that exact tuple on all four nodes, **5 / 5**
+  Ready application pods with zero restarts, three unchanged brokers, **34 /
+  34** topics, zero workload residue, and healthy edge `:9091`. New Webapp UID
+  `185969ce-92f2-4bed-a61d-6e91ee3129b9` stabilized at **14** PID-1 file
+  descriptors with zero children, Node processes, piped-process temp
+  directories, or bridge cursors for three consecutive samples. The canonical
+  block restarted at command **1 / 6** on this binding image.
+- On the post-LayerGraph-fix binding image, canonical command **1 / 6** passed
+  **544 / 544** unit tests in **40.62s** (whole invocation
+  **92.410180923s**) with a journal summary of **1** Passed, zero Failed, and
+  zero NotRun. Canonical command **2 / 6** passed **155 / 155** integration
+  tests in **1,660.76s** (whole invocation **1,729.499980288s**) with the same
+  **1 / 0 / 0** journal outcome. Its **18 / 18** live cases included the real
+  workflow matrix, supervised and reinforcement-learning launches, PPO
+  convergence, checkpoint, garbage-collection, inference, tuning, AlphaZero,
+  and self-play paths. The independent verifier passed after both commands,
+  retaining the exact immutable image tuple, **5 / 5** Ready application pods,
+  zero restarts, three brokers, **34 / 34** topics, zero workload residue, and
+  the healthy edge on port `9091`.
+- Canonical command **3 / 6** on that same binding image passed all **72 / 72**
+  Playwright cases in **27.8s** and all **29 / 29** Haskell e2e cases in
+  **0.12s**. The journal recorded **2** Passed, zero Failed, and zero NotRun in
+  **32.957148353s**, with per-stanza invocations of **29.800086445s** and
+  **3.157061908s**. Immediate before/after resource proofs retained Webapp UID
+  `185969ce-92f2-4bed-a61d-6e91ee3129b9`, restart count zero, FD baseline
+  **14**, and zero child processes, Node processes, piped-process temporary
+  directories, or bridge cursors for three consecutive samples. The
+  post-command immutable-image verifier again passed the exact image tuple,
+  **5 / 5** Ready applications, zero restarts, three brokers, **34 / 34**
+  topics, zero workload residue, and healthy edge `:9091`. Canonical command
+  **4 / 6** followed on the same retained cluster.
+- Canonical command **4 / 6**, `jitml test all --live --linux-cpu`, passed all
+  **11 / 11** reporter invocations with **11** Passed, zero Failed, and zero
+  NotRun in a whole container invocation of **2,487.430443021s**. Its executed
+  cases were Playwright **72 / 72**, unit **544 / 544**, integration **155 /
+  155**, supervised-learning canonicals **31 / 31**, reinforcement-learning
+  canonicals **40 / 40**, hyperparameter **21 / 21**, backends **24 / 24**,
+  daemon lifecycle **51 / 51**, Haskell e2e **29 / 29**, negative controls **3
+  / 3**, and model convergence **111 / 111**. The integration journal again
+  included all **18 / 18** Live scenarios; in particular, the repaired
+  LayerGraph oneDNN case passed inside the full backend stanza rather than only
+  in the focused gate. The independent post-aggregate verifier retained the
+  exact immutable image tuple, **5 / 5** Ready applications, zero restarts,
+  three brokers, **34 / 34** topics, zero workload residue, and healthy edge
+  `:9091`. Canonical command **5 / 6**, `jitml docs check`, then exited **0**
+  with `docs check: ok`; its independent verifier retained the same exact image
+  and healthy zero-residue cluster state. Canonical command **6 / 6**, `jitml
+  check-code`, then exited **0** with `check-code: ok`; the final independent
+  verifier again retained the exact image tuple, **5 / 5** Ready applications,
+  zero restarts, three brokers, **34 / 34** topics, zero workload residue, and
+  healthy edge `:9091`. The complete six-command binding-image gate is green.
+- Closure alignment moved exactly the three Sprint `12.16` rows to Completed,
+  leaving **12** later-owned Pending Removal rows, and activated Sprint `19.4`
+  in both its phase document and the Haskell status registry. Standards rule M
+  then reported **0 / 44** backward edges, **0 / 284** dual-accelerator gates,
+  and **0 / 20** accelerator invocations in aggregation validation. The
+  post-edit parity gate passed unit **544 / 544** with **1** Passed, zero
+  Failed, and zero NotRun in **178.538679068s**; docs and code quality again
+  passed, and the verifier retained the same exact zero-residue cluster state.
 - Phase `12` requires no Apple hardware under standards rule M. Its keyed
   registry, forwarding shape, and real daemon-process semantics are
   Linux-host-validatable; the real Metal lane and Apple journal/attestation
@@ -2052,23 +2215,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Validate the threaded-runtime, repeated quiet-close, browser-disposal, and
-  frontend checks; delete the **380** abandoned `jitml-demo-bridge-*` cursors;
-  build and roll out one new immutable image; and prove the fresh Webapp keeps
-  the same pod UID and restart count, returns to its pre-run descriptor count,
-  has zero Node bridge children, and leaves zero bridge cursors after live
-  Playwright.
-- Restart and run the complete canonical `linux-cpu` validation block above
-  against that same repaired image and cluster,
-  including the real Coordinator acquire/readiness/serve/drain path, dynamic
-  consumer boundaries, and journal-derived aggregate report. Record the exact
-  reporter stanza/scenario counts and durations. Apple/Metal execution is not
-  part of this Phase `12` gate; Sprint `30.4` independently refreshes it.
-- After every canonical command passes, move the three Sprint `12.16`
-  replacement-landed rows (residual hand-built lifecycle, ad-hoc RL collectors,
-  and fabricated suite outcomes) from Pending Removal to Completed with the
-  observed validation evidence. The independently owned post-test measurement
-  probes remain Sprint `34.3` work.
+- None.
 
 ## Related Documents
 

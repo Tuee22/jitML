@@ -100,7 +100,7 @@ data MlpDevice = MlpDevice
 -- and runs on this host by executing a trivial 1×1×1 forward. Returns
 -- @Right ()@ when the substrate toolchain/hardware is present and @Left@ (the
 -- engine error) when it is absent. This is the fail-closed gate the RL worker
--- dispatch ('JitML.App.runTrainerEpisodes') probes before routing any trainer
+-- dispatch ('JitML.RL.TrainerExecution.runTrainerEpisodes') probes before routing any trainer
 -- through the device, so a missing substrate fails closed rather than
 -- silently degrading to a pure-Haskell path.
 probeMlpDevice :: MlpDevice -> IO (Either Text ())
@@ -133,7 +133,11 @@ mlpDeviceFromSpec spec env =
 pureReferenceMlpDevice :: MlpDevice
 pureReferenceMlpDevice =
   MlpDevice
-    { mlpdForward = \params input -> pure (Right (mlpForward params input))
+    { mlpdForward = \params input ->
+        pure $
+          if VU.length input /= shapeInputs params
+            then Left pureShapeMismatch
+            else Right (mlpForward params input)
     , mlpdBackward = \params fwd dLdy -> pure (Right (mlpBackward params fwd dLdy))
     , mlpdForwardBatch = \params inputs ->
         pure $
@@ -274,6 +278,8 @@ foreign import ccall "dynamic"
 mlpForwardWith
   :: MlpBackendSpec -> Env -> MlpParams -> VU.Vector Double -> IO (Either Text MlpForward)
 mlpForwardWith spec env params input
+  | VU.length input /= inputs =
+      pure (Left (mbsTag spec <> ": input shape mismatch against the network"))
   | isMetalSpec spec = do
       metadataResult <- ensureMlpMetadata spec env
       case metadataResult of

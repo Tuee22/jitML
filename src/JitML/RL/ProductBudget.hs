@@ -13,6 +13,7 @@ module JitML.RL.ProductBudget
   , productRlDefaultEvaluationEpisodes
   , productRlDefaultMaxEpisodeSteps
   , productRlRequestedStepFloor
+  , rlTrainerEnvironmentCompatibilityError
   , trainerKindForAlgorithm
   )
 where
@@ -109,6 +110,9 @@ planExactRlTrainingSchedule
   -> Word64
   -> Either Text RlTrainingSchedule
 planExactRlTrainingSchedule trainer environment evalEpisodes maxEpisodeSteps vectorOverride expected = do
+  case rlTrainerEnvironmentCompatibilityError trainer environment of
+    Just err -> Left err
+    Nothing -> Right ()
   schedule <-
     planRlTrainingSchedule
       trainer
@@ -152,6 +156,49 @@ trainerKindForAlgorithm algorithm =
     "ARS" -> "ars"
     "HER" -> "her"
     _ -> Text.toLower (Text.strip algorithm)
+
+-- | Closed compatibility relation shared by ProductRow refinement and every
+-- runtime adapter.  Scheduling alone is insufficient: several trainers can
+-- derive a numerical schedule for a simulator whose action domain they do not
+-- implement.
+rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
+rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
+  case supportedEnvironments of
+    Nothing -> Nothing
+    Just environments
+      | environment `elem` environments -> Nothing
+      | otherwise ->
+          Just
+            ( "RL trainer "
+                <> trainer
+                <> " does not support environment "
+                <> environment
+                <> "; supported environments: "
+                <> Text.intercalate ", " environments
+            )
+ where
+  trainer = Text.toLower (Text.strip rawTrainer)
+  environment = Text.toLower (Text.strip rawEnvironment)
+  supportedEnvironments =
+    case trainer of
+      "ppo" -> Just discreteProductEnvironments
+      "a2c" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "trpo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "maskableppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "recurrentppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "dqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
+      "qrdqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
+      "ddpg" -> Just continuousProductEnvironments
+      "td3" -> Just continuousProductEnvironments
+      "sac" -> Just continuousProductEnvironments
+      "crossq" -> Just continuousProductEnvironments
+      "tqc" -> Just continuousProductEnvironments
+      "ars" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
+      "her" -> Just ["goal-reaching"]
+      _ -> Nothing
+  discreteProductEnvironments =
+    ["cartpole", "mountain-car", "acrobot", "lunar-lander", "key-door-grid", "gridworld-deterministic"]
+  continuousProductEnvironments = ["pendulum", "lunar-lander"]
 
 -- | Plan one real trainer run.  The optional target is a requested minimum,
 -- not an observed count: the returned count includes every vector environment

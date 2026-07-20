@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -16,8 +17,9 @@ import Data.Aeson.KeyMap qualified as AesonKeyMap
 import Data.Bifunctor qualified as Bifunctor
 import Data.Either (lefts)
 import Data.Functor (void)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isJust, isNothing, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -37,6 +39,7 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Vector.Unboxed qualified as VU
 
 import Data.ByteString qualified
+import JitML.App qualified as App
 import JitML.Bootstrap
   ( AppPodImagePollDecision (..)
   , KindClusterPresence (..)
@@ -64,6 +67,7 @@ import JitML.Bootstrap
 import JitML.CLI.Output qualified as Output
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Cluster.DockerImage qualified as DockerImage
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Gateway qualified as Gateway
@@ -81,7 +85,6 @@ import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
   , Topic
   , encodeTopicPayload
-  , inferenceResultMessagePayload
   , topicFor
   , topicName
   )
@@ -108,6 +111,7 @@ import JitML.RL.ConvergenceThresholds
   , passesConvergence
   )
 import JitML.SL.Dataset qualified as Dataset
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 
 import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Observability.TensorBoard qualified as TensorBoard
@@ -136,7 +140,6 @@ import JitML.Plan.Workload
   , tuningPlanTrials
   )
 import JitML.Proto.Gc qualified as ProtoGc
-import JitML.Proto.Inference qualified as ProtoInference
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as Training
 import JitML.Proto.Tune qualified as ProtoTune
@@ -224,6 +227,9 @@ import System.Directory (createDirectoryIfMissing, doesFileExist, listDirectory,
 import System.FilePath ((</>))
 import System.Info qualified as SystemInfo
 
+-- | A completed legacy generic V1 fixture. Its non-supervised budget is
+-- deliberate: a supervised completion budget categorically makes V1
+-- inspection-only, while these fixtures own generic Store and engine coverage.
 completedCheckpointManifest
   :: Text
   -> Text
@@ -231,7 +237,19 @@ completedCheckpointManifest
   -> Word64
   -> [(Text, Double)]
   -> Checkpoint.CheckpointManifest
-completedCheckpointManifest manifestId experimentHash tensors step metrics =
+completedCheckpointManifest =
+  completedCheckpointManifestWithBudget
+    TrainingBudget.RlEnvironmentStepBudget
+
+completedCheckpointManifestWithBudget
+  :: TrainingBudget.BudgetKind
+  -> Text
+  -> Text
+  -> [Checkpoint.TensorBlob]
+  -> Word64
+  -> [(Text, Double)]
+  -> Checkpoint.CheckpointManifest
+completedCheckpointManifestWithBudget budgetKind manifestId experimentHash tensors step metrics =
   let evidence =
         either
           (error . Text.unpack)
@@ -257,7 +275,7 @@ completedCheckpointManifest manifestId experimentHash tensors step metrics =
                   (error . Text.unpack)
                   id
                   ( TrainingBudget.mkTrainingBudget
-                      TrainingBudget.SupervisedEpochBudget
+                      budgetKind
                       (max 1 step)
                       Nothing
                   )
@@ -277,6 +295,76 @@ completedCheckpointManifest manifestId experimentHash tensors step metrics =
           , Checkpoint.manifestMetrics = metrics
           }
    in Checkpoint.attachCompletedTraining completed manifest
+
+-- | Build one internally consistent legacy completed transaction. The exact
+-- fetched JMW1 SHA is the tensor address and completed final-weight identity.
+-- Store may persist/adopt it for inspection, but completed V1 admission is
+-- reserved for canonical non-supervised ProductRow identities.
+completedLegacySnapshotForPayload
+  :: Text
+  -> Text
+  -> Text
+  -> [Int]
+  -> Word64
+  -> [(Text, Double)]
+  -> ByteString.Lazy.ByteString
+  -> ( Checkpoint.CheckpointManifest
+     , TrainingBudget.CompletedTraining
+     , Text
+     )
+completedLegacySnapshotForPayload manifestId experimentHash tensorName shape step metrics payload =
+  let finalWeightSha = WeightCodec.jmw1ContentSha payload
+      blobObjectKey = Checkpoint.blobKey experimentHash finalWeightSha
+      evidence =
+        either
+          (error . Text.unpack)
+          id
+          ( ProductEvidence.mkTrainingEvidence
+              ("integration-initial-" <> experimentHash)
+              finalWeightSha
+              (max 1 step)
+              ("integration-dataset-" <> experimentHash)
+          )
+      observations =
+        either
+          (error . Text.unpack)
+          id
+          (convergenceObservationsFixture metrics)
+      completed =
+        either
+          (error . Text.unpack)
+          id
+          ( TrainingBudget.completedTraining
+              integrationFixturePlanId
+              ( either
+                  (error . Text.unpack)
+                  id
+                  ( TrainingBudget.mkTrainingBudget
+                      TrainingBudget.RlEnvironmentStepBudget
+                      (max 1 step)
+                      Nothing
+                  )
+              )
+              step
+              evidence
+              observations
+              TrainingBudget.TensorBoardRunMetadata
+                { TrainingBudget.tbrRunId = experimentHash
+                , TrainingBudget.tbrLogPrefix =
+                    "jitml-tensorboard/" <> experimentHash
+                , TrainingBudget.tbrScalarTags = fmap fst metrics
+                }
+          )
+      manifest =
+        ( Checkpoint.emptyManifest
+            manifestId
+            experimentHash
+            [Checkpoint.TensorBlob tensorName shape blobObjectKey]
+        )
+          { Checkpoint.manifestStep = step
+          , Checkpoint.manifestMetrics = metrics
+          }
+   in (Checkpoint.attachCompletedTraining completed manifest, completed, blobObjectKey)
 
 integrationFixturePlanId :: PlanId
 integrationFixturePlanId =
@@ -337,13 +425,356 @@ assertProductRowIntegrationReportCoverage = do
         "orphan coverage is rejected"
         (any ("orphan integration evidence: rowId=orphan-row" `Text.isPrefixOf`) orphanFailures)
 
-productRowIntegrationEvidence
-  :: ProductMatrix.ProductRow 'ProductMatrix.Declared
-  -> IO TestReport.RowIntegrationEvidence
-productRowIntegrationEvidence row = do
-  checkpointRoot <- makeAbsolute (".build" </> "checkpoints")
+data ExpectedProductRowInventory = ExpectedProductRowInventory
+  { expectedInventoryRowId :: !Text
+  , expectedInventoryFamily :: !ProductMatrix.RowFamily
+  , expectedInventoryExperimentHash :: !Text
+  , expectedInventoryPlanId :: !PlanId
+  }
+  deriving stock (Eq, Show)
+
+-- | This projection is deliberately constructible only from Store's opaque
+-- admitted-completed value. Store admission has therefore already re-read and
+-- hash-checked every physical transcript object named by the manifest before
+-- this independent inventory layer checks its ProductRow association.
+data AdmittedProductRowInventory = AdmittedProductRowInventory
+  { admittedInventoryRowId :: !Text
+  , admittedInventoryExperimentHash :: !Text
+  , admittedInventoryManifestPlanId :: !(Maybe PlanId)
+  , admittedInventoryCompletedPlanId :: !PlanId
+  , admittedInventoryManifestSha :: !Text
+  , admittedInventoryManifestBodySha :: !(Maybe Text)
+  , admittedInventoryReplayPointers :: ![Checkpoint.ArtifactPointer]
+  , admittedInventoryTranscriptPointers :: ![Checkpoint.ArtifactPointer]
+  , admittedInventoryRuntimePayload :: !(Maybe RuntimeArtifact.RawSupervisedRuntimePayload)
+  , admittedInventoryDatasetShaAtRead :: !Text
+  , admittedInventoryInitialJmw1Sha :: !Text
+  , admittedInventoryFinalJmw1Sha :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data LoadedAdmittedProductRowCheckpoint = LoadedAdmittedProductRowCheckpoint
+  { loadedProductManifestSha :: !Text
+  , loadedProductAdmittedCheckpoint :: !CheckpointStore.AdmittedCheckpoint
+  , loadedProductAdmittedCompleted :: !CheckpointStore.AdmittedCompletedCheckpoint
+  }
+
+expectedProductRowInventory
+  :: ProductMatrix.ProductRow state
+  -> ProductMatrix.ProductProjection kind
+  -> ExpectedProductRowInventory
+expectedProductRowInventory row projection =
+  ExpectedProductRowInventory
+    { expectedInventoryRowId = ProductMatrix.rowId row
+    , expectedInventoryFamily = ProductMatrix.family row
+    , expectedInventoryExperimentHash =
+        ProductMatrix.productProjectionExperimentHash projection
+    , expectedInventoryPlanId = ProductMatrix.productProjectionPlanId projection
+    }
+
+admittedProductRowInventory
+  :: ProductMatrix.ProductRow state
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> AdmittedProductRowInventory
+admittedProductRowInventory row admittedCompleted =
+  let admittedCheckpoint =
+        CheckpointStore.admittedCompletedCheckpoint admittedCompleted
+      manifest = CheckpointStore.admittedCheckpointManifest admittedCheckpoint
+      completed = CheckpointStore.admittedCompletedTraining admittedCompleted
+   in AdmittedProductRowInventory
+        { admittedInventoryRowId = ProductMatrix.rowId row
+        , admittedInventoryExperimentHash = Checkpoint.manifestExperiment manifest
+        , admittedInventoryManifestPlanId = Checkpoint.manifestPlanId manifest
+        , admittedInventoryCompletedPlanId =
+            TrainingBudget.completedTrainingPlanId completed
+        , admittedInventoryManifestSha =
+            CheckpointStore.admittedCheckpointManifestSha admittedCheckpoint
+        , admittedInventoryManifestBodySha =
+            CheckpointStore.admittedCheckpointManifestBodySha admittedCheckpoint
+        , admittedInventoryReplayPointers = Checkpoint.manifestReplayPointers manifest
+        , admittedInventoryTranscriptPointers =
+            Checkpoint.manifestTranscriptPointers manifest
+        , admittedInventoryRuntimePayload =
+            RuntimeArtifact.supervisedRuntimePayloadToRaw
+              <$> Checkpoint.manifestSupervisedRuntime manifest
+        , admittedInventoryDatasetShaAtRead =
+            TrainingBudget.completedTrainingDatasetShaAtRead completed
+        , admittedInventoryInitialJmw1Sha =
+            TrainingBudget.completedTrainingInitialWeightHash completed
+        , admittedInventoryFinalJmw1Sha =
+            TrainingBudget.completedTrainingFinalWeightHash completed
+        }
+
+admittedProductRowInventoryFailures
+  :: ExpectedProductRowInventory
+  -> AdmittedProductRowInventory
+  -> [Text]
+admittedProductRowInventoryFailures expected inventory =
+  concat
+    [ exactTextFailure
+        "row id"
+        (expectedInventoryRowId expected)
+        (admittedInventoryRowId inventory)
+    , exactTextFailure
+        "manifest experiment hash"
+        (expectedInventoryExperimentHash expected)
+        (admittedInventoryExperimentHash inventory)
+    , exactMaybePlanIdFailure
+        "manifest PlanId"
+        (expectedInventoryPlanId expected)
+        (admittedInventoryManifestPlanId inventory)
+    , exactPlanIdFailure
+        "completed PlanId"
+        (expectedInventoryPlanId expected)
+        (admittedInventoryCompletedPlanId inventory)
+    , canonicalShaFailures
+        "manifest SHA"
+        (admittedInventoryManifestSha inventory)
+    , [ "orphan replay pointer inventory for row "
+          <> expectedInventoryRowId expected
+      | not (null (admittedInventoryReplayPointers inventory))
+      ]
+    , transcriptPointerFailures expected (admittedInventoryTranscriptPointers inventory)
+    , runtimeInventoryFailures expected inventory
+    ]
+
+transcriptPointerFailures
+  :: ExpectedProductRowInventory
+  -> [Checkpoint.ArtifactPointer]
+  -> [Text]
+transcriptPointerFailures expected pointers =
+  case expectedTranscriptKind (expectedInventoryFamily expected) of
+    Nothing ->
+      [ "orphan transcript pointer inventory for supervised row "
+          <> expectedInventoryRowId expected
+      | not (null pointers)
+      ]
+    Just expectedKind ->
+      case pointers of
+        [] ->
+          [ "missing "
+              <> expectedKind
+              <> " transcript pointer for row "
+              <> expectedInventoryRowId expected
+          ]
+        [pointer] -> transcriptPointerIdentityFailures expected expectedKind pointer
+        _ ->
+          [ "duplicate/multiple transcript pointers for row "
+              <> expectedInventoryRowId expected
+              <> ": expected exactly one "
+              <> expectedKind
+              <> ", got "
+              <> Text.pack (show (length pointers))
+          ]
+            <> concatMap
+              (transcriptPointerIdentityFailures expected expectedKind)
+              pointers
+
+transcriptPointerIdentityFailures
+  :: ExpectedProductRowInventory
+  -> Text
+  -> Checkpoint.ArtifactPointer
+  -> [Text]
+transcriptPointerIdentityFailures expected expectedKind pointer =
+  let rowId = expectedInventoryRowId expected
+      experimentHash = expectedInventoryExperimentHash expected
+      pointerKind = Checkpoint.artifactPointerKind pointer
+      pointerKey = Checkpoint.artifactPointerObjectKey pointer
+   in [ "substituted transcript pointer kind for row "
+          <> rowId
+          <> ": expected "
+          <> expectedKind
+          <> ", got "
+          <> pointerKind
+      | pointerKind /= expectedKind
+      ]
+        <> case Checkpoint.artifactPointerSha pointer of
+          Nothing ->
+            [ "missing exact transcript SHA for row " <> rowId
+            ]
+          Just pointerSha ->
+            canonicalShaFailures ("transcript SHA for row " <> rowId) pointerSha
+              <> [ "substituted/orphan transcript pointer key for row "
+                     <> rowId
+                     <> ": expected "
+                     <> canonicalProductArtifactKey experimentHash expectedKind pointerSha
+                     <> ", got "
+                     <> pointerKey
+                 | pointerKey
+                     /= canonicalProductArtifactKey experimentHash expectedKind pointerSha
+                 ]
+
+runtimeInventoryFailures
+  :: ExpectedProductRowInventory
+  -> AdmittedProductRowInventory
+  -> [Text]
+runtimeInventoryFailures expected inventory =
+  case expectedInventoryFamily expected of
+    ProductMatrix.Supervised ->
+      case admittedInventoryRuntimePayload inventory of
+        Nothing ->
+          [ "supervised row is missing its exact Product-origin V2 runtime: "
+              <> expectedInventoryRowId expected
+          ]
+        Just payload ->
+          [ "supervised Product-origin V2 manifest body SHA is absent for row "
+              <> expectedInventoryRowId expected
+          | isNothing (admittedInventoryManifestBodySha inventory)
+          ]
+            <> maybe
+              []
+              (canonicalShaFailures "supervised V2 manifest body SHA")
+              (admittedInventoryManifestBodySha inventory)
+            <> exactTextFailure
+              "supervised V2 runtime row id"
+              (expectedInventoryRowId expected)
+              (RuntimeArtifact.rawRuntimePayloadRowId payload)
+            <> [ "supervised V2 runtime does not have ProductRow projection origin for row "
+                   <> expectedInventoryRowId expected
+               | RuntimeArtifact.rawRuntimePayloadOrigin payload
+                   /= RuntimeArtifact.RawProductRowProjectionOrigin
+               ]
+            <> exactTextFailure
+              "supervised V2 runtime PlanId"
+              (planIdText (expectedInventoryPlanId expected))
+              (RuntimeArtifact.rawRuntimePayloadPlanId payload)
+            <> exactTextFailure
+              "supervised V2 runtime dataset SHA"
+              (admittedInventoryDatasetShaAtRead inventory)
+              (RuntimeArtifact.rawRuntimePayloadDatasetSha256 payload)
+            <> exactTextFailure
+              "supervised V2 runtime initial JMW1 SHA"
+              (admittedInventoryInitialJmw1Sha inventory)
+              (RuntimeArtifact.rawRuntimePayloadInitialJmw1Sha256 payload)
+            <> exactTextFailure
+              "supervised V2 runtime final JMW1 SHA"
+              (admittedInventoryFinalJmw1Sha inventory)
+              (RuntimeArtifact.rawRuntimePayloadFinalJmw1Sha256 payload)
+    _ ->
+      [ "non-supervised ProductRow unexpectedly carries a V2 supervised runtime: "
+          <> expectedInventoryRowId expected
+      | isJust (admittedInventoryRuntimePayload inventory)
+      ]
+        <> [ "non-supervised ProductRow is not the canonical V1 inventory shape: "
+               <> expectedInventoryRowId expected
+           | isJust (admittedInventoryManifestBodySha inventory)
+           ]
+
+expectedTranscriptKind :: ProductMatrix.RowFamily -> Maybe Text
+expectedTranscriptKind family =
+  case family of
+    ProductMatrix.Supervised -> Nothing
+    ProductMatrix.ReinforcementLearning -> Just "rl-trajectory"
+    ProductMatrix.AlphaZero -> Just "alphazero-transcript"
+    ProductMatrix.Tuning -> Just "tune-trials"
+
+canonicalProductArtifactKey :: Text -> Text -> Text -> Text
+canonicalProductArtifactKey experimentHash kind sha =
+  "jitml-checkpoints/"
+    <> experimentHash
+    <> "/artifacts/"
+    <> kind
+    <> "/"
+    <> sha
+    <> ".txt"
+
+canonicalShaFailures :: Text -> Text -> [Text]
+canonicalShaFailures label sha =
+  [ label <> " is not one canonical lowercase SHA-256: " <> sha
+  | not (isCanonicalSha256 sha)
+  ]
+
+isCanonicalSha256 :: Text -> Bool
+isCanonicalSha256 value =
+  Text.length value == 64
+    && Text.all (`elem` ("0123456789abcdef" :: String)) value
+
+exactTextFailure :: Text -> Text -> Text -> [Text]
+exactTextFailure label expected actual =
+  [ label <> " mismatch: expected " <> expected <> ", got " <> actual
+  | expected /= actual
+  ]
+
+exactPlanIdFailure :: Text -> PlanId -> PlanId -> [Text]
+exactPlanIdFailure label expected actual =
+  exactTextFailure label (planIdText expected) (planIdText actual)
+
+exactMaybePlanIdFailure :: Text -> PlanId -> Maybe PlanId -> [Text]
+exactMaybePlanIdFailure label expected actual =
+  case actual of
+    Nothing -> [label <> " is missing"]
+    Just actualPlanId -> exactPlanIdFailure label expected actualPlanId
+
+productRowInventoryAggregateFailures
+  :: [ExpectedProductRowInventory]
+  -> [AdmittedProductRowInventory]
+  -> [Text]
+productRowInventoryAggregateFailures expectedEntries inventoryEntries =
+  [ "admitted ProductRow inventory count mismatch: expected "
+      <> Text.pack (show (length expectedEntries))
+      <> ", got "
+      <> Text.pack (show (length inventoryEntries))
+  | length inventoryEntries /= length expectedEntries
+  ]
+    <> duplicateInventoryFailures
+      "row id"
+      (fmap admittedInventoryRowId inventoryEntries)
+    <> duplicateInventoryFailures
+      "experiment hash"
+      (fmap admittedInventoryExperimentHash inventoryEntries)
+    <> duplicateInventoryFailures
+      "manifest PlanId"
+      ( fmap
+          (maybe "<missing>" planIdText . admittedInventoryManifestPlanId)
+          inventoryEntries
+      )
+    <> duplicateInventoryFailures
+      "manifest SHA"
+      (fmap admittedInventoryManifestSha inventoryEntries)
+    <> duplicateInventoryFailures
+      "transcript pointer object key"
+      [ Checkpoint.artifactPointerObjectKey pointer
+      | inventory <- inventoryEntries
+      , pointer <- admittedInventoryTranscriptPointers inventory
+      ]
+    <> [ "orphan admitted ProductRow inventory row: "
+           <> admittedInventoryRowId inventory
+       | inventory <- inventoryEntries
+       , admittedInventoryRowId inventory `notElem` expectedRowIds
+       ]
+    <> concatMap exactRowFailures expectedEntries
+ where
+  expectedRowIds = fmap expectedInventoryRowId expectedEntries
+
+  exactRowFailures expected =
+    case filter
+      ((== expectedInventoryRowId expected) . admittedInventoryRowId)
+      inventoryEntries of
+      [] ->
+        [ "missing admitted ProductRow inventory row: "
+            <> expectedInventoryRowId expected
+        ]
+      [inventory] -> admittedProductRowInventoryFailures expected inventory
+      duplicates ->
+        [ "duplicate admitted ProductRow inventory rows for "
+            <> expectedInventoryRowId expected
+            <> ": "
+            <> Text.pack (show (length duplicates))
+        ]
+
+duplicateInventoryFailures :: Text -> [Text] -> [Text]
+duplicateInventoryFailures label values =
+  [ "duplicate admitted ProductRow inventory " <> label <> ": " <> value
+  | value <- List.nub values
+  , length (filter (== value) values) > 1
+  ]
+
+loadAdmittedProductRowCheckpoint
+  :: FilePath
+  -> ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> IO LoadedAdmittedProductRowCheckpoint
+loadAdmittedProductRowCheckpoint checkpointRoot row = do
   let rowId = ProductMatrix.rowId row
-      integrationId = ProductMatrix.integrationTest row
       experimentHash = ProductMatrix.productRowExperimentHash row
       pointerKey = Checkpoint.latestPointerKey experimentHash
   pointerResult <- CheckpointStore.readCheckpointPointer checkpointRoot pointerKey
@@ -365,35 +796,257 @@ productRowIntegrationEvidence row = do
               <> "; run `jitml internal train-and-publish-product-rows --linux-cpu` first"
           )
       Right (Just sha) -> pure sha
-  loadedManifest <- CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha
-  manifestFromStore <-
-    case loadedManifest of
+  admittedCheckpoint <-
+    CheckpointStore.admitLocalCheckpointAt checkpointRoot experimentHash manifestSha
+      >>= \case
+        Left err ->
+          assertFailure
+            ( "ProductRow checkpoint Store admission failed for "
+                <> Text.unpack rowId
+                <> ": "
+                <> Text.unpack (CheckpointStore.renderCheckpointAdmissionError err)
+            )
+        Right admitted -> pure admitted
+  admittedCompleted <-
+    case CheckpointStore.requireAdmittedCompletedCheckpoint admittedCheckpoint of
       Left err ->
         assertFailure
-          ( "ProductRow checkpoint manifest read failed for "
+          ( "ProductRow checkpoint completed Store admission failed for "
               <> Text.unpack rowId
               <> ": "
-              <> Text.unpack err
+              <> Text.unpack (CheckpointStore.renderCheckpointAdmissionError err)
           )
-      Right manifest -> pure manifest
-  Checkpoint.manifestExperiment manifestFromStore @?= experimentHash
-  Checkpoint.manifestContentSha manifestFromStore @?= manifestSha
-  eligible <-
-    case Checkpoint.requireInferenceEligibleCheckpoint manifestSha manifestFromStore of
+      Right admitted -> pure admitted
+  pure
+    LoadedAdmittedProductRowCheckpoint
+      { loadedProductManifestSha = manifestSha
+      , loadedProductAdmittedCheckpoint = admittedCheckpoint
+      , loadedProductAdmittedCompleted = admittedCompleted
+      }
+
+assertAdmittedProductRowInventory
+  :: FilePath
+  -> ExpectedProductRowInventory
+  -> AdmittedProductRowInventory
+  -> Assertion
+assertAdmittedProductRowInventory checkpointRoot expected inventory = do
+  case admittedProductRowInventoryFailures expected inventory of
+    [] -> pure ()
+    failures ->
+      assertFailure
+        ( "admitted ProductRow inventory failed for "
+            <> Text.unpack (expectedInventoryRowId expected)
+            <> ":\n"
+            <> Text.unpack (Text.unlines (fmap ("- " <>) failures))
+        )
+  case expectedInventoryFamily expected of
+    ProductMatrix.Tuning ->
+      case admittedInventoryTranscriptPointers inventory of
+        [pointer] -> assertCanonicalTuneV2Transcript checkpointRoot expected inventory pointer
+        pointers ->
+          assertFailure
+            ( "validated tuning inventory did not retain exactly one pointer: "
+                <> show pointers
+            )
+    _ -> pure ()
+
+assertCanonicalTuneV2Transcript
+  :: FilePath
+  -> ExpectedProductRowInventory
+  -> AdmittedProductRowInventory
+  -> Checkpoint.ArtifactPointer
+  -> Assertion
+assertCanonicalTuneV2Transcript checkpointRoot expected inventory pointer = do
+  payload <-
+    CheckpointStore.readObject
+      checkpointRoot
+      (Checkpoint.artifactPointerObjectKey pointer)
+      >>= \case
+        Left err ->
+          assertFailure
+            ( "independent tuning transcript read failed for "
+                <> Text.unpack (expectedInventoryRowId expected)
+                <> ": "
+                <> Text.unpack err
+            )
+        Right bytes -> pure bytes
+  case Checkpoint.artifactPointerSha pointer of
+    Nothing -> assertFailure "validated tuning transcript pointer lost its exact SHA"
+    Just expectedSha -> WeightCodec.jmw1ContentSha payload @?= expectedSha
+  transcript <-
+    case Text.Encoding.decodeUtf8' (ByteString.Lazy.toStrict payload) of
       Left err ->
         assertFailure
-          ( "ProductRow checkpoint should be inference eligible for "
-              <> Text.unpack rowId
-              <> ": "
-              <> Text.unpack (Checkpoint.renderEligibilityError err)
-          )
+          ("tuning v2 transcript is not UTF-8: " <> show err)
       Right value -> pure value
-  let completed = Checkpoint.eligibleCheckpointCompletedTraining eligible
+  let expectedHeaders =
+        [ "kind: tune-trials-v2"
+        , "row-id: " <> expectedInventoryRowId expected
+        , "plan-id: " <> planIdText (expectedInventoryPlanId expected)
+        , "experiment-hash: " <> expectedInventoryExperimentHash expected
+        , "dataset-sha-at-read: " <> admittedInventoryDatasetShaAtRead inventory
+        , "best-final-jmw1-sha: " <> admittedInventoryFinalJmw1Sha inventory
+        ]
+      transcriptLines = Text.lines transcript
+  take (length expectedHeaders) transcriptLines @?= expectedHeaders
+  for_ expectedHeaders $ \header ->
+    length (filter (== header) transcriptLines) @?= 1
+
+assertProductRowAdmittedInventory :: Assertion
+assertProductRowAdmittedInventory = do
+  checkpointRoot <- makeAbsolute (".build" </> "checkpoints")
+  let rows = ProductMatrix.allProductRows
+  ProductMatrix.productRowCount @?= 55
+  length rows @?= 55
+  expectedAndInventory <-
+    traverse
+      ( \row -> do
+          projection <-
+            case ProductMatrix.projectProductRow LinuxCPU row of
+              Failure errors ->
+                assertFailure
+                  ( "ProductRow LinuxCPU inventory projection failed for "
+                      <> Text.unpack (ProductMatrix.rowId row)
+                      <> ": "
+                      <> show errors
+                  )
+              Success value -> pure value
+          case projection of
+            ProductMatrix.SomeProductProjection _witness exactProjection -> do
+              loaded <- loadAdmittedProductRowCheckpoint checkpointRoot row
+              let expected = expectedProductRowInventory row exactProjection
+                  inventory =
+                    admittedProductRowInventory
+                      row
+                      (loadedProductAdmittedCompleted loaded)
+              assertAdmittedProductRowInventory checkpointRoot expected inventory
+              pure (expected, inventory)
+      )
+      rows
+  let expectedEntries = fmap fst expectedAndInventory
+      inventoryEntries = fmap snd expectedAndInventory
+      transcriptPointers =
+        concatMap admittedInventoryTranscriptPointers inventoryEntries
+      familyCount family =
+        length (filter ((== family) . expectedInventoryFamily) expectedEntries)
+  case productRowInventoryAggregateFailures expectedEntries inventoryEntries of
+    [] -> pure ()
+    failures ->
+      assertFailure
+        ( "full ProductRow admitted inventory audit failed:\n"
+            <> Text.unpack (Text.unlines (fmap ("- " <>) failures))
+        )
+  fmap
+    familyCount
+    [ ProductMatrix.Supervised
+    , ProductMatrix.ReinforcementLearning
+    , ProductMatrix.AlphaZero
+    , ProductMatrix.Tuning
+    ]
+    @?= [11, 39, 4, 1]
+  length transcriptPointers @?= 44
+  length (List.nub (fmap Checkpoint.artifactPointerObjectKey transcriptPointers))
+    @?= 44
+  assertInventoryNegativeCases expectedEntries inventoryEntries
+
+assertInventoryNegativeCases
+  :: [ExpectedProductRowInventory]
+  -> [AdmittedProductRowInventory]
+  -> Assertion
+assertInventoryNegativeCases expectedEntries inventoryEntries = do
+  (nonSupervisedExpected, nonSupervisedInventory, pointer) <-
+    case [ (expected, inventory, exactPointer)
+         | (expected, inventory) <- zip expectedEntries inventoryEntries
+         , expectedInventoryFamily expected /= ProductMatrix.Supervised
+         , [exactPointer] <- [admittedInventoryTranscriptPointers inventory]
+         ] of
+      [] -> assertFailure "full inventory has no non-supervised transcript pointer fixture"
+      fixture : _ -> pure fixture
+  (supervisedExpected, supervisedInventory) <-
+    case [ (expected, inventory)
+         | (expected, inventory) <- zip expectedEntries inventoryEntries
+         , expectedInventoryFamily expected == ProductMatrix.Supervised
+         ] of
+      [] -> assertFailure "full inventory has no supervised pointer-free fixture"
+      fixture : _ -> pure fixture
+  assertInventoryFailureContains
+    "missing"
+    ( admittedProductRowInventoryFailures
+        nonSupervisedExpected
+        nonSupervisedInventory
+          { admittedInventoryTranscriptPointers = []
+          }
+    )
+  assertInventoryFailureContains
+    "duplicate/multiple"
+    ( admittedProductRowInventoryFailures
+        nonSupervisedExpected
+        nonSupervisedInventory
+          { admittedInventoryTranscriptPointers = [pointer, pointer]
+          }
+    )
+  assertInventoryFailureContains
+    "substituted/orphan"
+    ( admittedProductRowInventoryFailures
+        nonSupervisedExpected
+        nonSupervisedInventory
+          { admittedInventoryTranscriptPointers =
+              [ pointer
+                  { Checkpoint.artifactPointerObjectKey =
+                      "jitml-checkpoints/substituted/artifacts/foreign/deadbeef.txt"
+                  }
+              ]
+          }
+    )
+  assertInventoryFailureContains
+    "orphan"
+    ( admittedProductRowInventoryFailures
+        supervisedExpected
+        supervisedInventory
+          { admittedInventoryTranscriptPointers = [pointer]
+          }
+    )
+  let orphanInventory =
+        nonSupervisedInventory
+          { admittedInventoryRowId = "orphan-row"
+          }
+  assertInventoryFailureContains
+    "orphan admitted ProductRow inventory row"
+    ( productRowInventoryAggregateFailures
+        expectedEntries
+        (inventoryEntries <> [orphanInventory])
+    )
+
+assertInventoryFailureContains :: Text -> [Text] -> Assertion
+assertInventoryFailureContains expected failures =
+  assertBool
+    ( "expected inventory rejection containing "
+        <> Text.unpack expected
+        <> ", got "
+        <> show failures
+    )
+    (any (expected `Text.isInfixOf`) failures)
+
+productRowIntegrationEvidence
+  :: ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> IO TestReport.RowIntegrationEvidence
+productRowIntegrationEvidence row = do
+  checkpointRoot <- makeAbsolute (".build" </> "checkpoints")
+  let rowId = ProductMatrix.rowId row
+      integrationId = ProductMatrix.integrationTest row
+      experimentHash = ProductMatrix.productRowExperimentHash row
+  loaded <- loadAdmittedProductRowCheckpoint checkpointRoot row
+  let manifestSha = loadedProductManifestSha loaded
+      admittedCheckpoint = loadedProductAdmittedCheckpoint loaded
+      admittedCompleted = loadedProductAdmittedCompleted loaded
+  let manifestFromStore =
+        CheckpointStore.admittedCheckpointManifest admittedCheckpoint
+  Checkpoint.manifestExperiment manifestFromStore @?= experimentHash
+  CheckpointStore.admittedCheckpointManifestSha admittedCheckpoint @?= manifestSha
+  let completed = CheckpointStore.admittedCompletedTraining admittedCompleted
       completedMetrics = TrainingBudget.completedTrainingMetrics completed
       rejectedBeforeCompletion =
-        case Checkpoint.requireInferenceEligibleCheckpoint
-          (Checkpoint.manifestContentSha beforeCompletionManifest)
-          beforeCompletionManifest of
+        case Checkpoint.validateCheckpointCompletion beforeCompletionManifest of
           Left Checkpoint.MissingCompletedTraining -> True
           Left _ -> True
           Right _ -> False
@@ -401,6 +1054,57 @@ productRowIntegrationEvidence row = do
         manifestFromStore
           { Checkpoint.manifestCompletedTraining = Nothing
           }
+  projection <-
+    case ProductMatrix.projectProductRow LinuxCPU row of
+      Failure errors ->
+        assertFailure
+          ( "ProductRow LinuxCPU projection failed for "
+              <> Text.unpack rowId
+              <> ": "
+              <> show errors
+          )
+      Success projected -> pure projected
+  case projection of
+    ProductMatrix.SomeProductProjection _witness exactProjection -> do
+      let expectedInventory = expectedProductRowInventory row exactProjection
+          inventory = admittedProductRowInventory row admittedCompleted
+      assertAdmittedProductRowInventory checkpointRoot expectedInventory inventory
+      TrainingBudget.completedTrainingPlanId completed
+        @?= ProductMatrix.productProjectionPlanId exactProjection
+      case App.validateProductCompletedTrainingPlanId exactProjection completed of
+        Left err ->
+          assertFailure
+            ( "persisted CompletedTraining did not match the projected ProductRow PlanId for "
+                <> Text.unpack rowId
+                <> ": "
+                <> Text.unpack err
+            )
+        Right () -> pure ()
+      case TestReport.productScenarioCompletion exactProjection admittedCompleted of
+        Left errors ->
+          assertFailure
+            ( "persisted CompletedTraining did not satisfy the exact ProductRow completion contract for "
+                <> Text.unpack rowId
+                <> ": "
+                <> show errors
+            )
+        Right _completion -> pure ()
+      wrongCompleted <-
+        case TrainingBudget.completedTraining
+          (wrongProductPlanId (ProductMatrix.productProjectionPlanId exactProjection))
+          (TrainingBudget.completedTrainingBudget completed)
+          (TrainingBudget.completedTrainingObservedUnits completed)
+          (TrainingBudget.completedTrainingEvidence completed)
+          completedMetrics
+          (TrainingBudget.completedTrainingTensorBoard completed) of
+          Left err -> assertFailure ("could not construct wrong-plan completion fixture: " <> Text.unpack err)
+          Right value -> pure value
+      case App.validateProductCompletedTrainingPlanId exactProjection wrongCompleted of
+        Left err ->
+          assertBool
+            "wrong/stale persisted ProductRow PlanIds are rejected"
+            ("PlanId" `Text.isInfixOf` err && "mismatch" `Text.isInfixOf` err)
+        Right () -> assertFailure "wrong/stale persisted ProductRow PlanId was accepted"
   pure
     TestReport.RowIntegrationEvidence
       { TestReport.rieRowId = rowId
@@ -423,6 +1127,13 @@ productRowIntegrationEvidence row = do
       , TestReport.rieManifestSha = manifestSha
       , TestReport.rieRejectedBeforeCompletion = rejectedBeforeCompletion
       }
+
+wrongProductPlanId :: PlanId -> PlanId
+wrongProductPlanId expected =
+  if candidateD /= expected then candidateD else candidateE
+ where
+  candidateD = either (error . Text.unpack) id (refinePlanIdText (Text.replicate 64 "d"))
+  candidateE = either (error . Text.unpack) id (refinePlanIdText (Text.replicate 64 "e"))
 
 coverageFixtureRowReportEvidence
   :: ProductMatrix.ProductRow 'ProductMatrix.Declared
@@ -954,7 +1665,7 @@ main =
           ProtoTune.ssSweepSeed prepared @?= registeredTuningSeed
           ProtoTune.ssTrialBudget prepared @?= registeredTuningTrialBudget
           ProtoTune.ssBudgetPerTrial prepared
-            @?= fromIntegral Tune.tuningObjectiveOptimizerUpdates
+            @?= registeredTuningPerTrialBudget
           ProtoTune.ssParallelism prepared
             @?= fromIntegral Tune.tuningObjectiveParallelism
           quantityValue (tuningPlanTrials plan)
@@ -962,7 +1673,7 @@ main =
           quantityValue (tuningPlanParallelism plan)
             @?= fromIntegral Tune.tuningObjectiveParallelism
           quantityValue (tuningPlanPerTrialUpdates plan)
-            @?= fromIntegral Tune.tuningObjectiveOptimizerUpdates
+            @?= fromIntegral registeredTuningPerTrialBudget
           fromIntegral (Tune.tuningConfigTrials config)
             @?= registeredTuningTrialBudget
           results <-
@@ -995,6 +1706,9 @@ main =
                   assertBool
                     "registered tuning publisher schedule does not clear its unchanged convergence bar"
                     (TrainingBudget.convergencePassed observation)
+      , testCase
+          "ProductRow admitted-inventory-55 is exact and unique (Sprint 19.4)"
+          assertProductRowAdmittedInventory
       , testGroup
           "ProductRow integration matrix (Sprint 28.1)"
           ( testCase
@@ -1235,57 +1949,85 @@ main =
                     assertFailure ("expected SHA conflict, got " <> show err)
                   Right _ ->
                     assertFailure "corrupt canonical dataset bytes unexpectedly verified"
-      , testCase "checkpoint snapshot writes through HasMinIO conditional boundaries (Sprint 10.2)" $
+      , testCase "candidate checkpoint transaction is pointer-free and detects byte conflicts" $
           withSystemTempDirectory "jitml-checkpoint-hasminio" $ \root ->
             runFilesystemMinIO root $ do
               let experimentHash = "exp-write-minio"
-                  blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
-                  manifest =
-                    completedCheckpointManifest
-                      "m1"
-                      experimentHash
-                      [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
-                      1
-                      [("validation_accuracy", 0.9)]
                   payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+                  blobObjectKey =
+                    Checkpoint.blobKey
+                      experimentHash
+                      (WeightCodec.jmw1ContentSha payload)
+                  manifest =
+                    ( Checkpoint.emptyManifest
+                        "m1"
+                        experimentHash
+                        [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                    )
+                      { Checkpoint.manifestStep = 1
+                      , Checkpoint.manifestMetrics = [("validation_accuracy", 0.9)]
+                      }
               firstWrite <-
-                CheckpointStore.writeCheckpointSnapshotWithMinIO
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
                   manifest
                   [(blobObjectKey, payload)]
-                  Nothing
               case firstWrite of
                 Left err ->
                   liftIO (assertFailure ("expected checkpoint write OK, got: " <> show err))
-                Right stored -> do
+                Right candidate -> do
+                  let stored = CheckpointStore.candidateStoredCheckpoint candidate
                   liftIO $
                     CheckpointStore.storedPointerResult stored
-                      @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha stored)
-                  inferred <-
-                    CheckpointStore.loadInferenceCheckpointWithWeights
-                      ( \_modelRef _manifest loadedWeights values ->
-                          pure
-                            ( Right
-                                ( values
-                                    <> concatMap CheckpointStore.loadedWeightValues loadedWeights
-                                )
-                            )
-                      )
-                      experimentHash
-                      [10.0]
-                  liftIO $
-                    inferred @?= Right [10.0, 1.0, 2.0, 3.0, 4.0]
+                      @?= Checkpoint.PointerNotWritten
+                        (Checkpoint.latestPointerKey experimentHash)
+              pointerRead <-
+                minioReadBytes
+                  ( CheckpointStore.checkpointObjectRef
+                      (Checkpoint.latestPointerKey experimentHash)
+                  )
+              liftIO $
+                case pointerRead of
+                  Left _ -> pure ()
+                  Right _ -> assertFailure "candidate unexpectedly published latest pointer"
               secondWrite <-
-                CheckpointStore.writeCheckpointSnapshotWithMinIO
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
                   manifest
                   [(blobObjectKey, payload)]
-                  Nothing
               case secondWrite of
                 Left err ->
                   liftIO (assertFailure ("expected idempotent object writes, got: " <> show err))
-                Right stored ->
+                Right candidate ->
                   liftIO $
-                    CheckpointStore.storedPointerResult stored
-                      @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey experimentHash)
+                    CheckpointStore.storedPointerResult
+                      (CheckpointStore.candidateStoredCheckpoint candidate)
+                      @?= Checkpoint.PointerNotWritten
+                        (Checkpoint.latestPointerKey experimentHash)
+
+              let conflictExperiment = "exp-write-minio-conflict"
+                  intendedPayload = Checkpoint.encodeJmw1 [5.0, 6.0]
+                  conflictBlobKey =
+                    Checkpoint.blobKey
+                      conflictExperiment
+                      (WeightCodec.jmw1ContentSha intendedPayload)
+                  conflictManifest =
+                    Checkpoint.emptyManifest
+                      "m-conflict"
+                      conflictExperiment
+                      [Checkpoint.TensorBlob "dense.weight" [2] conflictBlobKey]
+              _ <-
+                putBlobBytesIfAbsent
+                  (CheckpointStore.checkpointObjectRef conflictBlobKey)
+                  "different-existing-bytes"
+              conflict <-
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                  conflictManifest
+                  [(conflictBlobKey, intendedPayload)]
+              liftIO $
+                case conflict of
+                  Left (SEConflict _) -> pure ()
+                  other ->
+                    assertFailure
+                      ("expected exact existing-different-byte conflict, got: " <> show other)
       , testCase "MinIOSubprocess renders signed S3 conditional-write commands" $ do
           let settings = MinIOSubprocess.minioSettingsForLocalEdge 9091
               ref = ObjectRef (BucketName "jitml-checkpoints") (ObjectKey "pointers/latest")
@@ -1780,13 +2522,26 @@ main =
                   "decode-experiment"
                   trainOutcome
                 tunePath <- makeAbsolute "experiments/mnist-tune.dhall"
-                tuneOutcome <- runJitml ["tune", Text.pack tunePath]
-                assertProcessExitCode "tune" ExitSuccess tuneOutcome
+                tuneOfflineOutcome <- runJitml ["tune", Text.pack tunePath]
+                assertProcessExitCode "offline tune" (ExitFailure 2) tuneOfflineOutcome
                 assertProcessStreamContains
-                  "tune renders the TPE sampler from Dhall"
+                  "offline tune requires a live cluster publication"
+                  ProcessStderr
+                  "no live cluster publication"
+                  tuneOfflineOutcome
+                tunePlanOutcome <-
+                  runJitml ["tune", Text.pack tunePath, "--dry-run"]
+                assertProcessExitCode "tune --dry-run" ExitSuccess tunePlanOutcome
+                assertProcessStreamContains
+                  "TPE Dhall tune --dry-run emits the typed decode step"
                   ProcessStdout
-                  "sampler: TPE"
-                  tuneOutcome
+                  "decode-tuning"
+                  tunePlanOutcome
+                assertProcessStreamContains
+                  "TPE Dhall tune --dry-run preserves the selected config path"
+                  ProcessStdout
+                  (Text.pack tunePath)
+                  tunePlanOutcome
                 -- Sprint 8.10 — `jitml train` is substrate-backed and fails
                 -- closed offline: with no live cluster publication it exits
                 -- non-zero with a typed `TrainingPrerequisiteUnmet` diagnostic
@@ -1814,10 +2569,10 @@ main =
                   ProcessStderr
                   "training prerequisite unmet"
                   trainOfflineOutcome
-                -- Sprint 1.12 — tune with --sampler / --trials Dhall
-                -- overrides emits the resolved values alongside the
-                -- decoded TPE Dhall (override never replaces; both surfaces
-                -- appear in output).
+                -- Sprint 1.12 — tune with --sampler / --trials overrides
+                -- preserves those CLI inputs in the side-effect-free typed
+                -- Plan/Apply rendering. Executed trial artifacts remain a
+                -- live-cluster-only surface.
                 tuneOverrideOutcome <-
                   runJitml
                     [ "tune"
@@ -1826,8 +2581,9 @@ main =
                     , "Sobol"
                     , "--trials"
                     , "2"
+                    , "--dry-run"
                     ]
-                assertProcessExitCode "tune overrides" ExitSuccess tuneOverrideOutcome
+                assertProcessExitCode "tune overrides --dry-run" ExitSuccess tuneOverrideOutcome
                 assertProcessStreamContains
                   "tune rendered plan uses overridden sampler"
                   ProcessStdout
@@ -1837,21 +2593,6 @@ main =
                   "tune rendered plan uses overridden trial count"
                   ProcessStdout
                   "trials: 2"
-                  tuneOverrideOutcome
-                assertProcessStreamContains
-                  "tune override summary lists sampler"
-                  ProcessStdout
-                  "sampler=Sobol"
-                  tuneOverrideOutcome
-                assertProcessStreamContains
-                  "tune override summary lists trials"
-                  ProcessStdout
-                  "trials=2"
-                  tuneOverrideOutcome
-                assertProcessStreamContains
-                  "local tune artifact uses overridden sampler in hash input"
-                  ProcessStdout
-                  "trial-checkpoint-experiment-hash: "
                   tuneOverrideOutcome
                 -- Trial-only overrides normalize inherited/default
                 -- parallelism to a possible cohort. An explicit invalid
@@ -1870,9 +2611,9 @@ main =
                   "explicit invalid tune parallelism fails closed"
                   explicitInvalidParallelismOutcome
                 assertProcessStreamContains
-                  "explicit invalid tune parallelism names the plan invariant"
+                  "explicit invalid tune parallelism names the execution-spec invariant"
                   ProcessStderr
-                  "QuantityExceeds \"parallel-trials\" 8 \"trials\" 2"
+                  "tuning parallelism exceeds trial count"
                   explicitInvalidParallelismOutcome
                 -- Sprint 1.12 — bare substrate aliases (cpu, cuda) fail
                 -- closed with a typed diagnostic naming the canonical
@@ -2009,8 +2750,10 @@ main =
                 CheckpointStore.gcExecutedReapedManifests result @?= 2
                 CheckpointStore.gcExecutedReapedBlobs result @?= 2
                 CheckpointStore.gcExecutedDeleteFailures result @?= []
-      , testCase "loadInferenceCheckpointWithWeights via HasMinIO round-trips (Sprint 10.4/10.5)" $
-          withSystemTempDirectory "jitml-inference-load" $ \root -> do
+      , testCase
+          "legacy generic loadInferenceCheckpointWithWeights via HasMinIO round-trips (Sprint 10.4/10.5)"
+          $ withSystemTempDirectory "jitml-inference-load"
+          $ \root -> do
             env <- buildEnv defaultGlobalFlags
             runFilesystemMinIO root $ do
               let experimentHash = "exp-inf"
@@ -2079,6 +2822,9 @@ main =
                     , Checkpoint.TensorBlob "graph-dense.bias" [2] graphBiasKey
                     ]
                   graphManifest =
+                    -- This exercises the legacy generic LayerGraph loader;
+                    -- canonical supervised execution is covered by exact V2
+                    -- runtime-artifact tests, never by a V1 graph fixture.
                     ( completedCheckpointManifest
                         "m-layergraph"
                         graphExperimentHash
@@ -2086,9 +2832,9 @@ main =
                         1
                         [("validation_accuracy", 0.91)]
                     )
-                      { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+                      { Checkpoint.manifestModelFamily = Checkpoint.GenericModelFamily
                       , Checkpoint.manifestArchitecture =
-                          (Checkpoint.defaultArchitectureMetadata Checkpoint.SupervisedModelFamily)
+                          (Checkpoint.defaultArchitectureMetadata Checkpoint.GenericModelFamily)
                             { Checkpoint.architectureName = "graph-dense"
                             , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "input" [3] "F64"]
                             , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "logits" [2] "F64"]
@@ -2343,46 +3089,50 @@ main =
                   , "no completed-training witness"
                   )
                 ]
-      , testCase "supervised completed manifests carry graph, layout, and training evidence (Sprint 24.3)" $ do
-          let manifests =
-                [ supervisedCompletedManifestFor
-                    ("exp-24-3-complete-" <> SL.problemName problem)
-                    problem
-                | problem <- SL.canonicalProblems
-                ]
-          traverse_
-            ( \manifest -> do
-                let manifestSha = Checkpoint.manifestContentSha manifest
-                Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
-                case Checkpoint.manifestCompletedTraining manifest of
-                  Nothing ->
-                    assertFailure
-                      ( "missing CompletedTraining for "
-                          <> Text.unpack (Checkpoint.manifestId manifest)
-                      )
-                  Just completed -> do
-                    Checkpoint.manifestInitialWeightHash manifest
-                      @?= Just (TrainingBudget.completedTrainingInitialWeightHash completed)
-                    Checkpoint.manifestFinalWeightHash manifest
-                      @?= Just (TrainingBudget.completedTrainingFinalWeightHash completed)
-                    Checkpoint.manifestUpdateCount manifest
-                      @?= Just (TrainingBudget.completedTrainingUpdateCount completed)
-                    Checkpoint.manifestDatasetShaAtRead manifest
-                      @?= Just (TrainingBudget.completedTrainingDatasetShaAtRead completed)
-                    assertBool
-                      "supervised manifest records convergence metrics"
-                      (not (null (TrainingBudget.completedTrainingMetrics completed)))
-                    case Checkpoint.requireInferenceEligibleCheckpoint manifestSha manifest of
-                      Left err ->
-                        assertFailure
-                          ( "expected supervised manifest to be inference eligible: "
-                              <> Text.unpack (Checkpoint.renderEligibilityError err)
-                          )
-                      Right _ -> pure ()
-            )
-            manifests
       , testCase
-          "supervised inference loader rejects partial, synthetic, untrained, and malformed family manifests before IO (Sprint 24.3)"
+          "supervised V1 manifests retain inspection evidence but fail completion refinement (Sprint 24.3)"
+          $ do
+            let manifests =
+                  [ supervisedCompletedManifestFor
+                      ("exp-24-3-complete-" <> SL.problemName problem)
+                      problem
+                  | problem <- SL.canonicalProblems
+                  ]
+            traverse_
+              ( \manifest -> do
+                  Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
+                  case Checkpoint.manifestCompletedTraining manifest of
+                    Nothing ->
+                      assertFailure
+                        ( "missing CompletedTraining for "
+                            <> Text.unpack (Checkpoint.manifestId manifest)
+                        )
+                    Just completed -> do
+                      Checkpoint.manifestInitialWeightHash manifest
+                        @?= Just (TrainingBudget.completedTrainingInitialWeightHash completed)
+                      Checkpoint.manifestFinalWeightHash manifest
+                        @?= Just (TrainingBudget.completedTrainingFinalWeightHash completed)
+                      Checkpoint.manifestUpdateCount manifest
+                        @?= Just (TrainingBudget.completedTrainingUpdateCount completed)
+                      Checkpoint.manifestDatasetShaAtRead manifest
+                        @?= Just (TrainingBudget.completedTrainingDatasetShaAtRead completed)
+                      assertBool
+                        "supervised manifest records convergence metrics"
+                        (not (null (TrainingBudget.completedTrainingMetrics completed)))
+                      case Checkpoint.validateCheckpointCompletion manifest of
+                        Left Checkpoint.SupervisedRuntimeArtifactMissing -> pure ()
+                        Left err ->
+                          assertFailure
+                            ( "expected categorical supervised V1 inspection-only rejection, got: "
+                                <> Text.unpack (Checkpoint.renderCheckpointCompletionValidationError err)
+                            )
+                        Right _ ->
+                          assertFailure
+                            "supervised V1 manifest unexpectedly satisfied completion refinement"
+              )
+              manifests
+      , testCase
+          "supervised V1 loader categorically rejects all historical family manifests before IO (Sprint 24.3)"
           $ withSystemTempDirectory "jitml-supervised-manifest-reject"
           $ \root ->
             runFilesystemMinIO root $
@@ -2393,7 +3143,7 @@ main =
                       (supervisedIllegalManifestCases problem)
                 )
                 SL.canonicalProblems
-      , testCase "checkpoint browse lists only inference-eligible completed manifests (Sprint 8.14/11.11)" $ do
+      , testCase "checkpoint browse serving selection requires Store admission" $ do
           let experimentHash = "exp-checkpoint-browser-negative"
               completeBlob = Checkpoint.blobKey experimentHash "blob-complete"
               partialBlob = Checkpoint.blobKey experimentHash "blob-partial"
@@ -2456,21 +3206,34 @@ main =
               seededSha = Checkpoint.manifestContentSha seededManifest
               failedSha = Checkpoint.manifestContentSha failedManifest
               summaries =
-                Workload.checkpointSummaries
-                  experimentHash
-                  [ partialManifest
-                  , syntheticManifest
-                  , seededManifest
-                  , failedManifest
-                  , completedManifest
-                  ]
+                [ Text.intercalate
+                    "\t"
+                    [ experimentHash
+                    , experimentHash
+                    , completedSha
+                    , "3"
+                    , "generic"
+                    , "1"
+                    , "eligible"
+                    , "test-budget"
+                    , "validation_accuracy=0.95"
+                    , "jitml-tensorboard/test"
+                    ]
+                ]
               failClosedFrame =
                 Workload.renderCheckpointListResult
                   "call-empty"
-                  ( Workload.checkpointSummaries
-                      experimentHash
-                      [partialManifest, syntheticManifest, seededManifest, failedManifest]
-                  )
+                  []
+          source <- Text.IO.readFile "src/JitML/Service/Workload.hs"
+          assertBool
+            "serving browse does not re-admit immutable manifest addresses"
+            ("CheckpointStore.admitCheckpointAt" `Text.isInfixOf` source)
+          assertBool
+            "serving browse does not require completed Store admission"
+            ("CheckpointStore.requireAdmittedCompletedCheckpoint" `Text.isInfixOf` source)
+          assertBool
+            "serving browse bypasses Store via structural completion refinement"
+            (not ("validateCheckpointCompletion" `Text.isInfixOf` source))
           length summaries @?= 1
           assertBool
             "completed checkpoint appears in browser selector summary"
@@ -3754,18 +4517,25 @@ main =
             runFilesystemMinIO root $ do
               let experimentHash = "exp-tune-resume"
                   transcripts =
-                    [ Tune.TrialTranscript experimentHash 1 [0.5, 0.4]
-                    , Tune.TrialTranscript experimentHash 2 [0.6, 0.45]
-                    , Tune.TrialTranscript experimentHash 3 [0.55, 0.42]
-                    ]
+                    zipWith
+                      ( \seed trialIndex ->
+                          Tune.terminalTrialTranscript
+                            experimentHash
+                            seed
+                            (Tune.trialObjectiveResult Tune.Grid trialIndex)
+                      )
+                      [1, 2, 3]
+                      [0 ..]
               mapM_ TuneResume.persistTrialTranscript transcripts
               outcome <- TuneResume.replaySweep experimentHash [1, 2, 3]
               liftIO $ do
                 TuneResume.resumedSeeds outcome @?= [1, 2, 3]
                 length (TuneResume.resumedTrials outcome) @?= 3
                 TuneResume.resumeReadFailures outcome @?= []
-                fmap Tune.transcriptValues (TuneResume.resumedTrials outcome)
-                  @?= fmap Tune.transcriptValues transcripts
+                TuneResume.resumedTrials outcome @?= transcripts
+                assertBool
+                  "replayed terminal transcripts retain ordered rung evidence"
+                  (not (any (null . Tune.transcriptObservations) (TuneResume.resumedTrials outcome)))
       , testCase "Tune replay reports corrupt transcripts as typed decode failures (Sprint 9.15)" $
           withSystemTempDirectory "jitml-tune-resume-corrupt" $ \root ->
             runFilesystemMinIO root $ do
@@ -4184,55 +4954,15 @@ main =
                 -- the exact topology. Every role-owned route must then have
                 -- its named durable subscription and at least one held-open
                 -- consumer; Linux Engine owns inference only, while the Apple
-                -- host Engine retains the four host-command routes.
-                traverse_
-                  ( \(topic, expectedSubscription) -> do
-                      let statsCmd =
-                            subprocess
-                              "kubectl"
-                              [ "--kubeconfig"
-                              , "./.build/jitml.kubeconfig"
-                              , "exec"
-                              , "-n"
-                              , "platform"
-                              , "pulsar-toolset-0"
-                              , "--"
-                              , "/pulsar/bin/pulsar-admin"
-                              , "topics"
-                              , "stats"
-                              , topic
-                              ]
-                      outcome <- runStreaming defaultSubprocessEnv statsCmd
-                      case outcome of
-                        ProcessFailed failure ->
-                          assertFailure
-                            ( "pulsar-admin topics stats failed for "
-                                <> Text.unpack topic
-                                <> ":\n"
-                                <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
-                            )
-                        ProcessSucceeded transcript ->
-                          case eitherDecode
-                            ( ByteString.Lazy.fromStrict
-                                (Text.Encoding.encodeUtf8 (processTranscriptStdout transcript))
-                            ) of
-                            Left parseErr ->
-                              assertFailure
-                                ( "pulsar-admin topics stats JSON parse failed for "
-                                    <> Text.unpack topic
-                                    <> ": "
-                                    <> parseErr
-                                    <> "\n"
-                                    <> Text.unpack (renderProcessOutcome outcome)
-                                )
-                            Right (statsValue :: Aeson.Value) ->
-                              assertSubscriptionHasConsumer
-                                topic
-                                expectedSubscription
-                                outcome
-                                statsValue
-                  )
+                -- host Engine retains the four host-command routes. Pulsar may
+                -- briefly expose an empty consumer array while a healthy
+                -- WebSocket consumer reconnects, so require two consecutive
+                -- full-set attached sweeps within a bounded poll window rather
+                -- than accepting or rejecting one instantaneous sample.
+                assertPulsarSubscriptionsStablyHaveConsumers
                   daemonSubscriptions
+                  2
+                  5
           , testCase "live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -4706,15 +5436,20 @@ main =
                   settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
               uniqueSuffix <- pickRandomSuffix
               let experimentHash = "live-ckpt-" <> uniqueSuffix
-                  blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
-                  manifest =
-                    completedCheckpointManifest
-                      "m1"
-                      experimentHash
-                      [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
-                      1
-                      [("validation_accuracy", 0.9)]
                   payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+                  blobObjectKey =
+                    Checkpoint.blobKey
+                      experimentHash
+                      (WeightCodec.jmw1ContentSha payload)
+                  manifest =
+                    ( Checkpoint.emptyManifest
+                        "m1"
+                        experimentHash
+                        [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                    )
+                      { Checkpoint.manifestStep = 1
+                      , Checkpoint.manifestMetrics = [("validation_accuracy", 0.9)]
+                      }
                   ownedObjects =
                     [ CheckpointStore.checkpointObjectRef blobObjectKey
                     , CheckpointStore.checkpointObjectRef
@@ -4722,8 +5457,6 @@ main =
                             experimentHash
                             (Checkpoint.manifestContentSha manifest)
                         )
-                    , CheckpointStore.checkpointObjectRef
-                        (Checkpoint.latestPointerKey experimentHash)
                     ]
               withTemporaryMinioObjects
                 settings
@@ -4731,33 +5464,32 @@ main =
                 ownedObjects
                 ( MinIOSubprocess.runMinIOSubprocess settings $ do
                     first <-
-                      CheckpointStore.writeCheckpointSnapshotWithMinIO
+                      CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
                         manifest
                         [(blobObjectKey, payload)]
-                        Nothing
                     liftIO $ case first of
                       Left err ->
                         assertFailure
                           ("expected live checkpoint write OK, got: " <> show err)
-                      Right stored ->
-                        CheckpointStore.storedPointerResult stored
-                          @?= Checkpoint.PointerWritten
-                            (CheckpointStore.storedManifestSha stored)
+                      Right candidate ->
+                        CheckpointStore.storedPointerResult
+                          (CheckpointStore.candidateStoredCheckpoint candidate)
+                          @?= Checkpoint.PointerNotWritten
+                            (Checkpoint.latestPointerKey experimentHash)
                     -- A second identical write must idempotently succeed on the
-                    -- blob + manifest writes and surface PointerConflict for the
-                    -- latest pointer (CAS If-Match guard).
+                    -- blob + manifest writes without publishing latest.
                     second <-
-                      CheckpointStore.writeCheckpointSnapshotWithMinIO
+                      CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
                         manifest
                         [(blobObjectKey, payload)]
-                        Nothing
                     liftIO $ case second of
                       Left err ->
                         assertFailure
                           ("expected idempotent live re-write, got: " <> show err)
-                      Right stored ->
-                        CheckpointStore.storedPointerResult stored
-                          @?= Checkpoint.PointerConflict
+                      Right candidate ->
+                        CheckpointStore.storedPointerResult
+                          (CheckpointStore.candidateStoredCheckpoint candidate)
+                          @?= Checkpoint.PointerNotWritten
                             (Checkpoint.latestPointerKey experimentHash)
                 )
           , testCase "live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7)" $ do
@@ -5103,96 +5835,31 @@ main =
                 ProtoGc.gcEventSubstrate envelope
                   @?= substrate
           , testCase
-              "live inference request joins an exact reply through request/reply completion (Sprint 12.16)"
+              "live non-product V1 checkpoint is adopted but rejected by completed admission"
               $ do
                 publication <- requireLivePublication
                 let edgePort = Publication.publicationEdgePort publication
                     minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-                    pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
-                    substrate = Publication.publicationSubstrate publication
-                    commandTopic = topologyTopic InferenceRequestRoute substrate
-                    replyTopic = topologyTopic InferenceResultRoute substrate
                 uniqueSuffix <- pickRandomSuffix
                 let experimentHash = "live-inference-" <> uniqueSuffix
-                    callId = "live-inference-call-" <> uniqueSuffix
-                    blobObjectKey = Checkpoint.blobKey experimentHash "blob-w"
-                    manifest =
-                      completedCheckpointManifest
+                    payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+                    (manifest, completedWitness, blobObjectKey) =
+                      completedLegacySnapshotForPayload
                         "m1"
                         experimentHash
-                        [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                        "dense.weight"
+                        [2, 2]
                         1
                         [("validation_accuracy", 0.9)]
-                    payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
-                    command =
-                      ProtoInference.RunInference
-                        ProtoInference.InferenceRequest
-                          { ProtoInference.irCallId = callId
-                          , ProtoInference.irExperimentHash = experimentHash
-                          , ProtoInference.irReplyTopic = topicName replyTopic
-                          , ProtoInference.irInput = [1.0, 2.0]
-                          }
-                contractPlanId <-
-                  expectValidationSuccess
-                    (planIdFromCanonicalText (encodeTopicPayload commandTopic command))
-                let contract =
-                      RunContract.exactlyOne
-                        "inference-result"
-                        contractPlanId
-                    resultSubscription =
-                      subscriptionFixture
-                        replyTopic
-                        ("live-inference-result-sub-" <> uniqueSuffix)
-                        FromLatest
-                        Owned
-                    ingestInferenceResult progress envelope =
-                      case ProtoInference.parseInferenceResult (inferenceResultMessagePayload envelope) of
-                        Nothing -> Right progress
-                        Just result
-                          | ProtoInference.iresCallId result /= callId -> Right progress
-                          | ProtoInference.iresExperimentHash result /= experimentHash ->
-                              Left
-                                ( "matching inference call returned the wrong experiment: "
-                                    <> ProtoInference.iresExperimentHash result
-                                )
-                          | null (ProtoInference.iresOutput result) ->
-                              Left "matching inference result has an empty output"
-                          | any nonFinite (ProtoInference.iresOutput result) ->
-                              Left "matching inference result has a non-finite output"
-                          | otherwise ->
-                              case RunContract.evidenceEvent
-                                contractPlanId
-                                "inference-result"
-                                ()
-                                result of
-                                Failure errors -> Left (Text.pack (show errors))
-                                Success event ->
-                                  Bifunctor.first
-                                    (Text.pack . show)
-                                    (RunContract.ingestEvent contract progress event)
-                    workflow =
-                      LiveWorkflow.LiveWorkflow
-                        { LiveWorkflow.liveWorkflowPlanId = contractPlanId
-                        , LiveWorkflow.liveWorkflowCommand =
-                            LiveWorkflow.ProtocolCommand commandTopic command
-                        , LiveWorkflow.liveWorkflowEventSubscription = resultSubscription
-                        , LiveWorkflow.liveWorkflowInitialProgress = initialProgress contract
-                        , LiveWorkflow.liveWorkflowIngest = ingestInferenceResult
-                        , LiveWorkflow.liveWorkflowFinish = finishContract contract
-                        , LiveWorkflow.liveWorkflowRenderViolation = id
-                        }
-                    backend =
-                      requestReplyBackend
-                        contractPlanId
-                        ("inference-" <> callId)
-                        120
+                        payload
                     stageCheckpoint =
                       MinIOSubprocess.runMinIOSubprocess minioSettings $ do
                         writeResult <-
-                          CheckpointStore.writeCheckpointSnapshotWithMinIO
+                          CheckpointStore.writeCompletedCheckpointSnapshotWithMinIO
+                            Nothing
+                            completedWitness
                             manifest
                             [(blobObjectKey, payload)]
-                            Nothing
                         liftIO $ case writeResult of
                           Left err ->
                             assertFailure ("checkpoint write failed: " <> show err)
@@ -5210,25 +5877,27 @@ main =
                         , CheckpointStore.checkpointObjectRef
                             (Checkpoint.latestPointerKey experimentHash)
                         ]
-                result <-
-                  LiveWorkflow.withOwnedCleanup cleanupCheckpoint $ do
+                withOwnedScenarioCleanup
+                  "live legacy completed checkpoint"
+                  cleanupCheckpoint
+                  $ do
                     stageCheckpoint
-                    LiveWorkflow.runLiveWorkflow
-                      workflow
-                      (livePulsarTransport pulsarSettings)
-                      backend
-                completed <-
-                  requireCompletedLiveWorkflow "live inference workflow" result
-                let inferenceResult =
-                      RunContract.exactlyOneValue
-                        (LiveWorkflow.completedRunEvidence completed)
-                ProtoInference.iresCallId inferenceResult @?= callId
-                ProtoInference.iresExperimentHash inferenceResult @?= experimentHash
-                assertBool
-                  "live inference returns a finite non-empty output"
-                  ( not (null (ProtoInference.iresOutput inferenceResult))
-                      && not (any nonFinite (ProtoInference.iresOutput inferenceResult))
-                  )
+                    admission <-
+                      MinIOSubprocess.runMinIOSubprocess
+                        minioSettings
+                        (CheckpointStore.admitLatestCompletedCheckpoint experimentHash)
+                    case admission of
+                      Left
+                        ( CheckpointStore.AdmissionCompletedV1ProductRowRequired
+                            rejectedExperiment
+                          )
+                          | rejectedExperiment == experimentHash -> pure ()
+                      Left err ->
+                        assertFailure
+                          ("expected non-product V1 admission rejection, got: " <> show err)
+                      Right _ ->
+                        assertFailure
+                          "legacy V1 checkpoint unexpectedly became inference-admitted"
           , testCase "live tune trial persist + replay round-trip (Sprint 13.10)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -5237,16 +5906,15 @@ main =
               let experimentHash = "live-tune-" <> uniqueSuffix
                   seeds = [101, 102, 103]
                   transcripts =
-                    fmap
-                      ( \seed ->
-                          Tune.TrialTranscript
-                            { Tune.transcriptExperimentHash = experimentHash
-                            , Tune.transcriptTrialSeed = seed
-                            , Tune.transcriptValues =
-                                [fromIntegral seed * 0.01, fromIntegral seed * 0.02]
-                            }
+                    zipWith
+                      ( \seed trialIndex ->
+                          Tune.terminalTrialTranscript
+                            experimentHash
+                            seed
+                            (Tune.trialObjectiveResult Tune.Grid trialIndex)
                       )
                       seeds
+                      [0 ..]
                   trialRefs =
                     fmap
                       ( ObjectRef (BucketName "jitml-trials")
@@ -5551,13 +6219,17 @@ runTypedExecutableWorkflowMatrixCell repoRoot binary publication cell =
       assertWorkflowMatrixDatasetVerified minioSettings
       runWorkflowCommandExpecting ["train:", "substrate=" <> substrateUrlSegment substrate]
     WorkflowMatrix.SlEval ->
-      withWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval" $
-        runWorkflowCommandExpecting ["eval: checkpoint=workflow-matrix-eval", "output="]
+      withWorkflowMatrixCheckpoint
+        minioSettings
+        "workflow-matrix-eval"
+        runWorkflowCommandExpectingAdmissionFailure
     WorkflowMatrix.RlTrain ->
       runWorkflowCommandExpecting ["rl train:", "avg-reward:", "rl-replay-artifact-key:"]
     WorkflowMatrix.RlEval ->
-      withWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval" $
-        runWorkflowCommandExpecting ["rl eval: checkpoint=workflow-matrix-eval", "output="]
+      withWorkflowMatrixCheckpoint
+        minioSettings
+        "workflow-matrix-eval"
+        runWorkflowCommandExpectingAdmissionFailure
     WorkflowMatrix.RlRollout ->
       runWorkflowCommandExpecting ["rl rollout:", "rewards=", "rl-rollout-artifact-key:"]
     WorkflowMatrix.Tune ->
@@ -5568,8 +6240,10 @@ runTypedExecutableWorkflowMatrixCell repoRoot binary publication cell =
         , "tune-trials-artifact-key:"
         ]
     WorkflowMatrix.Inference ->
-      withWorkflowMatrixCheckpoint minioSettings "workflow-matrix-inference" $
-        runWorkflowCommandExpecting ["inference: experiment=workflow-matrix-inference", "result="]
+      withWorkflowMatrixCheckpoint
+        minioSettings
+        "workflow-matrix-inference"
+        runWorkflowCommandExpectingAdmissionFailure
     WorkflowMatrix.AlphaZeroSelfPlay ->
       runWorkflowCommandExpecting
         [ "rl alphazero self-play:"
@@ -5603,6 +6277,15 @@ runTypedExecutableWorkflowMatrixCell repoRoot binary publication cell =
             outcome
       )
       snippets
+  runWorkflowCommandExpectingAdmissionFailure = do
+    let command =
+          (subprocess binary (WorkflowMatrix.cellCommand cell))
+            { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just repoRoot
+            }
+    outcome <- runStreaming defaultSubprocessEnv command
+    assertProcessNotSuccessful
+      "WorkflowMatrix candidate checkpoint is not inference-admitted"
+      outcome
 
 withWorkflowMatrixCheckpoint
   :: MinIOSubprocess.MinIOSettings
@@ -5610,21 +6293,25 @@ withWorkflowMatrixCheckpoint
   -> IO value
   -> IO value
 withWorkflowMatrixCheckpoint settings experimentHash action = do
-  let blobObjectKey = Checkpoint.blobKey experimentHash "workflow-matrix-weights"
-      manifest =
-        completedCheckpointManifest
-          "workflow-matrix"
+  let payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+      blobObjectKey =
+        Checkpoint.blobKey
           experimentHash
-          [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
-          1
-          [("validation_accuracy", 0.9)]
+          (WeightCodec.jmw1ContentSha payload)
+      manifest =
+        ( Checkpoint.emptyManifest
+            "workflow-matrix"
+            experimentHash
+            [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+        )
+          { Checkpoint.manifestStep = 1
+          , Checkpoint.manifestMetrics = [("validation_accuracy", 0.9)]
+          }
       manifestSha = Checkpoint.manifestContentSha manifest
-      payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
       blobRef = CheckpointStore.checkpointObjectRef blobObjectKey
       manifestRef =
         CheckpointStore.checkpointObjectRef (Checkpoint.manifestKey experimentHash manifestSha)
-      pointerRef = CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
-      ownedObjects = [pointerRef, manifestRef, blobRef]
+      ownedObjects = [manifestRef, blobRef]
       ownerLabel = "WorkflowMatrix checkpoint " <> experimentHash
   withTemporaryMinioObjects settings ownerLabel ownedObjects $ do
     staleCleanupIssues <- cleanupMinioObjects settings ownerLabel ownedObjects
@@ -5639,10 +6326,9 @@ withWorkflowMatrixCheckpoint settings experimentHash action = do
             }
     MinIOSubprocess.runMinIOSubprocess settings $ do
       written <-
-        CheckpointStore.writeCheckpointSnapshotWithMinIO
+        CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
           manifest
           [(blobObjectKey, payload)]
-          Nothing
       liftIO $ case written of
         Right _ -> pure ()
         Left err ->
@@ -5778,7 +6464,8 @@ supervisedCompletedManifestFor experimentHash problem =
       graphMetadata = Checkpoint.layerGraphMetadataFromGraph graph
       tensors = supervisedLayerGraphTensors experimentHash graph
       manifest =
-        completedCheckpointManifest
+        completedCheckpointManifestWithBudget
+          TrainingBudget.SupervisedEpochBudget
           ("m-" <> SL.problemName problem)
           experimentHash
           tensors
@@ -5880,7 +6567,7 @@ supervisedIllegalManifestCases problem =
             , Checkpoint.manifestDatasetShaAtRead = Nothing
             }
       )
-      "no completed-training witness"
+      supervisedV1AdmissionDiagnostic
   , mkCase
       "synthetic"
       ( \manifest ->
@@ -5891,11 +6578,11 @@ supervisedIllegalManifestCases problem =
             , Checkpoint.manifestDatasetShaAtRead = Nothing
             }
       )
-      "missing weight-delta evidence"
+      supervisedV1AdmissionDiagnostic
   , mkCase
       "untrained"
       (\manifest -> manifest {Checkpoint.manifestStep = 0})
-      "completed-training witness observes"
+      supervisedV1AdmissionDiagnostic
   , mkCase
       "malformed-layout"
       ( \manifest ->
@@ -5903,7 +6590,7 @@ supervisedIllegalManifestCases problem =
             { Checkpoint.manifestWeightLayout = Checkpoint.NamedTensorWeightLayout []
             }
       )
-      "supervised manifest has invalid shape/layout metadata"
+      supervisedV1AdmissionDiagnostic
   ]
  where
   mkCase suffix mutate expected =
@@ -5913,6 +6600,13 @@ supervisedIllegalManifestCases problem =
         , mutate (supervisedCompletedManifestFor experimentHash problem)
         , expected
         )
+
+supervisedV1AdmissionDiagnostic :: Text
+supervisedV1AdmissionDiagnostic =
+  CheckpointStore.renderCheckpointAdmissionError
+    ( CheckpointStore.AdmissionCompletionInvalid
+        "supervised V1 manifest has no exact V2 runtime artifact and is inspection-only"
+    )
 
 rejectSupervisedManifestCase
   :: (HasMinIO m, MonadIO m)
@@ -6910,71 +7604,176 @@ pulsarTopicAbsentFromStats topic outcome =
   ("Topic " <> topicName topic <> " not found")
     `Text.isInfixOf` renderProcessOutcome outcome
 
--- | Find the freshly-built `jitml` binary. Returns @Nothing@ if the binary
--- isn't built (first build path). Returns an absolute path so the spawned
--- process can resolve it regardless of cwd. Preference order: the
--- platform-matching @dist-newstyle@ build (rejecting wrong-arch binaries the
--- host bind-mount may expose) → any @dist-newstyle@ binary whose arch
--- directory matches the current host → the container-installed
--- @/usr/local/bin/jitml@ fallback from the @jitml:local@ image.
--- | Walk a @pulsar-admin topics stats <topic>@ JSON object and assert the
--- role-owned subscription is present with at least one attached consumer.
-assertSubscriptionHasConsumer :: Text -> Text -> ProcessOutcome -> Aeson.Value -> IO ()
-assertSubscriptionHasConsumer topic expectedSubscription outcome statsValue =
+-- | Require a role-owned Pulsar subscription to retain an attached consumer
+-- across consecutive observations. A single empty consumer array is a valid
+-- broker-side view during WebSocket reconnect, but a consumer that does not
+-- recover and remain present within the bounded window fails closed with the
+-- final complete @pulsar-admin@ transcript.
+assertPulsarSubscriptionsStablyHaveConsumers :: [(Text, Text)] -> Int -> Int -> IO ()
+assertPulsarSubscriptionsStablyHaveConsumers
+  expectedSubscriptions
+  requiredConsecutive
+  maxSweeps
+    | null expectedSubscriptions =
+        assertFailure "stable Pulsar consumer assertion requires at least one subscription"
+    | requiredConsecutive <= 0 =
+        assertFailure "stable Pulsar consumer observations must be positive"
+    | maxSweeps < requiredConsecutive =
+        assertFailure "Pulsar consumer poll budget is smaller than the stable observation target"
+    | otherwise = go 0 0 maxSweeps []
+   where
+    go bestStreak consecutive remaining history = do
+      observations <- traverse probeSubscription expectedSubscriptions
+      let allPresent = all subscriptionPresent observations
+          nextConsecutive = if allPresent then consecutive + 1 else 0
+          nextBestStreak = max bestStreak nextConsecutive
+          sweepNumber = maxSweeps - remaining + 1
+          nextHistory =
+            take 3 (renderSubscriptionSweep sweepNumber observations : history)
+      if nextConsecutive >= requiredConsecutive
+        then pure ()
+        else
+          if remaining <= 1
+            then
+              assertFailure
+                ( "role-owned Pulsar subscriptions did not all retain consumers for "
+                    <> show requiredConsecutive
+                    <> " consecutive sweeps within "
+                    <> show maxSweeps
+                    <> " sweeps; best streak: "
+                    <> show nextBestStreak
+                    <> "; final sweep history:\n"
+                    <> unlines (reverse nextHistory)
+                )
+            else do
+              Control.Concurrent.threadDelay 1_000_000
+              go nextBestStreak nextConsecutive (remaining - 1) nextHistory
+
+    probeSubscription (topic, expectedSubscription) = do
+      outcome <- runStreaming defaultSubprocessEnv (statsCommand topic)
+      let observation =
+            case outcome of
+              ProcessFailed _ ->
+                Left
+                  ( "pulsar-admin topics stats failed for "
+                      <> Text.unpack topic
+                      <> ":\n"
+                      <> Text.unpack (renderProcessOutcome outcome)
+                  )
+              ProcessSucceeded transcript ->
+                case eitherDecode
+                  ( ByteString.Lazy.fromStrict
+                      (Text.Encoding.encodeUtf8 (processTranscriptStdout transcript))
+                  ) of
+                  Left parseErr ->
+                    Left
+                      ( "pulsar-admin topics stats JSON parse failed for "
+                          <> Text.unpack topic
+                          <> ": "
+                          <> parseErr
+                          <> "\n"
+                          <> Text.unpack (renderProcessOutcome outcome)
+                      )
+                  Right (statsValue :: Aeson.Value) ->
+                    case subscriptionConsumerObservation
+                      topic
+                      expectedSubscription
+                      statsValue of
+                      Left details ->
+                        Left
+                          ( details
+                              <> "\n"
+                              <> Text.unpack (renderProcessOutcome outcome)
+                          )
+                      Right () -> Right ()
+      pure (topic, expectedSubscription, observation)
+
+    subscriptionPresent (_, _, observation) =
+      case observation of
+        Right () -> True
+        Left _ -> False
+
+    renderSubscriptionSweep sweepNumber observations =
+      unlines
+        ( ("sweep " <> show sweepNumber <> ":")
+            : fmap renderSubscriptionObservation observations
+        )
+
+    renderSubscriptionObservation (topic, expectedSubscription, observation) =
+      "  "
+        <> Text.unpack topic
+        <> " as "
+        <> Text.unpack expectedSubscription
+        <> ": "
+        <> case observation of
+          Right () -> "consumer present"
+          Left details -> details
+
+    statsCommand topic =
+      subprocess
+        "kubectl"
+        [ "--kubeconfig"
+        , "./.build/jitml.kubeconfig"
+        , "exec"
+        , "-n"
+        , "platform"
+        , "pulsar-toolset-0"
+        , "--"
+        , "/pulsar/bin/pulsar-admin"
+        , "topics"
+        , "stats"
+        , topic
+        ]
+
+subscriptionConsumerObservation :: Text -> Text -> Aeson.Value -> Either String ()
+subscriptionConsumerObservation topic expectedSubscription statsValue =
   case statsValue of
     Aeson.Object o ->
       case AesonKeyMap.lookup "subscriptions" o of
         Just (Aeson.Object subs) ->
           case AesonKeyMap.lookup (AesonKey.fromText expectedSubscription) subs of
             Nothing ->
-              assertFailure
+              Left
                 ( "topic "
                     <> Text.unpack topic
                     <> " has no "
                     <> Text.unpack expectedSubscription
                     <> " subscription"
-                    <> outcomeDetails
                 )
             Just (Aeson.Object subInfo) ->
               case AesonKeyMap.lookup "consumers" subInfo of
                 Just (Aeson.Array consumers)
-                  | not (null consumers) -> pure ()
+                  | not (null consumers) -> Right ()
                 other ->
-                  assertFailure
+                  Left
                     ( Text.unpack expectedSubscription
                         <> " subscription on "
                         <> Text.unpack topic
                         <> " has no consumers; got: "
                         <> show other
-                        <> outcomeDetails
                     )
             Just other ->
-              assertFailure
+              Left
                 ( Text.unpack expectedSubscription
                     <> " subscription entry has unexpected shape on "
                     <> Text.unpack topic
                     <> ": "
                     <> show other
-                    <> outcomeDetails
                 )
         other ->
-          assertFailure
+          Left
             ( "topic "
                 <> Text.unpack topic
                 <> " stats has unexpected subscriptions field: "
                 <> show other
-                <> outcomeDetails
             )
     other ->
-      assertFailure
+      Left
         ( "topic "
             <> Text.unpack topic
             <> " stats decoded to non-object: "
             <> show other
-            <> outcomeDetails
         )
- where
-  outcomeDetails = "\n" <> Text.unpack (renderProcessOutcome outcome)
 
 seedHarborOciArtifact :: HarborSubprocess.HarborSettings -> Text -> Text -> IO ()
 seedHarborOciArtifact settings repository tag = do
@@ -7311,6 +8110,16 @@ registeredTuningSeed =
     Nothing -> error "registered tuning ProductRow is missing its sweep seed"
     Just seed -> seed
 
+registeredTuningPerTrialBudget :: Word32
+registeredTuningPerTrialBudget =
+  checkedWord32
+    "registered tuning per-trial optimizer-update ceiling"
+    ( fromIntegral
+        ( Tune.tuningSchedulerMaxBudget
+            (Tune.tuningExecutionScheduler Tune.canonicalMnistTuningExecutionSpec)
+        )
+    )
+
 registeredTuningStartSweep :: Substrate -> Text -> ProtoTune.StartSweep
 registeredTuningStartSweep substrate experimentHash =
   ProtoTune.StartSweep
@@ -7319,7 +8128,7 @@ registeredTuningStartSweep substrate experimentHash =
     , ProtoTune.ssSubstrate = substrate
     , ProtoTune.ssSweepSeed = registeredTuningSeed
     , ProtoTune.ssTrialBudget = registeredTuningTrialBudget
-    , ProtoTune.ssBudgetPerTrial = fromIntegral Tune.tuningObjectiveOptimizerUpdates
+    , ProtoTune.ssBudgetPerTrial = registeredTuningPerTrialBudget
     , ProtoTune.ssSampler = "TPE"
     , ProtoTune.ssScheduler = "ASHA"
     , ProtoTune.ssPruner = "MedianPruner"

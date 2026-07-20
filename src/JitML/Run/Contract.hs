@@ -146,10 +146,10 @@ productContract left right =
 -- identity.  The smart constructor deliberately accepts only opaque plan/event
 -- ids supplied by "JitML.Plan.Plan".
 data EvidenceEvent key value = EvidenceEvent
-  { evidenceEventPlanId :: PlanId
-  , evidenceEventId :: EventId
-  , evidenceEventKey :: key
-  , evidenceEventValue :: value
+  { eventPlanIdValue :: PlanId
+  , eventIdValue :: EventId
+  , eventKeyValue :: key
+  , eventPayloadValue :: value
   }
   deriving stock (Eq, Show)
 
@@ -163,6 +163,21 @@ evidenceEvent
 evidenceEvent planId eventKind key value =
   (\eventId -> EvidenceEvent planId eventId key value)
     <$> deriveEventIdForPlanId planId eventKind (renderKey key)
+
+-- Keep the constructor and record labels private.  Exported record labels can
+-- be used in record-update syntax even when their constructor is hidden,
+-- allowing callers to desynchronise a validated EventId from its plan/key.
+evidenceEventPlanId :: EvidenceEvent key value -> PlanId
+evidenceEventPlanId = eventPlanIdValue
+
+evidenceEventId :: EvidenceEvent key value -> EventId
+evidenceEventId = eventIdValue
+
+evidenceEventKey :: EvidenceEvent key value -> key
+evidenceEventKey = eventKeyValue
+
+evidenceEventValue :: EvidenceEvent key value -> value
+evidenceEventValue = eventPayloadValue
 
 data ContractViolation
   = WrongPlan

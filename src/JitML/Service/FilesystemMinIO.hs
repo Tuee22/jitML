@@ -6,6 +6,8 @@ module JitML.Service.FilesystemMinIO
   )
 where
 
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
+import Control.Exception (IOException, bracket, bracket_, try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
 import Crypto.Hash.SHA256 qualified as SHA256
@@ -14,15 +16,29 @@ import Data.Char (intToDigit)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
-import Data.Text.Encoding.Error qualified as TextErr
 import Data.Word (Word8)
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
   , listDirectory
   , removeFile
+  , renameFile
   )
 import System.FilePath ((</>))
+import System.IO (SeekMode (AbsoluteSeek), hFlush)
+import System.IO.Temp (withTempFile)
+import System.IO.Unsafe (unsafePerformIO)
+import System.Posix.Files (createLink)
+import System.Posix.IO
+  ( LockRequest (Unlock, WriteLock)
+  , OpenFileFlags (creat)
+  , OpenMode (WriteOnly)
+  , closeFd
+  , defaultFileFlags
+  , openFd
+  , setLock
+  , waitToSetLock
+  )
 
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -74,13 +90,11 @@ instance HasMinIO FilesystemMinIO where
   minioPutIfAbsent ref payload = do
     root <- ask
     let path = objectPath root ref
-    exists <- liftIO (doesFileExist path)
-    if exists
-      then pure (Left (SEConflict "filesystem: object exists"))
-      else do
-        liftIO (createDirectoryIfMissing True (takeDirectory' path))
-        liftIO (writeText path payload)
-        pure (Right ref)
+    created <- liftIO (createBytesIfAbsent path (Text.Encoding.encodeUtf8 payload))
+    pure $
+      case created of
+        Left err -> Left err
+        Right () -> Right ref
 
   minioReadObject ref = do
     root <- ask
@@ -101,51 +115,25 @@ instance HasMinIO FilesystemMinIO where
   putBlobBytesIfAbsent ref payload = do
     root <- ask
     let path = objectPath root ref
-    exists <- liftIO (doesFileExist path)
-    if exists
-      then pure (Left (SEConflict "filesystem: object exists"))
-      else do
-        liftIO (createDirectoryIfMissing True (takeDirectory' path))
-        liftIO (ByteString.writeFile path payload)
-        pure
-          ( Right
-              ( ETag
-                  ( sha256Hex
-                      (Text.Encoding.decodeUtf8With TextErr.lenientDecode payload)
-                  )
-              )
-          )
+    created <- liftIO (createBytesIfAbsent path payload)
+    pure $
+      case created of
+        Left err -> Left err
+        Right () -> Right (ETag (sha256BytesHex payload))
 
   putBlobIfAbsent ref payload = do
     root <- ask
     let path = objectPath root ref
-    exists <- liftIO (doesFileExist path)
-    if exists
-      then pure (Left (SEConflict "filesystem: object exists"))
-      else do
-        liftIO (createDirectoryIfMissing True (takeDirectory' path))
-        liftIO (writeText path payload)
-        pure (Right (ETag (sha256Hex payload)))
+    created <- liftIO (createBytesIfAbsent path (Text.Encoding.encodeUtf8 payload))
+    pure $
+      case created of
+        Left err -> Left err
+        Right () -> Right (ETag (sha256Hex payload))
 
   casPointer ref expected payload = do
     root <- ask
     let path = objectPath root ref
-    exists <- liftIO (doesFileExist path)
-    case (expected, exists) of
-      (Nothing, True) -> pure (Left (SEConflict "filesystem: object exists"))
-      (Nothing, False) -> do
-        liftIO (createDirectoryIfMissing True (takeDirectory' path))
-        liftIO (writeText path payload)
-        pure (Right (ETag (sha256Hex payload)))
-      (Just (ETag expectedEtag), True) -> do
-        current <- liftIO (readText path)
-        let currentEtag = sha256Hex current
-        if currentEtag == expectedEtag
-          then do
-            liftIO (writeText path payload)
-            pure (Right (ETag (sha256Hex payload)))
-          else pure (Left (SEConflict "filesystem: object exists"))
-      (Just _, False) -> pure (Left (SEConflict "filesystem: object exists"))
+    liftIO (casPointerBytes path expected payload)
 
   listObjects bucket prefix = do
     root <- ask
@@ -173,23 +161,76 @@ instance HasMinIO FilesystemMinIO where
       then liftIO (removeFile path) >> pure (Right ())
       else pure (Left (SEUnauthorized "filesystem: object missing"))
 
-writeText :: FilePath -> Text -> IO ()
-writeText path content =
-  ByteString.writeFile path (Text.Encoding.encodeUtf8 content)
-
 readText :: FilePath -> IO Text
 readText path =
   fmap Text.Encoding.decodeUtf8 (ByteString.readFile path)
 
 sha256Hex :: Text -> Text
 sha256Hex =
-  Text.pack . concatMap byteHex . ByteString.unpack . SHA256.hash . Text.Encoding.encodeUtf8
+  sha256BytesHex . Text.Encoding.encodeUtf8
+
+sha256BytesHex :: ByteString.ByteString -> Text
+sha256BytesHex =
+  Text.pack . concatMap byteHex . ByteString.unpack . SHA256.hash
  where
   byteHex :: Word8 -> String
   byteHex byte =
     [ intToDigit (fromIntegral byte `div` 16)
     , intToDigit (fromIntegral byte `mod` 16)
     ]
+
+createBytesIfAbsent
+  :: FilePath -> ByteString.ByteString -> IO (Either ServiceError ())
+createBytesIfAbsent path payload = do
+  createDirectoryIfMissing True (takeDirectory' path)
+  created <-
+    try
+      ( withTempFile (takeDirectory' path) ".jitml-minio-object.tmp" $ \tempPath handle -> do
+          ByteString.hPut handle payload
+          hFlush handle
+          createLink tempPath path
+      )
+      :: IO (Either IOException ())
+  pure $
+    case created of
+      Right () -> Right ()
+      Left _ -> Left (SEConflict "filesystem: object exists")
+
+casPointerBytes
+  :: FilePath -> Maybe ETag -> Text -> IO (Either ServiceError ETag)
+casPointerBytes path expected payload = do
+  withMVar filesystemPointerCasProcessLock $ \() -> do
+    createDirectoryIfMissing True (takeDirectory' path)
+    let lockPath = path <> ".lock"
+        lock = (WriteLock, AbsoluteSeek, 0, 0)
+    bracket
+      (openFd lockPath WriteOnly defaultFileFlags {creat = Just 0o600})
+      closeFd
+      ( \lockFd ->
+          bracket_
+            (waitToSetLock lockFd lock)
+            (setLock lockFd (Unlock, AbsoluteSeek, 0, 0))
+            ( do
+                exists <- doesFileExist path
+                currentEtag <-
+                  if exists
+                    then Just . ETag . sha256BytesHex <$> ByteString.readFile path
+                    else pure Nothing
+                if currentEtag /= expected
+                  then pure (Left (SEConflict "filesystem: pointer CAS mismatch"))
+                  else do
+                    withTempFile (takeDirectory' path) ".jitml-minio-pointer.tmp" $ \tempPath handle -> do
+                      ByteString.hPut handle (Text.Encoding.encodeUtf8 payload)
+                      hFlush handle
+                      renameFile tempPath path
+                    pure (Right (ETag (sha256Hex payload)))
+            )
+      )
+
+-- fcntl locks coordinate processes, not threads within one process.
+filesystemPointerCasProcessLock :: MVar ()
+filesystemPointerCasProcessLock = unsafePerformIO (newMVar ())
+{-# NOINLINE filesystemPointerCasProcessLock #-}
 
 takeDirectory' :: FilePath -> FilePath
 takeDirectory' path =

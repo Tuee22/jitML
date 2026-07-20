@@ -102,7 +102,7 @@ Current phase state, blockers, remaining work, and closure evidence live only in
 scope and dependency ownership and does not maintain a second current-status
 ledger.
 
-The 2026-07-16 retained-cluster audit reopened Sprints `2.9` and `3.7`; both
+The 2026-07-15 retained-cluster audit reopened Sprints `2.9` and `3.7`; both
 have re-closed. Sprint `2.9` restored the typed Kind existence branch, retained
 edge coordinate, and fail-closed recovery publication. Sprint `3.7` accepted
 the retained-cluster live reconcile, including exact release/readiness evidence,
@@ -110,16 +110,72 @@ all 34 source-derived Pulsar topics proven by per-topic stats, exact image
 identity proving the host OCI descriptor against every Kind-node containerd
 target, uniform node/tag CRI config digests, and matching application Pod
 `imageID`s, a versioned stamp written only after live publication, and exit
-code `3` for an exact retained no-op. The numerical open suffix now begins at
-Active Sprint `12.16`, followed by
-`19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 → 33.3 → 34.3`.
+code `3` for an exact retained no-op. Sprint `12.16` then re-closed on immutable
+descriptor
+`sha256:6e0d57971bf8e6a7c996530a4b434a575237a570c745710f2a150a501da42aa0`
+after its six-command canonical `linux-cpu` block, docs, code-quality, and
+resource-verification gates passed. The 2026-07-18 checkpoint/runtime audit then
+found that the supervised publisher's apparently eligible artifacts were
+generic V1 snapshots with no executable supervised runtime payload. Its frozen
+immutable-image diagnostic remains historical evidence: **54** rows were
+eligible, **0** unsupported, and **1** errored, but those results do not prove
+strict persisted-artifact reload. The frozen V1 encoding is 134 bytes with
+SHA-256
+`30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
+
+The current strict forward chain is `19.4 → 21.4 → 23.1 → 23.2 →
+23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 →
+32.2 → 32.4 → 33.3 → 34.3`. Sprint `10.12` is Done; Sprint `19.4` is the
+sole Active sprint, and every later sprint is Blocked by its immediate
+predecessor. Phase `10` validated its reopened work on `linux-cpu` only.
+Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 
 The binding architecture is
 [Typed Run Contract](../documents/engineering/run_contract.md): raw DTOs refine
 to a validated plan, pure total reducers collect exact evidence, an opaque
 receipt accompanies each broker delivery, one scoped interpreter joins terminal
 workload state with complete evidence, and reports project actual execution
-journals.
+journals. Completed Sprint `10.6` restored an exact executable supervised V2
+runtime artifact with one physical JMW1 weight blob and a finite-positive,
+descriptor/`PlanId`-bound learning rate passed unchanged to the selected
+classification or California regression trainer. The canonical rates are
+`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3`
+for `cifar10-vit`, and `1e-3` for the other eight rows. The current ViT plan
+fixes **2,000** training examples, five epochs, batch size 128, **10,000**
+processed examples, and **80** successful optimizer updates. Generic V2
+execution has a composite origin comprising its canonical row identity and
+exact canonical `SupervisedPlan` transport, while Product publication retains
+the authoritative `ProductRow` origin. Admission re-refines the origin and
+binds the exact executed seed, canonical dataset-at-read digest, runtime bytes,
+exact completion metric rows, and exact TensorBoard run, prefix, and tags;
+Product completion additionally binds its canonical four-row metric vector. A
+writer reads the current ETag, requires its pointer CAS to return
+`PointerWritten` for the exact manifest, and publishes completion only after
+that result. An absent optional legacy weight projection does not gate a generic
+below-bar successful miss; a supplied projection remains subject to exact
+equality checks.
+
+Sprint `10.6` closed on immutable descriptor
+`sha256:0147b37fafd53c01669705a5723ce91482d0fd545da4b9da523df8dacc3e9ba8`.
+Its **156-step** live reconcile, **11 / 11** exact-V2 publications, focused
+latest-pointer proof **1 / 1**, unit **711 / 711**, SL **36 / 36**, integration
+**155 / 155**, negative controls **3 / 3**, model convergence **111 / 111**,
+docs, code-quality, whitespace, and Rule-M gates all passed. The Sprint `10.12`
+implementation now reads pointer body `P1`, verifies the exact addressed V2
+manifest outer/body, requires exact pointer-body equality at `P2`, and only then
+fetches and independently binds every referenced blob. Known-address admission
+performs the same manifest/blob verification without pointer reads and returns
+Store's opaque `AdmittedCompletedCheckpoint` only after completion revalidation.
+ETags remain write-CAS tokens and are not snapshot identity. Sprint `10.12`
+is Done after unit **719 / 719**, SL **36 / 36**, RL **40 / 40**,
+hyperparameter **26 / 26**, docs, code-quality, whitespace, and Rule-M gates
+passed. Active Sprint `19.4` adds total
+single-row projection and total batch projection through opaque
+`projectProductRows`, whose ordered identities define the ProductRow denominator
+and execution order. Each projected cell binds the exact internal
+publisher/executor command, kind-indexed plan, substrate, and `PlanId`; report
+admission then requires the opaque completed exact-plan join rather than a raw
+handle or registry declaration.
 
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
@@ -192,20 +248,36 @@ fixture into the local tuning ADT before rendering its deterministic plan.
 proto3-compatible byte round-trips; generated proto-lens Haskell bindings live
 under `gen/Proto/Jitml/` and are exposed by the cabal library.
 
-The checkpoint surface provides a versioned raw-to-refined manifest boundary,
-split-blob object-key renderers, pointer-CAS decisions, the binary `.jmw1`
-encoder/decoder, manifest pointer renderer, a filesystem-backed checkpoint store,
-`writeCheckpointSnapshotWithMinIO` over the `HasMinIO` conditional-write/CAS
-boundary, decoded weight loading for the local Linux CPU generated-kernel
-smoke path, and deterministic inference from the latest checkpoint. Raw and
-legacy manifests remain inspectable candidates; only a hidden
-`CompletedCheckpoint`, re-refined from an exact-plan `CompletedTraining` proof,
-can enter inference. Supervised commands and workers share one canonical
-versioned `SupervisedPlan` / `PlanId` transport with positive epoch,
-train/evaluation-example, batch, and optimizer-update quantities. The live HTTP
-MinIO capability path is implemented by `JitML.Service.MinIOSubprocess` and
-validated against the routed `/minio/s3` edge for write-once conflicts, pointer
-CAS conflicts, read, list, and delete. The frontend surface provides a
+The retained checkpoint surface provides a versioned raw-to-refined manifest
+boundary, object-key renderers, the binary `.jmw1` encoder/decoder, a
+filesystem-backed store, and MinIO conditional-write/CAS operations. The
+reopened contract freezes the 134-byte V1 encoding above and adds a V2 addressed
+envelope whose outer identity covers the exact final bytes and whose inner
+identity covers the exact canonical body. Every supervised V2 artifact contains
+exactly one physical `supervised.weights` JMW1 blob and the executable graph,
+graph-ordered virtual parameter slices, preprocessing transforms, output
+decoder, row and `PlanId`, dataset provenance, and exact initial/final weight
+identities actually used by training. California Housing splits raw examples
+before fitting feature and target statistics from the training partition only.
+Supervised V1 remains inspectable but cannot become inference eligible.
+The current `cifar10-vit` V2 executable records patch size/stride `4/4` over
+`32×32×3` and token-mixing count `64`; this is exact persistence of the
+current Mixer program, not completion of Blocked Sprint `23.1`'s single typed
+graph or Blocked Sprint `24.1`'s literal small-ViT architecture.
+
+Admission reads stable pointer body `P1`, verifies the exact addressed manifest
+outer/body, requires exact `P1 == P2`, and only then fetches and binds each
+physical blob; it does not require equal ETags. Known-address admission skips
+only the pointer reads. Candidate and completed writers/results are distinct,
+completed persistence requires `CompletedTraining` directly, immutable create
+conflicts adopt only exact byte identity, local `CheckpointWriteError` keeps
+object/pointer conflicts distinct, and Product Pipeline consumes Store's opaque
+`AdmittedCompletedCheckpoint`. ETags are used only for write CAS. Sprint
+`10.6` and `10.12` are Done on `linux-cpu`; Sprint `19.4` is Active and every
+downstream owner remains Blocked. The
+live HTTP MinIO capability path remains implemented by
+`JitML.Service.MinIOSubprocess` and exercises write-once conflicts, pointer CAS,
+read, list, and delete. The frontend surface provides a
 minimal PureScript entrypoint, generated endpoint and current-panel payload
 contracts from `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route
 metadata from `src/JitML/Web/Bundle.hs`, and the `jitml-demo` Webapp workload
@@ -235,6 +307,12 @@ AlphaZero, tune, JIT-cache, and daemon-health measurements.
 Sprint `12.11` adds `JitML.Test.WorkflowMatrix` as the single real-workflow
 matrix for SL/RL/tune/inference/AlphaZero coverage. Sprint `12.15` expands that
 workflow matrix into per-model cells and negative infer-before-complete checks.
+Its workflow cells remain the public-CLI `Subprocess` / `ProcessOutcome` matrix;
+ProductRow model cells are a separate internal exact-executor matrix derived
+from the opaque `projectProductRows` batch and invoke
+`jitml internal train-and-publish-product-rows --<substrate> --row <rowId>`.
+Neither matrix enumeration nor a successful projection can by itself mint a
+completed ProductRow report cell.
 The live trained-artifact matrix is part of the HA `linux-cpu` aggregation
 baseline and the Phase `15` `linux-cuda` lane (`linux-cpu`: `jitml test all
 --live --linux-cpu` 8/8 and report-card `browser_product_matrix` 8/8;
@@ -263,8 +341,10 @@ and the deletion ledger has no pending rows.
   Webapp role selected by typed Dhall. The parser is generated from a separate `CommandSpec` registry — never the
   source of truth. The same registry feeds the parser, the command tree (`jitml
   commands --tree`), the JSON command schema (`jitml commands --json`), the markdown
-  command reference, the manpages, and the shell completion scripts. Owned by
-  [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md).
+  command reference, the manpages, and the shell completion scripts. Sprint
+  `19.4` adds the exact ProductRow publisher/executor
+  `jitml internal train-and-publish-product-rows --<substrate> [--row <rowId>]`.
+  Owned by [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md).
 - **Typed run contract.** Raw workflow requests refine into kind-indexed plans;
   protocol events feed pure exact-evidence reducers; receipt-bound deliveries,
   lifecycle observation, diagnostics, and cleanup belong to one interpreter;
@@ -504,10 +584,10 @@ and the deletion ledger has no pending rows.
   topic family; the mirrors parse the deterministic text command envelopes
   emitted by their renderers, and the current Training/RL/Tune command and
   event oneofs plus Inference request/result envelopes also round-trip through
-  proto3-compatible bytes. Live MinIO dataset fetch,
-  daemon-backed training loops,
-  and live Pulsar training/event flow are owned by Sprints `8.1`–`8.6`'s
-  Remaining Work. Phase:
+  proto3-compatible bytes. Live MinIO dataset fetch, daemon-backed training
+  loops, and live Pulsar training/event flow are implemented and validated on
+  the closed Phase `8` surface; algorithm-specific compiled RL-plan adoption
+  remains owned by Sprint `25.4`. Phase:
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Catalog
   covers PPO through AlphaZero as metadata rows with a Dhall
@@ -523,12 +603,13 @@ and the deletion ledger has no pending rows.
   admits Connect 4 / Othello / Hex / Gomoku with per-game
   `applyMove` rules and per-game two-headed network metadata.
   `experiments/mnist-tune.dhall` renders the canonical `Some
-  Tuning::{ … }` worked example from README. Real network forward /
-  back through the JIT engine, live trial transcript persistence, and
-  on-hardware reward thresholds are owned by Sprints `9.1`–`9.7`'s
-  Remaining Work. Phase:
+  Tuning::{ … }` worked example from README. Real network forward/back through
+  the JIT engine, live trial transcript persistence, and on-hardware reward
+  thresholds are implemented on the closed Phase `9` surface; distinct
+  traditional-RL plan/evaluation evidence remains Sprint `25.4`. Phase:
   [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
-- **Checkpointing and inference-only read path.** Typed manifest with
+- **Checkpointing and inference-only read path.** The retained V1/legacy surface
+  includes a typed manifest with
   the full split-blob shape (`TensorBlob`, `OptimizerBlob`, `RngBlob`,
   monotonic step, per-metric values, parent-manifest lineage SHA,
   architecture metadata, preprocessing metadata, output decoders,
@@ -541,12 +622,16 @@ and the deletion ledger has no pending rows.
   `deriveExperimentHash` computing
   `sha256(resolved-dhall || substrate-fingerprint)`, the
   binary `.jmw1` encoder/decoder, manifest pointer, filesystem-backed
-  checkpoint store, `writeCheckpointSnapshotWithMinIO` over the
-  `HasMinIO` conditional-write/CAS boundary, latest-pointer read path,
-  `loadInferenceCheckpointWith` for explicit injected runners,
-  `loadInferenceCheckpointWithWeights` for decoded `.jmw1` weights in
-  the local Linux CPU generated oneDNN path, manifest experiment/content-SHA
-  compatibility checks, tensor-shape checks for decoded weight payloads,
+  checkpoint store, split `writeCandidateCheckpointSnapshot{,WithMinIO}` and
+  `writeCompletedCheckpointSnapshot{,WithMinIO}` operations with opaque
+  `StoredCandidateCheckpoint` / `StoredCompletedCheckpoint` results, exact
+  absent-or-byte-identical immutable writes, and exact pointer CAS. Store's
+  `admitLatestCheckpoint` and `admitCheckpointAt` return opaque exact persisted
+  graphs; `requireAdmittedCompletedCheckpoint` is the only completion admission
+  used by `loadInferenceCheckpointWith` and
+  `loadInferenceCheckpointWithWeights` before decoded `.jmw1` weights reach the
+  selected runner. Admission checks manifest experiment/content addresses,
+  tensor payload addresses, exact JMW1 bytes, tensor shapes, and virtual slices,
   `daemonWorkloadDispatcherWithWeightedInference` for routing self-inference
   daemon requests through generated weighted checkpoint runners, and the GC reconciler surface
   (`RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
@@ -554,12 +639,15 @@ and the deletion ledger has no pending rows.
   `gcNoOp` second-invocation detector). The inference request/result schema
   and local byte codecs live in `proto/jitml/inference.proto` and
   `JitML.Proto.Inference`. `src/JitML/Web/Server.hs` no longer serves inline
-  demo policy/value networks on the inference/image/Connect 4 routes; Sprint
-  `11.9` restores those routes through an injected checkpoint runtime handler
-  that calls `loadInferenceCheckpointWithWeights` when `jitml-demo` has a live
+  demo policy/value networks on the inference/image/Connect 4 routes. Those
+  routes use an injected checkpoint runtime handler that calls
+  `loadInferenceCheckpointWithWeights` when `jitml-demo` has a live
   publication and fails closed with `503 checkpoint-required` otherwise.
-  Sprint `10.6` re-closed after the live
-  linux-cpu, linux-cuda, and apple-silicon integration lanes passed. Phase:
+  Those mechanisms and the earlier all-lane results remain historical evidence.
+  Sprint `10.6` is Done after the exact V2 supervised runtime artifact and
+  strict Store-loaded parity closed on `linux-cpu`; CUDA and Apple retest their
+  real hardware paths in Sprints `29.5` and `30.4`. Sprint `10.12` is Done.
+  Phase:
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed
@@ -567,8 +655,8 @@ and the deletion ledger has no pending rows.
   panel surfaces plus the full local API route family), the panel modules under
   `web/src/Panels/` with
   typed request/response payload shapes plus the shared API/WebSocket bridge
-  modules, `web/test/Main.purs` smoke suite, the current eleven-test Playwright
-  matrix at `playwright/jitml-demo.spec.ts`, `src/JitML/Web/Server.hs` HTTP
+  modules, `web/test/Main.purs` smoke suite, the live Playwright matrix at
+  `playwright/jitml-demo.spec.ts`, `src/JitML/Web/Server.hs` HTTP
   serving, and the `chart/local/jitml-demo` Webapp deployment template.
   The Halogen mount machinery, compiled bundle output, and
   `purescript-spec` execution through the Node `spec-node` runner landed in
@@ -576,17 +664,17 @@ and the deletion ledger has no pending rows.
   `11.5`; the live REST/WS proxy, live-edge Playwright surfaces, and
   value assertions for MNIST / CIFAR / Connect 4 later closed in Phases
   `11` / `15`, and Phase `17` removed the offline fallback paths.
-  Sprint `11.9` extends the generated PureScript contract with typed
+  The generated PureScript contract exposes typed
   inference/generic/image/checkpoint-compare/adversarial/training/RL/tune/control
   payload decoders, browser REST request envelopes, request-aware command
   publication, and an injected checkpoint runtime handler for
-  MNIST/generic/CIFAR/checkpoint-compare/Connect 4; it rewires
-  the current panels away from marker/default parsers, adds training/RL/tune
+  MNIST/generic/CIFAR/checkpoint-compare/Connect 4. The current panels use those
+  surfaces rather than marker/default parsers and provide training/RL/tune
   command-envelope controls, training metadata, RL replay scrub summaries, and
-  multi-game adversarial boards, and renders non-placeholder loss/policy/MCTS/tuning
+  multi-game adversarial boards, and render non-placeholder loss/policy/MCTS/tuning
   summaries. Phases `14`–`18` retain the historical live all-substrate REST,
   command-state, replay/adversarial, and Playwright evidence they gathered; the
-  current no-caveat product claim is withdrawn until the Sprint `1.18` → `34.3`
+  current no-caveat product claim is withdrawn until the Sprint `10.6` → `34.3`
   typed-run-contract chain refreshes that evidence.
   The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
   through `jitml lint purescript` (Sprint `11.3`). Phase:
@@ -606,11 +694,10 @@ and the deletion ledger has no pending rows.
   phased Helm rollout per substrate; `JitML.Test.LivePlan.liveE2EPlan`
   is the typed ephemeral-Kind orchestration that runs `helm dependency
   build chart` → `jitml bootstrap` → pinned Playwright browser-image run →
-  `jitml cluster down`. Real-binary
-  integration, live SL convergence, live RL trajectories, live
-  hyperparameter reproducibility, and the explicit live Helm +
-  Playwright path actually executed against an ephemeral Kind stack are
-  owned by Sprints `12.2`–`12.5` / `12.8` / `12.9`'s Remaining Work.
+  `jitml cluster down`. Real-binary integration, live SL convergence, live RL
+  trajectories, live hyperparameter reproducibility, and live Playwright are
+  implemented and validated through the closed Phase `12` surface. Contract-
+  driven per-ProductRow integration/e2e evidence remains Sprint `28.4`.
   Within-substrate apple-silicon reproducibility is validated host-native by
   Sprint `16.6`; no cross-substrate parity path remains. The seven doctrine
   test categories (Pure Logic, Parser, Property, Snapshot (pure-renderer
@@ -683,13 +770,13 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
 - **Long-Running Daemons in the Same Binary** — `jitml service` has refined
   `BootConfig` / operational `LiveConfig` Dhall, actual SIGHUP reload and
   signal drain, `/healthz` / `/readyz` / `/metrics`, and closed service-error
-  kinds. Sprint `12.16` implements the opted-in target with the operational
+  kinds. Sprint `12.16` completed the opted-in target with the operational
   structured stderr sink, dynamic filter/retry readers, live Coordinator
   interpreter, role-indexed client projections, and keyed host-workload
   lifecycle. Bounded role startup probes and exact substrate-indexed role/public-
   edge readiness rows prevent bootstrap from publishing a partially ready
   cluster; Apple never treats its zero-replica clustered Engine as host-daemon
-  evidence. The sprint remains Active until its canonical validation passes.
+  evidence. Its immutable-image canonical validation is complete.
   (Contrast: sibling projects may opt out; jitML opts in.)
 - Inference batch admission captures one immutable monotonic
   handler-completion/publication-entry deadline and uses a shorter collection
@@ -883,16 +970,17 @@ each constraint.
     changed live snapshot applies once, malformed live input retains last-good
     state, and immutable changes drain then exit restart-required. Endpoints
     `/healthz`, `/readyz`, `/metrics` are present. The pure structured-log
-    renderer is retained; Sprint `12.16` owns the operational stderr sink and
-    dynamic filter.
+    renderer is retained, and the operational sink reads the dynamic filter for
+    every stderr emission.
 23. The daemon's Pulsar consumer is at-least-once. Idempotency is the consumer's
-    responsibility: handlers derive deduplication keys from the protobuf message
-    hash and do not trust client-supplied IDs. The current local subscription
+    responsibility: strict decode derives semantic identity from the resolved
+    plan, command kind, and logical key rather than payload bytes or a
+    client-supplied ID. The current local subscription
     plan is derived from `BootConfig`, and the normal serve path starts
     persistent scoped consumer workers with live duplicate-payload dedup and
     dispatch-failure negative-ack redelivery validated on Linux CPU. The retry
-    policy is a typed value with named strategies; Sprint `12.16` wires its
-    production reader.
+    policy is a typed value with named strategies, and every newly scheduled
+    operation reads the active production policy.
 24. Capability classes `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl` are the
     only allowed entry into external services from the daemon. Local workload
     effects route MinIO write/CAS, Harbor promotion, kubectl
@@ -1002,8 +1090,8 @@ each constraint.
 | 15 | Phase 13, Phase 14 | Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure: re-runs the full no-caveat runtime + browser matrix (Phases `13`/`14`) on `linux-cuda`, including deep-model GPU convergence, through one Linux/NVIDIA host (`linux-cpu`+`linux-cuda`). |
 | 16 | Phase 13, Phase 14 | Apple Silicon fixed-bridge Metal JIT (`<hash>.metal.json` + host runtime `MTLDevice.makeLibrary(source:options:)`), Metal FFI, host↔cluster RPC, host-resident Metal placement, and the full runtime + browser matrix on `apple-silicon` through one Mac host (`linux-cpu`+`apple-silicon`); independent of Phase `15`. |
 | 17 | Phase 15, Phase 16 | Within-substrate reproducibility aggregated on `linux-cpu` from the committed per-lane artifacts of Phases `13`/`15`/`16`, a populated live `jitml test all` report card, and an empty deletion ledger. No cross-substrate numeric-equivalence claim (out of contract). |
-| 18 | Phase 13, Phase 14, Phase 15, Phase 16, Phase 17 | Historical no-caveat handoff evidence from before the 2026-07-01 product-truth reopen. Current final handoff is the Sprint `1.18` → `34.3` typed-run-contract chain. |
-| 19 | Phase 18 | Product truth gates and registry: typed product matrix, forbidden-scaffold audit, and docs-check status truth. `linux-cpu` only. |
+| 18 | Phase 13, Phase 14, Phase 15, Phase 16, Phase 17 | Historical no-caveat handoff evidence from before the 2026-07-01 product-truth reopen. Current final handoff is the Sprint `10.6` → `34.3` checkpoint/runtime and typed-run-contract chain. |
+| 19 | Phase 18 | Product truth gates and registry: matrix floor; total kind-indexed single-row projection; an opaque batch that rejects duplicate or unprojectable rows and fixes order, denominator, and identity; exact internal executor commands; and opaque completed-plan report/status truth. `linux-cpu` only. |
 | 20 | Phase 19 | De-fossilization and scaffold lint: remove fake/deterministic product stand-ins and enforce a forbidden-scaffold lint gate. `linux-cpu` only. |
 | 21 | Phase 20 | Type-state DSL and inference eligibility: illegal untrained inference state is unrepresentable in Haskell/Dhall. `linux-cpu` only. |
 | 22 | Phase 21 | Canonical matrix and dataset integrity: documented rows, executable configs, and read-time SHA verification. `linux-cpu` only. |
@@ -1020,13 +1108,15 @@ each constraint.
 | 33 | Phase 32 | Per-model convergence and inference-performance tests over every `ProductRow`. |
 | 34 | Phase 33 | Plan-truth governance: closure status remains thin and tied to the standing realness gate. |
 
-The 2026-07-12 reopen adds sprint-level dependencies without renumbering phases:
-`2.9 → 3.7 → 12.16 → 19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 → 33.3 → 34.3`.
+The 2026-07-18 checkpoint/runtime audit adds sprint-level dependencies without
+renumbering phases. After Sprints `10.6` and `10.12` closed, the current open
+suffix is:
+`19.4 → 21.4 → 23.1 → 23.2 → 23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 → 32.4 → 33.3 → 34.3`.
 This is an ownership-chain overlay on the phase DAG: later phases that are not
-named remain Done on their retained surfaces. Sprints `1.18`, `5.18`, `8.16`,
-`9.17`, `10.12`, `2.9`, and `3.7` are closed. The current open suffix begins at
-Active Sprint `12.16`, followed by
-`19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 → 33.3 → 34.3`.
+named remain Done on their retained surfaces. Sprints `1.18`, `2.9`, `3.7`,
+`5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Sprint
+`19.4` is Active; every later sprint in the chain is Blocked by its immediate predecessor. Prior Sprint
+`10.12` validation and pre-V2 publisher results remain historical evidence only.
 
 ## Status Vocabulary
 
@@ -1347,7 +1437,7 @@ sequence lives in
 |---------|--------------------|--------------------|
 | Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza. Sprint `1.15` removed the VM command surface, Sprints `2.12` / `5.10` removed Tart prerequisite/bootstrap and daemon acquire/config residue, and Sprint `7.11` removed the generated Swift/Tart cache-miss code path. | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | The Cabal package declares one supported executable, `jitml`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the `jitml-demo` image/tag/workload is a retagged Webapp role of that binary. The typed JIT cache key/layout/manifest layer is implemented; Apple uses `.metal.json` source metadata plus a fixed host bridge under `./.build/host/apple-silicon/`; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-backends` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement through generated FFI output digests, and Apple fixed-bridge Metal execution in the Apple lane; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` binary, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
-| CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, and local JIT cache inspection/eviction. Sprint `5.11` replaced Apple Metal-backed Job placement with host-resident workload commands while preserving Linux Job placement. Sprint `1.15` removed the `jitml internal vm` group from the implemented command surface, and Sprint `1.16` removed placeholder top-level `verify`, `inspect`, `bench`, and user-facing `kubectl` groups. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete `jitml` command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `commands`, and `help`; the `jitml-demo` HTTP surface is the Webapp role run by `jitml service` |
+| CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, local JIT cache inspection/eviction, and the exact ProductRow publisher/executor `jitml internal train-and-publish-product-rows --<substrate> [--row <rowId>]`. Sprint `5.11` replaced Apple Metal-backed Job placement with host-resident workload commands while preserving Linux Job placement. Sprint `1.15` removed the `jitml internal vm` group from the implemented command surface, and Sprint `1.16` removed placeholder top-level `verify`, `inspect`, `bench`, and user-facing `kubectl` groups. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete `jitml` command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `internal train-and-publish-product-rows --<substrate> [--row <rowId>]`, `commands`, and `help`; the `jitml-demo` HTTP surface is the Webapp role run by `jitml service` |
 | Test stanzas | Ten Cabal stanzas are declared with dedicated bodies; the original eight cover unit, integration, canonical SL/RL, tuning, substrate backends, daemon lifecycle, and e2e surfaces, while `jitml-negative-controls` and `jitml-model-convergence` provide the standing realness gates. The reopened target routes their live cases through validated plans, exact evidence reducers, and scenario journals; the current negative-control and convergence stand-ins remain tracked for replacement under Sprints `32.4` and `33.3`. | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-negative-controls`, `jitml-model-convergence` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. LLVM and oneDNN currently come from host/container packages; CUDA/NVCC/cuDNN are Docker package-family pins; Node, Playwright, ALE, Metal runtime/bridge ABI, and Kind node image are pinned or probed at their owning surfaces. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM supplied by the host or Ubuntu package set rather than `cabal.project`, CUDA package family `12-8` plus cuDNN 9 in `docker/Dockerfile`, optional ALE library/runtime pinned in `docker/Dockerfile`, host OS Metal runtime + fixed bridge for core Apple execution, optional `swiftc`/macOS SDK only for non-core Swift JIT modules, oneDNN from Ubuntu `libdnnl-dev`, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, and per-substrate run-to-run bit-identity (within-substrate reproducibility) are covered by dedicated Cabal stanzas. Cross-substrate equivalence is out of contract and not asserted | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-backends` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |

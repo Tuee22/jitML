@@ -18,13 +18,27 @@ import Data.Word (Word64)
 import GHC.Generics (Generic)
 
 data TrainingEvidence = TrainingEvidence
-  { evidenceInitialWeightHash :: Text
-  , evidenceFinalWeightHash :: Text
-  , evidenceUpdateCount :: Word64
-  , evidenceDatasetShaAtRead :: Text
+  { trainingInitialWeightHashValue :: Text
+  , trainingFinalWeightHashValue :: Text
+  , trainingUpdateCountValue :: Word64
+  , trainingDatasetShaAtReadValue :: Text
   }
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
+
+-- Ordinary observations keep opaque evidence immutable to downstream code.
+-- Exporting the record labels themselves would permit post-validation update.
+evidenceInitialWeightHash :: TrainingEvidence -> Text
+evidenceInitialWeightHash = trainingInitialWeightHashValue
+
+evidenceFinalWeightHash :: TrainingEvidence -> Text
+evidenceFinalWeightHash = trainingFinalWeightHashValue
+
+evidenceUpdateCount :: TrainingEvidence -> Word64
+evidenceUpdateCount = trainingUpdateCountValue
+
+evidenceDatasetShaAtRead :: TrainingEvidence -> Text
+evidenceDatasetShaAtRead = trainingDatasetShaAtReadValue
 
 mkTrainingEvidence
   :: Text
@@ -46,8 +60,8 @@ mkTrainingEvidence initialHash finalHash updateCount datasetSha
   | otherwise =
       Right
         TrainingEvidence
-          { evidenceInitialWeightHash = initialHash
-          , evidenceFinalWeightHash = finalHash
-          , evidenceUpdateCount = updateCount
-          , evidenceDatasetShaAtRead = datasetSha
+          { trainingInitialWeightHashValue = initialHash
+          , trainingFinalWeightHashValue = finalHash
+          , trainingUpdateCountValue = updateCount
+          , trainingDatasetShaAtReadValue = datasetSha
           }

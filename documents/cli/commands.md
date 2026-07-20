@@ -263,7 +263,7 @@ jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <n
 | `<tune-dhall>` | positional | yes | Tuning Dhall file. |
 | `--resume <sweep-id>` | value | no | Sweep identifier to resume. |
 | `--sampler <name>` | value | no | Override the tuning sampler axis (Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT). |
-| `--scheduler <name>` | value | no | Override the tuning scheduler axis (Fifo, SuccessiveHalving, Hyperband, ASHA). |
+| `--scheduler <name>` | value | no | Override the tuning scheduler axis (Fifo, SuccessiveHalving, ASHA; Hyperband is rejected until bracket semantics are configured). |
 | `--pruner <name>` | value | no | Override the tuning pruner axis (NoPruner, MedianPruner, PercentilePruner). |
 | `--trials <natural>` | value | no | Override the tuning trial budget. |
 | `--parallelism <natural>` | value | no | Override the tuning parallelism. |
@@ -1209,7 +1209,7 @@ Train and publish product row checkpoints.
 Trains the ProductRow matrix on the selected substrate, writes inference-eligible checkpoints into the local product-row artifact namespace, and mirrors them to live MinIO when a live publication is present.
 
 ```text
-jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda]
+jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [--linux-cuda] [--row <row-id>]
 ```
 
 | Option | Kind | Required | Description |
@@ -1217,6 +1217,7 @@ jitml internal train-and-publish-product-rows [--apple-silicon] [--linux-cpu] [-
 | `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
 | `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
 | `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--row <row-id>` | value | no | Execute exactly one ProductRow. If JITML_PRODUCT_ROW_FILTER is also set, it must select the same single row. |
 
 Examples:
 
@@ -1225,6 +1226,12 @@ jitml internal train-and-publish-product-rows --linux-cpu
 ```
 
 Train and publish product-row artifacts for the Linux CPU lane.
+
+```text
+jitml internal train-and-publish-product-rows --linux-cpu --row mnist-shallow-mlp
+```
+
+Train and publish exactly one projected ProductRow.
 
 
 ## `jitml internal benchmark-product-row-wall-clock`

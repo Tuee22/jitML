@@ -44,8 +44,6 @@ module JitML.Service.Workload
   , renderWorkloadEffectResult
   , renderSomeWorkloadEffect
   , renderSomeWorkloadOutcome
-  , checkpointSummaries
-  , checkpointSummariesForRow
   , renderCheckpointListResult
   , renderCheckpointListResultWithSelectors
   , seededDemoExperimentHashes
@@ -74,7 +72,7 @@ import Data.Char
   )
 import Data.Either.Combinators (mapLeft)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -82,9 +80,7 @@ import Data.Text.Encoding qualified as Text.Encoding
 import JitML.Checkpoint.Format
   ( CheckpointManifest (..)
   , ModelFamily (..)
-  , eligibleCheckpointCompletedTraining
   , manifestContentSha
-  , requireInferenceEligibleCheckpoint
   )
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
@@ -120,7 +116,6 @@ import JitML.Plan.Workload
   , tuningPlanId
   )
 import JitML.Product.Matrix qualified as ProductMatrix
-import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Inference
   ( AdversarialMoveCommand (..)
   , AdversarialMoveResult (..)
@@ -153,6 +148,7 @@ import JitML.Proto.Tune
   , StopSweep (..)
   , TuneCommand (..)
   )
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.Service.BootConfig (Residency (..))
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -200,13 +196,13 @@ import JitML.Training.Budget
   )
 
 type InferenceRunner m =
-  ProductPipeline.InferenceEligibleRef
+  CheckpointStore.AdmittedCompletedCheckpoint
   -> CheckpointManifest
   -> [Double]
   -> m (Either Text [Double])
 
 type WeightedInferenceRunner m =
-  ProductPipeline.InferenceEligibleRef
+  CheckpointStore.AdmittedCompletedCheckpoint
   -> CheckpointManifest
   -> [LoadedWeightTensor]
   -> [Double]
@@ -930,11 +926,11 @@ runInferenceRequestWithTarget target runInference request = do
 
 defaultCheckpointInference
   :: (Applicative m)
-  => ProductPipeline.InferenceEligibleRef
+  => CheckpointStore.AdmittedCompletedCheckpoint
   -> CheckpointManifest
   -> [Double]
   -> m (Either Text [Double])
-defaultCheckpointInference _modelRef _manifest _input =
+defaultCheckpointInference _admitted _manifest _input =
   pure (Left "weighted inference runner required")
 
 -- | Weighted-callback variants of the dispatcher chain. Sprint 13.11: the
@@ -1173,7 +1169,22 @@ runListCheckpointsRequestWithTarget target command = do
     traverse
       ( \(experimentHash, row) -> do
           manifests <- CheckpointStore.listCheckpointManifestsMinIO experimentHash
-          pure (rowCheckpointResult substrate experimentHash row manifests)
+          admittedSummaries <-
+            case manifests of
+              Left err -> pure (Left err)
+              Right listed ->
+                Right
+                  <$> admittedCheckpointSummariesForRow
+                    (ProductMatrix.rowId row)
+                    experimentHash
+                    listed
+          pure
+            ( rowCheckpointResult
+                substrate
+                experimentHash
+                row
+                admittedSummaries
+            )
       )
       productRowCheckpointTargets
   let summaries = concatMap productCheckpointSummaries listings
@@ -1197,19 +1208,18 @@ rowCheckpointResult
   :: Maybe Substrate
   -> Text
   -> ProductMatrix.ProductRow state
-  -> Either ServiceError [CheckpointManifest]
+  -> Either ServiceError [Text]
   -> ProductRowCheckpointResult
-rowCheckpointResult substrate experimentHash row manifestsResult =
+rowCheckpointResult substrate experimentHash row summariesResult =
   case productRowUnsupportedReason substrate row of
     Just _ ->
       baseResult "unsupported" []
     Nothing ->
-      case manifestsResult of
+      case summariesResult of
         Left _ ->
           baseResult "error" []
-        Right manifests ->
-          let summaries = checkpointSummariesForRow (ProductMatrix.rowId row) experimentHash manifests
-           in baseResult (productRowSelectorState summaries) summaries
+        Right summaries ->
+          baseResult (productRowSelectorState summaries) summaries
  where
   baseResult selectorState summaries =
     ProductRowCheckpointResult
@@ -1251,78 +1261,57 @@ productRowUnsupportedReason _ row =
     _ -> Nothing
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
-rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
-  case supportedEnvironments of
-    Nothing -> Nothing
-    Just envs
-      | environment `elem` envs -> Nothing
-      | otherwise ->
-          Just
-            ( "RL trainer "
-                <> trainer
-                <> " does not support environment "
-                <> environment
-                <> "; supported environments: "
-                <> Text.intercalate ", " envs
-            )
+rlTrainerEnvironmentCompatibilityError =
+  ProductBudget.rlTrainerEnvironmentCompatibilityError
+
+-- | Re-admit every listed immutable address before it can participate in the
+-- serving selector. Listing and decoding alone are inspection evidence:
+-- Store must re-fetch and bind the exact V2 outer/body/blob graph.
+admittedCheckpointSummariesForRow
+  :: (HasMinIO m)
+  => Text
+  -> Text
+  -> [CheckpointManifest]
+  -> m [Text]
+admittedCheckpointSummariesForRow rowId experimentHash manifests =
+  catMaybes <$> traverse admitOne manifests
  where
-  trainer = Text.toLower (Text.strip rawTrainer)
-  environment = Text.toLower (Text.strip rawEnvironment)
-  supportedEnvironments =
-    case trainer of
-      "ppo" -> Just discreteProductEnvironments
-      "a2c" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "trpo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "maskableppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "recurrentppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "dqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
-      "qrdqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
-      "ddpg" -> Just continuousProductEnvironments
-      "td3" -> Just continuousProductEnvironments
-      "sac" -> Just continuousProductEnvironments
-      "crossq" -> Just continuousProductEnvironments
-      "tqc" -> Just continuousProductEnvironments
-      "ars" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "her" -> Just ["goal-reaching"]
-      _ -> Nothing
-  discreteProductEnvironments =
-    ["cartpole", "mountain-car", "acrobot", "lunar-lander", "key-door-grid", "gridworld-deterministic"]
-  continuousProductEnvironments =
-    ["pendulum", "lunar-lander"]
-
--- | Render the per-experiment manifests into `checkpoint-summary:` lines, one
--- per inference-eligible manifest. Each summary is a tab-separated tuple of
--- row-id / experiment-hash / sha / step / model-family / tensor-count /
--- eligibility / completed budget / convergence metrics / TensorBoard prefix.
-checkpointSummaries :: Text -> [CheckpointManifest] -> [Text]
-checkpointSummaries experimentHash =
-  checkpointSummariesForRow experimentHash experimentHash
-
-checkpointSummariesForRow :: Text -> Text -> [CheckpointManifest] -> [Text]
-checkpointSummariesForRow rowId experimentHash =
-  mapMaybe (checkpointSummaryLine rowId experimentHash)
-
-checkpointSummaryLine :: Text -> Text -> CheckpointManifest -> Maybe Text
-checkpointSummaryLine rowId experimentHash manifest =
-  let manifestSha = manifestContentSha manifest
-   in case requireInferenceEligibleCheckpoint manifestSha manifest of
+  admitOne manifest = do
+    admission <-
+      CheckpointStore.admitCheckpointAt
+        experimentHash
+        (manifestContentSha manifest)
+    pure $
+      case admission >>= CheckpointStore.requireAdmittedCompletedCheckpoint of
         Left _ -> Nothing
-        Right eligible ->
-          let completed = eligibleCheckpointCompletedTraining eligible
-           in Just $
-                Text.intercalate
-                  "\t"
-                  [ rowId
-                  , experimentHash
-                  , manifestSha
-                  , Text.pack (show (manifestStep manifest))
-                  , renderModelFamily (manifestModelFamily manifest)
-                  , Text.pack (show (length (manifestTensors manifest)))
-                  , "eligible"
-                  , renderTrainingBudget (completedTrainingBudget completed)
-                  , renderConvergenceMetrics (completedTrainingMetrics completed)
-                  , tbrLogPrefix (completedTrainingTensorBoard completed)
-                  ]
+        Right admitted ->
+          Just (admittedCheckpointSummaryLine rowId experimentHash admitted)
+
+-- | Render only an opaque, completed Store admission. No in-memory manifest
+-- helper can produce the @eligible@ marker used by serving selection.
+admittedCheckpointSummaryLine
+  :: Text
+  -> Text
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> Text
+admittedCheckpointSummaryLine rowId experimentHash completedAdmission =
+  Text.intercalate
+    "\t"
+    [ rowId
+    , experimentHash
+    , CheckpointStore.admittedCheckpointManifestSha admitted
+    , Text.pack (show (manifestStep manifest))
+    , renderModelFamily (manifestModelFamily manifest)
+    , Text.pack (show (length (manifestTensors manifest)))
+    , "eligible"
+    , renderTrainingBudget (completedTrainingBudget completed)
+    , renderConvergenceMetrics (completedTrainingMetrics completed)
+    , tbrLogPrefix (completedTrainingTensorBoard completed)
+    ]
+ where
+  admitted = CheckpointStore.admittedCompletedCheckpoint completedAdmission
+  manifest = CheckpointStore.admittedCheckpointManifest admitted
+  completed = CheckpointStore.admittedCompletedTraining completedAdmission
 
 renderConvergenceMetrics :: [ConvergenceObservation] -> Text
 renderConvergenceMetrics metrics =

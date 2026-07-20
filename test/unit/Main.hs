@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -12,7 +14,7 @@ import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObjec
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Char (isDigit)
-import Data.Foldable (traverse_)
+import Data.Foldable (toList, traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
@@ -43,8 +45,16 @@ import System.Timeout (timeout)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QuickCheck
 
+import CheckpointV1Admission qualified
 import DurableStateTopology (durableStateTopologyTests)
+import ProductExperimentExactness qualified
+import ProductTuneTranscript qualified
 import ReconcileStamp qualified
+import RegressionStandardization qualified
+import RuntimeOperationsAccelerators qualified
+import SupervisedCheckpointV2 qualified
+import SupervisedRuntimeArtifact qualified
+import SupervisedTrainingSeed qualified
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
@@ -54,6 +64,7 @@ import JitML.App
   , matchingInferenceResult
   , parseUserIntOptionAtLeast
   , rlTrainerEnvironmentCompatibilityError
+  , selectInternalProductRows
   , serviceRoleInvocationError
   )
 import JitML.AppError.AppError (AppError)
@@ -76,6 +87,7 @@ import JitML.Cache.Layout qualified as CacheLayout
 import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.Cuda qualified as Cuda
 import JitML.Codegen.KernelFamily (KernelFamily (..))
@@ -130,8 +142,17 @@ import JitML.Numerics.Schema
 import JitML.Observability.Grafana qualified as Grafana
 import JitML.Observability.TensorBoard qualified as TensorBoard
 import JitML.Plan.Apply (writePlanFile)
-import JitML.Plan.Plan (PlanId, buildCommandPlan, refinePlanIdText)
+import JitML.Plan.Plan
+  ( PlanId
+  , RunKindWitness (..)
+  , buildCommandPlan
+  , planIdText
+  , refinePlanIdText
+  , runPlanId
+  )
+import JitML.Plan.Plan qualified as RunPlan
 import JitML.Plan.Render (renderPlan)
+import JitML.Plan.Workload qualified as ResolvedWorkload
 import JitML.Prerequisite.Plan
   ( applyPrerequisitePlan
   , buildPrerequisitePlan
@@ -304,7 +325,7 @@ completedTestManifest step =
           id
           ( TrainingBudget.completedTraining
               unitFixturePlanId
-              (unitBudget TrainingBudget.SupervisedEpochBudget (max 1 step))
+              (unitBudget TrainingBudget.TuningTrialBudget (max 1 step))
               step
               evidence
               observations
@@ -452,8 +473,16 @@ main =
   defaultMain $
     testGroup
       "jitml-unit"
-      [ durableStateTopologyTests
+      [ CheckpointV1Admission.checkpointV1AdmissionTests
+      , durableStateTopologyTests
+      , ProductExperimentExactness.productExperimentExactnessTests
+      , ProductTuneTranscript.productTuneTranscriptTests
       , ReconcileStamp.reconcileStampTests
+      , RegressionStandardization.regressionStandardizationTests
+      , RuntimeOperationsAccelerators.runtimeOperationsAcceleratorTests
+      , SupervisedCheckpointV2.supervisedCheckpointV2Tests
+      , SupervisedRuntimeArtifact.supervisedRuntimeArtifactTests
+      , SupervisedTrainingSeed.supervisedTrainingSeedTests
       , HostWorkloadRegistry.hostWorkloadRegistryTests
       , InferenceBatch.inferenceBatchTests
       , PipedProcess.pipedProcessTests
@@ -531,6 +560,20 @@ main =
               ( ["build", "--dry-run", "--substrate", "linux-cuda"]
               , ParsedCommand ["build"] [ParsedOption "substrate" ["linux-cuda"], ParsedOption "dry-run" []]
               )
+            ,
+              (
+                [ "internal"
+                , "train-and-publish-product-rows"
+                , "--linux-cpu"
+                , "--row"
+                , "mnist-shallow-mlp"
+                ]
+              , ParsedCommand
+                  ["internal", "train-and-publish-product-rows"]
+                  [ ParsedOption "linux-cpu" []
+                  , ParsedOption "row" ["mnist-shallow-mlp"]
+                  ]
+              )
             , -- Sprint 1.12 — train --substrate / --seed Dhall overrides.
 
               ( ["train", "experiments/mnist.dhall", "--substrate", "linux-cpu", "--seed", "42"]
@@ -601,6 +644,24 @@ main =
               , ParsedCommand ["help"] [ParsedOption "subcommand" ["cluster", "up"]]
               )
             ]
+      , testCase "ProductRow internal command rejects repeated or list-valued --row" $ do
+          assertParseFailure
+            [ "internal"
+            , "train-and-publish-product-rows"
+            , "--linux-cpu"
+            , "--row"
+            , "mnist-shallow-mlp"
+            , "--row"
+            , "mnist-deep-mlp"
+            ]
+          assertBool
+            "comma-separated --row values must not widen the exact command"
+            ( case selectInternalProductRows
+                (Just "mnist-shallow-mlp,mnist-deep-mlp")
+                Nothing of
+                Left _ -> True
+                Right _ -> False
+            )
       , testCase "user-facing numeric CLI options return InvalidConfig on malformed values" $ do
           let malformed option fallback minimumValue =
                 parseUserIntOptionAtLeast
@@ -1760,34 +1821,26 @@ main =
                 [Topology.RouteEntry Topology.Train Topology.Command Substrate.allSubstrates]
                 /= Right ()
             )
-      , testCase "Work* readiness gate: ArtifactRef mintable only from a trained derivation" $ do
-          let trained = completedTestManifest 5
-              untrained = Checkpoint.emptyManifest "m" "exp1" []
-              stepOnly = (Checkpoint.emptyManifest "m" "exp1" []) {Checkpoint.manifestStep = 5}
-          fmap Work.artifactRefStep (Work.mintArtifactRef trained) @?= Just 5
-          Work.mintArtifactRef untrained @?= Nothing
-          Work.mintArtifactRef stepOnly @?= Nothing
+      , testCase "Work* ArtifactRef minting requires opaque Store admission" $ do
+          let mintFromPersistedAdmission
+                :: CheckpointStore.AdmittedCompletedCheckpoint
+                -> Work.ArtifactRef
+              mintFromPersistedAdmission = Work.mintArtifactRef
+          mintFromPersistedAdmission `seq` pure ()
+          source <- Text.IO.readFile "src/JitML/Work/Envelope.hs"
+          assertBool
+            "ArtifactRef minting bypasses Store via structural completion refinement"
+            (not ("validateCheckpointCompletion" `Text.isInfixOf` source))
+          assertBool
+            "ArtifactRef minting does not consume Store admission"
+            ("CheckpointStore.AdmittedCompletedCheckpoint" `Text.isInfixOf` source)
           assertBool
             "readiness sentinel ends in .ready"
             (".ready" `Text.isSuffixOf` Work.readinessSentinelKey "exp1")
       , testCase "Work* command parse rejects malformed / unready commands with typed rejections" $ do
-          let ready = Work.mintArtifactRef (completedTestManifest 1)
-              parseInfer art =
-                Work.parseWorkCommand
-                  Topology.Infer
-                  Substrate.LinuxCPU
-                  "call-1"
-                  "exp1"
-                  art
-                  "1,2,3"
-                  "inference.result.linux-cpu"
           -- inference requires a ready derived artifact
           Work.parseWorkCommand Topology.Infer Substrate.LinuxCPU "c" "exp1" Nothing "1" "reply"
             @?= Left (Work.ArtifactNotReady Topology.Infer)
-          -- with a minted artifact it parses
-          case parseInfer ready of
-            Right cmd -> Work.wcCallId cmd @?= Work.CallId "call-1"
-            Left rej -> assertFailure ("expected Right, got " <> show rej)
           -- training consumes no artifact; missing callId / replyTopic are typed rejections
           Work.parseWorkCommand Topology.Train Substrate.LinuxCPU "" "exp1" Nothing "p" "reply"
             @?= Left Work.MissingCallId
@@ -1990,7 +2043,7 @@ main =
             Nothing -> assertFailure "expected trial-only override to retain tuning config"
             Just config -> do
               Tune.tuningConfigTrials config @?= 2
-              Tune.tuningConfigParallelism config @?= 2
+              Tune.tuningConfigParallelism config @?= 1
           let explicitInvalidParallelism =
                 Overrides.applyOverrides
                   Overrides.emptyTuningOverrides
@@ -3841,6 +3894,19 @@ main =
       , testCase "tuning trial storage and resume summary are deterministic" $ do
           Tune.trialStorageKey "exp-a" 42 @?= "jitml-trials/exp-a/42/transcript.cbor"
           Tune.resumeMatchesFullRun Tune.Sobol 3 8 @?= True
+      , testCase "explicit tuning plan seeds deterministically select distinct trial streams" $ do
+          let seeded seedValue =
+                Tune.trialObjectiveResultsForSeededBudget
+                  seedValue
+                  Tune.TPE
+                  1
+                  Tune.tuningObjectiveOptimizerUpdates
+                  4
+          case (seeded 1729, seeded 1730, seeded 1729) of
+            (Right first, Right second, Right replay) -> do
+              replay @?= first
+              assertBool "different explicit seeds must change the executed trial stream" (second /= first)
+            outcomes -> assertFailure ("seeded tuning schedule failed: " <> show outcomes)
       , testCase "checkpoint split-blob keys and pointer CAS are deterministic" $ do
           Checkpoint.blobKey "exp-a" "sha-a" @?= "jitml-checkpoints/exp-a/blobs/sha-a"
           Checkpoint.manifestKey "exp-a" "sha-m" @?= "jitml-checkpoints/exp-a/manifests/sha-m.cbor"
@@ -3899,7 +3965,7 @@ main =
             Right decoded -> do
               Checkpoint.manifestContentSha decoded @?= addressedSha
               Checkpoint.encodeManifestCbor decoded @?= payload
-      , testCase "inference eligibility requires manifest weight-delta evidence" $ do
+      , testCase "structural completion validation requires manifest weight-delta evidence" $ do
           let completedManifest = completedTestManifest 1
               stripped =
                 completedManifest
@@ -3908,11 +3974,10 @@ main =
                   , Checkpoint.manifestUpdateCount = Nothing
                   , Checkpoint.manifestDatasetShaAtRead = Nothing
                   }
-          Checkpoint.requireInferenceEligibleCheckpoint "sha" stripped
+          Checkpoint.validateCheckpointCompletion stripped
             @?= Left Checkpoint.CompletedTrainingEvidenceMissing
-      , testCase "inference manifest CBOR decode fails closed before raw inference use" $ do
+      , testCase "decoded manifests require separate structural completion validation" $ do
           let completedManifest = completedTestManifest 1
-              manifestSha = Checkpoint.manifestContentSha completedManifest
               stripped =
                 completedManifest
                   { Checkpoint.manifestInitialWeightHash = Nothing
@@ -3920,18 +3985,25 @@ main =
                   , Checkpoint.manifestUpdateCount = Nothing
                   , Checkpoint.manifestDatasetShaAtRead = Nothing
                   }
-          case Checkpoint.decodeInferenceEligibleManifestCbor
-            manifestSha
-            (Checkpoint.encodeManifestCbor completedManifest) of
-            Left err -> assertFailure ("expected inference-eligible decode, got " <> Text.unpack err)
-            Right eligible ->
-              Checkpoint.eligibleCheckpointManifestSha eligible @?= manifestSha
+          decoded <-
+            case Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor completedManifest) of
+              Left err -> assertFailure ("expected completed manifest decode, got " <> Text.unpack err)
+              Right manifest -> pure manifest
+          case Checkpoint.validateCheckpointCompletion decoded of
+            Left err ->
+              assertFailure
+                ( "expected structural completion validation, got "
+                    <> Text.unpack (Checkpoint.renderCheckpointCompletionValidationError err)
+                )
+            Right validated -> do
+              Checkpoint.validatedCheckpointCompletionManifest validated
+                @?= completedManifest
+              Just (Checkpoint.validatedCheckpointCompletedTraining validated)
+                @?= Checkpoint.manifestCompletedTraining completedManifest
           Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor stripped)
             @?= Right stripped
-          Checkpoint.decodeInferenceEligibleManifestCbor
-            "stripped-sha"
-            (Checkpoint.encodeManifestCbor stripped)
-            @?= Left "completed-training manifest is missing weight-delta evidence"
+          Checkpoint.validateCheckpointCompletion stripped
+            @?= Left Checkpoint.CompletedTrainingEvidenceMissing
       , testCase "checkpoint manifest carries architecture-aware model-family metadata" $ do
           let weightA = Checkpoint.TensorBlob "a.weight" [2, 2] "blob-a"
               weightZ = Checkpoint.TensorBlob "z.weight" [3] "blob-z"
@@ -4082,22 +4154,30 @@ main =
                       @?= [decoderKind]
             )
             families
-      , testCase "checkpoint store writes blobs/manifests and reads latest pointer" $
+      , testCase "candidate checkpoint writes exact blobs/manifests without publishing latest" $
           withSystemTempDirectory "jitml-checkpoint-store" $ \dir -> do
-            let blobKey = Checkpoint.blobKey "exp1" "blob1"
+            let payload = Checkpoint.encodeJmw1 [1, 2, 3, 4]
+                blobKey =
+                  Checkpoint.blobKey
+                    "exp1"
+                    (WeightCodec.jmw1ContentSha payload)
                 manifest =
                   Checkpoint.emptyManifest
                     "m1"
                     "exp1"
                     [Checkpoint.TensorBlob "dense.weight" [2, 2] blobKey]
-                payload = Checkpoint.encodeJmw1 [1, 2, 3, 4]
             firstWriteResult <-
-              CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
+              CheckpointStore.writeCandidateCheckpointSnapshot dir manifest [(blobKey, payload)]
             case firstWriteResult of
-              Left err -> assertFailure ("expected checkpoint write, got: " <> Text.unpack err)
-              Right firstWrite -> do
+              Left err ->
+                assertFailure
+                  ( "expected checkpoint write, got: "
+                      <> Text.unpack (CheckpointStore.renderCheckpointWriteError err)
+                  )
+              Right candidate -> do
+                let firstWrite = CheckpointStore.candidateStoredCheckpoint candidate
                 CheckpointStore.storedPointerResult firstWrite
-                  @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha firstWrite)
+                  @?= Checkpoint.PointerNotWritten (Checkpoint.latestPointerKey "exp1")
                 decoded <-
                   CheckpointStore.readCheckpointManifest
                     dir
@@ -4107,15 +4187,28 @@ main =
                 listed <- CheckpointStore.listCheckpointManifests dir "exp1"
                 listed @?= Right [manifest]
                 latest <- CheckpointStore.readCheckpointPointer dir (Checkpoint.latestPointerKey "exp1")
-                latest @?= Right (Just (CheckpointStore.storedManifestSha firstWrite))
+                latest @?= Right Nothing
                 blob <- CheckpointStore.readObject dir blobKey
                 blob @?= Right payload
-                conflictResult <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
-                case conflictResult of
-                  Left err -> assertFailure ("expected checkpoint conflict result, got: " <> Text.unpack err)
-                  Right conflict ->
-                    CheckpointStore.storedPointerResult conflict
-                      @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp1")
+                idempotentResult <-
+                  CheckpointStore.writeCandidateCheckpointSnapshot dir manifest [(blobKey, payload)]
+                case idempotentResult of
+                  Left err ->
+                    assertFailure
+                      ( "expected identical candidate rewrite, got: "
+                          <> Text.unpack (CheckpointStore.renderCheckpointWriteError err)
+                      )
+                  Right _ -> pure ()
+                conflictResult <-
+                  CheckpointStore.writeObjectIfAbsent dir blobKey "different bytes"
+                conflictResult
+                  @?= Left
+                    ( CheckpointStore.CheckpointWriteObjectConflict
+                        blobKey
+                        "existing bytes differ"
+                    )
+                preserved <- CheckpointStore.readObject dir blobKey
+                preserved @?= Right payload
       , testCase "checkpoint store rejects unsafe local object keys as typed failures (Sprint 10.11)" $
           withSystemTempDirectory "jitml-checkpoint-safe-path" $ \dir -> do
             CheckpointStore.objectPathForKey dir "jitml-checkpoints/exp1/manifests/sha.cbor"
@@ -4132,7 +4225,11 @@ main =
               , "jitml-checkpoints/exp1/../../escape"
               ]
             writeFailure <- CheckpointStore.writeObjectIfAbsent dir "../escape" "payload"
-            writeFailure @?= Left "unsafe object key: ../escape"
+            writeFailure
+              @?= Left
+                ( CheckpointStore.CheckpointWriteInvalid
+                    "unsafe object key: ../escape"
+                )
             readFailure <- CheckpointStore.readObject dir "../escape"
             readFailure @?= Left "unsafe object key: ../escape"
             pointerFailure <- CheckpointStore.readCheckpointPointer dir "../pointer"
@@ -4147,6 +4244,19 @@ main =
                 "payload"
             validWrite
               @?= Right (CheckpointStore.ObjectCreated "jitml-checkpoints/exp1/artifacts/a.txt")
+            let unreadableKey = "jitml-checkpoints/exp1/artifacts/unreadable"
+            createDirectoryIfMissing True (dir </> Text.unpack unreadableKey)
+            unreadableWrite <-
+              CheckpointStore.writeObjectIfAbsent dir unreadableKey "payload"
+            case unreadableWrite of
+              Left (CheckpointStore.CheckpointWriteObjectConflict actualKey reason) -> do
+                actualKey @?= unreadableKey
+                assertBool
+                  "unreadable immutable object conflict records comparison failure"
+                  ("existing bytes could not be compared" `Text.isPrefixOf` reason)
+              other ->
+                assertFailure
+                  ("unreadable immutable object was not a typed conflict: " <> show other)
       , testCase "TensorBoard checkpoint sidecar keys are stable" $
           TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
             @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"
@@ -4348,6 +4458,7 @@ main =
                     [ CheckpointStore.LoadedWeightTensor
                         (Checkpoint.TensorBlob "weights" [length flatWeights] "blob")
                         flatWeights
+                        (ByteString.toStrict (Checkpoint.encodeJmw1 flatWeights))
                     ]
               case Mlp.mlpParamsFromFlat shape flatWeights of
                 Left err -> assertFailure err
@@ -4521,6 +4632,895 @@ main =
                 (all WorkflowMatrix.modelCellRequiresTrainedArtifact cells)
           , testCase "ProductRow registry satisfies the Sprint 19.1 matrix floor" $
               ProductMatrix.validateProductMatrix ProductMatrix.allProductRows @?= []
+          , testCase "ProductRow public identities remain the exact 55-row matrix" $
+              ProductMatrix.productRowIds
+                @?= [ "mnist-shallow-mlp"
+                    , "mnist-deep-mlp"
+                    , "mnist-lenet"
+                    , "fashion-mnist-mlp"
+                    , "fashion-mnist-resnet"
+                    , "cifar10-resnet20"
+                    , "cifar10-resnet56"
+                    , "cifar100-wide-resnet"
+                    , "cifar10-vit"
+                    , "tiny-imagenet-resnet50"
+                    , "california-housing-mlp"
+                    , "PPO/cartpole"
+                    , "PPO/mountain-car"
+                    , "PPO/acrobot"
+                    , "PPO/lunar-lander"
+                    , "PPO/key-door-grid"
+                    , "PPO/gridworld-deterministic"
+                    , "A2C/cartpole"
+                    , "A2C/mountain-car"
+                    , "A2C/lunar-lander"
+                    , "A2C/key-door-grid"
+                    , "TRPO/cartpole"
+                    , "TRPO/mountain-car"
+                    , "TRPO/lunar-lander"
+                    , "TRPO/key-door-grid"
+                    , "MaskablePPO/cartpole"
+                    , "MaskablePPO/mountain-car"
+                    , "MaskablePPO/lunar-lander"
+                    , "MaskablePPO/key-door-grid"
+                    , "RecurrentPPO/cartpole"
+                    , "RecurrentPPO/mountain-car"
+                    , "RecurrentPPO/lunar-lander"
+                    , "RecurrentPPO/key-door-grid"
+                    , "DQN/cartpole"
+                    , "DQN/mountain-car"
+                    , "DQN/key-door-grid"
+                    , "QR-DQN/cartpole"
+                    , "QR-DQN/mountain-car"
+                    , "QR-DQN/key-door-grid"
+                    , "DDPG/lunar-lander"
+                    , "TD3/lunar-lander"
+                    , "SAC/lunar-lander"
+                    , "SAC/pendulum"
+                    , "CrossQ/lunar-lander"
+                    , "TQC/lunar-lander"
+                    , "ARS/cartpole"
+                    , "ARS/mountain-car"
+                    , "ARS/lunar-lander"
+                    , "ARS/key-door-grid"
+                    , "HER/goal-reaching"
+                    , "connect4"
+                    , "othello"
+                    , "hex"
+                    , "gomoku"
+                    , "hyperparameter-tuning"
+                    ]
+          , testCase "every ProductRow resolves to one deterministic semantic plan on every substrate" $ do
+              let attempts =
+                    [ ( substrate
+                      , row
+                      , ProductMatrix.projectProductRow substrate row
+                      )
+                    | substrate <- Substrate.allSubstrates
+                    , row <- ProductMatrix.allProductRows
+                    ]
+                  failures =
+                    [ (Substrate.renderSubstrate substrate, ProductMatrix.rowId row, errors)
+                    | (substrate, row, RunPlan.Failure errors) <- attempts
+                    ]
+                  summaries =
+                    [ ( substrate
+                      , ProductMatrix.rowId row
+                      , ProductMatrix.productProjectionRowId projection
+                      , ProductMatrix.productProjectionSubstrate projection
+                      , planIdText (ProductMatrix.productProjectionPlanId projection)
+                      , ProductMatrix.productProjectionCommand projection
+                      , RunPlan.runPlanPlacement (ProductMatrix.productProjectionRunPlan projection)
+                      )
+                    | ( substrate
+                        , row
+                        , RunPlan.Success (ProductMatrix.SomeProductProjection _ projection)
+                        ) <-
+                        attempts
+                    ]
+              failures @?= []
+              length summaries
+                @?= length ProductMatrix.allProductRows
+                * length Substrate.allSubstrates
+              assertBool
+                "projection preserves row identity and selected substrate"
+                ( all
+                    ( \(substrate, rowId', projectedRowId, projectedSubstrate, _, _, _) ->
+                        rowId' == projectedRowId && substrate == projectedSubstrate
+                    )
+                    summaries
+                )
+              assertBool
+                "every semantic PlanId is canonical lowercase SHA-256 text"
+                ( all
+                    ( \(_, _, _, _, planId, _, _) ->
+                        Text.length planId == 64
+                          && Text.all (\ch -> isDigit ch || (ch >= 'a' && ch <= 'f')) planId
+                    )
+                    summaries
+                )
+              assertBool
+                "every projected workflow command targets the exact row/substrate executor"
+                ( all
+                    ( \(substrate, rowId', _, _, _, command, _) ->
+                        command
+                          == [ "internal"
+                             , "train-and-publish-product-rows"
+                             , "--" <> Substrate.renderSubstrate substrate
+                             , "--row"
+                             , rowId'
+                             ]
+                    )
+                    summaries
+                )
+              assertBool
+                "every ProductRow plan truthfully records direct in-process execution"
+                (all ((== RunPlan.InProcessRun) . (\(_, _, _, _, _, _, placement) -> placement)) summaries)
+              traverse_
+                ( \substrate -> do
+                    let planIds =
+                          [ planId
+                          | (observedSubstrate, _, _, _, planId, _, _) <- summaries
+                          , observedSubstrate == substrate
+                          ]
+                    assertBool
+                      ("PlanIds are row-unique on " <> show substrate)
+                      (length planIds == length (nub planIds))
+                )
+                Substrate.allSubstrates
+              traverse_
+                ( \row -> do
+                    let planIds =
+                          [ planIdText (ProductMatrix.productProjectionPlanId projection)
+                          | substrate <- Substrate.allSubstrates
+                          , RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) <-
+                              [ProductMatrix.projectProductRow substrate row]
+                          ]
+                    assertBool
+                      ("PlanId includes substrate for " <> Text.unpack (ProductMatrix.rowId row))
+                      (length planIds == length (nub planIds))
+                    traverse_
+                      ( \substrate ->
+                          ProductMatrix.projectProductRow substrate row
+                            @?= ProductMatrix.projectProductRow substrate row
+                      )
+                      Substrate.allSubstrates
+                )
+                ProductMatrix.allProductRows
+          , testCase "ProductProjectionBatch preserves order and rejects duplicate/unprojectable rows together" $ do
+              case ( ProductMatrix.projectProductRows Substrate.LinuxCPU []
+                   , WorkflowMatrix.modelCellsForRows Substrate.LinuxCPU []
+                   ) of
+                (RunPlan.Failure batchErrors, RunPlan.Failure workflowErrors) -> do
+                  workflowErrors @?= batchErrors
+                  assertBool
+                    "empty projection cannot create a vacuous product denominator"
+                    (ProductMatrix.EmptyProductProjectionBatch `elem` batchErrors)
+                other -> assertFailure ("unexpected empty batch/workflow result: " <> show other)
+              traverse_
+                ( \substrate ->
+                    case ProductMatrix.projectProductRows substrate ProductMatrix.allProductRows of
+                      RunPlan.Failure errors -> assertFailure (show errors)
+                      RunPlan.Success batch -> do
+                        ProductMatrix.productProjectionBatchSubstrate batch @?= substrate
+                        ProductMatrix.productProjectionBatchRowIds batch
+                          @?= ProductMatrix.productRowIds
+                        fmap
+                          ( \(ProductMatrix.SomeProductProjection _ projection) ->
+                              ProductMatrix.productProjectionRowId projection
+                          )
+                          (ProductMatrix.productProjectionBatchProjections batch)
+                          @?= ProductMatrix.productRowIds
+                )
+                Substrate.allSubstrates
+              case ProductMatrix.allProductRows of
+                [] -> assertFailure "ProductRow registry is unexpectedly empty"
+                firstRow : _ -> do
+                  let unprojectable =
+                        firstRow
+                          { productCapability =
+                              ProductMatrix.UnsupportedProduct "batch-negative-control"
+                          }
+                      invalidRows = [unprojectable, unprojectable]
+                  case ( ProductMatrix.projectProductRows Substrate.LinuxCPU invalidRows
+                       , WorkflowMatrix.modelCellsForRows Substrate.LinuxCPU invalidRows
+                       ) of
+                    (RunPlan.Failure batchErrors, RunPlan.Failure workflowErrors) -> do
+                      workflowErrors @?= batchErrors
+                      assertBool
+                        "batch reports the duplicate row identity"
+                        ( ProductMatrix.DuplicateProductRowId (ProductMatrix.rowId firstRow)
+                            `elem` batchErrors
+                        )
+                      length
+                        [ ()
+                        | ProductMatrix.UnprojectableProductRow
+                            ProductMatrix.UnsupportedProductRow {} <-
+                            toList batchErrors
+                        ]
+                        @?= 2
+                    other -> assertFailure ("unexpected batch/workflow result: " <> show other)
+                  let collidingLeft = firstRow {rowId = "collision/a"}
+                      collidingRight = firstRow {rowId = "collision.a"}
+                      projectedPlanId candidate =
+                        case ProductMatrix.projectProductRow Substrate.LinuxCPU candidate of
+                          RunPlan.Failure errors -> error (show errors)
+                          RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) ->
+                            ProductMatrix.productProjectionPlanId projection
+                  ProductMatrix.productRowExperimentHash collidingLeft
+                    @?= ProductMatrix.productRowExperimentHash collidingRight
+                  assertBool
+                    "exact row id participates in PlanId despite artifact-key sanitization"
+                    (projectedPlanId collidingLeft /= projectedPlanId collidingRight)
+                  case ProductMatrix.projectProductRows
+                    Substrate.LinuxCPU
+                    [collidingLeft, collidingRight] of
+                    RunPlan.Success _ -> assertFailure "colliding product experiment hashes formed a batch"
+                    RunPlan.Failure errors ->
+                      assertBool
+                        "batch rejects the colliding projected artifact identity"
+                        ( ProductMatrix.DuplicateProductExperimentHash
+                            (ProductMatrix.productRowExperimentHash collidingLeft)
+                            `elem` errors
+                        )
+                  let contractLeft =
+                        firstRow
+                          { rowId = "contract-left"
+                          , integrationTest = "integration.product.shared"
+                          , e2eTest = "e2e.product.shared"
+                          }
+                      contractRight =
+                        firstRow
+                          { rowId = "contract-right"
+                          , integrationTest = "integration.product.shared"
+                          , e2eTest = "e2e.product.shared"
+                          }
+                  case ProductMatrix.projectProductRows
+                    Substrate.LinuxCPU
+                    [contractLeft, contractRight] of
+                    RunPlan.Success _ -> assertFailure "duplicate scenario contracts formed a batch"
+                    RunPlan.Failure errors -> do
+                      assertBool
+                        "batch rejects duplicate integration contract identity"
+                        ( ProductMatrix.DuplicateProductIntegrationTest
+                            "integration.product.shared"
+                            `elem` errors
+                        )
+                      assertBool
+                        "batch rejects duplicate e2e contract identity"
+                        ( ProductMatrix.DuplicateProductE2ETest
+                            "e2e.product.shared"
+                            `elem` errors
+                        )
+          , testCase "representative ProductRow plans pin exact semantics and family/substrate PlanIds" $ do
+              let goldenPlanIds =
+                    [
+                      ( "mnist-shallow-mlp"
+                      , Substrate.AppleSilicon
+                      , "6d97fd41fec883305f3f3812892145e17dc364d0c84d6a0e2ba9e5afc335e637"
+                      )
+                    ,
+                      ( "mnist-shallow-mlp"
+                      , Substrate.LinuxCPU
+                      , "374e1606c3f0accff486b4cfbad37f2c5a28f59fa3572bf3a1d9d3392e4d7661"
+                      )
+                    ,
+                      ( "mnist-shallow-mlp"
+                      , Substrate.LinuxCUDA
+                      , "e2cede27867023e454cbfb0a5f48a28ef745e1856808a27dc1ef861f5b786b85"
+                      )
+                    ,
+                      ( "PPO/cartpole"
+                      , Substrate.AppleSilicon
+                      , "1f3c551501d1d027225f9de22486028c9d40b3dad8288a6039ce4b837a000572"
+                      )
+                    ,
+                      ( "PPO/cartpole"
+                      , Substrate.LinuxCPU
+                      , "dcc540a638e89b65c30807f8cb008b45f929a79be7c43b4b6de9a4f612d09cc2"
+                      )
+                    ,
+                      ( "PPO/cartpole"
+                      , Substrate.LinuxCUDA
+                      , "9fee217964b1d90ba18d69c3063074c0fd43b6844bd592579380e0618499babc"
+                      )
+                    ,
+                      ( "connect4"
+                      , Substrate.AppleSilicon
+                      , "a966451502b6cb37a06e01d536fed665d9bf4436b63b63a127f43573d59f8e38"
+                      )
+                    ,
+                      ( "connect4"
+                      , Substrate.LinuxCPU
+                      , "c1c7a5571e64ce8711a83cb771662c65219123aa7cb2ea7927106d0258b6c74e"
+                      )
+                    ,
+                      ( "connect4"
+                      , Substrate.LinuxCUDA
+                      , "2ed82af6d0b5281591ffc747087b802ee72552644e0d4b213c77139f3410dd6d"
+                      )
+                    ,
+                      ( "hyperparameter-tuning"
+                      , Substrate.AppleSilicon
+                      , "5fcef09cdaab17fdfa1fad975f49ecc7f6cbbad8c1b26cc9d40018a51bb9006a"
+                      )
+                    ,
+                      ( "hyperparameter-tuning"
+                      , Substrate.LinuxCPU
+                      , "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384"
+                      )
+                    ,
+                      ( "hyperparameter-tuning"
+                      , Substrate.LinuxCUDA
+                      , "617fb9df165ce1bbca71c987e03d67a5d94911a230658dfc1aaa539d3d56452b"
+                      )
+                    ]
+                  expectedBudget rowIdentity =
+                    case rowIdentity of
+                      "mnist-shallow-mlp" ->
+                        [ ("epochs", 10)
+                        , ("training-examples", 7000)
+                        , ("evaluation-examples", 1000)
+                        , ("batch-examples", 128)
+                        , ("optimizer-updates", 550)
+                        ]
+                      "PPO/cartpole" ->
+                        [ ("environment-transitions", 1_228_800)
+                        , ("rollout-ticks-per-environment", 512)
+                        , ("vector-environments", 16)
+                        , ("episode-steps", 500)
+                        , ("evaluation-episodes", 20)
+                        , ("optimizer-updates", 150)
+                        ]
+                      "connect4" ->
+                        [ ("generations", 64)
+                        , ("self-play-games-per-generation", 2)
+                        , ("mcts-simulations-per-move", 128)
+                        , ("max-plies-per-game", 42)
+                        , ("optimizer-updates-per-generation", 8)
+                        , ("arena-games", 9)
+                        ]
+                      "hyperparameter-tuning" ->
+                        [ ("trials", 128)
+                        , ("parallel-trials", 1)
+                        , ("promotions", 1)
+                        , ("per-trial-optimizer-updates", 1000)
+                        ]
+                      _ -> error "unknown representative ProductRow"
+                  expectedSeeds rowIdentity =
+                    case rowIdentity of
+                      "mnist-shallow-mlp" -> [1001]
+                      "PPO/cartpole" -> [42]
+                      "connect4" -> [42]
+                      "hyperparameter-tuning" -> [1729]
+                      _ -> error "unknown representative ProductRow"
+              traverse_
+                ( \(rowIdentity, substrate, expectedPlanId) ->
+                    case find ((== rowIdentity) . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                      Nothing -> assertFailure ("missing representative ProductRow: " <> Text.unpack rowIdentity)
+                      Just row ->
+                        case ProductMatrix.projectProductRow substrate row of
+                          RunPlan.Failure errors -> assertFailure (show errors)
+                          RunPlan.Success (ProductMatrix.SomeProductProjection witness projection) -> do
+                            let observedSeeds =
+                                  toList
+                                    ( RunPlan.seedCohortValues
+                                        ( RunPlan.runPlanSeeds
+                                            (ProductMatrix.productProjectionRunPlan projection)
+                                        )
+                                    )
+                            planIdText (ProductMatrix.productProjectionPlanId projection)
+                              @?= expectedPlanId
+                            RunPlan.runPlanBudgetSummary
+                              (ProductMatrix.productProjectionRunPlan projection)
+                              @?= expectedBudget rowIdentity
+                            observedSeeds @?= expectedSeeds rowIdentity
+                            assertBool
+                              "projected seeds are positive and Int-safe"
+                              ( all
+                                  ( \seed ->
+                                      seed > 0
+                                        && seed <= fromIntegral (maxBound :: Int)
+                                  )
+                                  observedSeeds
+                              )
+                            RunPlan.runPlanPlacement
+                              (ProductMatrix.productProjectionRunPlan projection)
+                              @?= RunPlan.InProcessRun
+                            case witness of
+                              SupervisedTrainingWitness -> do
+                                rowIdentity @?= "mnist-shallow-mlp"
+                                ProductMatrix.productProjectionDescriptor projection
+                                  @?= ProductMatrix.SupervisedProductDescriptor 7000 1000 128 1.0e-3
+                                case ProductMatrix.productProjectionResolvedPlan projection of
+                                  ProductMatrix.ResolvedSupervisedProductPlan plan ->
+                                    ResolvedWorkload.parseSupervisedPlanTransport
+                                      (ResolvedWorkload.renderSupervisedPlanTransport plan)
+                                      @?= RunPlan.Success plan
+                              ReinforcementLearningWitness -> do
+                                rowIdentity @?= "PPO/cartpole"
+                                ProductMatrix.productProjectionDescriptor projection
+                                  @?= ProductMatrix.RlProductDescriptor
+                                    "PPO"
+                                    "cartpole"
+                                    512
+                                    16
+                                    500
+                                    20
+                                    150
+                              HyperparameterTuningWitness -> do
+                                rowIdentity @?= "hyperparameter-tuning"
+                                ProductMatrix.productProjectionDescriptor projection
+                                  @?= ProductMatrix.TuningProductDescriptor
+                                    Tune.canonicalMnistTuningExecutionSpec
+                                    1
+                                    1
+                                    1000
+                                case ProductMatrix.productProjectionResolvedPlan projection of
+                                  ProductMatrix.ResolvedTuningProductPlan plan ->
+                                    ResolvedWorkload.parseTuningPlanTransport
+                                      (ResolvedWorkload.renderTuningPlanTransport plan)
+                                      @?= RunPlan.Success plan
+                              AlphaZeroSelfPlayWitness -> do
+                                rowIdentity @?= "connect4"
+                                ProductMatrix.productProjectionDescriptor projection
+                                  @?= ProductMatrix.AlphaZeroProductDescriptor
+                                    "connect4"
+                                    2
+                                    128
+                                    42
+                                    8
+                                    9
+                                case ProductMatrix.productProjectionResolvedPlan projection of
+                                  ProductMatrix.ResolvedAlphaZeroProductPlan plan ->
+                                    ResolvedWorkload.parseAlphaZeroPlanTransport
+                                      (ResolvedWorkload.renderAlphaZeroPlanTransport plan)
+                                      @?= RunPlan.Success plan
+                )
+                goldenPlanIds
+          , testCase "canonical supervised ProductRows carry the exact typed learning-rate recipe" $ do
+              let expectedRates =
+                    [ ("mnist-shallow-mlp", 1.0e-3)
+                    , ("mnist-deep-mlp", 1.0e-3)
+                    , ("mnist-lenet", 1.0e-3)
+                    , ("fashion-mnist-mlp", 1.0e-3)
+                    , ("fashion-mnist-resnet", 3.0e-3)
+                    , ("cifar10-resnet20", 1.1e-3)
+                    , ("cifar10-resnet56", 1.0e-3)
+                    , ("cifar100-wide-resnet", 1.0e-3)
+                    , ("cifar10-vit", 1.5e-3)
+                    , ("tiny-imagenet-resnet50", 1.0e-3)
+                    , ("california-housing-mlp", 1.0e-3)
+                    ]
+              traverse_
+                ( \(rowIdentity, expectedRate) ->
+                    case find ((== rowIdentity) . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                      Nothing ->
+                        assertFailure
+                          ("missing canonical supervised ProductRow: " <> Text.unpack rowIdentity)
+                      Just row ->
+                        case ProductMatrix.productCapability row of
+                          ProductMatrix.ExecutableProduct
+                            descriptor@ProductMatrix.SupervisedProductDescriptor {}
+                            ProductMatrix.SupervisedProductEvidence ->
+                              ProductMatrix.supervisedLearningRate descriptor @?= expectedRate
+                          other ->
+                            assertFailure
+                              ("unexpected supervised ProductRow capability: " <> show other)
+                )
+                expectedRates
+          , testCase "cifar10-vit ProductRow pins the expanded convergence recipe" $ do
+              row <-
+                maybe
+                  (assertFailure "missing canonical cifar10-vit ProductRow")
+                  pure
+                  (find ((== "cifar10-vit") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+              ProductMatrix.trainingBudget row
+                @?= either
+                  (error . Text.unpack)
+                  id
+                  (TrainingBudget.mkTrainingBudget TrainingBudget.SupervisedEpochBudget 5 (Just 1009))
+              case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+                RunPlan.Failure errors -> assertFailure (show errors)
+                RunPlan.Success (ProductMatrix.SomeProductProjection witness projection) ->
+                  case witness of
+                    SupervisedTrainingWitness -> do
+                      ProductMatrix.productProjectionDescriptor projection
+                        @?= ProductMatrix.SupervisedProductDescriptor 2000 1000 128 1.5e-3
+                      case ProductMatrix.productProjectionResolvedPlan projection of
+                        ProductMatrix.ResolvedSupervisedProductPlan plan -> do
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanTrainingExamples plan) @?= 2000
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanEpochs plan) @?= 5
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanEvaluationExamples plan) @?= 1000
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanBatchExamples plan) @?= 128
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanOptimizerUpdates plan) @?= 80
+                    _ -> assertFailure "cifar10-vit projected to a non-supervised run kind"
+          , testCase "supervised recipe fields are refined and participate in ProductRow PlanId" $ do
+              row <-
+                maybe
+                  (assertFailure "missing canonical mnist-shallow-mlp ProductRow")
+                  pure
+                  (find ((== "mnist-shallow-mlp") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+              let rowWithRate learningRate =
+                    case ProductMatrix.productCapability row of
+                      ProductMatrix.ExecutableProduct
+                        (ProductMatrix.SupervisedProductDescriptor training evaluation batch _)
+                        ProductMatrix.SupervisedProductEvidence ->
+                          row
+                            { productCapability =
+                                ProductMatrix.ExecutableProduct
+                                  ( ProductMatrix.SupervisedProductDescriptor
+                                      training
+                                      evaluation
+                                      batch
+                                      learningRate
+                                  )
+                                  ProductMatrix.SupervisedProductEvidence
+                            }
+                      other -> error ("unexpected supervised ProductRow capability: " <> show other)
+                  rowWithTrainingExamples trainingExamples =
+                    case ProductMatrix.productCapability row of
+                      ProductMatrix.ExecutableProduct
+                        (ProductMatrix.SupervisedProductDescriptor _ evaluation batch learningRate)
+                        ProductMatrix.SupervisedProductEvidence ->
+                          row
+                            { productCapability =
+                                ProductMatrix.ExecutableProduct
+                                  ( ProductMatrix.SupervisedProductDescriptor
+                                      trainingExamples
+                                      evaluation
+                                      batch
+                                      learningRate
+                                  )
+                                  ProductMatrix.SupervisedProductEvidence
+                            }
+                      other -> error ("unexpected supervised ProductRow capability: " <> show other)
+                  projectionPlanId candidate =
+                    case ProductMatrix.projectProductRow Substrate.LinuxCPU candidate of
+                      RunPlan.Failure errors -> error (show errors)
+                      RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) ->
+                        ProductMatrix.productProjectionPlanId projection
+                  hasLearningRateError candidate =
+                    case ProductMatrix.projectProductRow Substrate.LinuxCPU candidate of
+                      RunPlan.Success _ -> False
+                      RunPlan.Failure errors ->
+                        any
+                          ( \case
+                              ProductMatrix.InvalidProductSupervisedLearningRate {} -> True
+                              _ -> False
+                          )
+                          errors
+              traverse_
+                ( \invalidRate ->
+                    assertBool
+                      ("invalid supervised learning rate projected successfully: " <> show invalidRate)
+                      (hasLearningRateError (rowWithRate invalidRate))
+                )
+                [0.0, -1.0e-3, 0.0 / 0.0, 1.0 / 0.0]
+              assertBool
+                "a distinct valid supervised learning rate did not change the ProductRow PlanId"
+                (projectionPlanId row /= projectionPlanId (rowWithRate 2.0e-3))
+              assertBool
+                "a distinct valid supervised training-example count did not change the ProductRow PlanId"
+                (projectionPlanId row /= projectionPlanId (rowWithTrainingExamples 7001))
+          , testCase "ProductRow projection retains workload semantic PlanIds" $ do
+              traverse_
+                ( \row ->
+                    case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+                      RunPlan.Failure errors -> assertFailure (show errors)
+                      RunPlan.Success (ProductMatrix.SomeProductProjection witness projection) ->
+                        case witness of
+                          SupervisedTrainingWitness ->
+                            assertBool
+                              "supervised outer PlanId wraps the common RunPlan id"
+                              ( ProductMatrix.productProjectionPlanId projection
+                                  /= runPlanId (ProductMatrix.productProjectionRunPlan projection)
+                              )
+                          ReinforcementLearningWitness ->
+                            ProductMatrix.productProjectionPlanId projection
+                              @?= runPlanId (ProductMatrix.productProjectionRunPlan projection)
+                          HyperparameterTuningWitness ->
+                            assertBool
+                              "tuning outer PlanId covers its axes"
+                              ( ProductMatrix.productProjectionPlanId projection
+                                  /= runPlanId (ProductMatrix.productProjectionRunPlan projection)
+                              )
+                          AlphaZeroSelfPlayWitness ->
+                            assertBool
+                              "AlphaZero outer PlanId covers its game"
+                              ( ProductMatrix.productProjectionPlanId projection
+                                  /= runPlanId (ProductMatrix.productProjectionRunPlan projection)
+                              )
+                )
+                ProductMatrix.allProductRows
+          , testCase "ProductRow projection accumulates typed configuration failures" $ do
+              case ProductMatrix.allProductRows of
+                [] -> assertFailure "ProductRow registry is unexpectedly empty"
+                firstRow : rest -> do
+                  let invalidBar =
+                        (ProductMatrix.convergenceBar firstRow)
+                          { ProductConvergence.convergenceMetricName = ""
+                          , ProductConvergence.convergenceThreshold = 0 / 0
+                          }
+                      malformed =
+                        firstRow
+                          { family = ProductMatrix.Tuning
+                          , integrationTest = ""
+                          , convergenceBar = invalidBar
+                          }
+                      unsupported =
+                        firstRow
+                          { productCapability = ProductMatrix.UnsupportedProduct "not executable"
+                          }
+                      wrongBudget =
+                        firstRow
+                          { trainingBudget = unitBudget TrainingBudget.RlEnvironmentStepBudget 1
+                          }
+                      wrongClass =
+                        firstRow
+                          { rowClass = ProductMatrix.RlGoalConditioned "goal-reaching"
+                          }
+                      fabricatedEvidence =
+                        firstRow
+                          { trainingEvidence =
+                              Just (ProductMatrix.EvidenceHandle "declared-fabrication")
+                          }
+                      wrongDevice =
+                        firstRow
+                          { deviceClaim = ProductMatrix.GoalConditionedPolicy
+                          }
+                      errorsFor row =
+                        case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+                          RunPlan.Success _ -> []
+                          RunPlan.Failure errors -> toList errors
+                      isEmptyIntegration err =
+                        case err of
+                          ProductMatrix.EmptyProductRowField _ "integrationTest" -> True
+                          _ -> False
+                      isFamilyMismatch err =
+                        case err of
+                          ProductMatrix.ProductFamilyRunKindMismatch {} -> True
+                          _ -> False
+                      isInvalidConvergence err =
+                        case err of
+                          ProductMatrix.InvalidProductConvergenceBar {} -> True
+                          _ -> False
+                      isUnsupported err =
+                        case err of
+                          ProductMatrix.UnsupportedProductRow {} -> True
+                          _ -> False
+                      isWrongBudget err =
+                        case err of
+                          ProductMatrix.ProductBudgetKindMismatch {} -> True
+                          _ -> False
+                      isWrongClass err =
+                        case err of
+                          ProductMatrix.ProductRowClassRunKindMismatch {} -> True
+                          ProductMatrix.ProductDescriptorRowClassMismatch {} -> True
+                          _ -> False
+                      isDeclaredEvidence err =
+                        case err of
+                          ProductMatrix.DeclaredProductCarriesEvidence {} -> True
+                          _ -> False
+                      isWrongDevice err =
+                        case err of
+                          ProductMatrix.ProductDeviceClaimMismatch {} -> True
+                          _ -> False
+                      malformedErrors = errorsFor malformed
+                  assertBool "empty integration contract is typed" (any isEmptyIntegration malformedErrors)
+                  assertBool "family mismatch is typed" (any isFamilyMismatch malformedErrors)
+                  assertBool "invalid convergence is typed" (any isInvalidConvergence malformedErrors)
+                  assertBool "independent failures accumulate" (length malformedErrors >= 3)
+                  assertBool "unsupported capability cannot project" (any isUnsupported (errorsFor unsupported))
+                  assertBool "wrong budget kind cannot project" (any isWrongBudget (errorsFor wrongBudget))
+                  assertBool "wrong RowClass cannot project" (any isWrongClass (errorsFor wrongClass))
+                  assertBool "wrong DeviceClaim cannot project" (any isWrongDevice (errorsFor wrongDevice))
+                  assertBool
+                    "declared measured handle cannot cross projection"
+                    (any isDeclaredEvidence (errorsFor fabricatedEvidence))
+                  assertBool
+                    "matrix validation rejects unsupported rows"
+                    ( any
+                        ( \case
+                            ProductMatrix.UnprojectableProductRow projectionError ->
+                              isUnsupported projectionError
+                            _ -> False
+                        )
+                        (ProductMatrix.validateProductMatrixTyped (unsupported : rest))
+                    )
+          , testCase "ProductRow projection rejects inexact and trainer-incompatible RL descriptors" $ do
+              case find ((== "PPO/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                Nothing -> assertFailure "missing PPO/cartpole ProductRow"
+                Just row -> do
+                  let mismatched =
+                        row
+                          { trainingBudget =
+                              either
+                                (error . Text.unpack)
+                                id
+                                ( TrainingBudget.mkTrainingBudget
+                                    TrainingBudget.RlEnvironmentStepBudget
+                                    1
+                                    (Just 42)
+                                )
+                          }
+                  case ProductMatrix.projectProductRow Substrate.LinuxCPU mismatched of
+                    RunPlan.Success _ -> assertFailure "same-kind inexact RL budget projected successfully"
+                    RunPlan.Failure errors ->
+                      assertBool
+                        "inexact RL schedule has a typed projection error"
+                        ( any
+                            ( \case
+                                ProductMatrix.InvalidProductRlSchedule {} -> True
+                                _ -> False
+                            )
+                            errors
+                        )
+              case find ((== "DQN/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                Nothing -> assertFailure "missing DQN/cartpole ProductRow"
+                Just row ->
+                  case ProductMatrix.productCapability row of
+                    ProductMatrix.ExecutableProduct
+                      (ProductMatrix.RlProductDescriptor algorithm _ rollout vectors episode evaluation updates)
+                      ProductMatrix.RlProductEvidence -> do
+                        let unsupported =
+                              row
+                                { rowClass = ProductMatrix.RlAlgorithmEnvironment algorithm "acrobot"
+                                , productCapability =
+                                    ProductMatrix.ExecutableProduct
+                                      ( ProductMatrix.RlProductDescriptor
+                                          algorithm
+                                          "acrobot"
+                                          rollout
+                                          vectors
+                                          episode
+                                          evaluation
+                                          updates
+                                      )
+                                      ProductMatrix.RlProductEvidence
+                                }
+                        case ProductMatrix.projectProductRow Substrate.LinuxCPU unsupported of
+                          RunPlan.Success _ ->
+                            assertFailure "trainer-incompatible RL pair projected successfully"
+                          RunPlan.Failure errors ->
+                            assertBool
+                              "trainer-incompatible RL pair has a typed projection error"
+                              ( any
+                                  ( \case
+                                      ProductMatrix.InvalidProductRlSchedule {} -> True
+                                      _ -> False
+                                  )
+                                  errors
+                              )
+                    other -> assertFailure ("unexpected DQN capability: " <> show other)
+          , testCase "canonical semantic projections have distinct PlanIds" $ do
+              let projectionPlanId row =
+                    case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+                      RunPlan.Failure errors -> error (show errors)
+                      RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) ->
+                        ProductMatrix.productProjectionPlanId projection
+              case ( find ((== "PPO/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows
+                   , find ((== "A2C/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows
+                   , find ((== "mnist-shallow-mlp") . ProductMatrix.rowId) ProductMatrix.allProductRows
+                   , find ((== "mnist-deep-mlp") . ProductMatrix.rowId) ProductMatrix.allProductRows
+                   ) of
+                (Just ppoRow, Just a2cRow, Just shallowRow, Just deepRow) -> do
+                  assertBool
+                    "canonical RL algorithm identity changes PlanId"
+                    (projectionPlanId ppoRow /= projectionPlanId a2cRow)
+                  assertBool
+                    "canonical supervised architecture identity changes PlanId"
+                    (projectionPlanId shallowRow /= projectionPlanId deepRow)
+                _ -> assertFailure "missing representative canonical ProductRow"
+          , testCase "ProductRow projection rejects seeds outside the exact executor range" $ do
+              case ProductMatrix.allProductRows of
+                [] -> assertFailure "ProductRow registry is unexpectedly empty"
+                row : _ -> do
+                  let originalBudget = ProductMatrix.trainingBudget row
+                      outOfRange =
+                        row
+                          { trainingBudget =
+                              either
+                                (error . Text.unpack)
+                                id
+                                ( TrainingBudget.mkTrainingBudget
+                                    (TrainingBudget.trainingBudgetKind originalBudget)
+                                    (TrainingBudget.trainingBudgetTargetUnits originalBudget)
+                                    (Just (maxBound :: Word64))
+                                )
+                          }
+                  case ProductMatrix.projectProductRow Substrate.LinuxCPU outOfRange of
+                    RunPlan.Success _ -> assertFailure "out-of-range executor seed projected successfully"
+                    RunPlan.Failure errors ->
+                      assertBool
+                        "out-of-range seed has a typed projection error"
+                        ( any
+                            ( \case
+                                ProductMatrix.InvalidProductSeed {} -> True
+                                _ -> False
+                            )
+                            errors
+                        )
+          , testCase "ProductRow projection rejects target and descriptor quantities outside the executor range" $ do
+              case ProductMatrix.allProductRows of
+                [] -> assertFailure "ProductRow registry is unexpectedly empty"
+                row : _ -> do
+                  let originalBudget = ProductMatrix.trainingBudget row
+                      oversizedTarget =
+                        row
+                          { trainingBudget =
+                              either
+                                (error . Text.unpack)
+                                id
+                                ( TrainingBudget.mkTrainingBudget
+                                    (TrainingBudget.trainingBudgetKind originalBudget)
+                                    (maxBound :: Word64)
+                                    (TrainingBudget.trainingBudgetSeed originalBudget)
+                                )
+                          }
+                      oversizedDescriptor =
+                        case ProductMatrix.productCapability row of
+                          ProductMatrix.ExecutableProduct
+                            (ProductMatrix.SupervisedProductDescriptor _ evaluation batch learningRate)
+                            ProductMatrix.SupervisedProductEvidence ->
+                              row
+                                { productCapability =
+                                    ProductMatrix.ExecutableProduct
+                                      ( ProductMatrix.SupervisedProductDescriptor
+                                          (maxBound :: Word64)
+                                          evaluation
+                                          batch
+                                          learningRate
+                                      )
+                                      ProductMatrix.SupervisedProductEvidence
+                                }
+                          other -> error ("unexpected first-row capability: " <> show other)
+                      hasExecutorRangeError candidate =
+                        case ProductMatrix.projectProductRow Substrate.LinuxCPU candidate of
+                          RunPlan.Success _ -> False
+                          RunPlan.Failure errors ->
+                            any
+                              ( \case
+                                  ProductMatrix.InvalidProductExecutorQuantity {} -> True
+                                  _ -> False
+                              )
+                              errors
+                  assertBool
+                    "oversized training target has a typed projection error"
+                    (hasExecutorRangeError oversizedTarget)
+                  assertBool
+                    "oversized descriptor axis has a typed projection error"
+                    (hasExecutorRangeError oversizedDescriptor)
+          , testCase "WorkflowMatrix cells preserve ProductRow projection identity and plan" $ do
+              traverse_
+                ( \substrate ->
+                    case WorkflowMatrix.modelCellsForRows substrate ProductMatrix.allProductRows of
+                      RunPlan.Failure errors -> assertFailure (show errors)
+                      RunPlan.Success cells -> do
+                        length cells @?= ProductMatrix.productRowCount
+                        traverse_
+                          ( \cell ->
+                              case find
+                                ((== WorkflowMatrix.modelCellName cell) . ProductMatrix.rowId)
+                                ProductMatrix.allProductRows of
+                                Nothing -> assertFailure "workflow cell has orphan ProductRow identity"
+                                Just row ->
+                                  case ProductMatrix.projectProductRow substrate row of
+                                    RunPlan.Failure errors -> assertFailure (show errors)
+                                    RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) -> do
+                                      WorkflowMatrix.modelCellPlanId cell
+                                        @?= planIdText (ProductMatrix.productProjectionPlanId projection)
+                                      WorkflowMatrix.modelCellCommand cell
+                                        @?= ProductMatrix.productProjectionCommand projection
+                          )
+                          cells
+                )
+                Substrate.allSubstrates
+              assertBool
+                "workflow matrix crosses every row with every substrate"
+                ( length WorkflowMatrix.modelCellMatrix
+                    == ProductMatrix.productRowCount * length Substrate.allSubstrates
+                )
           , testCase "ProductRow filter selects exact known ids for both internal commands" $ do
               let selected =
                     fmap
@@ -4558,6 +5558,43 @@ main =
                     , ("tiny-imagenet-resnet50", 5)
                     , ("california-housing-mlp", 10)
                     ]
+          , testCase "canonical RL, HER, and AlphaZero ProductRows pin config seed 42" $ do
+              let deviceRows =
+                    [ row
+                    | row <- ProductMatrix.allProductRows
+                    , ProductMatrix.family row
+                        `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero]
+                    ]
+              assertBool "canonical device ProductRows are present" (not (null deviceRows))
+              traverse_
+                ( \row ->
+                    TrainingBudget.trainingBudgetSeed (ProductMatrix.trainingBudget row)
+                      @?= Just 42
+                )
+                deviceRows
+          , testCase "seedless ProductRows cannot cross the exact executor projection" $ do
+              case find ((== "PPO/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                Nothing -> assertFailure "missing PPO/cartpole ProductRow"
+                Just row -> do
+                  let seedless =
+                        row
+                          { trainingBudget =
+                              unitBudget
+                                TrainingBudget.RlEnvironmentStepBudget
+                                (TrainingBudget.trainingBudgetTargetUnits (ProductMatrix.trainingBudget row))
+                          }
+                  case ProductMatrix.projectProductRow Substrate.LinuxCPU seedless of
+                    RunPlan.Success _ -> assertFailure "seedless ProductRow projected successfully"
+                    RunPlan.Failure errors ->
+                      assertBool
+                        "missing product seed has a typed projection error"
+                        ( any
+                            ( \case
+                                ProductMatrix.MissingProductSeed {} -> True
+                                _ -> False
+                            )
+                            errors
+                        )
           , testCase "ProductRow artifact experiment hashes are stable and object-key safe" $ do
               let hashes = fmap ProductMatrix.productRowExperimentHash ProductMatrix.allProductRows
               assertBool
@@ -4577,10 +5614,20 @@ main =
                       experimentHash = ProductMatrix.productRowExperimentHash row
                       selectorStates = ["eligible", "training-required", "unsupported", "error"]
                       summaries =
-                        Workload.checkpointSummariesForRow
-                          rowId'
-                          experimentHash
-                          [completedTestManifest 1]
+                        [ Text.intercalate
+                            "\t"
+                            [ rowId'
+                            , experimentHash
+                            , Text.replicate 64 "a"
+                            , "1"
+                            , ProductMatrix.renderRowFamily (ProductMatrix.family row)
+                            , "1"
+                            , "eligible"
+                            , "test-budget"
+                            , "test-metric=1.0"
+                            , "jitml-tensorboard/test"
+                            ]
+                        ]
                       selector state =
                         Text.intercalate
                           "\t"
@@ -4635,7 +5682,7 @@ main =
                 (all ("product-row-" `Text.isPrefixOf`) generatedHashes)
               filter ("demo-weights" `Text.isInfixOf`) productHashes @?= []
               filter ("demo-weights" `Text.isInfixOf`) generatedHashes @?= []
-          , testCase "ProductRow experiment configs resolve or reflect for every row" $ do
+          , testCase "ProductRow experiment configs strictly refine for every row" $ do
               loaded <-
                 traverse
                   ( \row -> do
@@ -4871,7 +5918,7 @@ main =
                     Right _ -> False
                 )
           , testCase
-              "ModelRef type-state pipeline reaches inference eligibility only through completed training"
+              "ModelRef type-state pipeline stops at completed training before Store admission"
               $ do
                 let completed = completedTrainingFixture 1
                     declaredExperiment = ProductPipeline.declareExperiment "exp1"
@@ -4881,53 +5928,35 @@ main =
                       :: ProductPipeline.ModelRef 'TrainingCompleted
                       -> Text
                     acceptCompleted = ProductPipeline.modelRefExperimentHash
-                    acceptEligible :: ProductPipeline.InferenceEligibleRef -> Text
-                    acceptEligible = ProductPipeline.modelRefExperimentHash
-                    completedCheckpoint =
-                      either
-                        (error . show)
-                        id
-                        ( Checkpoint.requireInferenceEligibleCheckpoint
-                            "manifest-sha"
-                            (completedTestManifest 1)
-                        )
                 trainedModel <- ProductPipeline.train startedModel completed
                 acceptCompleted trainedModel @?= "exp1"
-                case ProductPipeline.markInferenceEligible completedCheckpoint trainedModel of
-                  Left err -> assertFailure (Text.unpack err)
-                  Right eligibleModel -> do
-                    acceptEligible eligibleModel @?= "exp1"
-                    ProductPipeline.modelRefManifestSha eligibleModel @?= Just "manifest-sha"
-                    ProductPipeline.modelRefCompletedTraining eligibleModel @?= Just completed
-          , testCase "ModelRef inference eligibility rejects a mismatched completed-training witness" $ do
-              let completed = completedTrainingFixture 1
-                  declaredModel =
-                    ProductPipeline.declareModel
-                      (ProductPipeline.declareExperiment "exp1")
-                  startedModel = ProductPipeline.startTraining declaredModel
-                  trainedModel = ProductPipeline.completeTraining startedModel completed
-                  mismatchedCheckpoint =
-                    either
-                      (error . show)
-                      id
-                      ( Checkpoint.requireInferenceEligibleCheckpoint
-                          "manifest-sha"
-                          (completedTestManifest 2)
-                      )
-              ProductPipeline.markInferenceEligible mismatchedCheckpoint trainedModel
-                @?= Left "completed-training witness does not match model reference"
-          , testCase "InferenceEligibleCheckpoint mints an inference-only ModelRef" $ do
-              let acceptEligible :: ProductPipeline.InferenceEligibleRef -> Text
-                  acceptEligible = ProductPipeline.modelRefExperimentHash
-                  completed = completedTrainingFixture 1
-              case Checkpoint.requireInferenceEligibleCheckpoint "manifest-sha" (completedTestManifest 1) of
-                Left err -> assertFailure (show err)
-                Right eligibleCheckpoint -> do
-                  let eligibleModel =
-                        ProductPipeline.inferenceEligibleModelRef eligibleCheckpoint
-                  acceptEligible eligibleModel @?= "exp1"
-                  ProductPipeline.modelRefManifestSha eligibleModel @?= Just "manifest-sha"
-                  ProductPipeline.modelRefCompletedTraining eligibleModel @?= Just completed
+                ProductPipeline.modelRefCompletedTraining trainedModel
+                  @?= Just completed
+                ProductPipeline.modelRefManifestSha trainedModel @?= Nothing
+          , testCase "Pipeline eligibility APIs require opaque Store admission" $ do
+              let markFromPersistedAdmission
+                    :: CheckpointStore.AdmittedCompletedCheckpoint
+                    -> ProductPipeline.ModelRef 'TrainingCompleted
+                    -> Either Text ProductPipeline.InferenceEligibleRef
+                  markFromPersistedAdmission = ProductPipeline.markInferenceEligible
+                  referenceFromPersistedAdmission
+                    :: CheckpointStore.AdmittedCompletedCheckpoint
+                    -> ProductPipeline.InferenceEligibleRef
+                  referenceFromPersistedAdmission =
+                    ProductPipeline.inferenceEligibleModelRef
+              markFromPersistedAdmission `seq` pure ()
+              referenceFromPersistedAdmission `seq` pure ()
+          , testCase "Pipeline depends on Store admission and not Format proof minting" $ do
+              source <- Text.IO.readFile "src/JitML/Product/Pipeline.hs"
+              assertBool
+                "Pipeline does not import Store admission"
+                ("import JitML.Checkpoint.Store qualified as CheckpointStore" `Text.isInfixOf` source)
+              assertBool
+                "Pipeline directly performs structural completion refinement"
+                (not ("validateCheckpointCompletion" `Text.isInfixOf` source))
+              assertBool
+                "Pipeline accepts a structural completion witness instead of Store admission"
+                (not ("ValidatedCheckpointCompletion" `Text.isInfixOf` source))
           , testCase "Every ProductRow has a concrete numeric convergence bar" $ do
               let offenders =
                     [ ProductMatrix.rowId row
@@ -5372,6 +6401,9 @@ main =
               -- mean = (0.125 + 1.5) / 2 = 0.8125
               let result = DqnLoss.dqnHuberLoss 1.0 [0.5, 2.0] [0.0, 0.0]
                in abs (result - 0.8125) < 1.0e-9 @?= True
+          , testCase "dqnHuberGradient preserves small residuals and clips outliers" $
+              fmap (DqnLoss.dqnHuberGradient 1.0) [-2.0, -0.5, 0.0, 0.5, 2.0]
+                @?= [-1.0, -0.5, 0.0, 0.5, 1.0]
           , testCase "dqnHuberLoss is run-to-run deterministic" $
               let first = DqnLoss.dqnHuberLoss 1.0 [0.5, 2.0, -1.0] [0.0, 0.0, 0.0]
                   second = DqnLoss.dqnHuberLoss 1.0 [0.5, 2.0, -1.0] [0.0, 0.0, 0.0]
@@ -5739,6 +6771,52 @@ main =
               resultB <- PpoTrainer.trainPpoOnCartpole smallConfig
               fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultA)
                 @?= fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultB)
+          , testCase "device PPO reports one optimizer step per executed minibatch" $ do
+              let config =
+                    PpoTrainer.defaultPpoTrainConfig
+                      { PpoTrainer.ppoSeed = 71
+                      , PpoTrainer.ppoHiddenUnits = 8
+                      , PpoTrainer.ppoVectorEnvCount = 1
+                      , PpoTrainer.ppoRolloutSteps = 4
+                      , PpoTrainer.ppoNumIterations = 2
+                      , PpoTrainer.ppoEpochsPerUpdate = 3
+                      , PpoTrainer.ppoMiniBatchSize = 2
+                      , PpoTrainer.ppoMaxEpisodeSteps = 10
+                      }
+              resultE <-
+                PpoTrainer.trainOnPolicyOnDeviceWithEnvironment
+                  pureReferenceMlpDevice
+                  (Sim.SomeSimulatedEnvironment Sim.cartPoleEnvironment)
+                  PpoTrainer.VariantPPO
+                  config
+              result <- either (assertFailure . Text.unpack) pure resultE
+              PpoTrainer.resultOptimizerSteps result @?= 12
+          , testCase "device TRPO reports accepted actor plus value-head optimizer steps" $ do
+              let config =
+                    PpoTrainer.defaultPpoTrainConfig
+                      { PpoTrainer.ppoSeed = 73
+                      , PpoTrainer.ppoHiddenUnits = 8
+                      , PpoTrainer.ppoVectorEnvCount = 1
+                      , PpoTrainer.ppoRolloutSteps = 4
+                      , PpoTrainer.ppoNumIterations = 1
+                      , PpoTrainer.ppoMiniBatchSize = 4
+                      , PpoTrainer.ppoMaxEpisodeSteps = 10
+                      , PpoTrainer.ppoTrpoCriticUpdates = 2
+                      , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
+                      }
+                  initial = PpoTrainer.initialPpoParams config
+              resultE <-
+                PpoTrainer.trainOnPolicyOnDeviceWithEnvironment
+                  pureReferenceMlpDevice
+                  (Sim.SomeSimulatedEnvironment Sim.cartPoleEnvironment)
+                  PpoTrainer.VariantTRPO
+                  config
+              result <- either (assertFailure . Text.unpack) pure resultE
+              let actorApplications =
+                    if trpoActorSlicesChangedForTest config initial (PpoTrainer.resultFinalParams result)
+                      then 1
+                      else 0
+              PpoTrainer.resultOptimizerSteps result @?= 2 + actorApplications
           , testCase "TRPO defaults match the catalog trust-region target" $ do
               PpoTrainer.ppoKlTarget PpoTrainer.defaultPpoTrainConfig @?= 0.01
               PpoTrainer.ppoTrpoCriticUpdates PpoTrainer.defaultPpoTrainConfig @?= 10
@@ -6256,6 +7334,155 @@ main =
                     (failingBatchGradientDevice "dqn gradient unavailable")
                     fastDqnDeviceConfig
                 )
+          , testCase "DQN greedy behavior policy runs through the injected device" $ do
+              forwardCalls <- newIORef (0 :: Int)
+              let referenceForward = mlpdForward pureReferenceMlpDevice
+                  countingDevice =
+                    pureReferenceMlpDevice
+                      { mlpdForward = \currentParams observation -> do
+                          modifyIORef' forwardCalls (+ 1)
+                          referenceForward currentParams observation
+                      }
+                  config =
+                    fastDqnDeviceConfig
+                      { DqnTrainer.dqnNumSteps = 1
+                      , DqnTrainer.dqnTrainStart = 2
+                      , DqnTrainer.dqnEpsilonStart = 0.0
+                      , DqnTrainer.dqnEpsilonEnd = 0.0
+                      }
+              result <- DqnTrainer.trainDqnOnDevice countingDevice config
+              _ <- either (assertFailure . Text.unpack) pure result
+              readIORef forwardCalls >>= (@?= 1)
+          , testCase "DQN greedy behavior policy fails closed on device-forward failure" $
+              assertLeftContains
+                "dqn device forward kernel failed mid-run (behavior policy)"
+                ( DqnTrainer.trainDqnOnDevice
+                    (failingForwardDevice "dqn behavior forward unavailable")
+                    ( fastDqnDeviceConfig
+                        { DqnTrainer.dqnNumSteps = 1
+                        , DqnTrainer.dqnTrainStart = 2
+                        , DqnTrainer.dqnEpsilonStart = 0.0
+                        , DqnTrainer.dqnEpsilonEnd = 0.0
+                        }
+                    )
+                )
+          , testCase "DQN greedy behavior rejects an observation/network shape mismatch" $
+              assertLeftContains
+                "input/dLdy shape mismatch against the network"
+                ( DqnTrainer.trainDqnOnDevice
+                    pureReferenceMlpDevice
+                    ( fastDqnDeviceConfig
+                        { DqnTrainer.dqnNumSteps = 1
+                        , DqnTrainer.dqnTrainStart = 2
+                        , DqnTrainer.dqnEpsilonStart = 0.0
+                        , DqnTrainer.dqnEpsilonEnd = 0.0
+                        , DqnTrainer.dqnObsSize = 5
+                        }
+                    )
+                )
+          , testCase "DQN pure and pure-reference-device trainers remain exactly aligned" $ do
+              let config =
+                    fastDqnDeviceConfig
+                      { DqnTrainer.dqnNumSteps = 5
+                      , DqnTrainer.dqnTrainStart = 2
+                      , DqnTrainer.dqnBatchSize = 2
+                      , DqnTrainer.dqnUpdateFrequency = 1
+                      , DqnTrainer.dqnEpsilonStart = 0.0
+                      , DqnTrainer.dqnEpsilonEnd = 0.0
+                      }
+              pureResult <- DqnTrainer.trainDqnOnCartpole config
+              deviceResultE <- DqnTrainer.trainDqnOnDevice pureReferenceMlpDevice config
+              deviceResult <- either (assertFailure . Text.unpack) pure deviceResultE
+              deviceResult @?= pureResult
+          , testCase "DQN evaluation uses the injected device and fails closed" $ do
+              forwardCalls <- newIORef (0 :: Int)
+              let referenceForward = mlpdForward pureReferenceMlpDevice
+                  countingDevice =
+                    pureReferenceMlpDevice
+                      { mlpdForward = \currentParams observation -> do
+                          modifyIORef' forwardCalls (+ 1)
+                          referenceForward currentParams observation
+                      }
+                  config =
+                    fastDqnDeviceConfig
+                      { DqnTrainer.dqnMaxEpisodeSteps = 3
+                      }
+                  environment = Sim.SomeSimulatedEnvironment Sim.cartPoleEnvironment
+                  params = DqnTrainer.initialDqnParams config
+              failedForwardCalls <- newIORef (0 :: Int)
+              let failingEvaluationDevice =
+                    pureReferenceMlpDevice
+                      { mlpdForward = \_ _ -> do
+                          modifyIORef' failedForwardCalls (+ 1)
+                          pure (Left "dqn evaluation forward unavailable")
+                      }
+              evaluationE <-
+                DqnTrainer.evaluateDqnPolicyWithEnvironment
+                  countingDevice
+                  environment
+                  config
+                  params
+                  2
+              evaluation <- either (assertFailure . Text.unpack) pure evaluationE
+              length evaluation @?= 2
+              calls <- readIORef forwardCalls
+              assertBool "DQN evaluation bypassed the injected device" (calls >= 2)
+              assertLeftContains
+                "dqn device forward kernel failed during evaluation"
+                ( DqnTrainer.evaluateDqnPolicyWithEnvironment
+                    failingEvaluationDevice
+                    environment
+                    config
+                    params
+                    2
+                )
+              readIORef failedForwardCalls >>= (@?= 1)
+          , testCase "DQN production head clips chosen-action TD outliers to kappa one" $ do
+              let captureHead qValue = do
+                    forwardCalls <- newIORef (0 :: Int)
+                    capturedHeads <- newIORef ([] :: [Data.Vector.Unboxed.Vector Double])
+                    let capturingDevice =
+                          pureReferenceMlpDevice
+                            { mlpdForwardBatch = \_ observations -> do
+                                call <- readIORef forwardCalls
+                                modifyIORef' forwardCalls (+ 1)
+                                let value = if even call then qValue else 0.0
+                                pure
+                                  ( Right
+                                      ( fmap
+                                          (const (Data.Vector.Unboxed.replicate 2 value))
+                                          observations
+                                      )
+                                  )
+                            , mlpdBatchGradient = \params pairs -> do
+                                writeIORef capturedHeads (fmap snd pairs)
+                                pure (Right (constantGradientLike params 0.0))
+                            }
+                        config =
+                          fastDqnDeviceConfig
+                            { DqnTrainer.dqnNumSteps = 1
+                            , DqnTrainer.dqnGamma = 0.0
+                            }
+                    result <- DqnTrainer.trainDqnOnDevice capturingDevice config
+                    _ <- either (assertFailure . Text.unpack) pure result
+                    heads <- readIORef capturedHeads
+                    case heads of
+                      [headGradient] -> pure (List.sort (Data.Vector.Unboxed.toList headGradient))
+                      _ -> assertFailure ("expected one captured DQN head, got " <> show heads)
+              positive <- captureHead 100.0
+              negative <- captureHead (-100.0)
+              positive @?= [0.0, 1.0]
+              negative @?= [-1.0, 0.0]
+          , testCase "DQN result counts only update-frequency-eligible Adam steps" $ do
+              let config =
+                    fastDqnDeviceConfig
+                      { DqnTrainer.dqnNumSteps = 5
+                      , DqnTrainer.dqnTrainStart = 2
+                      , DqnTrainer.dqnUpdateFrequency = 2
+                      }
+              resultE <- DqnTrainer.trainDqnOnDevice pureReferenceMlpDevice config
+              result <- either (assertFailure . Text.unpack) pure resultE
+              DqnTrainer.dqnResultOptimizerSteps result @?= 2
           ]
       , testGroup
           "Continuous actor-critic trainer (Sprint 13.8 DDPG/TD3/SAC/CrossQ/TQC)"
@@ -6283,7 +7510,27 @@ main =
                 , ContinuousTrainer.VariantTQC
                 ]
             ]
-              <> [ testCase "continuous device trainer returns Left on input-gradient failure" $
+              <> [ testCase "continuous result counts delayed actor optimizer steps only" $ do
+                     let config =
+                           (ContinuousTrainer.defaultContinuousTrainConfig ContinuousTrainer.VariantTD3)
+                             { ContinuousTrainer.ctSeed = 74
+                             , ContinuousTrainer.ctHidden = 8
+                             , ContinuousTrainer.ctNumSteps = 5
+                             , ContinuousTrainer.ctReplayCapacity = 8
+                             , ContinuousTrainer.ctBatchSize = 1
+                             , ContinuousTrainer.ctStartSteps = 0
+                             , ContinuousTrainer.ctTrainStart = 1
+                             , ContinuousTrainer.ctPolicyDelay = 2
+                             , ContinuousTrainer.ctMaxEpisodeSteps = 10
+                             , ContinuousTrainer.ctStatInterval = 1
+                             }
+                     resultE <-
+                       ContinuousTrainer.trainContinuousOnDevice
+                         pureReferenceMlpDevice
+                         config
+                     result <- either (assertFailure . Text.unpack) pure resultE
+                     ContinuousTrainer.contResultActorOptimizerSteps result @?= 2
+                 , testCase "continuous device trainer returns Left on input-gradient failure" $
                      assertLeftContains
                        "continuous device input-gradient kernel"
                        ( ContinuousTrainer.trainContinuousOnDevice
@@ -6332,6 +7579,16 @@ main =
                     (failingForwardBatchDevice "qr forward unavailable")
                     fastQrDqnDeviceConfig
                 )
+          , testCase "QR-DQN result counts only update-frequency-eligible Adam steps" $ do
+              let config =
+                    fastQrDqnDeviceConfig
+                      { QrDqnTrainer.qrNumSteps = 7
+                      , QrDqnTrainer.qrTrainStart = 2
+                      , QrDqnTrainer.qrUpdateFrequency = 3
+                      }
+              resultE <- QrDqnTrainer.trainQrDqnOnDevice pureReferenceMlpDevice config
+              result <- either (assertFailure . Text.unpack) pure resultE
+              QrDqnTrainer.qrResultOptimizerSteps result @?= 2
           ]
       , testGroup
           "ARS trainer (Sprint 13.8 gradient-free)"
@@ -6416,6 +7673,31 @@ main =
                     (failingBatchGradientDevice "her gradient unavailable")
                     fastHerDeviceConfig
                 )
+          , testCase "HER reports every executed repeated online-Q optimizer step" $ do
+              callsRef <- newIORef (0 :: Int)
+              let referenceBatchGradient = mlpdBatchGradient pureReferenceMlpDevice
+                  countingDevice =
+                    pureReferenceMlpDevice
+                      { mlpdBatchGradient = \params batch -> do
+                          modifyIORef' callsRef (+ 1)
+                          referenceBatchGradient params batch
+                      }
+                  config =
+                    fastHerDeviceConfig
+                      { HerTrainer.herEpisodes = 5
+                      , HerTrainer.herUpdatesPerEpisode = 3
+                      }
+              resultE <- HerTrainer.trainHerOnDevice countingDevice config
+              result <- either (assertFailure . Text.unpack) pure resultE
+              calls <- readIORef callsRef
+              assertBool "HER counting test executed no optimizer step" (calls > 0)
+              HerTrainer.herResultOptimizerSteps result @?= calls
+          , testCase "HER rejects zero updates instead of repairing the schedule" $ do
+              result <-
+                HerTrainer.trainHerOnDevice
+                  pureReferenceMlpDevice
+                  (fastHerDeviceConfig {HerTrainer.herUpdatesPerEpisode = 0})
+              result @?= Left "HER updates per episode must be positive"
           ]
       ]
 
@@ -6885,9 +8167,19 @@ loadedLayerGraphWeights graph =
         [ CheckpointStore.LoadedWeightTensor
             (lookupTensor (LayerGraph.layerNodeName node <> ".weights"))
             (Data.Vector.Unboxed.toList (LayerGraph.layerWeights params))
+            ( ByteString.toStrict
+                ( Checkpoint.encodeJmw1
+                    (Data.Vector.Unboxed.toList (LayerGraph.layerWeights params))
+                )
+            )
         , CheckpointStore.LoadedWeightTensor
             (lookupTensor (LayerGraph.layerNodeName node <> ".bias"))
             (Data.Vector.Unboxed.toList (LayerGraph.layerBias params))
+            ( ByteString.toStrict
+                ( Checkpoint.encodeJmw1
+                    (Data.Vector.Unboxed.toList (LayerGraph.layerBias params))
+                )
+            )
         ]
   lookupTensor name =
     case lookup name tensorByName of
@@ -6926,6 +8218,12 @@ failingForwardBatchDevice :: Text -> MlpDevice
 failingForwardBatchDevice message =
   pureReferenceMlpDevice
     { mlpdForwardBatch = \_ _ -> pure (Left message)
+    }
+
+failingForwardDevice :: Text -> MlpDevice
+failingForwardDevice message =
+  pureReferenceMlpDevice
+    { mlpdForward = \_ _ -> pure (Left message)
     }
 
 failingBatchGradientDevice :: Text -> MlpDevice
@@ -7002,6 +8300,22 @@ smallTrpoConfig =
     , PpoTrainer.ppoObsSize = 4
     , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
     }
+
+trpoActorSlicesChangedForTest
+  :: PpoTrainer.PpoTrainConfig
+  -> Mlp.MlpParams
+  -> Mlp.MlpParams
+  -> Bool
+trpoActorSlicesChangedForTest config before after =
+  Mlp.paramW1 before /= Mlp.paramW1 after
+    || Mlp.paramB1 before /= Mlp.paramB1 after
+    || Data.Vector.Unboxed.take policyWeightCount (Mlp.paramW2 before)
+      /= Data.Vector.Unboxed.take policyWeightCount (Mlp.paramW2 after)
+    || Data.Vector.Unboxed.take actionCount (Mlp.paramB2 before)
+      /= Data.Vector.Unboxed.take actionCount (Mlp.paramB2 after)
+ where
+  actionCount = PpoTrainer.ppoActionCount config
+  policyWeightCount = actionCount * Mlp.mlpHidden (Mlp.paramShape before)
 
 constantGradientLike :: Mlp.MlpParams -> Double -> Mlp.MlpGradient
 constantGradientLike params value =
@@ -7400,6 +8714,13 @@ assertParseSuccess (args, expected) =
   case execParserPure defaultPrefs parserInfo args of
     Success parsed -> parsed @?= expected
     Failure _ -> assertFailure ("parse failed for " <> show args)
+    CompletionInvoked _ -> assertFailure ("completion invoked for " <> show args)
+
+assertParseFailure :: [String] -> Assertion
+assertParseFailure args =
+  case execParserPure defaultPrefs parserInfo args of
+    Failure _ -> pure ()
+    Success parsed -> assertFailure ("parse unexpectedly succeeded for " <> show args <> ": " <> show parsed)
     CompletionInvoked _ -> assertFailure ("completion invoked for " <> show args)
 
 newtype ScriptResult = ScriptResult

@@ -20,7 +20,7 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-07-16 for Sprint `2.9`). A
+✅ **Done** (reopened and re-closed 2026-07-15 for Sprint `2.9`). A
 retained-cluster reconcile exposed that the typed replacement for the former
 shell branch ran `kind create cluster` unconditionally. Sprint `2.9` restores
 the existence check and branch as typed Haskell, recovers the persisted edge
@@ -669,7 +669,7 @@ Effects`.
 
 ## Sprint 2.9: Reconciler `sh -c` Control-Flow → Typed Haskell [✅ Done]
 
-**Status**: Done (re-closed 2026-07-16 after retained-cluster reconciliation
+**Status**: Done (re-closed 2026-07-15 after retained-cluster reconciliation
 restored the missing typed Kind existence branch)
 **Implementation**: `src/JitML/Cluster/Helm.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/haskell_code_guide.md`, `legacy-tracking-for-deletion.md`
@@ -720,14 +720,14 @@ configuration reader.
   (`live phased rollout wires the explicit Kind image load phase`,
   `cluster down uses ... Kind delete subprocess`) pass against the typed forms.
 - `jitml docs check` and `jitml bootstrap --linux-cpu --dry-run` exit `0`.
-- The 2026-07-16 retained-Kind closure passes the expanded focused
+- The 2026-07-15 retained-Kind closure passes the expanded focused
   recovery/materialization suite **12 / 12**, strict warning-clean builds,
   Haskell lint, and the downstream Phase `3` two-run live acceptance.
 
 ### Remaining Work
 
 - None. Phase `3` Sprint `3.7` completed the binding two-run retained-cluster
-  and exit-`3` live validation on 2026-07-16.
+  and exit-`3` live validation on 2026-07-15.
 
 ## Sprint 2.10: Retire the Tart Prerequisite and `jitml internal vm` Commands ✅
 

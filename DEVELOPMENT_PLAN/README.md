@@ -61,33 +61,101 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Current status (2026-07-16): Sprint `12.16` is Active.** Sprints `2.9`
-and `3.7` are Done. The first exact retained-cluster command,
-`docker compose run -T --rm jitml jitml cluster up --substrate linux-cpu`, exited
-`0` after **157** steps in **2,692s**. All **34** authoritative topics remained
-probeable after more than 60 seconds; all three brokers reported
-`brokerDeleteInactiveTopicsEnabled=false`, zero restarts, and zero expected-topic
-inactivity deletions.
+**🔄 Current status (2026-07-20): Sprint `10.12` is Done; Sprint `19.4` is
+Active; every later sprint in the current chain is Blocked.** Sprint `12.16`
+remains Done on immutable image descriptor
+`sha256:6e0d57971bf8e6a7c996530a4b434a575237a570c745710f2a150a501da42aa0`,
+Linux/amd64 manifest
+`sha256:8c3c2bb3319b18e1b927cb5e73c88e8ffc55ff756806d7a8a795844975135899`,
+and config digest
+`sha256:d647ab711f7ff277121ac82390a6b4406cedd93c80422d86b3bf360d9bead432`.
+The exact `linux-cpu` block passed unit **544 / 544**, integration **155 / 155**
+including **18 / 18** Live cases, e2e Playwright **72 / 72** plus Haskell
+**29 / 29**, and aggregate **11 / 11** reporter invocations with **11 Passed**,
+**0 Failed**, and **0 NotRun**. Aggregate stanza counts were Playwright **72**,
+unit **544**, integration **155**, SL **31**, RL **40**, hyperparameter **21**,
+backends **24**, daemon lifecycle **51**, e2e **29**, negative controls **3**,
+and model convergence **111**. `jitml docs check` and `jitml check-code` both
+exited `0`. Independent verification after every canonical command retained all
+**5 / 5** application Pods Ready with zero restarts, all **34** authoritative
+topics, and zero scoped workload or broker residue.
 
-The identical second command exited `3` in **58s** and preserved byte-identical
-publication, reconcile stamp, edge authority, four node identities, 20 PVCs,
-nine Helm revisions, five application Pods, three brokers, and eight
-node/tag-image rows. Host and node targets agreed on OCI descriptor
-`sha256:87b478abc5aade79b613386a9ad7c4a77a145b7cf3d54391ca4f1fa8d11013b0`;
-node CRI and application runtime identity agreed on config digest
-`sha256:43238c272a7d54ac2c2212d211f209d1b991385c21e8badd4283710580d6f227`.
-The stable publication SHA is
-`fb1655ec0b4148f889cf682a25f36d6321a98899c7fcc0d13e3e961f06897e87`,
-and the stable reconcile-stamp SHA is
-`70a04910b6433a75237146a2e790f8158d0bcfe05110814655274cca9cbdf939`.
+The 2026-07-18 immutable-image publisher diagnostic traversed all **55** rows
+and reported **54** eligible, **0** unsupported, and **1** error
+(`cifar10-vit`, test accuracy `0.218` below `0.25`). Its frozen inventory has
+54 pointers, 54 manifests, 54 JMW1 blobs, 44 text artifacts, and 206 objects.
+That run is historical diagnostic evidence only: all ten successful supervised
+rows decoded as generic V1 snapshots with no executable supervised runtime
+payload, so their apparent eligibility did not prove strict reload. The frozen
+V1 fingerprint is SHA-256
+`30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`
+over 134 encoded bytes and must remain byte-compatible.
 
-The current open suffix is Sprint `12.16` → `19.4` → `21.4` → `25.4` →
-`28.4` → `29.5` → `30.4` → `31.3` → `32.4` → `33.3` → `34.3`. Sprint
-`12.16` remains Active until its unfiltered and six canonical `linux-cpu`
-commands, docs/code-quality gates, and three validation-pending legacy
-retirements pass. Detailed earlier audit chronology is retained in
+The current open suffix is Sprint `19.4 → 21.4 → 23.1 → 23.2 →
+23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 →
+32.4 → 33.3 → 34.3`. Sprint `10.6` closed the exact supervised runtime
+artifact and strict V2 reload; Sprint `10.12` has now closed persisted
+admission. Sprint `19.4` is Active, and every later sprint remains Blocked by
+its immediate predecessor. Phase `10` validated on `linux-cpu` only;
+Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
+The persisted-admission implementation is now in the worktree: latest selection
+performs `P1` → exact addressed V2 manifest outer/body → exact `P2` equality
+before independently fetching/binding blobs; known-address admission skips the
+pointer reads; opaque candidate/completed writer results and Store's
+`AdmittedCompletedCheckpoint` preserve the boundary. Local persistence returns
+typed `CheckpointWriteError` values that distinguish invalid requests,
+immutable-object conflicts, pointer-CAS conflicts, and filesystem failures;
+MinIO retains typed `ServiceError` conflicts. Sprint `10.12` closed after unit
+passed **719 / 719**, SL passed **36 / 36**, RL passed **40 / 40**, and
+hyperparameter passed **26 / 26**; `jitml docs check`, `jitml check-code`,
+whitespace, and Rule-M enforcement also passed. Sprint `19.4` now owns the
+active ProductRow projection and admitted-evidence gate.
+Detailed earlier audit chronology is retained in
 [Historical Reopen and Closure Context](#historical-reopen-and-closure-context);
 it does not override this evidence-derived status.
+
+The corrected immutable-image diagnostic used descriptor
+`sha256:29d5d744b86b53cf51a92447708ca4d86466bf3b364a766cc7477bd3e2ccdc3d`.
+It passed its embedded quality gates, a **156-step** reconcile, the mandated
+in-order **11 / 11** exact-V2 publications, the focused live latest-pointer
+identity gate **1 / 1**, unit **682 / 682**, and SL **36 / 36**. The mandatory
+integration lane then passed **152 / 155**: two generic supervised workflows
+reached checkpoint construction but were rejected by the ProductRow-only V2
+origin contract, and one spawned-binary tune case retained a stale success
+expectation after deliberately corrupting its publication.
+
+The revised source gives V2 a closed generic origin composed of its canonical
+row identity and canonical `SupervisedPlan` transport, while Product-origin V2
+retains the authoritative ProductRow projection. Admission binds the exact
+executed seed, canonical dataset-at-read digest, runtime bytes, completion
+metrics, TensorBoard identity/tags, and current-ETag pointer-CAS result.
+Generic training can complete against its exact plan, returns a typed successful
+miss with no checkpoint when it remains below the external bar, and writes
+directly to in-cluster MinIO from mounted workers; the stale tune assertion is
+refreshed. A warning-as-error build of the library, executable, unit,
+integration, and SL-canonical targets passed on 2026-07-19, followed by the
+complete unit lane at **711 / 711**. The exact corrected source is now built as
+immutable descriptor `sha256:0147b37fafd53c01669705a5723ce91482d0fd545da4b9da523df8dacc3e9ba8`
+(Linux/amd64 manifest `a8d35d46…`, runtime config `799fa685…`); its embedded
+`jitml check-code` and 611-module PureScript build passed. Descriptor
+`29d5d744…` and its eleven manifests remain diagnostic evidence only. A
+non-no-op **156-step** reconcile put `0147b37f…` on all four kind nodes and all
+five application Pods; the Pods are Ready with zero restarts, all nine
+publication components are Ready, and both routed probes return HTTP `200`.
+All eleven publications restarted from row one and completed at `1` eligible
+with zero unsupported/errors; the focused live latest-pointer proof passed
+**1 / 1** across all eleven exact ProductRow-origin V2 identities. Sprint
+`10.6` is Done after its whitespace, Rule-M, governed-document, and
+status-transition audits passed. Unit passed **711 / 711**, negative controls
+passed **3 / 3**, model convergence passed **111 / 111**, the all-eleven
+Store-parity SL lane passed **36 / 36**, and integration passed **155 / 155**.
+The final container `docs check` and `check-code` commands also pass.
+Detailed evidence remains in
+[Phase 10](phase-10-checkpointing-and-inference.md#closure-validation-evidence).
+Sprint `10.12` is Done on exact persisted-byte admission and its complete
+validation/docs gates. Exact persistence of the current Mixer
+executable does not close Sprint `23.1`'s single typed graph or Sprint `24.1`'s
+literal small ViT; both remain Blocked in the chain above.
 
 ## Historical Reopen and Closure Context
 
@@ -347,11 +415,12 @@ surface is recorded in
 - **Phase `5` ✅** — `jitml service` is a one-binary **Engine / Coordinator /
   Webapp** role model selected by typed Dhall, the **Coordinator** owns explicit
   topic lifecycle (the hardcoded `PulsarBootstrap` topic list retired), and the
-  binary emits its own reflected Dhall schema. Sprint `12.16` has landed live
+  binary emits its own reflected Dhall schema. At that historical checkpoint,
+  Sprint `12.16` had landed live
   Coordinator reconcile/readiness, disjoint Engine/Coordinator/Webapp client
   projections, multi-role serving, bounded startup grace, and a public
   Coordinator `/readyz` publication gate; its canonical `linux-cpu` validation
-  remains pending.
+  remained pending. The current closure record above supersedes that checkpoint.
 - **Phase `10` ✅** — inference is an async `Work*` workflow; a serveable
   `ArtifactRef` is mintable only from a completed training derivation (`.ready`
   sentinel), and the triplicated inference path collapsed into the Engine.
@@ -401,8 +470,8 @@ co-tenant disk pressure (the bookie disk-usage threshold was raised on the jitML
 clusters only) and a co-tenant-induced disk-full event. **Phases `16`, `17`, and
 `18`** were `⏸️ Blocked` on the x86_64 Linux+CUDA host (no Mac/Metal hardware).
 
-That Sprint `15.20` Webapp-GPU workaround is historical. Sprint `12.16` makes
-browser inference publish to the Engine and enforces Webapp as a no-compute
+That Sprint `15.20` Webapp-GPU workaround is historical. Sprint `12.16` made
+browser inference publish to the Engine and enforced Webapp as a no-compute
 role; the current `jitml-demo` chart therefore removes the NVIDIA RuntimeClass,
 device environment, and Kubernetes API token from Webapp while the CUDA Engine
 and worker Jobs retain their real GPU runtime.
@@ -1114,10 +1183,11 @@ latest-pointer → manifest → generated-kernel FFI path, the
 `linux-cpu` + `SelfInference` daemon inference dispatch to that generated-kernel
 runner,
 `loadInferenceCheckpointWithWeights` hook validating decoded `.jmw1` weights
-through the weighted local Linux CPU runner, the
-`JitML.Checkpoint.Store.writeCheckpointSnapshotWithMinIO` writer validating
+through the weighted local Linux CPU runner, the historical raw
+`JitML.Checkpoint.Store.writeCheckpointSnapshotWithMinIO` path that validated
 checkpoint blob/manifest writes plus latest-pointer CAS through the
-filesystem-backed `HasMinIO` instance, the
+filesystem-backed `HasMinIO` instance before Sprint `10.12` replaced its public
+surface with distinct candidate/completed writers and results, the
 `JitML.Test.Report.parseReportCardKnobs` cabal.project knob parser consumed by
 `jitml test all`, and the per-problem statistical convergence assertions
 in `JitML.SL.Canonicals` (median over k seeds clears a literature-derived
@@ -1190,31 +1260,45 @@ for Metal), and item 18 (empty legacy ledger) was then met after the final
 
 ## Execution Roadmap
 
-The retained-cluster repair is closed, so the current roadmap resumes the
-2026-07-12 typed-run-contract chain at Sprint `12.16` and proceeds in strict
-numerical order:
+The retained-cluster and shared-live-interpreter repairs are closed. The
+checkpoint/runtime audit reopened the numerical roadmap at Sprint `10.6`;
+Sprints `10.6` and `10.12` are now Done and work continues at Sprint `19.4` in strict numerical
+order:
 
 1. Sprint `2.9` has restored and validated the typed Kind existence branch,
    retained edge-port authority, and fail-closed recovery publication semantics.
 2. Sprint `3.7` is Done after two consecutive supported reconciles on the same
    `linux-cpu` cluster proved durable topic, identity, publication, and
    steady-state exit-`3` no-op truth.
-3. Sprints `1.18`, `5.18`, `8.16`, `9.17`, and `10.12` have closed the
-   structured process, receipt-bound delivery, resolved supervised/Tune/
-   AlphaZero plan, and refined completion/checkpoint foundation.
-4. Sprint `12.16` has implemented the one contract-driven live interpreter and
-   actual invocation/suite result model. It is Active until its unfiltered and
-   canonical live `linux-cpu`, docs, code-quality, and legacy-retirement gates
-   pass.
-5. Sprints `19.4`, `21.4`, and `25.4` project ProductRows, product typestate,
-   and RL training/evaluation semantics through that foundation.
-6. Sprint `28.4` validates the complete `linux-cpu` product matrix from scenario
+3. Sprints `1.18`, `5.18`, `8.16`, and `9.17` retain their closed structured
+   process, receipt-bound delivery, and resolved-plan surfaces. Historical
+   Sprint `10.12` proof refinement remains useful but is no longer sufficient
+   for persisted inference admission.
+4. Sprint `12.16` is Done: the one contract-driven live interpreter and actual
+   invocation/suite result model passed the immutable-image unfiltered and
+   canonical live `linux-cpu`, docs, code-quality, resource, and
+   legacy-retirement gates.
+5. Sprint `10.6` is Done: it adds the exact executable supervised runtime
+   artifact, preserves frozen V1 bytes, writes a V2 manifest with one physical
+   JMW1 weight blob, and makes strict reload the only supervised inference path.
+   Its current compact CIFAR executable persists 4×4/64-token Mixer semantics
+   exactly without claiming the later single-graph or literal-ViT obligations.
+   Sprint `10.12` is Done with exact persisted-byte admission:
+   stable `P1`/`P2` manifest selection precedes independent blob binding, and
+   Store alone returns opaque `AdmittedCompletedCheckpoint`. Unit **719 / 719**,
+   SL **36 / 36**, RL **40 / 40**, hyperparameter **26 / 26**, docs,
+   code-quality, whitespace, and Rule-M gates passed.
+6. Sprints `19.4`, `21.4`, `23.1`–`23.3`, `24.1`–`24.3`, and `25.4`
+   successively close exact ProductRow admission, product typestate, the real
+   executable layer graph, literal supervised architectures, and dimensionally
+   correct RL training/evaluation evidence.
+7. Sprint `28.4` validates the complete `linux-cpu` product matrix from scenario
    journals; Sprints `29.5` and `30.4` independently refresh the real
    `linux-cuda` and `apple-silicon` lanes.
-7. Sprint `31.3` aggregates committed lane journals on `linux-cpu`, Sprint
-   `32.4` installs protocol/evidence negative controls, Sprint `33.3` closes
-   contract-driven per-model measurements, and Sprint `34.3` derives report and
-   plan status from those results.
+8. Sprint `31.3` aggregates committed lane journals on `linux-cpu`; Sprint
+   `32.2` binds external bars to exact served bytes; Sprint `32.4` installs
+   protocol/evidence negative controls; Sprint `33.3` closes contract-driven
+   per-model measurements; and Sprint `34.3` derives report and plan status.
 
 ### Historical roadmaps
 
@@ -1340,37 +1424,37 @@ obligation exists.
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done (Sprint 0.3 — governed-document metadata enforcement; `docs check`, `lint docs`, `check-code` green 2026-06-29) | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
 | 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (Sprint `1.18` — structured subprocess outcomes and lossless failure transcripts; `jitml-unit --linux-cpu` **284 / 284**, `docs check` and `check-code` exit `0`) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
-| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (Sprint `2.9` re-closed 2026-07-16 — typed retained-Kind existence branch, edge-port reuse, and fail-closed recovery publication; focused Kind **9 / 9**, docs and `check-code` green) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
-| 3 | Cluster Substrate and Routing | ✅ Done (Sprint `3.7` re-closed 2026-07-16 — first retained reconcile exit `0` after **157** steps, durable **34**-topic proof, then byte-stable exit-`3` no-op reconcile) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
+| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (Sprint `2.9` re-closed 2026-07-15 — typed retained-Kind existence branch, edge-port reuse, and fail-closed recovery publication; focused Kind **9 / 9**, docs and `check-code` green) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
+| 3 | Cluster Substrate and Routing | ✅ Done (Sprint `3.7` re-closed 2026-07-15 — first retained reconcile exit `0` after **157** steps, durable **34**-topic proof, then byte-stable exit-`3` no-op reconcile) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 4.9: `bucketNames` now projected from the durable-state `StoreRegistry`, hand-written `[Text]` retired; jitml-unit 217/217, jitml-e2e 23/23) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | ✅ Done (Sprint `5.18` — receipt-bound delivery and total settlement; unit **343 / 343**, daemon lifecycle **41 / 41**, integration **81 / 81**) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (Sprint `8.16` — validated kind-indexed plans, pure contract algebra, and plan-bound semantic identity; unit **367 / 367**, SL **31 / 31**, RL **39 / 39**) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (Sprint `9.17` — resolved-plan worker adoption for Tune and AlphaZero; unit **400 / 400**, hyperparameter **21 / 21**, RL **40 / 40**, integration **138 / 138** including **20 / 20** Live) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (Sprint `10.12` — resolved supervised plan adoption plus re-refined completion and checkpoint proof; unit **411 / 411**, SL **31 / 31**, RL **40 / 40**, hyperparameter **21 / 21**) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (Sprint `10.6` exact supervised runtime artifact and strict `linux-cpu` reload; Sprint `10.12` exact persisted-byte admission, split writers, typed conflicts, and full `linux-cpu` validation) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.11 — all-model UI matrix, convergence display, trained-artifact selection, and generated admin portal navigation) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | 🔄 Active (Sprint `12.16` — shared live interpreter and focused immutable-image proofs landed; unfiltered/canonical `linux-cpu`, docs, code-quality, and legacy-retirement gates remain) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint `12.16` — immutable-image unit **544 / 544**, integration **155 / 155**, e2e Playwright **72 / 72** plus Haskell **29 / 29**, aggregate reporter **11 / 11**, docs, code quality, and resource verification passed) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done (Sprint 13.3 — linux-cpu aggregate runtime gate passed 8/8 stanzas) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
 | 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done (Sprint 14.4 — live Playwright proves eligible trained-artifact metadata and all generated model rows) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence; current product handoff is open under the Sprint `1.18` → `34.3` typed-run-contract chain | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
-| 19 | Product Truth Gates & Registry | ⏸️ Blocked (Sprint `19.4` — ProductRow-to-plan/evidence projection; blocked by `12.16`) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
+| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence; current product handoff remains open under the Sprint `19.4` → `34.3` suffix | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 19 | Product Truth Gates & Registry | 🔄 Active (Sprint `19.4` — exact admitted ProductRow artifacts and complete 55-row publisher) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
 | 20 | De-Fossilization & Scaffold Lint | ✅ Done (reclosed 2026-07-06 — product-scaffold lint and reachability gates validated) | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
 | 21 | Type-State DSL and Inference Eligibility | ⏸️ Blocked (Sprint `21.4` — phase-specific product evidence payloads; blocked by `19.4`) | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
 | 22 | Canonical Matrix and Dataset Integrity | ✅ Done (Sprints 22.1-22.3 complete; matrix parity, per-row Dhall, and read-time dataset SHA validated) | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
-| 23 | General Differentiable Layer Engine | ✅ Done (reclosed 2026-07-06) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
-| 24 | Real Supervised Architectures | ✅ Done (reclosed 2026-07-10 — executed MLP-Mixer-style path at raised widths validated) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
-| 25 | Real RL Algorithms and Environments | ⏸️ Blocked (Sprint `25.4` — dimensionally correct compiled RL plans and distinct learning/evaluation evidence; blocked by `21.4`) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
+| 23 | General Differentiable Layer Engine | ⏸️ Blocked (Sprints `23.1`–`23.3` — one executable exact graph, gradients, kernels, and reload; blocked first by `21.4`) | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
+| 24 | Real Supervised Architectures | ⏸️ Blocked (Sprints `24.1`–`24.3` — literal trained/served architectures and exact manifests; blocked first by `23.3`) | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
+| 25 | Real RL Algorithms and Environments | ⏸️ Blocked (Sprint `25.4` — dimensionally correct compiled RL plans and distinct learning/evaluation evidence; blocked by `24.3`) | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (reclosed 2026-07-06) | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
 | 27 | Demo All-Model Rendering | ✅ Done (reclosed 2026-07-06) | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
 | 28 | Per-Model Integration and E2E | ⏸️ Blocked (Sprint `28.4` — contract-driven `linux-cpu` scenarios and journal-derived row evidence; blocked by `25.4`) | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
 | 29 | Linux CUDA Product Lane | ⏸️ Blocked (Sprint `29.5` — refresh the real `linux-cuda` lane through the new contract; blocked by `28.4`) | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
 | 30 | Apple Silicon Product Lane | ⏸️ Blocked (Sprint `30.4` — refresh the real `apple-silicon` lane through the new contract; blocked by `29.5`) | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
-| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (Sprint `31.3` — `linux-cpu`-only journal aggregation; blocked by `29.5` and `30.4`) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
-| 32 | External-Truth Realness Harness & Negative-Control Gate | ⏸️ Blocked (Sprint `32.4` — RunContract mutation and reducer negative controls; blocked by `31.3`) | [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md) |
+| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (Sprint `31.3` — `linux-cpu`-only journal aggregation; blocked by `30.4`, with `29.5` transitive) | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+| 32 | External-Truth Realness Harness & Negative-Control Gate | ⏸️ Blocked (Sprint `32.2` — exact served-byte provenance, blocked by `31.3`; Sprint `32.4` blocked by `32.2`) | [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md) |
 | 33 | Per-Model Convergence & Inference-Performance Tests | ⏸️ Blocked (Sprint `33.3` — contract-driven per-model training/evaluation; blocked by `32.4`) | [phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md) |
 | 34 | Plan-Truth Governance | ⏸️ Blocked (Sprint `34.3` — journal-derived reports and phase status; blocked by `33.3`) | [phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md) |
 
@@ -1463,7 +1547,9 @@ supported model must have:
 - a pure fixed `TrainingBudget`;
 - a `CompletedTraining` witness that proves the budget ran to completion;
 - checkpoint-integrated convergence statistics and TensorBoard scalar metadata;
-- an `InferenceEligibleCheckpoint` minted only from that completed witness;
+- the then-current pure `InferenceEligibleCheckpoint` minted only from that
+  completed witness (now superseded by Store's persisted
+  `AdmittedCompletedCheckpoint` boundary);
 - integration and e2e cells that reject inference before completion;
 - demo/UI controls that expose the model-specific interaction and convergence
   payload.
@@ -1486,6 +1572,9 @@ Ownership:
 
 ## Reopened phases (2026-06-14 — no-caveat end-to-end product target)
 
+This section records the June checkpoint only. Its closure claims did not
+satisfy the exact V2 runtime obligation later closed by Sprint `10.6`.
+
 The product target now has no accepted caveats: every canonical model trains,
 checkpoints, reloads, infers/evaluates, and exposes the right browser
 interaction; every RL workflow produces real live events and animations; every
@@ -1499,9 +1588,10 @@ Owning sprints:
 - **Phase 9 / Sprint `9.12`** re-closed full RL algorithm runtime, AlphaZero
   terminal evaluators/replay, and real tuning-objective closure after
   linux-cpu, apple-silicon, and linux-cuda validation passed.
-- **Phase 10 / Sprint `10.6`** re-closed checkpoint/inference metadata and
-  reload compatibility checks for every model family after linux-cpu,
-  linux-cuda, and apple-silicon validation passed.
+- **Phase 10 / Sprint `10.6`** historically re-closed checkpoint/inference
+  metadata and reload compatibility checks for every model family after
+  linux-cpu, linux-cuda, and apple-silicon validation passed; that evidence
+  predates the current exact V2 supervised-runtime requirement.
 - **Phase 11 / Sprint `11.9`** owns generated browser contracts, full workflow
   controls, checkpoint-backed REST route wiring, generic inference/checkpoint
   comparison, real visualization renderers, and removal of demo-only parsers.
@@ -2003,11 +2093,15 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-07-16, the authoritative current state is the Phase Overview and
-Closure Status above: Sprints `2.9` and `3.7` are Done; Sprint `12.16` is
-Active; Sprints `1.18`, `5.18`, `8.16`, `9.17`, and `10.12` remain Done after
-their canonical gates passed. The remaining typed-run-contract chain is Blocked
-in numerical order from `19.4` through `34.3`.
+As of 2026-07-20, the authoritative current state is the Phase Overview and
+Closure Status above: Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`,
+`10.6`, `10.12`, and `12.16` are Done on their retained surfaces. Sprint
+`19.4` is Active now that persisted-address admission, split writers/results,
+exact conflict semantics, and the Store→Pipeline dependency direction have
+closed; the exact downstream chain through `34.3` is Blocked in numerical
+order. The earlier structural Sprint `10.12` validation and all pre-V2
+publisher runs remain historical evidence, while Phase `10` records the
+current persisted-artifact closure evidence.
 `src/JitML/Product/PhaseStatus.hs` now mirrors the open product sprints
 provisionally instead of retaining the stale all-Done literal, but that
 hand-maintained registry is not execution evidence and remains scheduled for
@@ -2159,9 +2253,9 @@ the Envoy `gateway/jitml-edge` resolving all 14 HTTPRoutes from
 `JitML.Service.PulsarWebSocketSubprocess`, a daemon-dispatch
 StartTraining → Pulsar publish → daemon consume → `kubectl apply
 job/jitml-train-<hash>` round-trip, a checkpoint snapshot manifest +
-blob + latest-pointer write through
-`CheckpointStore.writeCheckpointSnapshotWithMinIO` (idempotent
-re-write asserts `PointerConflict`), and a tune-trial transcript
+blob + latest-pointer write through the then-public
+`CheckpointStore.writeCheckpointSnapshotWithMinIO` (idempotent re-write asserts
+`PointerConflict`; Sprint `10.12` later split this public surface), and a tune-trial transcript
 persist + `TuneResume.replaySweep` round-trip, a live MinIO GC
 pipeline (`listCheckpointManifestsMinIO` →
 `buildGcPlan LastN 2` → `executeGcPlan`) that stages three manifests,
@@ -2371,7 +2465,11 @@ Sprints 15.8 and 15.9 hung off:
   priors from the real network forward pass), a real Connect-4
   4-in-a-row terminal evaluator, and `runOneGenerationOfSelfPlay`
   driving self-play → gradient updates → arena win-rate against
-  a uniform-random baseline.
+  a uniform-random baseline. Phase `19` hardening on 2026-07-15 made
+  each declared optimizer update evaluate the complete ordered sample
+  batch against one parameter snapshot, average its gradients, and perform
+  exactly one Adam step; `policyValueTrainingSamplesSha256` binds completion
+  evidence to the real ordered state/visit-distribution/outcome content.
 
 5 new tests in `jitml-unit` and 5 new tests in `jitml-rl-canonicals`
 cover the network seam: MLP forward determinism, Adam step
@@ -2490,14 +2588,16 @@ families with real, GPU-validated work — without fabricating closure
   `JitML.Numerics.MlpCuda` emit and run the MLP forward/backward passes as
   real CUDA kernels behind the `JitML.Numerics.Mlp` interface, and the
   AlphaZero network is now wired to them:
-  `PolicyValueNet.trainPolicyValueNetOnSamplesCuda` runs the per-sample
-  forward + backward on the GPU (host Adam), with `Mlp` refactored to share
-  the policy/value head math between the pure and device paths
-  (behavior-preserving). `cabal test jitml-cross-backend
+  As clarified by the 2026-07-15 Phase `19` hardening,
+  `PolicyValueNet.trainPolicyValueNetOnSamplesCuda` evaluates the complete
+  ordered training-sample batch against one immutable parameter snapshot,
+  averages the batch gradient, and performs exactly one host Adam step per
+  declared optimizer update. `Mlp` shares the policy/value head math between
+  the pure and device paths. `cabal test jitml-cross-backend
   --test-options='-p linux-cuda'` reports **9 / 9 pass** on the RTX 3090:
   the MLP forward/backward match the pure network within `1e-3` and are
-  bit-deterministic, and 80 device gradient passes reduce the AlphaZero
-  policy/value loss. The "emit-the-kernels" item is done and the device
+  bit-deterministic, and 80 declared full-batch optimizer updates reduce the
+  AlphaZero policy/value loss. The "emit-the-kernels" item is done and the device
   training-step integration is proven; what remains is adopting the device
   step in the 14 RL trainers' batched hot path + the cuDNN deterministic
   pin + the live cohort/generation drives.
@@ -2749,9 +2849,10 @@ the extended checkpoint
 manifest (optimizer state, RNG streams, monotonic step, metrics,
 parent lineage), the typed `AdvancePredicate` ADT, the
 `deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`
-+ `buildGcPlan` GC reconciler surface, and the
-`writeCheckpointSnapshotWithMinIO` / `loadInferenceCheckpointWithWeights`
-checkpoint write/read paths; the PureScript
++ `buildGcPlan` GC reconciler surface, and the historical
+`writeCheckpointSnapshotWithMinIO` plus
+`loadInferenceCheckpointWithWeights` checkpoint write/read paths (the raw writer
+was later replaced publicly by split candidate/completed operations); the PureScript
 scaffold with the current panel payload modules under `web/src/Panels/`, the
 generated contracts, and the full typed local demo route manifest; the
 `jitml-demo` Webapp workload; the Playwright
@@ -2764,12 +2865,12 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`2.9 → 3.7 → 12.16 → 19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 → 33.3 → 34.3`.
+`19.4 → 21.4 → 23.1 → 23.2 → 23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 → 32.4 → 33.3 → 34.3`.
 
-Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, and `10.12` remain
-closed; the current open suffix is:
-
-`12.16 → 19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 → 33.3 → 34.3`.
+Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
+`12.16` remain closed on their retained surfaces. Sprint `19.4` is the sole
+Active sprint; every later sprint in the chain is Blocked by its immediate
+predecessor.
 
 Every edge points forward. Sprints `29.5` and `30.4` validate one accelerator
 each; Sprint `31.3` consumes their committed journals on `linux-cpu` and invokes
@@ -2889,10 +2990,20 @@ This plan is complete only when all of the following are true:
    from the determinism contract, so the performance metric is a distinct non-timing
    measure. (Reopened 2026-06-24 — Sprints 8.13/9.13/13.2 own these; see
    [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md).)
-7. Checkpoints write the split-blob `.jmw1` format with the typed manifest and the
-   inference-only read path; the bit-determinism contract holds — a checkpoint
-   reproduced on the same substrate against the same toolchain pin is
-   bit-identical, and no cross-substrate byte-equality is claimed.
+7. Checkpoints preserve the frozen V1 manifest bytes and add a V2 addressed
+   envelope whose outer SHA covers its exact bytes and whose inner SHA covers
+   its exact canonical body. A supervised V2 checkpoint contains one physical
+   `supervised.weights` `.jmw1` blob plus an executable runtime payload that
+   binds the validated plan, dataset bytes, preprocessing/output transforms,
+   graph-ordered virtual tensor slices, and exact initial/final JMW1 hashes.
+   Supervised V1 remains inspectable but cannot become inference eligible. The
+   reader obtains pointer body `P1`, verifies the exact addressed manifest
+   outer/body, requires exact pointer-body `P2 == P1`, and only then fetches and
+   independently binds the referenced blobs; ETag equality is not an admission
+   requirement. Known-address admission skips the pointer reads but performs the
+   same manifest/blob checks. Same-substrate reproduction remains
+   bit-identical, and no cross-substrate byte-equality is claimed. (Sprints
+   `10.6`, `10.12`.)
 8. The PureScript frontend under `web/` is generated from
    `src/JitML/Web/Contracts.hs`; final closure requires the MNIST handwriting
    panel, CIFAR/ImageNet upload panel, generic inference panels, RL panels,
@@ -3067,23 +3178,43 @@ added Phase `29` Sprint `29.4`. It is owned by Phase `29`:
 30. **Validated plan boundary.** Every external command, Dhall value, and wire
     request remains a versioned raw DTO until one pure refinement step produces
     a positive, finite, dimensionally checked `RunPlan kind` with a stable
+    `PlanId`. For ProductRows, the opaque `projectProductRows` batch is the sole
+    source of the ordered row identities and denominator; each batch projection
+    binds its row, descriptor, exact command, kind-indexed plan, substrate, and
     `PlanId`. Workers execute that resolved plan without reinterpreting fields,
-    reconstructing budgets, or applying silent clamps/defaults. (Sprints `8.16`,
-    `9.17`, `10.12`, `19.4`, `25.4`.)
+    reconstructing budgets, or applying silent clamps/defaults. Supervised
+    execution returns a proof-bearing artifact that contains the exact runtime,
+    dataset identity, and initial/final JMW1 bytes used by completion and
+    persistence; California Housing fits feature and target statistics from the
+    raw training split only. Run-plan placement is the closed
+    `ClusterRun | HostRun | InProcessRun` sum. (Sprints `8.16`, `9.17`, `10.6`,
+    `10.12`, `19.4`, `25.4`.)
 31. **Pure exact evidence contract.** Every workflow's typed events feed a pure
     total reducer. Only terminal workload success plus the plan's complete
     evidence contract can mint opaque `CompletedRunEvidence`; gaps, conflicting
     duplicates, wrong-plan events, malformed or non-finite values, and empty
-    aggregates fail explicitly. Training iteration curves and final evaluation
-    sets are distinct types. (Sprints `8.16`, `10.12`, `12.16`, `25.4`, `33.3`.)
+    aggregates fail explicitly. A ProductRow becomes reportable only through an
+    opaque exact-plan completed join against that projection batch; declarations,
+    raw handles, or projection alone cannot mint a report row. Checkpoint
+    admission retains the exact addressed wrapper and stored bytes: candidate
+    and completed writers/results are distinct, an existing immutable key is
+    accepted only after byte-for-byte equality, and exact pointer-body
+    `P1 == P2` stabilizes the addressed manifest before independently fetched
+    blobs are bound. Store returns opaque `AdmittedCompletedCheckpoint`, and
+    Product Pipeline consumes it above the persistence layer. ETags remain
+    write-CAS tokens, not snapshot identity. Training iteration curves and
+    final evaluation sets are distinct types. (Sprints `8.16`, `10.6`,
+    `10.12`, `12.16`, `19.4`,
+    `25.4`, `32.2`, `33.3`.)
 32. **Receipt-bound scoped interpretation.** Broker deliveries carry opaque
     receipts, one handler disposition per delivery is owned and applied by the
     persistent interpreter, and subscriptions, Jobs, clusters, and temporary
     objects have explicit ownership and exception-safe cleanup. This ownership
     does not turn Pulsar's broker delivery into an exactly-once guarantee. Host
     and cluster placement, probe failures, terminal states, and cleanup failures
-    are closed sums rather than independent `Bool`/`Maybe` fields. (Sprints
-    `5.18`, `12.16`.)
+    are closed sums rather than independent `Bool`/`Maybe` fields. Run-plan
+    placement is distinct from the live interpreter's handle-owning
+    `Placement = ClusterJob | HostRun | RequestReply`. (Sprints `5.18`, `12.16`.)
 33. **Lossless process and suite outcomes.** A process result is success with a
     transcript or nonzero failure with command, stdout, stderr, and duration.
     Suite outcomes are derived from actual `Passed | Failed | NotRun`

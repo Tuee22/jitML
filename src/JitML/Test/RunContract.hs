@@ -1,6 +1,9 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module JitML.Test.RunContract
   ( runContractTests
@@ -12,21 +15,27 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Exception (fromException, throwIO, try)
 import Data.Foldable (traverse_)
 import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
-import Data.List (permutations)
+import Data.List (find, permutations)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Word (Word32)
+import Data.Word (Word32, Word64)
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Coordinator.Topology (ProtocolRoute (..), topicFor)
 import JitML.Plan.Plan
   ( EventId
   , FiniteMeasurement
   , PlanId
   , Quantity
+  , RunKind (..)
+  , RunKindWitness (..)
   , Unit (..)
   , Validation (..)
   , deriveEventIdForPlanId
@@ -34,12 +43,20 @@ import JitML.Plan.Plan
   , mkFiniteMeasurement
   , mkQuantity
   , planIdFromCanonicalText
+  , planIdText
   , quantityValue
   )
+import JitML.Plan.Workload qualified as WorkloadPlan
+import JitML.Product.Completion qualified as ProductCompletion
+import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
 import JitML.Run.Contract
+import JitML.SL.Canonicals qualified as SL
+import JitML.SL.Dataset qualified as Dataset
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Service.Capabilities
   ( ConsumerSessionEvent (..)
   , SubscriptionOwnership (..)
@@ -53,6 +70,7 @@ import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..))
 import JitML.Test.LiveEvidence qualified as LiveEvidence
 import JitML.Test.LiveWorkflow qualified as LiveWorkflow
+import JitML.Test.Report qualified as Report
 import JitML.Training.Budget qualified as TrainingBudget
 
 runContractTests :: TestTree
@@ -744,7 +762,703 @@ runContractTests =
           Right _ -> assertFailure "owned cleanup replaced cancellation with a result"
           Left _sameAsyncType -> pure ()
         readIORef observedCleanup >>= (@?= [cleanupIssue])
+    , productScenarioReportTests
     ]
+
+productScenarioReportTests :: TestTree
+productScenarioReportTests =
+  testGroup
+    "ProductScenarioReport"
+    [ testCase "Store-admitted completion and live completion mint an opaque report" $
+        withAdmittedProductProjection $ \row projection admitted -> do
+          scenarioCompletion <-
+            expectRight (Report.productScenarioCompletion projection admitted)
+          liveResult <- runProductScenarioWorkflow projection scenarioCompletion
+          evidence <-
+            expectRight
+              (Report.completedProductScenarioEvidence projection liveResult)
+          let batch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCPU [row])
+          report <-
+            expectRight
+              (Report.projectCompletedProductScenarioReport batch [evidence])
+          Report.completedProductScenarioRowId evidence
+            @?= ProductMatrix.productProjectionRowId projection
+          Report.completedProductScenarioPlanId evidence
+            @?= ProductMatrix.productProjectionPlanId projection
+          Report.completedProductScenarioLane evidence @?= LinuxCPU
+          let expectedManifestSha =
+                CheckpointStore.admittedCheckpointManifestSha
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
+          Report.completedProductScenarioManifestSha evidence
+            @?= expectedManifestSha
+          assertBool
+            "validated product report omitted persisted artifact identity"
+            ( expectedManifestSha
+                `Text.isInfixOf` Report.renderCompletedProductScenarioEvidence report
+            )
+    , testCase "typed completion rejects another experiment or substrate plan" $
+        withAdmittedProductProjection $ \row projection admitted -> do
+          _ <- expectRight (Report.productScenarioCompletion projection admitted)
+          withProjectedRow LinuxCUDA row $ \cudaProjection -> do
+            assertProductCompletionError
+              isCompletionPlanMismatch
+              (Report.productScenarioCompletion cudaProjection admitted)
+            assertProductCompletionError
+              isCompletionManifestPlanMismatch
+              (Report.productScenarioCompletion cudaProjection admitted)
+          withDifferentProductProjection row $ \otherProjection -> do
+            let rejected = Report.productScenarioCompletion otherProjection admitted
+            assertProductCompletionError isCompletionExperimentMismatch rejected
+            assertProductCompletionError isCompletionCanonicalRowMismatch rejected
+    , testCase "AlphaZero update-count multiplication fails closed on Word64 overflow" $
+        withAdmittedProductProjection $ \_admittedRow _admittedProjection admitted ->
+          case [ row
+               | row <- ProductMatrix.allProductRows
+               , case ProductMatrix.rowClass row of
+                   ProductMatrix.AlphaZeroGame _ -> True
+                   _ -> False
+               ] of
+            [] -> assertFailure "ProductRow registry has no AlphaZero row"
+            row : _ ->
+              case ProductMatrix.productCapability row of
+                ProductMatrix.ExecutableProduct
+                  (ProductMatrix.AlphaZeroProductDescriptor game _ _ _ _ _)
+                  ProductMatrix.AlphaZeroProductEvidence -> do
+                    let largeQuantity = 5_000_000_000
+                        overflowRow =
+                          row
+                            { ProductMatrix.trainingBudget =
+                                trainingBudgetFixture
+                                  TrainingBudget.AlphaZeroSelfPlayBudget
+                                  largeQuantity
+                                  ( TrainingBudget.trainingBudgetSeed
+                                      (ProductMatrix.trainingBudget row)
+                                  )
+                            , ProductMatrix.productCapability =
+                                ProductMatrix.ExecutableProduct
+                                  ( ProductMatrix.AlphaZeroProductDescriptor
+                                      game
+                                      1
+                                      1
+                                      1
+                                      largeQuantity
+                                      1
+                                  )
+                                  ProductMatrix.AlphaZeroProductEvidence
+                            }
+                    withProjectedRow LinuxCPU overflowRow $ \projection ->
+                      assertProductCompletionError
+                        isCompletionUpdateCountOverflow
+                        (Report.productScenarioCompletion projection admitted)
+                other ->
+                  assertFailure
+                    ("unexpected AlphaZero ProductCapability: " <> show other)
+    , testCase "declaration or non-completed run cannot mint scenario evidence" $
+        withFirstProductProjection $ \_row projection ->
+          incompleteProductScenarioEvidence projection
+            @?= Left
+              ( Report.ProductScenarioDidNotComplete
+                  (ProductMatrix.productProjectionRowId projection)
+              )
+    , testCase "scenario evidence independently rejects the live plan and projection" $ do
+        withAdmittedProductProjection $ \_row projection admitted -> do
+          let completion =
+                expectEitherRight
+                  ( Report.productScenarioCompletion
+                      projection
+                      admitted
+                  )
+              expectedPlanId = ProductMatrix.productProjectionPlanId projection
+              wrongPlanId = if expectedPlanId == planA then planB else planA
+          liveResult <-
+            runProductScenarioWorkflowAtPlan wrongPlanId projection completion
+          Report.completedProductScenarioEvidence projection liveResult
+            @?= Left
+              ( Report.ProductScenarioPlanMismatch
+                  (ProductMatrix.productProjectionRowId projection)
+                  expectedPlanId
+                  wrongPlanId
+              )
+          withDifferentSupervisedProductProjection projection $ \secondProjection -> do
+            let secondProjectionCompletion =
+                  expectEitherRight
+                    ( Report.productScenarioCompletion
+                        projection
+                        admitted
+                    )
+            secondProjectionLiveResult <-
+              runProductScenarioWorkflowAtPlan
+                (ProductMatrix.productProjectionPlanId secondProjection)
+                projection
+                secondProjectionCompletion
+            Report.completedProductScenarioEvidence
+              secondProjection
+              secondProjectionLiveResult
+              @?= Left
+                ( Report.ProductScenarioProjectionMismatch
+                    (ProductMatrix.productProjectionRowId secondProjection)
+                )
+    , testCase "projection batch rejects duplicate and unprojectable registry rows" $
+        case ProductMatrix.allProductRows of
+          [] -> assertFailure "ProductRow registry is unexpectedly empty"
+          row : _ -> do
+            assertProductMatrixError
+              (\case ProductMatrix.DuplicateProductRowId _ -> True; _ -> False)
+              (ProductMatrix.projectProductRows LinuxCPU [row, row])
+            let unsupported =
+                  row
+                    { ProductMatrix.productCapability =
+                        ProductMatrix.UnsupportedProduct "unit unprojectable fixture"
+                    }
+            assertProductMatrixError
+              (\case ProductMatrix.UnprojectableProductRow _ -> True; _ -> False)
+              (ProductMatrix.projectProductRows LinuxCPU [unsupported])
+    , testCase "validated report rejects missing, duplicate, orphan, wrong-plan, and wrong-lane evidence" $
+        withAdmittedProductProjection $ \firstRow firstProjection admitted -> do
+          secondRow <-
+            case filter ((/= ProductMatrix.rowId firstRow) . ProductMatrix.rowId) ProductMatrix.allProductRows of
+              [] -> assertFailure "ProductRow registry needs at least two rows"
+              row : _ -> pure row
+          let completion =
+                expectEitherRight
+                  (Report.productScenarioCompletion firstProjection admitted)
+          liveResult <- runProductScenarioWorkflow firstProjection completion
+          evidence <-
+            expectRight
+              (Report.completedProductScenarioEvidence firstProjection liveResult)
+          let firstBatch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCPU [firstRow])
+              secondBatch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCPU [secondRow])
+              cudaBatch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCUDA [firstRow])
+          assertProductReportError
+            (\case Report.MissingCompletedProductScenario {} -> True; _ -> False)
+            (Report.projectCompletedProductScenarioReport firstBatch [])
+          assertProductReportError
+            (\case Report.DuplicateCompletedProductScenario {} -> True; _ -> False)
+            (Report.projectCompletedProductScenarioReport firstBatch [evidence, evidence])
+          assertProductReportError
+            (\case Report.OrphanCompletedProductScenario {} -> True; _ -> False)
+            (Report.projectCompletedProductScenarioReport secondBatch [evidence])
+          assertProductReportError
+            (\case Report.WrongPlanCompletedProductScenario {} -> True; _ -> False)
+            (Report.projectCompletedProductScenarioReport cudaBatch [evidence])
+          assertProductReportError
+            (\case Report.WrongLaneCompletedProductScenario {} -> True; _ -> False)
+            (Report.projectCompletedProductScenarioReport cudaBatch [evidence])
+    , testCase "validated report rejects evidence minted under a stale report contract" $
+        withAdmittedProductProjection $ \row projection admitted -> do
+          let completion =
+                expectEitherRight
+                  ( Report.productScenarioCompletion
+                      projection
+                      admitted
+                  )
+          liveResult <- runProductScenarioWorkflow projection completion
+          evidence <-
+            expectRight
+              (Report.completedProductScenarioEvidence projection liveResult)
+          let changedScenarioIds =
+                row
+                  { ProductMatrix.integrationTest =
+                      ProductMatrix.integrationTest row <> ".changed"
+                  , ProductMatrix.e2eTest =
+                      ProductMatrix.e2eTest row <> ".changed"
+                  }
+              originalBar = ProductMatrix.convergenceBar row
+              changedCriterion =
+                row
+                  { ProductMatrix.convergenceBar =
+                      originalBar
+                        { ProductConvergence.convergenceLiteratureTarget =
+                            ProductConvergence.convergenceLiteratureTarget originalBar + 0.001
+                        , ProductConvergence.convergenceThreshold =
+                            ProductConvergence.convergenceThreshold originalBar + 0.001
+                        }
+                  }
+              changedDemoPanel =
+                row
+                  { ProductMatrix.demoPanel =
+                      ProductMatrix.demoPanel row <> ".changed"
+                  }
+              changedScenarioBatch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCPU [changedScenarioIds])
+              changedCriterionBatch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCPU [changedCriterion])
+              changedDemoPanelBatch =
+                expectSuccess
+                  (ProductMatrix.projectProductRows LinuxCPU [changedDemoPanel])
+              isStaleContract =
+                \case
+                  Report.StaleContractCompletedProductScenario {} -> True
+                  _ -> False
+          assertProductReportError
+            isStaleContract
+            ( Report.projectCompletedProductScenarioReport
+                changedScenarioBatch
+                [evidence]
+            )
+          assertProductReportError
+            isStaleContract
+            ( Report.projectCompletedProductScenarioReport
+                changedCriterionBatch
+                [evidence]
+            )
+          assertProductReportError
+            isStaleContract
+            ( Report.projectCompletedProductScenarioReport
+                changedDemoPanelBatch
+                [evidence]
+            )
+    ]
+
+-- The report boundary deliberately accepts no caller-built completion.  Unit
+-- tests therefore persist and re-admit one exact ProductRow V2 graph instead
+-- of using a privileged constructor or a decoded-manifest shortcut.
+withAdmittedProductProjection
+  :: ( ProductMatrix.ProductRow 'ProductMatrix.Declared
+       -> ProductMatrix.ProductProjection 'SupervisedTraining
+       -> CheckpointStore.AdmittedCompletedCheckpoint
+       -> IO result
+     )
+  -> IO result
+withAdmittedProductProjection action =
+  withSystemTempDirectory "jitml-report-admission" $ \root -> do
+    row <-
+      maybe
+        (assertFailure "missing authoritative mnist-shallow-mlp ProductRow")
+        pure
+        ( find
+            ((== "mnist-shallow-mlp") . ProductMatrix.rowId)
+            ProductMatrix.allProductRows
+        )
+    problem <-
+      maybe
+        (assertFailure "missing canonical mnist-shallow-mlp problem")
+        pure
+        (find ((== "mnist-shallow-mlp") . SL.problemName) SL.canonicalProblems)
+    projection <-
+      case ProductMatrix.projectProductRow LinuxCPU row of
+        Failure errors ->
+          assertFailure ("ProductRow projection failed: " <> show errors)
+        Success
+          ( ProductMatrix.SomeProductProjection
+              SupervisedTrainingWitness
+              exactProjection
+            ) -> pure exactProjection
+        Success _ ->
+          assertFailure "mnist-shallow-mlp projection is not supervised"
+    admitted <-
+      persistAndAdmitProductCompletion root row problem projection
+    action row projection admitted
+
+persistAndAdmitProductCompletion
+  :: FilePath
+  -> ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> SL.CanonicalProblem
+  -> ProductMatrix.ProductProjection 'SupervisedTraining
+  -> IO CheckpointStore.AdmittedCompletedCheckpoint
+persistAndAdmitProductCompletion root row problem projection = do
+  runtime <- expectRight (RuntimeArtifact.refineSupervisedRuntime reportFixtureRuntime)
+  datasetSha <- expectRight (Dataset.canonicalDatasetReadShaForProblem problem)
+  let plan =
+        case ProductMatrix.productProjectionResolvedPlan projection of
+          ProductMatrix.ResolvedSupervisedProductPlan resolved -> resolved
+      parameterCount = RuntimeArtifact.supervisedRuntimeParameterCount runtime
+      initialBytes = WeightCodec.encodeJmw1 (replicate parameterCount 0.0)
+      finalBytes =
+        WeightCodec.encodeJmw1
+          (0.25 : replicate (parameterCount - 1) 0.0)
+      initialSha = WeightCodec.jmw1ContentSha initialBytes
+      finalSha = WeightCodec.jmw1ContentSha finalBytes
+      experiment = ProductMatrix.productProjectionExperimentHash projection
+      planId = ProductMatrix.productProjectionPlanId projection
+      budget = ProductMatrix.productProjectionTrainingBudget projection
+      observedUnits = TrainingBudget.trainingBudgetTargetUnits budget
+      optimizerUpdates =
+        quantityValue (WorkloadPlan.supervisedPlanOptimizerUpdates plan)
+      bar = ProductMatrix.productProjectionConvergenceBar projection
+      metrics =
+        [
+          ( ProductConvergence.convergenceMetricName bar
+          , ProductConvergence.convergenceThreshold bar
+          )
+        ]
+  payload <-
+    expectRight
+      ( RuntimeArtifact.refineSupervisedRuntimePayload
+          RuntimeArtifact.RawSupervisedRuntimePayload
+            { RuntimeArtifact.rawRuntimePayloadRowId = ProductMatrix.rowId row
+            , RuntimeArtifact.rawRuntimePayloadOrigin =
+                RuntimeArtifact.RawProductRowProjectionOrigin
+            , RuntimeArtifact.rawRuntimePayloadPlanId = planIdText planId
+            , RuntimeArtifact.rawRuntimePayloadDatasetSha256 = datasetSha
+            , RuntimeArtifact.rawRuntimePayloadInitialJmw1Sha256 = initialSha
+            , RuntimeArtifact.rawRuntimePayloadFinalJmw1Sha256 = finalSha
+            , RuntimeArtifact.rawRuntimePayloadRuntime = reportFixtureRuntime
+            }
+      )
+  metadata <-
+    expectRight (Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload)
+  completed <-
+    expectRight
+      ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
+          planId
+          budget
+          row
+          datasetSha
+          experiment
+          observedUnits
+          optimizerUpdates
+          metrics
+          initialSha
+          finalSha
+      )
+  let tensor =
+        Checkpoint.TensorBlob
+          "supervised.weights"
+          [parameterCount]
+          (Checkpoint.blobKey experiment finalSha)
+      manifest =
+        Checkpoint.attachCompletedTraining completed $
+          (Checkpoint.emptyManifest "report-admission" experiment [tensor])
+            { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+            , Checkpoint.manifestArchitecture =
+                Checkpoint.supervisedRuntimeArchitectureMetadata metadata
+            , Checkpoint.manifestPreprocessing =
+                Checkpoint.supervisedRuntimePreprocessingMetadata metadata
+            , Checkpoint.manifestOutputDecoders =
+                Checkpoint.supervisedRuntimeOutputDecoderMetadata metadata
+            , Checkpoint.manifestWeightLayout =
+                Checkpoint.FlatWeightLayout
+                  (fmap reportFixtureVirtualSliceSpec (RuntimeArtifact.supervisedRuntimeVirtualSlices runtime))
+            , Checkpoint.manifestStep = observedUnits
+            , Checkpoint.manifestMetrics = metrics
+            , Checkpoint.manifestSupervisedRuntime = Just payload
+            }
+  _ <-
+    expectRight
+      =<< CheckpointStore.writeCompletedCheckpointSnapshot
+        root
+        completed
+        manifest
+        [(Checkpoint.tensorBlobKey tensor, finalBytes)]
+        Nothing
+  admittedCheckpoint <-
+    expectRight
+      =<< CheckpointStore.admitLocalLatestCheckpoint root experiment
+  expectRight
+    (CheckpointStore.requireAdmittedCompletedCheckpoint admittedCheckpoint)
+
+reportFixtureRuntime :: RuntimeArtifact.RawSupervisedRuntime
+reportFixtureRuntime =
+  RuntimeArtifact.RawSupervisedRuntime
+    { RuntimeArtifact.rawSupervisedRuntimeFamily =
+        RuntimeArtifact.RawDenseRuntimeFamily
+    , RuntimeArtifact.rawSupervisedRuntimeTask =
+        RuntimeArtifact.RawClassificationRuntimeTask 10
+    , RuntimeArtifact.rawSupervisedRuntimeInputTransform =
+        RuntimeArtifact.RawUnitImageInput
+          (RuntimeArtifact.RawRuntimeImageGeometry 28 28 1)
+    , RuntimeArtifact.rawSupervisedRuntimeOutputTransform =
+        RuntimeArtifact.RawSemanticPrefixOutput 10
+    , RuntimeArtifact.rawSupervisedRuntimeLayers =
+        [ RuntimeArtifact.RawDenseLayer
+            "dense-classifier"
+            (RuntimeArtifact.RawRuntimeMlpShape 784 128 11)
+        ]
+    }
+
+reportFixtureVirtualSliceSpec
+  :: RuntimeArtifact.RuntimeVirtualSlice
+  -> Checkpoint.TensorSpec
+reportFixtureVirtualSliceSpec slice =
+  Checkpoint.TensorSpec
+    { Checkpoint.tensorSpecName =
+        RuntimeArtifact.runtimeVirtualSliceQualifiedName slice
+    , Checkpoint.tensorSpecShape = RuntimeArtifact.runtimeVirtualSliceShape slice
+    , Checkpoint.tensorSpecDtype = "F64"
+    }
+
+withDifferentProductProjection
+  :: ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> (forall kind. ProductMatrix.ProductProjection kind -> IO result)
+  -> IO result
+withDifferentProductProjection admittedRow action =
+  case filter ((/= ProductMatrix.rowId admittedRow) . ProductMatrix.rowId) ProductMatrix.allProductRows of
+    [] -> assertFailure "ProductRow registry needs at least two rows"
+    row : _ -> withProjectedRow LinuxCPU row action
+
+withDifferentSupervisedProductProjection
+  :: ProductMatrix.ProductProjection 'SupervisedTraining
+  -> (ProductMatrix.ProductProjection 'SupervisedTraining -> IO result)
+  -> IO result
+withDifferentSupervisedProductProjection admittedProjection action =
+  findDifferent
+    ( ProductMatrix.productProjectionBatchProjections
+        (expectSuccess (ProductMatrix.projectProductRows LinuxCPU ProductMatrix.allProductRows))
+    )
+ where
+  findDifferent projections =
+    case projections of
+      [] -> assertFailure "ProductRow registry needs two supervised projections"
+      ProductMatrix.SomeProductProjection SupervisedTrainingWitness projection : rest
+        | projection /= admittedProjection -> action projection
+        | otherwise -> findDifferent rest
+      _other : rest -> findDifferent rest
+
+withFirstProductProjection
+  :: ( forall kind
+        . ProductMatrix.ProductRow 'ProductMatrix.Declared
+       -> ProductMatrix.ProductProjection kind
+       -> IO result
+     )
+  -> IO result
+withFirstProductProjection action =
+  case ProductMatrix.allProductRows of
+    [] -> assertFailure "ProductRow registry is unexpectedly empty"
+    row : _ -> withProjectedRow LinuxCPU row (action row)
+
+withProjectedRow
+  :: Substrate
+  -> ProductMatrix.ProductRow state
+  -> (forall kind. ProductMatrix.ProductProjection kind -> IO result)
+  -> IO result
+withProjectedRow substrate row action =
+  case ProductMatrix.projectProductRow substrate row of
+    Failure errors ->
+      assertFailure ("ProductRow projection failed: " <> show errors)
+    Success (ProductMatrix.SomeProductProjection _witness projection) ->
+      action projection
+
+trainingBudgetFixture
+  :: TrainingBudget.BudgetKind
+  -> Word64
+  -> Maybe Word64
+  -> TrainingBudget.TrainingBudget
+trainingBudgetFixture kind target seed =
+  expectTextRight
+    "product training budget"
+    (TrainingBudget.mkTrainingBudget kind target seed)
+
+expectEitherRight :: (Show error) => Either error value -> value
+expectEitherRight result =
+  case result of
+    Left err -> error ("expected Right, got Left " <> show err)
+    Right value -> value
+
+incompleteProductScenarioEvidence
+  :: forall kind
+   . ProductMatrix.ProductProjection kind
+  -> Either Report.ProductScenarioEvidenceError Report.CompletedProductScenarioEvidence
+incompleteProductScenarioEvidence projection =
+  Report.completedProductScenarioEvidence
+    projection
+    ( Left ()
+        :: Either
+             ()
+             ( LiveWorkflow.CompletedRunEvidence
+                 Text
+                 (Report.ProductScenarioCompletion kind)
+                 Text
+                 Text
+             )
+    )
+
+assertProductCompletionError
+  :: (Report.ProductScenarioCompletionError -> Bool)
+  -> Either
+       (NonEmpty Report.ProductScenarioCompletionError)
+       (Report.ProductScenarioCompletion kind)
+  -> IO ()
+assertProductCompletionError predicate result =
+  case result of
+    Left errors -> assertBool "expected typed product-completion error" (any predicate errors)
+    Right _ -> assertFailure "misbound admitted checkpoint minted ProductScenarioCompletion"
+
+assertProductMatrixError
+  :: (ProductMatrix.ProductMatrixError -> Bool)
+  -> Validation (NonEmpty ProductMatrix.ProductMatrixError) ProductMatrix.ProductProjectionBatch
+  -> IO ()
+assertProductMatrixError predicate result =
+  case result of
+    Failure errors -> assertBool "expected typed product-matrix error" (any predicate errors)
+    Success _ -> assertFailure "invalid ProductRow registry minted ProductProjectionBatch"
+
+assertProductReportError
+  :: (Report.ProductScenarioReportError -> Bool)
+  -> Either
+       (NonEmpty Report.ProductScenarioReportError)
+       Report.CompletedProductScenarioReport
+  -> IO ()
+assertProductReportError predicate result =
+  case result of
+    Left errors -> assertBool "expected typed product-report error" (any predicate errors)
+    Right _ -> assertFailure "invalid evidence minted CompletedProductScenarioReport"
+
+isCompletionPlanMismatch :: Report.ProductScenarioCompletionError -> Bool
+isCompletionPlanMismatch Report.ProductCompletionPlanMismatch {} = True
+isCompletionPlanMismatch _ = False
+
+isCompletionExperimentMismatch :: Report.ProductScenarioCompletionError -> Bool
+isCompletionExperimentMismatch Report.ProductCompletionExperimentMismatch {} = True
+isCompletionExperimentMismatch _ = False
+
+isCompletionCanonicalRowMismatch :: Report.ProductScenarioCompletionError -> Bool
+isCompletionCanonicalRowMismatch Report.ProductCompletionCanonicalRowMismatch {} = True
+isCompletionCanonicalRowMismatch _ = False
+
+isCompletionManifestPlanMismatch :: Report.ProductScenarioCompletionError -> Bool
+isCompletionManifestPlanMismatch Report.ProductCompletionManifestPlanMismatch {} = True
+isCompletionManifestPlanMismatch _ = False
+
+isCompletionUpdateCountOverflow :: Report.ProductScenarioCompletionError -> Bool
+isCompletionUpdateCountOverflow Report.ProductCompletionUpdateCountOverflow {} = True
+isCompletionUpdateCountOverflow _ = False
+
+runProductScenarioWorkflow
+  :: ProductMatrix.ProductProjection kind
+  -> Report.ProductScenarioCompletion kind
+  -> IO
+       ( Either
+           ( LiveWorkflow.LiveRunFailure
+               Text
+               (Report.ProductScenarioCompletion kind)
+               Text
+               Text
+           )
+           ( LiveWorkflow.CompletedRunEvidence
+               Text
+               (Report.ProductScenarioCompletion kind)
+               Text
+               Text
+           )
+       )
+runProductScenarioWorkflow projection =
+  runProductScenarioWorkflowAtPlan
+    (ProductMatrix.productProjectionPlanId projection)
+    projection
+
+runProductScenarioWorkflowAtPlan
+  :: PlanId
+  -> ProductMatrix.ProductProjection kind
+  -> Report.ProductScenarioCompletion kind
+  -> IO
+       ( Either
+           ( LiveWorkflow.LiveRunFailure
+               Text
+               (Report.ProductScenarioCompletion kind)
+               Text
+               Text
+           )
+           ( LiveWorkflow.CompletedRunEvidence
+               Text
+               (Report.ProductScenarioCompletion kind)
+               Text
+               Text
+           )
+       )
+runProductScenarioWorkflowAtPlan livePlanId projection scenarioCompletion = do
+  commandTopic <- expectRight (topicFor TrainingCommandRoute LinuxCPU)
+  eventTopic <- expectRight (topicFor TrainingEventRoute LinuxCPU)
+  subscription <-
+    expectRight
+      (mkSubscription eventTopic "product-scenario-unit" FromLatest Borrowed)
+  handle <-
+    expectRight
+      ( LiveWorkflow.mkJobHandle
+          livePlanId
+          "jitml-product-scenario-unit"
+      )
+  consumerBlock <- newEmptyMVar :: IO (MVar ())
+  let command =
+        Training.TrainingStop
+          Training.StopTraining
+            { Training.stopExperimentHash =
+                ProductMatrix.productProjectionExperimentHash projection
+            , Training.stopDrain = True
+            }
+      event =
+        Training.TrainingEpoch
+          Training.EpochCompleted
+            { Training.ecExperimentHash =
+                ProductMatrix.productProjectionExperimentHash projection
+            , Training.ecEpoch = 1
+            , Training.ecLoss = 0.25
+            , Training.ecValidationLoss = 0.2
+            , Training.ecTimestampNs = 1
+            }
+      delivery =
+        PulsarInternal.Delivery
+          { PulsarInternal.deliveryEventInternal = event
+          , PulsarInternal.deliveryReceiptInternal =
+              PulsarInternal.DeliveryReceipt
+                { PulsarInternal.receiptSessionInternal = "product-scenario-session"
+                , PulsarInternal.receiptGenerationInternal = 1
+                , PulsarInternal.receiptDeliveryIdInternal = "product-scenario-delivery"
+                }
+          , PulsarInternal.deliveryRedeliveryCountInternal = 0
+          }
+      transport =
+        LiveWorkflow.LiveTransport
+          { LiveWorkflow.livePublishCommand = const (pure (Right "product-scenario-ack"))
+          , LiveWorkflow.liveConsumeEvents = \_ observe handleDelivery -> do
+              observe (ConsumerSessionConnected 1)
+              decision <- handleDelivery delivery
+              case decision of
+                PulsarInternal.DoneInternal _ result -> pure (Right result)
+                PulsarInternal.ContinueInternal _ -> do
+                  interrupted <-
+                    try (readMVar consumerBlock)
+                      :: IO (Either AsyncCancelled ())
+                  case interrupted of
+                    Left cancelled -> throwIO cancelled
+                    Right () ->
+                      pure
+                        ( Left
+                            ( PulsarInternal.ConsumerProtocolFailure
+                                "product scenario consumer block released unexpectedly"
+                            )
+                        )
+          }
+      workflow =
+        LiveWorkflow.LiveWorkflow
+          { LiveWorkflow.liveWorkflowPlanId =
+              livePlanId
+          , LiveWorkflow.liveWorkflowCommand =
+              LiveWorkflow.ProtocolCommand commandTopic command
+          , LiveWorkflow.liveWorkflowEventSubscription = subscription
+          , LiveWorkflow.liveWorkflowInitialProgress = False
+          , LiveWorkflow.liveWorkflowIngest = \_progress _event -> Right True
+          , LiveWorkflow.liveWorkflowFinish = \complete ->
+              if complete
+                then Success scenarioCompletion
+                else Failure "product scenario evidence missing"
+          , LiveWorkflow.liveWorkflowRenderViolation = id
+          }
+      backend =
+        LiveWorkflow.LiveBackend
+          { LiveWorkflow.liveAcquirePlacement =
+              pure (Right (LiveWorkflow.ClusterJob handle))
+          , LiveWorkflow.liveCompletionMode =
+              LiveWorkflow.ObserveIndependentWorkload
+          , LiveWorkflow.liveObserveWorkload =
+              const (pure (LiveWorkflow.Succeeded "product-scenario-complete"))
+          , LiveWorkflow.liveGatherDiagnostics = const (pure (Right []))
+          , LiveWorkflow.liveReleasePlacement = const (pure [])
+          , LiveWorkflow.liveObservationAttempts = 1
+          , LiveWorkflow.liveObservationDelayMicros = 0
+          , LiveWorkflow.liveWorkflowTimeoutMicros = 1_000_000
+          }
+  LiveWorkflow.runLiveWorkflow workflow transport backend
 
 type ExactlyTextContract =
   Contract

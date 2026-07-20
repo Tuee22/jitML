@@ -42,7 +42,7 @@ import System.Random qualified as Random
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
-  , AdamState
+  , AdamState (..)
   , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
@@ -142,6 +142,8 @@ data QrDqnIterationStat = QrDqnIterationStat
 data QrDqnTrainResult = QrDqnTrainResult
   { qrResultStats :: ![QrDqnIterationStat]
   , qrResultFinalParams :: !MlpParams
+  , qrResultOptimizerSteps :: !Int
+  -- ^ Adam applications executed against the final online quantile-Q tensor.
   , qrResultConfig :: !QrDqnTrainConfig
   }
   deriving stock (Eq, Show)
@@ -224,6 +226,7 @@ loopEither environment config update online target adam gen buffer step state ep
             QrDqnTrainResult
               { qrResultStats = reverse stats
               , qrResultFinalParams = online
+              , qrResultOptimizerSteps = adamStep_ adam
               , qrResultConfig = config
               }
         )

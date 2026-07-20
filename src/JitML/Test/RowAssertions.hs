@@ -85,13 +85,15 @@ data AlphaZeroRowEvidence = AlphaZeroRowEvidence
   , azreArenaWinRate :: !Double
   , azreArenaThreshold :: !Double
   , azreConvergenceSlack :: !Double
-  , azreTrainingEvidenceHandle :: !Text
-  , azreDeviceEvidenceHandle :: !Text
-  , azreCheckpointEvidenceHandle :: !Text
   , azreCheckpointManifestSha :: !Text
   , azreCompletedTraining :: !(Maybe CompletedTraining)
   }
   deriving stock (Eq, Show)
+
+-- AlphaZero completion is admitted from the opaque 'CompletedTraining'
+-- witness plus the persisted checkpoint manifest identity below.  Registry
+-- declaration handles are intentionally absent: a freely copied text label is
+-- not execution evidence.
 
 data LearnedStateEvidence = LearnedStateEvidence
   { lseRowId :: !Text
@@ -166,9 +168,6 @@ assertAlphaZeroRowEvidence evidence =
           <> showText (azreConvergenceSlack evidence)
       | not (alphaZeroEvidencePassesConvergence evidence)
       ]
-    , requiredText "training evidence handle" azreTrainingEvidenceHandle
-    , requiredText "device evidence handle" azreDeviceEvidenceHandle
-    , requiredText "checkpoint evidence handle" azreCheckpointEvidenceHandle
     , requiredText "checkpoint manifest sha" azreCheckpointManifestSha
     , completedTrainingFailures
     ]

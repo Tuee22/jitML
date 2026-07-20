@@ -37,7 +37,10 @@ Generated compiler inputs live alongside the cache under:
 
 `src/JitML/Codegen/RuntimeSource.hs` owns the generated-source ADT and
 materialization discipline. `src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` render the
-per-substrate source bundles. The repository does not keep checked-in
+general per-substrate source bundles, while
+`src/JitML/Codegen/RuntimeOperations{Cpu,Cuda,Metal}.hs` render the supervised
+V2 structural-runtime `kernel.cc`, `kernel.cu`, and MSL-bearing
+`kernel.metal.json` bundles. The repository does not keep checked-in
 substrate-source directories for generated compiler inputs.
 
 The generated-source rule applies to every source file that participates in a
@@ -144,8 +147,8 @@ and fills Apple cache misses by atomically writing the rendered
 `<hash>.metal.json` source metadata. It returns a `KernelArtifact` that records
 the `KernelHandle`, cache status, compile command text or metadata-write plan,
 and whether the cache artifact was created in this call. The same module owns
-the reusable `dlopen`/`dlsym` helper used by local Linux FFI runners and fixed
-bridge probing.
+the reusable `loadKernelLibrary` plus `dlopen`/`dlsym` helpers used by local
+Linux FFI runners and fixed bridge probing.
 
 `src/JitML/Engines/Local.hs` is the local execution interpreter for the Linux
 CPU oneDNN primitive kernels on top of that loader. It records the family name
@@ -162,6 +165,40 @@ live daemon extends that capability with real graph-kernel launch and
 parameter-commit effects. `EngineEnvelope` is already the local
 reproducibility witness surface; see
 [determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
+
+### Supervised V2 structural-operation ABI
+
+The exact supervised V2 runtime graph is split between the selected backend's
+real MLP implementation and one generated structural-operation bundle for that
+same substrate. `RuntimeBackendExecutor` requires input/output transforms,
+MLP, residual add, LayerNorm, token-mix pack/merge, patch extraction, attention,
+and mean pooling; a missing operation is a failure rather than permission to
+run a shared host implementation.
+
+- `JitML.Codegen.RuntimeOperationsCpu` and
+  `JitML.Codegen.RuntimeOperationsCuda` render a status-returning version-`1`
+  `double` C ABI with capability mask `0xff`. The generated CUDA exports are
+  host-callable wrappers around real device allocation, transfer, launch,
+  synchronization, and readback.
+- `JitML.Engines.RuntimeOperationsDevice` provides the common Linux
+  compile/load/ABI/capability/symbol/marshalling boundary;
+  `JitML.Engines.RuntimeOperationsCuda` supplies the guarded CUDA source,
+  toolchain fingerprint, and runtime-probe specialization.
+- `JitML.Codegen.RuntimeOperationsMetal` embeds the generated MSL, all nine
+  function names, ABI/capability values, bridge ABI, fast-math-off policy, and
+  source SHA in exact `.metal.json` bytes.
+  `JitML.Engines.RuntimeOperationsMetal` verifies those exact cached bytes and
+  the fp32 transport contract before using the fixed bridge.
+- `JitML.Engines.Local`, `CudaLocal`, and `MetalLocal` install the generated
+  structural executor plus their selected real MLP callback. They install no
+  `RuntimeOperations.host*` callbacks and cannot substitute the pure/reference
+  oracle for recognized V2.
+
+Compile, artifact load, symbol lookup, ABI mismatch, capability mismatch,
+operation contract, native status, execution, and nested selected-backend MLP
+failures remain distinct typed errors. Linux CPU exercises the native
+compile/load/execute route in Sprint `10.6`; real-device CUDA and Metal
+reattestation stays in the numerical-order single-accelerator lanes.
 
 ## Product Scaffold Boundary
 
@@ -348,9 +385,12 @@ scaffolding modules.
   all **55 / 55** ProductRow checkpoints on `linux-cuda`, passed
   `jitml test all --linux-cuda` **8 / 8**, and passed live Playwright **71 / 71**
   at the CUDA edge `:9092`. This evidence is withdrawn and must be presented only
-  as dated historical record, never as current closure; the `linux-cuda` product
-  lane is **Active** pending the fresh current-source 55-row publisher,
-  integration/e2e attestation, and performance table.
+  as dated historical record, never as current closure. It was superseded on
+  2026-07-10 by the fresh **55 / 55** publisher, integration/e2e/live gates, and
+  **55 / 55** CUDA-faster-than-CPU table that retain closure for Sprints
+  `29.1`–`29.4`. Phase `29` as a whole is now **Blocked**, not Active: reopened
+  Sprint `29.5` waits on Sprint `28.4` before it can produce the new
+  contract-journal-bound CUDA lane attestation.
 - **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`

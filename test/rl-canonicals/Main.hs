@@ -600,6 +600,8 @@ assertMaskableKeyDoorGridCountExploration = do
       carryingKey = initial {Sim.keyDoorGridHasKey = True}
       observation = Data.Vector.Unboxed.fromList . Sim.keyDoorGridObservation
   beta @?= 8.0
+  PpoTrainer.productPpoCountBetaFor PpoTrainer.VariantMaskablePPO "mountain-car"
+    @?= 10.0
   PpoTrainer.productPpoCountBetaFor PpoTrainer.VariantMaskablePPO "cartpole"
     @?= 0.0
   table <- CountExploration.newCountTable
@@ -1706,16 +1708,18 @@ assertPolicyValueTrainingReducesLoss = do
                 valueLoss =
                   0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
              in policyLoss + valueLoss
-          (netN, _) = PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-2 80 [sample]
           lossBefore = lossOf net0
-          lossAfter = lossOf netN
-      assertBool
-        ( "policy/value loss should decrease; before="
-            <> show lossBefore
-            <> " after="
-            <> show lossAfter
-        )
-        (lossAfter < lossBefore)
+      case PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-2 80 [sample] of
+        Left err -> assertFailure (Text.unpack err)
+        Right (netN, _) -> do
+          let lossAfter = lossOf netN
+          assertBool
+            ( "policy/value loss should decrease; before="
+                <> show lossBefore
+                <> " after="
+                <> show lossAfter
+            )
+            (lossAfter < lossBefore)
 
 -- | Sprint 13.9 — a trained network's weights serialize to the flat
 -- checkpoint @.jmw1@ blob and reconstruct bit-identically, so trained
@@ -1726,20 +1730,22 @@ assertPolicyValueWeightsRoundTrip = do
       adam = PVN.initAdamFor net
       target = Data.Vector.Unboxed.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
       sample = PVN.PolicyValueTrainingSample initialConnect4 target 0.5
-      (trained, _) = PVN.trainPolicyValueNetOnSamples net adam 1.0e-2 5 [sample]
-      flat = PVN.policyValueNetToFlat trained
-      blob = encodeJmw1 flat
-  case decodeJmw1 blob of
-    Left err ->
-      assertBool ("decode .jmw1 failed: " <> Text.unpack err) False
-    Right flat' -> do
-      -- F64 .jmw1 round-trip is lossless.
-      flat' @?= flat
-      case PVN.loadPolicyValueNetWeights net flat' of
+  case PVN.trainPolicyValueNetOnSamples net adam 1.0e-2 5 [sample] of
+    Left err -> assertFailure (Text.unpack err)
+    Right (trained, _) -> do
+      let flat = PVN.policyValueNetToFlat trained
+          blob = encodeJmw1 flat
+      case decodeJmw1 blob of
         Left err ->
-          assertBool ("loadPolicyValueNetWeights failed: " <> Text.unpack err) False
-        Right loaded ->
-          PVN.pvnParams loaded @?= PVN.pvnParams trained
+          assertBool ("decode .jmw1 failed: " <> Text.unpack err) False
+        Right flat' -> do
+          -- F64 .jmw1 round-trip is lossless.
+          flat' @?= flat
+          case PVN.loadPolicyValueNetWeights net flat' of
+            Left err ->
+              assertBool ("loadPolicyValueNetWeights failed: " <> Text.unpack err) False
+            Right loaded ->
+              PVN.pvnParams loaded @?= PVN.pvnParams trained
 
 -- | Sprint 13.9 — assert two fresh self-play generations with the
 -- same seed produce bit-identical sample counts and arena win rate.
@@ -1877,16 +1883,25 @@ assertAlphaZeroArenaEvidenceAndCheckpoints =
       (passesAlphaZeroArena alphaZeroArenaThreshold (azRunArenaWinRate first))
 
     storedResult <-
-      CheckpointStore.writeCheckpointSnapshot
+      CheckpointStore.writeCompletedCheckpointSnapshot
         root
+        (azRunCompletedTraining first)
         (azRunManifest first)
         (azRunPayloads first)
         Nothing
     stored <- case storedResult of
-      Left err -> assertFailure ("checkpoint write failed for " <> Text.unpack game <> ": " <> Text.unpack err)
-      Right value -> pure value
+      Left err ->
+        assertFailure
+          ( "checkpoint write failed for "
+              <> Text.unpack game
+              <> ": "
+              <> Text.unpack (CheckpointStore.renderCheckpointWriteError err)
+          )
+      Right value -> pure (CheckpointStore.completedStoredCheckpoint value)
     let manifestSha = Checkpoint.manifestContentSha (azRunManifest first)
     CheckpointStore.storedManifestSha stored @?= manifestSha
+    CheckpointStore.storedPointerResult stored
+      @?= Checkpoint.PointerWritten manifestSha
     loadedManifest <-
       CheckpointStore.readCheckpointManifest root (azExperimentHash game seed) manifestSha
     loadedManifest @?= Right (azRunManifest first)
@@ -1895,17 +1910,19 @@ assertAlphaZeroArenaEvidenceAndCheckpoints =
         root
         (Checkpoint.latestPointerKey (azExperimentHash game seed))
     pointer @?= Right (Just manifestSha)
-    case Checkpoint.requireCompletedCheckpoint manifestSha (azRunManifest first) of
+    case Checkpoint.validateCheckpointCompletion (azRunManifest first) of
       Left err ->
         assertFailure
           ( "AlphaZero checkpoint should refine as completed for "
               <> Text.unpack game
               <> ": "
-              <> Text.unpack (Checkpoint.renderEligibilityError err)
+              <> Text.unpack (Checkpoint.renderCheckpointCompletionValidationError err)
           )
-      Right eligible -> do
-        Checkpoint.eligibleCheckpointManifestSha eligible @?= manifestSha
-        Checkpoint.eligibleCheckpointCompletedTraining eligible @?= azRunCompletedTraining first
+      Right validated -> do
+        Checkpoint.validatedCheckpointCompletionManifest validated
+          @?= azRunManifest first
+        Checkpoint.validatedCheckpointCompletedTraining validated
+          @?= azRunCompletedTraining first
 
     row <- alphaZeroProductRow game
     assertAlphaZeroRowEvidence
@@ -1918,9 +1935,6 @@ assertAlphaZeroArenaEvidenceAndCheckpoints =
         , azreArenaWinRate = azRunArenaWinRate first
         , azreArenaThreshold = RLConvergence.azTargetWinRate alphaZeroArenaThreshold
         , azreConvergenceSlack = RLConvergence.azSlack alphaZeroArenaThreshold
-        , azreTrainingEvidenceHandle = evidenceHandleText (ProductMatrix.trainingEvidence row)
-        , azreDeviceEvidenceHandle = evidenceHandleText (ProductMatrix.deviceEvidence row)
-        , azreCheckpointEvidenceHandle = evidenceHandleText (ProductMatrix.checkpointEvidence row)
         , azreCheckpointManifestSha = manifestSha
         , azreCompletedTraining = Just (azRunCompletedTraining first)
         }
@@ -2030,7 +2044,16 @@ runPureAlphaZeroGenerations initialState net0 adam0 generationTarget selfPlayGam
                 | gameIndex <- [0 .. selfPlayGames - 1]
                 ]
             (trainedNet, trainedAdam) =
-              PVN.trainPolicyValueNetOnSamples net adam 1.0e-3 gradientUpdates generationSamples
+              either
+                (error . Text.unpack)
+                id
+                ( PVN.trainPolicyValueNetOnSamples
+                    net
+                    adam
+                    1.0e-3
+                    gradientUpdates
+                    generationSamples
+                )
          in go (generation + 1) trainedNet trainedAdam (allSamples <> generationSamples)
 
 azRunSampleSignature :: AlphaZeroCheckpointRun -> [([Int], [Double], Double)]
@@ -2150,21 +2173,13 @@ alphaZeroProductRow game =
       assertFailure
         ("duplicate AlphaZero product rows for " <> Text.unpack game <> ": " <> show (length rows))
 
-evidenceHandleText :: Maybe (ProductMatrix.EvidenceHandle state kind) -> Text
-evidenceHandleText =
-  maybe "" ProductMatrix.unEvidenceHandle
-
 azExperimentHash :: Text -> Int -> Text
 azExperimentHash game seed =
   hashText ("alphazero:" <> game <> ":" <> Text.pack (show seed))
 
 hashWeightListTest :: [Double] -> Text
 hashWeightListTest =
-  hashLazy . encodeJmw1
-
-hashLazy :: LazyByteString.ByteString -> Text
-hashLazy =
-  hashStrict . LazyByteString.toStrict
+  hexBytes . SHA256.hashlazy . encodeJmw1
 
 hashText :: Text -> Text
 hashText =

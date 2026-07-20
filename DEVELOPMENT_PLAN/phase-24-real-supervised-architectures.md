@@ -11,18 +11,26 @@
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-10 after the 2026-07-08 expanded product
-end-state). The executed supervised path now uses the widened MLP-Mixer regime:
-token-mixing MLP blocks, executed LayerNorm, residual patch stems with
-coordinate features, and raised latent/wide clamps on the trained and served
-path. The regenerated `CompletedTraining` manifests describe the widened Mixer
-topology and its retrained weights, and every supervised row clears its external
-bar under the standing per-model convergence gate.
+⏸️ **Blocked** at Sprint `24.1`, which is blocked by Sprint `23.3`. The
+2026-07-18 audit found that the widened patch/MLP-Mixer execution path is not
+the literal named LeNet, ResNet, WideResNet, ResNet-50, or ViT architecture
+promised by the registry, and the prior feature comparison inspected a
+different decorative graph. Sprint `24.2` is blocked by `24.1`; Sprint `24.3`
+is blocked by `24.2`.
 
-Closing validation on `linux-cpu`: `jitml-sl-canonicals` passed **31 / 31**,
-`jitml-negative-controls` passed **3 / 3**, `jitml-model-convergence` passed
-**111 / 111**, `jitml-unit` passed **278 / 278**, and `jitml-integration`
-passed **137 / 137**.
+Completed Sprint `10.6` persists the exact current Mixer executable, including
+the compact `cifar10-vit` patch size/stride `4/4` and 64-token mixing count.
+That bounded convergence correction is not a literal two-head ViT with the
+declared LayerNorm/GeGLU structure, does not make `archLayerGraph` executable,
+and transfers none of Sprint `24.1`'s ownership; this phase remains Blocked.
+
+### Historical Closure Context
+
+The 2026-07-10 `linux-cpu` results (`jitml-sl-canonicals` 31/31,
+`jitml-negative-controls` 3/3, `jitml-model-convergence` 111/111, `jitml-unit`
+278/278, and `jitml-integration` 137/137) remain dated evidence for the models
+that actually ran. They do not prove the literal named architectures or their
+exact completion inputs and therefore cannot close the reopened sprints.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -37,14 +45,16 @@ implemented block counts, widths, residual connections, normalization, and
 attention match the documented model. Each row trains on a real three-way split
 with real losses (cross-entropy for classification, MSE/RMSE for regression),
 records deterministic init/final weight hashes, update count, examples seen, and
-throughput, and clears `median(k=5) >= literature_target - slack`. Each row writes
-an inference-eligible `CompletedTraining` checkpoint, and partial, synthetic, or
-untrained supervised manifests are rejected.
+throughput, and clears `median(k=5) >= literature_target - slack`. Each row
+produces measured completion evidence and the exact executed graph needed by
+the checkpoint writer. Phase `24` does not claim that an in-memory completion
+value or historically stored manifest is inference eligible.
 
-## Sprint 24.1: Literal Architectures [✅ Done]
+## Sprint 24.1: Literal Architectures [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
+**Blocked by**: Sprint `23.3`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
 ### Objective
@@ -67,6 +77,15 @@ rather than a shared flat topology standing in for many rows.
   layer graph; no simplified topology satisfies a row naming BatchNorm, Dropout,
   Conv2D, ResNet, WideResNet, ViT, or GroupNorm.
 
+### Remaining Work
+
+- Implement every canonical supervised row as its literal named architecture
+  on the single executable Sprint `23.3` graph, including real convolution,
+  pooling, normalization, residual/bottleneck depth, width, patch, and attention
+  structure rather than a shared patch/MLP approximation.
+- Bind the registry's claimed features and block counts to that executed graph,
+  and make a simplified or mislabeled topology fail the production-path test.
+
 ### Validation
 
 ```bash
@@ -75,7 +94,9 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-Current validation: `docker compose run --rm jitml jitml test
+### Historical Validation
+
+Historical validation: `docker compose run --rm jitml jitml test
 jitml-sl-canonicals --linux-cpu` passed 28 / 28 on 2026-07-02, including the
 ProductRow feature-parity, literal topology block-count, simplified-topology
 negative case, and live SL materialization/training tests. `docker compose run
@@ -95,18 +116,19 @@ because it inspects `architectureLayerGraphForFamily`
 (`Architecture.hs`:`484`,`:492`), which is never trained or served, so no
 rejection actually guards the model that runs.
 
-### Closure Evidence
+### Historical Closure Evidence (withdrawn by the 2026-07-18 audit)
 
-- **Closed Exit-Definition obligation**: each supervised row must be its literal
-  named architecture on the *trained and served* path — real `Conv2D`/pooling and
+- **Target Exit-Definition obligation**: each supervised row must be its literal
+  named architecture on the *trained* path — real `Conv2D`/pooling and
   BatchNorm for LeNet-5, real residual convolutional blocks at the documented
   depths/widths for the small ResNet, ResNet-20, ResNet-56, and WideResNet-28-10,
   a genuinely distinct ResNet-50 bottleneck, and real patch-embedding plus
   self-attention for the ViT — not a residual-MLP over flattened pixels shared
   across families.
 - Build the real topology in `src/JitML/SL/Architecture.hs` and train *that*
-  graph, retiring the untrained `architectureLayerGraphForFamily` parity stand-in
-  so the served model is the graph the feature-parity check inspects.
+  graph, retiring the untrained `architectureLayerGraphForFamily` parity
+  stand-in so the completion boundary receives the graph that training
+  executed.
 - **Closing validation**: the "dense layer labelled as convolution must be
   rejected" differential control and the untrained-graph controls in the
   `jitml-negative-controls` stanza (Phase `32`,
@@ -114,14 +136,19 @@ rejection actually guards the model that runs.
   must reject the current MLP-for-conv stand-in, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
-2026-07-10 closure: the trained and served architecture path implements the
-widened Mixer blocks and raised clamps required by the expanded end-state, and
-`jitml-sl-canonicals --linux-cpu` passed **31 / 31**.
+Historical 2026-07-10 closure claim: the trained architecture path implemented
+the widened Mixer blocks and raised clamps then treated as the expanded end
+state, and
+`jitml-sl-canonicals --linux-cpu` passed **31 / 31**. The contemporaneous served
+path claim is historical. Sprint `10.6` revalidates trained-versus-loaded V2
+parity only for the exact current executable; it does not restore the withdrawn
+literal-architecture claim.
 
-## Sprint 24.2: Convergence and Evidence [✅ Done]
+## Sprint 24.2: Convergence and Evidence [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `test/sl-canonicals/Main.hs`, `src/JitML/Test/RowAssertions.hs`
+**Blocked by**: Sprint `24.1`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/numerical_core.md`
 
 ### Objective
@@ -142,6 +169,15 @@ evidence, so a row cannot pass on a static, degenerate, or smoke-threshold run.
   initialization, gradients are zero or NaN, or the row clears only a smoke
   threshold; a deliberately underpowered 2-step model FAILS its bar.
 
+### Remaining Work
+
+- Train and measure each literal Sprint `24.1` graph from its real random
+  initialization against the frozen external bar; evidence from the replaced
+  approximation cannot be reused.
+- Prove exact train/validation/test partitioning, train-only fitted regression
+  statistics, finite learning, nonzero weight movement, and observed budgets
+  for the graph that produced each metric.
+
 ### Validation
 
 ```bash
@@ -149,7 +185,9 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml test jitml-integration --linux-cpu
 ```
 
-Current validation: `docker compose run --rm jitml jitml test
+### Historical Validation
+
+Historical validation: `docker compose run --rm jitml jitml test
 jitml-sl-canonicals --linux-cpu` passed 31 / 31 on 2026-07-02, including the
 measured supervised row evidence assertion, invalid/smoke evidence rejection,
 and underpowered two-step negative case. `docker compose run --rm jitml jitml
@@ -182,25 +220,45 @@ learning.
 passed **111 / 111**, including the deep-SL rows measured on the widened
 architecture.
 
-## Sprint 24.3: CompletedTraining SL Manifests [✅ Done]
+## Sprint 24.3: CompletedTraining SL Manifests [⏸️ Blocked]
 
-**Status**: Done
-**Implementation**: `src/JitML/Checkpoint/`, `test/integration/Main.hs`
-**Docs to update**: `../documents/engineering/checkpoint_format.md`
+**Status**: Blocked
+**Implementation**: `src/JitML/SL/{Architecture,TrainingExecution}.hs`,
+`src/JitML/Product/Completion.hs`, `test/sl-canonicals/Main.hs`
+**Blocked by**: Sprint `24.2`
+**Docs to update**: `../documents/engineering/training_workloads.md`,
+`../documents/engineering/training_metrics_and_splits.md`
 
 ### Objective
 
-Every supervised row writes an inference-eligible checkpoint whose manifest proves
-completed training, and the inference read path rejects any partial, synthetic, or
-untrained supervised manifest.
+Every supervised row hands the checkpoint boundary its exact executed graph,
+initial and final flat weights, verified dataset-at-read digest, measured update
+count, exact plan identity/budget, and passing convergence observations. This
+sprint owns production of those training/completion inputs. Sprint `10.6` owns
+their exact V2 persistence and trained-versus-loaded parity; Sprint `10.12`
+alone admits a persisted artifact as inference eligible.
 
 ### Deliverables
 
-- Every supervised row writes a checkpoint manifest carrying `CompletedTraining`,
-  convergence metrics, dataset SHA evidence, and weight-delta evidence.
-- Inference rejects partial, synthetic, or untrained supervised manifests.
-- The checkpoint reader verifies shape and layout metadata for every supervised
-  family (LeNet-5, MLP, ResNet variants, WideResNet, ViT, tabular MLP).
+- Every supervised row produces non-optional completion inputs carrying exact
+  `PlanId`, completed budget, convergence measurements, dataset-at-read digest,
+  initial/final weight hashes, and positive measured update count.
+- The architecture value paired with those inputs is the graph actually
+  executed by training, with deterministic graph order and parameter flattening
+  suitable for Sprint `10.6`'s virtual `Flat` slices.
+- Partial, synthetic, non-finite, untrained, unchanged-weight, wrong-plan, and
+  wrong-dataset training results cannot construct the completion input.
+- No Phase `24` constructor mints structural checkpoint completion, an admitted
+  artifact, or inference eligibility from those in-memory values.
+
+### Remaining Work
+
+- Produce non-optional completion inputs for the exact Sprint `24.2` run:
+  canonical `PlanId`, exact dataset-at-read identity, measured budget/update
+  count, passing observations, and exact initial/final JMW1 identities.
+- Prove the completed supervised manifest and the model later served describe
+  the same literal graph and bytes. V2 encoding remains Sprint `10.6`, and only
+  Sprint `10.12` may admit persisted eligibility.
 
 ### Validation
 
@@ -210,7 +268,9 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-Current validation: `docker compose run --rm jitml jitml test
+### Historical Validation (completion-input surface)
+
+`docker compose run --rm jitml jitml test
 jitml-integration --linux-cpu` passed 81 / 81 on 2026-07-02, including the
 supervised completed-manifest graph/layout/evidence cases and fail-closed
 partial/synthetic/untrained/malformed manifest loader cases. `docker compose
@@ -219,52 +279,48 @@ including the live MNIST and all-canonical-row supervised materialization and
 training checks. `docker compose run --rm jitml jitml check-code` passed after
 formatting the Sprint `24.3` integration test wrapping.
 
-2026-07-05 realness-audit finding, closed 2026-07-06: the checkpoint each row writes and the
-graph/layout metadata the reader verifies describe the residual-MLP that
-`trainArchitectureWithDevice` and the split-training path actually train
-(`Architecture.hs`:`550`, `:649`), so the inference-eligible manifest certifies a
-flattened-pixel MLP as `ResNet`/`WideResNet`/`ResNet-50`/`LeNet`/`ViT`. The
-`CompletedTraining` manifest and fail-closed loader machinery are in place, but
-they attest a fabricated topology as complete.
+### Retained Closure Boundary
 
-### Closure Evidence
+- Phase `24` closes only with each real literal trained architecture and its
+  measured, non-forgeable completion inputs. Exact persistence of the current
+  Mixer executable does not meet that boundary, and this phase does not own
+  persistence or loaded execution.
+- The 2026-07-02 and 2026-07-10 checkpoint-reader results exercised the prior
+  named-tensor format. They remain historical diagnostics and do not satisfy
+  Sprint `10.6`'s V2 one-blob/virtual-slice parity or Sprint `10.12`'s persisted
+  proof admission.
 
-- **Closed Exit-Definition obligation**: the inference-eligible checkpoint and its
-  graph/layout evidence must describe the real named architecture that was
-  trained, and inference must serve that topology — not the shared residual-MLP.
-- **Closing validation**: after the real topology lands (Sprint `24.1`) and is
-  trained/served, the untrained/fabricated-checkpoint negative controls in the
-  `jitml-negative-controls` stanza (Phase `32`,
-  [phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)) —
-  including the Sprint `32.2` decode-time provenance re-derivation that recomputes
-  graph/layout from the served artifact — must reject any manifest whose served
-  weights are not the real trained architecture, exercised via
-  `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
-
-2026-07-10 closure: regenerated `CompletedTraining` manifests are
-inference-eligible under the widened Mixer topology; `jitml-negative-controls
---linux-cpu` passed **3 / 3** and `jitml-integration` passed **137 / 137**.
+2026-07-10 validation showed the widened training path produced completion
+values and passed `jitml-negative-controls --linux-cpu` **3 / 3** plus
+`jitml-integration` **137 / 137**. Its contemporaneous claim that the stored
+manifests were inference eligible is historical only; the current exact
+artifact and admission gates are Sprints `10.6` and `10.12`.
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
-- `documents/engineering/training_workloads.md` — the literal supervised
-  architectures assembled over the Phase `23` layer engine, updated for the
-  MLP-Mixer executed layer set (token-mixing MLP + executed LayerNorm) at the
-  raised latent/wide feature widths that replace the bag-of-patches stand-in.
+- `documents/engineering/training_workloads.md` — distinguish the exact current
+  `[LayerSpec]` / `[LayerState]` Mixer executable and its V2 persistence from
+  the literal per-row architectures this Blocked phase must assemble over the
+  single Phase `23` graph. The current `cifar10-vit` contract is 4×4/64 tokens;
+  it is not the literal small-ViT completion.
 - `documents/engineering/training_metrics_and_splits.md` — three-way splits, real
-  cross-entropy / MSE-RMSE losses, and literature-anchored convergence bars
-  re-cleared at the widened Mixer architecture.
-- `documents/engineering/numerical_core.md` — the layer and kernel primitives the
-  literal architectures compose, including the executed LayerNorm and token-mixing
-  MLP primitives the MLP-Mixer surface depends on.
-- `documents/engineering/checkpoint_format.md` — supervised `CompletedTraining`
-  manifest fields and inference-eligibility gates for the regenerated Mixer
-  weights.
+  cross-entropy / MSE-RMSE losses, frozen literature-anchored convergence bars,
+  and fresh measurements from the literal Sprint `24.1` graphs; measurements
+  from the current Mixer approximation cannot be reused for closure.
+- `documents/engineering/numerical_core.md` — state both representations
+  honestly: the current executable Mixer primitives persisted by Sprint `10.6`
+  and the one differentiable typed graph plus literal layer semantics still
+  owned by Sprints `23.1` and `24.1`.
+- `documents/engineering/checkpoint_format.md` — the supervised completion
+  inputs supplied by whichever graph actually trained; Sprint `10.6` owns exact
+  V2 persistence of the current executable, Sprint `10.12` owns inference
+  admission, and neither makes the current Mixer a literal Phase `24` model.
 
 **Product docs to create/update:**
-- `README.md` — canonical supervised learning problems reflect the literal
-  implemented architectures.
+- `README.md` — canonical supervised learning problems distinguish the intended
+  literal architecture from the current executed approximation until this
+  phase closes.
 
 **Cross-references to add:**
 - Add this phase to `README.md`, `00-overview.md`, `system-components.md`, and

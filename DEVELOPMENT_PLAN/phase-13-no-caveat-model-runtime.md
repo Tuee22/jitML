@@ -346,8 +346,8 @@ convergence-AND-performance metrics for both SL and RL.
 
 Close the `linux-cpu` runtime only when every supported model trains to its
 fixed budget, writes convergence statistics into a checkpoint, reloads that
-checkpoint, and runs evaluation/inference through the `InferenceEligibleCheckpoint`
-boundary.
+checkpoint, and runs evaluation/inference through Store's opaque
+`AdmittedCompletedCheckpoint` boundary.
 
 ### Deliverables
 

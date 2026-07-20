@@ -35,35 +35,69 @@
   [Typed Plans and Dimensional Budgets](run_contract.md#typed-plans-and-dimensional-budgets).
   For supervised work, hidden `SupervisedPlan` binds epochs, training examples,
   evaluation examples, batch examples, and the derived optimizer-update count;
+  its ProductRow projection also binds the exact finite-positive learning rate
+  into semantic `PlanId` identity and passes it unchanged to execution;
   refinement requires
   `updates = epochs * ceil(trainingExamples / batchExamples)`. Its canonical
   version-`1` transport determines the `PlanId` used by execution and evidence.
-- **Inference requires completion.** Inference cannot accept a raw manifest,
-  random initialization, or partially trained checkpoint. The only pure value
-  that may flow into inference is an inference-eligible trained artifact witness
-  refined from completed run evidence plus its convergence statistics.
+- **Trainer-owned update observations.** The derived count declares the exact
+  budget; it is not execution evidence. A successful supervised trainer return
+  owns `tmOptimizerUpdatesExecuted` and records it only after every requested
+  epoch and mini-batch update has completed. Writer and Product Publisher must
+  carry that observed count unchanged and reject any mismatch with the
+  `SupervisedPlan`, `CompletedTraining`, or V2 manifest. Callers may not recreate
+  a successful count from epochs, dataset size, or batch size after training.
+- **Deterministic classification training order is split-local.** After the
+  authoritative partitions are materialized, canonical classification training
+  stable-sorts the training examples once per one-based epoch by
+  `(SplitMixWord, originalZeroBasedIndex)`. The words come from
+  `splitMixWords (length trainSet)` with seed
+  `deriveSplitMixSeed (SplitMixSeed (fromIntegral clfSeed)) (fromIntegral epoch)`.
+  Validation and test remain unpermuted. The permutation changes neither the
+  examples in the partition nor the authoritative example/batch quantities,
+  batch count/sizes, `examples_processed`, or actual optimizer-update counter.
+  The tuning exact-update path remains fixed-order and cyclic.
+- **Inference requires persisted completion admission.** Inference cannot accept
+  a raw manifest, decoded completion payload, random initialization, or partially
+  trained checkpoint. The only value that may flow into an inference runner is
+  Store's opaque `AdmittedCompletedCheckpoint`, minted after exact persisted V2
+  manifest/blob admission and completion revalidation.
 
 ## Metric Projection into Completed Runs
 
 The generic planning, evidence-reduction, and completion-witness vocabulary
 lives in [Typed Run Contract](run_contract.md). This document owns the
-training-metric payload projected into that contract. Checkpoint eligibility is
-refined by `JitML.Checkpoint.Format` and enforced by `JitML.Checkpoint.Store`
-before any weight-only inference load.
+training-metric payload projected into that contract.
+`JitML.Checkpoint.Format` performs structural completion validation only;
+`JitML.Checkpoint.Store` alone combines it with exact persisted-address and
+physical-blob evidence before any weight-only inference load.
 
 | Concept | Meaning | Invariant |
 |---|---|---|
 | `RunPlan kind` | A pure declaration of exact terminating work using unit-indexed quantities and a non-empty seed cohort where required. | Known before execution; no adaptive "keep training until convergence" loop and no stringly unit label. |
 | `SupervisedPlan` | The hidden supervised projection of one `RunPlan`, including exact epoch, train/evaluation-example, batch-example, and derived optimizer-update quantities plus its content-derived `PlanId`. | Producer and worker re-refine the same canonical transport; no primitive worker record, clamp, or default may redefine the budget. |
-| `TrainingEvidence` | The smart-constructed weight-delta witness in `JitML.Product.Evidence`: initial weight hash, final weight hash, positive update count, and dataset SHA observed at read. For product SL rows this SHA is produced by `JitML.SL.Dataset.datasetReadShaForArtifacts` over payloads returned by `fetchVerifiedDatasetArtifactBytes`, after each artifact has matched its pinned SHA and before any decoder receives bytes. | `mkTrainingEvidence` rejects empty hashes, equal initial/final hashes, zero updates, and missing dataset-read provenance. |
+| `TrainingMetrics` successful return | The exact training-returned runtime program, exact initial/final JMW1 bytes, verified dataset-at-read SHA, finite held-out probe, completed budget units, and `tmOptimizerUpdatesExecuted`. | The update count exists only after all epoch/batch loops succeed. Writer and Publisher consume it; neither derives it from the plan. |
+| `TrainingEvidence` | The smart-constructed weight-delta witness in `JitML.Product.Evidence`: initial weight hash, final weight hash, trainer-observed positive update count, and dataset SHA observed at read. For product SL rows this SHA is produced by `JitML.SL.Dataset.datasetReadShaForArtifacts` over payloads returned by `fetchVerifiedDatasetArtifactBytes`, after each artifact has matched its pinned SHA and before any decoder receives bytes. | `mkTrainingEvidence` rejects empty hashes, equal initial/final hashes, zero updates, and missing dataset-read provenance; the supervised publication boundary additionally requires exact equality with the successful trainer return and authoritative plan. |
+| Product supervised metric projection | Exactly four finite, uniquely named rows in canonical order: `train_loss`, `validation_loss`, `examples_processed`, and the authoritative held-out metric named by the ProductRow convergence bar. | `examples_processed` must equal `epochs * trainingExamples`; extra, reordered, duplicated, renamed, or non-finite rows cannot become Product-origin completion evidence. |
 | `CompletedRunEvidence kind` | The opaque result of terminal workload success plus the workload's complete pure evidence contract. | Failed, cancelled, partial, skipped, equal-weight, zero-update, smoke-only, missing-event, or hardcoded-pass runs cannot construct it. |
 | `RawCompletedTraining` | The versioned, deliberately forgeable completion DTO: plan identity, raw budget, repeated observed kind/count/unit, training evidence, raw typed criteria/measurements, and TensorBoard metadata. | It is never proof; decode must re-refine it, and the wire carries no authoritative pass boolean. |
 | `CompletedTraining` | The checkpoint-facing training projection of completed run evidence: originating `PlanId`, exact observed primary budget, moved learned state, a non-empty set of finite bar-evaluated measurements, and TensorBoard metadata. | Its constructor is hidden. Refinement rejects kind/unit mismatch, underrun, overrun, invalid evidence, zero criteria, and any failed criterion. |
-| `InferenceEligibleCheckpoint` | The value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints can consume weights. | Refined only from a manifest whose raw completion payload, mirrored evidence, passing measurements, and artifact identity agree. |
+| `AdmittedCheckpoint` | Store's opaque exact persisted V2 graph: addressed outer/body manifest plus independently fetched, address-checked physical blobs and graph-derived slices. | Known-address admission performs no pointer read. Latest admission reads `P1`, verifies the exact addressed manifest, requires exact `P1 == P2`, and only then fetches/binds blobs. A decoded or caller-built manifest cannot construct it. |
+| `AdmittedCompletedCheckpoint` | The only value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints consume weights. | `requireAdmittedCompletedCheckpoint` revalidates mandatory completion only on an `AdmittedCheckpoint`; its constructor is hidden and Product Pipeline consumes this Store value. |
 
 The type boundary is the product requirement: an untrained initialization,
 seed-only demo network, hardcoded fixture checkpoint, or transport-smoke
-checkpoint cannot cross refinement as `InferenceEligibleCheckpoint`.
+checkpoint cannot cross Store admission as `AdmittedCompletedCheckpoint`.
+
+Persistence preserves the same distinction. Candidate writers accept only a
+candidate manifest, return opaque `StoredCandidateCheckpoint`, and never write
+the inference-selected `latest` pointer. Completed writers take
+`CompletedTraining` directly, return opaque `StoredCompletedCheckpoint` only
+after the exact pointer CAS adopts their manifest, and expose no optional-proof
+upgrade path. An existing immutable object is idempotent success only when a
+follow-up read proves exact byte equality. Local persistence reports
+`CheckpointWriteError` with distinct object-conflict and pointer-conflict
+constructors; MinIO uses typed `ServiceError` conflicts.
 
 `JitML.Test.RowAssertions` is the executable supervised-row evidence gate used
 by Sprint `24.2`. A row evidence record must carry non-empty and unequal
@@ -74,11 +108,15 @@ finite literature target/slack bar, and a finite positive gradient norm. It
 also rejects smoke-threshold evidence and deliberately underpowered two-step
 evidence whose held-out metric fails the row's literature/slack bar.
 
-Dataset-read provenance is not an upload-time promise. Product training obtains
-artifact bytes through the verified read boundary, records the observed
-image/label/archive digest for the row, and only then enters gunzip, IDX, tar,
-Zip64/JPEG, or regression parsing. Corrupt canonical bytes are typed failures
-before decode and cannot produce `TrainingEvidence`.
+Dataset-read provenance is not an upload-time promise. Product and generic V2
+training obtain artifact bytes through the verified read boundary, record the
+observed image/label/archive digest for the row, and only then enter gunzip,
+IDX, tar, Zip64/JPEG, or regression parsing. Refinement independently derives
+`canonicalDatasetReadShaForProblem` for the exact origin row and requires the
+training return, manifest, and completion evidence to equal it. Mirroring one
+forged digest into all three values therefore cannot pass admission. Corrupt or
+substituted canonical bytes are typed failures before decode and cannot produce
+`TrainingEvidence`.
 
 The completed checkpoint records:
 
@@ -93,6 +131,12 @@ The completed checkpoint records:
 - performance metric payload;
 - TensorBoard run key and scalar tag prefix;
 - readiness witness for the checkpoint store and inference loader.
+
+For supervised V2 publication, “positive update count” above means the exact
+successful trainer observation, not the mathematically projected budget. The
+projection and observation are independent values that must be equal. A failed
+or interrupted training call returns no successful `TrainingMetrics` value and
+therefore cannot supply the count consumed by completion or checkpoint writing.
 
 Convergence observations are derived by a total evaluator from an independent,
 typed criterion and a finite measured payload. The criterion owns its finite
@@ -126,14 +170,34 @@ Supervised learning uses a **three-way** split (`JitML.SL.Dataset` `DataSplit`:
 
 | Partition | Role |
 |---|---|
-| **train** | gradient updates only |
+| **train** | gradient updates only; canonical classification stably permutes this complete partition from the fixed seed and one-based epoch before forming batches |
 | **validation** | model **selection** / early-stop — the partition that picks the final model; never trained on |
 | **test** | the held-out **final-evaluation** set, measured once on the selected model; never seen during training or selection |
 
 The convergence assertion's final accuracy is reported on the **test** partition; model
 selection runs against **validation**. (Datasets whose canonical archive ships no separate
 validation partition, e.g. CIFAR-10/100, declare that explicitly rather than reusing test
-as validation.)
+as validation.) The epoch permutation is never a repartition: each training
+example appears exactly once in that epoch's training order, while validation
+and test retain their fixed decoder order and membership. Consequently no
+split-size, budget, throughput, or observed-update evidence changes merely
+because canonical classification training is shuffled.
+
+The current `cifar10-vit` ProductRow keeps **2,000** training examples, five
+epochs, batch size 128, **10,000** processed examples, and **80** observed
+successful mini-batch updates in its final typed recipe. Earlier
+executable-topology diagnostics used their then-current plans and remain dated
+evidence in Sprint `10.6`.
+Validation and test values do not influence its RGB fit; all three model-input
+partitions receive the transform fitted from training only, while the V2 parity
+probe remains in raw `[0,1]` units. Fresh validation uses the descriptor-bound
+finite-positive rate (`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for
+`cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight
+rows), whose value participates in `PlanId` and passes unchanged into
+classification or California regression.
+Measured diagnostic chronology and closure evidence live in Sprint `10.6`;
+those Mixer measurements cannot satisfy Blocked Phase `24`'s requirement to
+remeasure the eventual literal small-ViT graph.
 
 ## SL metrics (R3)
 
@@ -193,8 +257,15 @@ as validation.)
 - **Row evidence** — neural and learned-policy RL rows record deterministic
   initial/final policy-or-Q hashes, a positive update count, the fixed-budget
   observation count, and `linux-cpu` device evidence before a
-  `CompletedTraining` witness can enter the checkpoint manifest. HER rows use
-  goal success rate and achieved-goal distance as their convergence observations.
+  `CompletedTraining` witness can enter the checkpoint manifest. The update
+  count is measured by the trainer against the exact flattened tensor whose
+  initial/final hashes are recorded: DQN, QR-DQN, and HER report online-Q Adam
+  applications; PPO-family rows report combined policy/value minibatch Adam
+  applications; TRPO also reports every accepted actor natural-gradient
+  application; and continuous-control rows report actor Adam applications only,
+  excluding auxiliary critic and temperature state that is not in the hashed
+  checkpoint tensor. HER rows use goal success rate and achieved-goal distance
+  as their convergence observations.
   Row assertions reject synthetic transitions, missing thresholds, missing
   device evidence, initialized-only checkpoints, and failed convergence.
 - **AlphaZero** — convergence is measured by **arena win-rate** against the prior best

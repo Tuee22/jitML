@@ -11,20 +11,40 @@
 
 ## The Contract
 
-jitML guarantees **same-substrate bit-equality**: a transcript or checkpoint
-produced on `<substrate>` is bit-identical when reproduced on the same
-`<substrate>` against the same toolchain pin (every codegen-toolchain
-fingerprint from `cabal.project` plus the substrate-specific kernel-compiler
-version). Cross-substrate bit-equality is **not** guaranteed — RNG draws and
-float reduction order differ across substrates — and cross-substrate
-equivalence is **not asserted**: there is no numeric-parity check and no
-tolerance band.
+jitML guarantees **same-substrate bit-equality** when the same numerical path is
+repeated on `<substrate>` against the same toolchain pin (every
+codegen-toolchain fingerprint from `cabal.project` plus the
+substrate-specific kernel-compiler version). Exact V2 reconstruction has an
+additional same-substrate *path comparison* between the training-returned
+model and the Store-loaded structural executor: its maximum-absolute-difference
+bound is `1e-9` for the Linux CPU/CUDA `double` structural ABIs and initially
+`1e-5` for Metal's explicit fp32 transport. Each path remains independently
+replayable; that comparison does not claim that two different implementations
+produce bit-identical floats. Cross-substrate bit-equality is **not** guaranteed
+— RNG draws and float reduction order differ across substrates — and
+cross-substrate equivalence is **not asserted**: there is no cross-substrate
+numeric-parity check or tolerance band.
 
 Reproducibility is an architectural invariant, not a debugging aid. The
 contract holds across:
 
 - parameter initialization (seeded by the experiment Dhall),
-- minibatch ordering (dataset shuffle is seeded),
+- canonical supervised learning rate (finite and positive, included in the
+  ProductRow descriptor and semantic `PlanId`, then passed unchanged as `3e-3`
+  for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for
+  `cifar10-vit`, or `1e-3` for the other eight supervised rows),
+- the current `cifar10-vit` fixed plan (2,000 training examples, five epochs,
+  batch size 128, 10,000 processed examples, and 80 successful optimizer
+  updates),
+- canonical supervised classification minibatch ordering (for each one-based
+  epoch, the trainer derives a SplitMix stream from the classifier seed and
+  epoch, pairs one word with every whole training example and its original
+  zero-based index, stable-sorts ascending by `(word, originalIndex)`, and only then
+  partitions that permutation into contiguous mini-batches),
+- split isolation (only the already-materialized classification training
+  partition is permuted; validation and test partitions remain in their fixed
+  decoded order, and the tuning exact-update path retains its fixed-order batch
+  cycle),
 - optimizer state (numerical updates are deterministic),
 - RL trajectories (env reset and step are seeded),
 - MCTS exploration paths (per-node-expansion seed is derived
@@ -48,6 +68,59 @@ deterministic evidence projection excludes broker receipts, wall-clock timing,
 process duration, and cleanup timestamps. Those remain observable journal data
 but are not inputs to numerical results, plan identity, checkpoint hashes, or
 same-substrate equality assertions.
+
+For supervised training, the canonical plan deterministically derives the
+required mini-batch update budget, but that projection is not treated as an
+observation. The successful trainer return owns
+`tmOptimizerUpdatesExecuted`, records it only after all requested epoch/batch
+loops complete, and carries it unchanged through Writer, Product Publisher,
+`CompletedTraining`, and the V2 manifest. Every boundary requires exact equality
+with the plan-derived count. An interrupted or failed run cannot manufacture a
+successful counter by recalculating the plan after the fact.
+
+The addressed V2 composite origin is itself deterministic identity. Product
+publication binds the payload row and `RawProductRowProjectionOrigin` to one
+supported-substrate projection. Generic supervised publication embeds
+`RawGenericSupervisedExecutionOrigin(rowId, canonicalPlanTransport)`; decode
+requires that row to equal the payload and authoritative canonical problem row,
+reparses the exact versioned `SupervisedPlan`, requires its canonical rendering
+to equal the stored text byte-for-byte, and derives the same `PlanId`, substrate,
+experiment, budget, and seed. `PlanId` alone never binds canonical row
+semantics. Origin choice is closed and explicit, so a loader cannot make
+identical bytes mean ProductRow evidence in one context and generic evidence in
+another. The required origin field changes V2 content addresses; frozen V1
+identity is unchanged. See
+[Checkpoint Format → Frozen V1 and Exact Supervised V2](checkpoint_format.md#frozen-v1-and-exact-supervised-v2).
+
+That generic seed is executed, not merely hashed or persisted. The supervised
+entrypoint requires exactly one plan seed, rejects platform-`Int` overflow, and
+uses it for parameter initialization and deterministic classification epoch
+ordering. Local generic experiment identity combines the Dhall path with
+canonical row/dataset/model, substrate, seed, epoch/training/evaluation/batch
+budgets, and consequently the derived update budget. Changing any one changes
+the experiment and semantic `PlanId`.
+
+Dataset identity is equally closed. V2 decode derives the canonical digest of
+the row's exact pinned training/evaluation reads and requires the runtime,
+manifest, and `CompletedTraining` fields to equal it. Replacing all persisted
+copies with the same forged digest is deterministic forgery, not admission.
+
+Completed-checkpoint event order is deterministic with respect to Store
+adoption: a live writer reads the current pointer ETag (the local writer reads
+the corresponding current-body expectation), CASes that expectation, and
+requires `PointerWritten` for the exact stored manifest before publication.
+The ETag is concurrency state rather than numerical identity, but a conflict
+cannot be rendered as a completed event for an unadopted manifest.
+
+The canonical classification epoch permutation changes order, never work. It
+retains every whole labeled training example exactly once per epoch, so the
+authoritative training-example quantity, batch-example quantity, number and
+sizes of batches, `slmExamplesProcessed`, and
+`tmOptimizerUpdatesExecuted` remain unchanged. Validation-driven model
+selection and held-out test measurement consume their original unpermuted
+partitions. Hyperparameter tuning deliberately continues to call the
+fixed-order selected trainer; introducing the canonical ProductRow shuffle does
+not silently alter trial/rung replay.
 
 Tuning and AlphaZero make that identity boundary concrete. Their raw commands
 refine to canonical version-`1` `TuningPlan` / `AlphaZeroPlan` transports whose
@@ -134,6 +207,54 @@ own floating-point determinism contract.
   20–50% slower than the non-deterministic defaults on training workloads;
   this is the price of the bit-determinism contract.
 
+## Exact V2 Structural Runtime
+
+The supervised V2 artifact executes preprocessing, graph structure, and output
+decoding through the selected substrate rather than through shared host
+callbacks. The common logical operation set is input transform, output
+transform, residual add, LayerNorm, token-mix pack/merge, patch extraction,
+scaled attention, and mean pool. MLP projection remains the selected real
+oneDNN/CUDA/fixed-bridge Metal MLP path nested inside that executor.
+Selected-substrate validation uses the plan resolved from the persisted closed
+origin: the unique ProductRow projection for product publication or the
+canonically reparsed exact `SupervisedPlan` for generic publication. It never
+guesses substrate from a row label or switches origins during replay.
+For V2, token-mix merge is replacement rather than implicit residual addition,
+and attention returns attended values without an outer skip; only the explicit
+residual operation adds one. Sprint `23.1` must version any corrected algebra
+rather than changing the meaning of existing V2 bytes.
+
+- `JitML.Codegen.RuntimeOperationsCpu` renders content-addressed `kernel.cc`.
+  `JitML.Codegen.RuntimeOperationsCuda` renders content-addressed `kernel.cu`
+  whose host wrappers allocate/copy/launch/synchronize/read back real device
+  buffers. Both expose the status-returning `jitml-runtime-operations-v1`
+  `double` C ABI, ABI version `1`, and complete capability mask `0xff`.
+- `JitML.Engines.RuntimeOperationsDevice` owns Linux compile/load, symbol
+  resolution, ABI/capability checks, exact buffer contracts, and deterministic
+  marshalling. CPU and CUDA reductions and softmax traverse values in fixed
+  order; unavailable capabilities or nonzero native status fail closed.
+- `JitML.Codegen.RuntimeOperationsMetal` renders all nine MSL entry points and
+  their source hash inside the content-addressed `.metal.json` artifact.
+  `JitML.Engines.RuntimeOperationsMetal` requires the cached metadata bytes to
+  equal the generated ABI/capability/source envelope, validates finite values,
+  shapes, ranges, scales, and fp32-exact integer arguments, and dispatches the
+  MSL through the fixed bridge with fast math disabled and explicit
+  `Double`↔fp32 transport.
+- `JitML.Engines.Local`, `CudaLocal`, and `MetalLocal` install no
+  `RuntimeOperations.host*` callbacks. Compile, load, symbol, ABI, capability,
+  contract, native-status, execution, and selected-backend MLP failures remain
+  distinct typed failures; recognized V2 execution never changes substrate or
+  falls back to the pure/reference oracle.
+
+The V2 training-returned-versus-Store-loaded reconstruction check is an
+additional same-substrate parity gate: maximum absolute difference is `1e-9`
+for the Linux CPU/CUDA `double` structural ABIs and initially `1e-5` for the
+fixed-bridge Metal fp32 transport. These bounds compare two implementations of
+the same persisted program on one substrate; they do not assert cross-substrate
+equivalence and do not replace the fresh-run bit-equality tests. Real-device
+CUDA and Metal reattestations remain with their single-accelerator product
+lanes.
+
 ## RNG Split and Per-Experiment Seed Derivation
 
 The master seed is declared in the experiment Dhall. Per-experiment seeds are
@@ -142,6 +263,22 @@ derived deterministically by `JitML.Engines.Rng.deriveSplitMixSeed`:
 ```
 experimentSeed = splitmix64(masterSeed, experimentIndex)
 ```
+
+Canonical classification training uses the same host SplitMix implementation.
+For one-based epoch `e` and classifier seed `s`, it computes exactly:
+
+```
+epochWords = splitMixWords(
+  length(trainingPartition),
+  deriveSplitMixSeed(SplitMixSeed(fromIntegral(s)), fromIntegral(e)))
+epochOrder = stableSortAscending(zip(epochWords, [0..], trainingPartition),
+                                 key = (word, originalIndex))
+```
+
+The original index is an explicit deterministic collision tie-breaker. No
+feature bytes, labels, validation/test examples, worker arrival order, or
+wall-clock values enter the key, and the permutation is formed only after the
+authoritative training partition has been fixed.
 
 For multi-game / multi-environment workloads (RL self-play, AlphaZero), the
 per-game seed derivation is:

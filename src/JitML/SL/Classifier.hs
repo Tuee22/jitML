@@ -140,8 +140,11 @@ zipImagesLabels images labels =
   [LabeledExample img lbl | (img, lbl) <- zip images labels]
 
 -- | Parse one or more CIFAR-10 binary records from an extracted batch file.
--- Each record is @1@ label byte followed by @3072@ image bytes in
--- channel-major order (1024 red, 1024 green, 1024 blue), scaled to @[0, 1]@.
+-- Each record is @1@ label byte followed by @3072@ image bytes in the
+-- archive's channel-major order (1024 red, 1024 green, 1024 blue).  The
+-- decoded feature vector is pixel-major interleaved RGB, matching the image
+-- geometry consumed by 'JitML.SL.Architecture' patch extraction, and scaled
+-- to @[0, 1]@.
 parseCifar10BinaryBatch :: ByteString -> Either String Dataset
 parseCifar10BinaryBatch =
   parseCifarBinaryBatch "cifar-10" 3073 0 1
@@ -228,13 +231,32 @@ parseCifarBinaryBatch label recordBytes labelOffset imageOffset bytes
         ( VU.generate
             3072
             ( \j ->
-                fromIntegral (ByteString.index bytes (base + imageOffset + j)) / 255.0
+                fromIntegral
+                  ( ByteString.index
+                      bytes
+                      (base + imageOffset + cifarPlanarIndex j)
+                  )
+                  / 255.0
             )
         )
         (fromIntegral (ByteString.index bytes (base + labelOffset)))
     | i <- [0 .. records - 1]
     , let base = i * recordBytes
     ]
+
+-- | Map a pixel-major interleaved RGB feature index back to the CIFAR
+-- archive's three planar 32x32 channel blocks.
+cifarPlanarIndex :: Int -> Int
+cifarPlanarIndex pixelMajorIndex = channel * cifarPixelsPerChannel + pixel
+ where
+  pixel = pixelMajorIndex `div` cifarChannelCount
+  channel = pixelMajorIndex `mod` cifarChannelCount
+
+cifarChannelCount :: Int
+cifarChannelCount = 3
+
+cifarPixelsPerChannel :: Int
+cifarPixelsPerChannel = 32 * 32
 
 decodeCifarBoundedDataset
   :: ClassifierConfig

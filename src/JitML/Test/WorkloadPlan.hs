@@ -317,6 +317,30 @@ workloadPlanTests =
           ( PlanCommand.validateStartSweep
               prepared {Tune.ssTrialBudget = Tune.ssTrialBudget prepared + 1}
           )
+    , testCase "exact tuning command binds the normalized Dhall semantics and revalidates them" $ do
+        let executionSpec = Catalog.canonicalMnistTuningExecutionSpec
+            searchSpace = Catalog.tuningExecutionSearchSpace executionSpec
+            learningRate = Catalog.tuningSearchLearningRate searchSpace
+            changedSpec =
+              executionSpec
+                { Catalog.tuningExecutionSearchSpace =
+                    searchSpace
+                      { Catalog.tuningSearchLearningRate =
+                          learningRate {Catalog.floatSearchMaximum = 2.0e-2}
+                      }
+                }
+        (prepared, plan) <- expectPreparedExactTuning executionSpec exactTuningCommand
+        tuningPlanExecutionSpec plan @?= executionSpec
+        PlanCommand.validateStartSweep prepared @?= Right plan
+        PlanCommand.validateStartSweepWithExecutionSpec executionSpec prepared @?= Right plan
+        (changedPrepared, changedPlan) <-
+          expectPreparedExactTuning changedSpec exactTuningCommand
+        assertBool
+          "search-space mutation must change exact tuning PlanId"
+          (tuningPlanId changedPlan /= tuningPlanId plan)
+        assertRejected
+          "retained Dhall spec differs from transported tuning spec"
+          (PlanCommand.validateStartSweepWithExecutionSpec executionSpec changedPrepared)
     , testCase "browser Tune defaults parse, prepare, and admit their exact promotion budget" $ do
         unresolved <-
           case Tune.parseTuneCommand browserTuneStartPayload of
@@ -473,6 +497,16 @@ validTuningCommand =
     , Tune.ssResolvedPlan = ""
     }
 
+exactTuningCommand :: Tune.StartSweep
+exactTuningCommand =
+  validTuningCommand
+    { Tune.ssSweepSeed = 1729
+    , Tune.ssTrialBudget = 128
+    , Tune.ssBudgetPerTrial = 1000
+    , Tune.ssParallelism = 1
+    , Tune.ssPromotions = 1
+    }
+
 browserTuneStartPayload :: Text
 browserTuneStartPayload =
   Text.unlines
@@ -608,6 +642,15 @@ expectAlphaZero raw =
 expectPreparedTuning :: Tune.StartSweep -> IO (Tune.StartSweep, TuningPlan)
 expectPreparedTuning raw =
   case PlanCommand.prepareStartSweep raw of
+    Right prepared -> pure prepared
+    Left message -> assertFailure (Text.unpack message) >> fail "unreachable"
+
+expectPreparedExactTuning
+  :: Catalog.TuningExecutionSpec
+  -> Tune.StartSweep
+  -> IO (Tune.StartSweep, TuningPlan)
+expectPreparedExactTuning executionSpec raw =
+  case PlanCommand.prepareStartSweepWithExecutionSpec executionSpec raw of
     Right prepared -> pure prepared
     Left message -> assertFailure (Text.unpack message) >> fail "unreachable"
 

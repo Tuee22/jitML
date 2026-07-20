@@ -96,16 +96,16 @@ symbols before the Apple daemon subscribes to work. The bridge exposes a stable 
 ABI to Haskell and keeps Metal API details out of generated JIT artifacts:
 
 ```c
-int jitml_metal_run(
+int jitml_metal_bridge_run(
   const char *metal_source,
   const char *function_name,
   const float *input,
   size_t input_count,
   const float *weights,
-  size_t weight_count,
+  size_t weights_count,
   float *output,
   size_t output_count,
-  const struct jitml_metal_launch *launch,
+  size_t threadgroup_size,
   char *error_buffer,
   size_t error_buffer_len
 );
@@ -130,6 +130,7 @@ The Haskell side owns:
 - source/metadata cache persistence
 - bridge prerequisite verification
 - input/output shape validation
+- finite/range/scale and fp32-exact integer transport validation
 - conversion from bridge return codes into `AppError`
 
 ### Host Residency
@@ -186,6 +187,32 @@ rendered source, launch metadata, bridge ABI version, Metal runtime policy, and
 determinism options. This mirrors the existing doctrine that generated compiler
 inputs are content-addressed, but changes the Apple compiler input from Swift
 package source to MSL source.
+
+### Supervised V2 Structural Runtime
+
+`JitML.Codegen.RuntimeOperationsMetal` renders the complete supervised V2
+structural-operation program as generated MSL inside an exact
+`kernel.metal.json` artifact. Its envelope records logical runtime ABI version
+`1`, capability mask `0xff`, fixed bridge ABI, all nine function names, safe
+math, single-stream ordering, source SHA-256, and the embedded source. The
+functions implement input and output transforms, residual add, LayerNorm,
+token-mix pack and merge, patch extraction, scaled attention, and mean pooling.
+
+`JitML.Engines.RuntimeOperationsMetal` refuses cached metadata whose bytes do
+not exactly equal that generated envelope. Before dispatch it validates
+dimensions, finite buffers, ranges, positive scales, index bounds, and every
+integer encoded through the bridge's float argument buffer as exactly
+representable in fp32. It then uses `jitml_metal_bridge_run` through the same
+fixed bridge and performs explicit host `Double` to device fp32 conversion and
+fp32 readback. MLP projections remain the selected fixed-bridge Metal MLP
+implementation; `MetalLocal` installs no `RuntimeOperations.host*` structural
+callbacks and cannot use the pure/reference oracle for recognized V2.
+
+This fp32 transport is explicit in the cache fingerprint and in the V2
+same-substrate training-versus-loaded gate, whose initial maximum absolute
+difference is `1e-5`. Sprint `10.6` owns the renderer and fail-closed contract;
+the Apple single-accelerator lane owns real-device reattestation and any
+evidence-driven tolerance adjustment.
 
 ### In-Process Pipeline Cache
 
@@ -372,6 +399,11 @@ shape for a JIT.
    separate non-core Swift JIT modules.
 8. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
    are removed from the supported runtime JIT path.
+9. `JitML.Codegen.RuntimeOperationsMetal` and
+   `JitML.Engines.RuntimeOperationsMetal` add the exact generated MSL structural
+   executor used by supervised V2, with ABI/capability/symbol metadata,
+   exact-cache verification, explicit fp32 transport, and typed bridge
+   load/symbol/compile/dispatch failures.
 
 ## Validation Evidence
 

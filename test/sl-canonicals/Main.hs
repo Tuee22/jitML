@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -6,6 +8,8 @@ import Codec.Archive.Zip qualified as Zip
 import Codec.Compression.GZip qualified as GZip
 import Codec.Picture qualified as Picture
 import Control.Monad (forM_)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (runReaderT)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
@@ -50,13 +54,23 @@ import JitML.SL.Classifier
   )
 
 import JitML.Bootstrap (readExistingLivePublication)
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Checkpoint.WeightCodec qualified as WeightCodec
+import JitML.Checkpoint.Writer qualified as CheckpointWriter
 import JitML.Cluster.Publication (publicationEdgePort, publicationSubstrate)
+import JitML.Engines.CudaLocal qualified as CudaLocal
+import JitML.Engines.Local qualified as Local
+import JitML.Engines.MetalLocal qualified as MetalLocal
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Env.Env (Env)
+import JitML.Inference.Decode qualified as InferenceDecode
 import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Command qualified as PlanCommand
 import JitML.Plan.Plan qualified as Plan
+import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
@@ -99,11 +113,15 @@ import JitML.SL.Dataset
   )
 import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.Regression qualified as Regression
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.SL.TinyImageNet qualified as TinyImageNet
+import JitML.SL.TrainingExecution qualified as TrainingExecution
 import JitML.Service.Capabilities (HasMinIO (..))
+import JitML.Service.Command qualified as ServiceCommand
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Service.MinIOSubprocess
-  ( MinIOSubprocess
+  ( MinIOSettings
+  , MinIOSubprocess
   , minioSettingsForLocalEdge
   , runMinIOSubprocess
   )
@@ -206,6 +224,80 @@ main =
                   }
               specs = Architecture.allCanonicalArchitectureSpecs config
           fmap (problemName . Architecture.archProblem) specs @?= fmap problemName canonicalProblems
+      , testCase "canonical epoch permutation is seeded, exact, and sample-preserving (Sprint 10.6)" $ do
+          let examples =
+                [ LabeledExample (VU.singleton (fromIntegral index)) index
+                | index <- [0 .. 15]
+                ]
+              epochOne = Architecture.canonicalEpochPermutation 1009 1 examples
+              epochOneReplay = Architecture.canonicalEpochPermutation 1009 1 examples
+              epochTwo = Architecture.canonicalEpochPermutation 1009 2 examples
+              labels = fmap exampleLabel
+          labels epochOne
+            @?= [14, 1, 8, 12, 15, 7, 2, 0, 11, 9, 4, 6, 5, 13, 3, 10]
+          labels epochTwo
+            @?= [7, 5, 3, 13, 9, 0, 8, 1, 12, 11, 2, 14, 4, 10, 15, 6]
+          epochOneReplay @?= epochOne
+          assertBool "successive epochs must use distinct orders" (epochTwo /= epochOne)
+          List.sortOn exampleLabel epochOne @?= examples
+          List.sortOn exampleLabel epochTwo @?= examples
+      , testCase "CIFAR ViT V2 contract retains the exact compact 64-token executable (Sprint 10.6)" $ do
+          case List.find ((== "cifar10-vit") . problemName) canonicalProblems of
+            Nothing -> assertFailure "missing cifar10-vit canonical problem"
+            Just problem -> do
+              let config =
+                    defaultClassifierConfig
+                      { clfInputs = 3072
+                      , clfClasses = 10
+                      , clfSeed = SL.problemSeed problem
+                      }
+              case Architecture.canonicalClassificationRuntimeContract config problem of
+                Left err ->
+                  assertFailure
+                    ("failed to refine the exact CIFAR ViT runtime: " <> Text.unpack err)
+                Right runtime ->
+                  do
+                    RuntimeArtifact.rawSupervisedRuntimeLayers runtime
+                      @?= [ RuntimeArtifact.RawPatchLayer
+                              "vit-patch-embedding"
+                              (RuntimeArtifact.RawRuntimeImageGeometry 32 32 3)
+                              4
+                              4
+                              128
+                              128
+                          , RuntimeArtifact.RawLayerNormLayer "vit-pre-mixer-layernorm"
+                          , RuntimeArtifact.RawTokenMixLayer "vit-token-mixing-mlp" 64 128
+                          , RuntimeArtifact.RawLayerNormLayer "vit-post-mixer-layernorm"
+                          , RuntimeArtifact.RawAttentionLayer "vit-self-attention" 128 128
+                          , RuntimeArtifact.RawMeanPoolLayer "vit-token-mean-pool"
+                          , RuntimeArtifact.RawDenseLayer
+                              "vit-classifier"
+                              (RuntimeArtifact.RawRuntimeMlpShape 128 128 11)
+                          ]
+                    refined <-
+                      expectText
+                        "refine exact compact CIFAR ViT runtime"
+                        (RuntimeArtifact.refineSupervisedRuntime runtime)
+                    RuntimeArtifact.supervisedRuntimeParameterCount refined @?= 123595
+                    let slices = RuntimeArtifact.supervisedRuntimeVirtualSlices refined
+                        sliceEnd slice =
+                          RuntimeArtifact.runtimeVirtualSliceOffset slice
+                            + RuntimeArtifact.runtimeVirtualSliceLength slice
+                    case slices of
+                      [] -> assertFailure "compact CIFAR ViT runtime has no parameter slices"
+                      firstSlice : remainingSlices -> do
+                        RuntimeArtifact.runtimeVirtualSliceOffset firstSlice @?= 0
+                        forM_ (zip slices remainingSlices) $ \(leftSlice, rightSlice) ->
+                          sliceEnd leftSlice
+                            @?= RuntimeArtifact.runtimeVirtualSliceOffset rightSlice
+                        sliceEnd (List.last slices) @?= 123595
+                        fmap
+                          sliceEnd
+                          ( filter
+                              ((== "b2") . RuntimeArtifact.runtimeVirtualSliceParameterName)
+                              slices
+                          )
+                          @?= [23040, 39616, 105664, 123595]
       , testCase "ProductRow architecture features match literal LayerGraph topology (Sprint 24.1)" $ do
           let config =
                 defaultClassifierConfig
@@ -373,12 +465,48 @@ main =
 
           let cifar10Bytes =
                 ByteString.pack $
-                  cifar10Record 3 [0, 255, 128, 64]
-                    <> cifar10Record 7 [10, 20, 30, 40]
+                  cifar10Record
+                    3
+                    ( cifarPlanarPayload
+                        [(0, 1), (1, 4), (31, 7), (32, 10), (1023, 13)]
+                        [(0, 2), (1, 5), (31, 8), (32, 11), (1023, 14)]
+                        [(0, 3), (1, 6), (31, 9), (32, 12), (1023, 15)]
+                    )
+                    <> cifar10Record
+                      7
+                      ( cifarPlanarPayload
+                          [(0, 16)]
+                          [(0, 17)]
+                          [(0, 18)]
+                      )
               cifar100Bytes =
                 ByteString.pack $
-                  cifar100Record 2 42 [5, 15, 25, 35]
-                    <> cifar100Record 9 17 [45, 55, 65, 75]
+                  cifar100Record
+                    2
+                    42
+                    ( cifarPlanarPayload
+                        [(0, 21), (1, 24), (31, 27), (32, 30), (1023, 33)]
+                        [(0, 22), (1, 25), (31, 28), (32, 31), (1023, 34)]
+                        [(0, 23), (1, 26), (31, 29), (32, 32), (1023, 35)]
+                    )
+                    <> cifar100Record
+                      9
+                      17
+                      ( cifarPlanarPayload
+                          [(0, 36)]
+                          [(0, 37)]
+                          [(0, 38)]
+                      )
+              sentinelPixels = [0, 1, 31, 32, 1023]
+              decodedSentinels features =
+                VU.fromList
+                  [ features VU.! (pixel * 3 + channel)
+                  | pixel <- sentinelPixels
+                  , channel <- [0 .. 2]
+                  ]
+              scaledSentinels :: [Word8] -> VU.Vector Double
+              scaledSentinels values =
+                VU.fromList [fromIntegral value / 255.0 | value <- values]
           case parseCifar10BinaryBatch cifar10Bytes of
             Left err -> assertFailure ("CIFAR-10 parse failed: " <> err)
             Right examples -> do
@@ -386,12 +514,18 @@ main =
               case examples of
                 first : _ -> do
                   VU.length (exampleFeatures first) @?= 3072
-                  VU.take 4 (exampleFeatures first) @?= VU.fromList [0.0, 1.0, 128.0 / 255.0, 64.0 / 255.0]
+                  decodedSentinels (exampleFeatures first)
+                    @?= scaledSentinels [1 .. 15]
                 [] -> assertFailure "expected CIFAR-10 examples"
           case parseCifar100BinaryBatch cifar100Bytes of
             Left err -> assertFailure ("CIFAR-100 parse failed: " <> err)
-            Right examples ->
+            Right examples -> do
               fmap exampleLabel examples @?= [42, 17]
+              case examples of
+                first : _ ->
+                  decodedSentinels (exampleFeatures first)
+                    @?= scaledSentinels [21 .. 35]
+                [] -> assertFailure "expected CIFAR-100 examples"
           case decodeCifar10BoundedDataset defaultClassifierConfig (Just 1) cifar10Bytes of
             Left err -> assertFailure ("CIFAR-10 bounded decode failed: " <> err)
             Right (config, examples) -> do
@@ -771,6 +905,13 @@ main =
                     && not (isInfinite (Architecture.slmValidationLoss metrics))
                 )
               Architecture.slmExamplesProcessed metrics @?= trainCount * clfEpochs config
+              Architecture.slmOptimizerUpdatesExecuted metrics
+                @?= fromIntegral
+                  ( clfEpochs config
+                      * ( (trainCount + clfBatchSize config - 1)
+                            `div` clfBatchSize config
+                        )
+                  )
               reMeasured <- Architecture.crossEntropyArchitectureWithDevice device trained trainSet
               case reMeasured of
                 Left err -> assertFailure ("re-measured device cross-entropy failed: " <> Text.unpack err)
@@ -782,6 +923,85 @@ main =
                         <> show (Architecture.slmTrainLoss metrics)
                     )
                     (abs (ce - Architecture.slmTrainLoss metrics) < 1.0e-9)
+      , testCase
+          "canonical permuted device training replays weights, metrics, and update count (Sprint 10.6)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            substrate <- selectedTestSubstrate
+            let device = mlpDeviceForSubstrate substrate env
+            requireMlpDevice substrate device
+            let denseProblem =
+                  case filter ((== "Dense") . SL.problemModel) canonicalProblems of
+                    (problem : _) -> problem
+                    [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
+                config =
+                  defaultClassifierConfig
+                    { clfSeed = SL.problemSeed denseProblem
+                    , clfInputs = 4
+                    , clfHidden = 8
+                    , clfClasses = 3
+                    , clfEpochs = 3
+                    , clfBatchSize = 7
+                    , clfLearningRate = 1.0e-2
+                    }
+                spec = Architecture.architectureSpecForProblem config denseProblem
+                trainSet = take 50 syntheticDataset
+                validationSet = drop 50 syntheticDataset
+                expectedUpdates =
+                  fromIntegral
+                    ( clfEpochs config
+                        * ( (length trainSet + clfBatchSize config - 1)
+                              `div` clfBatchSize config
+                          )
+                    )
+            firstE <-
+              Architecture.trainCanonicalArchitectureWithDeviceSelected
+                device
+                spec
+                config
+                trainSet
+                validationSet
+            replayE <-
+              Architecture.trainCanonicalArchitectureWithDeviceSelected
+                device
+                spec
+                config
+                trainSet
+                validationSet
+            (firstTrained, firstMetrics) <- expectText "first canonical permuted training" firstE
+            (replayTrained, replayMetrics) <- expectText "replayed canonical permuted training" replayE
+            Architecture.trainedArchitectureWeights replayTrained
+              @?= Architecture.trainedArchitectureWeights firstTrained
+            replayMetrics @?= firstMetrics
+            Architecture.slmExamplesProcessed firstMetrics
+              @?= length trainSet
+              * clfEpochs config
+            Architecture.slmOptimizerUpdatesExecuted firstMetrics @?= expectedUpdates
+            let fittedTransform =
+                  RuntimeArtifact.RawStandardizeInput
+                    [0.1, 0.2, 0.3, 0.4]
+                    [0.5, 0.6, 0.7, 0.8]
+            bound <-
+              expectText
+                "bind exact trained classification transform"
+                ( Architecture.bindTrainedArchitectureInputTransform
+                    fittedTransform
+                    firstTrained
+                )
+            projected <-
+              expectText
+                "project exact trained classification transform"
+                (Architecture.projectTrainedArchitectureRuntime bound)
+            RuntimeArtifact.rawSupervisedRuntimeInputTransform projected
+              @?= fittedTransform
+            assertBool
+              "trained classification transform binding must reject width drift"
+              ( case Architecture.bindTrainedArchitectureInputTransform
+                  (RuntimeArtifact.RawStandardizeInput [0.1] [0.5])
+                  firstTrained of
+                  Left _ -> True
+                  Right _ -> False
+              )
       , testCase
           "supervised row evidence assertions cover split, throughput, hashes, and convergence (Sprint 24.2)"
           $ do
@@ -903,10 +1123,18 @@ main =
           result <- Regression.trainRegressorWithDevice device config regressionSyntheticDataset
           case result of
             Left err -> assertFailure ("device regression training failed: " <> Text.unpack err)
-            Right (_, mse) ->
+            Right (_, regressionMetrics) -> do
+              let mse = Regression.regressionTrainMse regressionMetrics
               assertBool
                 ("expected device regression MSE < 0.02, got " <> show mse)
                 (mse < 0.02)
+              Regression.regressionOptimizerUpdatesExecuted regressionMetrics
+                @?= fromIntegral
+                  ( Regression.regEpochs config
+                      * ( (length regressionSyntheticDataset + Regression.regBatchSize config - 1)
+                            `div` Regression.regBatchSize config
+                        )
+                  )
       , testCase
           "all canonical SL architectures execute a substrate-backed train step (Sprint 8.12 --linux-cpu)"
           $ do
@@ -947,6 +1175,75 @@ main =
                         <> show acc
                     )
                     (acc >= 0.0 && acc <= 1.0 && not (isNaN acc))
+      , testCase
+          "all eleven trained canonical programs equal Store-loaded V2 inference on the same substrate (Sprint 10.6)"
+          $ withSystemTempDirectory "jitml-sl-v2-parity"
+          $ \checkpointRoot -> do
+            publication <- readExistingLivePublication "."
+            case publication of
+              Nothing ->
+                assertFailure
+                  "no live cluster publication; exact Sprint 10.6 parity requires verified staged canonical artifacts"
+              Just published -> do
+                env <- buildEnv defaultGlobalFlags
+                selectedSubstrate <- selectedTestSubstrate
+                let substrate = publicationSubstrate published
+                    device = mlpDeviceForSubstrate substrate env
+                    settings = minioSettingsForLocalEdge (publicationEdgePort published)
+                    floorRowIds =
+                      ProductMatrix.floorSupervisedRows ProductMatrix.matrixFloor
+                    floorRows =
+                      [ row
+                      | row <- ProductMatrix.allProductRows
+                      , ProductMatrix.rowId row `elem` floorRowIds
+                      ]
+                    floorProblems =
+                      [ problem
+                      | rowId <- floorRowIds
+                      , problem <- canonicalProblems
+                      , problemName problem == rowId
+                      ]
+                substrate @?= selectedSubstrate
+                requireMlpDevice substrate device
+                fmap ProductMatrix.rowId floorRows @?= floorRowIds
+                fmap problemName floorProblems @?= floorRowIds
+                forM_ floorProblems $ \problem ->
+                  case List.find ((== problemName problem) . ProductMatrix.rowId) floorRows of
+                    Nothing ->
+                      assertFailure
+                        ("missing supervised ProductRow " <> Text.unpack (problemName problem))
+                    Just row ->
+                      assertProductionV2Parity
+                        checkpointRoot
+                        env
+                        substrate
+                        settings
+                        row
+                        problem
+      , testCase
+          "all eleven live supervised latest pointers load exact V2 runtime identity (Sprint 10.6 Live)"
+          $ do
+            publication <- readExistingLivePublication "."
+            case publication of
+              Nothing ->
+                assertFailure
+                  "no live cluster publication; Sprint 10.6 latest-pointer proof requires live MinIO"
+              Just published -> do
+                selectedSubstrate <- selectedTestSubstrate
+                let substrate = publicationSubstrate published
+                    settings = minioSettingsForLocalEdge (publicationEdgePort published)
+                    floorRowIds =
+                      ProductMatrix.floorSupervisedRows ProductMatrix.matrixFloor
+                    floorRows =
+                      [ row
+                      | row <- ProductMatrix.allProductRows
+                      , ProductMatrix.rowId row `elem` floorRowIds
+                      ]
+                substrate @?= selectedSubstrate
+                length floorRowIds @?= 11
+                fmap ProductMatrix.rowId floorRows @?= floorRowIds
+                forM_ floorRows $
+                  assertLiveLatestSupervisedV2Pointer substrate settings
       , testCase "SL classifier training is run-to-run deterministic (Sprint 13.4)" $ do
           let config = defaultClassifierConfig {clfInputs = 4, clfHidden = 16, clfClasses = 3, clfEpochs = 20}
               dataset = syntheticDataset
@@ -1161,6 +1458,640 @@ main =
                       assertFailure "live MNIST bytes unavailable from MinIO; staged dataset is required"
                 _ -> assertFailure "missing MNIST dataset ref or convergence threshold"
       ]
+
+assertProductionV2Parity
+  :: FilePath
+  -> Env
+  -> Substrate
+  -> MinIOSettings
+  -> ProductMatrix.ProductRow state
+  -> SL.CanonicalProblem
+  -> IO ()
+assertProductionV2Parity checkpointRoot env substrate minioSettings row problem = do
+  projection <-
+    expectText
+      ("authoritative supervised ProductRow projection for " <> problemLabel problem)
+      (supervisedProjectionFor substrate row)
+  plan <-
+    expectText
+      ("authoritative SupervisedPlan for " <> problemLabel problem)
+      (supervisedPlanForProjection projection)
+  ProductMatrix.productProjectionRowId projection @?= problemName problem
+  ProductMatrix.productProjectionPlanId projection
+    @?= WorkloadPlan.supervisedPlanId plan
+  (trainingExamples, epochs, evaluationExamples, batchExamples) <-
+    expectText
+      ("exact supervised execution budget for " <> problemLabel problem)
+      (TrainingExecution.supervisedExecutionBudget plan)
+  descriptorLearningRate <-
+    case ProductMatrix.productProjectionDescriptor projection of
+      ProductMatrix.SupervisedProductDescriptor _ _ _ learningRate ->
+        pure learningRate
+  let executionRuntime =
+        TrainingExecution.TrainingExecutionRuntime
+          { TrainingExecution.trainingResolveMinIOSettings =
+              pure (Just minioSettings)
+          }
+  trainingResult <-
+    runReaderT
+      ( TrainingExecution.runDeviceMnistTrainingWithLimitsAndLearningRate
+          executionRuntime
+          substrate
+          problem
+          trainingExamples
+          epochs
+          evaluationExamples
+          batchExamples
+          (Just descriptorLearningRate)
+      )
+      env
+  metrics <-
+    expectText
+      ("production supervised execution for " <> problemLabel problem)
+      trainingResult
+  TrainingExecution.tmCompletedUnits metrics @?= fromIntegral epochs
+  TrainingExecution.tmExamplesProcessed metrics
+    @?= trainingExamples
+    * epochs
+  assertBool
+    (problemLabel problem <> " did not execute a positive evaluation-example budget")
+    (evaluationExamples > 0)
+  assertBool
+    (problemLabel problem <> " did not execute a positive batch-example budget")
+    (batchExamples > 0)
+  assertBool
+    (problemLabel problem <> " trainer did not observe any optimizer updates")
+    (TrainingExecution.tmOptimizerUpdatesExecuted metrics > 0)
+  Plan.quantityValue (WorkloadPlan.supervisedPlanOptimizerUpdates plan)
+    @?= TrainingExecution.tmOptimizerUpdatesExecuted metrics
+  assertBool
+    (problemLabel problem <> " production parity probe input is empty")
+    (not (null (TrainingExecution.tmParityProbeInput metrics)))
+  assertBool
+    (problemLabel problem <> " production parity probe output is empty")
+    (not (null (TrainingExecution.tmParityProbeOutput metrics)))
+  let experimentHash =
+        ProductMatrix.productProjectionExperimentHash projection
+      metricRows = ServiceCommand.trainingCheckpointMetrics metrics
+  (completed, artifact) <-
+    expectText
+      ("exact ProductRow completion/runtime artifact for " <> problemLabel problem)
+      ( CheckpointWriter.completedSupervisedRuntimeForTraining
+          plan
+          problem
+          metrics
+          experimentHash
+          metricRows
+      )
+  let payload = RuntimeArtifact.trainingArtifactPayload artifact
+      initialBytes = RuntimeArtifact.trainingArtifactInitialJmw1Bytes artifact
+      finalBytes = RuntimeArtifact.trainingArtifactFinalJmw1Bytes artifact
+  RuntimeArtifact.payloadRowId payload @?= ProductMatrix.rowId row
+  RuntimeArtifact.payloadPlanId payload @?= WorkloadPlan.supervisedPlanId plan
+  RuntimeArtifact.payloadDatasetSha256 payload
+    @?= TrainingExecution.tmVerifiedDatasetShaAtRead metrics
+  RuntimeArtifact.supervisedRuntimeToRaw (RuntimeArtifact.payloadRuntime payload)
+    @?= TrainingExecution.tmSupervisedRuntimeProgram metrics
+  initialBytes @?= TrainingExecution.tmInitialJmw1Bytes metrics
+  finalBytes @?= TrainingExecution.tmFinalJmw1Bytes metrics
+  assertBool
+    (problemLabel problem <> " training did not move its exact JMW1 identity")
+    ( WeightCodec.jmw1ContentSha (TrainingExecution.tmInitialJmw1Bytes metrics)
+        /= WeightCodec.jmw1ContentSha (TrainingExecution.tmFinalJmw1Bytes metrics)
+    )
+  assertPersistedV2Parity
+    checkpointRoot
+    env
+    substrate
+    row
+    projection
+    completed
+    metricRows
+    artifact
+    (TrainingExecution.tmParityProbeInput metrics)
+    (VU.fromList (TrainingExecution.tmParityProbeOutput metrics))
+
+supervisedPlanForProjection
+  :: ProductMatrix.ProductProjection 'Plan.SupervisedTraining
+  -> Either Text WorkloadPlan.SupervisedPlan
+supervisedPlanForProjection projection =
+  case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan plan -> Right plan
+
+supervisedProjectionFor
+  :: Substrate
+  -> ProductMatrix.ProductRow state
+  -> Either Text (ProductMatrix.ProductProjection 'Plan.SupervisedTraining)
+supervisedProjectionFor substrate row =
+  case ProductMatrix.projectProductRow substrate row of
+    Plan.Failure errors ->
+      Left
+        ( "ProductRow projection failed for "
+            <> ProductMatrix.rowId row
+            <> ": "
+            <> Text.pack (show errors)
+        )
+    Plan.Success
+      ( ProductMatrix.SomeProductProjection
+          Plan.SupervisedTrainingWitness
+          projection
+        ) -> Right projection
+    Plan.Success _ ->
+      Left ("ProductRow is not supervised: " <> ProductMatrix.rowId row)
+
+assertLiveLatestSupervisedV2Pointer
+  :: Substrate
+  -> MinIOSettings
+  -> ProductMatrix.ProductRow state
+  -> IO ()
+assertLiveLatestSupervisedV2Pointer substrate minioSettings row = do
+  let rowId = ProductMatrix.rowId row
+      experimentHash = ProductMatrix.productRowExperimentHash row
+  projection <-
+    expectText
+      ("canonical substrate-specific ProductRow projection for " <> Text.unpack rowId)
+      (supervisedProjectionFor substrate row)
+  problem <-
+    expectText
+      ("canonical supervised problem for " <> Text.unpack rowId)
+      ( case List.find ((== rowId) . problemName) canonicalProblems of
+          Nothing -> Left (rowId <> ": no canonical supervised problem")
+          Just value -> Right value
+      )
+  expectedInputTransform <-
+    expectText
+      ("live classification input transform for " <> Text.unpack rowId)
+      =<< expectedLiveClassificationInputTransform
+        minioSettings
+        problem
+        projection
+  let expectedPlanId = ProductMatrix.productProjectionPlanId projection
+  loaded <-
+    runMinIOSubprocess minioSettings $
+      CheckpointStore.loadInferenceCheckpointWithWeights
+        ( \_ manifest weights _ ->
+            pure $ do
+              maybeRuntime <-
+                CheckpointStore.loadSupervisedRuntimeFromCheckpoint manifest weights
+              runtime <-
+                case maybeRuntime of
+                  Nothing ->
+                    Left
+                      ( rowId
+                          <> ": live latest pointer targets a runtime-free/V1 supervised checkpoint"
+                      )
+                  Just value -> Right value
+              let payload = RuntimeArtifact.loadedRuntimePayload runtime
+                  actualRowId = RuntimeArtifact.payloadRowId payload
+                  actualPlanId = RuntimeArtifact.payloadPlanId payload
+                  actualRuntime = RuntimeArtifact.payloadRuntime payload
+              if actualRowId == rowId
+                then Right ()
+                else
+                  Left
+                    ( rowId
+                        <> ": persisted V2 row ID mismatch: expected "
+                        <> rowId
+                        <> ", got "
+                        <> actualRowId
+                    )
+              if Checkpoint.manifestPlanId manifest == Just expectedPlanId
+                then Right ()
+                else
+                  Left
+                    ( rowId
+                        <> ": persisted manifest PlanId mismatch: expected "
+                        <> Plan.planIdText expectedPlanId
+                        <> ", got "
+                        <> maybe
+                          "<missing>"
+                          Plan.planIdText
+                          (Checkpoint.manifestPlanId manifest)
+                    )
+              if actualPlanId == expectedPlanId
+                then Right ()
+                else
+                  Left
+                    ( rowId
+                        <> ": persisted V2 runtime PlanId mismatch: expected "
+                        <> Plan.planIdText expectedPlanId
+                        <> ", got "
+                        <> Plan.planIdText actualPlanId
+                    )
+              if SL.problemDataset problem == "California Housing"
+                then Right ()
+                else do
+                  if RuntimeArtifact.runtimeTaskIsClassification
+                    (RuntimeArtifact.supervisedRuntimeTask actualRuntime)
+                    then Right ()
+                    else Left (rowId <> ": persisted V2 runtime is not classification")
+                  let config =
+                        defaultClassifierConfig
+                          { clfSeed = SL.problemSeed problem
+                          , clfInputs = RuntimeArtifact.supervisedRuntimeInputWidth actualRuntime
+                          , clfClasses =
+                              RuntimeArtifact.runtimeTaskSemanticWidth
+                                (RuntimeArtifact.supervisedRuntimeTask actualRuntime)
+                          }
+                  expectedRuntime <-
+                    Architecture.canonicalClassificationRuntimeContract config problem
+                  let expectedRuntimeWithFittedInput =
+                        case expectedInputTransform of
+                          Nothing -> expectedRuntime
+                          Just inputTransform ->
+                            expectedRuntime
+                              { RuntimeArtifact.rawSupervisedRuntimeInputTransform =
+                                  inputTransform
+                              }
+                      actualRawRuntime = RuntimeArtifact.supervisedRuntimeToRaw actualRuntime
+                  if actualRawRuntime == expectedRuntimeWithFittedInput
+                    then Right ()
+                    else
+                      Left
+                        ( rowId
+                            <> ": persisted V2 executable differs from the current canonical runtime contract"
+                        )
+              Right []
+        )
+        experimentHash
+        []
+  _ <-
+    expectText
+      ("live latest V2 pointer for " <> Text.unpack rowId)
+      loaded
+  pure ()
+
+-- | Derive the only fitted classification ingress program from the same
+-- verified staged archive, exact ProductRow budget, and train/validation split
+-- used by production training.  Every other classifier retains the canonical
+-- unit-image contract; California Housing remains on its separate regression
+-- projection above.
+expectedLiveClassificationInputTransform
+  :: MinIOSettings
+  -> SL.CanonicalProblem
+  -> ProductMatrix.ProductProjection 'Plan.SupervisedTraining
+  -> IO (Either Text (Maybe RuntimeArtifact.RawRuntimeInputTransform))
+expectedLiveClassificationInputTransform minioSettings problem projection
+  | SL.problemName problem /= "cifar10-vit" = pure (Right Nothing)
+  | otherwise =
+      case Dataset.datasetForProblem problem of
+        Nothing -> pure (Left "cifar10-vit has no canonical staged dataset reference")
+        Just trainRef
+          | Dataset.datasetName trainRef /= "CIFAR-10"
+              || Dataset.datasetSplit trainRef /= Dataset.TrainSplit ->
+              pure (Left "cifar10-vit does not resolve to the canonical CIFAR-10 train archive")
+          | otherwise ->
+              case supervisedPlanForProjection projection
+                >>= TrainingExecution.supervisedExecutionBudget of
+                Left err -> pure (Left err)
+                Right (trainingExamples, epochs, _evaluationExamples, batchExamples) ->
+                  case liveTrainingMaterializationLimit trainingExamples of
+                    Left err -> pure (Left err)
+                    Right materializationLimit -> do
+                      archiveE <-
+                        runMinIOSubprocess
+                          minioSettings
+                          ( Dataset.fetchVerifiedDatasetArtifactBytes
+                              trainRef
+                              Dataset.ArchiveArtifact
+                          )
+                      pure $ do
+                        archiveArtifact <-
+                          case archiveE of
+                            Left err ->
+                              Left
+                                ( "verified staged CIFAR-10 train archive is unavailable: "
+                                    <> Text.pack (show err)
+                                )
+                            Right value -> Right value
+                        let config =
+                              defaultClassifierConfig
+                                { clfSeed = SL.problemSeed problem
+                                , clfEpochs = epochs
+                                , clfBatchSize = batchExamples
+                                }
+                        (_configForData, materialized) <-
+                          case decodeCifar10ArchiveBoundedDataset
+                            config
+                            Dataset.TrainSplit
+                            (Just materializationLimit)
+                            (Dataset.fetchedArtifactPayload archiveArtifact) of
+                            Left err -> Left (Text.pack err)
+                            Right value -> Right value
+                        let rawTrainSet = take trainingExamples materialized
+                            rawValidationSet = drop trainingExamples materialized
+                        if length rawTrainSet /= trainingExamples || null rawValidationSet
+                          then
+                            Left
+                              "verified staged CIFAR-10 archive cannot satisfy the exact train/validation budget"
+                          else
+                            Just
+                              <$> TrainingExecution.fitCifar10RgbInputTransform rawTrainSet
+
+liveTrainingMaterializationLimit :: Int -> Either Text Int
+liveTrainingMaterializationLimit trainingExamples
+  | trainingExamples <= 0 = Left "supervised training-example budget must be positive"
+  | validationExamples <= 0 =
+      Left "supervised training-example budget is too small to derive a validation partition"
+  | trainingExamples > maxBound - validationExamples =
+      Left "supervised training/validation materialization limit exceeds the platform Int range"
+  | otherwise = Right (trainingExamples + validationExamples)
+ where
+  validationExamples = trainingExamples `div` 5
+
+assertPersistedV2Parity
+  :: FilePath
+  -> Env
+  -> Substrate
+  -> ProductMatrix.ProductRow state
+  -> ProductMatrix.ProductProjection 'Plan.SupervisedTraining
+  -> TrainingBudget.CompletedTraining
+  -> [(Text, Double)]
+  -> RuntimeArtifact.TrainingRuntimeArtifact
+  -> [Double]
+  -> VU.Vector Double
+  -> IO ()
+assertPersistedV2Parity checkpointRoot env substrate row projection completed metricRows artifact input expected = do
+  let experimentHash = ProductMatrix.productProjectionExperimentHash projection
+      payload = RuntimeArtifact.trainingArtifactPayload artifact
+      runtime = RuntimeArtifact.payloadRuntime payload
+      finalBytes = RuntimeArtifact.trainingArtifactFinalJmw1Bytes artifact
+  writeResult <-
+    runFilesystemMinIO checkpointRoot $
+      CheckpointWriter.writeMinIOCompletedSupervisedCheckpoint
+        Nothing
+        completed
+        experimentHash
+        metricRows
+        artifact
+  stored <-
+    case writeResult of
+      Left err ->
+        assertFailure
+          ( Text.unpack (ProductMatrix.rowId row)
+              <> " V2 write failed: "
+              <> show err
+          )
+      Right value -> pure (CheckpointStore.completedStoredCheckpoint value)
+  exactOuterBytes <-
+    CheckpointStore.readObject
+      checkpointRoot
+      (CheckpointStore.storedManifestObjectKey stored)
+      >>= expectText
+        ("exact stored V2 outer bytes for " <> Text.unpack (ProductMatrix.rowId row))
+  addressed <-
+    expectText
+      ("exact addressed V2 decode for " <> Text.unpack (ProductMatrix.rowId row))
+      (Checkpoint.decodeAddressedManifestCbor exactOuterBytes)
+  Checkpoint.addressedManifestWireVersion addressed
+    @?= Checkpoint.checkpointWireVersionV2
+  Checkpoint.addressedManifestBytes addressed @?= exactOuterBytes
+  Checkpoint.addressedManifestSha addressed
+    @?= CheckpointStore.storedManifestSha stored
+  Checkpoint.addressedManifestBodySha addressed
+    @?= CheckpointStore.storedManifestBodySha stored
+  loadedResult <-
+    runFilesystemMinIO checkpointRoot $
+      CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+        ( \_ manifest weights values -> do
+            liftIO $
+              assertLoadedV2Bindings
+                row
+                projection
+                stored
+                artifact
+                manifest
+                weights
+            liftIO (runSelectedWeightedEngine env substrate manifest weights values)
+        )
+        experimentHash
+        input
+  (loaded, decoded) <-
+    expectText
+      ("Store-loaded V2 inference for " <> Text.unpack (ProductMatrix.rowId row))
+      loadedResult
+  let tolerance = sameSubstrateV2Tolerance substrate
+  assertVectorWithin
+    (ProductMatrix.rowId row)
+    tolerance
+    expected
+    (VU.fromList loaded)
+  assertDecodedWithin
+    (ProductMatrix.rowId row)
+    tolerance
+    runtime
+    expected
+    decoded
+  RuntimeArtifact.payloadRowId payload @?= ProductMatrix.rowId row
+  RuntimeArtifact.payloadPlanId payload @?= ProductMatrix.productProjectionPlanId projection
+  RuntimeArtifact.payloadDatasetSha256 payload
+    @?= TrainingBudget.completedTrainingDatasetShaAtRead completed
+  RuntimeArtifact.payloadInitialJmw1Sha256 payload
+    @?= TrainingBudget.completedTrainingInitialWeightHash completed
+  RuntimeArtifact.payloadFinalJmw1Sha256 payload
+    @?= TrainingBudget.completedTrainingFinalWeightHash completed
+  WeightCodec.jmw1ContentSha finalBytes
+    @?= RuntimeArtifact.payloadFinalJmw1Sha256 payload
+  let slices = RuntimeArtifact.supervisedRuntimeVirtualSlices runtime
+      covered = sum (fmap RuntimeArtifact.runtimeVirtualSliceLength slices)
+  covered @?= RuntimeArtifact.supervisedRuntimeParameterCount runtime
+
+assertLoadedV2Bindings
+  :: ProductMatrix.ProductRow state
+  -> ProductMatrix.ProductProjection 'Plan.SupervisedTraining
+  -> CheckpointStore.StoredCheckpoint
+  -> RuntimeArtifact.TrainingRuntimeArtifact
+  -> Checkpoint.CheckpointManifest
+  -> [CheckpointStore.LoadedWeightTensor]
+  -> IO ()
+assertLoadedV2Bindings row projection stored artifact manifest weights = do
+  let payload = RuntimeArtifact.trainingArtifactPayload artifact
+      runtime = RuntimeArtifact.payloadRuntime payload
+      finalBytes = RuntimeArtifact.trainingArtifactFinalJmw1Bytes artifact
+      slices = RuntimeArtifact.supervisedRuntimeVirtualSlices runtime
+      expectedLayout =
+        Checkpoint.FlatWeightLayout
+          [ Checkpoint.TensorSpec
+              (RuntimeArtifact.runtimeVirtualSliceQualifiedName slice)
+              (RuntimeArtifact.runtimeVirtualSliceShape slice)
+              "F64"
+          | slice <- slices
+          ]
+      expectedTensor =
+        Checkpoint.TensorBlob
+          "supervised.weights"
+          [RuntimeArtifact.supervisedRuntimeParameterCount runtime]
+          ( Checkpoint.blobKey
+              (ProductMatrix.productProjectionExperimentHash projection)
+              (RuntimeArtifact.payloadFinalJmw1Sha256 payload)
+          )
+      isClassification =
+        RuntimeArtifact.runtimeTaskIsClassification
+          (RuntimeArtifact.supervisedRuntimeTask runtime)
+      semanticWidth =
+        RuntimeArtifact.runtimeTaskSemanticWidth
+          (RuntimeArtifact.supervisedRuntimeTask runtime)
+      expectedDecoderLabels =
+        if isClassification
+          then fmap (("class-" <>) . Text.pack . show) [0 .. semanticWidth - 1]
+          else []
+      expectedDecoderUnits =
+        if isClassification then Nothing else Just "median-house-value"
+  Checkpoint.manifestContentSha manifest
+    @?= CheckpointStore.storedManifestSha stored
+  Checkpoint.manifestExperiment manifest
+    @?= ProductMatrix.productProjectionExperimentHash projection
+  Checkpoint.manifestPlanId manifest
+    @?= Just (ProductMatrix.productProjectionPlanId projection)
+  Checkpoint.manifestSupervisedRuntime manifest @?= Just payload
+  Checkpoint.manifestWeightLayout manifest @?= expectedLayout
+  Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
+  Checkpoint.manifestTensors manifest @?= [expectedTensor]
+  expectedValues <-
+    expectText
+      ("exact final JMW1 decode for " <> Text.unpack (ProductMatrix.rowId row))
+      (WeightCodec.decodeJmw1 finalBytes)
+  case Checkpoint.manifestOutputDecoders manifest of
+    [decoder] -> do
+      Checkpoint.outputDecoderName decoder @?= "prediction"
+      Checkpoint.outputDecoderLabels decoder @?= expectedDecoderLabels
+      Checkpoint.outputDecoderUnits decoder @?= expectedDecoderUnits
+      Checkpoint.outputDecoderKind decoder
+        @?= if isClassification
+          then Checkpoint.ClassificationOutput
+          else Checkpoint.RegressionOutput
+    decoders ->
+      assertFailure
+        ( Text.unpack (ProductMatrix.rowId row)
+            <> " expected one persisted output decoder, got "
+            <> show decoders
+        )
+  case weights of
+    [loaded] -> do
+      CheckpointStore.loadedWeightTensor loaded @?= expectedTensor
+      CheckpointStore.loadedWeightJmw1Bytes loaded
+        @?= LazyByteString.toStrict finalBytes
+      CheckpointStore.loadedWeightValues loaded @?= expectedValues
+    _ ->
+      assertFailure
+        ( Text.unpack (ProductMatrix.rowId row)
+            <> " expected one Store-loaded physical tensor, got "
+            <> show (length weights)
+        )
+
+runSelectedWeightedEngine
+  :: Env
+  -> Substrate
+  -> Checkpoint.CheckpointManifest
+  -> [CheckpointStore.LoadedWeightTensor]
+  -> [Double]
+  -> IO (Either Text [Double])
+runSelectedWeightedEngine env substrate manifest weights input =
+  case substrate of
+    AppleSilicon ->
+      MetalLocal.runMetalWeightedCheckpointInference env manifest weights input
+    LinuxCPU ->
+      Local.runLinuxCpuWeightedCheckpointInference env manifest weights input
+    LinuxCUDA ->
+      CudaLocal.runCudaWeightedCheckpointInference env manifest weights input
+
+assertVectorWithin
+  :: Text
+  -> Double
+  -> VU.Vector Double
+  -> VU.Vector Double
+  -> IO ()
+assertVectorWithin rowId tolerance expected actual = do
+  VU.length actual @?= VU.length expected
+  let differences = VU.zipWith (\left right -> abs (left - right)) expected actual
+      maximumDifference = if VU.null differences then 0.0 else VU.maximum differences
+  assertBool
+    ( Text.unpack rowId
+        <> " same-substrate trained/Store V2 parity exceeded tolerance "
+        <> show tolerance
+        <> ": max difference="
+        <> show maximumDifference
+        <> ", trained="
+        <> show (VU.toList expected)
+        <> ", loaded="
+        <> show (VU.toList actual)
+    )
+    (maximumDifference <= tolerance)
+
+assertDecodedWithin
+  :: Text
+  -> Double
+  -> RuntimeArtifact.SupervisedRuntime
+  -> VU.Vector Double
+  -> InferenceDecode.DecodedInference
+  -> IO ()
+assertDecodedWithin rowId tolerance runtime expected decoded
+  | RuntimeArtifact.runtimeTaskIsClassification
+      (RuntimeArtifact.supervisedRuntimeTask runtime) =
+      case decoded of
+        InferenceDecode.DecodedClassification top confidence probabilities labels -> do
+          let expectedValues = VU.toList expected
+              expectedProbabilities = InferenceDecode.softmax expectedValues
+              expectedTop = InferenceDecode.argmax expectedProbabilities
+              expectedLabels =
+                fmap
+                  (("class-" <>) . Text.pack . show)
+                  [0 .. RuntimeArtifact.runtimeTaskSemanticWidth (RuntimeArtifact.supervisedRuntimeTask runtime) - 1]
+              expectedConfidence =
+                case drop expectedTop expectedProbabilities of
+                  value : _ -> value
+                  [] -> 0.0
+          top @?= expectedTop
+          labels @?= expectedLabels
+          assertBool
+            ( Text.unpack rowId
+                <> " decoded confidence exceeded same-substrate tolerance"
+            )
+            (abs (confidence - expectedConfidence) <= tolerance)
+          assertVectorWithin
+            (rowId <> "/decoded-probabilities")
+            tolerance
+            (VU.fromList expectedProbabilities)
+            (VU.fromList probabilities)
+        other ->
+          assertFailure
+            ( Text.unpack rowId
+                <> " expected decoded classification, got "
+                <> show other
+            )
+  | otherwise =
+      case decoded of
+        InferenceDecode.DecodedRegression values units -> do
+          units @?= Just "median-house-value"
+          assertVectorWithin
+            (rowId <> "/decoded-regression")
+            tolerance
+            expected
+            (VU.fromList values)
+        other ->
+          assertFailure
+            ( Text.unpack rowId
+                <> " expected decoded regression, got "
+                <> show other
+            )
+
+expectText :: String -> Either Text value -> IO value
+expectText label result =
+  case result of
+    Left err -> assertFailure (label <> " failed: " <> Text.unpack err)
+    Right value -> pure value
+
+-- Both sides execute the same exact weights through the same selected
+-- substrate engine. CPU and CUDA structural kernels use the shared Double
+-- ABI. Metal necessarily transports and reduces fp32 values through the fixed
+-- bridge, so its explicit tolerance reflects that physical precision contract;
+-- Sprint 30.4 owns retesting it on a real Apple lane.
+sameSubstrateV2Tolerance :: Substrate -> Double
+sameSubstrateV2Tolerance substrate =
+  case substrate of
+    AppleSilicon -> 1.0e-5
+    LinuxCPU -> 1.0e-9
+    LinuxCUDA -> 1.0e-9
 
 selectedTestSubstrate :: IO Substrate
 selectedTestSubstrate = do
@@ -1397,12 +2328,17 @@ trainLiveCaliforniaBytes device problem archiveBytes =
           case trainedE of
             Left err ->
               pure (Left (problemLabel problem <> " regression training failed: " <> Text.unpack err))
-            Right (_, mse)
-              | not (finiteDouble mse) ->
-                  pure (Left (problemLabel problem <> " regression MSE was not finite: " <> show mse))
-              | mse >= 5.0 ->
-                  pure (Left (problemLabel problem <> " regression MSE too high: " <> show mse))
-              | otherwise -> pure (Right ())
+            Right (_, regressionMetrics) ->
+              let mse = Regression.regressionTrainMse regressionMetrics
+               in if not (finiteDouble mse)
+                    then
+                      pure
+                        (Left (problemLabel problem <> " regression MSE was not finite: " <> show mse))
+                    else
+                      if mse >= 5.0
+                        then
+                          pure (Left (problemLabel problem <> " regression MSE too high: " <> show mse))
+                        else pure (Right ())
 
 liveClassifierBudget :: SL.CanonicalProblem -> (Int, Int, Int, Double)
 liveClassifierBudget problem =
@@ -1556,6 +2492,19 @@ cifar10Record label patternBytes =
 cifar100Record :: Word8 -> Word8 -> [Word8] -> [Word8]
 cifar100Record coarseLabel fineLabel patternBytes =
   coarseLabel : fineLabel : take 3072 (cycle patternBytes)
+
+cifarPlanarPayload
+  :: [(Int, Word8)]
+  -> [(Int, Word8)]
+  -> [(Int, Word8)]
+  -> [Word8]
+cifarPlanarPayload redSentinels greenSentinels blueSentinels =
+  concatMap channelPlane [redSentinels, greenSentinels, blueSentinels]
+ where
+  channelPlane sentinels =
+    [ Data.Maybe.fromMaybe 0 (lookup pixel sentinels)
+    | pixel <- [0 .. 1023]
+    ]
 
 tarArchive :: [(String, ByteString.ByteString)] -> ByteString.ByteString
 tarArchive entries =

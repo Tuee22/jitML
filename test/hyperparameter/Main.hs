@@ -5,6 +5,7 @@ module Main where
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
 import System.Environment (lookupEnv)
 import Test.Tasty (defaultMain, testGroup)
@@ -14,7 +15,7 @@ import JitML.CLI.Parser (ParsedOption (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Experiment.Overrides qualified as Overrides
-import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice, pureReferenceMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Convergence qualified as ProductConvergence
@@ -45,6 +46,8 @@ import JitML.Proto.Wire
   , messageField
   , stringField
   )
+import JitML.SL.Canonicals qualified as Canonicals
+import JitML.SL.Classifier qualified as Classifier
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCardKnobs (..)
@@ -52,20 +55,44 @@ import JitML.Test.Report
   )
 import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog
-  ( Pruner (..)
+  ( FloatSearchSpace (..)
+  , NaturalCategoricalSearchSpace (..)
+  , Pruner (..)
   , Sampler (..)
   , Scheduler (..)
+  , SearchScale (..)
+  , TextCategoricalSearchSpace (..)
+  , TrialDisposition (..)
+  , TrialObjectiveResult
+  , TuningExecutionSpec (..)
+  , TuningObjective (..)
+  , TuningPruner (..)
+  , TuningSampler (..)
+  , TuningScheduler (..)
+  , TuningSearchSpace (..)
   , ashaPromotedTrialIndices
+  , canonicalMnistTuningExecutionSpec
+  , decodeTrialTranscript
   , deterministicTrials
   , deterministicTrialsWithDevice
+  , encodeTrialTranscript
+  , legacyTuningExecutionSpec
   , loadTuningExperiment
   , medianPrunedTrialIndices
+  , parseTuningExecutionSpec
   , prunerCatalog
   , renderTrialResumeSummary
+  , renderTuningExecutionSpec
   , resumeMatchesFullRun
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
+  , syntheticTuningDatasetSha256
+  , terminalTrialTranscript
+  , transcriptDisposition
+  , transcriptObservations
+  , transcriptUpdatesExecuted
+  , transcriptValues
   , trialExecutionPromoted
   , trialExecutionPruned
   , trialExecutionResult
@@ -74,8 +101,14 @@ import JitML.Tune.Catalog
   , trialObjectiveResults
   , trialObjectiveResultsForAxes
   , trialObjectiveResultsForBudget
+  , trialObjectiveResultsWithDeviceForExecutionSpec
+  , trialObjectiveResultsWithDeviceForSyntheticExecutionSpec
+  , trialObservationUpdates
+  , trialResultDisposition
   , trialResultIndex
   , trialResultObjective
+  , trialResultObservations
+  , trialResultUpdatesExecuted
   , trialResultWeights
   , tuningConfigPruner
   , tuningConfigSampler
@@ -84,6 +117,7 @@ import JitML.Tune.Catalog
   , tuningPrunerKind
   , tuningSamplerKind
   , tuningSchedulerKind
+  , validateTuningExecutionSpec
   )
 import JitML.Tune.Resume qualified as TuneResume
 
@@ -158,6 +192,64 @@ main =
           assertBool "PBT sampler is available" (PBT `elem` samplerCatalog)
           length schedulerCatalog @?= 4
           length prunerCatalog @?= 3
+      , testCase "canonical tuning spec round-trips and normalises signed zero" $ do
+          let canonical = canonicalMnistTuningExecutionSpec
+              space = tuningExecutionSearchSpace canonical
+              positiveZero =
+                canonical
+                  { tuningExecutionSearchSpace =
+                      space
+                        { tuningSearchDropout =
+                            FloatSearchSpace 0.0 0.5 LinearScale
+                        }
+                  }
+              negativeZero =
+                canonical
+                  { tuningExecutionSearchSpace =
+                      space
+                        { tuningSearchDropout =
+                            FloatSearchSpace (-0.0) 0.5 LinearScale
+                        }
+                  }
+          parseTuningExecutionSpec (renderTuningExecutionSpec canonical)
+            @?= Right canonical
+          negativeZero @?= positiveZero
+          renderTuningExecutionSpec negativeZero
+            @?= renderTuningExecutionSpec positiveZero
+          parseTuningExecutionSpec (renderTuningExecutionSpec negativeZero)
+            @?= Right positiveZero
+      , testCase "exact tuning rejects eta one and unavailable Hyperband semantics" $ do
+          let canonical = canonicalMnistTuningExecutionSpec
+              scheduler = tuningExecutionScheduler canonical
+              etaOne =
+                canonical
+                  { tuningExecutionScheduler =
+                      scheduler
+                        { tuningSchedulerKind = ASHA
+                        , tuningSchedulerEta = 1
+                        }
+                  }
+              hyperband =
+                canonical
+                  { tuningExecutionScheduler =
+                      scheduler
+                        { tuningSchedulerKind = Hyperband
+                        }
+                  }
+          validateTuningExecutionSpec etaOne
+            @?= Left "non-Fifo tuning scheduler eta must be at least 2"
+          validateTuningExecutionSpec hyperband
+            @?= Left
+              "exact Hyperband execution is unavailable until bracket count and start-budget semantics are configured"
+      , testCase
+          "tiny exact ASHA run retains every terminal trial and checkpoint prefix"
+          assertTinyExactAshaRun
+      , testCase
+          "tiny exact median pruner stops a measured checkpoint prefix"
+          assertTinyExactMedianPrunerRun
+      , testCase
+          "synthetic exact executor is content-addressed, deterministic, and validates identity"
+          assertSyntheticExactExecution
       , testCase "target sampler labels decode into local constructors" $
           mapM_
             ( \(label, sampler) ->
@@ -618,6 +710,257 @@ assertOneTriple sampler scheduler trialBudget pruner = do
         <> " replays equal under 50% partial sweep"
     )
     (resumeMatchesFullRun sampler (trialBudget `div` 2) trialBudget)
+
+assertTerminalTranscriptRoundTrip :: Text -> Int -> TrialObjectiveResult -> IO ()
+assertTerminalTranscriptRoundTrip experimentHash trialSeed result = do
+  let transcript = terminalTrialTranscript experimentHash trialSeed result
+      encoded = encodeTrialTranscript transcript
+  encodeTrialTranscript transcript @?= encoded
+  decodeTrialTranscript encoded @?= Right transcript
+  transcriptValues transcript @?= [trialResultObjective result]
+  transcriptUpdatesExecuted transcript @?= trialResultUpdatesExecuted result
+  transcriptDisposition transcript @?= trialResultDisposition result
+  transcriptObservations transcript @?= trialResultObservations result
+
+-- | The legacy host/worker compatibility input is executed through the same
+-- exact rung engine as normalized product plans.  Its evidence digest is a
+-- fixed checksum of the optimizer's ordered labeled-example bytes, and a
+-- mismatched normalized identity is rejected before training.
+assertSyntheticExactExecution :: IO ()
+assertSyntheticExactExecution = do
+  syntheticTuningDatasetSha256
+    @?= "bb602fb143d659f0b44db1a32a204a4a9f853e492aa794a45047050a7441ab11"
+  Text.length syntheticTuningDatasetSha256 @?= 64
+  let runSeed = 17
+      trialCount = 2
+      spec =
+        legacyTuningExecutionSpec
+          Grid
+          Fifo
+          NoPruner
+          (fromIntegral runSeed)
+          (fromIntegral trialCount)
+          1
+          1
+      run =
+        trialObjectiveResultsWithDeviceForSyntheticExecutionSpec
+          pureReferenceMlpDevice
+          runSeed
+  first <- run spec
+  second <- run spec
+  first @?= second
+  case first of
+    Left err -> assertFailure (Text.unpack err)
+    Right trials -> do
+      length trials @?= trialCount
+      fmap trialResultIndex trials @?= [0 .. trialCount - 1]
+      fmap trialResultUpdatesExecuted trials @?= replicate trialCount 1
+      fmap trialResultDisposition trials @?= replicate trialCount ReachedMaxBudget
+  badDataset <- run (spec {tuningExecutionDataset = "not-synthetic"})
+  badDataset
+    @?= Left "tuning dataset mismatch: spec=not-synthetic, problem=synthetic"
+  badModel <- run (spec {tuningExecutionModel = "not-dense"})
+  badModel
+    @?= Left "tuning model mismatch: spec=not-dense, problem=Dense"
+
+-- | A measured pruning regression independent of the legacy post-hoc catalog
+-- classifiers.  Training and validation deliberately attach opposite labels
+-- to the same observations: the Grid trials after the near-zero learning-rate
+-- warmup move strongly toward the training label and therefore worsen held-out
+-- loss.  MedianPruner must stop at its 50%-budget checkpoint and retain the
+-- exact observation prefix rather than training every trial to the ceiling.
+assertTinyExactMedianPrunerRun :: IO ()
+assertTinyExactMedianPrunerRun = do
+  let trialCount = 6 :: Int
+      maxBudget = 4 :: Int
+      checkpoint = 2 :: Int
+      runSeed = 29 :: Int
+      problem = Canonicals.CanonicalProblem "tiny-exact-median" "MNIST" "DeepDense" runSeed
+      config =
+        Classifier.defaultClassifierConfig
+          { Classifier.clfSeed = runSeed
+          , Classifier.clfInputs = 4
+          , Classifier.clfHidden = 4
+          , Classifier.clfClasses = 2
+          , Classifier.clfEpochs = 1
+          , Classifier.clfBatchSize = 4
+          , Classifier.clfLearningRate = 1.0e-6
+          }
+      example = Classifier.LabeledExample (VU.fromList [1, 1, 1, 1])
+      trainSet = replicate 4 (example 0)
+      validationSet = replicate 2 (example 1)
+      spec =
+        TuningExecutionSpec
+          { tuningExecutionName = "tiny-exact-median"
+          , tuningExecutionDataset = "MNIST"
+          , tuningExecutionModel = "DeepDense"
+          , tuningExecutionSampler = TuningSampler Grid (fromIntegral runSeed) 0
+          , tuningExecutionScheduler = TuningScheduler Fifo 1 (fromIntegral maxBudget) 1
+          , tuningExecutionPruner = TuningPruner MedianPruner 1 50
+          , tuningExecutionSearchSpace =
+              TuningSearchSpace
+                { tuningSearchLearningRate = FloatSearchSpace 1.0e-6 16.0 LinearScale
+                , tuningSearchBatchSize = NaturalCategoricalSearchSpace [4]
+                , tuningSearchDropout = FloatSearchSpace 0.0 0.0 LinearScale
+                , tuningSearchOptimizer = TextCategoricalSearchSpace ["Adam"]
+                }
+          , tuningExecutionTrials = fromIntegral trialCount
+          , tuningExecutionParallelism = 1
+          , tuningExecutionObjectives = [TuningObjective "valLoss" "Minimise"]
+          }
+  result <-
+    trialObjectiveResultsWithDeviceForExecutionSpec
+      pureReferenceMlpDevice
+      runSeed
+      spec
+      problem
+      config
+      trainSet
+      validationSet
+  case result of
+    Left err -> assertFailure (Text.unpack err)
+    Right trials -> do
+      length trials @?= trialCount
+      fmap trialResultIndex trials @?= [0 .. trialCount - 1]
+      mapM_
+        ( \trial ->
+            assertTerminalTranscriptRoundTrip
+              "tiny-exact-median"
+              (runSeed + trialResultIndex trial)
+              trial
+        )
+        trials
+      let stopped =
+            [ trial
+            | trial <- trials
+            , PrunerStopped MedianPruner rung <- [trialResultDisposition trial]
+            , rung == checkpoint
+            ]
+      assertBool "median pruner did not stop any measured trial" (not (null stopped))
+      mapM_
+        ( \trial -> do
+            trialResultUpdatesExecuted trial @?= checkpoint
+            fmap trialObservationUpdates (trialResultObservations trial) @?= [checkpoint]
+            assertBool
+              "median-pruned trial reached the optimizer-update ceiling"
+              (trialResultUpdatesExecuted trial < maxBudget)
+        )
+        stopped
+      mapM_
+        ( \trial ->
+            case trialResultDisposition trial of
+              ReachedMaxBudget -> do
+                trialResultUpdatesExecuted trial @?= maxBudget
+                fmap trialObservationUpdates (trialResultObservations trial)
+                  @?= [checkpoint, maxBudget]
+              PrunerStopped MedianPruner rung -> rung @?= checkpoint
+              disposition ->
+                assertFailure ("unexpected tiny median disposition: " <> show disposition)
+        )
+        trials
+
+-- | A deliberately tiny real exact-rung execution.  One-class validation
+-- makes every objective an exact tie, so stable ASHA tie-breaking guarantees
+-- the first trial reaches the ceiling while later trials stop at a proper
+-- checkpoint prefix.  This keeps the regression deterministic and bounded.
+assertTinyExactAshaRun :: IO ()
+assertTinyExactAshaRun = do
+  let trialCount = 6 :: Int
+      maxBudget = 4 :: Int
+      runSeed = 17 :: Int
+      problem = Canonicals.CanonicalProblem "tiny-exact-asha" "MNIST" "DeepDense" runSeed
+      config =
+        Classifier.defaultClassifierConfig
+          { Classifier.clfSeed = runSeed
+          , Classifier.clfInputs = 4
+          , Classifier.clfHidden = 4
+          , Classifier.clfClasses = 1
+          , Classifier.clfEpochs = 1
+          , Classifier.clfBatchSize = 2
+          , Classifier.clfLearningRate = 1.0e-2
+          }
+      example features = Classifier.LabeledExample (VU.fromList features) 0
+      trainSet =
+        [ example [0, 0, 0, 0]
+        , example [1, 0, 0, 0]
+        , example [0, 1, 0, 0]
+        , example [0, 0, 1, 0]
+        ]
+      validationSet =
+        [ example [0, 0, 0, 1]
+        , example [1, 1, 0, 0]
+        ]
+      spec =
+        TuningExecutionSpec
+          { tuningExecutionName = "tiny-exact-asha"
+          , tuningExecutionDataset = "MNIST"
+          , tuningExecutionModel = "DeepDense"
+          , tuningExecutionSampler = TuningSampler Grid (fromIntegral runSeed) 0
+          , tuningExecutionScheduler = TuningScheduler ASHA 2 (fromIntegral maxBudget) 1
+          , tuningExecutionPruner = TuningPruner NoPruner 0 50
+          , tuningExecutionSearchSpace =
+              TuningSearchSpace
+                { tuningSearchLearningRate = FloatSearchSpace 1.0e-2 1.0e-2 LinearScale
+                , tuningSearchBatchSize = NaturalCategoricalSearchSpace [2]
+                , tuningSearchDropout = FloatSearchSpace 0.0 0.0 LinearScale
+                , tuningSearchOptimizer = TextCategoricalSearchSpace ["Adam"]
+                }
+          , tuningExecutionTrials = fromIntegral trialCount
+          , tuningExecutionParallelism = 1
+          , tuningExecutionObjectives = [TuningObjective "valAcc" "Maximise"]
+          }
+      expectedRungs = [1, 2, maxBudget]
+  result <-
+    trialObjectiveResultsWithDeviceForExecutionSpec
+      pureReferenceMlpDevice
+      runSeed
+      spec
+      problem
+      config
+      trainSet
+      validationSet
+  case result of
+    Left err -> assertFailure (Text.unpack err)
+    Right trials -> do
+      length trials @?= trialCount
+      fmap trialResultIndex trials @?= [0 .. trialCount - 1]
+      mapM_
+        ( \trial ->
+            assertTerminalTranscriptRoundTrip
+              "tiny-exact-asha"
+              (runSeed + trialResultIndex trial)
+              trial
+        )
+        trials
+      mapM_
+        ( \trial -> do
+            let updates = trialResultUpdatesExecuted trial
+                trace = fmap trialObservationUpdates (trialResultObservations trial)
+            trace @?= takeWhile (<= updates) expectedRungs
+            case trialResultDisposition trial of
+              ReachedMaxBudget -> updates @?= maxBudget
+              SchedulerStopped ASHA rung -> do
+                rung @?= updates
+                assertBool "ASHA-stopped trial reached the ceiling" (updates < maxBudget)
+              disposition ->
+                assertFailure ("unexpected tiny ASHA disposition: " <> show disposition)
+        )
+        trials
+      let ceilingSurvivors =
+            length
+              [ ()
+              | trial <- trials
+              , trialResultDisposition trial == ReachedMaxBudget
+              ]
+          schedulerStops =
+            length
+              [ ()
+              | trial <- trials
+              , SchedulerStopped ASHA _ <- [trialResultDisposition trial]
+              ]
+      assertBool "tiny ASHA run produced no ceiling survivor" (ceilingSurvivors > 0)
+      assertBool "tiny ASHA run did not stop any trial" (schedulerStops > 0)
+      assertBool "ASHA ceiling retained every trial" (ceilingSurvivors < trialCount)
 
 selectedTestSubstrate :: IO Substrate
 selectedTestSubstrate = do

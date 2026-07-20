@@ -34,9 +34,9 @@ Phase-`5`-owned `jitml-integration` scope **81 / 81** (**19 / 19** Live), a
 clean `linux-cpu` bootstrap **130**-step phased rollout, `jitml docs check`, and
 `jitml check-code`. Sprints `5.1`–`5.17` remain Done on their retained daemon
 surfaces. Operational structured logging, shared live-workflow interpretation,
-live Coordinator serving, and successful keyed Apple host cancellation remain
-Sprint `12.16` obligations; plan-bound semantic event identity remains Sprint
-`8.16`.
+live Coordinator serving, and successful keyed Apple host cancellation are
+implemented and validated by Sprint `12.16`; plan-bound semantic event identity
+is complete in Sprint `8.16`.
 
 **Historical retained closure.** ✅ **Done** (re-closed 2026-06-30 by Sprint `5.17`). Mounted worker
 `RunConfig.dhall` is authoritative: if the file exists but fails to decode, the

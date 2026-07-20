@@ -104,11 +104,23 @@ data BudgetKind
   deriving anyclass (Serialise)
 
 data TrainingBudget = TrainingBudget
-  { tbKind :: !BudgetKind
-  , tbTargetUnits :: !Word64
-  , tbSeed :: !(Maybe Word64)
+  { budgetKindValue :: !BudgetKind
+  , budgetTargetUnitsValue :: !Word64
+  , budgetSeedValue :: !(Maybe Word64)
   }
   deriving stock (Eq, Ord, Show)
+
+-- Backwards-compatible ordinary accessors.  These deliberately are not the
+-- private record labels: exporting a selector would make a refined budget
+-- forgeable through record update despite the hidden constructor.
+tbKind :: TrainingBudget -> BudgetKind
+tbKind = budgetKindValue
+
+tbTargetUnits :: TrainingBudget -> Word64
+tbTargetUnits = budgetTargetUnitsValue
+
+tbSeed :: TrainingBudget -> Maybe Word64
+tbSeed = budgetSeedValue
 
 -- | The new wire form does not accept a producer-supplied unit string.  The
 -- unit is indexed by 'BudgetKind' and rendered canonically at every boundary.
@@ -251,9 +263,9 @@ mkTrainingBudget kind target seed
   | otherwise =
       Right
         TrainingBudget
-          { tbKind = kind
-          , tbTargetUnits = target
-          , tbSeed = seed
+          { budgetKindValue = kind
+          , budgetTargetUnitsValue = target
+          , budgetSeedValue = seed
           }
 
 trainingBudgetToRaw :: TrainingBudget -> RawTrainingBudget

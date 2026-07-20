@@ -355,12 +355,14 @@ deviceForwardNode functions backendName artifactPath artifactCompiled node input
       | otherwise ->
           case layerParameters node of
             Just params -> do
+              let transformedInput =
+                    LayerGraph.parameterizedInputForward (layerNodeKind node) input
               preResult <-
                 runDeviceForwardOnly
                   functions
                   (layerKindCode (layerNodeKind node))
                   params
-                  input
+                  transformedInput
                   inputWidth
                   outputWidth
               case preResult of
@@ -440,14 +442,17 @@ deviceLayerGradient functions backendName artifactPath artifactCompiled forward 
     (Nothing, Nothing) -> pure (Right (pureGradient, Nothing))
     (Just params, Just paramGradient) -> do
       let input = layerForwardInput forward
+          transformedInput =
+            LayerGraph.parameterizedInputForward (layerNodeKind node) input
           dPre = layerGradBias paramGradient
-          inputs = VU.length input
+          inputs = VU.length transformedInput
           outputs = VU.length dPre
           kindCode = layerKindCode (layerNodeKind node)
-      result <- runDeviceLayer functions kindCode params input dPre inputs outputs
+      result <-
+        runDeviceLayer functions kindCode params transformedInput dPre inputs outputs
       case result of
         Left err -> pure (Left err)
-        Right (preActivation, inputGradient, weightGradient, biasGradient)
+        Right (preActivation, transformedInputGradient, weightGradient, biasGradient)
           | VU.length preActivation /= VU.length (layerForwardPreActivation forward) ->
               pure
                 ( Left
@@ -465,7 +470,11 @@ deviceLayerGradient functions backendName artifactPath artifactCompiled forward 
               let deviceInputGradient =
                     if isResidualKind (layerNodeKind node)
                       then layerGradientInput pureGradient
-                      else inputGradient
+                      else
+                        LayerGraph.parameterizedInputBackward
+                          (layerNodeKind node)
+                          input
+                          transformedInputGradient
                   deviceParamGradient =
                     LayerParameterGradient
                       { layerGradWeights = weightGradient

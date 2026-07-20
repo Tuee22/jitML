@@ -152,9 +152,12 @@ sprint's `### Objective` and `### Deliverables` blocks.
   `Blocked`, not `Planned`, since their owned surfaces depend on the
   doctrine-citation contract and the documentation-topology baseline that
   Phase `0` provides.
-- If a previously Done phase reopens because the Exit Definition expands, the
-  reopened phase moves back to `Active` and `README.md` and `00-overview.md`
-  call the reopening out explicitly.
+- Evidence gathered before a newly discovered or expanded obligation remains
+  historical evidence for the surface it actually exercised; it cannot close
+  the new obligation or be relabelled as current validation. The owning sprint
+  reopens to `Active` only when all of its prerequisites are Done, otherwise it
+  reopens to `Blocked`. `README.md` and `00-overview.md` call the reopening and
+  the first executable owner out explicitly.
 
 ### D. Declarative Plan Language
 
@@ -233,28 +236,34 @@ all-model demo-rendering ownership, per-model integration/e2e ownership,
 linux-cuda product-lane ownership, apple-silicon product-lane ownership, and
 final no-caveat aggregation ownership each live in one place only.
 
-The 2026-07-12 typed-run-contract audit reopens existing owners instead of adding
-a Phase `35`. The strict forward chain is Sprint `1.18` (structured process
-outcomes) → `5.18` (receipt-bound delivery) → `8.16` (validated plans and
-contract algebra) → `9.17` (Tune/AlphaZero resolved-plan adoption) → `10.12`
-(refined checkpoint completion) → `12.16` (shared live-workflow interpreter) →
-`19.4` → `21.4` → `25.4` → `28.4` → `29.5` → `30.4` → `31.3` → `32.4` →
-`33.3` → `34.3`. Untouched phases remain Done on their retained surfaces, but
-the overall product handoff is incomplete until this chain closes. Sprints
-`29.5` and `30.4` independently refresh the `linux-cuda` and
-`apple-silicon` evidence; Sprint `31.3` aggregates their committed journals on
-`linux-cpu` without re-running an accelerator.
+The 2026-07-12 typed-run-contract audit reopened existing owners instead of
+adding a Phase `35`; its completed process, delivery, plan, and interpreter
+prefix remains historical evidence for those retained surfaces. The 2026-07-18
+checkpoint/runtime audit found that supervised publisher artifacts were written
+through a name-derived generic checkpoint path, carried no executable runtime
+payload, and could be labelled eligible without exact persisted-byte admission.
+It therefore reopens the existing Phase `10`, `19`, `23`, `24`, and `32` owners.
+The strict forward chain began at Sprint `10.6`. After Sprints `10.6` and
+`10.12` closed, the current open suffix is `19.4 → 21.4 → 23.1 → 23.2 → 23.3
+→ 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 → 32.4 →
+33.3 → 34.3`. Sprint `19.4` is Active; every later sprint in that chain is
+Blocked by its immediate predecessor. Untouched
+phases remain Done on their retained surfaces, but the overall product handoff
+is incomplete until this chain closes. Sprints `29.5` and `30.4` independently
+refresh the `linux-cuda` and `apple-silicon` evidence; Sprint `31.3` aggregates
+their committed journals on `linux-cpu` without re-running an accelerator.
 
-The 2026-07-16 retained-cluster audit additionally reopened Sprint `2.9` and
+The 2026-07-15 retained-cluster audit additionally reopened Sprint `2.9` and
 Sprint `3.7` after the typed bootstrap migration proved to have dropped its
 Kind existence branch. Sprint `2.9` has re-closed on the typed retained-cluster
 recovery branch, and Sprint `3.7` has re-closed after two supported
 `linux-cpu` reconciles proved durable topic convergence, retained identity,
 exact image authority, publication/stamp stability, and the steady-state
-exit-`3` no-op result. The numerical open suffix is now
-`12.16 → 19.4 → 21.4 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.4 →
-33.3 → 34.3`. The completed `2.9 → 3.7` insertion remains forward-only before
-the Active Phase `12` gate and does not reopen or invalidate unrelated closed
+exit-`3` no-op result. Sprint `12.16` has also re-closed after its immutable-
+image six-command `linux-cpu` block, docs/code-quality gates, and independent
+resource checks passed. Those retained-cluster and shared-interpreter closures
+precede the current numerical open suffix above. They do not override the
+closed Phase `10` checkpoint/runtime owner or invalidate unrelated closed
 owners.
 
 The closure phases form a **forward chain** (renumbered 2026-06-16 per the

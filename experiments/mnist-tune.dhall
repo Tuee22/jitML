@@ -14,8 +14,8 @@
       , scheduler =
           { kind = "ASHA"
           , eta = 3
-          , maxBudget = 50000
-          , parallelism = 8
+          , maxBudget = 1000
+          , parallelism = 1
           }
       , pruner =
           { kind = "MedianPruner"
@@ -45,7 +45,7 @@
               }
           }
       , trials = 128
-      , parallelism = 8
+      , parallelism = 1
       , objectives =
           [ { metric = "valAcc"
             , direction = "Maximise"

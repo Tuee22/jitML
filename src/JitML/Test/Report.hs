@@ -1,7 +1,10 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Test.Report
   ( BlockedBy
+  , CompletedProductScenarioEvidence
+  , CompletedProductScenarioReport
   , InvocationJournal
   , InvocationRecord
   , InvocationResult (..)
@@ -12,12 +15,21 @@ module JitML.Test.Report
   , SuiteResult
   , SuiteStatus (..)
   , ProductRowReportEvidence (..)
+  , ProductScenarioCompletion
+  , ProductScenarioCompletionError (..)
+  , ProductScenarioEvidenceError (..)
+  , ProductScenarioReportError (..)
   , RowIntegrationEvidence (..)
   , aggregateProductLaneAttestations
   , appendInvocation
   , appendInvocationJournal
   , blockedByFailure
   , blockedByStanza
+  , completedProductScenarioEvidence
+  , completedProductScenarioLane
+  , completedProductScenarioManifestSha
+  , completedProductScenarioPlanId
+  , completedProductScenarioRowId
   , defaultReportCardKnobs
   , deriveSuiteResult
   , emptyInvocationJournal
@@ -37,10 +49,13 @@ module JitML.Test.Report
   , parseReportCardKnobs
   , passedInvocation
   , parseProductRowReportEvidenceTable
+  , productScenarioCompletion
+  , projectCompletedProductScenarioReport
   , productRowReportCoverageFailures
   , productLaneAttestationFailures
   , renderReportCardWithKnobs
   , renderProductRowReportEvidence
+  , renderCompletedProductScenarioEvidence
   , renderRowIntegrationEvidence
   , reportStanzas
   , rowIntegrationCoverageFailures
@@ -57,13 +72,26 @@ module JitML.Test.Report
 where
 
 import Data.List qualified as List
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Word (Word64)
 import System.Exit (ExitCode (..))
 
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Plan.Plan (PlanId, planIdText, quantityValue)
+import JitML.Plan.Workload qualified as WorkloadPlan
+import JitML.Product.Convergence
+  ( convergenceMetricGoal
+  , convergenceMetricName
+  , convergenceThreshold
+  )
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.SL.Architecture (ArchitectureFeature)
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Sub.Outcome
   ( ObservedProcessFailure (..)
   , ObservedProcessOutcome (..)
@@ -80,6 +108,11 @@ import JitML.Sub.Outcome
   , processFailureWorkingDirectory
   )
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Test.LiveWorkflow
+  ( CompletedRunEvidence
+  , completedRunEvidence
+  , completedRunPlanId
+  )
 import JitML.Test.RowAssertions qualified as RowAssertions
 import JitML.Test.ScenarioJournal
   ( ScenarioDisposition (..)
@@ -98,6 +131,19 @@ import JitML.Test.ScenarioJournal
   , scenarioRecordPhase
   , scenarioRecordStep
   )
+import JitML.Training.Budget
+  ( BudgetKind (..)
+  , MetricGoal
+  , TrainingBudget
+  , coMetricGoal
+  , coMetricName
+  , coThreshold
+  , completedTrainingBudget
+  , completedTrainingMetrics
+  , completedTrainingPlanId
+  , completedTrainingUpdateCount
+  , trainingBudgetKind
+  )
 
 -- | The observed result of one planned test-stanza invocation. A successful
 -- invocation retains its complete transcript, a failure retains either the
@@ -112,8 +158,8 @@ data InvocationResult
 -- | Structured reason an invocation was not run. The blocker is the complete
 -- observed failure rather than a reconstructed command or prose reason.
 data BlockedBy = BlockedBy
-  { blockedByStanza :: !Text
-  , blockedByFailure :: !ObservedProcessFailure
+  { blockerStanzaValue :: !Text
+  , blockerFailureValue :: !ObservedProcessFailure
   }
   deriving stock (Eq, Show)
 
@@ -121,16 +167,16 @@ data BlockedBy = BlockedBy
 -- the retained outcome. For 'NotRun' rows it is the exact rendered command that
 -- would have run.
 data InvocationRecord = InvocationRecord
-  { invocationStanza :: !Text
-  , invocationCommand :: !Text
-  , invocationResult :: !InvocationResult
+  { recordStanzaValue :: !Text
+  , recordCommandValue :: !Text
+  , recordResultValue :: !InvocationResult
   }
   deriving stock (Eq, Show)
 
 -- | Chronological invocation evidence. The constructor stays hidden so callers
 -- can only append rows; they cannot rewrite or delete earlier observations.
 newtype InvocationJournal = InvocationJournal
-  { invocationJournalEntries :: [InvocationRecord]
+  { journalEntryValues :: [InvocationRecord]
   }
   deriving stock (Eq, Show)
 
@@ -142,13 +188,49 @@ data SuiteStatus
   deriving stock (Eq, Show)
 
 data SuiteResult = SuiteResult
-  { suiteStatus :: !SuiteStatus
-  , suitePassed :: !Int
-  , suiteFailed :: !Int
-  , suiteNotRun :: !Int
-  , suiteDuration :: !ProcessDuration
+  { suiteStatusValue :: !SuiteStatus
+  , suitePassedValue :: !Int
+  , suiteFailedValue :: !Int
+  , suiteNotRunValue :: !Int
+  , suiteDurationValue :: !ProcessDuration
   }
   deriving stock (Eq, Show)
+
+-- Hidden constructors alone do not prevent record update when their selectors
+-- are exported.  Keep the labels private and expose ordinary read-only
+-- functions for every journal/result observation.
+blockedByStanza :: BlockedBy -> Text
+blockedByStanza = blockerStanzaValue
+
+blockedByFailure :: BlockedBy -> ObservedProcessFailure
+blockedByFailure = blockerFailureValue
+
+invocationStanza :: InvocationRecord -> Text
+invocationStanza = recordStanzaValue
+
+invocationCommand :: InvocationRecord -> Text
+invocationCommand = recordCommandValue
+
+invocationResult :: InvocationRecord -> InvocationResult
+invocationResult = recordResultValue
+
+invocationJournalEntries :: InvocationJournal -> [InvocationRecord]
+invocationJournalEntries = journalEntryValues
+
+suiteStatus :: SuiteResult -> SuiteStatus
+suiteStatus = suiteStatusValue
+
+suitePassed :: SuiteResult -> Int
+suitePassed = suitePassedValue
+
+suiteFailed :: SuiteResult -> Int
+suiteFailed = suiteFailedValue
+
+suiteNotRun :: SuiteResult -> Int
+suiteNotRun = suiteNotRunValue
+
+suiteDuration :: SuiteResult -> ProcessDuration
+suiteDuration = suiteDurationValue
 
 data ReportCard = ReportCard
   { reportInvocationJournal :: !InvocationJournal
@@ -171,9 +253,9 @@ appendInvocationJournal (InvocationJournal left) (InvocationJournal right) =
 passedInvocation :: Text -> ProcessTranscript -> InvocationRecord
 passedInvocation stanza transcript =
   InvocationRecord
-    { invocationStanza = stanza
-    , invocationCommand = processTranscriptCommand transcript
-    , invocationResult = Passed transcript
+    { recordStanzaValue = stanza
+    , recordCommandValue = processTranscriptCommand transcript
+    , recordResultValue = Passed transcript
     }
 
 failedInvocation :: Text -> ProcessFailure -> InvocationRecord
@@ -183,9 +265,9 @@ failedInvocation stanza failure =
 failedObservedInvocation :: Text -> ObservedProcessFailure -> InvocationRecord
 failedObservedInvocation stanza failure =
   InvocationRecord
-    { invocationStanza = stanza
-    , invocationCommand = observedProcessFailureCommand failure
-    , invocationResult = Failed failure
+    { recordStanzaValue = stanza
+    , recordCommandValue = observedProcessFailureCommand failure
+    , recordResultValue = Failed failure
     }
 
 notRunInvocation :: Text -> Text -> Text -> ProcessFailure -> InvocationRecord
@@ -204,26 +286,26 @@ notRunObservedInvocation
   -> InvocationRecord
 notRunObservedInvocation stanza command blockerStanza blocker =
   InvocationRecord
-    { invocationStanza = stanza
-    , invocationCommand = command
-    , invocationResult = NotRun (BlockedBy blockerStanza blocker)
+    { recordStanzaValue = stanza
+    , recordCommandValue = command
+    , recordResultValue = NotRun (BlockedBy blockerStanza blocker)
     }
 
 deriveSuiteResult :: InvocationJournal -> SuiteResult
 deriveSuiteResult (InvocationJournal entries) =
   SuiteResult
-    { suiteStatus = status
-    , suitePassed = passed
-    , suiteFailed = failed
-    , suiteNotRun = notRun
-    , suiteDuration =
+    { suiteStatusValue = status
+    , suitePassedValue = passed
+    , suiteFailedValue = failed
+    , suiteNotRunValue = notRun
+    , suiteDurationValue =
         ProcessDuration
           (sum (fmap (invocationDurationNanoseconds . invocationResult) entries))
     }
  where
-  passed = length [() | InvocationRecord {invocationResult = Passed _} <- entries]
-  failed = length [() | InvocationRecord {invocationResult = Failed _} <- entries]
-  notRun = length [() | InvocationRecord {invocationResult = NotRun _} <- entries]
+  passed = length [() | InvocationRecord {recordResultValue = Passed _} <- entries]
+  failed = length [() | InvocationRecord {recordResultValue = Failed _} <- entries]
+  notRun = length [() | InvocationRecord {recordResultValue = NotRun _} <- entries]
   status
     | failed > 0 = SuiteFailed
     | notRun > 0 || null entries = SuiteNotRun
@@ -236,11 +318,11 @@ firstInvocationFailure (InvocationJournal entries) =
   firstFailure [] = Nothing
   firstFailure
     ( InvocationRecord
-        { invocationResult = Failed (ObservedProcessExitFailure failure)
+        { recordResultValue = Failed (ObservedProcessExitFailure failure)
         }
         : _
       ) = Just failure
-  firstFailure (InvocationRecord {invocationResult = Failed _} : _) = Nothing
+  firstFailure (InvocationRecord {recordResultValue = Failed _} : _) = Nothing
   firstFailure (_ : rest) = firstFailure rest
 
 firstObservedInvocationFailure
@@ -250,7 +332,7 @@ firstObservedInvocationFailure (InvocationJournal entries) =
   firstFailure entries
  where
   firstFailure [] = Nothing
-  firstFailure (InvocationRecord {invocationResult = Failed failure} : _) =
+  firstFailure (InvocationRecord {recordResultValue = Failed failure} : _) =
     Just failure
   firstFailure (_ : rest) = firstFailure rest
 
@@ -279,10 +361,11 @@ data ReportMeasurements = ReportMeasurements
   -- 'MeasurementUnavailable' until Phase `17` exercises the matrix live, so a
   -- live report card that has not proven the browser product surface fails the
   -- no-caveat handoff rather than vacuously omitting the row.
-  , measuredProductRowEvidence :: [ProductRowReportEvidence]
-  -- ^ Sprint `28.3` per-ProductRow evidence table. Empty for non-live or
-  -- non-row-complete target sets; complete live report cards fail before
-  -- rendering if any required product-row cell is missing.
+  , measuredProductRowEvidence :: Maybe CompletedProductScenarioReport
+  -- ^ Opaque live-interpreter completion projections keyed by ProductRow and
+  -- semantic PlanId. Empty means the report received no cross-process
+  -- completed-scenario journal; declarations and legacy lane attestations are
+  -- intentionally not accepted here.
   }
   deriving stock (Eq, Show)
 
@@ -315,6 +398,10 @@ data RowIntegrationEvidence = RowIntegrationEvidence
   }
   deriving stock (Eq, Show)
 
+-- | Legacy Sprint 31.3 prose lane-fragment input.  These freely constructible
+-- text cells exist only so committed seven-column attestations remain
+-- readable until typed lane journals replace them; they cannot populate
+-- 'ReportMeasurements' or prove a completed product scenario.
 data ProductRowReportEvidence = ProductRowReportEvidence
   { prreRowId :: !Text
   , prreCatalog :: !Text
@@ -325,6 +412,444 @@ data ProductRowReportEvidence = ProductRowReportEvidence
   , prreLane :: !Text
   }
   deriving stock (Eq, Show)
+
+-- | Kind-indexed proof that a Store-admitted, physically bound completed
+-- checkpoint satisfies the exact validated plan, budget, evidence family, and
+-- convergence criterion of one ProductRow projection.  Retaining both opaque
+-- values in the private constructor prevents the kind parameter or persisted
+-- artifact identity from becoming forgeable phantoms.
+data ProductScenarioCompletion kind
+  = ProductScenarioCompletion
+      !(ProductMatrix.ProductProjection kind)
+      !CheckpointStore.AdmittedCompletedCheckpoint
+  deriving stock (Eq, Show)
+
+data ProductScenarioCompletionError
+  = ProductCompletionExperimentMismatch !Text !Text !Text
+  | ProductCompletionUnknownManifestExperiment !Text !Text
+  | ProductCompletionCanonicalRowMismatch !Text !Text !Text
+  | ProductCompletionPlanMismatch !Text !PlanId !PlanId
+  | ProductCompletionManifestPlanMismatch !Text !PlanId !(Maybe PlanId)
+  | ProductCompletionManifestWitnessMismatch !Text
+  | ProductCompletionSupervisedRuntimeMissing !Text
+  | ProductCompletionSupervisedRuntimeRowMismatch !Text !Text
+  | ProductCompletionSupervisedRuntimeOriginMismatch !Text
+  | ProductCompletionUnexpectedSupervisedRuntime !Text !Text
+  | ProductCompletionBudgetMismatch !Text !TrainingBudget !TrainingBudget
+  | ProductCompletionEvidenceKindMismatch !Text !BudgetKind !BudgetKind
+  | ProductCompletionCriterionMismatch !Text !Text !MetricGoal !Double
+  | ProductCompletionUpdateCountMismatch !Text !Word64 !Word64
+  | ProductCompletionUpdateCountOverflow !Text !Word64 !Word64
+  deriving stock (Eq, Show)
+
+-- | Refine only Store-admitted completed checkpoint evidence into the exact
+-- ProductRow kind.  The addressed manifest must name the projection's exact
+-- experiment and PlanId and must retain the same completion witness exposed by
+-- Store admission.  A caller-held completion, a merely decoded manifest, or an
+-- unrelated passing metric therefore cannot satisfy the row's report bar.
+productScenarioCompletion
+  :: ProductMatrix.ProductProjection kind
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> Either
+       (NonEmpty ProductScenarioCompletionError)
+       (ProductScenarioCompletion kind)
+productScenarioCompletion projection admittedCompleted =
+  case NonEmpty.nonEmpty failures of
+    Just errors -> Left errors
+    Nothing ->
+      Right (ProductScenarioCompletion projection admittedCompleted)
+ where
+  rowId = ProductMatrix.productProjectionRowId projection
+  expectedExperiment = ProductMatrix.productProjectionExperimentHash projection
+  expectedPlanId = ProductMatrix.productProjectionPlanId projection
+  admittedCheckpoint =
+    CheckpointStore.admittedCompletedCheckpoint admittedCompleted
+  manifest = CheckpointStore.admittedCheckpointManifest admittedCheckpoint
+  observedExperiment = Checkpoint.manifestExperiment manifest
+  observedManifestPlanId = Checkpoint.manifestPlanId manifest
+  observedManifestCompleted = Checkpoint.manifestCompletedTraining manifest
+  completed = CheckpointStore.admittedCompletedTraining admittedCompleted
+  observedPlanId = completedTrainingPlanId completed
+  expectedBudget = ProductMatrix.productProjectionTrainingBudget projection
+  observedBudget = completedTrainingBudget completed
+  observedUpdateCount = completedTrainingUpdateCount completed
+  expectedKind =
+    productEvidenceBudgetKind
+      (ProductMatrix.productProjectionEvidenceRequirements projection)
+  observedKind = trainingBudgetKind observedBudget
+  bar = ProductMatrix.productProjectionConvergenceBar projection
+  criterionMatches observation =
+    coMetricName observation == convergenceMetricName bar
+      && coMetricGoal observation == convergenceMetricGoal bar
+      && coThreshold observation == convergenceThreshold bar
+  failures =
+    [ ProductCompletionExperimentMismatch
+        rowId
+        expectedExperiment
+        observedExperiment
+    | observedExperiment /= expectedExperiment
+    ]
+      <> [ ProductCompletionPlanMismatch rowId expectedPlanId observedPlanId
+         | observedPlanId /= expectedPlanId
+         ]
+      <> productManifestRowFailures rowId observedExperiment
+      <> [ ProductCompletionManifestPlanMismatch
+             rowId
+             expectedPlanId
+             observedManifestPlanId
+         | observedManifestPlanId /= Just expectedPlanId
+         ]
+      <> [ ProductCompletionManifestWitnessMismatch rowId
+         | observedManifestCompleted /= Just completed
+         ]
+      <> productRuntimeBindingFailures rowId projection manifest
+      <> [ ProductCompletionBudgetMismatch rowId expectedBudget observedBudget
+         | observedBudget /= expectedBudget
+         ]
+      <> [ ProductCompletionEvidenceKindMismatch rowId expectedKind observedKind
+         | observedKind /= expectedKind
+         ]
+      <> [ ProductCompletionCriterionMismatch
+             rowId
+             (convergenceMetricName bar)
+             (convergenceMetricGoal bar)
+             (convergenceThreshold bar)
+         | not (any criterionMatches (completedTrainingMetrics completed))
+         ]
+      <> productCompletionUpdateCountFailures
+        rowId
+        projection
+        observedUpdateCount
+
+productManifestRowFailures :: Text -> Text -> [ProductScenarioCompletionError]
+productManifestRowFailures expectedRowId manifestExperiment =
+  case ProductMatrix.productRowForExperimentHash manifestExperiment of
+    Nothing ->
+      [ ProductCompletionUnknownManifestExperiment
+          expectedRowId
+          manifestExperiment
+      ]
+    Just row
+      | ProductMatrix.rowId row == expectedRowId -> []
+      | otherwise ->
+          [ ProductCompletionCanonicalRowMismatch
+              expectedRowId
+              (ProductMatrix.rowId row)
+              manifestExperiment
+          ]
+
+productRuntimeBindingFailures
+  :: Text
+  -> ProductMatrix.ProductProjection kind
+  -> Checkpoint.CheckpointManifest
+  -> [ProductScenarioCompletionError]
+productRuntimeBindingFailures rowId projection manifest =
+  case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan _plan ->
+      case Checkpoint.manifestSupervisedRuntime manifest of
+        Nothing -> [ProductCompletionSupervisedRuntimeMissing rowId]
+        Just payload ->
+          [ ProductCompletionSupervisedRuntimeRowMismatch
+              rowId
+              (RuntimeArtifact.payloadRowId payload)
+          | RuntimeArtifact.payloadRowId payload /= rowId
+          ]
+            <> [ ProductCompletionSupervisedRuntimeOriginMismatch rowId
+               | RuntimeArtifact.supervisedRuntimeOriginToRaw
+                   (RuntimeArtifact.payloadOrigin payload)
+                   /= RuntimeArtifact.RawProductRowProjectionOrigin
+               ]
+    ProductMatrix.ResolvedRlProductPlan _runPlan -> rejectRuntime
+    ProductMatrix.ResolvedTuningProductPlan _plan -> rejectRuntime
+    ProductMatrix.ResolvedAlphaZeroProductPlan _plan -> rejectRuntime
+ where
+  rejectRuntime =
+    case Checkpoint.manifestSupervisedRuntime manifest of
+      Nothing -> []
+      Just payload ->
+        [ ProductCompletionUnexpectedSupervisedRuntime
+            rowId
+            (RuntimeArtifact.payloadRowId payload)
+        ]
+
+-- | Validate the optimiser-step relation that Sprint 19.4 can derive exactly
+-- from the kind-indexed resolved plan. Traditional RL intentionally has no
+-- check here: its current descriptor mixes trainer iterations, environment
+-- steps, and optimiser epochs, and Sprint 25.4 owns the dimensionally correct
+-- compiled RL plan. Treating that field as an exact optimiser-step count here
+-- would manufacture a stronger proof than the current RL plan can express.
+productCompletionUpdateCountFailures
+  :: Text
+  -> ProductMatrix.ProductProjection kind
+  -> Word64
+  -> [ProductScenarioCompletionError]
+productCompletionUpdateCountFailures rowId projection observed =
+  case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan plan ->
+      requireExact
+        (quantityValue (WorkloadPlan.supervisedPlanOptimizerUpdates plan))
+    ProductMatrix.ResolvedRlProductPlan _runPlan -> []
+    ProductMatrix.ResolvedTuningProductPlan plan ->
+      requireExact
+        (quantityValue (WorkloadPlan.tuningPlanMaxPerTrialUpdates plan))
+    ProductMatrix.ResolvedAlphaZeroProductPlan plan ->
+      let generations =
+            quantityValue (WorkloadPlan.alphaZeroPlanGenerations plan)
+          updatesPerGeneration =
+            quantityValue (WorkloadPlan.alphaZeroPlanUpdates plan)
+          total = toInteger generations * toInteger updatesPerGeneration
+       in if total > toInteger (maxBound :: Word64)
+            then
+              [ ProductCompletionUpdateCountOverflow
+                  rowId
+                  generations
+                  updatesPerGeneration
+              ]
+            else requireExact (fromInteger total)
+ where
+  requireExact expected
+    | observed == expected = []
+    | otherwise =
+        [ProductCompletionUpdateCountMismatch rowId expected observed]
+
+productEvidenceBudgetKind
+  :: ProductMatrix.ProductEvidenceRequirements kind
+  -> BudgetKind
+productEvidenceBudgetKind requirements =
+  case requirements of
+    ProductMatrix.SupervisedProductEvidence -> SupervisedEpochBudget
+    ProductMatrix.RlProductEvidence -> RlEnvironmentStepBudget
+    ProductMatrix.TuningProductEvidence -> TuningTrialBudget
+    ProductMatrix.AlphaZeroProductEvidence -> AlphaZeroSelfPlayBudget
+
+-- | One reportable product scenario that was actually completed by the live
+-- interpreter.  The constructor stays private: registry declarations and the
+-- legacy seven-column lane-attestation parser cannot mint this value.
+data CompletedProductScenarioEvidence = CompletedProductScenarioEvidence
+  { scenarioEvidenceRowId :: !Text
+  , scenarioEvidencePlanId :: !PlanId
+  , scenarioEvidenceLane :: !Substrate
+  , scenarioEvidenceManifestSha :: !Text
+  , scenarioEvidenceContract :: !ProductScenarioReportContract
+  }
+  deriving stock (Eq, Show)
+
+-- Ordinary accessors keep the hidden evidence constructor non-forgeable.
+-- Exporting its record labels would permit downstream record update even
+-- though the constructor itself is not exported.
+completedProductScenarioRowId :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioRowId = scenarioEvidenceRowId
+
+completedProductScenarioPlanId :: CompletedProductScenarioEvidence -> PlanId
+completedProductScenarioPlanId = scenarioEvidencePlanId
+
+completedProductScenarioLane :: CompletedProductScenarioEvidence -> Substrate
+completedProductScenarioLane = scenarioEvidenceLane
+
+completedProductScenarioManifestSha :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioManifestSha = scenarioEvidenceManifestSha
+
+-- | Report-only axes do not belong to the worker RunPlan, but evidence minted
+-- under an older criterion or scenario declaration must not be reusable after
+-- those axes change.  Retain their exact structured values behind the opaque
+-- evidence constructor instead of relying on a forgeable text hash.
+data ProductScenarioReportContract = ProductScenarioReportContract
+  { productContractIntegrationTest :: !Text
+  , productContractE2ETest :: !Text
+  , productContractMetricName :: !Text
+  , productContractMetricGoal :: !MetricGoal
+  , productContractMetricThreshold :: !Double
+  , productContractDeviceClaim :: !ProductMatrix.DeviceClaim
+  , productContractImplementation :: !Text
+  , productContractArchitectureFeatures :: ![ArchitectureFeature]
+  , productContractDemoPanel :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data ProductScenarioEvidenceError
+  = ProductScenarioDidNotComplete !Text
+  | ProductScenarioPlanMismatch !Text !PlanId !PlanId
+  | ProductScenarioProjectionMismatch !Text
+  deriving stock (Eq, Show)
+
+-- | A validated, registry-ordered collection.  Its constructor and underlying
+-- list remain private so 'ReportMeasurements' cannot carry unvalidated raw
+-- evidence, duplicates, or orphan rows.
+newtype CompletedProductScenarioReport
+  = CompletedProductScenarioReport
+      [CompletedProductScenarioEvidence]
+  deriving stock (Eq, Show)
+
+data ProductScenarioReportError
+  = MissingCompletedProductScenario !Text !PlanId
+  | DuplicateCompletedProductScenario !Text
+  | OrphanCompletedProductScenario !Text !PlanId
+  | WrongPlanCompletedProductScenario !Text !PlanId !PlanId
+  | WrongLaneCompletedProductScenario !Text !Substrate !Substrate
+  | StaleContractCompletedProductScenario !Text
+  deriving stock (Eq, Show)
+
+-- | Admit only a successful opaque interpreter result carrying the
+-- kind-indexed completion for this exact projection.  A generic evidence type
+-- such as @()@ cannot inhabit this signature.
+completedProductScenarioEvidence
+  :: ProductMatrix.ProductProjection kind
+  -> Either
+       failure
+       ( CompletedRunEvidence
+           terminal
+           (ProductScenarioCompletion kind)
+           violation
+           missing
+       )
+  -> Either ProductScenarioEvidenceError CompletedProductScenarioEvidence
+completedProductScenarioEvidence projection outcome =
+  case outcome of
+    Left _failure ->
+      Left (ProductScenarioDidNotComplete expectedRowId)
+    Right completed ->
+      let ProductScenarioCompletion completionProjection admittedCheckpoint =
+            completedRunEvidence completed
+          observedPlanId = completedRunPlanId completed
+          manifestSha =
+            CheckpointStore.admittedCheckpointManifestSha
+              (CheckpointStore.admittedCompletedCheckpoint admittedCheckpoint)
+       in if observedPlanId /= expectedPlanId
+            then
+              Left
+                ( ProductScenarioPlanMismatch
+                    expectedRowId
+                    expectedPlanId
+                    observedPlanId
+                )
+            else
+              if completionProjection /= projection
+                then Left (ProductScenarioProjectionMismatch expectedRowId)
+                else
+                  Right
+                    CompletedProductScenarioEvidence
+                      { scenarioEvidenceRowId = expectedRowId
+                      , scenarioEvidencePlanId = expectedPlanId
+                      , scenarioEvidenceLane =
+                          ProductMatrix.productProjectionSubstrate projection
+                      , scenarioEvidenceManifestSha = manifestSha
+                      , scenarioEvidenceContract =
+                          productScenarioReportContract projection
+                      }
+ where
+  expectedRowId = ProductMatrix.productProjectionRowId projection
+  expectedPlanId = ProductMatrix.productProjectionPlanId projection
+
+-- | Join already opaque scenario evidence against one validated projection
+-- batch.  Batch construction owns raw-row projection, duplicate registry IDs,
+-- and unprojectable rows; this join owns completed-evidence coverage.
+projectCompletedProductScenarioReport
+  :: ProductMatrix.ProductProjectionBatch
+  -> [CompletedProductScenarioEvidence]
+  -> Either
+       (NonEmpty ProductScenarioReportError)
+       CompletedProductScenarioReport
+projectCompletedProductScenarioReport batch observed =
+  case NonEmpty.nonEmpty failures of
+    Just errors -> Left errors
+    Nothing -> Right (CompletedProductScenarioReport orderedEvidence)
+ where
+  substrate = ProductMatrix.productProjectionBatchSubstrate batch
+  expected = fmap projectedIdentity (ProductMatrix.productProjectionBatchProjections batch)
+  expectedPlans = [(rowId, planId) | (rowId, planId, _contract) <- expected]
+  expectedContracts = [(rowId, contract) | (rowId, _planId, contract) <- expected]
+  expectedRowIds = ProductMatrix.productProjectionBatchRowIds batch
+  observedRowIds = fmap completedProductScenarioRowId observed
+  missingFailures =
+    [ MissingCompletedProductScenario rowId planId
+    | (rowId, planId, _contract) <- expected
+    , rowId `notElem` observedRowIds
+    ]
+  duplicateEvidenceFailures =
+    [ DuplicateCompletedProductScenario rowId
+    | rowId <- repeatedTexts observedRowIds
+    ]
+  orphanFailures =
+    [ OrphanCompletedProductScenario
+        (completedProductScenarioRowId evidence)
+        (completedProductScenarioPlanId evidence)
+    | evidence <- observed
+    , completedProductScenarioRowId evidence `notElem` expectedRowIds
+    ]
+  wrongPlanFailures =
+    [ WrongPlanCompletedProductScenario rowId expectedPlan observedPlan
+    | evidence <- observed
+    , let rowId = completedProductScenarioRowId evidence
+    , let observedPlan = completedProductScenarioPlanId evidence
+    , Just expectedPlan <- [lookup rowId expectedPlans]
+    , observedPlan /= expectedPlan
+    ]
+  wrongLaneFailures =
+    [ WrongLaneCompletedProductScenario
+        (completedProductScenarioRowId evidence)
+        substrate
+        (completedProductScenarioLane evidence)
+    | evidence <- observed
+    , completedProductScenarioRowId evidence `elem` expectedRowIds
+    , completedProductScenarioLane evidence /= substrate
+    ]
+  staleContractFailures =
+    [ StaleContractCompletedProductScenario rowId
+    | evidence <- observed
+    , let rowId = completedProductScenarioRowId evidence
+    , Just expectedContract <- [lookup rowId expectedContracts]
+    , scenarioEvidenceContract evidence /= expectedContract
+    ]
+  failures =
+    missingFailures
+      <> duplicateEvidenceFailures
+      <> orphanFailures
+      <> wrongPlanFailures
+      <> wrongLaneFailures
+      <> staleContractFailures
+  orderedEvidence =
+    [ evidence
+    | (rowId, _planId, _contract) <- expected
+    , evidence <- observed
+    , completedProductScenarioRowId evidence == rowId
+    ]
+
+  projectedIdentity
+    (ProductMatrix.SomeProductProjection _witness projection) =
+      ( ProductMatrix.productProjectionRowId projection
+      , ProductMatrix.productProjectionPlanId projection
+      , productScenarioReportContract projection
+      )
+
+  repeatedTexts values =
+    [ value
+    | group@(value : _) <- List.group (List.sort values)
+    , length group > 1
+    ]
+
+productScenarioReportContract
+  :: ProductMatrix.ProductProjection kind
+  -> ProductScenarioReportContract
+productScenarioReportContract projection =
+  ProductScenarioReportContract
+    { productContractIntegrationTest =
+        ProductMatrix.productProjectionIntegrationTest projection
+    , productContractE2ETest =
+        ProductMatrix.productProjectionE2ETest projection
+    , productContractMetricName = convergenceMetricName bar
+    , productContractMetricGoal = convergenceMetricGoal bar
+    , productContractMetricThreshold = convergenceThreshold bar
+    , productContractDeviceClaim =
+        ProductMatrix.productProjectionDeviceClaim projection
+    , productContractImplementation =
+        ProductMatrix.productProjectionImplementation projection
+    , productContractArchitectureFeatures =
+        ProductMatrix.productProjectionArchitectureFeatures projection
+    , productContractDemoPanel =
+        ProductMatrix.productProjectionDemoPanel projection
+    }
+ where
+  bar = ProductMatrix.productProjectionConvergenceBar projection
 
 defaultReportCardKnobs :: ReportCardKnobs
 defaultReportCardKnobs =
@@ -350,7 +875,7 @@ emptyReportMeasurements =
     , measuredJitCacheHitRate = Nothing
     , measuredDaemonHealthz = Nothing
     , measuredBrowserProductMatrix = Nothing
-    , measuredProductRowEvidence = []
+    , measuredProductRowEvidence = Nothing
     }
 
 reportStanzas :: [Text]
@@ -742,20 +1267,38 @@ renderMeasurement (MeasurementAvailable value) = value
 renderMeasurement MeasurementUnavailable = "unavailable"
 
 renderProductRowEvidenceTable :: ReportMeasurements -> [Text]
-renderProductRowEvidenceTable measurements
-  | null (measuredProductRowEvidence measurements) = []
-  | otherwise =
+renderProductRowEvidenceTable measurements =
+  case measuredProductRowEvidence measurements of
+    Nothing -> []
+    Just report ->
       "product_rows:"
         : fmap
           ("  " <>)
           ( Text.lines
-              ( renderProductRowReportEvidence
-                  ProductMatrix.allProductRows
-                  ProductMatrix.nonProductRows
-                  (measuredProductRowEvidence measurements)
-              )
+              (renderCompletedProductScenarioEvidence report)
           )
 
+renderCompletedProductScenarioEvidence
+  :: CompletedProductScenarioReport
+  -> Text
+renderCompletedProductScenarioEvidence (CompletedProductScenarioReport evidence) =
+  Text.unlines
+    ( "row_id\tplan_id\tlane\tmanifest_sha\tevidence"
+        : fmap renderEvidence evidence
+    )
+ where
+  renderEvidence completed =
+    Text.intercalate
+      "\t"
+      [ completedProductScenarioRowId completed
+      , planIdText (completedProductScenarioPlanId completed)
+      , renderSubstrate (completedProductScenarioLane completed)
+      , completedProductScenarioManifestSha completed
+      , "completed-scenario"
+      ]
+
+-- | Validate the legacy seven-column lane-fragment shape only.  Passing this
+-- check is not completed-run evidence and cannot satisfy the live report path.
 productRowReportCoverageFailures
   :: [ProductMatrix.ProductRow state]
   -> [ProductMatrix.NonProductRow]
@@ -814,6 +1357,8 @@ productRowReportCoverageFailures rows nonProductRows observed =
     , Text.null (Text.strip value)
     ]
 
+-- | Render the legacy Sprint 31.3 seven-column lane fragment.  Live report
+-- measurements render 'CompletedProductScenarioEvidence' instead.
 renderProductRowReportEvidence
   :: [ProductMatrix.ProductRow state]
   -> [ProductMatrix.NonProductRow]
@@ -912,6 +1457,8 @@ aggregateProductLaneAttestations laneDocuments =
         ProductMatrix.nonProductRows
         evidence
 
+-- | Parse a legacy Sprint 31.3 prose lane fragment.  The result is deliberately
+-- disjoint from the opaque completed-scenario type accepted by live reports.
 parseProductRowReportEvidenceTable :: Text -> Either Text [ProductRowReportEvidence]
 parseProductRowReportEvidenceTable content =
   traverse parseRow evidenceLines

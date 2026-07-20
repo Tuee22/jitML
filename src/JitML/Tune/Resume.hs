@@ -8,11 +8,8 @@ module JitML.Tune.Resume
   )
 where
 
-import Codec.Serialise (deserialiseOrFail, serialise)
-import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (rights)
 import Data.Text (Text)
-import Data.Text qualified as Text
 
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -22,7 +19,14 @@ import JitML.Service.Capabilities
   , ObjectRef (..)
   )
 import JitML.Service.Retry (ServiceError)
-import JitML.Tune.Catalog (TrialTranscript (..), trialStorageKey)
+import JitML.Tune.Catalog
+  ( TrialTranscript
+  , decodeTrialTranscript
+  , encodeTrialTranscript
+  , transcriptExperimentHash
+  , transcriptTrialSeed
+  , trialStorageKey
+  )
 
 data ResumeOutcome = ResumeOutcome
   { resumedSeeds :: [Int]
@@ -50,7 +54,7 @@ persistTrialTranscript transcript = do
           (transcriptExperimentHash transcript)
           (transcriptTrialSeed transcript)
       ref = ObjectRef bucket (ObjectKey key)
-      payload = LazyByteString.toStrict (serialise transcript)
+      payload = encodeTrialTranscript transcript
   putBlobBytesIfAbsent ref payload
 
 -- | Replay a partial sweep by reading the trial transcripts for the
@@ -87,7 +91,6 @@ replaySweep experimentHash seeds = do
     case payload of
       Left err -> pure (Left (ResumeServiceFailure err))
       Right bytes ->
-        case deserialiseOrFail (LazyByteString.fromStrict bytes) of
-          Left decodeErr ->
-            pure (Left (ResumeDecodeFailure (Text.pack (show decodeErr))))
+        case decodeTrialTranscript bytes of
+          Left decodeErr -> pure (Left (ResumeDecodeFailure decodeErr))
           Right transcript -> pure (Right transcript)

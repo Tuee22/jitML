@@ -34,9 +34,9 @@ Validation passed `jitml-unit` **367 / 367**, `jitml-sl-canonicals` **31 / 31**,
 backward edges, zero dual-accelerator gates, and zero aggregation accelerator
 reruns. Resolved Tune/AlphaZero worker-plan serialization closed in Sprint
 `9.17`, and supervised worker-plan serialization plus refined completion closed
-in Sprint `10.12`; the live interpreter remains Sprint `12.16`, and compiled
-algorithm-specific RL adoption remains Sprint `25.4`. Sprints `8.1`–`8.15`
-remain Done on their retained training/runtime surfaces.
+in Sprint `10.12`; the live interpreter closed in Sprint `12.16`, while
+compiled algorithm-specific RL adoption remains Sprint `25.4`. Sprints
+`8.1`–`8.15` remain Done on their retained training/runtime surfaces.
 
 **Historical retained closure.** ✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `8.15`). `TrainingBudget`,
 `CompletedTraining`, and the

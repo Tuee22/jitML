@@ -42,6 +42,7 @@ module JitML.Test.LiveWorkflow
   , completedRunDiagnostics
   , completedRunEvidence
   , completedRunJournal
+  , completedRunPlanId
   , completedRunPlacement
   , completedRunTerminal
   , completionJoinEvidence
@@ -139,16 +140,16 @@ import JitML.Sub.Subprocess (Subprocess (..))
 -- clean it up.  The constructor is private; Kubernetes DNS-label validation
 -- happens once at the raw boundary.
 data JobHandle = JobHandle
-  { jobHandlePlanId :: PlanId
-  , jobHandleName :: Text
+  { jobPlanIdValue :: PlanId
+  , jobNameValue :: Text
   }
   deriving stock (Eq, Show)
 
 -- | A host-resident action key coupled to the plan that owns it.  The opaque
 -- key is validated as non-empty and bounded before entering the interpreter.
 data HostRunHandle = HostRunHandle
-  { hostRunHandlePlanId :: PlanId
-  , hostRunHandleKey :: Text
+  { hostPlanIdValue :: PlanId
+  , hostKeyValue :: Text
   }
   deriving stock (Eq, Show)
 
@@ -156,8 +157,8 @@ data HostRunHandle = HostRunHandle
 -- this does not claim that a long-running host workload exists; the reply
 -- evidence itself is the terminal fact for this placement.
 data RequestHandle = RequestHandle
-  { requestHandlePlanId :: PlanId
-  , requestHandleKey :: Text
+  { requestPlanIdValue :: PlanId
+  , requestKeyValue :: Text
   }
   deriving stock (Eq, Show)
 
@@ -178,7 +179,7 @@ mkJobHandle planId rawName = do
   case (Text.uncons name, Text.unsnoc name) of
     (Just (first, _), Just (_, lastCharacter))
       | validJobBoundary first && validJobBoundary lastCharacter ->
-          Right JobHandle {jobHandlePlanId = planId, jobHandleName = name}
+          Right JobHandle {jobPlanIdValue = planId, jobNameValue = name}
     _ -> Left InvalidJobHandleBoundary
  where
   validJobCharacter character =
@@ -189,13 +190,35 @@ mkHostRunHandle :: PlanId -> Text -> Either PlacementHandleError HostRunHandle
 mkHostRunHandle planId rawKey = do
   let key = Text.strip rawKey
   validateHandleLength key 128
-  Right HostRunHandle {hostRunHandlePlanId = planId, hostRunHandleKey = key}
+  Right HostRunHandle {hostPlanIdValue = planId, hostKeyValue = key}
 
 mkRequestHandle :: PlanId -> Text -> Either PlacementHandleError RequestHandle
 mkRequestHandle planId rawKey = do
   let key = Text.strip rawKey
   validateHandleLength key 128
-  Right RequestHandle {requestHandlePlanId = planId, requestHandleKey = key}
+  Right RequestHandle {requestPlanIdValue = planId, requestKeyValue = key}
+
+-- These are ordinary read-only functions rather than exported record labels.
+-- A hidden constructor is still record-updateable downstream when one of its
+-- labels is exported, which would let a validated handle be rebound to a
+-- different plan or raw key after refinement.
+jobHandlePlanId :: JobHandle -> PlanId
+jobHandlePlanId = jobPlanIdValue
+
+jobHandleName :: JobHandle -> Text
+jobHandleName = jobNameValue
+
+hostRunHandlePlanId :: HostRunHandle -> PlanId
+hostRunHandlePlanId = hostPlanIdValue
+
+hostRunHandleKey :: HostRunHandle -> Text
+hostRunHandleKey = hostKeyValue
+
+requestHandlePlanId :: RequestHandle -> PlanId
+requestHandlePlanId = requestPlanIdValue
+
+requestHandleKey :: RequestHandle -> Text
+requestHandleKey = requestKeyValue
 
 validateHandleLength :: Text -> Int -> Either PlacementHandleError ()
 validateHandleLength value maximumLength
@@ -436,13 +459,47 @@ data PlacedRunResult terminal evidence violation missing = PlacedRunResult
 -- evidence after the completion mode's real terminal fact and cleanup have
 -- succeeded.
 data CompletedRunEvidence terminal evidence violation missing = CompletedRunEvidence
-  { completedRunPlacement :: Placement
-  , completedRunTerminal :: LiveTerminalFact terminal
-  , completedRunEvidence :: evidence
-  , completedRunDiagnostics :: [LiveDiagnostic]
-  , completedRunJournal :: [LiveJournalRecord terminal violation missing]
+  { completedPlacementValue :: Placement
+  , completedTerminalValue :: LiveTerminalFact terminal
+  , completedEvidenceValue :: evidence
+  , completedDiagnosticsValue :: [LiveDiagnostic]
+  , completedJournalValue :: [LiveJournalRecord terminal violation missing]
   }
   deriving stock (Eq, Show)
+
+-- | The semantic identity of the validated plan whose placement completed.
+-- Keeping this accessor on the opaque completion value lets report projections
+-- prove row/plan correlation without reopening the interpreter-owned
+-- constructor.
+completedRunPlanId :: CompletedRunEvidence terminal evidence violation missing -> PlanId
+completedRunPlanId = placementPlanId . completedRunPlacement
+
+-- Ordinary projections preserve the existing read API without exporting
+-- record labels that could rewrite interpreter-owned completion evidence.
+completedRunPlacement
+  :: CompletedRunEvidence terminal evidence violation missing
+  -> Placement
+completedRunPlacement = completedPlacementValue
+
+completedRunTerminal
+  :: CompletedRunEvidence terminal evidence violation missing
+  -> LiveTerminalFact terminal
+completedRunTerminal = completedTerminalValue
+
+completedRunEvidence
+  :: CompletedRunEvidence terminal evidence violation missing
+  -> evidence
+completedRunEvidence = completedEvidenceValue
+
+completedRunDiagnostics
+  :: CompletedRunEvidence terminal evidence violation missing
+  -> [LiveDiagnostic]
+completedRunDiagnostics = completedDiagnosticsValue
+
+completedRunJournal
+  :: CompletedRunEvidence terminal evidence violation missing
+  -> [LiveJournalRecord terminal violation missing]
+completedRunJournal = completedJournalValue
 
 runLiveWorkflow
   :: (Eq terminal, Eq evidence)
@@ -1283,11 +1340,11 @@ assembleResult journalRef placement (diagnostics, cleanupIssues) result = do
       pure
         ( Right
             CompletedRunEvidence
-              { completedRunPlacement = placement
-              , completedRunTerminal = terminal
-              , completedRunEvidence = evidence
-              , completedRunDiagnostics = diagnostics
-              , completedRunJournal = journal
+              { completedPlacementValue = placement
+              , completedTerminalValue = terminal
+              , completedEvidenceValue = evidence
+              , completedDiagnosticsValue = diagnostics
+              , completedJournalValue = journal
               }
         )
     _ ->

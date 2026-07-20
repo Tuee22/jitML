@@ -15,8 +15,14 @@
 still overloads evaluation counts and step limits as training dimensions,
 reconstructs measured counters in callers, and represents incompatible
 algorithm/environment combinations before runtime validation. Sprint `25.4` is
-blocked by Sprint `21.4`. Sprints `25.1`–`25.3` remain Done on their retained
+blocked by Sprint `24.3`. Sprints `25.1`–`25.3` remain Done on their retained
 environment and algorithm implementations.
+
+Sprint `24.3` is transitively blocked through `24.2`, `24.1`, `23.3`, `23.2`,
+`23.1`, and `21.4`; that chain ultimately waits for persisted checkpoint
+admission in Sprint `10.12`. Earlier RL publisher `eligible` totals are historical
+training/dispatch diagnostics only; they predate Store-admitted artifacts and
+do not close Sprint `19.4`, Sprint `21.4`, or Sprint `25.4`.
 
 **Historical retained closure.** ✅ **Done** (reclosed 2026-07-10 after the 2026-07-08 expanded product
 end-state). Phase `24` is Done. RL product evidence comes from trained-policy
@@ -92,14 +98,16 @@ Validated on 2026-07-02: `jitml-rl-canonicals --linux-cpu` passed 32/32,
 the native Acrobot, Pendulum, KeyDoorGrid, and GridWorld catalog additions and
 the trainer fail-closed environment-selection guard.
 
-Reopened on 2026-07-03: the 2026-07-03 Phase `28` publisher reachability run
+**Historical publisher diagnostic (2026-07-03 reopen).** The Phase `28`
+publisher reachability run
 reported **29** RL rows as unsupported because the production trainer dispatch
 still supports only CartPole for on-policy/discrete/ARS rows, Pendulum for
 continuous rows, and goal-reaching for HER. The simulator catalog exists, but
 the production trainer loops still do not consume the row-requested simulator
 for MountainCar, Acrobot, LunarLander, KeyDoorGrid, or GridWorld rows.
 
-Re-closed on 2026-07-03: `cabal build all --ghc-options=-Werror` passed in the
+**Historical publisher diagnostic (2026-07-03 reclose).** `cabal build all
+--ghc-options=-Werror` passed in the
 `jitml` container; `jitml-rl-canonicals --linux-cpu` passed **37 / 37**;
 `jitml-unit --linux-cpu` passed **277 / 277**; and a row-filtered live
 publisher run through the rebuilt worktree executable for
@@ -246,7 +254,8 @@ the ProductRow unit slice passed 8/8 after regenerating generated docs/contracts
 `jitml check-code` passed after the Phase `25` closure and Phase `26.1`
 activation status updates.
 
-Reopened on 2026-07-03: the Phase `28` live publisher run reported **18** error
+**Historical publisher diagnostic (2026-07-03 reopen).** The Phase `28` live
+publisher run reported **18** error
 rows, including supported RL rows that did not produce passing
 `CompletedTraining` evidence in the reachability validation. After Sprint
 `25.1` re-closed, a row-filtered publisher run for formerly unsupported rows
@@ -254,7 +263,8 @@ reported **0** unsupported rows and **4** `CompletedTraining` errors, confirming
 that this sprint now owns the active RL blocker: live RL product rows must emit
 passing convergence observations from real trainer evidence.
 
-Re-closed on 2026-07-03: `docker compose run --rm jitml cabal build all
+**Historical publisher diagnostic (2026-07-03 reclose).** `docker compose run
+--rm jitml cabal build all
 --ghc-options=-Werror` passed; the full RL-only live product publisher filter
 reported **39** rows, **39** eligible, **0** unsupported, and **0** errors;
 `jitml-rl-canonicals --linux-cpu` passed **37 / 37**; `jitml-unit --linux-cpu`
@@ -310,7 +320,7 @@ inference-performance floors.
 `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/VecEnv.hs`,
 `src/JitML/Service/RunConfig.hs`, `src/JitML/Proto/Rl.hs`,
 `test/rl-canonicals/Main.hs`
-**Blocked by**: Sprint `21.4`
+**Blocked by**: Sprint `24.3`
 **Docs to update**: `../README.md`,
 `../documents/engineering/training_workloads.md`,
 `../documents/engineering/training_metrics_and_splits.md`,
@@ -358,7 +368,8 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `21.4` provides phase-specific evidence payloads.
+- Blocked until Sprint `24.3` completes exact supervised completion manifests;
+  Sprint `21.4` provides the phase-specific evidence payloads transitively.
 - Implement the typed cohort/plan compiler and migrate all production trainers.
 - Remove overloaded fields, clamps, positional trainer calls, and reconstructed
   counters after compatibility tests pass.

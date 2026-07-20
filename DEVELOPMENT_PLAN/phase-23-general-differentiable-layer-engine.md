@@ -7,26 +7,36 @@
 
 > **Purpose**: Replace the single-hidden-layer hand-written backprop with a
 > general reverse-mode autodiff over a typed layer graph, wired to the real
-> oneDNN primitives for both training and inference, so deep architectures are
-> literal networks rather than MLP-composed stand-ins.
+> oneDNN primitives, so deep architectures are literal networks rather than
+> MLP-composed stand-ins. Phase `23` owns graph semantics and engine primitives;
+> reopened Sprint `10.6` owns the exact persisted supervised runtime artifact,
+> strict Store dispatch, and trained-versus-loaded execution parity.
 
 ## Phase State
 
-✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). Phase `22`
-remains closed on its canonical matrix/config/dataset integrity boundary, and the
-typed `LayerGraph` IR, checkpoint topology round-trip, and oneDNN device seam are
-in place. The layer engine no longer treats Conv2D, Conv3D, attention, gated,
-residual, patch-embed, and norm nodes as dense/identity stand-ins: per-kind
-forward and backward paths now transform inputs before the affine projection, and
-normalization layers compute normalized outputs. Validation: `docker compose run
---rm jitml cabal build lib:jitml` passed, `jitml-unit` passed **277 / 277**, and
-`jitml-sl-canonicals` passed **31 / 31** on `linux-cpu`. The standing anti-fake
-harness that grades these closures lives in
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md)
-(the `jitml-negative-controls` stanza),
-[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md)
-(the `jitml-model-convergence` per-model suite), and
-[phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md).
+⏸️ **Blocked** at Sprint `23.1`, which is blocked by Sprint `21.4`. The
+2026-07-18 executable-graph audit found two competing representations: the
+advertised `archLayerGraph` and the `[LayerSpec]` / `[LayerState]` program that
+actually trains and serves. Token mixing and attention omit required residual
+or direct-gradient terms, several pooling/normalization backprop paths remain
+approximations, silent `zipWith`/fallback seams can truncate mismatches, and the
+finite-difference suite does not cover the complete input-gradient contract.
+Sprint `23.2` is blocked by `23.1`; Sprint `23.3` is blocked by `23.2`.
+
+### Historical Closure Context
+
+The 2026-07-06 library, unit, canonical-SL, graph-metadata, and oneDNN results
+remain evidence for the exact primitive surfaces they exercised. They do not
+establish one literal executable graph or close the findings above. Exact V2
+supervised persistence remains Sprint `10.6`; persisted admission remains
+Sprint `10.12`.
+
+Sprint `10.6` therefore persists the `[LayerSpec]` / `[LayerState]` program that
+actually executes, including the current `cifar10-vit` 4×4/64-token Mixer
+contract. Its constant-time boxed-vector attention indexing and non-accumulating
+`forwardOnly` tape traversal preserve that program's equations but do not merge
+it with the parallel `archLayerGraph`, complete the missing gradient semantics,
+or unblock Sprint `23.1`.
 
 **Validation substrate**: `linux-cpu` only.
 
@@ -43,14 +53,16 @@ algebra: autodiff gradients match a pure oracle, the oneDNN backend computes the
 update-critical parameter and input-gradient operations for parameterized nodes
 within tolerance (with `Conv2D`/`Conv3D` lowered to real oneDNN convolution
 training primitives and the other parameterized graph nodes lowered to oneDNN
-matmul), checkpoints round-trip an arbitrary layer graph, and the inference-only
-read path runs the stored graph. Literal per-family tensor specializations and
-per-model architecture evidence continue in Phase `24`.
+matmul), and graph metadata round-trips independently of physical weight layout.
+Literal per-family training specializations and per-model architecture evidence
+continue in Phase `24`; exact supervised persistence and loaded execution are
+owned by Sprint `10.6`.
 
-## Sprint 23.1: Typed Layer IR + Reverse-Mode Autodiff [✅ Done]
+## Sprint 23.1: Typed Layer IR + Reverse-Mode Autodiff [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `src/JitML/Numerics/LayerGraph.hs`, `src/JitML/Numerics/Autodiff.hs`, `src/JitML/Numerics/Mlp.hs`, `src/JitML/SL/Architecture.hs`, `test/unit/Main.hs`
+**Blocked by**: Sprint `21.4`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/determinism_contract.md`
 
 ### Objective
@@ -80,6 +92,18 @@ graph. The graph is the sole representation of every supervised architecture;
   type and for at least one full ResNet-shaped and one ViT-shaped graph, and that
   the same seed and same substrate produce bit-identical gradients.
 
+### Remaining Work
+
+- Replace the decorative `archLayerGraph` plus parallel executable
+  `[LayerSpec]` / `[LayerState]` representations with one typed graph that owns
+  training, inference, and graph-ordered parameter identity.
+- Correct token-mixing and attention residual forward/direct-gradient terms,
+  MaxPool and normalization backpropagation, and every named approximation.
+- Replace silent `zipWith`, truncation, and fallback behavior with explicit
+  shape/operation failures.
+- Extend finite-difference coverage to parameter and input gradients for every
+  layer kind and complete ResNet/ViT graphs.
+
 ### Validation
 
 ```bash
@@ -87,6 +111,8 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
+
+### Historical Validation
 
 The initial 2026-07-02 validation was withdrawn by the 2026-07-05 realness
 audit because its oracle shared the dense stand-in. The 2026-07-06 reclosure
@@ -97,10 +123,11 @@ The cross-row mutation proof is now a separate downstream contract obligation
 owned by Phase `32`; it does not turn the retired dense alias into current
 Phase `23` state.
 
-## Sprint 23.2: oneDNN Layer Kernels for Training [✅ Done]
+## Sprint 23.2: oneDNN Layer Kernels for Training [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/Numerics/MlpOneDnn.hs`, `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/Engines/OneDnnRuntime.hs`, `test/backends/Main.hs`
+**Blocked by**: Sprint `23.1`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
 ### Objective
@@ -130,6 +157,13 @@ the backend computes update-critical gradients rather than only the pure oracle.
 - Runtime absence of `libdnnl` fails the lane up front; no layer kernel passes
   vacuously.
 
+### Remaining Work
+
+- Lower the single executable Sprint `23.1` graph to exact oneDNN forward,
+  parameter-gradient, and input-gradient semantics for every supported node.
+- Compare those kernels with an independent finite-difference oracle and reject
+  unsupported layout/shape cases instead of reusing an approximation.
+
 ### Validation
 
 ```bash
@@ -138,6 +172,8 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+### Historical Validation
+
 The initial 2026-07-02 backend comparison was withdrawn when the audit found
 that its reference shared the same dense approximation. The 2026-07-06
 reclosure moved Conv2D/Conv3D update-critical work through real oneDNN
@@ -145,37 +181,45 @@ convolution training primitives and compared the backend against the corrected
 per-kind reference algebra. The retained validation is summarized in
 [Phase State](#phase-state); absence of `libdnnl` still fails the lane up front.
 
-## Sprint 23.3: Layer-Graph Checkpoints + Inference [✅ Done]
+## Sprint 23.3: Layer-Graph Checkpoints + Inference [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `src/JitML/Checkpoint/Format.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/Inference/Decode.hs`, `src/JitML/Engines/LayerGraphCheckpoint.hs`, `src/JitML/Engines/Local.hs`, `test/integration/Main.hs`
+**Blocked by**: Sprint `23.2`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/determinism_contract.md`
 
 ### Objective
 
-The checkpoint format stores an arbitrary layer graph's weights and the
-inference-only read path runs the real layer graph, removing the MLP GEMM
-shortcut so a trained deep/ResNet/ViT/LeNet artifact infers as its literal
-network. The current implementation serializes the Phase `23.1` typed graph
-topology in `ArchitectureMetadata`, reconstructs it from named `.jmw1` weight
-and bias tensors, and routes `linux-cpu` graph checkpoint inference through the
-oneDNN graph-forward runner before falling back to the legacy MLP/Dense2D paths.
+Provide layout-independent layer-graph metadata/refinement and a graph-forward
+runner that a strict checkpoint runtime can consume. The retained V1 exercise
+serialized the Phase `23.1` topology and reconstructed it from named per-node
+tensors; that proves the graph primitive, not current supervised persistence or
+inference eligibility. Sprint `10.6` owns the V2 physical layout, exact loaded
+program, and no-fallback engine dispatch, while Sprint `10.12` owns persisted
+admission.
 
 ### Deliverables
 
-- `src/JitML/Checkpoint/Format.hs` serializes the `LayerGraph` topology as
-  `LayerGraphMetadata` under `ArchitectureMetadata`, with each parameterized
-  node naming its weight and bias tensors.
-- `src/JitML/Checkpoint/Store.hs` reconstructs a `LayerGraph` from a manifest
-  plus loaded `.jmw1` weight tensors, rejecting missing, duplicate, or
-  shape-mismatched graph tensors before inference runs.
-- `src/JitML/Engines/LayerGraphCheckpoint.hs` and
-  `src/JitML/Engines/Local.hs` execute graph checkpoint inference through
-  `JitML.Numerics.LayerGraphOneDnn.runLayerGraphForwardOneDnn` before the
-  legacy MLP and Dense2D fallback paths.
-- Unit and integration coverage round-trip graph topology/parameter tensors,
-  assert completed graph checkpoints infer through the weighted checkpoint
-  loader, and keep pre-completion inference rejection in the loader path.
+- `LayerGraphMetadata` represents topology, typed shapes, edges, operations,
+  attributes, and stable node/parameter identities independently of whether a
+  wire format uses named physical tensors or virtual slices into one flat blob.
+- Graph refinement rejects duplicate nodes, dangling edges, impossible shapes,
+  unknown operations, and parameter identities inconsistent with the graph.
+- `JitML.Numerics.LayerGraphOneDnn.runLayerGraphForwardOneDnn` executes a
+  supplied refined graph and parameters through the Phase `23.2` oneDNN
+  primitives; it does not choose a checkpoint version, physical layout, or
+  fallback policy.
+- Unit coverage round-trips graph metadata and compares the refined graph runner
+  with the per-kind reference algebra. The old named-tensor checkpoint case is
+  retained as V1 inspection coverage only.
+
+### Remaining Work
+
+- Round-trip and execute the exact graph completed by Sprints `23.1` and
+  `23.2`, preserving its operation order and parameter identities.
+- Prove checkpoint reload and inference use that same graph with strict
+  tamper/shape/operation rejection; no decorative metadata or fallback graph
+  may satisfy the gate.
 
 ### Validation
 
@@ -186,7 +230,9 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-Current validation: `jitml-unit --linux-cpu` passed 270 / 270 on 2026-07-02,
+### Historical Validation (retained primitive only)
+
+`jitml-unit --linux-cpu` passed 270 / 270 on 2026-07-02,
 including the LayerGraph checkpoint topology round-trip. The targeted
 `jitml-integration` graph checkpoint inference case passed when run directly
 with `cabal test jitml-integration --test-show-details=direct --test-options='-p loadInferenceCheckpointWithWeights'`.
@@ -198,9 +244,9 @@ and running `jitml cluster up --substrate linux-cpu` with
 component ready and `docker compose run --rm jitml jitml test jitml-integration
 --linux-cpu` passed all 79 / 79 tests on 2026-07-02. The realness audit then
 withdrew the inference claim until Sprints `23.1`/`23.2` corrected the per-kind
-forward path. The 2026-07-06 reclosure made restored graph inference consume
-those corrected semantics; Phase `32`/`33` now own the additional journal-bound
-negative-control and per-model evidence gates.
+forward path. Those results predate V2 and do not establish the current
+supervised physical layout, strict loaded execution, or eligibility. Sprint
+`10.6` and Sprint `10.12` own those current obligations.
 
 ## Documentation Requirements
 
@@ -209,8 +255,9 @@ negative-control and per-model evidence gates.
   typed layer graph and the full layer catalog (forward + backward per node).
 - `documents/engineering/jit_codegen_architecture.md` — oneDNN training-direction
   layer kernels, including convolution/normalization/pooling/attention backward.
-- `documents/engineering/checkpoint_format.md` — arbitrary layer-graph
-  checkpoint topology and per-node tensor blobs.
+- `documents/engineering/checkpoint_format.md` — layout-independent layer-graph
+  metadata primitives; Sprint `10.6` owns the exact V2 supervised physical and
+  virtual layout.
 - `documents/engineering/determinism_contract.md` — layer-graph determinism:
   same seed and same substrate produce bit-identical gradients and inference.
 

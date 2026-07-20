@@ -22,6 +22,7 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector.Unboxed qualified as VU
 import Foreign.C.String (CString, peekCString)
 import Foreign.C.Types (CFloat (..), CSize (..))
 import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
@@ -29,8 +30,14 @@ import Foreign.Ptr (FunPtr, Ptr)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
-import JitML.Checkpoint.Format (CheckpointManifest)
-import JitML.Checkpoint.Store (LoadedWeightTensor (..))
+import JitML.Checkpoint.Format
+  ( CheckpointManifest (..)
+  , validateSupervisedRuntimePlanForSubstrate
+  )
+import JitML.Checkpoint.Store
+  ( LoadedWeightTensor (..)
+  , loadSupervisedRuntimeFromCheckpoint
+  )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
 import JitML.Codegen.RuntimeSource
@@ -52,8 +59,14 @@ import JitML.Engines.Loader
   , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
+import JitML.Engines.RuntimeOperationsDevice
+  ( linuxCpuRuntimeOperationsSpec
+  , runtimeOperationsBackendExecutor
+  )
 import JitML.Env.Env (Env)
+import JitML.Numerics.Mlp (MlpForward (..))
 import JitML.Numerics.MlpOneDnn (mlpForwardOneDnn)
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate (Substrate (..))
 
 type KernelFunction =
@@ -153,17 +166,21 @@ runLinuxCpuFamilyKernel env family =
   runLinuxCpuKernel env (linuxCpuFamilyRuntimeSource family) (linuxCpuFamilyHash family)
 
 runLinuxCpuCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
-runLinuxCpuCheckpointInference env _manifest input = do
-  kernelResult <- runLinuxCpuIdentityKernel env (fmap realToFrac input)
-  pure $
-    case kernelResult of
-      Left err -> Left err
-      Right kernelRun ->
-        -- Sprint 10.5 — return the faithful kernel output; the former
-        -- `+ nTensors/100` synthetic offset (a fabricated inference value) is
-        -- removed. The real weighted read path is
-        -- 'runLinuxCpuWeightedCheckpointInference'.
-        Right (fmap realToFrac (linuxCpuKernelOutput kernelRun))
+runLinuxCpuCheckpointInference env manifest input =
+  case manifestSupervisedRuntime manifest of
+    Just _ ->
+      pure (Left "V2 supervised inference requires exact persisted weights")
+    Nothing -> do
+      kernelResult <- runLinuxCpuIdentityKernel env (fmap realToFrac input)
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            -- Sprint 10.5 — return the faithful kernel output; the former
+            -- `+ nTensors/100` synthetic offset (a fabricated inference value) is
+            -- removed. The real weighted read path is
+            -- 'runLinuxCpuWeightedCheckpointInference'.
+            Right (fmap realToFrac (linuxCpuKernelOutput kernelRun))
 
 -- | Sprint 13.11 — drive the live `jitml_weighted_kernel` ABI for a
 -- checkpoint-supplied weight tensor list. Routes through Dense2D's real
@@ -178,26 +195,50 @@ runLinuxCpuWeightedCheckpointInference
   -> [Double]
   -> IO (Either Text [Double])
 runLinuxCpuWeightedCheckpointInference env manifest weights input = do
-  graphResult <- runLayerGraphCheckpointForwardOneDnn env manifest weights input
-  case graphResult of
-    Just result -> pure result
-    Nothing -> do
-      mlpResult <- runMlpCheckpointForwardWith (mlpForwardOneDnn env) manifest weights input
-      case mlpResult of
-        Just result -> pure result
-        Nothing -> do
-          let flatWeights = flattenLoadedWeights weights
-          kernelResult <-
-            runLinuxCpuWeightedFamilyKernel
-              env
-              Dense2D
-              (fmap realToFrac input)
-              flatWeights
-          pure $
-            case kernelResult of
-              Left err -> Left err
-              Right kernelRun ->
-                Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
+  case traverse (validateSupervisedRuntimePlanForSubstrate LinuxCPU) (manifestSupervisedRuntime manifest) of
+    Left err -> pure (Left ("V2 linux-cpu PlanId incompatibility: " <> err))
+    Right _ ->
+      case loadSupervisedRuntimeFromCheckpoint manifest weights of
+        Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
+        Right (Just runtime) ->
+          fmap VU.toList
+            <$> RuntimeArtifact.executeLoadedRuntime
+              (linuxCpuRuntimeBackend env)
+              runtime
+              (VU.fromList input)
+        Right Nothing -> do
+          graphResult <- runLayerGraphCheckpointForwardOneDnn env manifest weights input
+          case graphResult of
+            Just result -> pure result
+            Nothing -> do
+              mlpResult <- runMlpCheckpointForwardWith (mlpForwardOneDnn env) manifest weights input
+              case mlpResult of
+                Just result -> pure result
+                Nothing -> do
+                  let flatWeights = flattenLoadedWeights weights
+                  kernelResult <-
+                    runLinuxCpuWeightedFamilyKernel
+                      env
+                      Dense2D
+                      (fmap realToFrac input)
+                      flatWeights
+                  pure $
+                    case kernelResult of
+                      Left err -> Left err
+                      Right kernelRun ->
+                        Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
+
+-- | Complete Linux-CPU ownership of the persisted V2 graph.  The numerical
+-- MLP callback is the real oneDNN substrate path; every structural operation
+-- is dispatched through the generated, capability-probed Double ABI.
+linuxCpuRuntimeBackend :: Env -> RuntimeArtifact.RuntimeBackendExecutor
+linuxCpuRuntimeBackend env =
+  runtimeOperationsBackendExecutor
+    linuxCpuRuntimeOperationsSpec
+    env
+    ( \params values ->
+        fmap (fmap forwardOutput) (mlpForwardOneDnn env params values)
+    )
 
 -- | Flatten a list of `LoadedWeightTensor` into a row-major Float
 -- buffer suitable for the `jitml_weighted_kernel` ABI. Tensors are

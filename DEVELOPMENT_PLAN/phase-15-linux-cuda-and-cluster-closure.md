@@ -351,10 +351,12 @@ CUDA 12.8 / Ubuntu 24.04 host:
   `JitML.Numerics.Mlp` interface. A later continuation this session **wired
   the device kernels into the AlphaZero network training**:
   `policyValueForwardCuda` + `PolicyValueNet.trainPolicyValueNetOnSamplesCuda`
-  run the per-sample forward + backward on the GPU (host-side Adam), with
-  `Mlp` refactored to share the policy/value head math
+  now evaluate the complete ordered sample batch against one immutable
+  parameter snapshot, average its gradients, and perform exactly one
+  host-side Adam step per declared optimizer update (Phase `19` correction,
+  2026-07-15). `Mlp` shares the policy/value head math
   (`policyValueFromForward` / `policyValueOutputGradient`) between the pure
-  and device paths (behavior-preserving). A further continuation added the
+  and device paths. A further continuation added the
   **batched device primitive set**: `jitml_mlp_batch_gradient` +
   `mlpBatchGradientCuda` (one device call → minibatch summed gradient) and
   `jitml_mlp_forward_batch` + `mlpForwardBatchCuda` (one device call →
@@ -377,7 +379,8 @@ CUDA 12.8 / Ubuntu 24.04 host:
   pass** on the RTX 3090: the MLP forward/backward match the pure network
   within `1e-3` and are bit-deterministic, the batched forward + gradient
   match their pure references, the on-policy + DQN + QR-DQN + HER CUDA
-  trainers complete deterministically, and 80 device gradient passes drive
+  trainers complete deterministically, and 80 declared full-batch
+  PolicyValueNet optimizer updates drive
   the AlphaZero policy/value loss below its starting value. Sprints stay
   Active — device adoption now covers the on-policy family (5) + DQN +
   QR-DQN + HER + the **continuous actor-critics** (DDPG/TD3/SAC/CrossQ/TQC,
@@ -2450,10 +2453,12 @@ per-module unit-test groups in `jitml-unit`.
     online network and value evaluation uses the target
     network.
   - `dqnTdResidual` — per-step temporal-difference residual.
-  - `dqnTdLoss` — mean squared TD error (canonical DQN loss).
+  - `dqnTdLoss` — mean squared TD error retained as a diagnostic and shared
+    continuous-critic helper; it is not the production DQN optimisation head.
   - `dqnHuberLoss` — Huber loss with the canonical `kappa = 1.0`
     matching the DQN reference implementation; L2 within kappa,
-    L1 beyond.
+    L1 beyond. The production DQN trainer backpropagates the corresponding
+    `dqnHuberGradient`.
   7 new unit tests covering terminal/non-terminal Bellman,
   Double-DQN equivalence, TD residual, MSE TD loss, Huber
   regime switching, and run-to-run determinism.
@@ -2642,9 +2647,11 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
   adoption + cuDNN pin remain.** The device-backed training step is now
   wired and GPU-validated end-to-end for the AlphaZero network:
   `JitML.RL.AlphaZero.PolicyValueNet.trainPolicyValueNetOnSamplesCuda`
-  runs the per-sample forward + backward through the nvcc MLP kernels
-  (`mlpForwardCuda` / `mlpBackwardCuda`) with host-side Adam, and
-  `jitml-cross-backend` confirms 80 device gradient passes reduce the
+  evaluates the complete ordered sample batch against one immutable parameter
+  snapshot, averages the gradient, and performs exactly one host-side Adam
+  step per declared optimizer update (Phase `19` correction, 2026-07-15); the
+  underlying batched kernels still produce per-sample forward outputs.
+  `jitml-cross-backend` confirms 80 declared full-batch updates reduce the
   policy/value loss on the RTX 3090 (9 / 9 CUDA cases pass). The shared
   `JitML.Numerics.Mlp` head helpers (`policyValueFromForward` /
   `policyValueOutputGradient`) let the pure and device paths share the
@@ -2874,10 +2881,14 @@ seam (Sprint 15.8 closure). Surface:
   produces a 'PriorOracle' the MCTS search loop consumes. The closure
   clamps to `≥ 1e-6` for strict positivity (MCTS normalises by sum) and
   is bit-deterministic on the same substrate.
-- `trainPolicyValueNetOnSamples` runs N gradient-descent passes against
-  `PolicyValueTrainingSample { sampleState, sampleVisitDist,
-  sampleOutcome }` records, using cross-entropy(softmax_logits,
-  visit_dist) + 0.5 * (value - outcome)^2 with Adam.
+- `trainPolicyValueNetOnSamples` runs the exact declared optimizer-update
+  count against `PolicyValueTrainingSample { sampleState, sampleVisitDist,
+  sampleOutcome }` records. Each update evaluates the full ordered batch
+  against one parameter snapshot, averages the cross-entropy(softmax_logits,
+  visit_dist) + 0.5 * (value - outcome)^2 gradients, and performs exactly one
+  Adam step. The 2026-07-15 Phase `19` hardening also adds
+  `policyValueTrainingSamplesSha256`, a real content digest over every ordered
+  state, visit distribution, and outcome used by training evidence.
 - `generatePolicyValueSamples` rolls one self-play game using the
   network as the action sampler and labels per-move samples with the
   outcome (alternating signs by ply).
@@ -3010,15 +3021,17 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
   on the GPU (assembling the same softmax-policy + tanh-value heads via the
   shared `policyValueFromForward`), and
   `JitML.RL.AlphaZero.PolicyValueNet.trainPolicyValueNetOnSamplesCuda`
-  drives the per-sample forward + backward through the nvcc MLP kernels
-  (`mlpForwardCuda` / `mlpBackwardCuda`) with the policy/value loss-gradient
-  assembly (`policyValueOutputGradient`) and Adam on the host. `Mlp` was
+  evaluates the complete ordered sample batch against one immutable parameter
+  snapshot, averages the policy/value gradient, and performs exactly one
+  host-side Adam step per declared optimizer update (Phase `19` correction,
+  2026-07-15). The underlying batched nvcc primitives retain their per-sample
+  forward-output contract. `Mlp` was
   refactored to share the head math between the pure and device paths
   (behavior-preserving — host `jitml-unit` 184 / `jitml-rl-canonicals` 27
   unchanged). `jitml-cross-backend` adds "linux-cuda AlphaZero
   PolicyValueNet trains on the device and reduces loss (Sprint 15.9)":
-  80 device gradient passes on the RTX 3090 drove the policy+value loss
-  below its starting value (the same loss-reduction contract the pure
+  80 declared full-batch optimizer updates on the RTX 3090 drove the
+  policy+value loss below its starting value (the same loss-reduction contract the pure
   `jitml-rl-canonicals` test asserts). **9 / 9 CUDA cross-backend cases
   pass.**
 - **Checkpoint surface for trained weights — landed (2026-05-28).**

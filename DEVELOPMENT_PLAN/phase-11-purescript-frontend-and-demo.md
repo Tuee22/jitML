@@ -1083,8 +1083,8 @@ links, not iframes.
 
 ### Deliverables
 
-- Add checkpoint selectors that list only `InferenceEligibleCheckpoint` records
-  for inference/game/RL panels.
+- Add checkpoint selectors that list only Store-admitted completed checkpoint
+  records for inference/game/RL panels.
 - Render budget counters, convergence metric values, pass/fail status, device,
   and TensorBoard links for the selected artifact.
 - Provide model-appropriate interactions for every SL row, every RL algorithm

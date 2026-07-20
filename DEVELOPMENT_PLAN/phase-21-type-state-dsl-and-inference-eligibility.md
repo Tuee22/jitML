@@ -134,18 +134,18 @@ commands.
   cannot be passed where an inference-eligible one is required.
 - `train :: ModelRef TrainingStarted -> CompletedTraining -> m (ModelRef TrainingCompleted)`
   and
-  `markInferenceEligible :: Text -> ModelRef TrainingCompleted -> CompletedTraining -> Either Text InferenceEligibleRef`,
-  where promotion requires the exact Sprint `21.1` weight-delta witness already
-  carried by the completed model reference and passing convergence.
-- `JitML.Checkpoint.Store` mints `InferenceEligibleRef` only from a validated
-  `InferenceEligibleCheckpoint`, and `src/JitML/App.hs`,
+  `markInferenceEligible :: AdmittedCompletedCheckpoint -> ModelRef TrainingCompleted -> Either Text InferenceEligibleRef`,
+  where promotion requires Store's exact persisted-byte admission and the same
+  `CompletedTraining` witness already carried by the completed model reference.
+- `JitML.Product.Pipeline` mints `InferenceEligibleRef` only from Store's opaque
+  `AdmittedCompletedCheckpoint`, and `src/JitML/App.hs`,
   `src/JitML/Service/Runtime.hs`, and `src/JitML/Service/Workload.hs` thread
   that typed reference into inference, demo, checkpoint-compare, and adversarial
   move runners.
 - Unit tests compile the legal `Declared -> TrainingStarted ->
   TrainingCompleted -> InferenceEligible` path, reject a mismatched
-  completed-training witness, and prove that `InferenceEligibleCheckpoint`
-  mints only an `InferenceEligibleRef`.
+  completed-training witness, and prove that only an admitted completed
+  checkpoint mints an `InferenceEligibleRef`.
 
 ### Validation
 
@@ -200,9 +200,9 @@ instead of substituting a fabricated artifact.
   selectors, mirroring the `ModelState` boundary from Sprint `21.2`.
   `JitML.Service.RunConfig.tryLoadInferenceSelectorConfig` decodes and validates
   selector facts at the Dhall boundary.
-- `src/JitML/Checkpoint/Format.hs` exposes
-  `decodeInferenceEligibleManifestCbor`, and `src/JitML/Checkpoint/Store.hs`
-  rejects any manifest missing the weight-delta evidence fields, carrying
+- `src/JitML/Checkpoint/Store.hs` exposes known-address and stable-latest
+  admission followed by `requireAdmittedCompletedCheckpoint`, and rejects any
+  manifest missing the weight-delta evidence fields, carrying
   synthetic/seeded provenance, or carrying a failing convergence outcome before
   weight blobs are read or an inference runner is invoked.
 - `JitML.Service.Workload.renderCheckpointListResult`, the generated browser
@@ -237,9 +237,9 @@ closed obligation (Exit Definition — fail-closed decode): the decode surface t
 the stored `coPassed` boolean and the stored weight hashes, so an untrained
 random-init manifest decodes as an inference target instead of failing closed.
 
-- **Re-derive `coPassed` at decode against the external bar.**
-  `decodeInferenceEligibleManifestCbor` (`src/JitML/Checkpoint/Format.hs`) and the
-  `src/JitML/Checkpoint/Store.hs` rejection path must recompute the convergence
+- **Re-derive `coPassed` at persisted admission against the external bar.**
+  The `src/JitML/Checkpoint/Store.hs` admission path and downstream provenance
+  gate must recompute the convergence
   verdict from the served metrics against the frozen external constants
   ([Phase 32](phase-32-external-truth-realness-harness.md) Sprint `32.2` decode
   change), not accept the boolean the manifest carries, and must assert the

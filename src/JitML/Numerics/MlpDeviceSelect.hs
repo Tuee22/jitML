@@ -37,7 +37,7 @@ mlpDeviceForSubstrate LinuxCPU = oneDnnMlpDevice
 mlpDeviceForSubstrate LinuxCUDA = cudaMlpDevice
 
 -- | Sprint 8.11 — the single DRY seam the RL worker dispatch
--- ('JitML.App.runTrainerEpisodes') routes every MLP-backed trainer through.
+-- ('JitML.RL.TrainerExecution.runTrainerEpisodes') routes every MLP-backed trainer through.
 -- It resolves to the same JIT-compiled device as 'mlpDeviceForSubstrate':
 -- the 13 MLP-backed RL algorithms (PPO/A2C/TRPO/MaskablePPO/RecurrentPPO,
 -- DQN/QR-DQN, DDPG/TD3/SAC/CrossQ/TQC, HER) share one device per substrate.

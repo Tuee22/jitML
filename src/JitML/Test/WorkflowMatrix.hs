@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Sprint 12.11 — the single DRY enumeration of the reopened real workflows
@@ -26,15 +27,18 @@ module JitML.Test.WorkflowMatrix
   , browserProductInteractionLabel
   , browserProductMatrix
   , modelCellMatrix
+  , modelCellsForRows
   , workflowCommand
   , workflowMatrix
   , workflowPlacementExpectation
   )
 where
 
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Plan.Plan (Validation (..), planIdText)
 import JitML.Product.Matrix qualified as Product
 import JitML.Substrate (Substrate (..), allSubstrates, renderSubstrate)
 import JitML.Training.Budget qualified as TrainingBudget
@@ -92,6 +96,8 @@ data ModelKind
 data ModelCell = ModelCell
   { modelCellKind :: ModelKind
   , modelCellName :: Text
+  , modelCellPlanId :: Text
+  , modelCellSubstrate :: Substrate
   , modelCellExperimentHash :: Text
   , modelCellE2eTest :: Text
   , modelCellDemoPanel :: Text
@@ -102,57 +108,49 @@ data ModelCell = ModelCell
   deriving stock (Eq, Show)
 
 allModelCells :: [ModelCell]
-allModelCells = fmap productModelCell Product.allProductRows
+allModelCells = canonicalModelCells LinuxCPU
 
-productModelCell :: Product.ProductRow state -> ModelCell
-productModelCell row =
+-- | Refine arbitrary registry rows into workflow cells through the same total
+-- product projection used by reports and execution.  Invalid rows stay typed
+-- failures; callers cannot obtain a cell by reinterpreting raw RowClass data.
+modelCellsForRows
+  :: Substrate
+  -> [Product.ProductRow state]
+  -> Validation
+       (NonEmpty Product.ProductMatrixError)
+       [ModelCell]
+modelCellsForRows substrate rows =
+  fmap
+    (fmap productModelCell . Product.productProjectionBatchProjections)
+    (Product.projectProductRows substrate rows)
+
+productModelCell :: Product.SomeProductProjection -> ModelCell
+productModelCell (Product.SomeProductProjection _ projection) =
   ModelCell
-    { modelCellKind = productModelKind row
-    , modelCellName = Product.rowId row
-    , modelCellExperimentHash = Product.productRowExperimentHash row
-    , modelCellE2eTest = Product.e2eTest row
-    , modelCellDemoPanel = Product.demoPanel row
-    , modelCellBudget = TrainingBudget.renderTrainingBudget (Product.trainingBudget row)
-    , modelCellCommand = productModelCommand row
+    { modelCellKind = productModelKind projection
+    , modelCellName = Product.productProjectionRowId projection
+    , modelCellPlanId = planIdText (Product.productProjectionPlanId projection)
+    , modelCellSubstrate = Product.productProjectionSubstrate projection
+    , modelCellExperimentHash = Product.productProjectionExperimentHash projection
+    , modelCellE2eTest = Product.productProjectionE2ETest projection
+    , modelCellDemoPanel = Product.productProjectionDemoPanel projection
+    , modelCellBudget =
+        TrainingBudget.renderTrainingBudget
+          (Product.productProjectionTrainingBudget projection)
+    , modelCellCommand = Product.productProjectionCommand projection
     , modelCellRequiresTrainedArtifact = True
     }
 
-productModelKind :: Product.ProductRow state -> ModelKind
-productModelKind row =
-  case Product.family row of
+productModelKind :: Product.ProductProjection kind -> ModelKind
+productModelKind projection =
+  case Product.productProjectionFamily projection of
     Product.Supervised -> SupervisedModelCell
     Product.ReinforcementLearning ->
-      case Product.rowClass row of
+      case Product.productProjectionRowClass projection of
         Product.RlGoalConditioned _ -> HerModelCell
         _ -> RlAlgorithmModelCell
     Product.AlphaZero -> AlphaZeroGameModelCell
     Product.Tuning -> TuningModelCell
-
-productModelCommand :: Product.ProductRow state -> [Text]
-productModelCommand row =
-  case Product.rowClass row of
-    Product.SupervisedClassification _ _ ->
-      ["train", Product.experimentConfig row]
-    Product.SupervisedRegression _ _ ->
-      ["train", Product.experimentConfig row]
-    Product.RlAlgorithmEnvironment algorithm _ ->
-      ["rl", "train", Product.experimentConfig row, "--algorithm", algorithm]
-    Product.RlGoalConditioned _ ->
-      ["rl", "train", Product.experimentConfig row, "--algorithm", "HER"]
-    Product.AlphaZeroGame game ->
-      ["rl", "alphazero", "self-play", "--game", game, "--sims", alphaZeroSims game]
-    Product.HyperparameterTuning _ ->
-      ["tune", Product.experimentConfig row]
-
-alphaZeroSims :: Text -> Text
-alphaZeroSims game =
-  Text.pack . show $
-    case game of
-      "connect4" -> 128 :: Int
-      "othello" -> 192
-      "hex" -> 256
-      "gomoku" -> 256
-      _ -> 128
 
 data WorkflowPlacementExpectation
   = WorkflowRunsInProcess
@@ -191,9 +189,21 @@ workflowMatrix =
 modelCellMatrix :: [(ModelCell, Substrate)]
 modelCellMatrix =
   [ (modelCell, substrate)
-  | modelCell <- allModelCells
-  , substrate <- allSubstrates
+  | substrate <- allSubstrates
+  , modelCell <- canonicalModelCells substrate
   ]
+
+canonicalModelCells :: Substrate -> [ModelCell]
+canonicalModelCells substrate =
+  case modelCellsForRows substrate Product.allProductRows of
+    Success cells -> cells
+    Failure errors ->
+      error
+        ( "canonical ProductRow registry is not projectable for "
+            <> Text.unpack (renderSubstrate substrate)
+            <> ": "
+            <> show errors
+        )
 
 -- | The no-caveat browser/product interactions (Sprint 12.13 / Phase `17`) the
 -- live Playwright product matrix must exercise: every model/product cell the

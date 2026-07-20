@@ -154,7 +154,8 @@ selfReferentialMeasured :: Double
 selfReferentialMeasured = 0.42
 
 -- | Exactly how the production path built its bar: target = measured value,
--- slack = 0 (see @convergenceObservationsForMetrics@ in @JitML.App@).
+-- slack = 0 (see @convergenceObservationsForMetrics@ in
+-- @JitML.Product.Completion@).
 selfReferentialBar :: Convergence.ConvergenceBar
 selfReferentialBar =
   Convergence.mkConvergenceBar "test_accuracy" MetricMaximise selfReferentialMeasured 0.0

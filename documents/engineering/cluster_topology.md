@@ -363,7 +363,7 @@ direct subchart installs need values; jitML-owned workloads install from
 that ConfigMap changes, so a retained broker fleet cannot keep a stale
 topic-deletion policy.
 
-The final Sprint `3.7` Linux CPU acceptance on 2026-07-16 ran the exact command
+The final Sprint `3.7` Linux CPU acceptance on 2026-07-15 ran the exact command
 `docker compose run -T --rm jitml jitml cluster up --substrate linux-cpu`
 twice against the retained cluster. The first invocation took the mutating path,
 exited `0` after 157 steps in 2,692 seconds, and retained all 34

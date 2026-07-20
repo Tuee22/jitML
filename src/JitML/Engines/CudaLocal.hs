@@ -20,6 +20,7 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector.Unboxed qualified as VU
 import Foreign.C.String (CString, peekCString)
 import Foreign.C.Types (CFloat (..), CSize (..))
 import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
@@ -27,8 +28,14 @@ import Foreign.Ptr (FunPtr, Ptr)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
-import JitML.Checkpoint.Format (CheckpointManifest)
-import JitML.Checkpoint.Store (LoadedWeightTensor (..))
+import JitML.Checkpoint.Format
+  ( CheckpointManifest (..)
+  , validateSupervisedRuntimePlanForSubstrate
+  )
+import JitML.Checkpoint.Store
+  ( LoadedWeightTensor (..)
+  , loadSupervisedRuntimeFromCheckpoint
+  )
 import JitML.Codegen.Cuda (renderCudaFamilySource)
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
@@ -46,8 +53,12 @@ import JitML.Engines.Loader
   , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
+import JitML.Engines.RuntimeOperationsCuda qualified as RuntimeOperationsCuda
+import JitML.Engines.RuntimeOperationsDevice qualified as RuntimeOperationsDevice
 import JitML.Env.Env (Env)
+import JitML.Numerics.Mlp (MlpForward (..))
 import JitML.Numerics.MlpCuda (mlpForwardCuda)
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate (Substrate (..))
 
 type KernelFunction =
@@ -140,15 +151,19 @@ runCudaFamilyKernelWithProbe probeRuntime env family input = do
     else pure (Left ("linux-cuda runtime unavailable: " <> renderCudaUnavailableSummary probe))
 
 runCudaCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
-runCudaCheckpointInference env _manifest input = do
-  kernelResult <- runCudaFamilyKernel env Identity (fmap realToFrac input)
-  pure $
-    case kernelResult of
-      Left err -> Left err
-      Right kernelRun ->
-        -- Sprint 10.5 — faithful kernel output; the synthetic `+ nTensors/100`
-        -- offset is removed (real weighted read: 'runCudaWeightedCheckpointInference').
-        Right (fmap realToFrac (cudaKernelOutput kernelRun))
+runCudaCheckpointInference env manifest input =
+  case manifestSupervisedRuntime manifest of
+    Just _ ->
+      pure (Left "V2 supervised inference requires exact persisted weights")
+    Nothing -> do
+      kernelResult <- runCudaFamilyKernel env Identity (fmap realToFrac input)
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            -- Sprint 10.5 — faithful kernel output; the synthetic `+ nTensors/100`
+            -- offset is removed (real weighted read: 'runCudaWeightedCheckpointInference').
+            Right (fmap realToFrac (cudaKernelOutput kernelRun))
 
 -- | Sprint 13.11 — CUDA weighted checkpoint inference. Mirror of the
 -- Linux CPU path. Routes through `runCudaWeightedFamilyKernel` against
@@ -160,18 +175,42 @@ runCudaWeightedCheckpointInference
   -> [Double]
   -> IO (Either Text [Double])
 runCudaWeightedCheckpointInference env manifest weights input = do
-  mlpResult <- runMlpCheckpointForwardWith (mlpForwardCuda env) manifest weights input
-  case mlpResult of
-    Just result -> pure result
-    Nothing -> do
-      let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
-      kernelResult <-
-        runCudaWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
-      pure $
-        case kernelResult of
-          Left err -> Left err
-          Right kernelRun ->
-            Right (fmap realToFrac (cudaWeightedKernelOutput kernelRun))
+  case traverse (validateSupervisedRuntimePlanForSubstrate LinuxCUDA) (manifestSupervisedRuntime manifest) of
+    Left err -> pure (Left ("V2 linux-cuda PlanId incompatibility: " <> err))
+    Right _ ->
+      case loadSupervisedRuntimeFromCheckpoint manifest weights of
+        Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
+        Right (Just runtime) ->
+          fmap VU.toList
+            <$> RuntimeArtifact.executeLoadedRuntime
+              (cudaRuntimeBackend env)
+              runtime
+              (VU.fromList input)
+        Right Nothing -> do
+          mlpResult <- runMlpCheckpointForwardWith (mlpForwardCuda env) manifest weights input
+          case mlpResult of
+            Just result -> pure result
+            Nothing -> do
+              let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
+              kernelResult <-
+                runCudaWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
+              pure $
+                case kernelResult of
+                  Left err -> Left err
+                  Right kernelRun ->
+                    Right (fmap realToFrac (cudaWeightedKernelOutput kernelRun))
+
+-- | Complete Linux-CUDA ownership of the persisted V2 graph. Parameterised
+-- MLP work is dispatched by the real CUDA backend; every structural operation
+-- crosses the versioned generated-CUDA ABI after a capability probe.
+cudaRuntimeBackend :: Env -> RuntimeArtifact.RuntimeBackendExecutor
+cudaRuntimeBackend env =
+  RuntimeOperationsDevice.runtimeOperationsBackendExecutor
+    RuntimeOperationsCuda.cudaRuntimeOperationsSpec
+    env
+    ( \params values ->
+        fmap (fmap forwardOutput) (mlpForwardCuda env params values)
+    )
 
 runCudaWeightedFamilyKernel
   :: Env

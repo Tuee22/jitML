@@ -7,6 +7,7 @@ module JitML.SL.Dataset
   , DatasetRef (..)
   , DatasetSplit (..)
   , canonicalArtifactSha256For
+  , canonicalDatasetReadShaForProblem
   , canonicalDatasets
   , canonicalSha256For
   , datasetArtifactFileName
@@ -226,6 +227,55 @@ canonicalArtifactSha256For "Tiny ImageNet" TrainSplit ArchiveArtifact =
   Just "6198c8ae015e2b3e007c7841da39ec069199b9aa3bfa943a462022fe5e43c821"
 canonicalArtifactSha256For _ _ _ = Nothing
 
+-- | Derive the exact canonical dataset identity recorded after a complete
+-- training and evaluation read for a supervised canonical problem.  IDX
+-- problems consume four independently verified upstream blobs; archive-backed
+-- problems decode both training and evaluation rows from their one pinned
+-- archive.  Keep this composition on the same primitive as
+-- 'datasetReadShaForArtifacts' so admission and execution cannot disagree
+-- about ordering or singleton semantics.
+canonicalDatasetReadShaForProblem :: CanonicalProblem -> Either Text Text
+canonicalDatasetReadShaForProblem problem =
+  case problemDataset problem of
+    "MNIST" -> idxReadSha "MNIST"
+    "Fashion-MNIST" -> idxReadSha "Fashion-MNIST"
+    "CIFAR-10" -> archiveReadSha "CIFAR-10"
+    "CIFAR-100" -> archiveReadSha "CIFAR-100"
+    "Tiny ImageNet" -> archiveReadSha "Tiny ImageNet"
+    "California Housing" -> archiveReadSha "California Housing"
+    name -> Left ("no canonical dataset read composition for " <> name)
+ where
+  idxReadSha name =
+    datasetReadShaForArtifactIdentities
+      <$> traverse
+        (canonicalIdentity name)
+        [ (TrainSplit, ImagesArtifact)
+        , (TrainSplit, LabelsArtifact)
+        , (TestSplit, ImagesArtifact)
+        , (TestSplit, LabelsArtifact)
+        ]
+
+  archiveReadSha name =
+    datasetReadShaForArtifactIdentities
+      . pure
+      <$> canonicalIdentity name (TrainSplit, ArchiveArtifact)
+
+  canonicalIdentity name (split, artifact) = do
+    digest <-
+      maybe
+        ( Left
+            ( "canonical dataset SHA pin missing for "
+                <> name
+                <> "/"
+                <> datasetSplitText split
+                <> "/"
+                <> datasetArtifactText artifact
+            )
+        )
+        Right
+        (canonicalArtifactSha256For name split artifact)
+    Right (name, split, artifact, digest)
+
 datasetForProblem :: CanonicalProblem -> Maybe DatasetRef
 datasetForProblem problem =
   case filter
@@ -345,27 +395,38 @@ fetchVerifiedDatasetArtifactBytes ref artifact = do
       Left message -> Left (SEConflict message)
 
 datasetReadShaForArtifacts :: [DatasetArtifactBytes] -> Text
-datasetReadShaForArtifacts [] =
+datasetReadShaForArtifacts =
+  datasetReadShaForArtifactIdentities . fmap artifactIdentity
+ where
+  artifactIdentity artifact =
+    let ref = fetchedArtifactDataset artifact
+     in ( datasetName ref
+        , datasetSplit ref
+        , fetchedArtifact artifact
+        , fetchedArtifactSha256 artifact
+        )
+
+datasetReadShaForArtifactIdentities
+  :: [(Text, DatasetSplit, DatasetArtifact, Text)] -> Text
+datasetReadShaForArtifactIdentities [] =
   hashHex (SHA256.hash ByteString.empty)
-datasetReadShaForArtifacts [artifact] =
-  fetchedArtifactSha256 artifact
-datasetReadShaForArtifacts artifacts =
+datasetReadShaForArtifactIdentities [(_, _, _, digest)] = digest
+datasetReadShaForArtifactIdentities identities =
   hashHex
     ( SHA256.hash
         ( Text.Encoding.encodeUtf8
-            (Text.intercalate "|" (List.sort (fmap renderArtifactSha artifacts)))
+            (Text.intercalate "|" (List.sort (fmap renderArtifactSha identities)))
         )
     )
  where
-  renderArtifactSha artifact =
-    let ref = fetchedArtifactDataset artifact
-     in datasetName ref
-          <> "/"
-          <> datasetSplitText (datasetSplit ref)
-          <> "/"
-          <> datasetArtifactText (fetchedArtifact artifact)
-          <> "="
-          <> fetchedArtifactSha256 artifact
+  renderArtifactSha (name, split, artifact, digest) =
+    name
+      <> "/"
+      <> datasetSplitText split
+      <> "/"
+      <> datasetArtifactText artifact
+      <> "="
+      <> digest
 
 expectedDatasetArtifactSha256 :: DatasetRef -> DatasetArtifact -> Maybe Text
 expectedDatasetArtifactSha256 ref artifact =

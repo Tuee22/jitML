@@ -26,11 +26,18 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector.Unboxed qualified as VU
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
-import JitML.Checkpoint.Format (CheckpointManifest)
-import JitML.Checkpoint.Store (LoadedWeightTensor (..))
+import JitML.Checkpoint.Format
+  ( CheckpointManifest (..)
+  , validateSupervisedRuntimePlanForSubstrate
+  )
+import JitML.Checkpoint.Store
+  ( LoadedWeightTensor (..)
+  , loadSupervisedRuntimeFromCheckpoint
+  )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.Metal
   ( metalBridgeAbiVersion
@@ -54,8 +61,11 @@ import JitML.Engines.Loader
 import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
+import JitML.Engines.RuntimeOperationsMetal qualified as RuntimeOperationsMetal
 import JitML.Env.Env (Env)
+import JitML.Numerics.Mlp (MlpForward (..))
 import JitML.Numerics.MlpMetal (mlpForwardMetal)
+import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate (Substrate (..))
 
 data MetalKernelRun = MetalKernelRun
@@ -123,15 +133,19 @@ runMetalFamilyKernelWithProbe probeRuntime env family input = do
     else pure (Left ("apple-silicon Metal device not visible: " <> renderMetalUnavailableSummary probe))
 
 runMetalCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
-runMetalCheckpointInference env _manifest input = do
-  kernelResult <- runMetalFamilyKernel env Identity (fmap realToFrac input)
-  pure $
-    case kernelResult of
-      Left err -> Left err
-      Right kernelRun ->
-        -- Sprint 10.5 — faithful kernel output; the synthetic `+ nTensors/100`
-        -- offset is removed (real weighted read: 'runMetalWeightedCheckpointInference').
-        Right (fmap realToFrac (metalKernelOutput kernelRun))
+runMetalCheckpointInference env manifest input =
+  case manifestSupervisedRuntime manifest of
+    Just _ ->
+      pure (Left "V2 supervised inference requires exact persisted weights")
+    Nothing -> do
+      kernelResult <- runMetalFamilyKernel env Identity (fmap realToFrac input)
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            -- Sprint 10.5 — faithful kernel output; the synthetic `+ nTensors/100`
+            -- offset is removed (real weighted read: 'runMetalWeightedCheckpointInference').
+            Right (fmap realToFrac (metalKernelOutput kernelRun))
 
 -- | Weighted checkpoint inference. Mirror of the CUDA path: routes through
 -- the weighted Dense2D Metal kernel and returns the GPU output.
@@ -142,18 +156,43 @@ runMetalWeightedCheckpointInference
   -> [Double]
   -> IO (Either Text [Double])
 runMetalWeightedCheckpointInference env manifest weights input = do
-  mlpResult <- runMlpCheckpointForwardWith (mlpForwardMetal env) manifest weights input
-  case mlpResult of
-    Just result -> pure result
-    Nothing -> do
-      let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
-      kernelResult <-
-        runMetalWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
-      pure $
-        case kernelResult of
-          Left err -> Left err
-          Right kernelRun ->
-            Right (fmap realToFrac (metalWeightedKernelOutput kernelRun))
+  case traverse
+    (validateSupervisedRuntimePlanForSubstrate AppleSilicon)
+    (manifestSupervisedRuntime manifest) of
+    Left err -> pure (Left ("V2 apple-silicon PlanId incompatibility: " <> err))
+    Right _ ->
+      case loadSupervisedRuntimeFromCheckpoint manifest weights of
+        Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
+        Right (Just runtime) ->
+          fmap VU.toList
+            <$> RuntimeArtifact.executeLoadedRuntime
+              (metalRuntimeBackend env)
+              runtime
+              (VU.fromList input)
+        Right Nothing -> do
+          mlpResult <- runMlpCheckpointForwardWith (mlpForwardMetal env) manifest weights input
+          case mlpResult of
+            Just result -> pure result
+            Nothing -> do
+              let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
+              kernelResult <-
+                runMetalWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
+              pure $
+                case kernelResult of
+                  Left err -> Left err
+                  Right kernelRun ->
+                    Right (fmap realToFrac (metalWeightedKernelOutput kernelRun))
+
+-- | Complete Apple-Silicon ownership of the persisted V2 graph. MLP work and
+-- all structural operations dispatch generated MSL through the fixed bridge;
+-- the structural transport explicitly converts Double values to Metal fp32.
+metalRuntimeBackend :: Env -> RuntimeArtifact.RuntimeBackendExecutor
+metalRuntimeBackend env =
+  RuntimeOperationsMetal.metalRuntimeOperationsBackendExecutor
+    env
+    ( \params values ->
+        fmap (fmap forwardOutput) (mlpForwardMetal env params values)
+    )
 
 runMetalWeightedFamilyKernel
   :: Env
