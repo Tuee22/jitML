@@ -2169,6 +2169,8 @@ substitutedSupervisedPublisherRuntime run =
         error "substituted supervised row invoked the artifact writer"
     , ProductPublisher.publisherLoadTuningDataset =
         error "substituted supervised row invoked the tuning dataset callback"
+    , ProductPublisher.publisherReuseAdmittedCheckpoint =
+        \_ -> pure Nothing
     }
 
 makeFixture :: Either Text Fixture

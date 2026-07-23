@@ -11,11 +11,19 @@
 
 ## Phase State
 
-⏸️ **Blocked** (reopened 2026-07-12 for Sprint `21.4`). Product rows and
-model references still carry phase-independent optional fields, allowing
-contradictory state payloads even though selected transitions use phantom tags.
-Sprint `21.4` is blocked by Sprint `19.4`. Sprints `21.1`–`21.3` remain Done on
-their retained inference-eligibility surface.
+✅ **Done** (reopened 2026-07-12 for Sprint `21.4`; unblocked 2026-07-21 after
+Sprint `19.4` closed; re-closed 2026-07-22). Product rows and model references
+no longer carry phase-independent optional evidence: `JitML.Product.Pipeline`'s
+`ModelRef` is a state-indexed GADT whose hidden constructors give each lifecycle
+state exactly its legal payload (a `Declared`/`TrainingStarted` reference cannot
+carry a manifest SHA or completed-training witness; only `InferenceEligible`
+carries the admitted manifest SHA), and `JitML.Product.Matrix.ProductRow` — the
+raw configuration boundary — no longer has the four `Maybe (EvidenceHandle …)`
+fields at all, so a declared row carrying measured evidence is a compile-time
+impossibility rather than a runtime-rejected projection (the
+`validateDeclaredEvidenceBoundary` runtime guard and the
+`DeclaredProductCarriesEvidence` error are retired). Sprints `21.1`–`21.4` are
+Done on their retained inference-eligibility surface.
 
 **Historical retained closure.** ✅ **Done** (reclosed 2026-07-06 after the 2026-07-05 realness audit). The
 self-referential inference-eligibility defects are removed: product convergence
@@ -249,14 +257,13 @@ Closed by the [Phase 32](phase-32-external-truth-realness-harness.md)
 negative-control suite (`jitml-negative-controls`, Sprint `32.1`) that an untrained
 random-init checkpoint is rejected at decode.
 
-## Sprint 21.4: Phase-Specific Product Evidence Payloads [⏸️ Blocked]
+## Sprint 21.4: Phase-Specific Product Evidence Payloads [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`,
 `src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`,
 `src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`,
 `test/unit/Main.hs`
-**Blocked by**: Sprint `19.4`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/checkpoint_format.md`,
@@ -299,13 +306,30 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Blocked until Sprint `19.4` supplies the kind-indexed product descriptor and
-  evidence projection.
-- Replace optional state payloads and migrate product/checkpoint consumers.
-- Remove the legacy phase-independent record constructors after decode adapters
-  and negative controls pass.
+Validated on `linux-cpu` on 2026-07-22 (the refactor is pure type-level with no
+runtime-path change, so it was validated from source without a cluster reload):
+
+- **`Pipeline.ModelRef` is a hidden-constructor GADT.** `DeclaredModelRef` /
+  `TrainingStartedModelRef` carry only the experiment hash;
+  `TrainingCompletedModelRef` adds the completed-training witness;
+  `InferenceEligibleModelRef` adds the admitted manifest SHA. The module exports
+  only `ModelRef` (opaque), the smart transitions (`declareModel`,
+  `startTraining`, `train`, `completeTraining`, `markInferenceEligible`), and
+  total accessors — a contradictory state payload is unconstructible.
+- **`Matrix.ProductRow` dropped its optional evidence.** The four
+  `Maybe (EvidenceHandle state kind)` fields, the `EvidenceHandle`/`EvidenceKind`
+  types, the `validateDeclaredEvidenceBoundary` projection guard, and the
+  `DeclaredProductCarriesEvidence` error are removed. The former runtime
+  fabrication negative control is now a compile-time impossibility (documented in
+  `test/unit/Main.hs`).
+- **Suites** (new code): `jitml-unit` **739 / 739**, `jitml-negative-controls`
+  **3 / 3**, `jitml-model-convergence` **111 / 111**, `jitml-integration`
+  **156 / 156** (runtime unchanged; live `-p Live` cases pass on the current
+  cluster image). `jitml docs check` and `jitml check-code` both exited `0`
+  (the `-Werror` build is clean with the retained `ProductRow` phantom), and the
+  phase-status parity test agrees with the typed registry.
 
 ## Documentation Requirements
 

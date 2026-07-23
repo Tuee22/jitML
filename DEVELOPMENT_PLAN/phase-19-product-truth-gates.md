@@ -13,18 +13,27 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-12 for Sprint `19.4`; unblocked 2026-07-20
-after Phase `10` Sprint `10.12` closed). The total kind-indexed row projection, opaque projection
-batch, exact internal executor, completed-scenario report admission, and
-training/convergence corrections remain retained. The Sprint `19.4`
-implementation now makes both publisher eligibility and completed-scenario
+✅ **Done** (reopened 2026-07-12 for Sprint `19.4`; unblocked 2026-07-20
+after Phase `10` Sprint `10.12` closed; re-closed 2026-07-21). The total
+kind-indexed row projection, opaque projection batch, exact internal executor,
+completed-scenario report admission, and training/convergence corrections are
+retained. Sprint `19.4` makes both publisher eligibility and completed-scenario
 report admission consume Store's opaque admitted artifact. A write receipt or
 caller-held completion is insufficient: the exact persisted manifest and
 physical graph are re-read, then checked against projected row/experiment,
-`PlanId`, full completion identity, and family provenance. The sprint remains
-Active until the aligned-image focused rows, complete publisher, independent
-inventory, unit/integration, docs, and code-quality validation below pass.
-Sprints `19.1`–`19.3` remain Done on their retained matrix/status surfaces.
+`PlanId`, full completion identity, and family provenance. The publisher also
+gained an idempotent skip-if-admitted path (`publisherReuseAdmittedCheckpoint`)
+that re-admits an already-persisted checkpoint through the exact same admission
+validation rather than retraining, so the mandatory 55-row run re-admits every
+pre-trained row and the batch audit reports **55 eligible, 0 unsupported, 0
+errors**. Closing the mandatory `jitml-integration` lane additionally fixed two
+pre-existing committed-code contract gaps this sprint owns: the completed-
+admission path now rejects an illegal completed manifest on manifest-structural
+completion legality **before** any physical blob I/O
+(`JitML.Checkpoint.Store.completionStructuralGate`), and a non-product RL
+`median_final_reward` observation is validated against the frozen
+`JitML.RL.ConvergenceThresholds` cohort anchors rather than a missing universal
+bar. Sprints `19.1`–`19.4` are Done; all validation below passed.
 
 ### Historical Publisher Evidence (diagnostic only)
 
@@ -220,9 +229,9 @@ docker compose run --rm jitml jitml check-code                  # passed
   on the full Phase `19`–`34` predicate, and the required validation includes
   `jitml-negative-controls` plus `jitml-model-convergence`.
 
-## Sprint 19.4: Product Registry Plan and Admitted Evidence Projection [🔄 Active]
+## Sprint 19.4: Product Registry Plan and Admitted Evidence Projection [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Product/{Matrix,Convergence,Evidence,Publisher,Completion,Benchmark}.hs`,
 `src/JitML/Checkpoint/{Store,Writer}.hs`,
 `src/JitML/Plan/{Plan,Workload}.hs`,
@@ -301,20 +310,48 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Run the mandatory complete 55-row publisher from the same image. Closure
-  requires **55 admitted eligible**, **0 unsupported**, and **0 errors**; each
-  result matches the exact projected `rowId`, `PlanId`, completed-training
-  identity, and admitted persisted artifact. Earlier storage-success eligible
-  counts remain historical diagnostics.
-- Independently audit the exact artifact inventory and v2 tuning transcript
-  against the 55-row execution, with no duplicate, orphaned, substituted, or
-  unadmitted artifact.
-- Pass the aligned-image publisher, `jitml-unit`, `jitml-integration`,
-  `jitml-negative-controls`, `jitml-model-convergence`, `jitml docs check`,
-  and `jitml check-code` commands above, plus the three zero-tolerance Rule-M
-  scans in `development_plan_standards.md`.
+Validated on `linux-cpu` (live Kind cluster; 154-step rollout, all nine
+components ready) on 2026-07-21 against immutable image `jitml:local`
+`sha256:b9e84a80…`, its `check-code` embedded and green:
+
+- **Datasets staged.** All 12 canonical dataset artifacts (MNIST ×4,
+  Fashion-MNIST ×4, CIFAR-10, CIFAR-100, California Housing, Tiny ImageNet) were
+  downloaded, SHA-256-verified against `JitML.SL.Dataset.canonicalArtifactSha256For`,
+  and `jitml internal upload-dataset`'d into live MinIO (the publisher fail-closes
+  without them).
+- **Mandatory 55-row publisher.** `jitml internal train-and-publish-product-rows
+  --linux-cpu` reported **rows 55, eligible 55, unsupported 0, errors 0**,
+  admitted-inventory-entries 55, and one v2 tuning transcript. Each result is the
+  opaque Store-admitted artifact for the exact projected `rowId`, `PlanId`,
+  completed-training identity, and persisted manifest. The three historically-
+  erroring focused rows (`cifar10-resnet20`, `DQN/cartpole`, `DQN/mountain-car`)
+  each re-ran eligible.
+- **Idempotent reuse.** The publisher's `publisherReuseAdmittedCheckpoint`
+  re-admits an already-persisted checkpoint through the exact same
+  `admitLatestCheckpoint`/`requireAdmittedCompletedCheckpoint` validation
+  (companion receipts reconstructed from the admitted manifest's transcript
+  pointers), so pre-training the rows in parallel then re-running the full
+  publisher yields the same 55-eligible audit without retraining.
+- **Suites.** `jitml-unit` **739 / 739**, `jitml-integration` **156 / 156**
+  (incl. the live `-p Live` cases through daemon dispatch on the aligned cluster
+  image), `jitml-negative-controls` **3 / 3** (the anti-self-referential-bar
+  control still rejects), `jitml-model-convergence` **111 / 111**. `jitml docs
+  check` and `jitml check-code` both exited `0`; the three zero-tolerance Rule-M
+  scans hold.
+- **Two committed-code contract gaps fixed (owned here).** (1)
+  `JitML.Checkpoint.Store.completionStructuralGate` runs the pure
+  manifest-completion legality check on the pointer-stable addressed manifest
+  **before** any physical blob I/O, so an illegal completed manifest is rejected
+  with its exact legality reason (`no completed-training witness`; supervised V1
+  `inspection-only`) fail-closed; valid checkpoints — including all 55 product
+  rows — still bind and admit exactly as before. (2) A non-product RL
+  `median_final_reward` observation is externally anchored against the frozen
+  `JitML.RL.ConvergenceThresholds` cohort set in `JitML.Product.ExternalBars`
+  (env rewards are per-cohort, so the universal bar table intentionally has no
+  single entry), unblocking `jitml rl train` / live-daemon RL checkpoint writes
+  without weakening the anti-self-referential invariant.
 
 ## Documentation Requirements
 

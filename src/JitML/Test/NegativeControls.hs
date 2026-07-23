@@ -228,14 +228,51 @@ conv2dNotDenseFailures =
   case (denseOutput, convOutput) of
     (Right dense, Right conv)
       | maxAbsDiff dense conv > 1.0e-9 ->
-          ["Conv2D output differs from Dense with the same parameters"]
+          ["Conv2D output differs from a Dense affine on the same 3x3 input"]
       | otherwise -> []
     _ -> []
  where
-  input = VU.fromList [1.0, 2.0, -1.0, 0.5]
-  params = LayerGraph.deterministicParameters 99 4 4
-  denseOutput = runOne LayerGraph.DenseLayer params input
-  convOutput = runOne LayerGraph.Conv2DLayer params input
+  -- 1-channel 3x3 image; a genuine 3x3 same-padding convolution produces a
+  -- length-9 output that a Dense affine on the flattened input cannot match.
+  input = VU.fromList [1.0, 2.0, -1.0, 0.5, 0.3, -0.7, 1.1, -0.2, 0.9]
+  n = VU.length input
+  denseParams = LayerGraph.deterministicParameters 99 n n
+  denseOutput = runOne LayerGraph.DenseLayer denseParams input
+  convSpec =
+    LayerGraph.ConvSpec
+      { LayerGraph.convIn = 1
+      , LayerGraph.convOut = 1
+      , LayerGraph.convInputDims = [3, 3]
+      , LayerGraph.convKernelDims = [3, 3]
+      , LayerGraph.convStride = [1, 1]
+      , LayerGraph.convPadding = [1, 1]
+      }
+  convParams = LayerGraph.deterministicOpParameters 99 (LayerGraph.ConvOp convSpec)
+  convOutput = runConv convSpec convParams input
+
+runConv
+  :: LayerGraph.ConvSpec
+  -> LayerGraph.LayerParameters
+  -> VU.Vector Double
+  -> Either Text (VU.Vector Double)
+runConv spec params input = do
+  node <-
+    LayerGraph.mkConvLayer
+      "negative-control-conv"
+      spec
+      LayerGraph.LinearActivation
+      LayerGraph.InferenceMode
+      params
+  tape <-
+    LayerGraph.runLayerGraph
+      LayerGraph.LayerGraph
+        { LayerGraph.layerGraphName = "negative-control-conv"
+        , LayerGraph.layerGraphInputShape = LayerGraph.layerInputShape node
+        , LayerGraph.layerGraphOutputShape = LayerGraph.layerOutputShape node
+        , LayerGraph.layerGraphNodes = [node]
+        }
+      input
+  Right (LayerGraph.layerTapeOutput tape)
 
 runOne
   :: LayerGraph.LayerKind

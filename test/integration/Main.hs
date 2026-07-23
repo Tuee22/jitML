@@ -2751,20 +2751,22 @@ main =
                 CheckpointStore.gcExecutedReapedBlobs result @?= 2
                 CheckpointStore.gcExecutedDeleteFailures result @?= []
       , testCase
-          "legacy generic loadInferenceCheckpointWithWeights via HasMinIO round-trips (Sprint 10.4/10.5)"
+          "generic V1 loadInferenceCheckpoint* via HasMinIO is adopted but rejected by completed admission (Sprint 10.4/10.5)"
           $ withSystemTempDirectory "jitml-inference-load"
           $ \root -> do
             env <- buildEnv defaultGlobalFlags
             runFilesystemMinIO root $ do
               let experimentHash = "exp-inf"
-                  blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
-                  manifest =
-                    completedCheckpointManifest
+                  weightPayloadLazy = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+                  (manifest, _expCompleted, blobObjectKey) =
+                    completedLegacySnapshotForPayload
                       "m1"
                       experimentHash
-                      [Checkpoint.TensorBlob "dense" [2, 2] blobObjectKey]
+                      "dense"
+                      [2, 2]
                       1
                       [("validation_accuracy", 0.91)]
+                      weightPayloadLazy
                   manifestSha = Checkpoint.manifestContentSha manifest
                   bucket = BucketName "jitml-checkpoints"
                   manifestRef =
@@ -2775,20 +2777,42 @@ main =
                   manifestBytes =
                     ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor manifest)
                   weightBytes =
-                    ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0])
+                    ByteString.Lazy.toStrict weightPayloadLazy
               liftIO $
                 CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
                   @?= ObjectRef bucket (ObjectKey (experimentHash <> "/pointers/latest"))
               _ <- putBlobBytesIfAbsent blobRef weightBytes
               _ <- putBlobBytesIfAbsent manifestRef manifestBytes
               _ <- casPointer pointerRef Nothing manifestSha
+              -- Sprint 10.4/10.5 predates the ProductRow-scoped completed
+              -- admission invariant (Sprint 24.x): a generic V1 checkpoint is
+              -- content-addressably staged and adopted, but is never
+              -- inference-eligible. The two HasMinIO inference loaders therefore
+              -- fail closed on these fixtures — the loader-level analogue of the
+              -- live "non-product V1 checkpoint is adopted but rejected by
+              -- completed admission" test.
+              let expectLoaderRejection label expectedInfix result =
+                    case result of
+                      Left err ->
+                        assertBool
+                          (label <> ": got " <> Text.unpack err)
+                          (expectedInfix `Text.isInfixOf` err)
+                      Right values ->
+                        assertFailure
+                          ( label
+                              <> ": generic V1 checkpoint unexpectedly inferred: "
+                              <> show (values :: [Double])
+                          )
               ffiInferred <-
                 CheckpointStore.loadInferenceCheckpointWith
                   (\_modelRef loadedManifest values -> liftIO (runVisibleCheckpointInference env loadedManifest values))
                   experimentHash
                   [1.0, 2.0, 3.0]
               liftIO $
-                ffiInferred @?= Right [1.0, 2.0, 3.0]
+                expectLoaderRejection
+                  "exp-inf unweighted loader"
+                  "completed V1 admission requires a canonical non-supervised ProductRow experiment"
+                  ffiInferred
               weightedInferred <-
                 CheckpointStore.loadInferenceCheckpointWithWeights
                   ( \_modelRef loadedManifest loadedWeights values ->
@@ -2802,29 +2826,28 @@ main =
                   )
                   experimentHash
                   [1.0, 2.0, 3.0]
-              -- Sprint 13.11 — the weighted runner now drives a real
-              -- oneDNN Dense2D GEMM `out = input · W` against the
-              -- caller-supplied weights, not the prior smoke-fixture
-              -- identity+bias. The staged weight buffer [1,2,3,4]
-              -- is reshaped as a 3×3 row-major matrix (n=3 from the
-              -- input length, padded with zeros to fill the matmul
-              -- shape):
-              --   W = [[1, 2, 3], [4, 0, 0], [0, 0, 0]]
-              -- and input [1, 2, 3] × W produces [9, 2, 3].
               liftIO $
-                weightedInferred @?= Right [9.0, 2.0, 3.0]
+                expectLoaderRejection
+                  "exp-inf weighted loader"
+                  "completed V1 admission requires a canonical non-supervised ProductRow experiment"
+                  weightedInferred
               graph <- liftIO (either (assertFailure . Text.unpack) pure layerGraphCheckpointFixture)
               let graphExperimentHash = "exp-inf-layergraph"
-                  graphWeightKey = Checkpoint.blobKey graphExperimentHash "graph-dense-weights"
-                  graphBiasKey = Checkpoint.blobKey graphExperimentHash "graph-dense-bias"
+                  graphWeightPayload = Checkpoint.encodeJmw1 [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+                  graphBiasPayload = Checkpoint.encodeJmw1 [0.5, -0.5]
+                  graphWeightKey =
+                    Checkpoint.blobKey graphExperimentHash (WeightCodec.jmw1ContentSha graphWeightPayload)
+                  graphBiasKey =
+                    Checkpoint.blobKey graphExperimentHash (WeightCodec.jmw1ContentSha graphBiasPayload)
                   graphTensors =
                     [ Checkpoint.TensorBlob "graph-dense.weights" [2, 3] graphWeightKey
                     , Checkpoint.TensorBlob "graph-dense.bias" [2] graphBiasKey
                     ]
                   graphManifest =
-                    -- This exercises the legacy generic LayerGraph loader;
-                    -- canonical supervised execution is covered by exact V2
-                    -- runtime-artifact tests, never by a V1 graph fixture.
+                    -- A generic V1 layer-graph checkpoint with content-addressed
+                    -- blobs: it binds physically but a completed checkpoint may
+                    -- carry only one exact physical final-weight vector, so this
+                    -- two-tensor generic V1 is rejected at completed admission.
                     ( completedCheckpointManifest
                         "m-layergraph"
                         graphExperimentHash
@@ -2853,11 +2876,11 @@ main =
               _ <-
                 putBlobBytesIfAbsent
                   (CheckpointStore.checkpointObjectRef graphWeightKey)
-                  (ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]))
+                  (ByteString.Lazy.toStrict graphWeightPayload)
               _ <-
                 putBlobBytesIfAbsent
                   (CheckpointStore.checkpointObjectRef graphBiasKey)
-                  (ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 [0.5, -0.5]))
+                  (ByteString.Lazy.toStrict graphBiasPayload)
               _ <-
                 putBlobBytesIfAbsent
                   graphManifestRef
@@ -2877,7 +2900,10 @@ main =
                   graphExperimentHash
                   [1.0, 2.0, 3.0]
               liftIO $
-                graphInferred @?= Right [1.5, 1.5]
+                expectLoaderRejection
+                  "generic V1 layer-graph loader"
+                  "completed checkpoint admission requires one exact physical final-weight vector"
+                  graphInferred
               let partialExperimentHash = "exp-inf-partial"
                   partialBlobObjectKey = Checkpoint.blobKey partialExperimentHash "blob-weights"
                   partialManifest =
@@ -2910,16 +2936,17 @@ main =
                   )
                   partialExperimentHash
                   [1.0, 2.0, 3.0]
+              -- The partial manifest carries no completed-training witness, so
+              -- the loader rejects it on manifest-structural completion legality
+              -- before any weight or runner I/O (Sprint 21.3 fail-closed order).
               liftIO $
-                case partialInference of
-                  Left err ->
-                    assertBool
-                      "partial checkpoint rejected before weight inference"
-                      ("not inference eligible" `Text.isInfixOf` err)
-                  Right values ->
-                    assertFailure ("partial checkpoint unexpectedly inferred: " <> show values)
+                expectLoaderRejection
+                  "partial checkpoint rejected before weight inference"
+                  "no completed-training witness"
+                  partialInference
               let badExperimentHash = "exp-inf-shape-mismatch"
-                  badBlobObjectKey = Checkpoint.blobKey badExperimentHash "blob-weights"
+                  badBlobObjectKey =
+                    Checkpoint.blobKey badExperimentHash (WeightCodec.jmw1ContentSha weightPayloadLazy)
                   badManifest =
                     completedCheckpointManifest
                       "m-bad"
@@ -2953,14 +2980,10 @@ main =
                   badExperimentHash
                   [1.0, 2.0, 3.0]
               liftIO $
-                case shapeMismatch of
-                  Left err ->
-                    assertBool
-                      "shape mismatch should fail closed"
-                      ("weight blob incompatible for dense" `Text.isInfixOf` err)
-                  Right values ->
-                    assertFailure
-                      ("expected shape mismatch failure, got: " <> show values)
+                expectLoaderRejection
+                  "shape mismatch should fail closed"
+                  "weight blob incompatible for dense"
+                  shapeMismatch
       , testCase "inference loader rejects illegal manifests before weight or runner IO (Sprint 21.3)" $
           withSystemTempDirectory "jitml-inference-fail-closed" $ \root ->
             runFilesystemMinIO root $ do

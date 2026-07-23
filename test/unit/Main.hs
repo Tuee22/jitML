@@ -42,7 +42,7 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Info qualified as SystemInfo
 import System.Timeout (timeout)
-import Test.Tasty (defaultMain, testGroup)
+import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QuickCheck
 
 import CheckpointV1Admission qualified
@@ -5260,11 +5260,10 @@ main =
                         firstRow
                           { rowClass = ProductMatrix.RlGoalConditioned "goal-reaching"
                           }
-                      fabricatedEvidence =
-                        firstRow
-                          { trainingEvidence =
-                              Just (ProductMatrix.EvidenceHandle "declared-fabrication")
-                          }
+                      -- Sprint 21.4: a declared ProductRow can no longer carry a
+                      -- measured evidence handle — the optional evidence fields
+                      -- were removed, so the fabrication below is a compile-time
+                      -- impossibility rather than a runtime-rejected projection.
                       wrongDevice =
                         firstRow
                           { deviceClaim = ProductMatrix.GoalConditionedPolicy
@@ -5298,10 +5297,6 @@ main =
                           ProductMatrix.ProductRowClassRunKindMismatch {} -> True
                           ProductMatrix.ProductDescriptorRowClassMismatch {} -> True
                           _ -> False
-                      isDeclaredEvidence err =
-                        case err of
-                          ProductMatrix.DeclaredProductCarriesEvidence {} -> True
-                          _ -> False
                       isWrongDevice err =
                         case err of
                           ProductMatrix.ProductDeviceClaimMismatch {} -> True
@@ -5315,9 +5310,6 @@ main =
                   assertBool "wrong budget kind cannot project" (any isWrongBudget (errorsFor wrongBudget))
                   assertBool "wrong RowClass cannot project" (any isWrongClass (errorsFor wrongClass))
                   assertBool "wrong DeviceClaim cannot project" (any isWrongDevice (errorsFor wrongDevice))
-                  assertBool
-                    "declared measured handle cannot cross projection"
-                    (any isDeclaredEvidence (errorsFor fabricatedEvidence))
                   assertBool
                     "matrix validation rejects unsupported rows"
                     ( any
@@ -6693,6 +6685,7 @@ main =
                   (LayerGraph.layerGraphSquaredErrorGradient graph input target)
               Data.Vector.Unboxed.length (LayerGraph.layerTapeOutput tape) @?= 3
               length (LayerGraph.layerGraphLayerGradients gradient) @?= 3
+          , sprint231NodeAutodiffTests
           , testCase "mlpForward is run-to-run deterministic on same seed" $ do
               let shape = Mlp.MlpShape 4 8 3
                   paramsA = Mlp.mlpInit shape 99
@@ -8015,6 +8008,516 @@ duplicatesText values =
   [ value
   | value : _ : _ <- List.group (List.sort values)
   ]
+
+-- | Sprint 23.1 — correct reverse-mode autodiff for every Tier-2 layer node,
+-- verified by finite differences of BOTH the parameter gradient and the input
+-- gradient against a small deterministic loss. These construct real operators
+-- (genuine convolution, windowed pooling, coupled normalization, self-attention
+-- with residual, GeGLU, patch embedding, residual/basic/bottleneck blocks), not
+-- the retired dense/stencil approximations.
+sprint231NodeAutodiffTests :: TestTree
+sprint231NodeAutodiffTests =
+  testGroup
+    "Sprint 23.1 correct per-node reverse-mode autodiff (finite differences)"
+    [ testCase "Conv2D forward/backward matches finite differences" $
+        fdCheckNode "Conv2D" 1.0e-4 1 $
+          let spec = LayerGraph.ConvSpec 2 3 [4, 4] [3, 3] [1, 1] [1, 1]
+           in LayerGraph.mkConvLayer
+                "conv2d"
+                spec
+                LayerGraph.TanhActivation
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 11 (LayerGraph.ConvOp spec))
+    , testCase "Conv3D forward/backward matches finite differences" $
+        fdCheckNode "Conv3D" 1.0e-4 2 $
+          let spec = LayerGraph.ConvSpec 2 2 [3, 3, 3] [2, 2, 2] [1, 1, 1] [0, 0, 0]
+           in LayerGraph.mkConv3DLayer
+                "conv3d"
+                spec
+                LayerGraph.TanhActivation
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 12 (LayerGraph.ConvOp spec))
+    , testCase "MaxPool routes gradient to the argmax switch (no params)" $ do
+        let win = LayerGraph.PoolWindow 2 2 2 2 0 0 False
+            sp = LayerGraph.SpatialShape 1 4 4
+        node <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.mkPoolLayer "maxpool" sp (LayerGraph.PoolMax win) LayerGraph.TrainingMode)
+        -- Strictly distinct values (permutation of 1..16), gap 1 >> eps.
+        let input = Data.Vector.Unboxed.fromList [3, 14, 1, 9, 12, 5, 16, 7, 2, 11, 8, 6, 15, 4, 13, 10]
+            target = Data.Vector.Unboxed.fromList [0.2, -0.4, 0.7, -0.1]
+        checkNodeInputFD "MaxPool" 1.0e-5 (singleNodeGraph node) input target
+        assertNoParams "MaxPool" node input target
+    , testCase "MaxPool overlapping windows accumulate shared-argmax gradient" $ do
+        let win = LayerGraph.PoolWindow 2 2 1 1 0 0 False
+            sp = LayerGraph.SpatialShape 1 3 3
+        node <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.mkPoolLayer "maxpool-ov" sp (LayerGraph.PoolMax win) LayerGraph.TrainingMode)
+        let input = Data.Vector.Unboxed.fromList [1, 5, 2, 8, 9, 3, 4, 7, 6]
+            target = Data.Vector.Unboxed.fromList [0.1, -0.2, 0.3, -0.4]
+        checkNodeInputFD "MaxPool overlap" 1.0e-5 (singleNodeGraph node) input target
+    , testCase "AvgPool windowed average matches finite differences (no params)" $ do
+        let win = LayerGraph.PoolWindow 2 2 2 2 0 0 False
+            sp = LayerGraph.SpatialShape 2 4 4
+        node <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.mkPoolLayer "avgpool" sp (LayerGraph.PoolAvg win) LayerGraph.TrainingMode)
+        let input = detVec 3 32
+            target = detVec 200 8
+        checkNodeInputFD "AvgPool" 1.0e-6 (singleNodeGraph node) input target
+        assertNoParams "AvgPool" node input target
+    , testCase "AvgPool overlapping windows accumulate contributions" $ do
+        let win = LayerGraph.PoolWindow 2 2 1 1 0 0 False
+            sp = LayerGraph.SpatialShape 1 4 4
+        node <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.mkPoolLayer "avgpool-ov" sp (LayerGraph.PoolAvg win) LayerGraph.TrainingMode)
+        checkNodeInputFD "AvgPool overlap" 1.0e-6 (singleNodeGraph node) (detVec 4 16) (detVec 210 9)
+    , testCase "GlobalAvgPool reduces per channel (channel-separated gradient)" $ do
+        let sp = LayerGraph.SpatialShape 3 2 2
+        node <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.mkPoolLayer "gap" sp LayerGraph.PoolGlobal LayerGraph.TrainingMode)
+        let input = detVec 5 12
+            target = Data.Vector.Unboxed.fromList [1.0, -1.0, 0.0]
+        checkNodeInputFD "GlobalAvgPool" 1.0e-6 (singleNodeGraph node) input target
+        assertNoParams "GlobalAvgPool" node input target
+    , testCase "LayerNorm coupled Jacobian matches finite differences" $
+        fdCheckNode "LayerNorm" 1.0e-4 6 $
+          let spec = LayerGraph.NormSpec LayerGraph.NormLayerWise 6 1 1.0e-5
+           in LayerGraph.mkNormLayer
+                "layernorm"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 21 (LayerGraph.NormOp spec))
+    , testCase "GroupNorm group-local statistics match finite differences" $
+        fdCheckNode "GroupNorm" 1.0e-4 7 $
+          let spec = LayerGraph.NormSpec (LayerGraph.NormGroup 3) 6 1 1.0e-5
+           in LayerGraph.mkNormLayer
+                "groupnorm"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 22 (LayerGraph.NormOp spec))
+    , testCase "GroupNorm with spatial>1 reduces over channels x spatial" $
+        fdCheckNode "GroupNorm P>1" 1.0e-4 8 $
+          let spec = LayerGraph.NormSpec (LayerGraph.NormGroup 2) 4 3 1.0e-5
+           in LayerGraph.mkNormLayer
+                "groupnorm-p"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 23 (LayerGraph.NormOp spec))
+    , testCase "BatchNorm couples across the batch axis (training mode)" $
+        fdCheckNode "BatchNorm" 1.0e-4 9 $
+          let spec = LayerGraph.NormSpec LayerGraph.NormBatch 4 5 1.0e-5
+           in LayerGraph.mkNormLayer
+                "batchnorm"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 24 (LayerGraph.NormOp spec))
+    , testCase "MultiHeadAttention (with residual) matches finite differences" $
+        fdCheckNode "MHA" 1.0e-4 10 $
+          let spec = LayerGraph.AttentionSpec 3 4 2 False
+           in LayerGraph.mkAttentionLayer
+                "mha"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 31 (LayerGraph.AttentionOp spec))
+    , testCase "PatchEmbed shared projection + col2im matches finite differences" $
+        fdCheckNode "PatchEmbed" 1.0e-4 11 $
+          let spec = LayerGraph.PatchSpec 1 4 4 2 2 3
+           in LayerGraph.mkPatchEmbedLayer
+                "patch"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 41 (LayerGraph.PatchOp spec))
+    , testCase "GeGLU gated feed-forward matches finite differences" $
+        fdCheckNode "GeGLU" 1.0e-4 12 $
+          let spec = LayerGraph.GeGLUSpec 4 6 3
+           in LayerGraph.mkGeGLULayer
+                "geglu"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 51 (LayerGraph.GeGLUOp spec))
+    , testCase "Residual (identity shortcut) matches finite differences" $
+        fdCheckNode "Residual" 1.0e-4 13 $
+          let inner = LayerGraph.AffineSpec 4 4
+              op = LayerGraph.ResidualOp inner LayerGraph.IdentityShortcut 0.5 LayerGraph.TanhActivation
+           in LayerGraph.mkResidualNode
+                "residual"
+                inner
+                LayerGraph.IdentityShortcut
+                0.5
+                LayerGraph.TanhActivation
+                LayerGraph.LinearActivation
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 61 op)
+    , testCase "Residual (projection shortcut) matches finite differences" $
+        fdCheckNode "Residual proj" 1.0e-4 14 $
+          let inner = LayerGraph.AffineSpec 4 6
+              sc = LayerGraph.ProjectionShortcut (LayerGraph.AffineSpec 4 6)
+              op = LayerGraph.ResidualOp inner sc 0.5 LayerGraph.TanhActivation
+           in LayerGraph.mkResidualNode
+                "residual-proj"
+                inner
+                sc
+                0.5
+                LayerGraph.TanhActivation
+                LayerGraph.LinearActivation
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 62 op)
+    , testCase "BasicBlock (two affine->norm stages, identity skip) matches finite differences" $
+        fdCheckNode "BasicBlock" 1.0e-4 15 $
+          let spec = basicBlockSpec
+           in LayerGraph.mkBasicBlock
+                "basicblock"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 71 (LayerGraph.BlockOp spec))
+    , testCase "Bottleneck (reduced middle width, identity skip) matches finite differences" $
+        fdCheckNode "Bottleneck" 1.0e-4 16 $
+          let spec = bottleneckSpec
+           in LayerGraph.mkBottleneck
+                "bottleneck"
+                spec
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicOpParameters 81 (LayerGraph.BlockOp spec))
+    , testCase "Full ResNet-shaped graph matches finite differences end to end" $ do
+        graph <- either (assertFailure . Text.unpack) pure realResNetGraph
+        iw <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.tensorShapeWidth (LayerGraph.layerGraphInputShape graph))
+        ow <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.tensorShapeWidth (LayerGraph.layerGraphOutputShape graph))
+        checkGraphFD "ResNet-shaped" 2.0e-4 graph (detVec 300 iw) (detVec 400 ow)
+    , testCase "Full ViT-shaped graph matches finite differences end to end" $ do
+        graph <- either (assertFailure . Text.unpack) pure realVitGraph
+        iw <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.tensorShapeWidth (LayerGraph.layerGraphInputShape graph))
+        ow <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (LayerGraph.tensorShapeWidth (LayerGraph.layerGraphOutputShape graph))
+        checkGraphFD "ViT-shaped" 2.0e-4 graph (detVec 500 iw) (detVec 600 ow)
+    , testGroup
+        "explicit shape/operation failures (no silent collapse)"
+        [ testCase "identity-shortcut residual with d_in /= d_out is rejected" $
+            assertBool
+              "should be Left"
+              ( isLeftResult
+                  ( LayerGraph.mkResidualNode
+                      "bad"
+                      (LayerGraph.AffineSpec 4 3)
+                      LayerGraph.IdentityShortcut
+                      1.0
+                      LayerGraph.TanhActivation
+                      LayerGraph.LinearActivation
+                      LayerGraph.TrainingMode
+                      ( LayerGraph.LayerParameters
+                          (Data.Vector.Unboxed.replicate 12 0.0)
+                          (Data.Vector.Unboxed.replicate 3 0.0)
+                      )
+                  )
+              )
+        , testCase "GroupNorm with channels not divisible by groups is rejected" $
+            assertBool
+              "should be Left"
+              ( isLeftResult
+                  ( LayerGraph.mkNormLayer
+                      "bad"
+                      (LayerGraph.NormSpec (LayerGraph.NormGroup 4) 6 1 1.0e-5)
+                      LayerGraph.TrainingMode
+                      ( LayerGraph.deterministicOpParameters
+                          1
+                          (LayerGraph.NormOp (LayerGraph.NormSpec (LayerGraph.NormGroup 4) 6 1 1.0e-5))
+                      )
+                  )
+              )
+        , testCase "attention with embedDim not divisible by heads is rejected" $
+            assertBool
+              "should be Left"
+              ( isLeftResult
+                  ( LayerGraph.mkAttentionLayer
+                      "bad"
+                      (LayerGraph.AttentionSpec 3 5 2 False)
+                      LayerGraph.TrainingMode
+                      ( LayerGraph.LayerParameters
+                          (Data.Vector.Unboxed.replicate 100 0.0)
+                          (Data.Vector.Unboxed.replicate 20 0.0)
+                      )
+                  )
+              )
+        , testCase "block with non-composing stage shapes is rejected" $
+            assertBool
+              "should be Left"
+              ( isLeftResult
+                  ( LayerGraph.mkBasicBlock
+                      "bad"
+                      ( LayerGraph.BlockSpec
+                          [ LayerGraph.BlockStage (LayerGraph.AffineSpec 4 5) Nothing LayerGraph.TanhActivation
+                          , LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) Nothing LayerGraph.LinearActivation
+                          ]
+                          LayerGraph.IdentityShortcut
+                          1.0
+                          LayerGraph.LinearActivation
+                      )
+                      LayerGraph.TrainingMode
+                      ( LayerGraph.LayerParameters
+                          (Data.Vector.Unboxed.replicate 100 0.0)
+                          (Data.Vector.Unboxed.replicate 100 0.0)
+                      )
+                  )
+              )
+        ]
+    ]
+
+basicBlockSpec :: LayerGraph.BlockSpec
+basicBlockSpec =
+  LayerGraph.BlockSpec
+    [ LayerGraph.BlockStage
+        (LayerGraph.AffineSpec 4 4)
+        (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5))
+        LayerGraph.TanhActivation
+    , LayerGraph.BlockStage
+        (LayerGraph.AffineSpec 4 4)
+        (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5))
+        LayerGraph.LinearActivation
+    ]
+    LayerGraph.IdentityShortcut
+    1.0
+    LayerGraph.LinearActivation
+
+bottleneckSpec :: LayerGraph.BlockSpec
+bottleneckSpec =
+  LayerGraph.BlockSpec
+    [ LayerGraph.BlockStage
+        (LayerGraph.AffineSpec 8 2)
+        (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 2 1 1.0e-5))
+        LayerGraph.TanhActivation
+    , LayerGraph.BlockStage
+        (LayerGraph.AffineSpec 2 2)
+        (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 2 1 1.0e-5))
+        LayerGraph.TanhActivation
+    , LayerGraph.BlockStage
+        (LayerGraph.AffineSpec 2 8)
+        (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 8 1 1.0e-5))
+        LayerGraph.LinearActivation
+    ]
+    LayerGraph.IdentityShortcut
+    1.0
+    LayerGraph.LinearActivation
+
+-- | Small ResNet-shaped graph: conv stem -> BasicBlock -> GlobalAvgPool -> Dense.
+realResNetGraph :: Either Text LayerGraph.LayerGraph
+realResNetGraph = do
+  let stemSpec = LayerGraph.ConvSpec 1 2 [4, 4] [3, 3] [1, 1] [1, 1]
+  stem <-
+    LayerGraph.mkConvLayer
+      "resnet-stem"
+      stemSpec
+      LayerGraph.TanhActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters 91 (LayerGraph.ConvOp stemSpec))
+  -- stem output is [2,4,4] = 32 features; treat as a flat vector for the block.
+  let blkSpec =
+        LayerGraph.BlockSpec
+          [ LayerGraph.BlockStage
+              (LayerGraph.AffineSpec 32 32)
+              (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 32 1 1.0e-5))
+              LayerGraph.TanhActivation
+          , LayerGraph.BlockStage
+              (LayerGraph.AffineSpec 32 32)
+              (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise 32 1 1.0e-5))
+              LayerGraph.LinearActivation
+          ]
+          LayerGraph.IdentityShortcut
+          1.0
+          LayerGraph.LinearActivation
+  block <-
+    LayerGraph.mkBasicBlock
+      "resnet-block"
+      blkSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters 92 (LayerGraph.BlockOp blkSpec))
+  pool <-
+    LayerGraph.mkPoolLayer
+      "resnet-gap"
+      (LayerGraph.SpatialShape 2 4 4)
+      LayerGraph.PoolGlobal
+      LayerGraph.TrainingMode
+  headNode <-
+    LayerGraph.mkAffineLayer
+      "resnet-head"
+      LayerGraph.DenseLayer
+      2
+      3
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters 93 2 3)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "real-resnet"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [1, 4, 4]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphNodes = [stem, block, pool, headNode]
+      }
+
+-- | Small ViT-shaped graph: PatchEmbed -> LayerNorm -> MHA(residual) -> LayerNorm -> GeGLU -> MeanPool -> Dense.
+realVitGraph :: Either Text LayerGraph.LayerGraph
+realVitGraph = do
+  let patchSpec = LayerGraph.PatchSpec 1 4 4 2 2 4 -- N=4 patches, d=4 -> 16 tokens flattened
+  patch <-
+    LayerGraph.mkPatchEmbedLayer
+      "vit-patch"
+      patchSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters 101 (LayerGraph.PatchOp patchSpec))
+  let ln1Spec = LayerGraph.NormSpec (LayerGraph.NormGroup 4) 4 4 1.0e-5 -- per-token LayerNorm over 4 tokens x 4 dims
+  ln1 <-
+    LayerGraph.mkNormLayer
+      "vit-ln1"
+      ln1Spec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters 102 (LayerGraph.NormOp ln1Spec))
+  let attnSpec = LayerGraph.AttentionSpec 4 4 2 False
+  attn <-
+    LayerGraph.mkAttentionLayer
+      "vit-attn"
+      attnSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters 103 (LayerGraph.AttentionOp attnSpec))
+  let geSpec = LayerGraph.GeGLUSpec 16 8 4
+  geglu <-
+    LayerGraph.mkGeGLULayer
+      "vit-geglu"
+      geSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters 104 (LayerGraph.GeGLUOp geSpec))
+  headNode <-
+    LayerGraph.mkAffineLayer
+      "vit-head"
+      LayerGraph.DenseLayer
+      4
+      3
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters 105 4 3)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "real-vit"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [1, 4, 4]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphNodes = [patch, ln1, attn, geglu, headNode]
+      }
+
+detVec :: Int -> Int -> Data.Vector.Unboxed.Vector Double
+detVec salt n =
+  Data.Vector.Unboxed.generate n $ \i ->
+    0.6 * sin (0.7 * fromIntegral (i + 1) + 0.13 * fromIntegral salt)
+      + 0.2 * cos (0.31 * fromIntegral (i * 2 + salt + 1))
+
+singleNodeGraph :: LayerGraph.LayerNode -> LayerGraph.LayerGraph
+singleNodeGraph node =
+  LayerGraph.LayerGraph
+    { LayerGraph.layerGraphName = LayerGraph.layerNodeName node
+    , LayerGraph.layerGraphInputShape = LayerGraph.layerInputShape node
+    , LayerGraph.layerGraphOutputShape = LayerGraph.layerOutputShape node
+    , LayerGraph.layerGraphNodes = [node]
+    }
+
+fdCheckNode :: String -> Double -> Int -> Either Text LayerGraph.LayerNode -> Assertion
+fdCheckNode label tol salt enode = do
+  node <- either (assertFailure . Text.unpack) pure enode
+  iw <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (LayerGraph.tensorShapeWidth (LayerGraph.layerInputShape node))
+  ow <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (LayerGraph.tensorShapeWidth (LayerGraph.layerOutputShape node))
+  checkGraphFD label tol (singleNodeGraph node) (detVec salt iw) (detVec (salt + 137) ow)
+
+checkGraphFD
+  :: String
+  -> Double
+  -> LayerGraph.LayerGraph
+  -> Data.Vector.Unboxed.Vector Double
+  -> Data.Vector.Unboxed.Vector Double
+  -> Assertion
+checkGraphFD label tol graph input target = do
+  paramErr <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (Autodiff.maxFiniteDifferenceError 1.0e-6 graph input target)
+  inputErr <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (Autodiff.maxInputFiniteDifferenceError 1.0e-6 graph input target)
+  assertBool
+    (label <> " parameter finite-difference error too large: " <> show paramErr)
+    (paramErr < tol)
+  assertBool (label <> " input finite-difference error too large: " <> show inputErr) (inputErr < tol)
+
+checkNodeInputFD
+  :: String
+  -> Double
+  -> LayerGraph.LayerGraph
+  -> Data.Vector.Unboxed.Vector Double
+  -> Data.Vector.Unboxed.Vector Double
+  -> Assertion
+checkNodeInputFD label tol graph input target = do
+  inputErr <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (Autodiff.maxInputFiniteDifferenceError 1.0e-6 graph input target)
+  assertBool (label <> " input finite-difference error too large: " <> show inputErr) (inputErr < tol)
+
+assertNoParams
+  :: String
+  -> LayerGraph.LayerNode
+  -> Data.Vector.Unboxed.Vector Double
+  -> Data.Vector.Unboxed.Vector Double
+  -> Assertion
+assertNoParams label node input target = do
+  (_, gradient) <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (LayerGraph.layerGraphSquaredErrorGradient (singleNodeGraph node) input target)
+  case LayerGraph.layerGraphLayerGradients gradient of
+    [g] ->
+      assertBool
+        (label <> " must have no parameter gradient")
+        (isNothing (LayerGraph.layerGradientParameters g))
+    other -> assertFailure (label <> " expected a single node gradient, got " <> show (length other))
+
+isLeftResult :: Either a b -> Bool
+isLeftResult = either (const True) (const False)
 
 unitLayerGraph :: LayerGraph.LayerKind -> Int -> Either Text LayerGraph.LayerGraph
 unitLayerGraph kind seed = do

@@ -262,8 +262,10 @@ before fitting feature and target statistics from the training partition only.
 Supervised V1 remains inspectable but cannot become inference eligible.
 The current `cifar10-vit` V2 executable records patch size/stride `4/4` over
 `32×32×3` and token-mixing count `64`; this is exact persistence of the
-current Mixer program, not completion of Blocked Sprint `23.1`'s single typed
-graph or Blocked Sprint `24.1`'s literal small-ViT architecture.
+current Mixer program, not completion of Sprint `23.1`'s single typed served
+graph (Sprint `23.1` is Done — its correct autodiff node library is
+finite-difference-validated; the served-path wiring is Sprint `23.2`) or Blocked
+Sprint `24.1`'s literal small-ViT architecture.
 
 Admission reads stable pointer body `P1`, verifies the exact addressed manifest
 outer/body, requires exact `P1 == P2`, and only then fetches and binds each

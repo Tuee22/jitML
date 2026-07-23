@@ -100,8 +100,11 @@ import JitML.SL.Canonicals qualified as SL
 import JitML.SL.ConvergenceThresholds
   ( SlConvergenceThreshold (..)
   , passesSlConvergence
+  , slBarIsNonVacuous
   , slCohortThreshold
   , slCohortThresholds
+  , slEffectiveBar
+  , slRandomBaseline
   )
 import JitML.SL.Dataset
   ( datasetFixtureBytes
@@ -1349,6 +1352,20 @@ main =
                 (\(_, t) -> slSlack t > 0 && slLiteratureTarget t > 0 && slLiteratureTarget t <= 1.0)
                 slCohortThresholds
             )
+          -- Sprint 23.1 anti-vacuity gate: every cohort's effective bar
+          -- (target - slack) must sit strictly above its random-classification
+          -- floor (1 / classes), so an untrained chance-level classifier fails
+          -- every bar. This rejects the fabrication-prone
+          -- @tiny-imagenet-resnet50@ effective 0.00 the audit flagged.
+          forM_ slCohortThresholds $ \(problem, t) ->
+            assertBool
+              ( Text.unpack problem
+                  <> " effective bar "
+                  <> show (slEffectiveBar t)
+                  <> " must exceed its random-classification floor "
+                  <> show (slRandomBaseline problem)
+              )
+              (slBarIsNonVacuous problem t)
       , testCase "passesSlConvergence accepts target and rejects below the slack band (Sprint 13.4)" $ do
           let threshold = SlConvergenceThreshold 0.97 0.07
           assertBool "accepts the literature target" (passesSlConvergence threshold 0.97)

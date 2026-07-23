@@ -9,6 +9,7 @@ module JitML.Product.Publisher.Audit
   , renderProductInventoryEntry
   , renderProductPublishResult
   , validateAdmittedProductCheckpoint
+  , validateAdmittedProjectionIdentity
   , validateProductCompletedTrainingPlanId
   , validateProductPublishBatch
   )

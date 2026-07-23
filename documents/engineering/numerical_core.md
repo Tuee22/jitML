@@ -21,9 +21,12 @@ counts.
 Training and evaluation select a substrate device and run the current
 `[LayerSpec]` / `[LayerState]` executable through that device. Sprint `10.6`
 persists this exact executed program; it does not substitute the parallel
-descriptive `archLayerGraph`. Blocked Sprint `23.1` owns replacing both with one
-typed graph, and Blocked Sprint `24.1` owns constructing each literal named
-architecture on that graph. The validated workload plan and the completed
+descriptive `archLayerGraph`. Active Sprint `23.1` has landed the correct
+reverse-mode autodiff node library on the typed graph (below); replacing the
+descriptive `archLayerGraph` and the executed `[LayerSpec]` / `[LayerState]`
+program with that one typed graph in the served/serialized path needs a
+checkpoint format version bump and is deferred to Sprint `23.2`, and Blocked
+Sprint `24.1` owns constructing each literal named architecture on that graph. The validated workload plan and the completed
 evidence required around numerical execution are owned by
 [Typed Run Contract](run_contract.md); inference eligibility is owned by
 [Checkpoint Format](checkpoint_format.md) and
@@ -55,40 +58,62 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 ## Typed Layer Graph and Autodiff
 
 The target `LayerGraph` is the sole representation used by training,
-checkpointing, and graph inference. The current tree has not reached that
-target: `archLayerGraph` describes the advertised feature topology, while the
-separate `[LayerSpec]` / `[LayerState]` program actually trains, serves, and is
-projected into supervised V2. Parameterized graph nodes already expose
-kind-specific transforms, but the remaining residual/direct-gradient,
-pooling/normalization-backward, shape-failure, and full finite-difference gaps
-keep Sprint `23.1` Blocked. Historical audit and validation details remain in
+checkpointing, and graph inference. The current tree has landed the correct
+autodiff engine on that graph but has not yet unified the served path onto it:
+`archLayerGraph` describes the advertised feature topology, while the separate
+`[LayerSpec]` / `[LayerState]` program actually trains, serves, and is projected
+into supervised V2. Wiring the verified nodes into the executed/serialized path
+needs a checkpoint format version bump and is Sprint `23.2`; the `cifar10-vit`
+convergence go/no-go is the other open Sprint `23.1` obligation. Audit and
+validation details remain in
 [Phase 23](../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md).
 
-Sprint `23.1` targets the executable typed layer-graph surface in
+Sprint `23.1` implements the typed layer-graph surface in
 `src/JitML/Numerics/LayerGraph.hs` and the public pure reverse-mode API in
-`src/JitML/Numerics/Autodiff.hs`. A `LayerGraph` carries input/output tensor
-shapes, ordered layer nodes, per-node training-vs-inference mode, activation,
-and optional row-major parameter tensors. The catalog represented by graph
-nodes covers Dense, Conv2D, Conv3D, MaxPool, AvgPool, GlobalAvgPool, BatchNorm,
-LayerNorm, GroupNorm, Dropout, Residual, BasicBlock, BottleneckBlock,
+`src/JitML/Numerics/Autodiff.hs`. A `LayerNode` carries input/output tensor
+shapes, per-node training-vs-inference mode, activation, packed row-major
+parameter tensors (`layerWeights`/`layerBias`), and a `layerNodeOp :: LayerOp`
+that records the node's real operator geometry: `ConvSpec` (one N-D path for
+Conv2D and Conv3D), `SpatialShape` + `PoolSpec` (Max/Avg/GlobalAvg windows),
+`NormSpec` (Batch/Layer/Group), `AttentionSpec`, `GeGLUSpec`, `AffineSpec` +
+`Shortcut` (identity or learnable projection), `BlockSpec` (ordered
+affine→norm stages), and `PatchSpec`. Multi-tensor operators pack their
+sub-tensors into the flat parameter vectors with the segment layout recovered
+from `opWeightSegments` / `opBiasSegments`, so `graphParameterVector`,
+`replaceGraphParameterVector`, and the gradient flatten stay operator-agnostic.
+The catalog covers Dense, Conv2D, Conv3D, MaxPool, AvgPool, GlobalAvgPool,
+BatchNorm, LayerNorm, GroupNorm, Dropout, Residual, BasicBlock, Bottleneck,
 MultiHeadAttention, GeGLU, and patch-embed.
 
-The pure oracle records a forward tape and replays it backward to produce both
-input gradients and per-node parameter gradients. `JitML.Numerics.Mlp` is now
-the two-layer special case of that graph: its public `mlpBackward` and
-`mlpInputGradient` APIs lower the cached MLP forward pass into a two-node graph
-tape, call `Autodiff.runBackward`, and project the result back into the legacy
-`MlpGradient` record. `JitML.SL.Architecture` also attaches an
-`archLayerGraph` to every canonical supervised family, but that graph is not
-yet the program consumed by training, checkpointing, or inference. Sprint
-`23.1` must remove this dual representation rather than infer architecture from
-row names or certify the executable by inspecting the decorative graph.
+Each node has a correct forward and a correct reverse-mode backward that
+produces both the input gradient (`backward_data`) and per-node parameter
+gradient (`backward_weights`): convolution via im2col with a col2im
+scatter-accumulating adjoint; MaxPool routing to the argmax switch; Avg and
+GlobalAvg pooling with the exact divisor and per-channel reduction;
+Layer/Group/Batch normalization with the fully-coupled mean/variance Jacobian
+(BatchNorm couples across the batch axis); multi-head attention with the
+softmax Jacobian, output projection, and residual add; patch embedding with a
+shared projection and col2im input routing; GeGLU with exact-erf GELU; and
+residual/basic/bottleneck blocks with a typed identity-or-projection shortcut.
+The backward pass recomputes forward internals from the stored node input, so
+the tape needs no per-node state and gradients are deterministic for a fixed
+seed. The smart constructors return `Left` on shape/operation mismatch
+(identity shortcut on differing widths, channels not divisible by groups,
+embed dim not divisible by heads, non-composing block stages) rather than
+silently collapsing. `JitML.Numerics.Mlp` remains the two-layer special case:
+its `mlpBackward` / `mlpInputGradient` lower the cached MLP forward into a
+two-node dense graph tape and call `Autodiff.runBackward`, so the RL and
+AlphaZero networks differentiate through the same surface unchanged.
 
-The Sprint `23.1` unit coverage checks four invariants: the MLP graph forward
-matches the historical MLP forward exactly; finite-difference gradient checks
-cover every graph layer kind; a ResNet-shaped graph produces bit-identical
-gradients on repeated same-seed runs; and a ViT-shaped patch/attention/head graph
-round-trips through the same forward/backward API.
+Sprint `23.1` unit coverage asserts, for every catalog node, that central
+finite differences of a squared-error loss match the analytic **parameter**
+gradient (`maxFiniteDifferenceError`) and the analytic **input** gradient
+(`maxInputFiniteDifferenceError`); that a full ResNet-shaped graph (conv stem →
+basic block → global-avg pool → dense) and a full ViT-shaped graph
+(patch-embed → norm → attention → GeGLU → dense) match finite differences end
+to end; that same-seed runs produce bit-identical gradients; and that the
+explicit shape/operation failures are rejected. The `jitml-negative-controls`
+`conv2d-not-dense` gate runs a genuine 3×3 convolution.
 
 Sprint `23.2` adds the linux-cpu oneDNN training path for the current graph
 algebra. `JitML.Codegen.OneDnn.renderOneDnnLayerTrainingSource` emits a

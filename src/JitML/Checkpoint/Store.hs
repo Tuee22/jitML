@@ -693,7 +693,19 @@ admitLatestCheckpoint
   :: (HasMinIO m)
   => Text
   -> m (Either CheckpointAdmissionError AdmittedCheckpoint)
-admitLatestCheckpoint experimentHash = do
+admitLatestCheckpoint = admitLatestCheckpointGated (const (Right ()))
+
+-- | 'admitLatestCheckpoint' with a manifest-structural gate that runs on the
+-- pointer-stable addressed manifest __before__ any physical blob I/O.  Generic
+-- admission passes a no-op gate; the completed-checkpoint path threads the
+-- completion-legality gate so an illegal completed manifest is rejected before
+-- a weight or runner fetch.
+admitLatestCheckpointGated
+  :: (HasMinIO m)
+  => (AddressedCheckpointManifest -> Either CheckpointAdmissionError ())
+  -> Text
+  -> m (Either CheckpointAdmissionError AdmittedCheckpoint)
+admitLatestCheckpointGated preBindGate experimentHash = do
   let pointerKey = latestPointerKey experimentHash
       pointerRef = checkpointObjectRef pointerKey
   p1Result <- minioReadBytes pointerRef
@@ -719,7 +731,10 @@ admitLatestCheckpoint experimentHash = do
                                 (exactBytesSha p2Bytes)
                             )
                         )
-                  | otherwise -> bindAddressedCheckpointMinIO addressed
+                  | otherwise ->
+                      case preBindGate addressed of
+                        Left err -> pure (Left err)
+                        Right () -> bindAddressedCheckpointMinIO addressed
 
 -- | Known-address admission for immutable event/checkpoint identifiers.  It
 -- applies the same exact manifest and physical-blob binding as latest
@@ -743,8 +758,24 @@ admitLatestCompletedCheckpoint
   => Text
   -> m (Either CheckpointAdmissionError AdmittedCompletedCheckpoint)
 admitLatestCompletedCheckpoint experimentHash = do
-  admitted <- admitLatestCheckpoint experimentHash
+  admitted <- admitLatestCheckpointGated completionStructuralGate experimentHash
   pure (admitted >>= requireAdmittedCompletedCheckpoint)
+
+-- | Manifest-structural completion legality, evaluated on the addressed
+-- manifest before any physical blob I/O.  An illegal completed-checkpoint
+-- manifest (no completed-training witness, inspection-only supervised V1,
+-- missing weight-delta evidence, ...) is a pure property of the manifest, so it
+-- is rejected here before a weight or runner fetch.  Structurally legal
+-- manifests still undergo the full physical binding and the exact
+-- 'requireAdmittedCompletedCheckpoint' refinement, so this never admits a
+-- manifest that refinement would reject.
+completionStructuralGate
+  :: AddressedCheckpointManifest -> Either CheckpointAdmissionError ()
+completionStructuralGate addressed =
+  case validateCheckpointCompletion (addressedManifest addressed) of
+    Left err ->
+      Left (AdmissionCompletionInvalid (renderCheckpointCompletionValidationError err))
+    Right _ -> Right ()
 
 readAddressedCheckpoint
   :: (HasMinIO m)
@@ -1943,6 +1974,7 @@ rebuildLayerNode weights metadata = do
     LayerGraph.LayerNode
       { LayerGraph.layerNodeName = layerGraphNodeName metadata
       , LayerGraph.layerNodeKind = kind
+      , LayerGraph.layerNodeOp = maybe LayerGraph.IdentityOp (const LayerGraph.DenseOp) params
       , LayerGraph.layerInputShape = LayerGraph.TensorShape (layerGraphNodeInputShape metadata)
       , LayerGraph.layerOutputShape = LayerGraph.TensorShape (layerGraphNodeOutputShape metadata)
       , LayerGraph.layerMode = mode

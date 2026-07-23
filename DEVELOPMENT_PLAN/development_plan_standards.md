@@ -243,11 +243,15 @@ checkpoint/runtime audit found that supervised publisher artifacts were written
 through a name-derived generic checkpoint path, carried no executable runtime
 payload, and could be labelled eligible without exact persisted-byte admission.
 It therefore reopens the existing Phase `10`, `19`, `23`, `24`, and `32` owners.
-The strict forward chain began at Sprint `10.6`. After Sprints `10.6` and
-`10.12` closed, the current open suffix is `19.4 → 21.4 → 23.1 → 23.2 → 23.3
-→ 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 → 32.4 →
-33.3 → 34.3`. Sprint `19.4` is Active; every later sprint in that chain is
-Blocked by its immediate predecessor. Untouched
+The strict forward chain began at Sprint `10.6`. After Sprints `10.6`,
+`10.12`, `19.4`, `21.4`, and `23.1` closed, the current open suffix is `23.2 →
+23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 → 32.4 →
+33.3 → 34.3`. Sprint `23.1` is Done — its correct reverse-mode autodiff node
+library over the typed `LayerGraph` IR is finite-difference-validated, its
+`cifar10-vit` convergence go/no-go returned GO, and the vacuous convergence bars
+are resolved (served-path Tier-2 wiring and the attention residual add are
+deferred to Sprint `23.2`). Sprint `23.2` is the next executable sprint; every
+later sprint in that chain is Blocked by its immediate predecessor. Untouched
 phases remain Done on their retained surfaces, but the overall product handoff
 is incomplete until this chain closes. Sprints `29.5` and `30.4` independently
 refresh the `linux-cuda` and `apple-silicon` evidence; Sprint `31.3` aggregates

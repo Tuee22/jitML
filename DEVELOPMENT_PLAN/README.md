@@ -61,8 +61,18 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Current status (2026-07-20): Sprint `10.12` is Done; Sprint `19.4` is
-Active; every later sprint in the current chain is Blocked.** Sprint `12.16`
+**🔄 Current status (2026-07-22): Sprints `19.4`, `21.4`, and `23.1` are Done;
+Sprint `23.2` is the next executable sprint (Planned); every later sprint in the
+current chain is Blocked by its immediate predecessor.** Sprint `23.1` delivered
+the correct reverse-mode autodiff node library over the enriched typed
+`LayerGraph` IR, finite-difference-validated for parameter and input gradients
+across the full catalog (`jitml-unit` **763 / 763**, `jitml-negative-controls`
+**3 / 3**, `jitml-model-convergence` **111 / 111**, `jitml docs check` and
+`jitml check-code` both `0`); its `cifar10-vit` convergence go/no-go returned
+**GO** (median(k=5) `0.279 ≥ 0.25` through the production ViT/oneDNN path) and the
+vacuous convergence bars were resolved with a permanent anti-vacuity invariant.
+The served-path Tier-2 wiring and attention residual add are owned by Sprint
+`23.2` (byte-frozen pre-23.1-semantics contract). Sprint `12.16`
 remains Done on immutable image descriptor
 `sha256:6e0d57971bf8e6a7c996530a4b434a575237a570c745710f2a150a501da42aa0`,
 Linux/amd64 manifest
@@ -91,12 +101,25 @@ V1 fingerprint is SHA-256
 `30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`
 over 134 encoded bytes and must remain byte-compatible.
 
-The current open suffix is Sprint `19.4 → 21.4 → 23.1 → 23.2 →
+The current open suffix is Sprint `23.1 → 23.2 →
 23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 →
 32.4 → 33.3 → 34.3`. Sprint `10.6` closed the exact supervised runtime
-artifact and strict V2 reload; Sprint `10.12` has now closed persisted
-admission. Sprint `19.4` is Active, and every later sprint remains Blocked by
-its immediate predecessor. Phase `10` validated on `linux-cpu` only;
+artifact and strict V2 reload; Sprint `10.12` closed persisted admission; Sprint
+`19.4` closed the total ProductRow projection and admitted-evidence gate
+(idempotent publisher reuse, `55 eligible / 0 unsupported / 0 errors`,
+`jitml-integration` **156 / 156**); Sprint `21.4` closed the phase-specific
+product evidence payloads (`ModelRef` hidden-constructor GADT, `ProductRow`
+optional-evidence removal — declared-row fabrication is now a compile-time
+impossibility). Sprint `23.1` is Done: its correct reverse-mode autodiff node
+library over the enriched typed `LayerGraph` IR is finite-difference-validated
+(parameter and input gradients for all fourteen catalog nodes plus full
+ResNet/ViT graphs), its `cifar10-vit` convergence go/no-go returned GO
+(median(k=5) `0.279`), and the vacuous convergence bars were resolved; the
+served-path Tier-2 wiring and attention residual add are deferred to Sprint
+`23.2` (byte-frozen pre-23.1-semantics contract). Sprint `23.2` is the next
+executable sprint; every later sprint remains Blocked by its immediate
+predecessor. Phase `10`
+validated on `linux-cpu` only;
 Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 The persisted-admission implementation is now in the worktree: latest selection
 performs `P1` → exact addressed V2 manifest outer/body → exact `P2` equality
@@ -108,9 +131,13 @@ immutable-object conflicts, pointer-CAS conflicts, and filesystem failures;
 MinIO retains typed `ServiceError` conflicts. Sprint `10.12` closed after unit
 passed **719 / 719**, SL passed **36 / 36**, RL passed **40 / 40**, and
 hyperparameter passed **26 / 26**; `jitml docs check`, `jitml check-code`,
-whitespace, and Rule-M enforcement also passed. Sprint `19.4` now owns the
-active ProductRow projection and admitted-evidence gate.
-Detailed earlier audit chronology is retained in
+whitespace, and Rule-M enforcement also passed. Sprint `19.4` closed the
+ProductRow projection and admitted-evidence gate on 2026-07-21, and Sprint
+`21.4` closed the phase-specific product evidence payloads on 2026-07-22; Sprint
+`23.1` (typed layer IR + reverse-mode autodiff) closed on 2026-07-22 with its
+finite-difference-validated autodiff node library, a `cifar10-vit` convergence
+GO, and the vacuous-bar resolution, so Sprint `23.2` is the next executable
+sprint. Detailed earlier audit chronology is retained in
 [Historical Reopen and Closure Context](#historical-reopen-and-closure-context);
 it does not override this evidence-derived status.
 

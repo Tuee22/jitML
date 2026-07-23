@@ -31,6 +31,10 @@ module JitML.SL.ConvergenceThresholds
   , slCohortThreshold
   , slCohortThresholds
   , passesSlConvergence
+  , slEffectiveBar
+  , slClassCount
+  , slRandomBaseline
+  , slBarIsNonVacuous
   )
 where
 
@@ -76,5 +80,51 @@ slCohortThresholds =
   , ("cifar10-resnet56", SlConvergenceThreshold 0.93 0.73)
   , ("cifar10-vit", SlConvergenceThreshold 0.93 0.68)
   , ("cifar100-wide-resnet", SlConvergenceThreshold 0.78 0.74)
-  , ("tiny-imagenet-resnet50", SlConvergenceThreshold 0.64 0.64)
+  , -- Sprint 23.1 anti-vacuity fix: the prior slack 0.64 made the effective bar
+    -- (target - slack) exactly 0.00, which an untrained 200-class classifier
+    -- clears trivially (random baseline 1/200 = 0.005). The slack is tightened
+    -- so the effective bar is 0.02 (4x the random floor) — a minimum
+    -- non-vacuous "the compact proxy learned above chance" bar. Phase 24.2 must
+    -- confirm/tighten it against the row's real per-seed training accuracy.
+    ("tiny-imagenet-resnet50", SlConvergenceThreshold 0.64 0.62)
   ]
+
+-- | Effective convergence bar: the median test accuracy floor a live run must
+-- clear, @target - slack@.
+slEffectiveBar :: SlConvergenceThreshold -> Double
+slEffectiveBar threshold = slLiteratureTarget threshold - slSlack threshold
+
+-- | Number of output classes for each canonical classification cohort, used to
+-- compute the random-classification floor for the anti-vacuity invariant.
+-- Regression rows (no accuracy metric) are absent, matching
+-- 'slCohortThresholds'.
+slClassCount :: Text -> Maybe Int
+slClassCount problemName =
+  lookup
+    problemName
+    [ ("mnist-shallow-mlp", 10)
+    , ("mnist-deep-mlp", 10)
+    , ("mnist-lenet", 10)
+    , ("fashion-mnist-mlp", 10)
+    , ("fashion-mnist-resnet", 10)
+    , ("cifar10-resnet20", 10)
+    , ("cifar10-resnet56", 10)
+    , ("cifar10-vit", 10)
+    , ("cifar100-wide-resnet", 100)
+    , ("tiny-imagenet-resnet50", 200)
+    ]
+
+-- | Random-classification accuracy baseline @1 / classes@ for a cohort.
+slRandomBaseline :: Text -> Maybe Double
+slRandomBaseline problemName =
+  (\classes -> 1.0 / fromIntegral classes) <$> slClassCount problemName
+
+-- | Anti-vacuity invariant: a cohort's effective bar must sit strictly above
+-- its random-classification baseline, so an untrained (chance-level)
+-- classifier fails the bar. A bar that a random classifier clears is
+-- fabrication-prone and forbidden.
+slBarIsNonVacuous :: Text -> SlConvergenceThreshold -> Bool
+slBarIsNonVacuous problemName threshold =
+  case slRandomBaseline problemName of
+    Nothing -> slEffectiveBar threshold > 0.0
+    Just baseline -> slEffectiveBar threshold > baseline

@@ -415,7 +415,9 @@ node; stochastic masks belong to later substrate kernels only when their seed
 and traversal order are explicit cache-key inputs.
 
 `jitml-unit` asserts same-seed bit equality for a ResNet-shaped graph gradient
-and finite-difference agreement for every layer kind in the graph catalog. These
+and finite-difference agreement — for **both** the parameter gradient and the
+input gradient — for every layer kind in the graph catalog and for full
+ResNet-shaped and ViT-shaped composed graphs. These
 tests compare fresh computations, not committed numerical fixtures, preserving
 the snapshot policy in
 [unit_testing_policy.md](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).

@@ -49,7 +49,7 @@ allProductPhaseStatuses =
       [ sprint "19.1" "Product Matrix Authority" Done
       , sprint "19.2" "Phase Status Registry" Done
       , sprint "19.3" "Status Truth Enforcement" Done
-      , sprint "19.4" "Product Registry Plan and Evidence Projection" Active
+      , sprint "19.4" "Product Registry Plan and Evidence Projection" Done
       ]
   , productPhase
       20
@@ -65,7 +65,7 @@ allProductPhaseStatuses =
       [ sprint "21.1" "Non-Fabricable Training Evidence" Done
       , sprint "21.2" "Type-State Pipeline (Haskell)" Done
       , sprint "21.3" "Dhall Boundary & Fail-Closed Decode" Done
-      , sprint "21.4" "Phase-Specific Product Evidence Payloads" Blocked
+      , sprint "21.4" "Phase-Specific Product Evidence Payloads" Done
       ]
   , productPhase
       22
@@ -79,8 +79,8 @@ allProductPhaseStatuses =
       23
       "General Differentiable Layer Engine"
       "DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md"
-      [ sprint "23.1" "Typed Layer IR + Reverse-Mode Autodiff" Blocked
-      , sprint "23.2" "oneDNN Layer Kernels for Training" Blocked
+      [ sprint "23.1" "Typed Layer IR + Reverse-Mode Autodiff" Done
+      , sprint "23.2" "oneDNN Layer Kernels for Training" Planned
       , sprint "23.3" "Layer-Graph Checkpoints + Inference" Blocked
       ]
   , productPhase

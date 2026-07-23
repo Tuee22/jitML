@@ -356,7 +356,7 @@ deviceForwardNode functions backendName artifactPath artifactCompiled node input
           case layerParameters node of
             Just params -> do
               let transformedInput =
-                    LayerGraph.parameterizedInputForward (layerNodeKind node) input
+                    input
               preResult <-
                 runDeviceForwardOnly
                   functions
@@ -443,7 +443,7 @@ deviceLayerGradient functions backendName artifactPath artifactCompiled forward 
     (Just params, Just paramGradient) -> do
       let input = layerForwardInput forward
           transformedInput =
-            LayerGraph.parameterizedInputForward (layerNodeKind node) input
+            input
           dPre = layerGradBias paramGradient
           inputs = VU.length transformedInput
           outputs = VU.length dPre
@@ -470,11 +470,7 @@ deviceLayerGradient functions backendName artifactPath artifactCompiled forward 
               let deviceInputGradient =
                     if isResidualKind (layerNodeKind node)
                       then layerGradientInput pureGradient
-                      else
-                        LayerGraph.parameterizedInputBackward
-                          (layerNodeKind node)
-                          input
-                          transformedInputGradient
+                      else transformedInputGradient
                   deviceParamGradient =
                     LayerParameterGradient
                       { layerGradWeights = weightGradient

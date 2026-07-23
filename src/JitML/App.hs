@@ -1942,6 +1942,17 @@ productPublisherRuntime =
     , ProductPublisher.publisherLoadTuningDataset =
         fmap (fmap tuningPublishDatasetFromExecutionDataset)
           . TuneCommand.loadTuningExecutionDataset tuningCommandRuntime
+    , ProductPublisher.publisherReuseAdmittedCheckpoint =
+        \experimentHash -> do
+          checkpointRoot <- CheckpointWriter.localCheckpointRoot
+          admittedResult <-
+            liftIO (CheckpointStore.admitLocalLatestCheckpoint checkpointRoot experimentHash)
+          pure $ case admittedResult of
+            Left _ -> Nothing
+            Right admitted ->
+              case CheckpointStore.requireAdmittedCompletedCheckpoint admitted of
+                Left _ -> Nothing
+                Right completed -> Just completed
     }
 {-# NOINLINE productPublisherRuntime #-}
 

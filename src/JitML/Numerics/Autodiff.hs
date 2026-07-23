@@ -9,6 +9,7 @@ module JitML.Numerics.Autodiff
   , squaredErrorGradient
   , loss
   , maxFiniteDifferenceError
+  , maxInputFiniteDifferenceError
   )
 where
 
@@ -41,3 +42,7 @@ loss = LayerGraph.layerGraphLoss
 maxFiniteDifferenceError
   :: Double -> LayerGraph.LayerGraph -> Vector Double -> Vector Double -> Either Text Double
 maxFiniteDifferenceError = LayerGraph.maxFiniteDifferenceError
+
+maxInputFiniteDifferenceError
+  :: Double -> LayerGraph.LayerGraph -> Vector Double -> Vector Double -> Either Text Double
+maxInputFiniteDifferenceError = LayerGraph.maxInputFiniteDifferenceError

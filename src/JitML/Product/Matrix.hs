@@ -6,8 +6,6 @@
 
 module JitML.Product.Matrix
   ( DeviceClaim (..)
-  , EvidenceHandle (..)
-  , EvidenceKind (..)
   , MatrixFloor (..)
   , ModelState (..)
   , NonProductRow (..)
@@ -74,7 +72,7 @@ where
 import Data.Char (ord)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word64)
@@ -147,18 +145,6 @@ data ModelState
   | TrainingStarted
   | TrainingCompleted
   | InferenceEligible
-  deriving stock (Eq, Show)
-
-data EvidenceKind
-  = TrainingEvidence
-  | DeviceEvidence
-  | CheckpointEvidence
-  | DemoEvidence
-  deriving stock (Eq, Show)
-
-newtype EvidenceHandle (state :: ModelState) (kind :: EvidenceKind) = EvidenceHandle
-  { unEvidenceHandle :: Text
-  }
   deriving stock (Eq, Show)
 
 data RowFamily
@@ -359,10 +345,6 @@ data ProductRow (state :: ModelState) = ProductRow
   , convergenceBar :: ConvergenceBar
   , deviceClaim :: DeviceClaim
   , productCapability :: ProductCapability
-  , trainingEvidence :: Maybe (EvidenceHandle state 'TrainingEvidence)
-  , deviceEvidence :: Maybe (EvidenceHandle state 'DeviceEvidence)
-  , checkpointEvidence :: Maybe (EvidenceHandle state 'CheckpointEvidence)
-  , demoEvidence :: Maybe (EvidenceHandle state 'DemoEvidence)
   , integrationTest :: Text
   , e2eTest :: Text
   , demoPanel :: Text
@@ -562,7 +544,6 @@ data ProductProjectionError
   | ProductImplementationMismatch !Text !Text !Text
   | ProductArchitectureFeaturesMismatch !Text ![ArchitectureFeature] ![ArchitectureFeature]
   | ProductArchitectureResolutionFailure !Text !Text
-  | DeclaredProductCarriesEvidence !Text !EvidenceKind
   | InvalidProductConvergenceBar !Text !ConvergenceBarError
   | InvalidProductRunPlan !Text !PlanError
   | InvalidProductWorkloadPlan !Text !WorkloadPlanError
@@ -908,10 +889,6 @@ baseRow rowId' family' rowClass' implementation' experimentConfig' budget bar cl
     , convergenceBar = bar
     , deviceClaim = claim
     , productCapability = canonicalProductCapability rowId' rowClass' budget
-    , trainingEvidence = Nothing
-    , deviceEvidence = Nothing
-    , checkpointEvidence = Nothing
-    , demoEvidence = Nothing
     , integrationTest = "integration.product." <> sanitizeTestId rowId'
     , e2eTest = "e2e.product." <> sanitizeTestId rowId'
     , demoPanel = panel
@@ -1204,9 +1181,8 @@ validateProductDeclaration row runKind expectedBudget descriptor =
     <*> validateProductBudgetKind row expectedBudget
     <*> (validateProductSeed row `andValidation` validateProductSeedHeadroom row descriptor)
     <*> validateProductDescriptorSemantics row descriptor
-    <*> validateDeclaredEvidenceBoundary row
  where
-  keepValidatedBar bar _ _ _ _ _ _ _ _ = bar
+  keepValidatedBar bar _ _ _ _ _ _ _ = bar
 
 validateRequiredProductFields
   :: ProductRow state
@@ -1632,25 +1608,6 @@ word64ToInt label value
   | value > fromIntegral (maxBound :: Int) =
       Left (label <> " exceeds the executor Int range: " <> showText value)
   | otherwise = Right (fromIntegral value)
-
-validateDeclaredEvidenceBoundary
-  :: ProductRow state
-  -> Validation (NonEmpty ProductProjectionError) ()
-validateDeclaredEvidenceBoundary row =
-  validationFromErrors
-    ( [ DeclaredProductCarriesEvidence (rowId row) TrainingEvidence
-      | isJust (trainingEvidence row)
-      ]
-        <> [ DeclaredProductCarriesEvidence (rowId row) DeviceEvidence
-           | isJust (deviceEvidence row)
-           ]
-        <> [ DeclaredProductCarriesEvidence (rowId row) CheckpointEvidence
-           | isJust (checkpointEvidence row)
-           ]
-        <> [ DeclaredProductCarriesEvidence (rowId row) DemoEvidence
-           | isJust (demoEvidence row)
-           ]
-    )
 
 expectedFamily :: ProductRunKind -> RowFamily
 expectedFamily runKind =
@@ -2178,10 +2135,6 @@ renderProductProjectionError projectionError =
         <> showText observed
     ProductArchitectureResolutionFailure rowId' err ->
       rowId' <> " cannot resolve canonical architecture claims: " <> err
-    DeclaredProductCarriesEvidence rowId' evidenceKind ->
-      rowId'
-        <> " declared row carries measured evidence handle: "
-        <> showText evidenceKind
     InvalidProductConvergenceBar rowId' err ->
       rowId' <> " has invalid convergence bar: " <> showText err
     InvalidProductRunPlan rowId' err ->

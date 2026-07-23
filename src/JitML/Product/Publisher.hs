@@ -24,7 +24,7 @@ import Data.Bifunctor (first)
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
@@ -68,6 +68,7 @@ import JitML.Product.Publisher.Audit
   , renderProductInventoryEntry
   , renderProductPublishResult
   , validateAdmittedProductCheckpoint
+  , validateAdmittedProjectionIdentity
   , validateProductCompletedTrainingPlanId
   , validateProductPublishBatch
   )
@@ -192,6 +193,14 @@ data ProductPublisherRuntime = ProductPublisherRuntime
   , publisherLoadTuningDataset
       :: Tune.TuningExecutionSpec
       -> App (Either Text TuningPublishDataset)
+  , publisherReuseAdmittedCheckpoint
+      :: Text
+      -> App (Maybe CheckpointStore.AdmittedCompletedCheckpoint)
+  -- ^ Idempotent reuse: re-admit the latest checkpoint already persisted for
+  -- this experiment hash by re-reading every persisted byte through the exact
+  -- Store admission path, or 'Nothing' when no admissible checkpoint exists
+  -- yet.  Never mints completion from anything but the persisted artifact, so
+  -- reusing a prior deterministic training output is not fabrication.
   }
 
 data SupervisedPublishRun = SupervisedPublishRun
@@ -400,7 +409,51 @@ trainAndPublishProductProjection
   :: ProductPublisherRuntime
   -> PreparedProductProjection
   -> App ProductPublishResult
-trainAndPublishProductProjection runtime (PreparedProductProjection row witness projection prepared) =
+trainAndPublishProductProjection runtime prepared@(PreparedProductProjection _ _ projection _) = do
+  reuse <-
+    publisherReuseAdmittedCheckpoint
+      runtime
+      (ProductMatrix.productProjectionExperimentHash projection)
+  case reuse of
+    Just admitted
+      | Right () <- validateAdmittedProjectionIdentity projection admitted ->
+          pure (reuseProductPublishResult projection admitted)
+    _ -> trainAndPublishProductProjectionFresh runtime prepared
+
+-- | Reconstruct the eligible publish result from a re-admitted checkpoint
+-- without re-training.  The companion receipts are read back from the admitted
+-- manifest's own transcript pointers, so they equal what a fresh publish would
+-- have bound and the batch audit's pointer/kind equalities still hold.
+reuseProductPublishResult
+  :: ProductMatrix.ProductProjection kind
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> ProductPublishResult
+reuseProductPublishResult projection admitted =
+  productPublishEligible
+    projection
+    admitted
+    reuseReceipts
+    "reused admitted product-row checkpoint"
+ where
+  manifest =
+    CheckpointStore.admittedCheckpointManifest
+      (CheckpointStore.admittedCompletedCheckpoint admitted)
+  reuseReceipts =
+    [ ProductArtifactReceipt
+        { productArtifactExperimentHash =
+            ProductMatrix.productProjectionExperimentHash projection
+        , productArtifactKind = Checkpoint.artifactPointerKind pointer
+        , productArtifactSha = fromMaybe "" (Checkpoint.artifactPointerSha pointer)
+        , productArtifactObjectKey = Checkpoint.artifactPointerObjectKey pointer
+        }
+    | pointer <- Checkpoint.manifestTranscriptPointers manifest
+    ]
+
+trainAndPublishProductProjectionFresh
+  :: ProductPublisherRuntime
+  -> PreparedProductProjection
+  -> App ProductPublishResult
+trainAndPublishProductProjectionFresh runtime (PreparedProductProjection row witness projection prepared) =
   case witness of
     SupervisedTrainingWitness ->
       let (experiment, problem) = ProductExperiment.preparedSupervisedProductExperiment prepared

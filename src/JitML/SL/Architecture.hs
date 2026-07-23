@@ -608,6 +608,7 @@ graphNodes seed inputWidth plans =
     LayerGraph.LayerNode
       { LayerGraph.layerNodeName = name'
       , LayerGraph.layerNodeKind = LayerGraph.DenseLayer
+      , LayerGraph.layerNodeOp = LayerGraph.IdentityOp
       , LayerGraph.layerInputShape = LayerGraph.TensorShape [max 1 width]
       , LayerGraph.layerOutputShape = LayerGraph.TensorShape [max 1 width]
       , LayerGraph.layerMode = LayerGraph.TrainingMode

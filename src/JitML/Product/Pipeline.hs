@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module JitML.Product.Pipeline
   ( Experiment
@@ -33,32 +35,59 @@ newtype Experiment (state :: ModelState) = Experiment
   }
   deriving stock (Eq, Show)
 
-data ModelRef (state :: ModelState) = ModelRef
-  { modelRefExperimentHash :: Text
-  , modelRefManifestSha :: Maybe Text
-  , modelRefCompletedTraining :: Maybe CompletedTraining
-  }
-  deriving stock (Eq, Show)
+-- | A model reference indexed by its lifecycle state.  The constructors are
+-- hidden: a 'ModelRef' can only be built through the smart constructors and
+-- legal transitions below, and each state carries exactly the evidence that is
+-- legal for it — a @'Declared'@/@'TrainingStarted'@ reference structurally
+-- cannot carry a manifest SHA or completed-training witness, and only an
+-- @'InferenceEligible'@ reference carries the admitted manifest SHA.  Optional
+-- @Maybe@ evidence fields no longer exist, so a contradictory state payload is
+-- unrepresentable rather than merely rejected at runtime.
+data ModelRef (state :: ModelState) where
+  DeclaredModelRef :: !Text -> ModelRef 'Declared
+  TrainingStartedModelRef :: !Text -> ModelRef 'TrainingStarted
+  TrainingCompletedModelRef
+    :: !Text -> !CompletedTraining -> ModelRef 'TrainingCompleted
+  InferenceEligibleModelRef
+    :: !Text -> !Text -> !CompletedTraining -> ModelRef 'InferenceEligible
+
+deriving stock instance Eq (ModelRef state)
+deriving stock instance Show (ModelRef state)
 
 type InferenceEligibleRef = ModelRef 'InferenceEligible
+
+-- | The experiment hash is common to every lifecycle state.
+modelRefExperimentHash :: ModelRef state -> Text
+modelRefExperimentHash ref =
+  case ref of
+    DeclaredModelRef hash -> hash
+    TrainingStartedModelRef hash -> hash
+    TrainingCompletedModelRef hash _ -> hash
+    InferenceEligibleModelRef hash _ _ -> hash
+
+-- | Only an inference-eligible reference has an admitted manifest SHA.
+modelRefManifestSha :: ModelRef state -> Maybe Text
+modelRefManifestSha ref =
+  case ref of
+    InferenceEligibleModelRef _ manifestSha _ -> Just manifestSha
+    _ -> Nothing
+
+-- | Only a completed or inference-eligible reference carries the witness.
+modelRefCompletedTraining :: ModelRef state -> Maybe CompletedTraining
+modelRefCompletedTraining ref =
+  case ref of
+    TrainingCompletedModelRef _ completed -> Just completed
+    InferenceEligibleModelRef _ _ completed -> Just completed
+    _ -> Nothing
 
 declareExperiment :: Text -> Experiment 'Declared
 declareExperiment = Experiment
 
 declareModel :: Experiment 'Declared -> ModelRef 'Declared
-declareModel experiment =
-  ModelRef
-    { modelRefExperimentHash = experimentHash experiment
-    , modelRefManifestSha = Nothing
-    , modelRefCompletedTraining = Nothing
-    }
+declareModel experiment = DeclaredModelRef (experimentHash experiment)
 
 startTraining :: ModelRef 'Declared -> ModelRef 'TrainingStarted
-startTraining ref =
-  ref
-    { modelRefManifestSha = Nothing
-    , modelRefCompletedTraining = Nothing
-    }
+startTraining (DeclaredModelRef hash) = TrainingStartedModelRef hash
 
 train
   :: (Applicative m)
@@ -72,19 +101,17 @@ completeTraining
   :: ModelRef 'TrainingStarted
   -> CompletedTraining
   -> ModelRef 'TrainingCompleted
-completeTraining ref completed =
-  ref
-    { modelRefCompletedTraining = Just completed
-    }
+completeTraining (TrainingStartedModelRef hash) =
+  TrainingCompletedModelRef hash
 
 markInferenceEligible
   :: CheckpointStore.AdmittedCompletedCheckpoint
   -> ModelRef 'TrainingCompleted
   -> Either Text InferenceEligibleRef
-markInferenceEligible eligible ref
-  | modelRefCompletedTraining ref /= Just completed =
+markInferenceEligible eligible (TrainingCompletedModelRef hash refCompleted)
+  | refCompleted /= completed =
       Left "completed-training witness does not match model reference"
-  | modelRefExperimentHash ref /= manifestExperiment manifest =
+  | hash /= manifestExperiment manifest =
       Left "completed checkpoint does not match model experiment"
   | otherwise =
       Right (inferenceEligibleModelRef eligible)
@@ -97,12 +124,11 @@ inferenceEligibleModelRef
   :: CheckpointStore.AdmittedCompletedCheckpoint
   -> InferenceEligibleRef
 inferenceEligibleModelRef eligible =
-  let admitted = CheckpointStore.admittedCompletedCheckpoint eligible
-      manifest = CheckpointStore.admittedCheckpointManifest admitted
-      completed = CheckpointStore.admittedCompletedTraining eligible
-   in ModelRef
-        { modelRefExperimentHash = manifestExperiment manifest
-        , modelRefManifestSha =
-            Just (CheckpointStore.admittedCheckpointManifestSha admitted)
-        , modelRefCompletedTraining = Just completed
-        }
+  InferenceEligibleModelRef
+    (manifestExperiment manifest)
+    (CheckpointStore.admittedCheckpointManifestSha admitted)
+    completed
+ where
+  admitted = CheckpointStore.admittedCompletedCheckpoint eligible
+  manifest = CheckpointStore.admittedCheckpointManifest admitted
+  completed = CheckpointStore.admittedCompletedTraining eligible

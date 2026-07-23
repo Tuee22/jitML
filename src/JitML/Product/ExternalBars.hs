@@ -39,6 +39,7 @@ import JitML.Product.Convergence
   , evaluateConvergence
   , mkConvergenceBar
   )
+import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.Training.Budget qualified as TrainingBudget
 
 -- | A convergence bar is self-referential (tautological) when its slack is
@@ -133,19 +134,59 @@ assertConvergenceObservationsExternal
 assertConvergenceObservationsExternal =
   concatMap validateObservation
  where
-  validateObservation observation =
-    case convergenceObservationForMetric
-      (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation) of
-      Left err -> [err]
-      Right expected ->
-        [ "stored convergence observation for "
-            <> TrainingBudget.coMetricName observation
-            <> " does not match the external bar"
-        | TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
-            || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
-            || TrainingBudget.convergencePassed observation
-              /= TrainingBudget.convergencePassed expected
-        ]
+  validateObservation observation
+    | TrainingBudget.coMetricName observation == rlMedianFinalRewardMetric =
+        assertFrozenRlRewardObservationExternal observation
+    | otherwise =
+        case convergenceObservationForMetric
+          (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation) of
+          Left err -> [err]
+          Right expected ->
+            [ "stored convergence observation for "
+                <> TrainingBudget.coMetricName observation
+                <> " does not match the external bar"
+            | TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
+                || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
+                || TrainingBudget.convergencePassed observation
+                  /= TrainingBudget.convergencePassed expected
+            ]
+
+-- | RL final-return convergence uses a per-(algorithm, environment) literature
+-- anchor rather than a single universal value, so 'convergenceBarForMetric' has
+-- no @median_final_reward@ entry (a single universal reward target would be
+-- wrong — env rewards differ by orders of magnitude). A stored RL reward
+-- observation is externally anchored iff it maximises the return and its
+-- threshold is one of the frozen @literatureTarget - slack@ anchors in
+-- 'RLConvergence.cohortThresholds' — the single source of external RL ground
+-- truth this module's docstring references. Because that set is fixed and
+-- value-independent, the threshold can never be a self-referential
+-- @threshold == measuredValue@ bar except by an astronomically unlikely
+-- coincidence with a frozen anchor.
+rlMedianFinalRewardMetric :: Text
+rlMedianFinalRewardMetric = "median_final_reward"
+
+frozenRlRewardThresholds :: [Double]
+frozenRlRewardThresholds =
+  [ RLConvergence.literatureTarget threshold - RLConvergence.slack threshold
+  | (_, threshold) <- RLConvergence.cohortThresholds
+  ]
+
+assertFrozenRlRewardObservationExternal
+  :: TrainingBudget.ConvergenceObservation -> [Text]
+assertFrozenRlRewardObservationExternal observation =
+  [ "stored RL "
+      <> rlMedianFinalRewardMetric
+      <> " observation must maximise the environment return"
+  | TrainingBudget.coMetricGoal observation /= TrainingBudget.MetricMaximise
+  ]
+    <> [ "stored RL "
+           <> rlMedianFinalRewardMetric
+           <> " threshold "
+           <> showDouble (TrainingBudget.coThreshold observation)
+           <> " is not a frozen external cohort anchor (literatureTarget - slack)"
+           <> " from JitML.RL.ConvergenceThresholds"
+       | TrainingBudget.coThreshold observation `notElem` frozenRlRewardThresholds
+       ]
 
 assertConvergenceObservationsAgainstBar
   :: ConvergenceBar
