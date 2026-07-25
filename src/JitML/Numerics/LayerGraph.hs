@@ -470,6 +470,17 @@ splitSegments = go 0
   go _ [] _ = []
   go off (len : rest) v = VU.slice off len v : go (off + len) rest v
 
+-- | Total destructuring of a known-length segment list (the segment count is
+-- fixed by the operator spec, so the fallback is unreachable). Used instead of
+-- a partial @let [a,b,c] = ...@ so the module compiles under @-Werror@.
+split3 :: [a] -> (a, a, a)
+split3 (a : b : c : _) = (a, b, c)
+split3 _ = error "split3: expected at least 3 segments"
+
+split4 :: [a] -> (a, a, a, a)
+split4 (a : b : c : d : _) = (a, b, c, d)
+split4 _ = error "split4: expected at least 4 segments"
+
 -- ---------------------------------------------------------------------------
 -- Deterministic initialisers
 -- ---------------------------------------------------------------------------
@@ -958,9 +969,11 @@ mkBlockNode mkKind name spec mode params = do
 
 blockOutWidth :: Text -> BlockSpec -> Either Text Int
 blockOutWidth name spec = do
-  let stages = blStages spec
-      dIn = asIn (bsAffine (head stages))
-      dOut = asOut (bsAffine (last stages))
+  (firstStage, lastStage) <- case (blStages spec, reverse (blStages spec)) of
+    (f : _, l : _) -> Right (f, l)
+    _ -> Left (name <> ": block must have at least one stage")
+  let dIn = asIn (bsAffine firstStage)
+      dOut = asOut (bsAffine lastStage)
   case blShortcut spec of
     IdentityShortcut ->
       if dIn == dOut
@@ -1593,8 +1606,8 @@ attentionRun spec params x =
       h = attnNumHeads spec
       dh = d `div` h
       sc = 1.0 / sqrt (fromIntegral dh)
-      [wQ, wK, wV, wO] = splitSegments (replicate 4 (d * d)) (layerWeights params)
-      [bQ, bK, bV, bO] = splitSegments (replicate 4 d) (layerBias params)
+      (wQ, wK, wV, wO) = split4 (splitSegments (replicate 4 (d * d)) (layerWeights params))
+      (bQ, bK, bV, bO) = split4 (splitSegments (replicate 4 d) (layerBias params))
       toks = chunksOf d x
       proj w b t = VU.zipWith (+) (matVec w d d t) b
       qs = map (proj wQ bQ) toks
@@ -1645,7 +1658,7 @@ attentionBackward spec params x upstream =
       h = attnNumHeads spec
       dh = d `div` h
       sc = 1.0 / sqrt (fromIntegral dh)
-      [wQ, wK, wV, wO] = splitSegments (replicate 4 (d * d)) (layerWeights params)
+      (wQ, wK, wV, wO) = split4 (splitSegments (replicate 4 (d * d)) (layerWeights params))
       cache = snd (attentionRun spec params x)
       dOs = chunksOf d upstream -- residual: dO = dY, dX seed = dY
       dWO = foldl1 addV (zipWith outerProduct dOs (acCs cache))
@@ -1705,11 +1718,13 @@ gegluForward
   -> Vector Double
   -> (Vector Double, (Vector Double, Vector Double, Vector Double, Vector Double))
 gegluForward spec params x =
-  let [wa, wb, w2] =
-        splitSegments
-          [ggFf spec * ggIn spec, ggFf spec * ggIn spec, ggOut spec * ggFf spec]
-          (layerWeights params)
-      [ba, bb, b2] = splitSegments [ggFf spec, ggFf spec, ggOut spec] (layerBias params)
+  let (wa, wb, w2) =
+        split3
+          ( splitSegments
+              [ggFf spec * ggIn spec, ggFf spec * ggIn spec, ggOut spec * ggFf spec]
+              (layerWeights params)
+          )
+      (ba, bb, b2) = split3 (splitSegments [ggFf spec, ggFf spec, ggOut spec] (layerBias params))
       a = VU.zipWith (+) (matVec wa (ggFf spec) (ggIn spec) x) ba
       g = VU.zipWith (+) (matVec wb (ggFf spec) (ggIn spec) x) bb
       gg = VU.map gelu g
@@ -1724,10 +1739,12 @@ gegluBackward
   -> Vector Double
   -> (Vector Double, LayerParameterGradient)
 gegluBackward spec params x dy =
-  let [wa, wb, w2] =
-        splitSegments
-          [ggFf spec * ggIn spec, ggFf spec * ggIn spec, ggOut spec * ggFf spec]
-          (layerWeights params)
+  let (wa, wb, w2) =
+        split3
+          ( splitSegments
+              [ggFf spec * ggIn spec, ggFf spec * ggIn spec, ggOut spec * ggFf spec]
+              (layerWeights params)
+          )
       (_, (a, g, gg, hHidden)) = gegluForward spec params x
       dW2 = outerProduct dy hHidden
       dB2 = dy
@@ -1808,20 +1825,31 @@ residualForward
   -> Vector Double
   -> Either Text (Vector Double, Vector Double)
 residualForward inner shortcut scale innerAct finalAct params x = do
-  let wSegs = opWeightSegments (ResidualOp inner shortcut scale innerAct)
-      bSegs = opBiasSegments (ResidualOp inner shortcut scale innerAct)
-      ws = splitSegments wSegs (layerWeights params)
-      bs = splitSegments bSegs (layerBias params)
-      wInner = head ws
-      bInner = head bs
-      z = affFwd wInner bInner inner x
+  let op = ResidualOp inner shortcut scale innerAct
+      ws = splitSegments (opWeightSegments op) (layerWeights params)
+      bs = splitSegments (opBiasSegments op) (layerBias params)
+  (wInner, bInner, mProj) <- residualSegments shortcut ws bs
+  let z = affFwd wInner bInner inner x
       a = applyActivation innerAct z
-  sx <- case shortcut of
-    IdentityShortcut -> Right x
-    ProjectionShortcut proj -> Right (affFwd (ws !! 1) (bs !! 1) proj x)
-  let ypre = VU.zipWith (\p q -> p + scale * q) sx a
+      sx = case mProj of
+        Nothing -> x
+        Just (proj, wp, bp) -> affFwd wp bp proj x
+      ypre = VU.zipWith (\p q -> p + scale * q) sx a
       y = applyActivation finalAct ypre
   pure (y, ypre)
+
+-- | Total binding of a residual node's inner affine params and optional
+-- projection-shortcut params from its packed segments.
+residualSegments
+  :: Shortcut
+  -> [Vector Double]
+  -> [Vector Double]
+  -> Either Text (Vector Double, Vector Double, Maybe (AffineSpec, Vector Double, Vector Double))
+residualSegments shortcut ws bs =
+  case (shortcut, ws, bs) of
+    (IdentityShortcut, wi : _, bi : _) -> Right (wi, bi, Nothing)
+    (ProjectionShortcut proj, wi : wp : _, bi : bp : _) -> Right (wi, bi, Just (proj, wp, bp))
+    _ -> Left "residual: parameter segments do not match shortcut"
 
 residualBackward
   :: AffineSpec
@@ -1837,35 +1865,34 @@ residualBackward inner shortcut scale innerAct finalAct params x upstream = do
   let op = ResidualOp inner shortcut scale innerAct
       ws = splitSegments (opWeightSegments op) (layerWeights params)
       bs = splitSegments (opBiasSegments op) (layerBias params)
-      wInner = head ws
-      bInner = head bs
-      z = affFwd wInner bInner inner x
+  (wInner, bInner, mProj) <- residualSegments shortcut ws bs
+  let z = affFwd wInner bInner inner x
       a = applyActivation innerAct z
-  sx <- case shortcut of
-    IdentityShortcut -> Right x
-    ProjectionShortcut proj -> Right (affFwd (ws !! 1) (bs !! 1) proj x)
-  let ypre = VU.zipWith (\p q -> p + scale * q) sx a
+      sx = case mProj of
+        Nothing -> x
+        Just (proj, wp, bp) -> affFwd wp bp proj x
+      ypre = VU.zipWith (\p q -> p + scale * q) sx a
       d = activationBackward finalAct (applyActivation finalAct ypre) upstream
       dPre = VU.map (* scale) (activationBackward innerAct a d)
       (dxF, dWf, dBf) = affBwd wInner inner x dPre
-  case shortcut of
-    IdentityShortcut ->
-      Right (VU.zipWith (+) dxF d, LayerParameterGradient dWf dBf)
-    ProjectionShortcut proj ->
-      let (dxS, dWs, dBs) = affBwd (ws !! 1) proj x d
-       in Right (VU.zipWith (+) dxF dxS, LayerParameterGradient (VU.concat [dWf, dWs]) (VU.concat [dBf, dBs]))
+  pure $ case mProj of
+    Nothing -> (VU.zipWith (+) dxF d, LayerParameterGradient dWf dBf)
+    Just (proj, wp, _bp) ->
+      let (dxS, dWs, dBs) = affBwd wp proj x d
+       in (VU.zipWith (+) dxF dxS, LayerParameterGradient (VU.concat [dWf, dWs]) (VU.concat [dBf, dBs]))
 
 -- ---------------------------------------------------------------------------
 -- Blocks (BasicBlock / Bottleneck): ordered affine→norm stages + skip
 -- ---------------------------------------------------------------------------
 
--- | Stage tape: (input, affinePre, normOut-or-affinePre, normStats).
+-- | Stage tape: the stage input, the affine pre-activation (norm input), and
+-- the activation input (norm output, or the affine pre-activation when the
+-- stage has no norm). The backward pass recomputes norm statistics from the
+-- norm input, so xhat/stats are not stored.
 data StageTape = StageTape
   { stInput :: !(Vector Double)
   , stNormIn :: !(Vector Double)
   , stActIn :: !(Vector Double)
-  , stNormXhat :: !(Vector Double)
-  , stNormStats :: ![(Double, Double)]
   }
 
 blockForward
@@ -1902,14 +1929,16 @@ foldStages stages pieces x0 = go stages pieces x0 []
 stageForward
   :: BlockStage -> ([Vector Double], [Vector Double]) -> Vector Double -> (Vector Double, StageTape)
 stageForward (BlockStage affine mNorm act) (wSegs, bSegs) x =
-  let z = affFwd (head wSegs) (head bSegs) affine x
-   in case mNorm of
-        Nothing ->
-          (applyActivation act z, StageTape x z z VU.empty [])
-        Just normSpec ->
-          let normParams = LayerParameters (wSegs !! 1) (bSegs !! 1)
-              (zn, xhat, stats) = normForward normSpec normParams z
-           in (applyActivation act zn, StageTape x z zn xhat stats)
+  case (mNorm, wSegs, bSegs) of
+    (Nothing, wAff : _, bAff : _) ->
+      let z = affFwd wAff bAff affine x
+       in (applyActivation act z, StageTape x z z)
+    (Just normSpec, wAff : wGamma : _, bAff : bBeta : _) ->
+      let z = affFwd wAff bAff affine x
+          normParams = LayerParameters wGamma bBeta
+          (zn, _xhat, _stats) = normForward normSpec normParams z
+       in (applyActivation act zn, StageTape x z zn)
+    _ -> error "stageForward: block stage/segment mismatch"
 
 stageBackward
   :: BlockStage
@@ -1920,15 +1949,16 @@ stageBackward
 stageBackward (BlockStage affine mNorm act) (wSegs, bSegs) tape dOut =
   let actIn = stActIn tape
       dActPre = activationBackward act (applyActivation act actIn) dOut
-   in case mNorm of
-        Nothing ->
-          let (dx, dW, dB) = affBwd (head wSegs) affine (stInput tape) dActPre
+   in case (mNorm, wSegs, bSegs) of
+        (Nothing, wAff : _, _) ->
+          let (dx, dW, dB) = affBwd wAff affine (stInput tape) dActPre
            in (dx, [dW], [dB])
-        Just normSpec ->
-          let normParams = LayerParameters (wSegs !! 1) (bSegs !! 1)
+        (Just normSpec, wAff : wGamma : _, _ : bBeta : _) ->
+          let normParams = LayerParameters wGamma bBeta
               (dz, pg) = normBackward normSpec normParams (stNormIn tape) dActPre
-              (dx, dW, dB) = affBwd (head wSegs) affine (stInput tape) dz
+              (dx, dW, dB) = affBwd wAff affine (stInput tape) dz
            in (dx, [dW, layerGradWeights pg], [dB, layerGradBias pg])
+        _ -> error "stageBackward: block stage/segment mismatch"
 
 blockBackward
   :: BlockSpec
@@ -1940,7 +1970,7 @@ blockBackward spec params x upstream = do
   let ws = splitSegments (opWeightSegments (BlockOp spec)) (layerWeights params)
       bs = splitSegments (opBiasSegments (BlockOp spec)) (layerBias params)
       (stageWs, shortcutWs) = splitAt (stageWeightCount (blStages spec)) ws
-      (stageBs, shortcutBs) = splitAt (stageBiasCount (blStages spec)) bs
+      (stageBs, _shortcutBs) = splitAt (stageBiasCount (blStages spec)) bs
       stagePieces = assignStageParams (blStages spec) stageWs stageBs
   (_, (tapes, ypre)) <- blockForward spec params x
   let d = activationBackward (blFinalAct spec) (applyActivation (blFinalAct spec) ypre) upstream

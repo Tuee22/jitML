@@ -248,7 +248,7 @@ closureClaimDrift claim =
     { driftPath = closureClaimPath claim
     , driftKey = closureClaimKey claim
     , driftReason =
-        "product closure claim before Phases 19-34 are Done at line "
+        "product closure claim before Phases 220-283 are Done at line "
           <> Text.pack (show (closureClaimLineNumber claim))
           <> ": "
           <> closureClaimLine claim

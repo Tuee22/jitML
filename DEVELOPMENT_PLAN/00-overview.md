@@ -2,47 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](README.md),
-[development_plan_standards.md](development_plan_standards.md),
-[system-components.md](system-components.md),
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[phase-0-planning-documentation.md](phase-0-planning-documentation.md),
-[phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
-[phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
-[phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
-[phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md),
-[phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md),
-[phase-6-numerical-core.md](phase-6-numerical-core.md),
-[phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
-[phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
-[phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
-[phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
-[phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
-[phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
-[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
-[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
-[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
-[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
-[phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
-[phase-19-product-truth-gates.md](phase-19-product-truth-gates.md),
-[phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md),
-[phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md),
-[phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md),
-[phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md),
-[phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md),
-[phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md),
-[phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md),
-[phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md),
-[phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md),
-[phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
-[phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
-[phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
-[phase-32-external-truth-realness-harness.md](phase-32-external-truth-realness-harness.md),
-[phase-33-per-model-convergence-and-inference-tests.md](phase-33-per-model-convergence-and-inference-tests.md),
-[phase-34-plan-truth-governance.md](phase-34-plan-truth-governance.md),
-[../README.md](../README.md),
-[../documents/engineering/run_contract.md](../documents/engineering/run_contract.md)
+**Referenced by**: [README.md](README.md), [development_plan_standards.md](development_plan_standards.md), [system-components.md](system-components.md), [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md), [../README.md](../README.md), [../documents/engineering/run_contract.md](../documents/engineering/run_contract.md), [phase-1-canonical-plan-suite-bootstrap.md](phase-1-canonical-plan-suite-bootstrap.md), [phase-2-doctrine-driven-scheduling-audit.md](phase-2-doctrine-driven-scheduling-audit.md), [phase-3-governed-document-metadata-enforcement.md](phase-3-governed-document-metadata-enforcement.md), [phase-4-toolchain-pin-and-library-first-cabal-project.md](phase-4-toolchain-pin-and-library-first-cabal-project.md), [phase-5-commandspec-registry-and-generated-parser.md](phase-5-commandspec-registry-and-generated-parser.md), [phase-6-generated-sections-and-tracking-generated-paths.md](phase-6-generated-sections-and-tracking-generated-paths.md), [phase-7-lint-stack-fourmolu-hlint-cabal-format-forbiddenpathregistry.md](phase-7-lint-stack-fourmolu-hlint-cabal-format-forbiddenpathregistry.md), [phase-8-plan-apply-boundary-with-dry-run-and-plan-file.md](phase-8-plan-apply-boundary-with-dry-run-and-plan-file.md), [phase-9-subprocess-typed-values-runstreaming-capture-interpreter.md](phase-9-subprocess-typed-values-runstreaming-capture-interpreter.md), [phase-10-prerequisite-registry-as-typed-effects.md](phase-10-prerequisite-registry-as-typed-effects.md), [phase-11-env-record-and-readert-env-io-runner.md](phase-11-env-record-and-readert-env-io-runner.md), [phase-12-apperror-adt-rendererror-output-rules.md](phase-12-apperror-adt-rendererror-output-rules.md), [phase-13-scoped-allow-newer-retirement-gate.md](phase-13-scoped-allow-newer-retirement-gate.md), [phase-14-ghc-9-12-4-baseline-and-dependency-helper-retirement.md](phase-14-ghc-9-12-4-baseline-and-dependency-helper-retirement.md), [phase-15-cli-dhall-overrides.md](phase-15-cli-dhall-overrides.md), [phase-16-remove-verify-cross-backend-add-jitml-test-test-options-pass.md](phase-16-remove-verify-cross-backend-add-jitml-test-test-options-pass.md), [phase-17-reinstate-the-jitml-internal-vm-build-vm-command-surface.md](phase-17-reinstate-the-jitml-internal-vm-build-vm-command-surface.md), [phase-18-retire-vm-lifecycle-commands-for-fixed-bridge-apple-metal.md](phase-18-retire-vm-lifecycle-commands-for-fixed-bridge-apple-metal.md), [phase-19-remove-placeholder-top-level-cli-groups.md](phase-19-remove-placeholder-top-level-cli-groups.md), [phase-20-typed-numeric-cli-parsing-and-generated-only-command-referen.md](phase-20-typed-numeric-cli-parsing-and-generated-only-command-referen.md), [phase-21-structured-subprocess-outcomes.md](phase-21-structured-subprocess-outcomes.md), [phase-22-stage-0-bootstrap-gates-and-delegation.md](phase-22-stage-0-bootstrap-gates-and-delegation.md), [phase-23-populated-prerequisiteregistry-and-lazy-remediation.md](phase-23-populated-prerequisiteregistry-and-lazy-remediation.md), [phase-24-jit-cache-layout-and-content-addressing.md](phase-24-jit-cache-layout-and-content-addressing.md), [phase-25-outer-container-linux-builds-and-jitml-local-image.md](phase-25-outer-container-linux-builds-and-jitml-local-image.md), [phase-26-superseded-apple-silicon-vm-scaffold.md](phase-26-superseded-apple-silicon-vm-scaffold.md), [phase-27-bootstrap-script-wrappers-and-status.md](phase-27-bootstrap-script-wrappers-and-status.md), [phase-28-bootstrap-down-and-purge.md](phase-28-bootstrap-down-and-purge.md), [phase-29-dhall-cluster-resource-profile-kind-node-cap-and-host-ram-pr.md](phase-29-dhall-cluster-resource-profile-kind-node-cap-and-host-ram-pr.md), [phase-30-reconciler-sh-c-control-flow-typed-haskell.md](phase-30-reconciler-sh-c-control-flow-typed-haskell.md), [phase-31-retire-the-tart-prerequisite-and-jitml-internal-vm-commands.md](phase-31-retire-the-tart-prerequisite-and-jitml-internal-vm-commands.md), [phase-32-reinstate-the-tart-build-vm-prerequisite-and-lifecycle.md](phase-32-reinstate-the-tart-build-vm-prerequisite-and-lifecycle.md), [phase-33-replace-tart-prerequisites-with-fixed-bridge-apple-cache-pre.md](phase-33-replace-tart-prerequisites-with-fixed-bridge-apple-cache-pre.md), [phase-34-authenticated-third-party-image-pre-pull-before-kind-load.md](phase-34-authenticated-third-party-image-pre-pull-before-kind-load.md), [phase-35-in-cluster-docker-hub-imagepullsecret-authenticated-pod-pull.md](phase-35-in-cluster-docker-hub-imagepullsecret-authenticated-pod-pull.md), [phase-36-durable-state-dhall-dsl-foundation-and-jitml-project-init.md](phase-36-durable-state-dhall-dsl-foundation-and-jitml-project-init.md), [phase-37-per-substrate-kind-configs-and-extramounts.md](phase-37-per-substrate-kind-configs-and-extramounts.md), [phase-38-kubernetes-io-no-provisioner-storage-and-manual-pvs.md](phase-38-kubernetes-io-no-provisioner-storage-and-manual-pvs.md), [phase-39-envoy-gateway-and-single-127-0-0-1-edge-port-listener.md](phase-39-envoy-gateway-and-single-127-0-0-1-edge-port-listener.md), [phase-40-typed-route-registry-and-generated-httproute-manifests.md](phase-40-typed-route-registry-and-generated-httproute-manifests.md), [phase-41-cluster-lifecycle-reconciler-and-phased-deploy.md](phase-41-cluster-lifecycle-reconciler-and-phased-deploy.md), [phase-42-ha-kind-node-and-manual-pv-topology.md](phase-42-ha-kind-node-and-manual-pv-topology.md), [phase-43-live-cluster-lifecycle-and-publication-truth.md](phase-43-live-cluster-lifecycle-and-publication-truth.md), [phase-44-harbor-subchart-and-bootstrap-phase-install.md](phase-44-harbor-subchart-and-bootstrap-phase-install.md), [phase-45-percona-pg-operator-and-patroni-managed-service-postgres.md](phase-45-percona-pg-operator-and-patroni-managed-service-postgres.md), [phase-46-minio-subchart-bucket-provisioning-conditional-write-server.md](phase-46-minio-subchart-bucket-provisioning-conditional-write-server.md), [phase-47-apache-pulsar-ha-and-topic-bootstrap.md](phase-47-apache-pulsar-ha-and-topic-bootstrap.md), [phase-48-kube-prometheus-stack-and-provisioned-dashboards.md](phase-48-kube-prometheus-stack-and-provisioned-dashboards.md), [phase-49-tensorboard-with-minio-event-storage-and-checkpoint-sidecar.md](phase-49-tensorboard-with-minio-event-storage-and-checkpoint-sidecar.md), [phase-50-nvidia-runtimeclass-for-linux-cuda.md](phase-50-nvidia-runtimeclass-for-linux-cuda.md), [phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md](phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md), [phase-52-project-the-durable-state-storeregistry-over-minio-buckets.md](phase-52-project-the-durable-state-storeregistry-over-minio-buckets.md), [phase-53-ha-platform-service-topology.md](phase-53-ha-platform-service-topology.md), [phase-54-jitml-service-entry-point-and-lifecycle-summary.md](phase-54-jitml-service-entry-point-and-lifecycle-summary.md), [phase-55-bootconfig-liveconfig-dhall-and-hot-reload-schema-surface.md](phase-55-bootconfig-liveconfig-dhall-and-hot-reload-schema-surface.md), [phase-56-healthz-readyz-metrics-and-structured-logging.md](phase-56-healthz-readyz-metrics-and-structured-logging.md), [phase-57-retrypolicy-and-service-error-surface.md](phase-57-retrypolicy-and-service-error-surface.md), [phase-58-at-least-once-pulsar-consumer-with-message-hash-deduplicatio.md](phase-58-at-least-once-pulsar-consumer-with-message-hash-deduplicatio.md), [phase-59-stateless-deployment-pod-anti-affinity-per-substrate-dhall.md](phase-59-stateless-deployment-pod-anti-affinity-per-substrate-dhall.md), [phase-60-typed-dhall-runconfig-and-bootconfig-mounted-worker-dispatch.md](phase-60-typed-dhall-runconfig-and-bootconfig-mounted-worker-dispatch.md), [phase-61-retire-tart-vm-lifecycle-from-the-daemon.md](phase-61-retire-tart-vm-lifecycle-from-the-daemon.md), [phase-62-reinstate-the-dhall-configured-build-vm-block-and-daemon-acq.md](phase-62-reinstate-the-dhall-configured-build-vm-block-and-daemon-acq.md), [phase-63-replace-daemon-build-vm-acquire-with-metal-bridge-acquire.md](phase-63-replace-daemon-build-vm-acquire-with-metal-bridge-acquire.md), [phase-64-workload-placement-planner-and-apple-host-workload-dispatch.md](phase-64-workload-placement-planner-and-apple-host-workload-dispatch.md), [phase-65-reflected-dhall-schema.md](phase-65-reflected-dhall-schema.md), [phase-66-coordinator-topic-algebra.md](phase-66-coordinator-topic-algebra.md), [phase-67-one-binary-engine-coordinator-webapp-role-model.md](phase-67-one-binary-engine-coordinator-webapp-role-model.md), [phase-68-reconcile-the-pulsar-topic-family-with-the-storeregistry.md](phase-68-reconcile-the-pulsar-topic-family-with-the-storeregistry.md), [phase-69-one-numerical-worker-per-kubernetes-node.md](phase-69-one-numerical-worker-per-kubernetes-node.md), [phase-70-fail-closed-mounted-worker-runconfig.md](phase-70-fail-closed-mounted-worker-runconfig.md), [phase-71-receipt-bound-delivery-and-total-settlement.md](phase-71-receipt-bound-delivery-and-total-settlement.md), [phase-72-layer-catalog.md](phase-72-layer-catalog.md), [phase-73-activations-real-and-complex.md](phase-73-activations-real-and-complex.md), [phase-74-spectral-frequency-domain-operations.md](phase-74-spectral-frequency-domain-operations.md), [phase-75-optimizers-and-schedulers.md](phase-75-optimizers-and-schedulers.md), [phase-76-loss-functions.md](phase-76-loss-functions.md), [phase-77-dhall-schemas-and-cross-type-audit.md](phase-77-dhall-schemas-and-cross-type-audit.md), [phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md), [phase-79-engine-abi-and-engines-module-skeleton.md](phase-79-engine-abi-and-engines-module-skeleton.md), [phase-80-linux-cpu-engine-and-onednn-codegen-driver.md](phase-80-linux-cpu-engine-and-onednn-codegen-driver.md), [phase-81-linux-cuda-engine-and-cuda-codegen-driver.md](phase-81-linux-cuda-engine-and-cuda-codegen-driver.md), [phase-82-apple-silicon-engine-metal-codegen-host-forwarding-scaffoldi.md](phase-82-apple-silicon-engine-metal-codegen-host-forwarding-scaffoldi.md), [phase-83-hardware-auto-tuning-within-the-determinism-contract.md](phase-83-hardware-auto-tuning-within-the-determinism-contract.md), [phase-84-haskell-owned-runtime-jit-source-generation.md](phase-84-haskell-owned-runtime-jit-source-generation.md), [phase-85-headless-apple-metal-jit-runtime-compilation-host-swift-buil.md](phase-85-headless-apple-metal-jit-runtime-compilation-host-swift-buil.md), [phase-86-compose-gpu-service-split.md](phase-86-compose-gpu-service-split.md), [phase-87-route-the-apple-swift-build-through-the-tart-vm.md](phase-87-route-the-apple-swift-build-through-the-tart-vm.md), [phase-88-fixed-host-metal-bridge-and-source-metadata-apple-cache.md](phase-88-fixed-host-metal-bridge-and-source-metadata-apple-cache.md), [phase-89-local-supervised-canonical-summaries.md](phase-89-local-supervised-canonical-summaries.md), [phase-90-jitml-train-local-cli-summary.md](phase-90-jitml-train-local-cli-summary.md), [phase-91-rl-catalog-hook-for-canonical-tests.md](phase-91-rl-catalog-hook-for-canonical-tests.md), [phase-92-rl-metadata-primitives.md](phase-92-rl-metadata-primitives.md), [phase-93-rl-cli-summaries-and-report-hooks.md](phase-93-rl-cli-summaries-and-report-hooks.md), [phase-94-rl-training-plan-surface.md](phase-94-rl-training-plan-surface.md), [phase-95-rlrunlifecycle-gadt-retrofit.md](phase-95-rlrunlifecycle-gadt-retrofit.md), [phase-96-ale-boundary-and-rom-policy.md](phase-96-ale-boundary-and-rom-policy.md), [phase-97-copyright-free-visual-rl-demo-environment.md](phase-97-copyright-free-visual-rl-demo-environment.md), [phase-98-sl-substrate-backed-training-real-eval.md](phase-98-sl-substrate-backed-training-real-eval.md), [phase-99-rl-framework-substrate-routing.md](phase-99-rl-framework-substrate-routing.md), [phase-100-no-caveat-sl-rl-framework-runtime.md](phase-100-no-caveat-sl-rl-framework-runtime.md), [phase-101-real-sl-loss-validation-driven-selection-and-convergence-per.md](phase-101-real-sl-loss-validation-driven-selection-and-convergence-per.md), [phase-102-fixed-budget-training-witness-and-inference-ineligible-parti.md](phase-102-fixed-budget-training-witness-and-inference-ineligible-parti.md), [phase-103-typed-fail-closed-rl-device-errors.md](phase-103-typed-fail-closed-rl-device-errors.md), [phase-104-validated-runplan-and-pure-contract-algebra.md](phase-104-validated-runplan-and-pure-contract-algebra.md), [phase-105-on-policy-algorithm-metadata.md](phase-105-on-policy-algorithm-metadata.md), [phase-106-off-policy-algorithm-metadata.md](phase-106-off-policy-algorithm-metadata.md), [phase-107-specialised-algorithm-metadata.md](phase-107-specialised-algorithm-metadata.md), [phase-108-local-rl-canonical-tests.md](phase-108-local-rl-canonical-tests.md), [phase-109-alphazero-connect-4-transcript-surface.md](phase-109-alphazero-connect-4-transcript-surface.md), [phase-110-connect-4-local-game-surface.md](phase-110-connect-4-local-game-surface.md), [phase-111-hyperparameter-tuning-sampler-scheduler-pruner.md](phase-111-hyperparameter-tuning-sampler-scheduler-pruner.md), [phase-112-copyright-free-rl-matrix-retargeting.md](phase-112-copyright-free-rl-matrix-retargeting.md), [phase-113-real-rl-eval-rollout-and-per-algorithm-on-device-rollouts.md](phase-113-real-rl-eval-rollout-and-per-algorithm-on-device-rollouts.md), [phase-114-real-mcts-tree-search-with-substrate-backed-leaf-evaluation.md](phase-114-real-mcts-tree-search-with-substrate-backed-leaf-evaluation.md), [phase-115-real-hyperparameter-tuning-objective-executor.md](phase-115-real-hyperparameter-tuning-objective-executor.md), [phase-116-no-caveat-rl-alphazero-and-tuning-runtime.md](phase-116-no-caveat-rl-alphazero-and-tuning-runtime.md), [phase-117-real-rl-convergence-performance-metrics-and-the-alphazero-ar.md](phase-117-real-rl-convergence-performance-metrics-and-the-alphazero-ar.md), [phase-118-all-rl-fixed-budget-convergence-metrics.md](phase-118-all-rl-fixed-budget-convergence-metrics.md), [phase-119-typed-tuning-resume-decode-failures.md](phase-119-typed-tuning-resume-decode-failures.md), [phase-120-tuning-override-and-worker-axis-fidelity.md](phase-120-tuning-override-and-worker-axis-fidelity.md), [phase-121-resolved-alphazero-and-tuning-plans.md](phase-121-resolved-alphazero-and-tuning-plans.md), [phase-122-storage-layout-and-split-blob-schema.md](phase-122-storage-layout-and-split-blob-schema.md), [phase-123-jmw1-wire-format-and-manifest-cbor.md](phase-123-jmw1-wire-format-and-manifest-cbor.md), [phase-124-bit-determinism-contract-and-retention-reconciler.md](phase-124-bit-determinism-contract-and-retention-reconciler.md), [phase-125-inference-only-read-path.md](phase-125-inference-only-read-path.md), [phase-126-remove-the-synthetic-inference-offset.md](phase-126-remove-the-synthetic-inference-offset.md), [phase-127-exact-v2-supervised-runtime-artifact.md](phase-127-exact-v2-supervised-runtime-artifact.md), [phase-128-async-work-inference-workflow-and-ready-readiness-gate.md](phase-128-async-work-inference-workflow-and-ready-readiness-gate.md), [phase-129-typed-retentionpolicy-replaces-the-lastn-5-literal.md](phase-129-typed-retentionpolicy-replaces-the-lastn-5-literal.md), [phase-130-real-trained-demo-checkpoints-delete-the-synthetic-weight-ra.md](phase-130-real-trained-demo-checkpoints-delete-the-synthetic-weight-ra.md), [phase-131-inference-eligible-checkpoints-and-convergence-statistics.md](phase-131-inference-eligible-checkpoints-and-convergence-statistics.md), [phase-132-typed-checkpoint-object-key-validation.md](phase-132-typed-checkpoint-object-key-validation.md), [phase-133-persisted-checkpoint-proof-admission.md](phase-133-persisted-checkpoint-proof-admission.md), [phase-134-minimal-purescript-application-scaffold.md](phase-134-minimal-purescript-application-scaffold.md), [phase-135-browser-contract-adts-and-local-contract-rendering.md](phase-135-browser-contract-adts-and-local-contract-rendering.md), [phase-136-jitml-lint-purescript-generated-contract-smoke-target.md](phase-136-jitml-lint-purescript-generated-contract-smoke-target.md), [phase-137-interactive-endpoint-contract-surface.md](phase-137-interactive-endpoint-contract-surface.md), [phase-138-webapp-route-and-deployment-surface.md](phase-138-webapp-route-and-deployment-surface.md), [phase-139-playwright-e2e-suite.md](phase-139-playwright-e2e-suite.md), [phase-140-spa-portals-home-and-shared-header.md](phase-140-spa-portals-home-and-shared-header.md), [phase-141-demo-endpoints-render-real-substrate-output.md](phase-141-demo-endpoints-render-real-substrate-output.md), [phase-142-full-interactive-demo-surface.md](phase-142-full-interactive-demo-surface.md), [phase-143-webapp-role-and-websocket-driven-inference-panels.md](phase-143-webapp-role-and-websocket-driven-inference-panels.md), [phase-144-all-model-trained-artifact-ui-and-admin-navigation.md](phase-144-all-model-trained-artifact-ui-and-admin-navigation.md), [phase-145-jitml-unit-stanza.md](phase-145-jitml-unit-stanza.md), [phase-146-jitml-integration-stanza-subprocess-boundary-determinism.md](phase-146-jitml-integration-stanza-subprocess-boundary-determinism.md), [phase-147-jitml-sl-canonicals-stanza.md](phase-147-jitml-sl-canonicals-stanza.md), [phase-148-jitml-rl-canonicals-stanza.md](phase-148-jitml-rl-canonicals-stanza.md), [phase-149-jitml-hyperparameter-stanza.md](phase-149-jitml-hyperparameter-stanza.md), [phase-150-jitml-cross-backend-stanza.md](phase-150-jitml-cross-backend-stanza.md), [phase-151-jitml-daemon-lifecycle-stanza.md](phase-151-jitml-daemon-lifecycle-stanza.md), [phase-152-jitml-e2e-stanza-and-live-plan-orchestrator.md](phase-152-jitml-e2e-stanza-and-live-plan-orchestrator.md), [phase-153-jitml-test-all-orchestrator-and-report-card.md](phase-153-jitml-test-all-orchestrator-and-report-card.md), [phase-154-substrate-partitioned-test-lanes-remove-the-cross-substrate.md](phase-154-substrate-partitioned-test-lanes-remove-the-cross-substrate.md), [phase-155-dry-real-workflow-matrix-fail-closed.md](phase-155-dry-real-workflow-matrix-fail-closed.md), [phase-156-live-job-failure-observation-and-apple-placement-assertions.md](phase-156-live-job-failure-observation-and-apple-placement-assertions.md), [phase-157-playwright-no-caveat-e2e-matrix.md](phase-157-playwright-no-caveat-e2e-matrix.md), [phase-158-common-shape-workflow-topic-algebra-and-websocket-coverage.md](phase-158-common-shape-workflow-topic-algebra-and-websocket-coverage.md), [phase-159-per-model-integration-and-e2e-matrix.md](phase-159-per-model-integration-and-e2e-matrix.md), [phase-160-functional-core-live-workflow-interpreter.md](phase-160-functional-core-live-workflow-interpreter.md), [phase-161-full-canonical-model-matrix-runtime.md](phase-161-full-canonical-model-matrix-runtime.md), [phase-162-re-attest-the-no-caveat-runtime-with-real-losses-metrics.md](phase-162-re-attest-the-no-caveat-runtime-with-real-losses-metrics.md), [phase-163-fixed-budget-all-model-runtime-gate-linux-cpu.md](phase-163-fixed-budget-all-model-runtime-gate-linux-cpu.md), [phase-164-full-workflow-control-surface.md](phase-164-full-workflow-control-surface.md), [phase-165-playwright-no-caveat-product-matrix.md](phase-165-playwright-no-caveat-product-matrix.md), [phase-166-real-demo-inference-full-width-multi-layer-forward-real-inpu.md](phase-166-real-demo-inference-full-width-multi-layer-forward-real-inpu.md), [phase-167-all-model-browser-and-playwright-trained-artifact-matrix.md](phase-167-all-model-browser-and-playwright-trained-artifact-matrix.md), [phase-168-ephemeral-kind-helm-rollout.md](phase-168-ephemeral-kind-helm-rollout.md), [phase-169-live-capability-class-validation-minio-pulsar-harbor.md](phase-169-live-capability-class-validation-minio-pulsar-harbor.md), [phase-170-daemon-training-rl-tune-handlers-on-live-broker.md](phase-170-daemon-training-rl-tune-handlers-on-live-broker.md), [phase-171-live-sl-training-e2e-with-real-datasets.md](phase-171-live-sl-training-e2e-with-real-datasets.md), [phase-172-real-rl-environment-simulators-and-daemon-env-loop.md](phase-172-real-rl-environment-simulators-and-daemon-env-loop.md), [phase-173-live-rl-training-e2e-with-statistical-convergence-assertions.md](phase-173-live-rl-training-e2e-with-statistical-convergence-assertions.md), [phase-174-live-minio-checkpoint-round-trip-and-retention.md](phase-174-live-minio-checkpoint-round-trip-and-retention.md), [phase-175-real-cuda-rl-algorithm-losses-through-jit-engine.md](phase-175-real-cuda-rl-algorithm-losses-through-jit-engine.md), [phase-176-alphazero-with-real-network-priors.md](phase-176-alphazero-with-real-network-priors.md), [phase-177-live-tuning-sweep-with-minio-trial-persistence.md](phase-177-live-tuning-sweep-with-minio-trial-persistence.md), [phase-178-cuda-and-linux-cpu-production-weight-loading.md](phase-178-cuda-and-linux-cpu-production-weight-loading.md), [phase-179-live-jitml-inference-run-and-legacy-replay-helper.md](phase-179-live-jitml-inference-run-and-legacy-replay-helper.md), [phase-180-live-api-ws-websocket-proxy-and-compiled-halogen-bundle.md](phase-180-live-api-ws-websocket-proxy-and-compiled-halogen-bundle.md), [phase-181-live-playwright-on-demo-edge-route.md](phase-181-live-playwright-on-demo-edge-route.md), [phase-182-linux-cpu-full-tensor-benchmark-payloads-and-first-cache-mis.md](phase-182-linux-cpu-full-tensor-benchmark-payloads-and-first-cache-mis.md), [phase-183-re-validate-the-linux-cuda-lane-runs-for-real-with-the-skip.md](phase-183-re-validate-the-linux-cuda-lane-runs-for-real-with-the-skip.md), [phase-184-live-linux-cpu-exercise-of-the-reopened-workflows.md](phase-184-live-linux-cpu-exercise-of-the-reopened-workflows.md), [phase-185-live-linux-cuda-exercise-of-the-reopened-workflows.md](phase-185-live-linux-cuda-exercise-of-the-reopened-workflows.md), [phase-186-live-cluster-closure-of-the-reopened-workflows.md](phase-186-live-cluster-closure-of-the-reopened-workflows.md), [phase-187-linux-no-caveat-runtime-and-browser-lane.md](phase-187-linux-no-caveat-runtime-and-browser-lane.md), [phase-188-linux-cuda-all-model-trained-artifact-lane.md](phase-188-linux-cuda-all-model-trained-artifact-lane.md), [phase-189-linux-cuda-ha-cluster-revalidation.md](phase-189-linux-cuda-ha-cluster-revalidation.md), [phase-190-host-swift-toolchain-and-first-cache-miss-headless-build.md](phase-190-host-swift-toolchain-and-first-cache-miss-headless-build.md), [phase-191-metal-ffi-loading-and-host-kernel-launch.md](phase-191-metal-ffi-loading-and-host-kernel-launch.md), [phase-192-metal-benchmark-candidate-runner-live-execution.md](phase-192-metal-benchmark-candidate-runner-live-execution.md), [phase-193-apple-host-cluster-pulsar-rpc-live-flow.md](phase-193-apple-host-cluster-pulsar-rpc-live-flow.md), [phase-194-apple-metal-production-weight-loading.md](phase-194-apple-metal-production-weight-loading.md), [phase-195-re-validate-the-apple-silicon-lane-runs-for-real-with-the-sk.md](phase-195-re-validate-the-apple-silicon-lane-runs-for-real-with-the-sk.md), [phase-196-re-validate-the-apple-silicon-lane-through-the-tart-vm-built.md](phase-196-re-validate-the-apple-silicon-lane-through-the-tart-vm-built.md), [phase-197-retired-vm-path-apple-silicon-workflow-attempt.md](phase-197-retired-vm-path-apple-silicon-workflow-attempt.md), [phase-198-live-fixed-bridge-apple-silicon-workflow-closure.md](phase-198-live-fixed-bridge-apple-silicon-workflow-closure.md), [phase-199-live-apple-host-resident-workload-closure.md](phase-199-live-apple-host-resident-workload-closure.md), [phase-200-apple-no-caveat-runtime-and-browser-lane.md](phase-200-apple-no-caveat-runtime-and-browser-lane.md), [phase-201-apple-silicon-all-model-trained-artifact-lane.md](phase-201-apple-silicon-all-model-trained-artifact-lane.md), [phase-202-apple-silicon-ha-cluster-revalidation.md](phase-202-apple-silicon-ha-cluster-revalidation.md), [phase-203-cross-substrate-cohort-runs-and-in-code-tolerance-bands.md](phase-203-cross-substrate-cohort-runs-and-in-code-tolerance-bands.md), [phase-204-live-jitml-test-all-report-card-with-measured-metrics.md](phase-204-live-jitml-test-all-report-card-with-measured-metrics.md), [phase-205-empty-legacy-ledger-and-final-handoff.md](phase-205-empty-legacy-ledger-and-final-handoff.md), [phase-206-remove-the-cross-substrate-parity-surface-reframe-the-determ.md](phase-206-remove-the-cross-substrate-parity-surface-reframe-the-determ.md), [phase-207-cross-substrate-real-workflow-confirmation.md](phase-207-cross-substrate-real-workflow-confirmation.md), [phase-208-real-workflow-ledger-walk-down-and-final-handoff.md](phase-208-real-workflow-ledger-walk-down-and-final-handoff.md), [phase-209-apple-placement-ledger-walk-down-and-final-handoff.md](phase-209-apple-placement-ledger-walk-down-and-final-handoff.md), [phase-210-expanded-no-caveat-report-card-and-ledger-handoff.md](phase-210-expanded-no-caveat-report-card-and-ledger-handoff.md), [phase-211-expanded-all-model-lane-fragment-handoff.md](phase-211-expanded-all-model-lane-fragment-handoff.md), [phase-212-ha-topology-aggregation.md](phase-212-ha-topology-aggregation.md), [phase-213-three-substrate-no-caveat-handoff.md](phase-213-three-substrate-no-caveat-handoff.md), [phase-214-re-aggregate-the-no-caveat-handoff-after-the-durable-state-d.md](phase-214-re-aggregate-the-no-caveat-handoff-after-the-durable-state-d.md), [phase-215-re-aggregate-the-no-caveat-handoff-after-the-real-sl-rl-chai.md](phase-215-re-aggregate-the-no-caveat-handoff-after-the-real-sl-rl-chai.md), [phase-216-re-aggregate-after-fixed-budget-all-model-closure.md](phase-216-re-aggregate-after-fixed-budget-all-model-closure.md), [phase-217-ha-topology-product-handoff.md](phase-217-ha-topology-product-handoff.md), [phase-218-re-aggregate-after-typed-failure-and-docs-governance-remedia.md](phase-218-re-aggregate-after-typed-failure-and-docs-governance-remedia.md), [phase-219-re-aggregate-after-real-cluster-tuning-runconfig-remediation.md](phase-219-re-aggregate-after-real-cluster-tuning-runconfig-remediation.md), [phase-220-product-matrix-authority.md](phase-220-product-matrix-authority.md), [phase-221-phase-status-registry.md](phase-221-phase-status-registry.md), [phase-222-status-truth-enforcement.md](phase-222-status-truth-enforcement.md), [phase-223-product-registry-plan-and-admitted-evidence-projection.md](phase-223-product-registry-plan-and-admitted-evidence-projection.md), [phase-224-remove-fossils.md](phase-224-remove-fossils.md), [phase-225-scaffold-lint-reachability.md](phase-225-scaffold-lint-reachability.md), [phase-226-non-fabricable-training-evidence.md](phase-226-non-fabricable-training-evidence.md), [phase-227-type-state-pipeline-haskell.md](phase-227-type-state-pipeline-haskell.md), [phase-228-dhall-boundary-fail-closed-decode.md](phase-228-dhall-boundary-fail-closed-decode.md), [phase-229-phase-specific-product-evidence-payloads.md](phase-229-phase-specific-product-evidence-payloads.md), [phase-230-matrix-parity.md](phase-230-matrix-parity.md), [phase-231-per-row-runnable-dhall.md](phase-231-per-row-runnable-dhall.md), [phase-232-read-time-dataset-sha.md](phase-232-read-time-dataset-sha.md), [phase-233-typed-layer-ir-reverse-mode-autodiff.md](phase-233-typed-layer-ir-reverse-mode-autodiff.md), [phase-234-onednn-layer-kernels-for-training.md](phase-234-onednn-layer-kernels-for-training.md), [phase-235-served-path-tier-2-wiring-checkpoint-format-bump.md](phase-235-served-path-tier-2-wiring-checkpoint-format-bump.md), [phase-236-layer-graph-checkpoints-inference.md](phase-236-layer-graph-checkpoints-inference.md), [phase-237-literal-architectures-dense-mlp-lenet.md](phase-237-literal-architectures-dense-mlp-lenet.md), [phase-238-literal-architectures-resnet-family.md](phase-238-literal-architectures-resnet-family.md), [phase-239-literal-architectures-vision-transformer.md](phase-239-literal-architectures-vision-transformer.md), [phase-240-convergence-and-evidence.md](phase-240-convergence-and-evidence.md), [phase-241-completedtraining-sl-manifests.md](phase-241-completedtraining-sl-manifests.md), [phase-242-real-environments.md](phase-242-real-environments.md), [phase-243-distinct-algorithms.md](phase-243-distinct-algorithms.md), [phase-244-per-row-convergence-and-evidence.md](phase-244-per-row-convergence-and-evidence.md), [phase-245-typed-rl-cohort-and-action-domain-compatibility.md](phase-245-typed-rl-cohort-and-action-domain-compatibility.md), [phase-246-trainingplan-evaluationplan-compiler-and-trainer-migration.md](phase-246-trainingplan-evaluationplan-compiler-and-trainer-migration.md), [phase-247-typed-measured-counters-and-evidence-separation.md](phase-247-typed-measured-counters-and-evidence-separation.md), [phase-248-per-game-self-play.md](phase-248-per-game-self-play.md), [phase-249-arena-convergence-evidence.md](phase-249-arena-convergence-evidence.md), [phase-250-train-and-publish-artifact-selectors.md](phase-250-train-and-publish-artifact-selectors.md), [phase-251-row-specific-renderers.md](phase-251-row-specific-renderers.md), [phase-252-browser-fail-closed.md](phase-252-browser-fail-closed.md), [phase-253-row-keyed-integration-matrix.md](phase-253-row-keyed-integration-matrix.md), [phase-254-row-complete-playwright.md](phase-254-row-complete-playwright.md), [phase-255-linux-cpu-report-card.md](phase-255-linux-cpu-report-card.md), [phase-256-contract-driven-live-execution-integration-journal.md](phase-256-contract-driven-live-execution-integration-journal.md), [phase-257-contract-driven-live-execution-browser-and-playwright.md](phase-257-contract-driven-live-execution-browser-and-playwright.md), [phase-258-contract-driven-live-execution-fragment-issuance.md](phase-258-contract-driven-live-execution-fragment-issuance.md), [phase-259-real-cudnn-cublas-kernels.md](phase-259-real-cudnn-cublas-kernels.md), [phase-260-cuda-row-device-evidence.md](phase-260-cuda-row-device-evidence.md), [phase-261-cuda-integration-e2e-and-attestation.md](phase-261-cuda-integration-e2e-and-attestation.md), [phase-262-gpu-performance-and-persistent-device-buffers.md](phase-262-gpu-performance-and-persistent-device-buffers.md), [phase-263-contract-driven-cuda-lane-revalidation.md](phase-263-contract-driven-cuda-lane-revalidation.md), [phase-264-real-metal-kernels.md](phase-264-real-metal-kernels.md), [phase-265-metal-row-device-evidence.md](phase-265-metal-row-device-evidence.md), [phase-266-apple-integration-e2e-and-attestation.md](phase-266-apple-integration-e2e-and-attestation.md), [phase-267-contract-driven-apple-lane-revalidation.md](phase-267-contract-driven-apple-lane-revalidation.md), [phase-268-attestation-join.md](phase-268-attestation-join.md), [phase-269-no-caveat-closure-guard.md](phase-269-no-caveat-closure-guard.md), [phase-270-journal-derived-product-aggregation.md](phase-270-journal-derived-product-aggregation.md), [phase-271-negative-control-suite.md](phase-271-negative-control-suite.md), [phase-272-external-bars-no-self-referential-gate-lint-and-exact-served.md](phase-272-external-bars-no-self-referential-gate-lint-and-exact-served.md), [phase-273-measured-declared-type-split-behavioral-scaffold-lint.md](phase-273-measured-declared-type-split-behavioral-scaffold-lint.md), [phase-274-runcontract-negative-controls-request-and-event-fixtures.md](phase-274-runcontract-negative-controls-request-and-event-fixtures.md), [phase-275-runcontract-negative-controls-journal-fixtures-and-reducer-p.md](phase-275-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [phase-276-runcontract-negative-controls-lifecycle-and-per-row-registra.md](phase-276-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [phase-277-per-model-measured-convergence.md](phase-277-per-model-measured-convergence.md), [phase-278-inference-performance-determinism.md](phase-278-inference-performance-determinism.md), [phase-279-contract-driven-per-model-evidence.md](phase-279-contract-driven-per-model-evidence.md), [phase-280-evidence-derived-closure-guard.md](phase-280-evidence-derived-closure-guard.md), [phase-281-standing-adversarial-audit-thin-plan.md](phase-281-standing-adversarial-audit-thin-plan.md), [phase-282-journal-derived-status-registry.md](phase-282-journal-derived-status-registry.md), [phase-283-evidence-typed-report-measurements.md](phase-283-evidence-typed-report-measurements.md)
 **Generated sections**: none
 
 > **Purpose**: Capture the target architecture, current baseline, doctrine scope,
@@ -123,10 +83,8 @@ strict persisted-artifact reload. The frozen V1 encoding is 134 bytes with
 SHA-256
 `30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
 
-The current strict forward chain is `19.4 → 21.4 → 23.1 → 23.2 →
-23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 →
-32.2 → 32.4 → 33.3 → 34.3`. Sprint `10.12` is Done; Sprint `19.4` is the
-sole Active sprint, and every later sprint is Blocked by its immediate
+The current strict forward chain is `234 → 235 → 236 → 237 → 238 → 239 → 240 → 241 → 245 → 246 → 247 → 256 → 257 → 258 → 263 → 267 → 270 → 272 → 274 → 275 → 276 → 279 → 282 → 283`. Legacy Sprint `10.12` is Done; Phase `234` (legacy Sprint `23.2`) is the
+sole Planned frontier, and every later phase is Blocked by its immediate
 predecessor. Phase `10` validated its reopened work on `linux-cpu` only.
 Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 
@@ -319,7 +277,7 @@ The live trained-artifact matrix is part of the HA `linux-cpu` aggregation
 baseline and the Phase `15` `linux-cuda` lane (`linux-cpu`: `jitml test all
 --live --linux-cpu` 8/8 and report-card `browser_product_matrix` 8/8;
 `linux-cuda`: `jitml test all --linux-cuda` 8/8 and Playwright 15/15); see
-[phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
+[phase-12-test-stanzas-and-cross-cluster.md](README.md#legacy-to-new-phase-map).
 
 Haskell style and code-quality execution is container-exclusive. The
 `jitml:local` image is required on every substrate, including Apple Silicon for
@@ -346,7 +304,7 @@ and the deletion ledger has no pending rows.
   command reference, the manpages, and the shell completion scripts. Sprint
   `19.4` adds the exact ProductRow publisher/executor
   `jitml internal train-and-publish-product-rows --<substrate> [--row <rowId>]`.
-  Owned by [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md).
+  Owned by [phase-1-haskell-cli-surface.md](README.md#legacy-to-new-phase-map).
 - **Typed run contract.** Raw workflow requests refine into kind-indexed plans;
   protocol events feed pure exact-evidence reducers; receipt-bound deliveries,
   lifecycle observation, diagnostics, and cleanup belong to one interpreter;
@@ -382,7 +340,7 @@ and the deletion ledger has no pending rows.
   `jitml-cuda` companion service. The substrate image is `jitml:local`, the
   outer container is removed after cluster bootstrap, and the cluster daemon owns
   subsequent work. Owned by
-  [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md).
+  [phase-2-bootstrap-reconciler-and-jit-cache.md](README.md#legacy-to-new-phase-map).
 - **Cluster substrate and routing.** Per-substrate Kind configs at
   `./kind/cluster-<substrate>.yaml` target an HA-capable topology: one
   control-plane, worker nodes sized by the HA resource profile, NodePort 30090
@@ -407,7 +365,7 @@ and the deletion ledger has no pending rows.
   and image-identity evidence precedes publication; the versioned reconcile
   stamp follows publication; and only an exact retained match returns no-op
   exit code `3`.
-  Phase: [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md).
+  Phase: [phase-3-cluster-substrate-and-routing.md](README.md#legacy-to-new-phase-map).
 - **Stateful platform services.** Harbor as the in-cluster registry
   against dedicated PostgreSQL storage, with explicit Harbor registry/token
   edge routes and `JitML.Service.HarborSubprocess` settings for Docker/curl
@@ -441,7 +399,7 @@ and the deletion ledger has no pending rows.
   deployment/shard-key rendering, Haskell scalar-event writing, checkpoint
   sidecar dispatch, routed scalars API readback, and Linux CUDA
   RuntimeClass GPU visibility. Phase:
-  [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md).
+  [phase-4-stateful-platform-services.md](README.md#legacy-to-new-phase-map).
 - **`jitml service` daemon.** `BootConfig` / `LiveConfig` renderers,
   lifecycle phases, endpoint responses, structured JSON log rendering,
   service error/retry helpers, plan-bound semantic-event deduplication, SIGHUP reload
@@ -485,7 +443,7 @@ and the deletion ledger has no pending rows.
   `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
   probes, and acquires `inference.command.apple-silicon` as `jitml-host`.
   Phase:
-  [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
+  [phase-5-jitml-service-daemon.md](README.md#legacy-to-new-phase-map).
 - **Numerical core.** Haskell layer catalog (16 constructors: Dense,
   Embedding, Conv1D, Conv2D, Conv3D, ConvTranspose, ComplexDense,
   ComplexConv2D, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock,
@@ -502,7 +460,7 @@ and the deletion ledger has no pending rows.
   (CrossEntropy, BinaryCrossEntropy, SparseCrossEntropy, Focal, MSE,
   Huber, IoU, Dice, KLDiv, Contrastive); Dhall mirror lists; and the
   cross-type lint audit. Owned by
-  [phase-6-numerical-core.md](phase-6-numerical-core.md).
+  [phase-6-numerical-core.md](README.md#legacy-to-new-phase-map).
 - **JIT codegen and per-substrate execution.** `src/JitML/Engines/`
   records backend metadata, determinism flags, typed kernel handles,
   cache hit/miss decisions, engine envelopes, and typed compile plans;
@@ -567,7 +525,7 @@ and the deletion ledger has no pending rows.
   atomics plus host canonical partial finalization, `--use_fast_math=false`,
   and cuDNN explicit algorithm-id pinning.
   Phase:
-  [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
+  [phase-7-jit-codegen-and-substrates.md](README.md#legacy-to-new-phase-map).
 - **Supervised learning and RL framework.** `src/JitML/SL/` and
   `src/JitML/RL/` provide the canonical SL problem catalog and all-row
   device-trainable cohort, the typed dataset registry
@@ -590,7 +548,7 @@ and the deletion ledger has no pending rows.
   loops, and live Pulsar training/event flow are implemented and validated on
   the closed Phase `8` surface; algorithm-specific compiled RL-plan adoption
   remains owned by Sprint `25.4`. Phase:
-  [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
+  [phase-8-supervised-and-rl-framework.md](README.md#legacy-to-new-phase-map).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Catalog
   covers PPO through AlphaZero as metadata rows with a Dhall
   mirror/audit; the 14 per-algorithm modules under
@@ -609,7 +567,7 @@ and the deletion ledger has no pending rows.
   the JIT engine, live trial transcript persistence, and on-hardware reward
   thresholds are implemented on the closed Phase `9` surface; distinct
   traditional-RL plan/evaluation evidence remains Sprint `25.4`. Phase:
-  [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
+  [phase-9-rl-catalog-alphazero-and-tuning.md](README.md#legacy-to-new-phase-map).
 - **Checkpointing and inference-only read path.** The retained V1/legacy surface
   includes a typed manifest with
   the full split-blob shape (`TensorBlob`, `OptimizerBlob`, `RngBlob`,
@@ -650,7 +608,7 @@ and the deletion ledger has no pending rows.
   strict Store-loaded parity closed on `linux-cpu`; CUDA and Apple retest their
   real hardware paths in Sprints `29.5` and `30.4`. Sprint `10.12` is Done.
   Phase:
-  [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
+  [phase-10-checkpointing-and-inference.md](README.md#legacy-to-new-phase-map).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed
   bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs` (the current
@@ -680,7 +638,7 @@ and the deletion ledger has no pending rows.
   typed-run-contract chain refreshes that evidence.
   The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
   through `jitml lint purescript` (Sprint `11.3`). Phase:
-  [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
+  [phase-11-purescript-frontend-and-demo.md](README.md#legacy-to-new-phase-map).
 - **Test stanzas, lint matrix, live workflow matrix.** Ten Cabal
   test-suite stanzas, each `type: exitcode-stdio-1.0` with `tasty` as
   the in-stanza runner: `jitml-unit`, `jitml-integration`,
@@ -708,7 +666,7 @@ and the deletion ledger has no pending rows.
   or more of these stanzas, with the four `*-canonicals`/HPO/cross-
   backend rows being project-specific Integration extensions under
   doctrine §Test Organization → project-specific stanzas. Phase:
-  [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
+  [phase-12-test-stanzas-and-cross-cluster.md](README.md#legacy-to-new-phase-map).
 
 ## Doctrine Scope
 
@@ -844,7 +802,7 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   Snapshot (pure-renderer output only), Integration, Daemon Lifecycle,
   Ephemeral-Cluster Infrastructure) mapped to a
   `jitml-*` stanza in
-  [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
+  [phase-12-test-stanzas-and-cross-cluster.md](README.md#legacy-to-new-phase-map).
 - Test Organization — one `test-suite` stanza per tier; project-specific stanzas
   per [../README.md](../README.md); all live scenarios use the shared run
   interpreter and report actual invocation/journal outcomes.
@@ -1072,48 +1030,298 @@ each constraint.
 
 ## Dependency Chain
 
-| Phase | Depends On | Why |
-|-------|------------|-----|
-| 0 | — | Bootstrap |
-| 1 | Phase 0 | The CLI surface and lint stack consume the doctrine in-scope/out-of-scope split and the standards rule L doctrine-citation contract |
-| 2 | Phase 1 | The stage-0 bootstrap entrypoints, Haskell `jitml bootstrap --<substrate>` reconciler, prerequisite DAG, and JIT cache discipline register their CLI surface (`jitml bootstrap`, `jitml service`, `jitml cluster up`, `--cache-dir`) and their Plan/Apply discipline through the registry built in Phase 1 |
-| 3 | Phase 2 | The Kind cluster, Helm umbrella chart, and Envoy Gateway consume the prerequisite DAG (kind, helm, kubectl, docker) and the JIT cache mount (`extraMounts` from `./.build/`) established in Phase 2 |
-| 4 | Phase 3 | Harbor, Pulsar, MinIO, PostgreSQL, kube-prometheus-stack, and TensorBoard install through the umbrella chart and route through the Envoy Gateway socket established in Phase 3 |
-| 5 | Phase 4 | The `jitml service` daemon subscribes to Pulsar, persists to MinIO via capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`), pulls images from Harbor, and reports metrics via the Prometheus stack established in Phase 4 |
-| 6 | Phase 5 | The numerical core's current Haskell catalog and Dhall mirrors are consumed by the daemon's training and inference loops; the layer catalog precedes the JIT codegen that compiles it |
-| 7 | Phase 6 | The per-substrate Haskell JIT source renderers (Apple MSL, oneDNN C++, CUDA) consume the typed numerical core from Phase 6, generate compiler inputs/source metadata, and write content-addressed artifacts into the cache established in Phase 2 |
-| 8 | Phase 7 | The SL training loops and RL framework primitives compile their kernels through the JIT codegen established in Phase 7 and run on the daemon established in Phase 5 |
-| 9 | Phase 8 | The RL algorithm catalog (PPO, A2C, ...), AlphaZero self-play, and hyperparameter tuner consume the framework primitives from Phase 8 |
-| 10 | Phase 9 | Checkpointing serialises the trained models from Phases 8/9; the inference-only read path consumes the same wire format and flows back through the daemon |
-| 11 | Phase 10 | The target PureScript frontend REST surfaces consume the inference-only read path established in Phase 10; current Phase `11` owns the minimal frontend/contract/demo shim scaffold and local HTTP server before the compiled bundle and live WebSocket proxy land |
-| 12 | Phase 11 | The ten Cabal test-suite stanzas exercise every prior phase's surface end-to-end; the typed run-contract, negative-control, and model-convergence surfaces are part of the gate |
-| 13 | Phase 8, Phase 9, Phase 10 | Full no-caveat model runtime closure on the always-available `linux-cpu` lane: every canonical SL/RL/AlphaZero/tuning workflow trains, checkpoints, reloads, and infers/evaluates through the substrate without scoped Dense-only or demo-only exceptions. Per-accelerator runtime convergence is owned downstream (Phases `15`/`16`). |
-| 14 | Phase 13 | Full interactive demo + Playwright product closure over the Phase `13` runtime, validated on `linux-cpu`: every runtime workflow has browser controls, visualizations, animations, adversarial replay, and live e2e assertions against the routed app. Per-accelerator browser/Playwright is owned downstream (Phases `15`/`16`). |
-| 15 | Phase 13, Phase 14 | Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure: re-runs the full no-caveat runtime + browser matrix (Phases `13`/`14`) on `linux-cuda`, including deep-model GPU convergence, through one Linux/NVIDIA host (`linux-cpu`+`linux-cuda`). |
-| 16 | Phase 13, Phase 14 | Apple Silicon fixed-bridge Metal JIT (`<hash>.metal.json` + host runtime `MTLDevice.makeLibrary(source:options:)`), Metal FFI, host↔cluster RPC, host-resident Metal placement, and the full runtime + browser matrix on `apple-silicon` through one Mac host (`linux-cpu`+`apple-silicon`); independent of Phase `15`. |
-| 17 | Phase 15, Phase 16 | Within-substrate reproducibility aggregated on `linux-cpu` from the committed per-lane artifacts of Phases `13`/`15`/`16`, a populated live `jitml test all` report card, and an empty deletion ledger. No cross-substrate numeric-equivalence claim (out of contract). |
-| 18 | Phase 13, Phase 14, Phase 15, Phase 16, Phase 17 | Historical no-caveat handoff evidence from before the 2026-07-01 product-truth reopen. Current final handoff is the Sprint `10.6` → `34.3` checkpoint/runtime and typed-run-contract chain. |
-| 19 | Phase 18 | Product truth gates and registry: matrix floor; total kind-indexed single-row projection; an opaque batch that rejects duplicate or unprojectable rows and fixes order, denominator, and identity; exact internal executor commands; and opaque completed-plan report/status truth. `linux-cpu` only. |
-| 20 | Phase 19 | De-fossilization and scaffold lint: remove fake/deterministic product stand-ins and enforce a forbidden-scaffold lint gate. `linux-cpu` only. |
-| 21 | Phase 20 | Type-state DSL and inference eligibility: illegal untrained inference state is unrepresentable in Haskell/Dhall. `linux-cpu` only. |
-| 22 | Phase 21 | Canonical matrix and dataset integrity: documented rows, executable configs, and read-time SHA verification. `linux-cpu` only. |
-| 23 | Phase 22 | General differentiable layer engine: real forward/backward through the JIT engine across the general layer set. `linux-cpu` only. |
-| 24 | Phase 23 | Real supervised architectures: literal documented architectures, weight updates, convergence, completed checkpoints, and inference eligibility. `linux-cpu` only. |
-| 25 | Phase 24 | Real RL algorithms and environments: documented environment implementations, algorithm/env dispatch truth, policy/weight update evidence, and no deterministic product stand-ins. `linux-cpu` only. |
-| 26 | Phase 25 | AlphaZero real self-play per game: real MCTS-driven self-play training and inference-eligible checkpoints per supported game. `linux-cpu` only. |
-| 27 | Phase 26 | Demo all-model rendering: every product row renders from a real inference-eligible artifact. `linux-cpu` only. |
-| 28 | Phase 27 | Per-model integration and e2e: every product row has named integration and e2e evidence. `linux-cpu` only. |
-| 29 | Phase 28 | Linux CUDA product lane: row-complete validation on `linux-cuda` plus `linux-cpu`; no Apple validation. Sprints `29.1`–`29.4` remain Done on retained runtime/performance surfaces; reopened Sprint `29.5` is Blocked until `28.4` can drive a contract-journal refresh of the lane. |
-| 30 | Phase 29 | Apple Silicon product lane: row-complete validation on `apple-silicon` plus `linux-cpu`; no CUDA validation. |
-| 31 | Phase 30 | No-caveat product aggregation: `linux-cpu`-only aggregation over committed CPU/CUDA/Apple row evidence. |
-| 32 | Phase 31 | External-truth realness harness and negative-control gate: non-gameable bars, provenance binding, and known-fake rejection. |
-| 33 | Phase 32 | Per-model convergence and inference-performance tests over every `ProductRow`. |
-| 34 | Phase 33 | Plan-truth governance: closure status remains thin and tied to the standing realness gate. |
+Each phase is a single-session unit **blocked only by a lower-numbered phase** (forward-only DAG, standards [rule M](development_plan_standards.md)). The legacy sprint column cross-references the pre-2026-07-24 numbering (see the old→new map in [README.md](README.md)).
+
+| Phase | Title | Status | Legacy sprint |
+|---|---|---|---|
+| 1 | [Canonical Plan Suite Bootstrap](phase-1-canonical-plan-suite-bootstrap.md) | ✅ Done | 0.1 |
+| 2 | [Doctrine-Driven Scheduling Audit](phase-2-doctrine-driven-scheduling-audit.md) | ✅ Done | 0.2 |
+| 3 | [Governed-Document Metadata Enforcement](phase-3-governed-document-metadata-enforcement.md) | ✅ Done | 0.3 |
+| 4 | [Toolchain Pin and Library-First Cabal Project](phase-4-toolchain-pin-and-library-first-cabal-project.md) | ✅ Done | 1.1 |
+| 5 | [`CommandSpec` Registry and Generated Parser](phase-5-commandspec-registry-and-generated-parser.md) | ✅ Done | 1.2 |
+| 6 | [Generated Sections and Tracking-Generated Paths](phase-6-generated-sections-and-tracking-generated-paths.md) | ✅ Done | 1.3 |
+| 7 | [Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry`](phase-7-lint-stack-fourmolu-hlint-cabal-format-forbiddenpathregistry.md) | ✅ Done | 1.4 |
+| 8 | [`Plan` / `apply` Boundary with `--dry-run` and `--plan-file`](phase-8-plan-apply-boundary-with-dry-run-and-plan-file.md) | ✅ Done | 1.5 |
+| 9 | [`Subprocess` Typed Values, `runStreaming` / `capture` Interpreter](phase-9-subprocess-typed-values-runstreaming-capture-interpreter.md) | ✅ Done | 1.6 |
+| 10 | [Prerequisite Registry as Typed Effects](phase-10-prerequisite-registry-as-typed-effects.md) | ✅ Done | 1.7 |
+| 11 | [`Env` Record and `ReaderT Env IO` Runner](phase-11-env-record-and-readert-env-io-runner.md) | ✅ Done | 1.8 |
+| 12 | [`AppError` ADT, `renderError`, Output Rules](phase-12-apperror-adt-rendererror-output-rules.md) | ✅ Done | 1.9 |
+| 13 | [Scoped `allow-newer` Retirement Gate](phase-13-scoped-allow-newer-retirement-gate.md) | ✅ Done | 1.10 |
+| 14 | [GHC 9.12.4 Baseline and Dependency Helper Retirement](phase-14-ghc-9-12-4-baseline-and-dependency-helper-retirement.md) | ✅ Done | 1.11 |
+| 15 | [CLI Dhall Overrides](phase-15-cli-dhall-overrides.md) | ✅ Done | 1.12 |
+| 16 | [Remove `verify cross-backend`, add `jitml test --test-options` passthrough](phase-16-remove-verify-cross-backend-add-jitml-test-test-options-pass.md) | ✅ Done | 1.13 |
+| 17 | [Reinstate the `jitml internal vm` build-VM command surface](phase-17-reinstate-the-jitml-internal-vm-build-vm-command-surface.md) | ✅ Done | 1.14 |
+| 18 | [Retire VM lifecycle commands for fixed-bridge Apple Metal](phase-18-retire-vm-lifecycle-commands-for-fixed-bridge-apple-metal.md) | ✅ Done | 1.15 |
+| 19 | [Remove Placeholder Top-Level CLI Groups](phase-19-remove-placeholder-top-level-cli-groups.md) | ✅ Done | 1.16 |
+| 20 | [Typed Numeric CLI Parsing and Generated-Only Command Reference](phase-20-typed-numeric-cli-parsing-and-generated-only-command-referen.md) | ✅ Done | 1.17 |
+| 21 | [Structured Subprocess Outcomes](phase-21-structured-subprocess-outcomes.md) | ✅ Done | 1.18 |
+| 22 | [Stage-0 Bootstrap Gates and Delegation](phase-22-stage-0-bootstrap-gates-and-delegation.md) | ✅ Done | 2.1 |
+| 23 | [Populated `prerequisiteRegistry` and Lazy Remediation](phase-23-populated-prerequisiteregistry-and-lazy-remediation.md) | ✅ Done | 2.2 |
+| 24 | [JIT Cache Layout and Content Addressing](phase-24-jit-cache-layout-and-content-addressing.md) | ✅ Done | 2.3 |
+| 25 | [Outer-Container Linux Builds and `jitml:local` Image](phase-25-outer-container-linux-builds-and-jitml-local-image.md) | ✅ Done | 2.4 |
+| 26 | [Superseded Apple Silicon VM Scaffold](phase-26-superseded-apple-silicon-vm-scaffold.md) | ✅ Done | 2.5 |
+| 27 | [Bootstrap Script Wrappers and Status](phase-27-bootstrap-script-wrappers-and-status.md) | ✅ Done | 2.6 |
+| 28 | [Bootstrap `down` and `purge`](phase-28-bootstrap-down-and-purge.md) | ✅ Done | 2.7 |
+| 29 | [Dhall Cluster-Resource Profile, Kind-Node Cap, and Host-RAM Preflight](phase-29-dhall-cluster-resource-profile-kind-node-cap-and-host-ram-pr.md) | ✅ Done | 2.8 |
+| 30 | [Reconciler `sh -c` Control-Flow → Typed Haskell](phase-30-reconciler-sh-c-control-flow-typed-haskell.md) | ✅ Done | 2.9 |
+| 31 | [Retire the Tart Prerequisite and `jitml internal vm` Commands](phase-31-retire-the-tart-prerequisite-and-jitml-internal-vm-commands.md) | ✅ Done | 2.10 |
+| 32 | [Reinstate the Tart build-VM prerequisite and lifecycle](phase-32-reinstate-the-tart-build-vm-prerequisite-and-lifecycle.md) | ✅ Done | 2.11 |
+| 33 | [Replace Tart prerequisites with fixed-bridge Apple cache prerequisites](phase-33-replace-tart-prerequisites-with-fixed-bridge-apple-cache-pre.md) | ✅ Done | 2.12 |
+| 34 | [Authenticated third-party image pre-pull before `kind load`](phase-34-authenticated-third-party-image-pre-pull-before-kind-load.md) | ✅ Done | 2.13 |
+| 35 | [In-cluster Docker Hub `imagePullSecret` (authenticated pod pulls)](phase-35-in-cluster-docker-hub-imagepullsecret-authenticated-pod-pull.md) | ✅ Done | 2.14 |
+| 36 | [Durable-State Dhall DSL Foundation and `jitml project init`](phase-36-durable-state-dhall-dsl-foundation-and-jitml-project-init.md) | ✅ Done | 2.15 |
+| 37 | [Per-Substrate Kind Configs and `extraMounts`](phase-37-per-substrate-kind-configs-and-extramounts.md) | ✅ Done | 3.1 |
+| 38 | [`kubernetes.io/no-provisioner` Storage and Manual PVs](phase-38-kubernetes-io-no-provisioner-storage-and-manual-pvs.md) | ✅ Done | 3.2 |
+| 39 | [Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener](phase-39-envoy-gateway-and-single-127-0-0-1-edge-port-listener.md) | ✅ Done | 3.3 |
+| 40 | [Typed Route Registry and Generated `HTTPRoute` Manifests](phase-40-typed-route-registry-and-generated-httproute-manifests.md) | ✅ Done | 3.4 |
+| 41 | [Cluster Lifecycle Reconciler and Phased Deploy](phase-41-cluster-lifecycle-reconciler-and-phased-deploy.md) | ✅ Done | 3.5 |
+| 42 | [HA Kind Node and Manual-PV Topology](phase-42-ha-kind-node-and-manual-pv-topology.md) | ✅ Done | 3.6 |
+| 43 | [Live Cluster Lifecycle and Publication Truth](phase-43-live-cluster-lifecycle-and-publication-truth.md) | ✅ Done | 3.7 |
+| 44 | [Harbor Subchart and Bootstrap-Phase Install](phase-44-harbor-subchart-and-bootstrap-phase-install.md) | ✅ Done | 4.1 |
+| 45 | [Percona PG Operator and Patroni-Managed Service Postgres](phase-45-percona-pg-operator-and-patroni-managed-service-postgres.md) | ✅ Done | 4.2 |
+| 46 | [MinIO Subchart, Bucket Provisioning, Conditional-Write Server](phase-46-minio-subchart-bucket-provisioning-conditional-write-server.md) | ✅ Done | 4.3 |
+| 47 | [Apache Pulsar HA and Topic Bootstrap](phase-47-apache-pulsar-ha-and-topic-bootstrap.md) | ✅ Done | 4.4 |
+| 48 | [kube-prometheus-stack and Provisioned Dashboards](phase-48-kube-prometheus-stack-and-provisioned-dashboards.md) | ✅ Done | 4.5 |
+| 49 | [TensorBoard with MinIO Event Storage and Checkpoint Sidecar](phase-49-tensorboard-with-minio-event-storage-and-checkpoint-sidecar.md) | ✅ Done | 4.6 |
+| 50 | [NVIDIA `RuntimeClass` for Linux CUDA](phase-50-nvidia-runtimeclass-for-linux-cuda.md) | ✅ Done | 4.7 |
+| 51 | [Per-Pod Resource Limits and Right-Sized Replicas from the `dhall/cluster/` Profile](phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md) | ✅ Done | 4.8 |
+| 52 | [Project the Durable-State `StoreRegistry` over MinIO Buckets](phase-52-project-the-durable-state-storeregistry-over-minio-buckets.md) | ✅ Done | 4.9 |
+| 53 | [HA Platform Service Topology](phase-53-ha-platform-service-topology.md) | ✅ Done | 4.10 |
+| 54 | [`jitml service` Entry Point and Lifecycle Summary](phase-54-jitml-service-entry-point-and-lifecycle-summary.md) | ✅ Done | 5.1 |
+| 55 | [`BootConfig` / `LiveConfig` Dhall and Hot-Reload Schema Surface](phase-55-bootconfig-liveconfig-dhall-and-hot-reload-schema-surface.md) | ✅ Done | 5.2 |
+| 56 | [`/healthz` / `/readyz` / `/metrics` and Structured Logging](phase-56-healthz-readyz-metrics-and-structured-logging.md) | ✅ Done | 5.3 |
+| 57 | [`RetryPolicy` and Service Error Surface](phase-57-retrypolicy-and-service-error-surface.md) | ✅ Done | 5.4 |
+| 58 | [At-Least-Once Pulsar Consumer with Message-Hash Deduplication](phase-58-at-least-once-pulsar-consumer-with-message-hash-deduplicatio.md) | ✅ Done | 5.5 |
+| 59 | [Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall](phase-59-stateless-deployment-pod-anti-affinity-per-substrate-dhall.md) | ✅ Done | 5.6 |
+| 60 | [Typed Dhall `RunConfig` and BootConfig-Mounted Worker Dispatch](phase-60-typed-dhall-runconfig-and-bootconfig-mounted-worker-dispatch.md) | ✅ Done | 5.7 |
+| 61 | [Retire Tart VM Lifecycle from the Daemon](phase-61-retire-tart-vm-lifecycle-from-the-daemon.md) | ✅ Done | 5.8 |
+| 62 | [Reinstate the Dhall-configured build-VM block and daemon acquire](phase-62-reinstate-the-dhall-configured-build-vm-block-and-daemon-acq.md) | ✅ Done | 5.9 |
+| 63 | [Replace daemon build-VM acquire with Metal bridge acquire](phase-63-replace-daemon-build-vm-acquire-with-metal-bridge-acquire.md) | ✅ Done | 5.10 |
+| 64 | [Workload Placement Planner and Apple Host Workload Dispatch](phase-64-workload-placement-planner-and-apple-host-workload-dispatch.md) | ✅ Done | 5.11 |
+| 65 | [Reflected Dhall Schema](phase-65-reflected-dhall-schema.md) | ✅ Done | 5.12 |
+| 66 | [Coordinator Topic Algebra](phase-66-coordinator-topic-algebra.md) | ✅ Done | 5.13 |
+| 67 | [One-Binary Engine / Coordinator / Webapp Role Model](phase-67-one-binary-engine-coordinator-webapp-role-model.md) | ✅ Done | 5.14 |
+| 68 | [Reconcile the Pulsar Topic Family with the `StoreRegistry`](phase-68-reconcile-the-pulsar-topic-family-with-the-storeregistry.md) | ✅ Done | 5.15 |
+| 69 | [One Numerical Worker per Kubernetes Node](phase-69-one-numerical-worker-per-kubernetes-node.md) | ✅ Done | 5.16 |
+| 70 | [Fail-Closed Mounted Worker `RunConfig`](phase-70-fail-closed-mounted-worker-runconfig.md) | ✅ Done | 5.17 |
+| 71 | [Receipt-Bound Delivery and Total Settlement](phase-71-receipt-bound-delivery-and-total-settlement.md) | ✅ Done | 5.18 |
+| 72 | [Layer Catalog](phase-72-layer-catalog.md) | ✅ Done | 6.1 |
+| 73 | [Activations (Real and Complex)](phase-73-activations-real-and-complex.md) | ✅ Done | 6.2 |
+| 74 | [Spectral / Frequency-Domain Operations](phase-74-spectral-frequency-domain-operations.md) | ✅ Done | 6.3 |
+| 75 | [Optimizers and Schedulers](phase-75-optimizers-and-schedulers.md) | ✅ Done | 6.4 |
+| 76 | [Loss Functions](phase-76-loss-functions.md) | ✅ Done | 6.5 |
+| 77 | [Dhall Schemas and Cross-Type Audit](phase-77-dhall-schemas-and-cross-type-audit.md) | ✅ Done | 6.6 |
+| 78 | [`KernelSpec`, Cache Key Inputs, FFI Loader Surface](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md) | ✅ Done | 7.1 |
+| 79 | [Engine ABI and `Engines` Module Skeleton](phase-79-engine-abi-and-engines-module-skeleton.md) | ✅ Done | 7.2 |
+| 80 | [Linux CPU Engine and oneDNN Codegen Driver](phase-80-linux-cpu-engine-and-onednn-codegen-driver.md) | ✅ Done | 7.3 |
+| 81 | [Linux CUDA Engine and CUDA Codegen Driver](phase-81-linux-cuda-engine-and-cuda-codegen-driver.md) | ✅ Done | 7.4 |
+| 82 | [Apple Silicon Engine, Metal Codegen, Host Forwarding Scaffolding](phase-82-apple-silicon-engine-metal-codegen-host-forwarding-scaffoldi.md) | ✅ Done | 7.5 |
+| 83 | [Hardware Auto-Tuning Within the Determinism Contract](phase-83-hardware-auto-tuning-within-the-determinism-contract.md) | ✅ Done | 7.6 |
+| 84 | [Haskell-Owned Runtime JIT Source Generation](phase-84-haskell-owned-runtime-jit-source-generation.md) | ✅ Done | 7.7 |
+| 85 | [Headless Apple Metal JIT — Runtime Compilation + Host Swift Build](phase-85-headless-apple-metal-jit-runtime-compilation-host-swift-buil.md) | ✅ Done | 7.8 |
+| 86 | [Compose GPU Service Split](phase-86-compose-gpu-service-split.md) | ✅ Done | 7.9 |
+| 87 | [Route the Apple `swift build` through the Tart VM](phase-87-route-the-apple-swift-build-through-the-tart-vm.md) | ✅ Done | 7.10 |
+| 88 | [Fixed host Metal bridge and source-metadata Apple cache](phase-88-fixed-host-metal-bridge-and-source-metadata-apple-cache.md) | ✅ Done | 7.11 |
+| 89 | [Local Supervised Canonical Summaries](phase-89-local-supervised-canonical-summaries.md) | ✅ Done | 8.1 |
+| 90 | [`jitml train` Local CLI Summary](phase-90-jitml-train-local-cli-summary.md) | ✅ Done | 8.2 |
+| 91 | [RL Catalog Hook for Canonical Tests](phase-91-rl-catalog-hook-for-canonical-tests.md) | ✅ Done | 8.3 |
+| 92 | [RL Metadata Primitives](phase-92-rl-metadata-primitives.md) | ✅ Done | 8.4 |
+| 93 | [RL CLI Summaries and Report Hooks](phase-93-rl-cli-summaries-and-report-hooks.md) | ✅ Done | 8.5 |
+| 94 | [RL Training Plan Surface](phase-94-rl-training-plan-surface.md) | ✅ Done | 8.6 |
+| 95 | [`RLRunLifecycle` GADT Retrofit](phase-95-rlrunlifecycle-gadt-retrofit.md) | ✅ Done | 8.7 |
+| 96 | [ALE Boundary and ROM Policy](phase-96-ale-boundary-and-rom-policy.md) | ✅ Done | 8.8 |
+| 97 | [Copyright-Free Visual RL Demo Environment](phase-97-copyright-free-visual-rl-demo-environment.md) | ✅ Done | 8.9 |
+| 98 | [SL Substrate-Backed Training + Real Eval](phase-98-sl-substrate-backed-training-real-eval.md) | ✅ Done | 8.10 |
+| 99 | [RL Framework Substrate Routing](phase-99-rl-framework-substrate-routing.md) | ✅ Done | 8.11 |
+| 100 | [No-Caveat SL/RL Framework Runtime](phase-100-no-caveat-sl-rl-framework-runtime.md) | ✅ Done | 8.12 |
+| 101 | [Real SL Loss, Validation-Driven Selection, and Convergence+Performance Metrics](phase-101-real-sl-loss-validation-driven-selection-and-convergence-per.md) | ✅ Done | 8.13 |
+| 102 | [Fixed-Budget Training Witness and Inference-Ineligible Partial Models](phase-102-fixed-budget-training-witness-and-inference-ineligible-parti.md) | ✅ Done | 8.14 |
+| 103 | [Typed Fail-Closed RL Device Errors](phase-103-typed-fail-closed-rl-device-errors.md) | ✅ Done | 8.15 |
+| 104 | [Validated `RunPlan` and Pure Contract Algebra](phase-104-validated-runplan-and-pure-contract-algebra.md) | ✅ Done | 8.16 |
+| 105 | [On-Policy Algorithm Metadata](phase-105-on-policy-algorithm-metadata.md) | ✅ Done | 9.1 |
+| 106 | [Off-Policy Algorithm Metadata](phase-106-off-policy-algorithm-metadata.md) | ✅ Done | 9.2 |
+| 107 | [Specialised Algorithm Metadata](phase-107-specialised-algorithm-metadata.md) | ✅ Done | 9.3 |
+| 108 | [Local RL Canonical Tests](phase-108-local-rl-canonical-tests.md) | ✅ Done | 9.4 |
+| 109 | [AlphaZero Connect 4 Transcript Surface](phase-109-alphazero-connect-4-transcript-surface.md) | ✅ Done | 9.5 |
+| 110 | [Connect 4 Local Game Surface](phase-110-connect-4-local-game-surface.md) | ✅ Done | 9.6 |
+| 111 | [Hyperparameter Tuning (Sampler × Scheduler × Pruner)](phase-111-hyperparameter-tuning-sampler-scheduler-pruner.md) | ✅ Done | 9.7 |
+| 112 | [Copyright-Free RL Matrix Retargeting](phase-112-copyright-free-rl-matrix-retargeting.md) | ✅ Done | 9.8 |
+| 113 | [Real `rl eval` / `rollout` and Per-Algorithm On-Device Rollouts](phase-113-real-rl-eval-rollout-and-per-algorithm-on-device-rollouts.md) | ✅ Done | 9.9 |
+| 114 | [Real MCTS Tree Search with Substrate-Backed Leaf Evaluation](phase-114-real-mcts-tree-search-with-substrate-backed-leaf-evaluation.md) | ✅ Done | 9.10 |
+| 115 | [Real Hyperparameter Tuning Objective Executor](phase-115-real-hyperparameter-tuning-objective-executor.md) | ✅ Done | 9.11 |
+| 116 | [No-Caveat RL, AlphaZero, and Tuning Runtime](phase-116-no-caveat-rl-alphazero-and-tuning-runtime.md) | ✅ Done | 9.12 |
+| 117 | [Real RL Convergence + Performance Metrics and the AlphaZero Arena-Win-Rate Form](phase-117-real-rl-convergence-performance-metrics-and-the-alphazero-ar.md) | ✅ Done | 9.13 |
+| 118 | [All-RL Fixed-Budget Convergence Metrics](phase-118-all-rl-fixed-budget-convergence-metrics.md) | ✅ Done | 9.14 |
+| 119 | [Typed Tuning Resume Decode Failures](phase-119-typed-tuning-resume-decode-failures.md) | ✅ Done | 9.15 |
+| 120 | [Tuning Override and Worker Axis Fidelity](phase-120-tuning-override-and-worker-axis-fidelity.md) | ✅ Done | 9.16 |
+| 121 | [Resolved AlphaZero and Tuning Plans](phase-121-resolved-alphazero-and-tuning-plans.md) | ✅ Done | 9.17 |
+| 122 | [Storage Layout and Split-Blob Schema](phase-122-storage-layout-and-split-blob-schema.md) | ✅ Done | 10.1 |
+| 123 | [`.jmw1` Wire Format and Manifest CBOR](phase-123-jmw1-wire-format-and-manifest-cbor.md) | ✅ Done | 10.2 |
+| 124 | [Bit-Determinism Contract and Retention Reconciler](phase-124-bit-determinism-contract-and-retention-reconciler.md) | ✅ Done | 10.3 |
+| 125 | [Inference-Only Read Path](phase-125-inference-only-read-path.md) | ✅ Done | 10.4 |
+| 126 | [Remove the Synthetic Inference Offset](phase-126-remove-the-synthetic-inference-offset.md) | ✅ Done | 10.5 |
+| 127 | [Exact V2 Supervised Runtime Artifact](phase-127-exact-v2-supervised-runtime-artifact.md) | ✅ Done | 10.6 |
+| 128 | [Async `Work*` Inference Workflow and `.ready` Readiness Gate](phase-128-async-work-inference-workflow-and-ready-readiness-gate.md) | ✅ Done | 10.7 |
+| 129 | [Typed `RetentionPolicy` Replaces the `LastN 5` Literal](phase-129-typed-retentionpolicy-replaces-the-lastn-5-literal.md) | ✅ Done | 10.8 |
+| 130 | [Real Trained Demo Checkpoints (Delete the Synthetic Weight Ramp)](phase-130-real-trained-demo-checkpoints-delete-the-synthetic-weight-ra.md) | ✅ Done | 10.9 |
+| 131 | [Inference-Eligible Checkpoints and Convergence Statistics](phase-131-inference-eligible-checkpoints-and-convergence-statistics.md) | ✅ Done | 10.10 |
+| 132 | [Typed Checkpoint Object-Key Validation](phase-132-typed-checkpoint-object-key-validation.md) | ✅ Done | 10.11 |
+| 133 | [Persisted Checkpoint Proof Admission](phase-133-persisted-checkpoint-proof-admission.md) | ✅ Done | 10.12 |
+| 134 | [Minimal PureScript Application Scaffold](phase-134-minimal-purescript-application-scaffold.md) | ✅ Done | 11.1 |
+| 135 | [Browser-Contract ADTs and Local Contract Rendering](phase-135-browser-contract-adts-and-local-contract-rendering.md) | ✅ Done | 11.2 |
+| 136 | [`jitml lint purescript` Generated-Contract Smoke Target](phase-136-jitml-lint-purescript-generated-contract-smoke-target.md) | ✅ Done | 11.3 |
+| 137 | [Interactive Endpoint Contract Surface](phase-137-interactive-endpoint-contract-surface.md) | ✅ Done | 11.4 |
+| 138 | [Webapp Route and Deployment Surface](phase-138-webapp-route-and-deployment-surface.md) | ✅ Done | 11.5 |
+| 139 | [Playwright E2E Suite](phase-139-playwright-e2e-suite.md) | ✅ Done | 11.6 |
+| 140 | [SPA Portals Home and Shared Header](phase-140-spa-portals-home-and-shared-header.md) | ✅ Done | 11.7 |
+| 141 | [Demo Endpoints Render Real Substrate Output](phase-141-demo-endpoints-render-real-substrate-output.md) | ✅ Done | 11.8 |
+| 142 | [Full Interactive Demo Surface](phase-142-full-interactive-demo-surface.md) | ✅ Done | 11.9 |
+| 143 | [Webapp Role and Websocket-Driven Inference Panels](phase-143-webapp-role-and-websocket-driven-inference-panels.md) | ✅ Done | 11.10 |
+| 144 | [All-Model Trained-Artifact UI and Admin Navigation](phase-144-all-model-trained-artifact-ui-and-admin-navigation.md) | ✅ Done | 11.11 |
+| 145 | [`jitml-unit` Stanza](phase-145-jitml-unit-stanza.md) | ✅ Done | 12.1 |
+| 146 | [`jitml-integration` Stanza (Subprocess Boundary + Determinism)](phase-146-jitml-integration-stanza-subprocess-boundary-determinism.md) | ✅ Done | 12.2 |
+| 147 | [`jitml-sl-canonicals` Stanza](phase-147-jitml-sl-canonicals-stanza.md) | ✅ Done | 12.3 |
+| 148 | [`jitml-rl-canonicals` Stanza](phase-148-jitml-rl-canonicals-stanza.md) | ✅ Done | 12.4 |
+| 149 | [`jitml-hyperparameter` Stanza](phase-149-jitml-hyperparameter-stanza.md) | ✅ Done | 12.5 |
+| 150 | [`jitml-cross-backend` Stanza](phase-150-jitml-cross-backend-stanza.md) | ✅ Done | 12.6 |
+| 151 | [`jitml-daemon-lifecycle` Stanza](phase-151-jitml-daemon-lifecycle-stanza.md) | ✅ Done | 12.7 |
+| 152 | [`jitml-e2e` Stanza and Live-Plan Orchestrator](phase-152-jitml-e2e-stanza-and-live-plan-orchestrator.md) | ✅ Done | 12.8 |
+| 153 | [`jitml test all` Orchestrator and Report Card](phase-153-jitml-test-all-orchestrator-and-report-card.md) | ✅ Done | 12.9 |
+| 154 | [Substrate-partitioned test lanes; remove the cross-substrate parity test surface](phase-154-substrate-partitioned-test-lanes-remove-the-cross-substrate.md) | ✅ Done | 12.10 |
+| 155 | [DRY Real-Workflow Matrix, Fail-Closed](phase-155-dry-real-workflow-matrix-fail-closed.md) | ✅ Done | 12.11 |
+| 156 | [Live Job Failure Observation and Apple Placement Assertions](phase-156-live-job-failure-observation-and-apple-placement-assertions.md) | ✅ Done | 12.12 |
+| 157 | [Playwright No-Caveat E2E Matrix](phase-157-playwright-no-caveat-e2e-matrix.md) | ✅ Done | 12.13 |
+| 158 | [Common-Shape Workflow, Topic-Algebra, and Websocket Coverage](phase-158-common-shape-workflow-topic-algebra-and-websocket-coverage.md) | ✅ Done | 12.14 |
+| 159 | [Per-Model Integration and E2E Matrix](phase-159-per-model-integration-and-e2e-matrix.md) | ✅ Done | 12.15 |
+| 160 | [Functional-Core Live Workflow Interpreter](phase-160-functional-core-live-workflow-interpreter.md) | ✅ Done | 12.16 |
+| 161 | [Full Canonical Model Matrix Runtime](phase-161-full-canonical-model-matrix-runtime.md) | ✅ Done | 13.1 |
+| 162 | [Re-Attest the No-Caveat Runtime with Real Losses + Metrics](phase-162-re-attest-the-no-caveat-runtime-with-real-losses-metrics.md) | ✅ Done | 13.2 |
+| 163 | [Fixed-Budget All-Model Runtime Gate (`linux-cpu`)](phase-163-fixed-budget-all-model-runtime-gate-linux-cpu.md) | ✅ Done | 13.3 |
+| 164 | [Full Workflow Control Surface](phase-164-full-workflow-control-surface.md) | ✅ Done | 14.1 |
+| 165 | [Playwright No-Caveat Product Matrix](phase-165-playwright-no-caveat-product-matrix.md) | ✅ Done | 14.2 |
+| 166 | [Real Demo Inference — Full-Width Multi-Layer Forward, Real Input, All Families](phase-166-real-demo-inference-full-width-multi-layer-forward-real-inpu.md) | ✅ Done | 14.3 |
+| 167 | [All-Model Browser and Playwright Trained-Artifact Matrix](phase-167-all-model-browser-and-playwright-trained-artifact-matrix.md) | ✅ Done | 14.4 |
+| 168 | [Ephemeral Kind + Helm Rollout](phase-168-ephemeral-kind-helm-rollout.md) | ✅ Done | 15.1 |
+| 169 | [Live Capability Class Validation (MinIO + Pulsar + Harbor)](phase-169-live-capability-class-validation-minio-pulsar-harbor.md) | ✅ Done | 15.2 |
+| 170 | [Daemon Training/RL/Tune Handlers on Live Broker](phase-170-daemon-training-rl-tune-handlers-on-live-broker.md) | ✅ Done | 15.3 |
+| 171 | [Live SL Training E2E with Real Datasets](phase-171-live-sl-training-e2e-with-real-datasets.md) | ✅ Done | 15.4 |
+| 172 | [Real RL Environment Simulators and Daemon Env Loop](phase-172-real-rl-environment-simulators-and-daemon-env-loop.md) | ✅ Done | 15.5 |
+| 173 | [Live RL Training E2E with Statistical Convergence Assertions](phase-173-live-rl-training-e2e-with-statistical-convergence-assertions.md) | ✅ Done | 15.6 |
+| 174 | [Live MinIO Checkpoint Round-Trip and Retention](phase-174-live-minio-checkpoint-round-trip-and-retention.md) | ✅ Done | 15.7 |
+| 175 | [Real CUDA RL Algorithm Losses Through JIT Engine](phase-175-real-cuda-rl-algorithm-losses-through-jit-engine.md) | ✅ Done | 15.8 |
+| 176 | [AlphaZero with Real Network Priors](phase-176-alphazero-with-real-network-priors.md) | ✅ Done | 15.9 |
+| 177 | [Live Tuning Sweep with MinIO Trial Persistence](phase-177-live-tuning-sweep-with-minio-trial-persistence.md) | ✅ Done | 15.10 |
+| 178 | [CUDA and Linux CPU Production Weight Loading](phase-178-cuda-and-linux-cpu-production-weight-loading.md) | ✅ Done | 15.11 |
+| 179 | [Live `jitml inference run` and Legacy Replay Helper](phase-179-live-jitml-inference-run-and-legacy-replay-helper.md) | ✅ Done | 15.12 |
+| 180 | [Live `/api/ws` WebSocket Proxy and Compiled Halogen Bundle](phase-180-live-api-ws-websocket-proxy-and-compiled-halogen-bundle.md) | ✅ Done | 15.13 |
+| 181 | [Live Playwright on Demo Edge Route](phase-181-live-playwright-on-demo-edge-route.md) | ✅ Done | 15.14 |
+| 182 | [Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution](phase-182-linux-cpu-full-tensor-benchmark-payloads-and-first-cache-mis.md) | ✅ Done | 15.15 |
+| 183 | [Re-validate the linux-cuda lane runs for real with the skip guards removed](phase-183-re-validate-the-linux-cuda-lane-runs-for-real-with-the-skip.md) | ✅ Done | 15.16 |
+| 184 | [Live linux-cpu Exercise of the Reopened Workflows](phase-184-live-linux-cpu-exercise-of-the-reopened-workflows.md) | ✅ Done | 15.17 |
+| 185 | [Live linux-cuda Exercise of the Reopened Workflows](phase-185-live-linux-cuda-exercise-of-the-reopened-workflows.md) | ✅ Done | 15.18 |
+| 186 | [Live Cluster Closure of the Reopened Workflows](phase-186-live-cluster-closure-of-the-reopened-workflows.md) | ✅ Done | 15.19 |
+| 187 | [Linux No-Caveat Runtime and Browser Lane](phase-187-linux-no-caveat-runtime-and-browser-lane.md) | ✅ Done | 15.20 |
+| 188 | [Linux-CUDA All-Model Trained-Artifact Lane](phase-188-linux-cuda-all-model-trained-artifact-lane.md) | ✅ Done | 15.21 |
+| 189 | [Linux-CUDA HA Cluster Revalidation](phase-189-linux-cuda-ha-cluster-revalidation.md) | ✅ Done | 15.22 |
+| 190 | [Host Swift Toolchain and First-Cache-Miss Headless Build](phase-190-host-swift-toolchain-and-first-cache-miss-headless-build.md) | ✅ Done | 16.1 |
+| 191 | [Metal FFI Loading and Host Kernel Launch](phase-191-metal-ffi-loading-and-host-kernel-launch.md) | ✅ Done | 16.2 |
+| 192 | [Metal Benchmark Candidate Runner Live Execution](phase-192-metal-benchmark-candidate-runner-live-execution.md) | ✅ Done | 16.3 |
+| 193 | [Apple Host↔Cluster Pulsar RPC Live Flow](phase-193-apple-host-cluster-pulsar-rpc-live-flow.md) | ✅ Done | 16.4 |
+| 194 | [Apple Metal Production Weight Loading](phase-194-apple-metal-production-weight-loading.md) | ✅ Done | 16.5 |
+| 195 | [Re-validate the apple-silicon lane runs for real with the skip guards removed](phase-195-re-validate-the-apple-silicon-lane-runs-for-real-with-the-sk.md) | ✅ Done | 16.6 |
+| 196 | [Re-validate the apple-silicon lane through the Tart-VM-built path](phase-196-re-validate-the-apple-silicon-lane-through-the-tart-vm-built.md) | ✅ Done | 16.7 |
+| 197 | [Retired VM-path apple-silicon Workflow Attempt](phase-197-retired-vm-path-apple-silicon-workflow-attempt.md) | ✅ Done | 16.8 |
+| 198 | [Live fixed-bridge apple-silicon workflow closure](phase-198-live-fixed-bridge-apple-silicon-workflow-closure.md) | ✅ Done | 16.9 |
+| 199 | [Live Apple Host-Resident Workload Closure](phase-199-live-apple-host-resident-workload-closure.md) | ✅ Done | 16.10 |
+| 200 | [Apple No-Caveat Runtime and Browser Lane](phase-200-apple-no-caveat-runtime-and-browser-lane.md) | ✅ Done | 16.11 |
+| 201 | [Apple-Silicon All-Model Trained-Artifact Lane](phase-201-apple-silicon-all-model-trained-artifact-lane.md) | ✅ Done | 16.13 |
+| 202 | [Apple-Silicon HA Cluster Revalidation](phase-202-apple-silicon-ha-cluster-revalidation.md) | ✅ Done | 16.14 |
+| 203 | [Cross-Substrate Cohort Runs and In-Code Tolerance Bands](phase-203-cross-substrate-cohort-runs-and-in-code-tolerance-bands.md) | ✅ Done | 17.1 |
+| 204 | [Live `jitml test all` Report Card with Measured Metrics](phase-204-live-jitml-test-all-report-card-with-measured-metrics.md) | ✅ Done | 17.2 |
+| 205 | [Empty Legacy Ledger and Final Handoff](phase-205-empty-legacy-ledger-and-final-handoff.md) | ✅ Done | 17.3 |
+| 206 | [Remove the cross-substrate parity surface; reframe the determinism contract to within-substrate-only](phase-206-remove-the-cross-substrate-parity-surface-reframe-the-determ.md) | ✅ Done | 17.4 |
+| 207 | [Cross-Substrate Real-Workflow Confirmation](phase-207-cross-substrate-real-workflow-confirmation.md) | ✅ Done | 17.5 |
+| 208 | [Real-Workflow Ledger Walk-Down and Final Handoff](phase-208-real-workflow-ledger-walk-down-and-final-handoff.md) | ✅ Done | 17.6 |
+| 209 | [Apple Placement Ledger Walk-Down and Final Handoff](phase-209-apple-placement-ledger-walk-down-and-final-handoff.md) | ✅ Done | 17.7 |
+| 210 | [Expanded No-Caveat Report Card and Ledger Handoff](phase-210-expanded-no-caveat-report-card-and-ledger-handoff.md) | ✅ Done | 17.8 |
+| 211 | [Expanded All-Model Lane Fragment Handoff](phase-211-expanded-all-model-lane-fragment-handoff.md) | ✅ Done | 17.9 |
+| 212 | [HA Topology Aggregation](phase-212-ha-topology-aggregation.md) | ✅ Done | 17.10 |
+| 213 | [Three-Substrate No-Caveat Handoff](phase-213-three-substrate-no-caveat-handoff.md) | ✅ Done | 18.1 |
+| 214 | [Re-Aggregate the No-Caveat Handoff after the Durable-State DSL](phase-214-re-aggregate-the-no-caveat-handoff-after-the-durable-state-d.md) | ✅ Done | 18.2 |
+| 215 | [Re-Aggregate the No-Caveat Handoff after the Real-SL/RL Chain](phase-215-re-aggregate-the-no-caveat-handoff-after-the-real-sl-rl-chai.md) | ✅ Done | 18.3 |
+| 216 | [Re-Aggregate after Fixed-Budget All-Model Closure](phase-216-re-aggregate-after-fixed-budget-all-model-closure.md) | ✅ Done | 18.4 |
+| 217 | [HA Topology Product Handoff](phase-217-ha-topology-product-handoff.md) | ✅ Done | 18.5 |
+| 218 | [Re-Aggregate after Typed-Failure and Docs-Governance Remediation](phase-218-re-aggregate-after-typed-failure-and-docs-governance-remedia.md) | ✅ Done | 18.6 |
+| 219 | [Re-Aggregate after Real Cluster/Tuning/RunConfig Remediation](phase-219-re-aggregate-after-real-cluster-tuning-runconfig-remediation.md) | ✅ Done | 18.7 |
+| 220 | [Product Matrix Authority](phase-220-product-matrix-authority.md) | ✅ Done | 19.1 |
+| 221 | [Phase Status Registry](phase-221-phase-status-registry.md) | ✅ Done | 19.2 |
+| 222 | [Status Truth Enforcement](phase-222-status-truth-enforcement.md) | ✅ Done | 19.3 |
+| 223 | [Product Registry Plan and Admitted Evidence Projection](phase-223-product-registry-plan-and-admitted-evidence-projection.md) | ✅ Done | 19.4 |
+| 224 | [Remove Fossils](phase-224-remove-fossils.md) | ✅ Done | 20.1 |
+| 225 | [Scaffold Lint + Reachability](phase-225-scaffold-lint-reachability.md) | ✅ Done | 20.2 |
+| 226 | [Non-Fabricable Training Evidence](phase-226-non-fabricable-training-evidence.md) | ✅ Done | 21.1 |
+| 227 | [Type-State Pipeline (Haskell)](phase-227-type-state-pipeline-haskell.md) | ✅ Done | 21.2 |
+| 228 | [Dhall Boundary & Fail-Closed Decode](phase-228-dhall-boundary-fail-closed-decode.md) | ✅ Done | 21.3 |
+| 229 | [Phase-Specific Product Evidence Payloads](phase-229-phase-specific-product-evidence-payloads.md) | ✅ Done | 21.4 |
+| 230 | [Matrix Parity](phase-230-matrix-parity.md) | ✅ Done | 22.1 |
+| 231 | [Per-Row Runnable Dhall](phase-231-per-row-runnable-dhall.md) | ✅ Done | 22.2 |
+| 232 | [Read-Time Dataset SHA](phase-232-read-time-dataset-sha.md) | ✅ Done | 22.3 |
+| 233 | [Typed Layer IR + Reverse-Mode Autodiff](phase-233-typed-layer-ir-reverse-mode-autodiff.md) | ✅ Done | 23.1 |
+| 234 | [oneDNN Layer Kernels for Training](phase-234-onednn-layer-kernels-for-training.md) | 📋 Planned | 23.2 |
+| 235 | [Served-Path Tier-2 Wiring + Checkpoint Format Bump](phase-235-served-path-tier-2-wiring-checkpoint-format-bump.md) | ⏸️ Blocked | 23.3 |
+| 236 | [Layer-Graph Checkpoints + Inference](phase-236-layer-graph-checkpoints-inference.md) | ⏸️ Blocked | 23.4 |
+| 237 | [Literal Architectures - Dense, MLP, LeNet](phase-237-literal-architectures-dense-mlp-lenet.md) | ⏸️ Blocked | 24.1 |
+| 238 | [Literal Architectures - ResNet Family](phase-238-literal-architectures-resnet-family.md) | ⏸️ Blocked | 24.2 |
+| 239 | [Literal Architectures - Vision Transformer](phase-239-literal-architectures-vision-transformer.md) | ⏸️ Blocked | 24.3 |
+| 240 | [Convergence and Evidence](phase-240-convergence-and-evidence.md) | ⏸️ Blocked | 24.4 |
+| 241 | [CompletedTraining SL Manifests](phase-241-completedtraining-sl-manifests.md) | ⏸️ Blocked | 24.5 |
+| 242 | [Real Environments](phase-242-real-environments.md) | ✅ Done | 25.1 |
+| 243 | [Distinct Algorithms](phase-243-distinct-algorithms.md) | ✅ Done | 25.2 |
+| 244 | [Per-Row Convergence and Evidence](phase-244-per-row-convergence-and-evidence.md) | ✅ Done | 25.3 |
+| 245 | [Typed RL Cohort and Action-Domain Compatibility](phase-245-typed-rl-cohort-and-action-domain-compatibility.md) | ⏸️ Blocked | 25.4 |
+| 246 | [TrainingPlan/EvaluationPlan Compiler and Trainer Migration](phase-246-trainingplan-evaluationplan-compiler-and-trainer-migration.md) | ⏸️ Blocked | 25.5 |
+| 247 | [Typed Measured Counters and Evidence Separation](phase-247-typed-measured-counters-and-evidence-separation.md) | ⏸️ Blocked | 25.6 |
+| 248 | [Per-Game Self-Play](phase-248-per-game-self-play.md) | ✅ Done | 26.1 |
+| 249 | [Arena Convergence + Evidence](phase-249-arena-convergence-evidence.md) | ✅ Done | 26.2 |
+| 250 | [Train-and-Publish + Artifact Selectors](phase-250-train-and-publish-artifact-selectors.md) | ✅ Done | 27.1 |
+| 251 | [Row-Specific Renderers](phase-251-row-specific-renderers.md) | ✅ Done | 27.2 |
+| 252 | [Browser Fail-Closed](phase-252-browser-fail-closed.md) | ✅ Done | 27.3 |
+| 253 | [Row-Keyed Integration Matrix](phase-253-row-keyed-integration-matrix.md) | ✅ Done | 28.1 |
+| 254 | [Row-Complete Playwright](phase-254-row-complete-playwright.md) | ✅ Done | 28.2 |
+| 255 | [linux-cpu Report Card](phase-255-linux-cpu-report-card.md) | ✅ Done | 28.3 |
+| 256 | [Contract-Driven Live Execution - Integration Journal](phase-256-contract-driven-live-execution-integration-journal.md) | ⏸️ Blocked | 28.4 |
+| 257 | [Contract-Driven Live Execution - Browser and Playwright](phase-257-contract-driven-live-execution-browser-and-playwright.md) | ⏸️ Blocked | 28.5 |
+| 258 | [Contract-Driven Live Execution - Fragment Issuance](phase-258-contract-driven-live-execution-fragment-issuance.md) | ⏸️ Blocked | 28.6 |
+| 259 | [Real cuDNN/cuBLAS Kernels](phase-259-real-cudnn-cublas-kernels.md) | ✅ Done | 29.1 |
+| 260 | [CUDA Row Device Evidence](phase-260-cuda-row-device-evidence.md) | ✅ Done | 29.2 |
+| 261 | [CUDA Integration, E2E, and Attestation](phase-261-cuda-integration-e2e-and-attestation.md) | ✅ Done | 29.3 |
+| 262 | [GPU Performance and Persistent Device Buffers](phase-262-gpu-performance-and-persistent-device-buffers.md) | ✅ Done | 29.4 |
+| 263 | [Contract-Driven CUDA Lane Revalidation](phase-263-contract-driven-cuda-lane-revalidation.md) | ⏸️ Blocked | 29.5 |
+| 264 | [Real Metal Kernels](phase-264-real-metal-kernels.md) | ✅ Done | 30.1 |
+| 265 | [Metal Row Device Evidence](phase-265-metal-row-device-evidence.md) | ✅ Done | 30.2 |
+| 266 | [Apple Integration, E2E, and Attestation](phase-266-apple-integration-e2e-and-attestation.md) | ✅ Done | 30.3 |
+| 267 | [Contract-Driven Apple Lane Revalidation](phase-267-contract-driven-apple-lane-revalidation.md) | ⏸️ Blocked | 30.4 |
+| 268 | [Attestation Join](phase-268-attestation-join.md) | ✅ Done | 31.1 |
+| 269 | [No-Caveat Closure Guard](phase-269-no-caveat-closure-guard.md) | ✅ Done | 31.2 |
+| 270 | [Journal-Derived Product Aggregation](phase-270-journal-derived-product-aggregation.md) | ⏸️ Blocked | 31.3 |
+| 271 | [Negative-Control Suite](phase-271-negative-control-suite.md) | ✅ Done | 32.1 |
+| 272 | [External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance](phase-272-external-bars-no-self-referential-gate-lint-and-exact-served.md) | ⏸️ Blocked | 32.2 |
+| 273 | [Measured/Declared Type Split & Behavioral Scaffold Lint](phase-273-measured-declared-type-split-behavioral-scaffold-lint.md) | ✅ Done | 32.3 |
+| 274 | [RunContract Negative Controls - Request and Event Fixtures](phase-274-runcontract-negative-controls-request-and-event-fixtures.md) | ⏸️ Blocked | 32.4 |
+| 275 | [RunContract Negative Controls - Journal Fixtures and Reducer Properties](phase-275-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) | ⏸️ Blocked | 32.5 |
+| 276 | [RunContract Negative Controls - Lifecycle and Per-Row Registration](phase-276-runcontract-negative-controls-lifecycle-and-per-row-registra.md) | ⏸️ Blocked | 32.6 |
+| 277 | [Per-Model Measured Convergence](phase-277-per-model-measured-convergence.md) | ✅ Done | 33.1 |
+| 278 | [Inference-Performance & Determinism](phase-278-inference-performance-determinism.md) | ✅ Done | 33.2 |
+| 279 | [Contract-Driven Per-Model Evidence](phase-279-contract-driven-per-model-evidence.md) | ⏸️ Blocked | 33.3 |
+| 280 | [Evidence-Derived Closure Guard](phase-280-evidence-derived-closure-guard.md) | ✅ Done | 34.1 |
+| 281 | [Standing Adversarial Audit & Thin Plan](phase-281-standing-adversarial-audit-thin-plan.md) | ✅ Done | 34.2 |
+| 282 | [Journal-Derived Status Registry](phase-282-journal-derived-status-registry.md) | ⏸️ Blocked | 34.3 |
+| 283 | [Evidence-Typed Report Measurements](phase-283-evidence-typed-report-measurements.md) | ⏸️ Blocked | 34.4 |
 
 The 2026-07-18 checkpoint/runtime audit adds sprint-level dependencies without
 renumbering phases. After Sprints `10.6` and `10.12` closed, the current open
 suffix is:
-`19.4 → 21.4 → 23.1 → 23.2 → 23.3 → 24.1 → 24.2 → 24.3 → 25.4 → 28.4 → 29.5 → 30.4 → 31.3 → 32.2 → 32.4 → 33.3 → 34.3`.
+`234 → 235 → 236 → 237 → 238 → 239 → 240 → 241 → 245 → 246 → 247 → 256 → 257 → 258 → 263 → 267 → 270 → 272 → 274 → 275 → 276 → 279 → 282 → 283`.
 This is an ownership-chain overlay on the phase DAG: later phases that are not
 named remain Done on their retained surfaces. Sprints `1.18`, `2.9`, `3.7`,
 `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Sprint

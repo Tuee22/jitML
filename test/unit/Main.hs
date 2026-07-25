@@ -445,6 +445,74 @@ registrySprintStatuses phase =
   | sprint' <- phaseSprints phase
   ]
 
+-- | Structural facts parsed from a phase document per sprint, used by the
+-- automated rule-M enforcement guards (forward-only dependency edges,
+-- validation-gate presence, single-accelerator-per-phase). These replace the
+-- previously hand-run deterministic scans (development_plan_standards.md
+-- "M. Enforcement") with machine checks so plan sizing/ordering cannot silently
+-- drift.
+data PlanSprintFacts = PlanSprintFacts
+  { psfId :: Text
+  , psfBlockedBy :: [Text]
+  , psfHasValidationGate :: Bool
+  , psfValidationNamesCuda :: Bool
+  , psfValidationNamesApple :: Bool
+  }
+
+readPlanSprintFacts :: ProductPhaseStatus -> IO [PlanSprintFacts]
+readPlanSprintFacts phase = do
+  content <- Text.IO.readFile (phaseDocument phase)
+  pure (parsePlanSprintFacts content)
+
+parsePlanSprintFacts :: Text -> [PlanSprintFacts]
+parsePlanSprintFacts content =
+  fmap sprintFacts (sprintSections (Text.lines content))
+ where
+  -- Group lines into (sprintId, bodyLines) per `## Sprint X.Y` header; a body
+  -- runs until the next level-2 (`## `) heading.
+  sprintSections :: [Text] -> [(Text, [Text])]
+  sprintSections [] = []
+  sprintSections (line : rest)
+    | Just sid <- parseSprintHeader line =
+        let (body, after) = break isLevelTwoHeading rest
+         in (sid, body) : sprintSections after
+    | otherwise = sprintSections rest
+  isLevelTwoHeading line = "## " `Text.isPrefixOf` Text.strip line
+  sprintFacts (sid, body) =
+    let valBlock = validationBlockLines body
+     in PlanSprintFacts
+          { psfId = sid
+          , psfBlockedBy = concatMap extractDottedNumbers (filter isBlockedByLine body)
+          , psfHasValidationGate = any lineNamesGateCommand valBlock
+          , psfValidationNamesCuda = any (lineNamesAny cudaTokens) valBlock
+          , psfValidationNamesApple = any (lineNamesAny appleTokens) valBlock
+          }
+  isBlockedByLine line = "**Blocked by**:" `Text.isPrefixOf` Text.strip line
+  -- The lines of a sprint's `### Validation` block (up to the next heading).
+  validationBlockLines body =
+    case dropWhile (not . isValidationHeading) body of
+      [] -> []
+      (_ : afterHeading) -> takeWhile (not . isAnyHeading) afterHeading
+  isValidationHeading line = "### Validation" `Text.isPrefixOf` Text.strip line
+  isAnyHeading line = "##" `Text.isPrefixOf` Text.strip line
+  lineNamesGateCommand line = any (`Text.isInfixOf` line) ["jitml", "bootstrap", "docker", "cabal"]
+  lineNamesAny toks line = any (`Text.isInfixOf` line) toks
+  cudaTokens = ["--linux-cuda", "-fcuda", "linux-cuda.sh"]
+  appleTokens = ["--apple-silicon", "apple-silicon.sh"]
+
+-- | Extract maximal digit/dot tokens containing a dot (i.e. `X.Y` sprint ids).
+extractDottedNumbers :: Text -> [Text]
+extractDottedNumbers =
+  filter (Text.any (== '.')) . Text.split (\c -> not (isDigit c || c == '.'))
+
+-- | Compare two dotted numeric ids (e.g. `23.2` vs `24.1`) as `[Int]` tuples.
+compareDottedId :: Text -> Text -> Ordering
+compareDottedId a b = compare (parseNums a) (parseNums b)
+ where
+  parseNums =
+    fmap (fromMaybe 0 . readMaybeInt) . filter (not . Text.null) . Text.splitOn "."
+  readMaybeInt t = if Text.all isDigit t && not (Text.null t) then Just (read (Text.unpack t) :: Int) else Nothing
+
 markProductPhaseDone :: ProductPhaseStatus -> ProductPhaseStatus
 markProductPhaseDone phase =
   phase {phaseSprints = fmap markSprintDone (phaseSprints phase)}
@@ -6027,9 +6095,9 @@ main =
               offenders @?= []
           ]
       , testGroup
-          "Product phase status registry (Sprint 19.2)"
-          [ testCase "enumerates product phases 19 through 34" $ do
-              PhaseStatus.productPhaseNumbers @?= [19 .. 34]
+          "Product phase status registry (Phase 221)"
+          [ testCase "enumerates product phases 220 through 283" $ do
+              PhaseStatus.productPhaseNumbers @?= [220 .. 283]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports incomplete while any product sprint is open" $ do
               PhaseStatus.allProductPhasesDone @?= False
@@ -6049,6 +6117,30 @@ main =
               actual <- concat <$> traverse readPlanSprintStatuses PhaseStatus.allProductPhaseStatuses
               let expected = concatMap registrySprintStatuses PhaseStatus.allProductPhaseStatuses
               actual @?= expected
+          , testCase "every dependency edge is forward-only (rule M(a))" $ do
+              facts <- concat <$> traverse readPlanSprintFacts PhaseStatus.allProductPhaseStatuses
+              Control.Monad.forM_ facts $ \sf ->
+                Control.Monad.forM_ (psfBlockedBy sf) $ \ref ->
+                  assertBool
+                    ( Text.unpack (psfId sf)
+                        <> " declares a backward Blocked-by edge to higher-numbered "
+                        <> Text.unpack ref
+                    )
+                    (compareDottedId ref (psfId sf) /= GT)
+          , testCase "every sprint declares a concrete validation gate" $ do
+              facts <- concat <$> traverse readPlanSprintFacts PhaseStatus.allProductPhaseStatuses
+              Control.Monad.forM_ facts $ \sf ->
+                assertBool
+                  (Text.unpack (psfId sf) <> " has no non-empty ### Validation gate")
+                  (psfHasValidationGate sf)
+          , testCase "no sprint validation requires both accelerators (rule M(b))" $ do
+              facts <- concat <$> traverse readPlanSprintFacts PhaseStatus.allProductPhaseStatuses
+              Control.Monad.forM_ facts $ \sf ->
+                assertBool
+                  ( Text.unpack (psfId sf)
+                      <> " validation names both a linux-cuda and an apple-silicon lane"
+                  )
+                  (not (psfValidationNamesCuda sf && psfValidationNamesApple sf))
           ]
       , -- Sprint 12.10 — backend-agnostic invariants relocated out of
         -- jitml-backends (which is now a per-substrate live lane). These

@@ -2,7 +2,7 @@
 
 **Status**: Working design note (non-authoritative; supports Sprint 23.1)
 **Supersedes**: N/A
-**Referenced by**: [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md)
+**Referenced by**: [phase-23-general-differentiable-layer-engine.md](README.md#legacy-to-new-phase-map)
 **Generated sections**: none
 
 > **Purpose**: Provide the implementable design blueprint for Sprint 23.1 (typed
