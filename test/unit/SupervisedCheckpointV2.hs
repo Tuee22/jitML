@@ -48,6 +48,7 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Checkpoint.Writer qualified as CheckpointWriter
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Plan.Plan qualified as Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Completion qualified as ProductCompletion
@@ -324,6 +325,46 @@ supervisedCheckpointV2Tests =
         Checkpoint.addressedManifestWireVersion addressed
           @?= Checkpoint.checkpointWireVersion
         Checkpoint.addressedManifestBytes addressed @?= bytes
+    , testCase "V3 checkpoint round-trips the trained layer graph (Sprint 235.1)" $ do
+        node <-
+          expectRight
+            ( LayerGraph.mkAffineLayer
+                "v3-dense"
+                LayerGraph.DenseLayer
+                4
+                3
+                LayerGraph.ReluActivation
+                LayerGraph.TrainingMode
+                (LayerGraph.deterministicParameters 9 4 3)
+            )
+        let graph =
+              LayerGraph.LayerGraph
+                { LayerGraph.layerGraphName = "v3-graph"
+                , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+                , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+                , LayerGraph.layerGraphNodes = [node]
+                }
+            manifest =
+              Checkpoint.emptyManifest
+                "v3-row"
+                "exp-v3"
+                [ Checkpoint.TensorBlob
+                    "weights"
+                    [15]
+                    "jitml-checkpoints/exp-v3/blobs/g"
+                ]
+            bytes = Checkpoint.encodeV3Checkpoint manifest graph
+        (_, graphBack) <- expectRight (Checkpoint.decodeV3Checkpoint bytes)
+        -- The exact trained graph (operator, shapes, activation, mode, params)
+        -- round-trips through the V3 wire format.
+        graphBack @?= graph
+        -- A V3 object must not be mis-decoded/admitted as a V1/V2 manifest: the
+        -- shared three-field envelope carries version 3, which the V2 decoder
+        -- rejects without falling through.
+        case Checkpoint.decodeAddressedManifestCbor bytes of
+          Left _ -> pure ()
+          Right _ ->
+            assertFailure "V3 bytes must not decode as an addressed V1/V2 manifest"
     , testCase "historical supervised ProductRow V1 fails completion refinement" $ do
         fixture <- expectRight makeFixture
         let historical =

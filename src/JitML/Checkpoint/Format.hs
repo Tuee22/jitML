@@ -27,6 +27,9 @@ module JitML.Checkpoint.Format
   , RawCheckpointEnvelope (..)
   , RawCheckpointBodyV2 (..)
   , RawCheckpointEnvelopeV2 (..)
+  , RawCheckpointBodyV3 (..)
+  , RawV3Graph (..)
+  , RawV3LayerNode (..)
   , RawCheckpointManifest (..)
   , RngBlob (..)
   , SubstrateArtifact (..)
@@ -45,6 +48,11 @@ module JitML.Checkpoint.Format
   , checkpointManifestToRaw
   , checkpointWireVersion
   , checkpointWireVersionV2
+  , checkpointWireVersionV3
+  , encodeV3Checkpoint
+  , decodeV3Checkpoint
+  , layerGraphToRawV3
+  , rawV3ToLayerGraph
   , canonicalSupervisedRuntimeManifestMetadata
   , decodeJmw1
   , decodeAddressedManifestCbor
@@ -92,6 +100,7 @@ import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64, Word8)
 import GHC.Generics (Generic)
 
@@ -422,6 +431,43 @@ data RawCheckpointEnvelopeV2 = RawCheckpointEnvelopeV2
   { rawCheckpointV2Version :: Word64
   , rawCheckpointV2BodySha256 :: StrictByteString.ByteString
   , rawCheckpointV2BodyBytes :: StrictByteString.ByteString
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
+-- | One serialised layer-graph node.  Reuses the numerical 'LayerGraph'
+-- operator/kind/shape/mode/activation types directly (all pure 'Serialise'
+-- values); only the packed parameters are carried as @[Double]@ so the
+-- unboxed vectors round-trip.  Weight and bias are both present or both absent.
+data RawV3LayerNode = RawV3LayerNode
+  { rawV3NodeName :: Text
+  , rawV3NodeKind :: LayerGraph.LayerKind
+  , rawV3NodeOp :: LayerGraph.LayerOp
+  , rawV3NodeInputShape :: LayerGraph.TensorShape
+  , rawV3NodeOutputShape :: LayerGraph.TensorShape
+  , rawV3NodeMode :: LayerGraph.LayerMode
+  , rawV3NodeActivation :: LayerGraph.LayerActivation
+  , rawV3NodeWeights :: Maybe [Double]
+  , rawV3NodeBias :: Maybe [Double]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
+-- | The full serialised trained graph topology + parameters.
+data RawV3Graph = RawV3Graph
+  { rawV3GraphName :: Text
+  , rawV3GraphInputShape :: [Int]
+  , rawV3GraphOutputShape :: [Int]
+  , rawV3GraphNodes :: [RawV3LayerNode]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
+-- | V3 body: the canonical manifest (for identity/metadata, reusing the V2
+-- projection) plus the exact trained layer graph.
+data RawCheckpointBodyV3 = RawCheckpointBodyV3
+  { rawCheckpointV3Manifest :: RawCheckpointManifest
+  , rawCheckpointV3Graph :: RawV3Graph
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
@@ -1861,6 +1907,17 @@ checkpointWireVersion = 1
 checkpointWireVersionV2 :: Word64
 checkpointWireVersionV2 = 2
 
+-- | The Tier-2 layer-graph runtime envelope.  V3 serialises the exact trained
+-- typed 'LayerGraph.LayerGraph' — every node's operator, kind, shapes, mode,
+-- activation, and packed parameters — so a strict runtime can reload and
+-- execute it through the layer-graph oneDNN kernels.  It reuses the V2
+-- three-field outer envelope shape ('RawCheckpointEnvelopeV2') with this
+-- distinct version, so decode dispatches on the shared Word64 version field
+-- rather than a structural fall-through.  V1 (SHA-frozen) and V2 remain
+-- byte-identical.
+checkpointWireVersionV3 :: Word64
+checkpointWireVersionV3 = 3
+
 checkpointManifestToRaw :: CheckpointManifest -> RawCheckpointManifest
 checkpointManifestToRaw manifest =
   RawCheckpointManifest
@@ -1951,6 +2008,100 @@ encodeManifestCbor manifest =
 decodeManifestCbor :: LazyByteString.ByteString -> Either Text CheckpointManifest
 decodeManifestCbor payload =
   addressedManifest <$> decodeAddressedManifestCbor payload
+
+-- ---------------------------------------------------------------------------
+-- V3 layer-graph checkpoint (Sprint 235.1)
+-- ---------------------------------------------------------------------------
+
+layerGraphToRawV3 :: LayerGraph.LayerGraph -> RawV3Graph
+layerGraphToRawV3 graph =
+  RawV3Graph
+    { rawV3GraphName = LayerGraph.layerGraphName graph
+    , rawV3GraphInputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphInputShape graph)
+    , rawV3GraphOutputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphOutputShape graph)
+    , rawV3GraphNodes = fmap nodeToRaw (LayerGraph.layerGraphNodes graph)
+    }
+ where
+  nodeToRaw node =
+    RawV3LayerNode
+      { rawV3NodeName = LayerGraph.layerNodeName node
+      , rawV3NodeKind = LayerGraph.layerNodeKind node
+      , rawV3NodeOp = LayerGraph.layerNodeOp node
+      , rawV3NodeInputShape = LayerGraph.layerInputShape node
+      , rawV3NodeOutputShape = LayerGraph.layerOutputShape node
+      , rawV3NodeMode = LayerGraph.layerMode node
+      , rawV3NodeActivation = LayerGraph.layerActivation node
+      , rawV3NodeWeights = VU.toList . LayerGraph.layerWeights <$> LayerGraph.layerParameters node
+      , rawV3NodeBias = VU.toList . LayerGraph.layerBias <$> LayerGraph.layerParameters node
+      }
+
+rawV3ToLayerGraph :: RawV3Graph -> Either Text LayerGraph.LayerGraph
+rawV3ToLayerGraph raw = do
+  nodes <- traverse nodeFromRaw (rawV3GraphNodes raw)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = rawV3GraphName raw
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape (rawV3GraphInputShape raw)
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape (rawV3GraphOutputShape raw)
+      , LayerGraph.layerGraphNodes = nodes
+      }
+ where
+  nodeFromRaw n = do
+    params <- case (rawV3NodeWeights n, rawV3NodeBias n) of
+      (Nothing, Nothing) -> Right Nothing
+      (Just w, Just b) ->
+        Right (Just (LayerGraph.LayerParameters (VU.fromList w) (VU.fromList b)))
+      _ ->
+        Left ("V3 node " <> rawV3NodeName n <> " has mismatched weight/bias presence")
+    pure
+      LayerGraph.LayerNode
+        { LayerGraph.layerNodeName = rawV3NodeName n
+        , LayerGraph.layerNodeKind = rawV3NodeKind n
+        , LayerGraph.layerNodeOp = rawV3NodeOp n
+        , LayerGraph.layerInputShape = rawV3NodeInputShape n
+        , LayerGraph.layerOutputShape = rawV3NodeOutputShape n
+        , LayerGraph.layerMode = rawV3NodeMode n
+        , LayerGraph.layerActivation = rawV3NodeActivation n
+        , LayerGraph.layerParameters = params
+        }
+
+-- | Encode a trained layer graph as a V3 checkpoint.  Reuses the shared
+-- three-field outer envelope with 'checkpointWireVersionV3'; the V1/V2
+-- encoders are untouched, so their frozen bytes are unaffected.
+encodeV3Checkpoint :: CheckpointManifest -> LayerGraph.LayerGraph -> LazyByteString.ByteString
+encodeV3Checkpoint manifest graph =
+  let body =
+        RawCheckpointBodyV3
+          { rawCheckpointV3Manifest = checkpointManifestToRaw (canonicalManifestV2 manifest)
+          , rawCheckpointV3Graph = layerGraphToRawV3 graph
+          }
+      bodyBytes = LazyByteString.toStrict (serialise body)
+   in serialise
+        RawCheckpointEnvelopeV2
+          { rawCheckpointV2Version = checkpointWireVersionV3
+          , rawCheckpointV2BodySha256 = SHA256.hash bodyBytes
+          , rawCheckpointV2BodyBytes = bodyBytes
+          }
+
+-- | Decode a V3 checkpoint into its manifest and exact trained graph.  Fails
+-- closed on a wrong version, digest mismatch, malformed body, or malformed
+-- graph.
+decodeV3Checkpoint
+  :: LazyByteString.ByteString -> Either Text (CheckpointManifest, LayerGraph.LayerGraph)
+decodeV3Checkpoint payload = do
+  envelope <- decodeRawCheckpointEnvelopeV2 payload
+  if rawCheckpointV2Version envelope /= checkpointWireVersionV3
+    then Left "decodeV3Checkpoint: not a V3 checkpoint"
+    else do
+      let bodyBytes = rawCheckpointV2BodyBytes envelope
+      if SHA256.hash bodyBytes /= rawCheckpointV2BodySha256 envelope
+        then Left "decodeV3Checkpoint: body digest mismatch"
+        else case deserialiseOrFail (LazyByteString.fromStrict bodyBytes) of
+          Left _ -> Left "decodeV3Checkpoint: malformed V3 body"
+          Right body -> do
+            manifest <- refineCheckpointManifest (rawCheckpointV3Manifest body)
+            graph <- rawV3ToLayerGraph (rawCheckpointV3Graph body)
+            pure (manifest, graph)
 
 -- | Structurally dispatch and retain the exact fetched representation.  A
 -- successful structural decode selects a wire form permanently: semantic or

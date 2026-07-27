@@ -6096,8 +6096,8 @@ main =
           ]
       , testGroup
           "Product phase status registry (Phase 221)"
-          [ testCase "enumerates product phases 220 through 283" $ do
-              PhaseStatus.productPhaseNumbers @?= [220 .. 283]
+          [ testCase "enumerates product phases 220 through 287" $ do
+              PhaseStatus.productPhaseNumbers @?= [220 .. 287]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports incomplete while any product sprint is open" $ do
               PhaseStatus.allProductPhasesDone @?= False
@@ -6757,6 +6757,62 @@ main =
                 assertBool
                   (Text.unpack (LayerGraph.layerKindName kind) <> " finite-difference error too large: " <> show err)
                   (err < 1.0e-4)
+          , testCase "LayerGraph softmax cross-entropy gradient matches finite differences (Sprint 235.1)" $ do
+              node <-
+                either
+                  (assertFailure . Text.unpack)
+                  pure
+                  ( LayerGraph.mkAffineLayer
+                      "ce-logits"
+                      LayerGraph.DenseLayer
+                      4
+                      3
+                      LayerGraph.LinearActivation
+                      LayerGraph.TrainingMode
+                      (LayerGraph.deterministicParameters 7 4 3)
+                  )
+              let graph =
+                    LayerGraph.LayerGraph
+                      { LayerGraph.layerGraphName = "ce-fd"
+                      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+                      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
+                      , LayerGraph.layerGraphNodes = [node]
+                      }
+                  input = Data.Vector.Unboxed.fromList [0.5, -0.25, 0.75, -0.1]
+                  label = 2 :: Int
+                  base = LayerGraph.graphParameterVector graph
+                  eps = 1.0e-6
+                  lossFor v = do
+                    g <- LayerGraph.replaceGraphParameterVector graph v
+                    LayerGraph.layerGraphCrossEntropyLoss g input label
+                  numericAt i =
+                    let bumped d =
+                          base Data.Vector.Unboxed.// [(i, (base Data.Vector.Unboxed.! i) + d)]
+                     in do
+                          lp <- lossFor (bumped eps)
+                          lm <- lossFor (bumped (negate eps))
+                          pure ((lp - lm) / (2 * eps))
+              (_, gradient) <-
+                either
+                  (assertFailure . Text.unpack)
+                  pure
+                  (LayerGraph.layerGraphCrossEntropyGradient graph input label)
+              let analytic = LayerGraph.flattenLayerGraphGradient gradient
+              numeric <-
+                either
+                  (assertFailure . Text.unpack)
+                  pure
+                  (traverse numericAt [0 .. Data.Vector.Unboxed.length base - 1])
+              let maxErr =
+                    maximum
+                      ( 0
+                          : [ abs (analytic Data.Vector.Unboxed.! i - numeric !! i)
+                            | i <- [0 .. Data.Vector.Unboxed.length base - 1]
+                            ]
+                      )
+              assertBool
+                ("cross-entropy gradient finite-difference error too large: " <> show maxErr)
+                (maxErr < 1.0e-4)
           , testCase "LayerGraph gradients are deterministic for a ResNet-shaped graph (Sprint 23.1)" $ do
               graph <- either (assertFailure . Text.unpack) pure (resNetShapedLayerGraph 17)
               let input = Data.Vector.Unboxed.fromList [0.2, -0.3, 0.4]

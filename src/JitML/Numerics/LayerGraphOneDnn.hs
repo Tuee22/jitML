@@ -19,6 +19,8 @@ module JitML.Numerics.LayerGraphOneDnn
   , layerGraphOneDnnToolchainFingerprint
   , runLayerGraphForwardOneDnn
   , layerGraphSquaredErrorGradientOneDnn
+  , layerGraphCrossEntropyGradientOneDnn
+  , trainLayerGraphClassifierOneDnn
   )
 where
 
@@ -217,6 +219,116 @@ layerGraphSquaredErrorGradientOneDnn env graph input target =
                   }
             )
             deviceResult
+
+-- | Classification counterpart of 'layerGraphSquaredErrorGradientOneDnn': runs
+-- the update-critical layer-graph training kernels on the oneDNN device for a
+-- single labelled example, seeding the backward pass with the softmax
+-- cross-entropy output gradient via 'LayerGraph.layerGraphCrossEntropyGradient'.
+layerGraphCrossEntropyGradientOneDnn
+  :: Env -> LayerGraph -> Vector Double -> Int -> IO (Either Text LayerGraphOneDnnRun)
+layerGraphCrossEntropyGradientOneDnn env graph input label =
+  case LayerGraph.layerGraphCrossEntropyGradient graph input label of
+    Left err -> pure (Left err)
+    Right (tape, pureGradient) ->
+      withCompiledLayerGraphOneDnn env $ \functions backendName artifactPath artifactCompiled -> do
+        deviceResult <-
+          deviceGradient
+            functions
+            backendName
+            artifactPath
+            artifactCompiled
+            tape
+            pureGradient
+        pure $
+          fmap
+            ( \(gradient, evidence) ->
+                LayerGraphOneDnnRun
+                  { layerGraphOneDnnTape = tape
+                  , layerGraphOneDnnGradient = gradient
+                  , layerGraphOneDnnEvidence = evidence
+                  }
+            )
+            deviceResult
+
+-- | Full-batch Adam training of a classification 'LayerGraph' through the
+-- oneDNN device cross-entropy gradient.  Each epoch accumulates the per-example
+-- softmax cross-entropy gradient over the dataset, averages it, and takes one
+-- Adam step on the graph's flat parameter vector via
+-- 'LayerGraph.replaceGraphParameterVector'.  This is the IR-native supervised
+-- classification training loop that makes the typed 'LayerGraph' the single
+-- owner of training (Sprint 235.1).
+trainLayerGraphClassifierOneDnn
+  :: Env
+  -> Int
+  -- ^ epochs
+  -> Int
+  -- ^ mini-batch size (examples are consumed in deterministic order)
+  -> Double
+  -- ^ learning rate
+  -> LayerGraph
+  -> [(Vector Double, Int)]
+  -- ^ @(features, class label)@ examples
+  -> IO (Either Text LayerGraph)
+trainLayerGraphClassifierOneDnn env epochs batchSize learningRate graph0 dataset
+  | epochs <= 0 = pure (Left "trainLayerGraphClassifierOneDnn: epochs must be positive")
+  | batchSize <= 0 = pure (Left "trainLayerGraphClassifierOneDnn: batch size must be positive")
+  | null dataset = pure (Left "trainLayerGraphClassifierOneDnn: empty dataset")
+  | otherwise = runEpochs 1 graph0 zeroMoments zeroMoments 1
+ where
+  paramCount = VU.length (LayerGraph.graphParameterVector graph0)
+  zeroMoments = VU.replicate paramCount 0
+  beta1 = 0.9
+  beta2 = 0.999
+  epsilon = 1.0e-8
+  batches = chunksOfList batchSize dataset
+  -- Adam moments @m@/@v@ and the step counter @t@ thread across every
+  -- mini-batch of every epoch (one Adam step per batch).
+  runEpochs epoch graph m v t
+    | epoch > epochs = pure (Right graph)
+    | otherwise = do
+        result <- runBatches batches graph m v t
+        case result of
+          Left err -> pure (Left err)
+          Right (graph', m', v', t') -> runEpochs (epoch + 1) graph' m' v' t'
+  runBatches [] graph m v t = pure (Right (graph, m, v, t))
+  runBatches (batch : rest) graph m v t = do
+    gradientResult <- accumulateGradient graph batch
+    case gradientResult of
+      Left err -> pure (Left err)
+      Right summed ->
+        let grad = VU.map (/ fromIntegral (length batch)) summed
+            tD = fromIntegral t :: Double
+            bc1 = 1 - beta1 ** tD
+            bc2 = 1 - beta2 ** tD
+            m' = VU.zipWith (\mi gi -> beta1 * mi + (1 - beta1) * gi) m grad
+            v' = VU.zipWith (\vi gi -> beta2 * vi + (1 - beta2) * gi * gi) v grad
+            params = LayerGraph.graphParameterVector graph
+            params' =
+              VU.zipWith3
+                (\p mi vi -> p - learningRate * (mi / bc1) / (sqrt (vi / bc2) + epsilon))
+                params
+                m'
+                v'
+         in case LayerGraph.replaceGraphParameterVector graph params' of
+              Left err -> pure (Left err)
+              Right graph' -> runBatches rest graph' m' v' (t + 1)
+  accumulateGradient graph = foldM step (Right VU.empty)
+   where
+    step (Left err) _ = pure (Left err)
+    step (Right summed) (features, label) = do
+      runResult <- layerGraphCrossEntropyGradientOneDnn env graph features label
+      pure $ case runResult of
+        Left err -> Left err
+        Right run ->
+          let g = LayerGraph.flattenLayerGraphGradient (layerGraphOneDnnGradient run)
+           in Right (if VU.null summed then g else VU.zipWith (+) summed g)
+
+chunksOfList :: Int -> [a] -> [[a]]
+chunksOfList n xs
+  | n <= 0 = [xs]
+  | otherwise = case splitAt n xs of
+      ([], _) -> []
+      (chunk, rest) -> chunk : chunksOfList n rest
 
 withCompiledLayerGraphOneDnn
   :: Env

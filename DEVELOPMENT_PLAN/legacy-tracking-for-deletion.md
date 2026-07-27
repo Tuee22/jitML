@@ -57,6 +57,42 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-07-26 — IR-single-owner + one-envelope redesign; ledger reopened for the
+supervised checkpoint/runtime surfaces.** The redesign makes the typed
+`LayerGraph` IR the single owner of supervised training/serving/serialization and
+collapses the checkpoint wire to one self-describing envelope. The following
+surfaces enter Pending Removal, each owned by the phase (in the post-2026-07-26
+`+4` numbering) that removes it:
+
+- **V1/V2/V3 checkpoint wire versions + the frozen-V1 byte-freeze golden**
+  (`src/JitML/Checkpoint/Format.hs`; the SHA-256 `30db4da5…` / 134-byte golden in
+  `test/unit/SupervisedCheckpointV2.hs`) — replaced by one self-describing
+  envelope with a typed payload sum; checkpoints are regenerated deterministically,
+  so no persisted bytes are reinterpreted and the byte-freeze is retired. Owner:
+  Phase `235`.
+- **The parallel `canonicalManifest` / `canonicalManifestV2` canonicalizers and
+  the dead `RawV3*` DTOs / `encodeV3Checkpoint` / `decodeV3Checkpoint`**
+  (`src/JitML/Checkpoint/Format.hs`) — collapsed to one canonicalizer; the V3
+  encoder had no production caller. Owner: Phase `235`.
+- **The version-gated admission path, the dormant `layerGraphFromCheckpoint` /
+  `rebuildLayerGraph` helpers, and the V2 `SupervisedRuntime` load path**
+  (`src/JitML/Checkpoint/Store.hs`) — superseded by one payload-classifying
+  admission path. Owner: Phase `236`.
+- **The V2 `SupervisedRuntime` served-operator ABI**
+  (`src/JitML/SL/RuntimeArtifact.hs`, `src/JitML/Codegen/RuntimeOperationsCpu.hs`,
+  the per-substrate device operators, and the nine-operation served set) — removed
+  because the reloaded typed `LayerGraph` is executed directly. Owner: Phase `237`
+  (read side) and Phase `239` (construction / ABI removal).
+- **The decorative `archLayerGraph` beside the parallel executable
+  `[LayerSpec]` / `[LayerState]` program** (`src/JitML/SL/Architecture.hs`,
+  `src/JitML/Numerics/LayerGraph.hs`) — the IR becomes the single executor. This
+  repoints the pre-existing decorative-graph residue row (previously owned by
+  legacy Sprint `23.2`) to Phase `238`.
+
+These are doctrine-deviation / duplicate-surface removals; the primary redesign
+obligations live in the owning phases' `### Deliverables` / `### Remaining Work`.
+Each row moves to Completed when its owning phase lands its `### Validation` gate.
+
 **2026-07-18 — checkpoint persistence and executable-graph audit; ledger
 reopened at Sprint `10.6`.** The frozen V1 checkpoint writer publishes
 name-derived supervised tensors as `GenericModelFamily` and cannot preserve the

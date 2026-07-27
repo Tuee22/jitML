@@ -9,11 +9,21 @@
 
 ## Phase State
 
-📋 **Planned**. Active frontier — the lowest-numbered phase not yet Done.
+🔄 **Active** (reopened 2026-07-26). The per-example oneDNN layer kernels are in
+place and were validated on the `linux-cpu` container lane 2026-07-25 (`jitml test
+jitml-backends --linux-cpu` **24 / 24**, `jitml test jitml-unit --linux-cpu`
+**766 / 766**, `jitml check-code` **ok**; retained under
+[Historical Validation](#historical-validation)). The IR-single-owner redesign
+adds a new obligation on this phase's owned surface — **batched** oneDNN
+forward/backward — so that layer-graph training is tractable for the vision rows
+once [Phase 235](phase-235-one-self-describing-checkpoint-envelope.md) onward make
+the typed `LayerGraph` IR the supervised executor. The unmet obligation is
+enumerated in [Remaining Work](#remaining-work). Reopening to `Active` (not
+`Blocked`) because the prerequisite Phase `233` is Done.
 
-## Sprint 234.1: oneDNN Layer Kernels for Training [📋 Planned]
+## Sprint 234.1: oneDNN Layer Kernels for Training [🔄 Active]
 
-**Status**: Planned
+**Status**: Active
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/Numerics/MlpOneDnn.hs`, `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/Engines/OneDnnRuntime.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -46,10 +56,16 @@ the backend computes update-critical gradients rather than only the pure oracle.
 
 ### Remaining Work
 
-- Lower the single executable Sprint `233.1` graph to exact oneDNN forward,
-  parameter-gradient, and input-gradient semantics for every supported node.
-- Compare those kernels with an independent finite-difference oracle and reject
-  unsupported layout/shape cases instead of reusing an approximation.
+- **Batched oneDNN forward/backward kernels.** The current
+  `JitML.Numerics.LayerGraphOneDnn` device path evaluates one example at a time.
+  Extend the `jitml_layer_forward` / `jitml_layer_backward_data` /
+  `jitml_layer_backward_weights` ABI and its `LayerGraphOneDnn` dispatch to run
+  over a batch dimension (oneDNN batched primitives), so IR training converges the
+  vision rows within the single-threaded `linux-cpu` lane's time budget once the
+  IR becomes the supervised executor downstream. Backend-vs-pure-oracle agreement
+  and per-node device evidence must continue to hold, now over a batch. This is
+  the only unmet obligation; the per-example kernels above stay valid for the
+  surface they exercised. Close with the `### Validation` gate below.
 
 ### Validation
 

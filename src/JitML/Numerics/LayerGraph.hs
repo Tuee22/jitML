@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Sprint 23.1 — typed layer graph plus a pure reverse-mode autodiff engine.
@@ -90,8 +92,11 @@ module JitML.Numerics.LayerGraph
   , backwardLayerGraph
   , layerGraphSquaredErrorGradient
   , layerGraphLoss
+  , layerGraphCrossEntropyGradient
+  , layerGraphCrossEntropyLoss
   , graphParameterVector
   , replaceGraphParameterVector
+  , flattenLayerGraphGradient
 
     -- * Finite-difference oracles
   , maxFiniteDifferenceError
@@ -99,12 +104,14 @@ module JitML.Numerics.LayerGraph
   )
 where
 
+import Codec.Serialise (Serialise)
 import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
+import GHC.Generics (Generic)
 import System.Random qualified as Random
 
 -- ---------------------------------------------------------------------------
@@ -112,7 +119,8 @@ import System.Random qualified as Random
 -- ---------------------------------------------------------------------------
 
 newtype TensorShape = TensorShape {unTensorShape :: [Int]}
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 tensorShapeWidth :: TensorShape -> Either Text Int
 tensorShapeWidth (TensorShape dims)
@@ -126,14 +134,16 @@ tensorShapeRank = length . unTensorShape
 data LayerMode
   = TrainingMode
   | InferenceMode
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data LayerActivation
   = LinearActivation
   | TanhActivation
   | ReluActivation
   | SoftmaxActivation
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | Serialization / identity tag for pooling and normalization families. Kept
 -- stable across the Tier-2 enrichment so checkpoint metadata and oneDNN kind
@@ -142,13 +152,15 @@ data PoolKind
   = MaxPool
   | AvgPool
   | GlobalAvgPool
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data NormKind
   = BatchNorm
   | LayerNorm
   | GroupNorm Int
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | Stable node identity tag. The real per-node geometry lives in 'LayerOp';
 -- this enum remains the checkpoint-metadata / oneDNN switch key.
@@ -165,7 +177,8 @@ data LayerKind
   | MultiHeadAttentionLayer Int
   | GeGLULayer
   | PatchEmbedLayer
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 layerKindName :: LayerKind -> Text
 layerKindName DenseLayer = "Dense"
@@ -220,14 +233,16 @@ data ConvSpec = ConvSpec
   , convStride :: ![Int]
   , convPadding :: ![Int]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data SpatialShape = SpatialShape
   { spC :: !Int
   , spH :: !Int
   , spW :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data PoolWindow = PoolWindow
   { pwKh :: !Int
@@ -238,19 +253,22 @@ data PoolWindow = PoolWindow
   , pwPw :: !Int
   , pwCountPad :: !Bool
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data PoolSpec
   = PoolMax !PoolWindow
   | PoolAvg !PoolWindow
   | PoolGlobal
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data NormFlavor
   = NormBatch
   | NormLayerWise
   | NormGroup !Int
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | Normalization spec. @nChannels@ is the per-channel affine width (gamma/beta
 -- length); @nSpatial@ is the spatial extent per channel (1 for the dense case).
@@ -263,7 +281,8 @@ data NormSpec = NormSpec
   , nSpatial :: !Int
   , nEps :: !Double
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data AttentionSpec = AttentionSpec
   { attnSeqLen :: !Int
@@ -271,14 +290,16 @@ data AttentionSpec = AttentionSpec
   , attnNumHeads :: !Int
   , attnCausal :: !Bool
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data GeGLUSpec = GeGLUSpec
   { ggIn :: !Int
   , ggFf :: !Int
   , ggOut :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | An affine map @W : [asOut, asIn]@ (row-major) plus bias @b : [asOut]@. Data
 -- lives in the packed node parameters; this carries only the dimensions.
@@ -286,12 +307,14 @@ data AffineSpec = AffineSpec
   { asIn :: !Int
   , asOut :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data Shortcut
   = IdentityShortcut
   | ProjectionShortcut !AffineSpec
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | One block stage: an affine map, an optional normalization, and an
 -- activation applied to the (optionally normalized) pre-activation.
@@ -300,7 +323,8 @@ data BlockStage = BlockStage
   , bsNorm :: !(Maybe NormSpec)
   , bsAct :: !LayerActivation
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data BlockSpec = BlockSpec
   { blStages :: ![BlockStage]
@@ -308,7 +332,8 @@ data BlockSpec = BlockSpec
   , blScale :: !Double
   , blFinalAct :: !LayerActivation
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | Non-overlapping (or overlapping) patch embedding spec. No learned
 -- positional embedding in this tier; the projection + col2im are the verified
@@ -321,7 +346,8 @@ data PatchSpec = PatchSpec
   , peStride :: !Int
   , peD :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- | The verified operator geometry carried by every node. Tier-1 coarse nodes
 -- use 'DenseOp' / 'IdentityOp' / 'DropoutOp'.
@@ -337,7 +363,8 @@ data LayerOp
   | PatchOp !PatchSpec
   | ResidualOp !AffineSpec !Shortcut !Double !LayerActivation
   | BlockOp !BlockSpec
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 -- ---------------------------------------------------------------------------
 -- Parameters, nodes, graph
@@ -1088,6 +1115,48 @@ layerGraphLoss graph input target = do
   unless (VU.length target == VU.length (layerTapeOutput tape)) $
     Left "layerGraphLoss: target width differs from graph output"
   pure (0.5 * VU.sum (VU.map (\x -> x * x) (VU.zipWith (-) (layerTapeOutput tape) target)))
+
+-- | Softmax cross-entropy gradient for classification. The graph output is
+-- treated as raw logits; the upstream output gradient handed to the shared
+-- 'backwardLayerGraph' is @softmax(logits) - onehot(label)@, which is the exact
+-- derivative of cross-entropy composed with the softmax over the linear output.
+-- This is the classification counterpart of 'layerGraphSquaredErrorGradient'
+-- and lets the typed 'LayerGraph' IR own supervised classification training
+-- rather than the parallel @[LayerState]@ interpreter.
+layerGraphCrossEntropyGradient
+  :: LayerGraph -> Vector Double -> Int -> Either Text (LayerGraphTape, LayerGraphGradient)
+layerGraphCrossEntropyGradient graph input label = do
+  tape <- runLayerGraph graph input
+  let logits = layerTapeOutput tape
+      width = VU.length logits
+  unless (label >= 0 && label < width) $
+    Left
+      ( "layerGraphCrossEntropyGradient: label "
+          <> tshow label
+          <> " out of range for output width "
+          <> tshow width
+      )
+  let probs = softmax logits
+      upstream = VU.imap (\i p -> p - if i == label then 1.0 else 0.0) probs
+  gradient <- backwardLayerGraph graph tape upstream
+  pure (tape, gradient)
+
+-- | Softmax cross-entropy loss for classification: @-log(softmax(logits)[label])@,
+-- clamped away from zero for numerical safety. Counterpart of 'layerGraphLoss'.
+layerGraphCrossEntropyLoss :: LayerGraph -> Vector Double -> Int -> Either Text Double
+layerGraphCrossEntropyLoss graph input label = do
+  tape <- runLayerGraph graph input
+  let logits = layerTapeOutput tape
+      width = VU.length logits
+  unless (label >= 0 && label < width) $
+    Left
+      ( "layerGraphCrossEntropyLoss: label "
+          <> tshow label
+          <> " out of range for output width "
+          <> tshow width
+      )
+  let probs = softmax logits
+  pure (negate (log (max 1.0e-12 (probs VU.! label))))
 
 -- ---------------------------------------------------------------------------
 -- Parameter flatten machinery (operator-agnostic)

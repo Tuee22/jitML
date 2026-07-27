@@ -603,6 +603,52 @@ main =
                   evidence
               )
       , testCase
+          "linux-cpu LayerGraph classification training reduces cross-entropy loss (Sprint 235.1)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            node <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                ( LayerGraph.mkAffineLayer
+                    "toy-dense"
+                    LayerGraph.DenseLayer
+                    2
+                    2
+                    LayerGraph.LinearActivation
+                    LayerGraph.TrainingMode
+                    (LayerGraph.deterministicParameters 3 2 2)
+                )
+            let graph0 =
+                  LayerGraph.LayerGraph
+                    { LayerGraph.layerGraphName = "toy-classifier"
+                    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [2]
+                    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                    , LayerGraph.layerGraphNodes = [node]
+                    }
+                dataset =
+                  [ (VU.fromList [1.0, 0.0], 0)
+                  , (VU.fromList [0.9, 0.1], 0)
+                  , (VU.fromList [0.0, 1.0], 1)
+                  , (VU.fromList [0.1, 0.9], 1)
+                  ]
+                totalLoss g =
+                  fmap
+                    sum
+                    (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) dataset)
+            loss0 <- either (assertFailure . Text.unpack) pure (totalLoss graph0)
+            trained <-
+              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env 50 2 0.1 graph0 dataset
+                >>= expectRight "LayerGraph classification training failed"
+            loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
+            assertBool
+              ( "training must reduce cross-entropy loss: before="
+                  <> show loss0
+                  <> " after="
+                  <> show loss1
+              )
+              (loss1 < loss0)
+      , testCase
           "linux-cpu MLP kernels are bit-deterministic across repeated runs (Phase 2 rebalance)"
           $ do
             env <- buildEnv defaultGlobalFlags
