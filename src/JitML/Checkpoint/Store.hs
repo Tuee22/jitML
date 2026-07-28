@@ -38,7 +38,8 @@ module JitML.Checkpoint.Store
   , loadInferenceCheckpointWithWeights
   , loadInferenceCheckpointDecodedWithWeights
   , loadSupervisedRuntimeFromCheckpoint
-  , layerGraphFromCheckpoint
+  , reconstructSupervisedGraphFromCheckpoint
+  , runSupervisedGraphCheckpointInference
   , objectPathForKey
   , readCheckpointManifest
   , readCheckpointPointer
@@ -98,11 +99,6 @@ import JitML.Checkpoint.Format
   , ArchitectureMetadata (..)
   , ArtifactPointer (..)
   , CheckpointManifest (..)
-  , LayerGraphActivationMetadata (..)
-  , LayerGraphKindMetadata (..)
-  , LayerGraphMetadata (..)
-  , LayerGraphModeMetadata (..)
-  , LayerGraphNodeMetadata (..)
   , ModelFamily (..)
   , OptimizerBlob (..)
   , PointerWriteResult (..)
@@ -115,12 +111,13 @@ import JitML.Checkpoint.Format
   , addressedManifestSha
   , addressedManifestWireVersion
   , blobKey
-  , checkpointWireVersion
   , checkpointWireVersionV2
   , decodeAddressedManifestCbor
   , decodeJmw1
   , encodeManifestCbor
   , latestPointerKey
+  , layerGraphFromMetadata
+  , layerGraphMetadataParameterCount
   , manifestContentSha
   , manifestKey
   , renderCheckpointCompletionValidationError
@@ -932,12 +929,11 @@ decodeAddressedForAdmission experimentHash expectedManifestSha bytes = do
     case decodeAddressedManifestCbor bytes of
       Left err -> Left (AdmissionManifestInvalid err)
       Right value -> Right value
+  -- The one self-describing envelope decodes to exactly two payload variants
+  -- (weight-only and supervised-graph), both structurally admissible; there is
+  -- no per-version allow-list. Payload-variant classification happens once, at
+  -- the completed-admission boundary (`validateCompletedAdmissionScope`).
   let manifest = addressedManifest addressed
-      wireVersion = addressedManifestWireVersion addressed
-  if wireVersion == checkpointWireVersion
-    || wireVersion == checkpointWireVersionV2
-    then Right ()
-    else Left (AdmissionManifestVersionUnsupported wireVersion)
   case validateLoadedManifest
     experimentHash
     expectedManifestSha
@@ -1238,24 +1234,33 @@ requireAdmittedCompletedCheckpoint admitted = do
 validateCompletedAdmissionScope
   :: AdmittedCheckpoint
   -> Either CheckpointAdmissionError ()
-validateCompletedAdmissionScope admitted =
-  case addressedManifestWireVersion
-    (admittedAddressedManifestInternal admitted) of
-    wireVersion
-      | wireVersion == checkpointWireVersion ->
-          case ProductMatrix.productRowForExperimentHash experimentHash of
-            Just row
-              | ProductMatrix.family row == ProductMatrix.Supervised -> Right ()
-              | otherwise ->
-                  validateCompletedV1ProductCompanion
-                    row
-                    (admittedCheckpointManifest admitted)
-            Nothing -> Left (AdmissionCompletedV1ProductRowRequired experimentHash)
-      | wireVersion == checkpointWireVersionV2 -> Right ()
-      | otherwise -> Left (AdmissionManifestVersionUnsupported wireVersion)
+validateCompletedAdmissionScope admitted
+  | addressedManifestWireVersion (admittedAddressedManifestInternal admitted)
+      == checkpointWireVersionV2 =
+      -- Supervised-graph payload: admissible only with no companion pointer; the
+      -- supervised weights are the whole payload, so a stray replay/transcript
+      -- companion is a category error.
+      if null (manifestReplayPointers manifest)
+        && null (manifestTranscriptPointers manifest)
+        then Right ()
+        else
+          Left
+            ( AdmissionCompletedV1CompanionInvalid
+                "supervised-graph checkpoint must not carry a companion pointer"
+            )
+  | otherwise =
+      -- Weight-only payload: only an authoritative non-supervised ProductRow
+      -- with its exact family companion may proceed to structural completion.
+      -- Historical or generic supervised weight-only then fails that refinement
+      -- because it lacks the exact supervised runtime artifact.
+      case ProductMatrix.productRowForExperimentHash experimentHash of
+        Just row
+          | ProductMatrix.family row == ProductMatrix.Supervised -> Right ()
+          | otherwise -> validateCompletedV1ProductCompanion row manifest
+        Nothing -> Left (AdmissionCompletedV1ProductRowRequired experimentHash)
  where
-  experimentHash =
-    manifestExperiment (admittedCheckpointManifest admitted)
+  manifest = admittedCheckpointManifest admitted
+  experimentHash = manifestExperiment manifest
 
 -- | A canonical non-supervised ProductRow V1 is completion-admissible only
 -- when its one family-owned companion is part of the exact persisted graph.
@@ -1900,6 +1905,16 @@ decodeLoadedWeightTensor manifest tensor bytes = do
 -- payload and the one exact physical @supervised.weights@ JMW1 blob.  A
 -- runtime-free V1 manifest deliberately returns 'Nothing' so legacy engine
 -- fallbacks remain isolated from the strict V2 path.
+--
+-- Phase 239: when the manifest advertises a trained dense layer graph
+-- (@architectureLayerGraph@), the @supervised.weights@ blob is the
+-- graph-ordered parameter vector, so its length is anchored to the graph's
+-- parameter count (not the token-op program's), and the strict token-runtime
+-- reconstruction is bypassed — serving reconstructs and runs the graph
+-- directly ('runSupervisedGraphCheckpointInference').  This function still
+-- performs the physical-tensor and graph-count admission checks and returns
+-- 'Nothing' for the graph path so callers do not mis-slice a graph-ordered
+-- blob into the token program's per-layer parameters.
 loadSupervisedRuntimeFromCheckpoint
   :: CheckpointManifest
   -> [LoadedWeightTensor]
@@ -1908,154 +1923,117 @@ loadSupervisedRuntimeFromCheckpoint manifest weights =
   case manifestSupervisedRuntime manifest of
     Nothing -> Right Nothing
     Just payload ->
-      case weights of
-        [loaded] ->
-          let tensor = loadedWeightTensor loaded
-           in if tensorName tensor /= "supervised.weights"
+      case architectureLayerGraph (manifestArchitecture manifest) of
+        Just graphMeta -> do
+          _ <- requireSupervisedWeightsTensor weights (layerGraphMetadataParameterCount graphMeta)
+          Right Nothing
+        Nothing ->
+          case weights of
+            [loaded] -> do
+              _ <-
+                requireSupervisedWeightsTensor
+                  weights
+                  ( RuntimeArtifact.supervisedRuntimeParameterCount
+                      (RuntimeArtifact.payloadRuntime payload)
+                  )
+              Just
+                <$> RuntimeArtifact.loadSupervisedRuntime
+                  payload
+                  (LazyByteString.fromStrict (loadedWeightJmw1Bytes loaded))
+            [] -> Left "V2 supervised runtime is missing supervised.weights"
+            _ ->
+              Left
+                ( "V2 supervised runtime requires exactly one physical weight "
+                    <> "blob, got "
+                    <> Text.pack (show (length weights))
+                )
+
+-- | Validate the one physical @supervised.weights@ tensor against the expected
+-- (graph-ordered or token-op) parameter count and return its loaded values.
+requireSupervisedWeightsTensor
+  :: [LoadedWeightTensor] -> Int -> Either Text LoadedWeightTensor
+requireSupervisedWeightsTensor weights parameterCount =
+  case weights of
+    [loaded] ->
+      let tensor = loadedWeightTensor loaded
+       in if tensorName tensor /= "supervised.weights"
+            then
+              Left
+                ( "V2 supervised runtime requires the one physical tensor "
+                    <> "supervised.weights, got "
+                    <> tensorName tensor
+                )
+            else
+              if tensorShape tensor /= [parameterCount]
                 then
                   Left
-                    ( "V2 supervised runtime requires the one physical tensor "
-                        <> "supervised.weights, got "
-                        <> tensorName tensor
+                    ( "V2 supervised.weights shape mismatch: expected ["
+                        <> Text.pack (show parameterCount)
+                        <> "], got "
+                        <> Text.pack (show (tensorShape tensor))
                     )
-                else
-                  if tensorShape tensor /= [parameterCount]
-                    then
-                      Left
-                        ( "V2 supervised.weights shape mismatch: expected ["
-                            <> Text.pack (show parameterCount)
-                            <> "], got "
-                            <> Text.pack (show (tensorShape tensor))
-                        )
-                    else
-                      Just
-                        <$> RuntimeArtifact.loadSupervisedRuntime
-                          payload
-                          (LazyByteString.fromStrict (loadedWeightJmw1Bytes loaded))
-        [] -> Left "V2 supervised runtime is missing supervised.weights"
-        _ ->
-          Left
-            ( "V2 supervised runtime requires exactly one physical weight "
-                <> "blob, got "
-                <> Text.pack (show (length weights))
-            )
-     where
-      parameterCount =
-        RuntimeArtifact.supervisedRuntimeParameterCount
-          (RuntimeArtifact.payloadRuntime payload)
-
-layerGraphFromCheckpoint
-  :: CheckpointManifest -> [LoadedWeightTensor] -> Either Text (Maybe LayerGraph.LayerGraph)
-layerGraphFromCheckpoint manifest weights =
-  case architectureLayerGraph (manifestArchitecture manifest) of
-    Nothing -> Right Nothing
-    Just metadata -> Just <$> rebuildLayerGraph metadata weights
-
-rebuildLayerGraph
-  :: LayerGraphMetadata -> [LoadedWeightTensor] -> Either Text LayerGraph.LayerGraph
-rebuildLayerGraph metadata weights = do
-  nodes <- traverse (rebuildLayerNode weights) (layerGraphMetadataNodes metadata)
-  pure
-    LayerGraph.LayerGraph
-      { LayerGraph.layerGraphName = layerGraphMetadataName metadata
-      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape (layerGraphMetadataInputShape metadata)
-      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape (layerGraphMetadataOutputShape metadata)
-      , LayerGraph.layerGraphNodes = nodes
-      }
-
-rebuildLayerNode
-  :: [LoadedWeightTensor] -> LayerGraphNodeMetadata -> Either Text LayerGraph.LayerNode
-rebuildLayerNode weights metadata = do
-  kind <- layerKindFromMetadata (layerGraphNodeKind metadata)
-  mode <- layerModeFromMetadata (layerGraphNodeMode metadata)
-  activation <- layerActivationFromMetadata (layerGraphNodeActivation metadata)
-  params <- layerParametersFromMetadata weights metadata
-  pure
-    LayerGraph.LayerNode
-      { LayerGraph.layerNodeName = layerGraphNodeName metadata
-      , LayerGraph.layerNodeKind = kind
-      , LayerGraph.layerNodeOp = maybe LayerGraph.IdentityOp (const LayerGraph.DenseOp) params
-      , LayerGraph.layerInputShape = LayerGraph.TensorShape (layerGraphNodeInputShape metadata)
-      , LayerGraph.layerOutputShape = LayerGraph.TensorShape (layerGraphNodeOutputShape metadata)
-      , LayerGraph.layerMode = mode
-      , LayerGraph.layerActivation = activation
-      , LayerGraph.layerParameters = params
-      }
-
-layerParametersFromMetadata
-  :: [LoadedWeightTensor] -> LayerGraphNodeMetadata -> Either Text (Maybe LayerGraph.LayerParameters)
-layerParametersFromMetadata weights metadata =
-  case (layerGraphNodeWeightTensor metadata, layerGraphNodeBiasTensor metadata) of
-    (Nothing, Nothing) -> Right Nothing
-    (Just weightName, Just biasName) -> do
-      inputWidth <-
-        LayerGraph.tensorShapeWidth (LayerGraph.TensorShape (layerGraphNodeInputShape metadata))
-      outputWidth <-
-        LayerGraph.tensorShapeWidth (LayerGraph.TensorShape (layerGraphNodeOutputShape metadata))
-      weightValues <- lookupGraphTensor weights weightName [outputWidth, inputWidth]
-      biasValues <- lookupGraphTensor weights biasName [outputWidth]
-      Right
-        ( Just
-            LayerGraph.LayerParameters
-              { LayerGraph.layerWeights = VU.fromList weightValues
-              , LayerGraph.layerBias = VU.fromList biasValues
-              }
-        )
+                else Right loaded
+    [] -> Left "V2 supervised runtime is missing supervised.weights"
     _ ->
       Left
-        ( "layer graph checkpoint node "
-            <> layerGraphNodeName metadata
-            <> " must declare both weight and bias tensors or neither"
+        ( "V2 supervised runtime requires exactly one physical weight "
+            <> "blob, got "
+            <> Text.pack (show (length weights))
         )
 
-lookupGraphTensor :: [LoadedWeightTensor] -> Text -> [Int] -> Either Text [Double]
-lookupGraphTensor weights name expectedShape =
-  case filter ((== name) . tensorName . loadedWeightTensor) weights of
-    [] -> Left ("layer graph checkpoint missing tensor " <> name)
-    [loaded]
-      | tensorShape (loadedWeightTensor loaded) /= expectedShape ->
-          Left
-            ( "layer graph checkpoint tensor "
-                <> name
-                <> " has shape "
-                <> Text.pack (show (tensorShape (loadedWeightTensor loaded)))
-                <> ", expected "
-                <> Text.pack (show expectedShape)
-            )
-      | otherwise -> Right (loadedWeightValues loaded)
-    _ -> Left ("layer graph checkpoint has duplicate tensor " <> name)
+-- | Phase 239 — reconstruct the served trained dense 'LayerGraph.LayerGraph'
+-- from a checkpoint's layer-graph metadata and inject the one physical
+-- @supervised.weights@ blob as its graph-ordered parameter vector.  The
+-- returned graph is ready for 'LayerGraph.runLayerGraph'; the input/output
+-- transforms stay outside the graph and are applied by the engine backend.
+reconstructSupervisedGraphFromCheckpoint
+  :: CheckpointManifest
+  -> [LoadedWeightTensor]
+  -> Either Text (RuntimeArtifact.SupervisedRuntimePayload, LayerGraph.LayerGraph)
+reconstructSupervisedGraphFromCheckpoint manifest weights = do
+  payload <-
+    maybe
+      (Left "supervised graph checkpoint is missing its runtime payload")
+      Right
+      (manifestSupervisedRuntime manifest)
+  graphMeta <-
+    maybe
+      (Left "supervised graph checkpoint is missing its layer graph metadata")
+      Right
+      (architectureLayerGraph (manifestArchitecture manifest))
+  loaded <-
+    requireSupervisedWeightsTensor weights (layerGraphMetadataParameterCount graphMeta)
+  graph <- layerGraphFromMetadata graphMeta
+  injected <-
+    LayerGraph.replaceGraphParameterVector
+      graph
+      (VU.fromList (loadedWeightValues loaded))
+  Right (payload, injected)
 
-layerModeFromMetadata :: LayerGraphModeMetadata -> Either Text LayerGraph.LayerMode
-layerModeFromMetadata LayerGraphTrainingMode = Right LayerGraph.TrainingMode
-layerModeFromMetadata LayerGraphInferenceMode = Right LayerGraph.InferenceMode
-
-layerActivationFromMetadata
-  :: LayerGraphActivationMetadata -> Either Text LayerGraph.LayerActivation
-layerActivationFromMetadata LayerGraphLinearActivation = Right LayerGraph.LinearActivation
-layerActivationFromMetadata LayerGraphTanhActivation = Right LayerGraph.TanhActivation
-layerActivationFromMetadata LayerGraphReluActivation = Right LayerGraph.ReluActivation
-layerActivationFromMetadata LayerGraphSoftmaxActivation = Right LayerGraph.SoftmaxActivation
-
-layerKindFromMetadata :: LayerGraphKindMetadata -> Either Text LayerGraph.LayerKind
-layerKindFromMetadata LayerGraphDenseLayer = Right LayerGraph.DenseLayer
-layerKindFromMetadata LayerGraphConv2DLayer = Right LayerGraph.Conv2DLayer
-layerKindFromMetadata LayerGraphConv3DLayer = Right LayerGraph.Conv3DLayer
-layerKindFromMetadata LayerGraphMaxPoolLayer = Right (LayerGraph.PoolLayer LayerGraph.MaxPool)
-layerKindFromMetadata LayerGraphAvgPoolLayer = Right (LayerGraph.PoolLayer LayerGraph.AvgPool)
-layerKindFromMetadata LayerGraphGlobalAvgPoolLayer = Right (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
-layerKindFromMetadata LayerGraphBatchNormLayer = Right (LayerGraph.NormLayer LayerGraph.BatchNorm)
-layerKindFromMetadata LayerGraphLayerNormLayer = Right (LayerGraph.NormLayer LayerGraph.LayerNorm)
-layerKindFromMetadata (LayerGraphGroupNormLayer groups) =
-  Right (LayerGraph.NormLayer (LayerGraph.GroupNorm groups))
-layerKindFromMetadata (LayerGraphDropoutLayer rate) = Right (LayerGraph.DropoutLayer rate)
-layerKindFromMetadata (LayerGraphResidualLayer scale) = Right (LayerGraph.ResidualLayer scale)
-layerKindFromMetadata (LayerGraphBasicBlockLayer scale) = Right (LayerGraph.BasicBlockLayer scale)
-layerKindFromMetadata (LayerGraphBottleneckBlockLayer scale) =
-  Right (LayerGraph.BottleneckBlockLayer scale)
-layerKindFromMetadata (LayerGraphMultiHeadAttentionLayer heads) =
-  Right (LayerGraph.MultiHeadAttentionLayer heads)
-layerKindFromMetadata LayerGraphGeGLULayer = Right LayerGraph.GeGLULayer
-layerKindFromMetadata LayerGraphPatchEmbedLayer = Right LayerGraph.PatchEmbedLayer
+-- | Phase 239 — full served inference for a supervised-graph checkpoint on the
+-- selected backend: reconstruct the trained dense graph, inject the persisted
+-- parameters, apply the backend input transform, run the graph, and apply the
+-- backend output transform.  This replaces the retired token-runtime engine
+-- path ('RuntimeArtifact.executeLoadedRuntime') for manifests that advertise a
+-- layer graph.
+runSupervisedGraphCheckpointInference
+  :: RuntimeArtifact.RuntimeBackendExecutor
+  -> CheckpointManifest
+  -> [LoadedWeightTensor]
+  -> [Double]
+  -> IO (Either Text [Double])
+runSupervisedGraphCheckpointInference backend manifest weights input =
+  case reconstructSupervisedGraphFromCheckpoint manifest weights of
+    Left err -> pure (Left err)
+    Right (payload, graph) ->
+      fmap
+        (fmap VU.toList)
+        ( RuntimeArtifact.executeSupervisedGraphRuntime
+            backend
+            payload
+            graph
+            (VU.fromList input)
+        )
 
 validateLoadedManifest
   :: Text

@@ -9,6 +9,19 @@
 > substrate floating-point semantics, the RNG split and per-experiment seed
 > derivation, the JIT cache content-addressing, and the engine envelope shape.
 
+## Current Status
+
+**Implemented today.** Supervised served determinism runs through the exact V2
+structural runtime (the `RuntimeOperations` nine-operation set across
+`RuntimeOperationsCpu`/`Cuda`/`Metal`), and content addressing spans the frozen V1
+and exact V2 envelopes.
+
+**Target (Phases `235`, `237`–`239`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The reloaded typed `LayerGraph` is executed directly, so the V2 served-operator
+ABI is removed; origin determinism folds into the single self-describing envelope.
+Until those phases close, the V2 structural runtime described below is the
+implemented determinism boundary and the reloaded-graph form is a target contract.
+
 ## The Contract
 
 jitML guarantees **same-substrate bit-equality** when the same numerical path is
@@ -78,9 +91,10 @@ loops complete, and carries it unchanged through Writer, Product Publisher,
 with the plan-derived count. An interrupted or failed run cannot manufacture a
 successful counter by recalculating the plan after the fact.
 
-The addressed V2 composite origin is itself deterministic identity. Product
-publication binds the payload row and `RawProductRowProjectionOrigin` to one
-supported-substrate projection. Generic supervised publication embeds
+The supervised-graph payload's composite origin is itself deterministic
+identity. Product publication binds the payload row and
+`RawProductRowProjectionOrigin` to one supported-substrate projection. Generic
+supervised publication embeds
 `RawGenericSupervisedExecutionOrigin(rowId, canonicalPlanTransport)`; decode
 requires that row to equal the payload and authoritative canonical problem row,
 reparses the exact versioned `SupervisedPlan`, requires its canonical rendering
@@ -88,9 +102,12 @@ to equal the stored text byte-for-byte, and derives the same `PlanId`, substrate
 experiment, budget, and seed. `PlanId` alone never binds canonical row
 semantics. Origin choice is closed and explicit, so a loader cannot make
 identical bytes mean ProductRow evidence in one context and generic evidence in
-another. The required origin field changes V2 content addresses; frozen V1
-identity is unchanged. See
-[Checkpoint Format → Frozen V1 and Exact Supervised V2](checkpoint_format.md#frozen-v1-and-exact-supervised-v2).
+another. Because there is now one self-describing envelope, both payload
+variants — weight-only and supervised-graph — derive their content address from
+the exact final outer-envelope bytes; the byte-frozen V1 golden that pinned a
+separate weight-only fingerprint is retired, and checkpoints are regenerated
+deterministically from current source rather than reinterpreted. See
+[Checkpoint Format → The Self-Describing Checkpoint Envelope](checkpoint_format.md#the-self-describing-checkpoint-envelope).
 
 That generic seed is executed, not merely hashed or persisted. The supervised
 entrypoint requires exactly one plan seed, rejects platform-`Int` overflow, and

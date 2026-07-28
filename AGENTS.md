@@ -1,5 +1,11 @@
 # AGENTS.md
 
+**Status**: Governed entry document
+**Supersedes**: N/A
+**Canonical homes**: [documents/documentation_standards.md](documents/documentation_standards.md), [DEVELOPMENT_PLAN/README.md](DEVELOPMENT_PLAN/README.md), [README.md](README.md)
+
+> **Purpose**: Governed entry rules for agents working in jitML; summarizes and links the canonical documentation and plan homes.
+
 ## Git policy for AI agents
 
 LLMs and AI agents are **not allowed** to perform any of the following git operations in this repository:

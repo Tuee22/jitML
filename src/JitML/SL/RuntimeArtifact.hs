@@ -130,6 +130,7 @@ module JitML.SL.RuntimeArtifact
 
     -- * Strict inference
   , executeLoadedRuntime
+  , executeSupervisedGraphRuntime
   )
 where
 
@@ -154,6 +155,7 @@ import JitML.Checkpoint.WeightCodec
   , encodeJmw1
   , jmw1ContentSha
   )
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Mlp
   ( MlpParams
   , MlpShape (..)
@@ -1489,6 +1491,45 @@ executeLoadedRuntime backend loaded rawInput =
                 (\err -> runtimeLayerName layer <> ": " <> err)
                 (validateRuntimeValue (runtimeLayerOutputRepresentation layer) next)
               Right next
+
+-- | Phase 239 — execute a served supervised dense 'LayerGraph.LayerGraph'
+-- through the selected backend's input/output transforms.  The graph is the
+-- graph-ordered trained topology reconstructed from the checkpoint layer-graph
+-- metadata with its parameters already injected; the input standardisation and
+-- output decode transforms stay OUTSIDE the graph, applied before/after exactly
+-- as 'executeLoadedRuntime' does for the token program.  This is the retirement
+-- target for the token-runtime engine serving path: engines that read a
+-- supervised-graph checkpoint run this instead of 'executeLoadedRuntime'.
+executeSupervisedGraphRuntime
+  :: RuntimeBackendExecutor
+  -> SupervisedRuntimePayload
+  -> LayerGraph.LayerGraph
+  -> Vector Double
+  -> IO (Either Text (Vector Double))
+executeSupervisedGraphRuntime backend payload graph rawInput =
+  case requireCanonicalText "runtime backend label" (runtimeBackendLabel backend) of
+    Left err -> pure (Left err)
+    Right _ -> do
+      transformed <-
+        invokeRuntimeBackend backend "input-transform" $
+          runtimeBackendInputTransformExecutor
+            backend
+            (supervisedRuntimeInputTransform runtime)
+            rawInput
+      case transformed of
+        Left err -> pure (Left err)
+        Right input ->
+          case LayerGraph.runLayerGraph graph input of
+            Left err -> pure (Left err)
+            Right tape ->
+              invokeRuntimeBackend backend "output-transform" $
+                runtimeBackendOutputTransformExecutor
+                  backend
+                  (supervisedRuntimeTask runtime)
+                  (supervisedRuntimeOutputTransform runtime)
+                  (LayerGraph.layerTapeOutput tape)
+ where
+  runtime = payloadRuntime payload
 
 executeLayer
   :: RuntimeBackendExecutor

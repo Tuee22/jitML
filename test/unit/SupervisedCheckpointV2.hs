@@ -28,6 +28,7 @@ import Data.Char (digitToInt)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, sortOn)
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -48,7 +49,6 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Checkpoint.Writer qualified as CheckpointWriter
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
-import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Plan.Plan qualified as Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Completion qualified as ProductCompletion
@@ -86,14 +86,15 @@ supervisedCheckpointV2Tests =
         Checkpoint.addressedManifestSha addressed
           @?= Checkpoint.manifestContentSha (fixtureManifest fixture)
         Checkpoint.addressedManifestBodyBytes addressed
-          @?= Just (Checkpoint.rawCheckpointV2BodyBytes (fixtureOuter fixture))
+          @?= Just (Checkpoint.rawCheckpointBodyBytes (fixtureOuter fixture))
         Checkpoint.addressedManifestBodySha addressed
           @?= Just
             ( exactSha
-                (Checkpoint.rawCheckpointV2BodyBytes (fixtureOuter fixture))
+                (Checkpoint.rawCheckpointBodyBytes (fixtureOuter fixture))
             )
-        Checkpoint.rawCheckpointV2BodyBytes (fixtureOuter fixture)
-          @?= LazyByteString.toStrict (serialise (fixtureBody fixture))
+        Checkpoint.rawCheckpointBodyBytes (fixtureOuter fixture)
+          @?= LazyByteString.toStrict
+            (serialise (Checkpoint.RawSupervisedGraphBody (fixtureBody fixture)))
 
         completion <-
           expectRight
@@ -307,64 +308,73 @@ supervisedCheckpointV2Tests =
         assertLeftContaining
           "classification input transform differs"
           (Checkpoint.canonicalSupervisedRuntimeManifestMetadata refined)
-    , testCase "frozen V1 golden remains byte-for-byte stable" $ do
-        let golden =
+    , testCase "weight-only payload round-trips through the one envelope (Sprint 235.1)" $ do
+        let manifest =
               Checkpoint.emptyManifest
-                "v1-golden"
-                "exp-v1"
+                "weight-only-row"
+                "exp-weight-only"
                 [ Checkpoint.TensorBlob
                     "weights"
                     [2]
-                    "jitml-checkpoints/exp-v1/blobs/golden"
+                    "jitml-checkpoints/exp-weight-only/blobs/w"
                 ]
-            bytes = Checkpoint.encodeManifestCbor golden
-        LazyByteString.length bytes @?= 134
-        Checkpoint.manifestContentSha golden
-          @?= "30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b"
+            bytes = Checkpoint.encodeManifestCbor manifest
         addressed <- expectRight (Checkpoint.decodeAddressedManifestCbor bytes)
+        -- The self-describing envelope round-trips the weight-only payload at the
+        -- weight-only variant tag, with no embedded body identity.
         Checkpoint.addressedManifestWireVersion addressed
           @?= Checkpoint.checkpointWireVersion
+        Checkpoint.addressedManifest addressed @?= manifest
         Checkpoint.addressedManifestBytes addressed @?= bytes
-    , testCase "V3 checkpoint round-trips the trained layer graph (Sprint 235.1)" $ do
-        node <-
-          expectRight
-            ( LayerGraph.mkAffineLayer
-                "v3-dense"
-                LayerGraph.DenseLayer
-                4
-                3
-                LayerGraph.ReluActivation
-                LayerGraph.TrainingMode
-                (LayerGraph.deterministicParameters 9 4 3)
+        Checkpoint.addressedManifestBodyBytes addressed @?= Nothing
+        Checkpoint.addressedManifestBodySha addressed @?= Nothing
+        Checkpoint.manifestSupervisedRuntime (Checkpoint.addressedManifest addressed)
+          @?= Nothing
+    , testCase
+        "supervised-graph payload round-trips and is never mis-decoded as weight-only (Sprint 235.1)"
+        $ do
+          fixture <- expectRight makeFixture
+          addressed <-
+            expectRight
+              (Checkpoint.decodeAddressedManifestCbor (fixtureBytes fixture))
+          -- The supervised-graph payload round-trips at the supervised variant tag,
+          -- carrying its embedded body identity.
+          Checkpoint.addressedManifestWireVersion addressed
+            @?= Checkpoint.checkpointWireVersionV2
+          Checkpoint.addressedManifest addressed @?= fixtureManifest fixture
+          assertBool
+            "supervised-graph payload lost its embedded body identity"
+            (isJust (Checkpoint.addressedManifestBodySha addressed))
+          assertBool
+            "supervised-graph payload lost its runtime program"
+            ( isJust
+                ( Checkpoint.manifestSupervisedRuntime
+                    (Checkpoint.addressedManifest addressed)
+                )
             )
-        let graph =
-              LayerGraph.LayerGraph
-                { LayerGraph.layerGraphName = "v3-graph"
-                , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
-                , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
-                , LayerGraph.layerGraphNodes = [node]
-                }
-            manifest =
-              Checkpoint.emptyManifest
-                "v3-row"
-                "exp-v3"
-                [ Checkpoint.TensorBlob
-                    "weights"
-                    [15]
-                    "jitml-checkpoints/exp-v3/blobs/g"
-                ]
-            bytes = Checkpoint.encodeV3Checkpoint manifest graph
-        (_, graphBack) <- expectRight (Checkpoint.decodeV3Checkpoint bytes)
-        -- The exact trained graph (operator, shapes, activation, mode, params)
-        -- round-trips through the V3 wire format.
-        graphBack @?= graph
-        -- A V3 object must not be mis-decoded/admitted as a V1/V2 manifest: the
-        -- shared three-field envelope carries version 3, which the V2 decoder
-        -- rejects without falling through.
-        case Checkpoint.decodeAddressedManifestCbor bytes of
-          Left _ -> pure ()
-          Right _ ->
-            assertFailure "V3 bytes must not decode as an addressed V1/V2 manifest"
+          -- A weight-only envelope decodes at the weight-only variant tag, so the
+          -- two payload variants can never be mis-classified as one another.
+          let weightOnly =
+                Checkpoint.emptyManifest
+                  "wo-row"
+                  "exp-wo"
+                  [ Checkpoint.TensorBlob
+                      "weights"
+                      [2]
+                      "jitml-checkpoints/exp-wo/blobs/w"
+                  ]
+          weightAddressed <-
+            expectRight
+              ( Checkpoint.decodeAddressedManifestCbor
+                  (Checkpoint.encodeManifestCbor weightOnly)
+              )
+          Checkpoint.addressedManifestWireVersion weightAddressed
+            @?= Checkpoint.checkpointWireVersion
+          assertBool
+            "weight-only and supervised-graph payloads must carry distinct variant tags"
+            ( Checkpoint.addressedManifestWireVersion weightAddressed
+                /= Checkpoint.addressedManifestWireVersion addressed
+            )
     , testCase "historical supervised ProductRow V1 fails completion refinement" $ do
         fixture <- expectRight makeFixture
         let historical =
@@ -434,22 +444,22 @@ supervisedCheckpointV2Tests =
             badDigest =
               serialise
                 outer
-                  { Checkpoint.rawCheckpointV2BodySha256 =
+                  { Checkpoint.rawCheckpointBodySha256 =
                       StrictByteString.replicate 32 0
                   }
             truncatedBody =
-              StrictByteString.init (Checkpoint.rawCheckpointV2BodyBytes outer)
+              StrictByteString.init (Checkpoint.rawCheckpointBodyBytes outer)
             badBody =
               serialise
                 outer
-                  { Checkpoint.rawCheckpointV2BodySha256 = shaBytes truncatedBody
-                  , Checkpoint.rawCheckpointV2BodyBytes = truncatedBody
+                  { Checkpoint.rawCheckpointBodySha256 = shaBytes truncatedBody
+                  , Checkpoint.rawCheckpointBodyBytes = truncatedBody
                   }
         assertLeftDirectV2
           "body SHA-256 mismatch"
           (Checkpoint.decodeAddressedManifestCbor badDigest)
         assertLeftDirectV2
-          "invalid V2 checkpoint body"
+          "invalid checkpoint body"
           (Checkpoint.decodeAddressedManifestCbor badBody)
     , testCase "noncanonical V2 base ordering is rejected without fallback" $ do
         fixture <- expectRight makeFixture
@@ -1478,15 +1488,15 @@ supervisedCheckpointV2Tests =
           Right () -> assertFailure "learning-rate capture unexpectedly returned successfully"
         capturedRate <- readIORef observedRate
         capturedRate @?= Just 1.1e-3
-    , testCase "a structurally selected V2 error never falls back to V1" $ do
+    , testCase "a structurally selected supervised-graph error never falls back" $ do
         fixture <- expectRight makeFixture
         let unsupported =
               serialise
                 (fixtureOuter fixture)
-                  { Checkpoint.rawCheckpointV2Version = 99
+                  { Checkpoint.rawCheckpointVersion = 99
                   }
         assertLeftDirectV2
-          "unsupported V2 checkpoint version"
+          "supervised-graph checkpoint payload carries version 99"
           (Checkpoint.decodeAddressedManifestCbor unsupported)
     ]
 
@@ -1545,6 +1555,73 @@ checkpointStoreAdmissionTests =
             CheckpointStore.loadedWeightJmw1Bytes
             (CheckpointStore.admittedCheckpointWeights checkpoint)
             @?= [admissionBlobBytes graph]
+    , testCase
+        "supervised-graph checkpoint carrying a companion pointer is admission-rejected (Sprint 236.1)"
+        $ withSystemTempDirectory "jitml-supervised-companion-reject"
+        $ \root -> do
+          fixture <- expectRight makeFixture
+          let experiment = Checkpoint.manifestExperiment (fixtureManifest fixture)
+              companionPayload = "stray supervised companion transcript"
+              companionSha = exactSha (LazyByteString.toStrict companionPayload)
+              companionKey =
+                "jitml-checkpoints/"
+                  <> experiment
+                  <> "/artifacts/rl-trajectory/"
+                  <> companionSha
+                  <> ".txt"
+              companionPointer =
+                Checkpoint.ArtifactPointer
+                  { Checkpoint.artifactPointerKind = "rl-trajectory"
+                  , Checkpoint.artifactPointerObjectKey = companionKey
+                  , Checkpoint.artifactPointerSha = Just companionSha
+                  }
+              manifest =
+                (fixtureManifest fixture)
+                  { Checkpoint.manifestTranscriptPointers = [companionPointer]
+                  }
+              manifestBytes = Checkpoint.encodeManifestCbor manifest
+              manifestSha = Checkpoint.manifestContentSha manifest
+          tensor <-
+            case Checkpoint.manifestTensors manifest of
+              [t] -> pure t
+              other ->
+                assertFailure
+                  ("expected one supervised tensor, got " <> show (length other))
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                (Checkpoint.tensorBlobKey tensor)
+                (fixtureFinalBytes fixture)
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                (Checkpoint.manifestKey experiment manifestSha)
+                manifestBytes
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent root companionKey companionPayload
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                (Checkpoint.latestPointerKey experiment)
+                (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 manifestSha))
+          admittedCheckpoint <-
+            expectRight
+              =<< CheckpointStore.admitLocalLatestCheckpoint root experiment
+          case CheckpointStore.requireAdmittedCompletedCheckpoint admittedCheckpoint of
+            Left (CheckpointStore.AdmissionCompletedV1CompanionInvalid reason) ->
+              assertBool
+                ("unexpected companion rejection reason: " <> Text.unpack reason)
+                ("must not carry a companion pointer" `Text.isInfixOf` reason)
+            other ->
+              assertFailure
+                ( "expected supervised-graph companion rejection through the single"
+                    <> " admission path, got "
+                    <> show other
+                )
     , testCase "stable exact P1 -> manifest -> P2 -> blob admits completed checkpoint" $ do
         fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
@@ -1921,7 +1998,7 @@ data Fixture = Fixture
   , fixturePayload :: Runtime.SupervisedRuntimePayload
   , fixtureBytes :: LazyByteString.ByteString
   , fixtureFinalBytes :: LazyByteString.ByteString
-  , fixtureOuter :: Checkpoint.RawCheckpointEnvelopeV2
+  , fixtureOuter :: Checkpoint.RawCheckpointEnvelope
   , fixtureBody :: Checkpoint.RawCheckpointBodyV2
   , fixtureMetricName :: Text
   , fixtureParameterCount :: Int
@@ -2069,11 +2146,7 @@ makeGenericFixture = do
       manifest = Checkpoint.attachCompletedTraining completed base
       bytes = Checkpoint.encodeManifestCbor manifest
   outer <- decodeSerialised bytes
-  body <-
-    decodeSerialised
-      ( LazyByteString.fromStrict
-          (Checkpoint.rawCheckpointV2BodyBytes outer)
-      )
+  body <- decodeFixtureSupervisedBody outer
   Right
     ( Fixture
         { fixtureManifest = manifest
@@ -2300,11 +2373,7 @@ makeFixtureWithFinalBytes finalBytesFor = do
       manifest = Checkpoint.attachCompletedTraining completed base
       bytes = Checkpoint.encodeManifestCbor manifest
   outer <- decodeSerialised bytes
-  body <-
-    decodeSerialised
-      ( LazyByteString.fromStrict
-          (Checkpoint.rawCheckpointV2BodyBytes outer)
-      )
+  body <- decodeFixtureSupervisedBody outer
   Right
     Fixture
       { fixtureManifest = manifest
@@ -2586,14 +2655,29 @@ synchronizeV2DatasetSha datasetSha body = do
             }
       }
 
+-- | Extract the supervised-graph body from a decoded fixture envelope.  Every
+-- fixture in this module builds a supervised (V2) checkpoint, so a weight-only
+-- payload is a fixture construction error.
+decodeFixtureSupervisedBody
+  :: Checkpoint.RawCheckpointEnvelope -> Either Text Checkpoint.RawCheckpointBodyV2
+decodeFixtureSupervisedBody outer = do
+  bodySum <-
+    decodeSerialised
+      (LazyByteString.fromStrict (Checkpoint.rawCheckpointBodyBytes outer))
+  case bodySum of
+    Checkpoint.RawSupervisedGraphBody body -> Right body
+    Checkpoint.RawWeightOnlyBody _ ->
+      Left "fixture body is not a supervised-graph payload"
+
 wrapBody :: Checkpoint.RawCheckpointBodyV2 -> LazyByteString.ByteString
 wrapBody body =
-  let bodyBytes = LazyByteString.toStrict (serialise body)
+  let bodyBytes =
+        LazyByteString.toStrict (serialise (Checkpoint.RawSupervisedGraphBody body))
    in serialise
-        Checkpoint.RawCheckpointEnvelopeV2
-          { Checkpoint.rawCheckpointV2Version = Checkpoint.checkpointWireVersionV2
-          , Checkpoint.rawCheckpointV2BodySha256 = shaBytes bodyBytes
-          , Checkpoint.rawCheckpointV2BodyBytes = bodyBytes
+        Checkpoint.RawCheckpointEnvelope
+          { Checkpoint.rawCheckpointVersion = Checkpoint.checkpointWireVersionV2
+          , Checkpoint.rawCheckpointBodySha256 = shaBytes bodyBytes
+          , Checkpoint.rawCheckpointBodyBytes = bodyBytes
           }
 
 shaBytes :: StrictByteString.ByteString -> StrictByteString.ByteString

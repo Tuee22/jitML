@@ -93,10 +93,19 @@ module JitML.Numerics.LayerGraph
   , layerGraphSquaredErrorGradient
   , layerGraphLoss
   , layerGraphCrossEntropyGradient
+  , layerGraphClassifierCrossEntropyGradient
   , layerGraphCrossEntropyLoss
   , graphParameterVector
   , replaceGraphParameterVector
   , flattenLayerGraphGradient
+  , trainLayerGraphClassifierPure
+  , trainLayerGraphClassifierEpochPure
+  , GraphClassifierAdam (..)
+  , initGraphClassifierAdam
+  , graphAdamBatchStep
+  , decayGraphWeights
+  , classifierBatches
+  , pureClassifierBatchGradient
 
     -- * Finite-difference oracles
   , maxFiniteDifferenceError
@@ -1141,6 +1150,41 @@ layerGraphCrossEntropyGradient graph input label = do
   gradient <- backwardLayerGraph graph tape upstream
   pure (tape, gradient)
 
+-- | Semantic-prefix softmax cross-entropy gradient for classification. The graph
+-- output is @classes + 1@ raw logits; softmax is taken over the first @classes@
+-- (the semantic prefix) and the trailing slack logits receive a zero upstream
+-- gradient, exactly matching the serving/eval contract (@crossEntropyOne@ /
+-- @classifierOutputGradient@ in "JitML.SL.Architecture"). Supervised classifier
+-- training on the typed IR must use this — not 'layerGraphCrossEntropyGradient',
+-- which softmaxes the full @classes + 1@ width and would train the slack logit
+-- into the softmax denominator, diverging from the prefix-sliced accuracy/CE the
+-- runtime publishes.
+layerGraphClassifierCrossEntropyGradient
+  :: LayerGraph -> Int -> Vector Double -> Int -> Either Text (LayerGraphTape, LayerGraphGradient)
+layerGraphClassifierCrossEntropyGradient graph classes input label = do
+  tape <- runLayerGraph graph input
+  let logits = layerTapeOutput tape
+      width = VU.length logits
+  unless (classes > 0 && classes <= width) $
+    Left
+      ( "layerGraphClassifierCrossEntropyGradient: class count "
+          <> tshow classes
+          <> " out of range for output width "
+          <> tshow width
+      )
+  unless (label >= 0 && label < classes) $
+    Left
+      ( "layerGraphClassifierCrossEntropyGradient: label "
+          <> tshow label
+          <> " out of range for class count "
+          <> tshow classes
+      )
+  let probs = softmax (VU.take classes logits)
+      dPrefix = VU.imap (\i p -> p - if i == label then 1.0 else 0.0) probs
+      upstream = dPrefix VU.++ VU.replicate (width - classes) 0.0
+  gradient <- backwardLayerGraph graph tape upstream
+  pure (tape, gradient)
+
 -- | Softmax cross-entropy loss for classification: @-log(softmax(logits)[label])@,
 -- clamped away from zero for numerical safety. Counterpart of 'layerGraphLoss'.
 layerGraphCrossEntropyLoss :: LayerGraph -> Vector Double -> Int -> Either Text Double
@@ -1207,6 +1251,150 @@ flattenLayerGraphGradient = VU.concat . fmap layerParams . layerGraphLayerGradie
     case layerGradientParameters gradient of
       Nothing -> VU.empty
       Just params -> VU.concat [layerGradWeights params, layerGradBias params]
+
+-- | Threaded Adam state for classification training of a 'LayerGraph': the
+-- current graph plus the first/second moment vectors and the one-based Adam step
+-- counter. Sharing this state lets an outer loop (validation-driven model
+-- selection) run training one epoch at a time while threading the Adam moments
+-- across epochs, exactly as an all-at-once trainer would.
+data GraphClassifierAdam = GraphClassifierAdam
+  { gcaGraph :: !LayerGraph
+  , gcaM :: !(Vector Double)
+  , gcaV :: !(Vector Double)
+  , gcaStep :: !Int
+  }
+  deriving stock (Eq, Show)
+
+-- | Fresh Adam state for a graph: zero moments, step counter 1.
+initGraphClassifierAdam :: LayerGraph -> GraphClassifierAdam
+initGraphClassifierAdam graph =
+  let n = VU.length (graphParameterVector graph)
+   in GraphClassifierAdam graph (VU.replicate n 0) (VU.replicate n 0) 1
+
+-- | One Adam update from a batch-summed parameter gradient. This is the single
+-- pure Adam step shared by the pure trainer and the oneDNN device trainer, so
+-- their optimizer trajectories are identical by construction (@beta1 = 0.9@ /
+-- @beta2 = 0.999@ / @eps = 1e-8@, one step per mini-batch, gradient averaged over
+-- the batch, moments threaded via 'GraphClassifierAdam').
+graphAdamBatchStep
+  :: Double -> GraphClassifierAdam -> Vector Double -> Int -> Either Text GraphClassifierAdam
+graphAdamBatchStep learningRate st summed batchLen =
+  let grad = VU.map (/ fromIntegral batchLen) summed
+      beta1 = 0.9
+      beta2 = 0.999
+      epsilon = 1.0e-8
+      tD = fromIntegral (gcaStep st) :: Double
+      bc1 = 1 - beta1 ** tD
+      bc2 = 1 - beta2 ** tD
+      m' = VU.zipWith (\mi gi -> beta1 * mi + (1 - beta1) * gi) (gcaM st) grad
+      v' = VU.zipWith (\vi gi -> beta2 * vi + (1 - beta2) * gi * gi) (gcaV st) grad
+      params = graphParameterVector (gcaGraph st)
+      params' =
+        VU.zipWith3
+          (\p mi vi -> p - learningRate * (mi / bc1) / (sqrt (vi / bc2) + epsilon))
+          params
+          m'
+          v'
+   in do
+        graph' <- replaceGraphParameterVector (gcaGraph st) params'
+        Right st {gcaGraph = graph', gcaM = m', gcaV = v', gcaStep = gcaStep st + 1}
+
+-- | Multiply every node's weight tensor by a scalar factor, leaving biases
+-- unchanged. This is the decoupled-weight-decay half of an AdamW update (weights
+-- decay, biases do not).
+decayGraphWeights :: Double -> LayerGraph -> LayerGraph
+decayGraphWeights factor graph =
+  graph {layerGraphNodes = fmap decayNode (layerGraphNodes graph)}
+ where
+  decayNode node =
+    case layerParameters node of
+      Nothing -> node
+      Just params ->
+        node
+          { layerParameters =
+              Just params {layerWeights = VU.map (* factor) (layerWeights params)}
+          }
+
+-- | Deterministic mini-batches over a classification dataset (final short batch
+-- retained; consumed in order).
+classifierBatches :: Int -> [(Vector Double, Int)] -> [[(Vector Double, Int)]]
+classifierBatches n xs
+  | n <= 0 = [xs]
+  | otherwise = case splitAt n xs of
+      ([], _) -> []
+      (chunk, rest) -> chunk : classifierBatches n rest
+
+-- | Batch-summed pure cross-entropy parameter gradient over the semantic-prefix
+-- @classes@ logits (via 'layerGraphClassifierCrossEntropyGradient' /
+-- 'backwardLayerGraph').
+pureClassifierBatchGradient
+  :: Int -> LayerGraph -> [(Vector Double, Int)] -> Either Text (Vector Double)
+pureClassifierBatchGradient classes graph batch = do
+  grads <-
+    traverse
+      ( \(input, label) ->
+          flattenLayerGraphGradient . snd
+            <$> layerGraphClassifierCrossEntropyGradient graph classes input label
+      )
+      batch
+  case grads of
+    [] -> Left "pureClassifierBatchGradient: empty mini-batch"
+    (g0 : gs) -> Right (List.foldl' (VU.zipWith (+)) g0 gs)
+
+-- | Run one pure training epoch (all mini-batches, Adam moments threaded) over a
+-- classification dataset, returning the updated 'GraphClassifierAdam'.
+trainLayerGraphClassifierEpochPure
+  :: Int
+  -> Int
+  -> Double
+  -> GraphClassifierAdam
+  -> [(Vector Double, Int)]
+  -> Either Text GraphClassifierAdam
+trainLayerGraphClassifierEpochPure classes batchSize learningRate st0 dataset =
+  List.foldl' step (Right st0) (classifierBatches batchSize dataset)
+ where
+  step accE batch = do
+    st <- accE
+    summed <- pureClassifierBatchGradient classes (gcaGraph st) batch
+    graphAdamBatchStep learningRate st summed (length batch)
+
+-- | Pure (toolchain-free) mini-batch Adam training of a classification
+-- 'LayerGraph' through the CPU reverse-mode autodiff
+-- ('layerGraphClassifierCrossEntropyGradient' / 'backwardLayerGraph'). This is
+-- the pure-reference counterpart of the oneDNN device trainer
+-- @JitML.Numerics.LayerGraphOneDnn.trainLayerGraphClassifierOneDnn@ used by
+-- explicitly pure callers (the offline hyperparameter-tuning objective, which is
+-- referentially transparent): it performs no IO and no JIT. The Adam schedule
+-- (shared 'graphAdamBatchStep', moments threaded across every mini-batch of every
+-- epoch) is identical to the device trainer, so the pure and device training
+-- trajectories agree within the @Double@-vs-@float32@ skew any backend carries.
+-- The softmax cross-entropy is taken over the first @classes@ logits (the
+-- semantic prefix); the trailing slack logit is trained with a zero gradient.
+trainLayerGraphClassifierPure
+  :: Int
+  -- ^ semantic class count
+  -> Int
+  -- ^ epochs
+  -> Int
+  -- ^ mini-batch size (examples consumed in deterministic order)
+  -> Double
+  -- ^ learning rate
+  -> LayerGraph
+  -> [(Vector Double, Int)]
+  -- ^ @(features, class label)@ examples
+  -> Either Text LayerGraph
+trainLayerGraphClassifierPure classes epochs batchSize learningRate graph0 dataset
+  | epochs <= 0 = Left "trainLayerGraphClassifierPure: epochs must be positive"
+  | batchSize <= 0 = Left "trainLayerGraphClassifierPure: batch size must be positive"
+  | classes <= 0 = Left "trainLayerGraphClassifierPure: class count must be positive"
+  | null dataset = Left "trainLayerGraphClassifierPure: empty dataset"
+  | otherwise =
+      gcaGraph
+        <$> List.foldl'
+          ( \accE _epoch -> accE >>= \st -> trainLayerGraphClassifierEpochPure classes batchSize learningRate st dataset
+          )
+          (Right (initGraphClassifierAdam graph0))
+          [1 .. epochs]
 
 -- ---------------------------------------------------------------------------
 -- Per-node forward

@@ -85,7 +85,6 @@ library
         JitML.Engines.CudnnBindings
         JitML.Engines.Engine
         JitML.Engines.HasEngine
-        JitML.Engines.LayerGraphCheckpoint
         JitML.Engines.Loader
         JitML.Engines.Local
         JitML.Engines.MlpCheckpoint

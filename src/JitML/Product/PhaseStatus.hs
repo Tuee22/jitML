@@ -130,25 +130,25 @@ allProductPhaseStatuses =
       234
       "oneDNN Layer Kernels for Training"
       "DEVELOPMENT_PLAN/phase-234-onednn-layer-kernels-for-training.md"
-      [ sprint "234.1" "oneDNN Layer Kernels for Training" Active
+      [ sprint "234.1" "oneDNN Layer Kernels for Training" Done
       ]
   , productPhase
       235
       "One Self-Describing Checkpoint Envelope"
       "DEVELOPMENT_PLAN/phase-235-one-self-describing-checkpoint-envelope.md"
-      [ sprint "235.1" "One Self-Describing Checkpoint Envelope" Blocked
+      [ sprint "235.1" "One Self-Describing Checkpoint Envelope" Done
       ]
   , productPhase
       236
       "Checkpoint Admission Single-Path"
       "DEVELOPMENT_PLAN/phase-236-checkpoint-admission-single-path.md"
-      [ sprint "236.1" "Checkpoint Admission Single-Path" Blocked
+      [ sprint "236.1" "Checkpoint Admission Single-Path" Done
       ]
   , productPhase
       237
       "Supervised Serving on the Layer-Graph IR"
       "DEVELOPMENT_PLAN/phase-237-supervised-serving-on-the-layer-graph-ir.md"
-      [ sprint "237.1" "Supervised Serving on the Layer-Graph IR" Blocked
+      [ sprint "237.1" "Supervised Serving on the Layer-Graph IR" Active
       ]
   , productPhase
       238
@@ -170,288 +170,294 @@ allProductPhaseStatuses =
       ]
   , productPhase
       241
-      "Literal Architectures - Dense, MLP, LeNet"
-      "DEVELOPMENT_PLAN/phase-241-literal-architectures-dense-mlp-lenet.md"
-      [ sprint "241.1" "Literal Architectures - Dense, MLP, LeNet" Blocked
+      "oneDNN Device Training Kernels for Correct Operators"
+      "DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md"
+      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Blocked
       ]
   , productPhase
       242
-      "Literal Architectures - ResNet Family"
-      "DEVELOPMENT_PLAN/phase-242-literal-architectures-resnet-family.md"
-      [ sprint "242.1" "Literal Architectures - ResNet Family" Blocked
+      "Literal Architectures - Dense, MLP, LeNet"
+      "DEVELOPMENT_PLAN/phase-242-literal-architectures-dense-mlp-lenet.md"
+      [ sprint "242.1" "Literal Architectures - Dense, MLP, LeNet" Blocked
       ]
   , productPhase
       243
-      "Literal Architectures - Vision Transformer"
-      "DEVELOPMENT_PLAN/phase-243-literal-architectures-vision-transformer.md"
-      [ sprint "243.1" "Literal Architectures - Vision Transformer" Blocked
+      "Literal Architectures - ResNet Family"
+      "DEVELOPMENT_PLAN/phase-243-literal-architectures-resnet-family.md"
+      [ sprint "243.1" "Literal Architectures - ResNet Family" Blocked
       ]
   , productPhase
       244
-      "Convergence and Evidence"
-      "DEVELOPMENT_PLAN/phase-244-convergence-and-evidence.md"
-      [ sprint "244.1" "Convergence and Evidence" Blocked
+      "Literal Architectures - Vision Transformer"
+      "DEVELOPMENT_PLAN/phase-244-literal-architectures-vision-transformer.md"
+      [ sprint "244.1" "Literal Architectures - Vision Transformer" Blocked
       ]
   , productPhase
       245
-      "CompletedTraining SL Manifests"
-      "DEVELOPMENT_PLAN/phase-245-completedtraining-sl-manifests.md"
-      [ sprint "245.1" "CompletedTraining SL Manifests" Blocked
+      "Convergence and Evidence"
+      "DEVELOPMENT_PLAN/phase-245-convergence-and-evidence.md"
+      [ sprint "245.1" "Convergence and Evidence" Blocked
       ]
   , productPhase
       246
-      "Real Environments"
-      "DEVELOPMENT_PLAN/phase-246-real-environments.md"
-      [ sprint "246.1" "Real Environments" Done
+      "CompletedTraining SL Manifests"
+      "DEVELOPMENT_PLAN/phase-246-completedtraining-sl-manifests.md"
+      [ sprint "246.1" "CompletedTraining SL Manifests" Blocked
       ]
   , productPhase
       247
-      "Distinct Algorithms"
-      "DEVELOPMENT_PLAN/phase-247-distinct-algorithms.md"
-      [ sprint "247.1" "Distinct Algorithms" Done
+      "Real Environments"
+      "DEVELOPMENT_PLAN/phase-247-real-environments.md"
+      [ sprint "247.1" "Real Environments" Done
       ]
   , productPhase
       248
-      "Per-Row Convergence and Evidence"
-      "DEVELOPMENT_PLAN/phase-248-per-row-convergence-and-evidence.md"
-      [ sprint "248.1" "Per-Row Convergence and Evidence" Done
+      "Distinct Algorithms"
+      "DEVELOPMENT_PLAN/phase-248-distinct-algorithms.md"
+      [ sprint "248.1" "Distinct Algorithms" Done
       ]
   , productPhase
       249
-      "Typed RL Cohort and Action-Domain Compatibility"
-      "DEVELOPMENT_PLAN/phase-249-typed-rl-cohort-and-action-domain-compatibility.md"
-      [ sprint "249.1" "Typed RL Cohort and Action-Domain Compatibility" Blocked
+      "Per-Row Convergence and Evidence"
+      "DEVELOPMENT_PLAN/phase-249-per-row-convergence-and-evidence.md"
+      [ sprint "249.1" "Per-Row Convergence and Evidence" Done
       ]
   , productPhase
       250
-      "TrainingPlan/EvaluationPlan Compiler and Trainer Migration"
-      "DEVELOPMENT_PLAN/phase-250-trainingplan-evaluationplan-compiler-and-trainer-migration.md"
-      [ sprint "250.1" "TrainingPlan/EvaluationPlan Compiler and Trainer Migration" Blocked
+      "Typed RL Cohort and Action-Domain Compatibility"
+      "DEVELOPMENT_PLAN/phase-250-typed-rl-cohort-and-action-domain-compatibility.md"
+      [ sprint "250.1" "Typed RL Cohort and Action-Domain Compatibility" Blocked
       ]
   , productPhase
       251
-      "Typed Measured Counters and Evidence Separation"
-      "DEVELOPMENT_PLAN/phase-251-typed-measured-counters-and-evidence-separation.md"
-      [ sprint "251.1" "Typed Measured Counters and Evidence Separation" Blocked
+      "TrainingPlan/EvaluationPlan Compiler and Trainer Migration"
+      "DEVELOPMENT_PLAN/phase-251-trainingplan-evaluationplan-compiler-and-trainer-migration.md"
+      [ sprint "251.1" "TrainingPlan/EvaluationPlan Compiler and Trainer Migration" Blocked
       ]
   , productPhase
       252
-      "Per-Game Self-Play"
-      "DEVELOPMENT_PLAN/phase-252-per-game-self-play.md"
-      [ sprint "252.1" "Per-Game Self-Play" Done
+      "Typed Measured Counters and Evidence Separation"
+      "DEVELOPMENT_PLAN/phase-252-typed-measured-counters-and-evidence-separation.md"
+      [ sprint "252.1" "Typed Measured Counters and Evidence Separation" Blocked
       ]
   , productPhase
       253
-      "Arena Convergence + Evidence"
-      "DEVELOPMENT_PLAN/phase-253-arena-convergence-evidence.md"
-      [ sprint "253.1" "Arena Convergence + Evidence" Done
+      "Per-Game Self-Play"
+      "DEVELOPMENT_PLAN/phase-253-per-game-self-play.md"
+      [ sprint "253.1" "Per-Game Self-Play" Done
       ]
   , productPhase
       254
-      "Train-and-Publish + Artifact Selectors"
-      "DEVELOPMENT_PLAN/phase-254-train-and-publish-artifact-selectors.md"
-      [ sprint "254.1" "Train-and-Publish + Artifact Selectors" Done
+      "Arena Convergence + Evidence"
+      "DEVELOPMENT_PLAN/phase-254-arena-convergence-evidence.md"
+      [ sprint "254.1" "Arena Convergence + Evidence" Done
       ]
   , productPhase
       255
-      "Row-Specific Renderers"
-      "DEVELOPMENT_PLAN/phase-255-row-specific-renderers.md"
-      [ sprint "255.1" "Row-Specific Renderers" Done
+      "Train-and-Publish + Artifact Selectors"
+      "DEVELOPMENT_PLAN/phase-255-train-and-publish-artifact-selectors.md"
+      [ sprint "255.1" "Train-and-Publish + Artifact Selectors" Done
       ]
   , productPhase
       256
-      "Browser Fail-Closed"
-      "DEVELOPMENT_PLAN/phase-256-browser-fail-closed.md"
-      [ sprint "256.1" "Browser Fail-Closed" Done
+      "Row-Specific Renderers"
+      "DEVELOPMENT_PLAN/phase-256-row-specific-renderers.md"
+      [ sprint "256.1" "Row-Specific Renderers" Done
       ]
   , productPhase
       257
-      "Row-Keyed Integration Matrix"
-      "DEVELOPMENT_PLAN/phase-257-row-keyed-integration-matrix.md"
-      [ sprint "257.1" "Row-Keyed Integration Matrix" Done
+      "Browser Fail-Closed"
+      "DEVELOPMENT_PLAN/phase-257-browser-fail-closed.md"
+      [ sprint "257.1" "Browser Fail-Closed" Done
       ]
   , productPhase
       258
-      "Row-Complete Playwright"
-      "DEVELOPMENT_PLAN/phase-258-row-complete-playwright.md"
-      [ sprint "258.1" "Row-Complete Playwright" Done
+      "Row-Keyed Integration Matrix"
+      "DEVELOPMENT_PLAN/phase-258-row-keyed-integration-matrix.md"
+      [ sprint "258.1" "Row-Keyed Integration Matrix" Done
       ]
   , productPhase
       259
-      "linux-cpu Report Card"
-      "DEVELOPMENT_PLAN/phase-259-linux-cpu-report-card.md"
-      [ sprint "259.1" "linux-cpu Report Card" Done
+      "Row-Complete Playwright"
+      "DEVELOPMENT_PLAN/phase-259-row-complete-playwright.md"
+      [ sprint "259.1" "Row-Complete Playwright" Done
       ]
   , productPhase
       260
-      "Contract-Driven Live Execution - Integration Journal"
-      "DEVELOPMENT_PLAN/phase-260-contract-driven-live-execution-integration-journal.md"
-      [ sprint "260.1" "Contract-Driven Live Execution - Integration Journal" Blocked
+      "linux-cpu Report Card"
+      "DEVELOPMENT_PLAN/phase-260-linux-cpu-report-card.md"
+      [ sprint "260.1" "linux-cpu Report Card" Done
       ]
   , productPhase
       261
-      "Contract-Driven Live Execution - Browser and Playwright"
-      "DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-browser-and-playwright.md"
-      [ sprint "261.1" "Contract-Driven Live Execution - Browser and Playwright" Blocked
+      "Contract-Driven Live Execution - Integration Journal"
+      "DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md"
+      [ sprint "261.1" "Contract-Driven Live Execution - Integration Journal" Blocked
       ]
   , productPhase
       262
-      "Contract-Driven Live Execution - Fragment Issuance"
-      "DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-fragment-issuance.md"
-      [ sprint "262.1" "Contract-Driven Live Execution - Fragment Issuance" Blocked
+      "Contract-Driven Live Execution - Browser and Playwright"
+      "DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md"
+      [ sprint "262.1" "Contract-Driven Live Execution - Browser and Playwright" Blocked
       ]
   , productPhase
       263
-      "Real cuDNN/cuBLAS Kernels"
-      "DEVELOPMENT_PLAN/phase-263-real-cudnn-cublas-kernels.md"
-      [ sprint "263.1" "Real cuDNN/cuBLAS Kernels" Done
+      "Contract-Driven Live Execution - Fragment Issuance"
+      "DEVELOPMENT_PLAN/phase-263-contract-driven-live-execution-fragment-issuance.md"
+      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Blocked
       ]
   , productPhase
       264
-      "CUDA Row Device Evidence"
-      "DEVELOPMENT_PLAN/phase-264-cuda-row-device-evidence.md"
-      [ sprint "264.1" "CUDA Row Device Evidence" Done
+      "Real cuDNN/cuBLAS Kernels"
+      "DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md"
+      [ sprint "264.1" "Real cuDNN/cuBLAS Kernels" Done
       ]
   , productPhase
       265
-      "CUDA Integration, E2E, and Attestation"
-      "DEVELOPMENT_PLAN/phase-265-cuda-integration-e2e-and-attestation.md"
-      [ sprint "265.1" "CUDA Integration, E2E, and Attestation" Done
+      "CUDA Row Device Evidence"
+      "DEVELOPMENT_PLAN/phase-265-cuda-row-device-evidence.md"
+      [ sprint "265.1" "CUDA Row Device Evidence" Done
       ]
   , productPhase
       266
-      "GPU Performance and Persistent Device Buffers"
-      "DEVELOPMENT_PLAN/phase-266-gpu-performance-and-persistent-device-buffers.md"
-      [ sprint "266.1" "GPU Performance and Persistent Device Buffers" Done
+      "CUDA Integration, E2E, and Attestation"
+      "DEVELOPMENT_PLAN/phase-266-cuda-integration-e2e-and-attestation.md"
+      [ sprint "266.1" "CUDA Integration, E2E, and Attestation" Done
       ]
   , productPhase
       267
-      "Contract-Driven CUDA Lane Revalidation"
-      "DEVELOPMENT_PLAN/phase-267-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "267.1" "Contract-Driven CUDA Lane Revalidation" Blocked
+      "GPU Performance and Persistent Device Buffers"
+      "DEVELOPMENT_PLAN/phase-267-gpu-performance-and-persistent-device-buffers.md"
+      [ sprint "267.1" "GPU Performance and Persistent Device Buffers" Done
       ]
   , productPhase
       268
-      "Real Metal Kernels"
-      "DEVELOPMENT_PLAN/phase-268-real-metal-kernels.md"
-      [ sprint "268.1" "Real Metal Kernels" Done
+      "Contract-Driven CUDA Lane Revalidation"
+      "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Blocked
       ]
   , productPhase
       269
-      "Metal Row Device Evidence"
-      "DEVELOPMENT_PLAN/phase-269-metal-row-device-evidence.md"
-      [ sprint "269.1" "Metal Row Device Evidence" Done
+      "Real Metal Kernels"
+      "DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md"
+      [ sprint "269.1" "Real Metal Kernels" Done
       ]
   , productPhase
       270
-      "Apple Integration, E2E, and Attestation"
-      "DEVELOPMENT_PLAN/phase-270-apple-integration-e2e-and-attestation.md"
-      [ sprint "270.1" "Apple Integration, E2E, and Attestation" Done
+      "Metal Row Device Evidence"
+      "DEVELOPMENT_PLAN/phase-270-metal-row-device-evidence.md"
+      [ sprint "270.1" "Metal Row Device Evidence" Done
       ]
   , productPhase
       271
-      "Contract-Driven Apple Lane Revalidation"
-      "DEVELOPMENT_PLAN/phase-271-contract-driven-apple-lane-revalidation.md"
-      [ sprint "271.1" "Contract-Driven Apple Lane Revalidation" Blocked
+      "Apple Integration, E2E, and Attestation"
+      "DEVELOPMENT_PLAN/phase-271-apple-integration-e2e-and-attestation.md"
+      [ sprint "271.1" "Apple Integration, E2E, and Attestation" Done
       ]
   , productPhase
       272
-      "Attestation Join"
-      "DEVELOPMENT_PLAN/phase-272-attestation-join.md"
-      [ sprint "272.1" "Attestation Join" Done
+      "Contract-Driven Apple Lane Revalidation"
+      "DEVELOPMENT_PLAN/phase-272-contract-driven-apple-lane-revalidation.md"
+      [ sprint "272.1" "Contract-Driven Apple Lane Revalidation" Blocked
       ]
   , productPhase
       273
-      "No-Caveat Closure Guard"
-      "DEVELOPMENT_PLAN/phase-273-no-caveat-closure-guard.md"
-      [ sprint "273.1" "No-Caveat Closure Guard" Done
+      "Attestation Join"
+      "DEVELOPMENT_PLAN/phase-273-attestation-join.md"
+      [ sprint "273.1" "Attestation Join" Done
       ]
   , productPhase
       274
-      "Journal-Derived Product Aggregation"
-      "DEVELOPMENT_PLAN/phase-274-journal-derived-product-aggregation.md"
-      [ sprint "274.1" "Journal-Derived Product Aggregation" Blocked
+      "No-Caveat Closure Guard"
+      "DEVELOPMENT_PLAN/phase-274-no-caveat-closure-guard.md"
+      [ sprint "274.1" "No-Caveat Closure Guard" Done
       ]
   , productPhase
       275
-      "Negative-Control Suite"
-      "DEVELOPMENT_PLAN/phase-275-negative-control-suite.md"
-      [ sprint "275.1" "Negative-Control Suite" Done
+      "Journal-Derived Product Aggregation"
+      "DEVELOPMENT_PLAN/phase-275-journal-derived-product-aggregation.md"
+      [ sprint "275.1" "Journal-Derived Product Aggregation" Blocked
       ]
   , productPhase
       276
+      "Negative-Control Suite"
+      "DEVELOPMENT_PLAN/phase-276-negative-control-suite.md"
+      [ sprint "276.1" "Negative-Control Suite" Done
+      ]
+  , productPhase
+      277
       "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
-      "DEVELOPMENT_PLAN/phase-276-external-bars-no-self-referential-gate-lint-and-exact-served.md"
+      "DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md"
       [ sprint
-          "276.1"
+          "277.1"
           "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
           Blocked
       ]
   , productPhase
-      277
-      "Measured/Declared Type Split & Behavioral Scaffold Lint"
-      "DEVELOPMENT_PLAN/phase-277-measured-declared-type-split-behavioral-scaffold-lint.md"
-      [ sprint "277.1" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
-      ]
-  , productPhase
       278
-      "RunContract Negative Controls - Request and Event Fixtures"
-      "DEVELOPMENT_PLAN/phase-278-runcontract-negative-controls-request-and-event-fixtures.md"
-      [ sprint "278.1" "RunContract Negative Controls - Request and Event Fixtures" Blocked
+      "Measured/Declared Type Split & Behavioral Scaffold Lint"
+      "DEVELOPMENT_PLAN/phase-278-measured-declared-type-split-behavioral-scaffold-lint.md"
+      [ sprint "278.1" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
       ]
   , productPhase
       279
-      "RunContract Negative Controls - Journal Fixtures and Reducer Properties"
-      "DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-journal-fixtures-and-reducer-p.md"
-      [ sprint "279.1" "RunContract Negative Controls - Journal Fixtures and Reducer Properties" Blocked
+      "RunContract Negative Controls - Request and Event Fixtures"
+      "DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md"
+      [ sprint "279.1" "RunContract Negative Controls - Request and Event Fixtures" Blocked
       ]
   , productPhase
       280
-      "RunContract Negative Controls - Lifecycle and Per-Row Registration"
-      "DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-lifecycle-and-per-row-registra.md"
-      [ sprint "280.1" "RunContract Negative Controls - Lifecycle and Per-Row Registration" Blocked
+      "RunContract Negative Controls - Journal Fixtures and Reducer Properties"
+      "DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md"
+      [ sprint "280.1" "RunContract Negative Controls - Journal Fixtures and Reducer Properties" Blocked
       ]
   , productPhase
       281
-      "Per-Model Measured Convergence"
-      "DEVELOPMENT_PLAN/phase-281-per-model-measured-convergence.md"
-      [ sprint "281.1" "Per-Model Measured Convergence" Done
+      "RunContract Negative Controls - Lifecycle and Per-Row Registration"
+      "DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md"
+      [ sprint "281.1" "RunContract Negative Controls - Lifecycle and Per-Row Registration" Blocked
       ]
   , productPhase
       282
-      "Inference-Performance & Determinism"
-      "DEVELOPMENT_PLAN/phase-282-inference-performance-determinism.md"
-      [ sprint "282.1" "Inference-Performance & Determinism" Done
+      "Per-Model Measured Convergence"
+      "DEVELOPMENT_PLAN/phase-282-per-model-measured-convergence.md"
+      [ sprint "282.1" "Per-Model Measured Convergence" Done
       ]
   , productPhase
       283
-      "Contract-Driven Per-Model Evidence"
-      "DEVELOPMENT_PLAN/phase-283-contract-driven-per-model-evidence.md"
-      [ sprint "283.1" "Contract-Driven Per-Model Evidence" Blocked
+      "Inference-Performance & Determinism"
+      "DEVELOPMENT_PLAN/phase-283-inference-performance-determinism.md"
+      [ sprint "283.1" "Inference-Performance & Determinism" Done
       ]
   , productPhase
       284
-      "Evidence-Derived Closure Guard"
-      "DEVELOPMENT_PLAN/phase-284-evidence-derived-closure-guard.md"
-      [ sprint "284.1" "Evidence-Derived Closure Guard" Done
+      "Contract-Driven Per-Model Evidence"
+      "DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md"
+      [ sprint "284.1" "Contract-Driven Per-Model Evidence" Blocked
       ]
   , productPhase
       285
-      "Standing Adversarial Audit & Thin Plan"
-      "DEVELOPMENT_PLAN/phase-285-standing-adversarial-audit-thin-plan.md"
-      [ sprint "285.1" "Standing Adversarial Audit & Thin Plan" Done
+      "Evidence-Derived Closure Guard"
+      "DEVELOPMENT_PLAN/phase-285-evidence-derived-closure-guard.md"
+      [ sprint "285.1" "Evidence-Derived Closure Guard" Done
       ]
   , productPhase
       286
-      "Journal-Derived Status Registry"
-      "DEVELOPMENT_PLAN/phase-286-journal-derived-status-registry.md"
-      [ sprint "286.1" "Journal-Derived Status Registry" Blocked
+      "Standing Adversarial Audit & Thin Plan"
+      "DEVELOPMENT_PLAN/phase-286-standing-adversarial-audit-thin-plan.md"
+      [ sprint "286.1" "Standing Adversarial Audit & Thin Plan" Done
       ]
   , productPhase
       287
+      "Journal-Derived Status Registry"
+      "DEVELOPMENT_PLAN/phase-287-journal-derived-status-registry.md"
+      [ sprint "287.1" "Journal-Derived Status Registry" Blocked
+      ]
+  , productPhase
+      288
       "Evidence-Typed Report Measurements"
-      "DEVELOPMENT_PLAN/phase-287-evidence-typed-report-measurements.md"
-      [ sprint "287.1" "Evidence-Typed Report Measurements" Blocked
+      "DEVELOPMENT_PLAN/phase-288-evidence-typed-report-measurements.md"
+      [ sprint "288.1" "Evidence-Typed Report Measurements" Blocked
       ]
   ]
 
@@ -488,7 +494,7 @@ validateProductPhaseStatuses phases =
     <> concatMap validatePhase phases
  where
   phaseNumbers = fmap phaseNumber phases
-  expectedNumbers = [220 .. 287]
+  expectedNumbers = [220 .. 288]
   duplicatePhaseErrors =
     [ "duplicate product phase: " <> Text.pack (show number)
     | number <- duplicates phaseNumbers

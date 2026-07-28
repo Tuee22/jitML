@@ -9,9 +9,18 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 237 (Sprint 237.1). With serving on the IR, the
-training drivers move onto the IR and the parallel executable program is deleted;
-see the old→new map in [README.md](README.md).
+⏸️ **Blocked**. Blocked by Phase 237 (Sprint 237.1). Phases `237` and `238`
+jointly migrate the supervised path onto the typed `LayerGraph` IR and are
+**implemented together** (a trained graph cannot be served in Phase `237` before
+this phase's training loop produces it; see
+[phase-237 → Phase State](phase-237-supervised-serving-on-the-layer-graph-ir.md#phase-state)).
+Phase `237` owns the serving surface; this phase trains the architecture's
+**dense-trainable** `archLayerGraph` end to end through the oneDNN loop (which is
+currently dense-only), deletes the parallel `[LayerSpec]`/`[LayerState]` program,
+and records cross-entropy-decrease evidence. The literal correct-operator
+architectures (multi-head attention with `W_O`, real spatial conv) are trained on
+the Phase-`241` device kernels in Phases `242`–`244`; full trained-model
+convergence is Phase `245`. See the old→new map in [README.md](README.md).
 
 ## Sprint 238.1: Supervised Training on the Layer-Graph IR [⏸️ Blocked]
 
@@ -25,10 +34,14 @@ see the old→new map in [README.md](README.md).
 Train the supervised rows through the typed `LayerGraph` IR and **retire the
 parallel `[LayerSpec]` / `[LayerState]` program**. The `trainArchitectureWithDevice*`
 drivers thread `Env` (required by the device IR path, which the `MlpDevice` record
-does not carry) and train `archLayerGraph` with the batched
-`trainLayerGraphClassifierOneDnn` loop over the graph's flat parameter vector,
-using the device cross-entropy gradient. After this sprint the IR is the single
-owner of supervised training, inference, and graph-ordered parameter identity.
+does not carry) and train the architecture's dense-trainable `archLayerGraph` with
+the batched `trainLayerGraphClassifierOneDnn` loop over the graph's flat parameter
+vector, using the device cross-entropy gradient. This replaces the transitional
+flat-family `[LayerState]`→graph parameter mapping that Phase `237` used to
+populate the served graph: training now writes the graph parameter vector
+directly. After this sprint the IR is the single owner of supervised training,
+inference, and graph-ordered parameter identity (for the dense-trainable graph;
+the correct-operator device kernels arrive in Phase `241`).
 
 ### Deliverables
 

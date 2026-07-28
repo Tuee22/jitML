@@ -603,6 +603,45 @@ main =
                   evidence
               )
       , testCase
+          "linux-cpu batched LayerGraph oneDNN gradient matches the per-example summed oracle (Phase 234)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphOneDnnFixture
+            let batch =
+                  [ (VU.fromList [0.15, -0.25, 0.35, -0.45], VU.fromList [-0.05, 0.10, -0.15, 0.20])
+                  , (VU.fromList [-0.20, 0.30, -0.10, 0.05], VU.fromList [0.10, -0.05, 0.20, -0.10])
+                  , (VU.fromList [0.40, -0.10, 0.20, -0.30], VU.fromList [-0.20, 0.15, -0.05, 0.10])
+                  ]
+            refGrad <-
+              either (assertFailure . Text.unpack) pure $ do
+                grads <-
+                  traverse
+                    (\(i, t) -> snd <$> LayerGraph.layerGraphSquaredErrorGradient graph i t)
+                    batch
+                case grads of
+                  [] -> Left "empty batch"
+                  (g : gs) -> Right (foldl addLayerGraphGradient g gs)
+            run <-
+              LayerGraphOneDnn.layerGraphSquaredErrorGradientBatchOneDnn env graph batch
+                >>= expectRight "batched LayerGraph oneDNN run failed"
+            -- (a) one batched device call per layer over N=3 reproduces the
+            -- per-example summed oracle within float32 tolerance.
+            assertLayerGraphGradientClose
+              1.0e-3
+              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              refGrad
+            -- (b) evidence is one entry per parameterized node, NOT per example,
+            -- proving a single batched device round-trip per layer.
+            let evidence = LayerGraphOneDnn.layerGraphOneDnnEvidence run
+            length evidence
+              @?= length (filter isParameterizedLayerKind LayerGraph.allLayerKinds)
+            assertBool
+              "batched LayerGraph device evidence reports the oneDNN backend"
+              ( all
+                  ((== "linux-cpu-onednn") . LayerGraphOneDnn.layerEvidenceBackend)
+                  evidence
+              )
+      , testCase
           "linux-cpu LayerGraph classification training reduces cross-entropy loss (Sprint 235.1)"
           $ do
             env <- buildEnv defaultGlobalFlags
@@ -638,7 +677,7 @@ main =
                     (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) dataset)
             loss0 <- either (assertFailure . Text.unpack) pure (totalLoss graph0)
             trained <-
-              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env 50 2 0.1 graph0 dataset
+              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env 2 50 2 0.1 graph0 dataset
                 >>= expectRight "LayerGraph classification training failed"
             loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
             assertBool
@@ -648,6 +687,59 @@ main =
                   <> show loss1
               )
               (loss1 < loss0)
+      , testCase
+          "linux-cpu Phase 241 oneDNN spatial Conv2D device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            -- 2->3 channels, 4x4 input, 3x3 kernel, stride 1, pad 1 -> 4x4 out.
+            let convSpec = LayerGraph.ConvSpec 2 3 [4, 4] [3, 3] [1, 1] [1, 1]
+                params = LayerGraph.deterministicOpParameters 91 (LayerGraph.ConvOp convSpec)
+                input = VU.generate 32 (\i -> sin (0.3 * fromIntegral i))
+                dY = VU.generate 48 (\i -> cos (0.2 * fromIntegral (i + 1)))
+            convNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkConvLayer
+                  "conv-spatial"
+                  convSpec
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  params
+            let graph =
+                  LayerGraph.LayerGraph
+                    { LayerGraph.layerGraphName = "conv-spatial"
+                    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [2, 4, 4]
+                    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3, 4, 4]
+                    , LayerGraph.layerGraphNodes = [convNode]
+                    }
+            -- Pure oracle: linear activation => tape output is the raw conv, and
+            -- d_pre == dY, so backwardLayerGraph yields the conv gradients.
+            tape <-
+              either (assertFailure . Text.unpack) pure (LayerGraph.runLayerGraph graph input)
+            grad <-
+              either (assertFailure . Text.unpack) pure (LayerGraph.backwardLayerGraph graph tape dY)
+            let pureOut = LayerGraph.layerTapeOutput tape
+                pureDx = LayerGraph.layerGraphInputGradient grad
+            (pureDw, pureDb) <-
+              case LayerGraph.layerGraphLayerGradients grad of
+                [lg]
+                  | Just pg <- LayerGraph.layerGradientParameters lg ->
+                      pure (LayerGraph.layerGradWeights pg, LayerGraph.layerGradBias pg)
+                _ -> assertFailure "expected exactly one parameterized conv gradient"
+            deviceResult <-
+              LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ ->
+                LayerGraphOneDnn.runDeviceSpatialConv functions convSpec params input dY
+            (devOut, devDx, devDw, devDb) <-
+              either (assertFailure . Text.unpack) pure deviceResult
+            let close label a b =
+                  assertBool
+                    (label <> ": device/oracle mismatch\n device=" <> show a <> "\n oracle=" <> show b)
+                    ( VU.length a == VU.length b
+                        && VU.and (VU.zipWith (\x y -> abs (x - y) <= 1.0e-3) a b)
+                    )
+            close "conv forward output" devOut pureOut
+            close "conv input gradient" devDx pureDx
+            close "conv weight gradient" devDw pureDw
+            close "conv bias gradient" devDb pureDb
       , testCase
           "linux-cpu MLP kernels are bit-deterministic across repeated runs (Phase 2 rebalance)"
           $ do
@@ -2000,6 +2092,42 @@ assertLayerGraphGradientClose tol actual expected = do
               (LayerGraph.layerGradBias expectedParams)
           )
       _ -> assertFailure ("LayerGraph layer " <> show idx <> " parameter-gradient shape mismatch")
+
+-- | Component-wise sum of two structurally-identical layer-graph gradients (the
+-- per-example summed oracle the batched device gradient must reproduce).
+addLayerGraphGradient
+  :: LayerGraph.LayerGraphGradient -> LayerGraph.LayerGraphGradient -> LayerGraph.LayerGraphGradient
+addLayerGraphGradient a b =
+  a
+    { LayerGraph.layerGraphInputGradient =
+        VU.zipWith (+) (LayerGraph.layerGraphInputGradient a) (LayerGraph.layerGraphInputGradient b)
+    , LayerGraph.layerGraphLayerGradients =
+        zipWith
+          addLayerGradient
+          (LayerGraph.layerGraphLayerGradients a)
+          (LayerGraph.layerGraphLayerGradients b)
+    }
+
+addLayerGradient
+  :: LayerGraph.LayerGradient -> LayerGraph.LayerGradient -> LayerGraph.LayerGradient
+addLayerGradient a b =
+  a
+    { LayerGraph.layerGradientInput =
+        VU.zipWith (+) (LayerGraph.layerGradientInput a) (LayerGraph.layerGradientInput b)
+    , LayerGraph.layerGradientParameters =
+        case ( LayerGraph.layerGradientParameters a
+             , LayerGraph.layerGradientParameters b
+             ) of
+          (Just pa, Just pb) ->
+            Just
+              LayerGraph.LayerParameterGradient
+                { LayerGraph.layerGradWeights =
+                    VU.zipWith (+) (LayerGraph.layerGradWeights pa) (LayerGraph.layerGradWeights pb)
+                , LayerGraph.layerGradBias =
+                    VU.zipWith (+) (LayerGraph.layerGradBias pa) (LayerGraph.layerGradBias pb)
+                }
+          _ -> LayerGraph.layerGradientParameters a
+    }
 
 layerGraphOneDnnFixture :: Either Text.Text LayerGraph.LayerGraph
 layerGraphOneDnnFixture = do

@@ -15,6 +15,8 @@ module JitML.SL.Architecture
   ( ArchitectureFamily (..)
   , ArchitectureFeature (..)
   , ArchitectureOptimizer (..)
+  , OptimizerConfig (..)
+  , applyGraphOptimizerStep
   , ArchitectureSpec (..)
   , ExactArchitectureTraining
   , TrainedArchitecture (..)
@@ -45,33 +47,34 @@ module JitML.SL.Architecture
   , projectTrainedArchitectureRuntime
   , trainedArchitectureWeights
   , validateArchitectureFeatureParity
+  , denseChainGraph
+  , serveClassifierGraphAccuracy
+  , serveClassifierGraphCrossEntropy
+  , correctOpsVitGraph
+  , correctOpsConvLeNetGraph
   )
 where
 
 import Control.Monad (foldM)
-import Data.Bifunctor (second)
 import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Vector qualified as VB
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
 
 import JitML.Engines.Rng qualified as Rng
 import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Numerics.LayerGraphOneDnn qualified as LayerGraphOneDnn
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
-  , MlpGradient (..)
   , MlpParams (..)
   , MlpShape (..)
   , adamInit
-  , adamStep
   , defaultAdamConfig
   , mlpInit
-  , mlpParamsToFlat
   , softmax
   )
 import JitML.Numerics.MlpDevice (MlpDevice (..))
@@ -145,7 +148,9 @@ data ExactArchitectureTraining = ExactArchitectureTraining
   , exactTrainingDropout :: !Double
   , exactTrainingTrainSet :: !Dataset
   , exactTrainingValidationSet :: !Dataset
-  , exactTrainingStates :: ![LayerState]
+  , exactTrainingAdam :: !LayerGraph.GraphClassifierAdam
+  -- ^ Sprint 238.1 — the trained typed 'LayerGraph.LayerGraph' plus threaded Adam
+  -- moments (replacing the parallel @[LayerState]@ optimizer state).
   , exactTrainingUpdates :: !Int
   , exactTrainingExamplesProcessed :: !Int
   , exactTrainingInitialWeights :: ![Double]
@@ -161,7 +166,12 @@ data ArchitectureSpec = ArchitectureSpec
 
 data TrainedArchitecture = TrainedArchitecture
   { trainedArchSpec :: !ArchitectureSpec
-  , trainedArchLayers :: ![LayerState]
+  , trainedArchGraph :: !LayerGraph.LayerGraph
+  -- ^ Sprint 237.1/238.1 — the trained typed 'LayerGraph.LayerGraph' IR is the
+  -- single supervised serving and parameter representation. Accuracy,
+  -- cross-entropy, runtime projection, and graph-ordered weight identity are all
+  -- computed from this graph via 'LayerGraph.runLayerGraph' /
+  -- 'LayerGraph.graphParameterVector'.
   , trainedArchConfig :: !ClassifierConfig
   , trainedArchInputTransform :: !RuntimeArtifact.RawRuntimeInputTransform
   }
@@ -735,8 +745,10 @@ featuresForKind kind =
     LayerGraph.PatchEmbedLayer -> [FeaturePatchEmbedding]
 
 -- | Train a canonical architecture through the substrate device. The loss is
--- mean softmax cross entropy; Adam updates are host-owned but every layer's
--- forward, backward, and input-gradient pass goes through 'MlpDevice'.
+-- mean softmax cross entropy over the semantic-prefix classes. Sprint 238.1: the
+-- typed 'LayerGraph.LayerGraph' IR is trained directly through the device
+-- classifier loop (oneDNN for a real substrate, CPU autodiff for the pure
+-- reference device), replacing the parallel @[LayerState]@ program.
 trainArchitectureWithDevice
   :: MlpDevice
   -> ArchitectureSpec
@@ -748,45 +760,26 @@ trainArchitectureWithDevice device spec config dataset
   | clfEpochs config <= 0 = pure (Left "trainArchitectureWithDevice: epoch count must be positive")
   | clfBatchSize config <= 0 = pure (Left "trainArchitectureWithDevice: batch size must be positive")
   | otherwise = do
-      let adamConfig =
-            defaultAdamConfig {adamLearningRate = clfLearningRate config}
-          optimizerConfig = AdamOptimizer adamConfig
-          inputs = FlatBatch (fmap exampleFeatures dataset)
-          labels = fmap exampleLabel dataset
       statesE <- initialiseLayers (clfSeed config) (archLayers spec)
-      case statesE of
+      case statesE >>= initialClassifierGraph spec of
         Left err -> pure (Left err)
-        Right states0 -> do
+        Right graph0 -> do
           trainedE <-
-            foldM
-              ( \acc _epoch -> case acc of
-                  Left err -> pure (Left err)
-                  Right (states, updatesExecuted) -> do
-                    epochE <-
-                      trainEpoch
-                        (clfBatchSize config)
-                        device
-                        optimizerConfig
-                        (clfClasses config)
-                        labels
-                        states
-                        inputs
-                    pure $
-                      do
-                        (states', epochUpdates) <- epochE
-                        totalUpdates <-
-                          checkedOptimizerUpdateSum updatesExecuted epochUpdates
-                        Right (states', totalUpdates)
-              )
-              (Right (states0, 0))
-              [1 .. clfEpochs config]
+            trainClassifierGraphAllEpochs
+              device
+              (clfClasses config)
+              (clfEpochs config)
+              (clfBatchSize config)
+              (clfLearningRate config)
+              graph0
+              (datasetClassifierExamples dataset)
           case trainedE of
             Left err -> pure (Left err)
-            Right (states, _updatesExecuted) -> do
+            Right graph -> do
               let trained =
                     TrainedArchitecture
                       { trainedArchSpec = spec
-                      , trainedArchLayers = states
+                      , trainedArchGraph = graph
                       , trainedArchConfig = config
                       , trainedArchInputTransform =
                           defaultTrainedArchitectureInputTransform config
@@ -794,40 +787,379 @@ trainArchitectureWithDevice device spec config dataset
               accE <- accuracyArchitectureWithDevice device trained dataset
               pure (fmap (trained,) accE)
 
+-- | Train a classification 'LayerGraph.LayerGraph' for a fixed number of epochs
+-- through the architecture's device (fixed dataset order every epoch), threading
+-- Adam moments across epochs. Used by the non-model-selecting one-shot trainer.
+trainClassifierGraphAllEpochs
+  :: MlpDevice
+  -> Int
+  -> Int
+  -> Int
+  -> Double
+  -> LayerGraph.LayerGraph
+  -> [(Vector Double, Int)]
+  -> IO (Either Text LayerGraph.LayerGraph)
+trainClassifierGraphAllEpochs device classes epochs batchSize lr graph0 examples =
+  go 1 (LayerGraph.initGraphClassifierAdam graph0)
+ where
+  go epoch st
+    | epoch > epochs = pure (Right (LayerGraph.gcaGraph st))
+    | otherwise = do
+        stepped <- trainClassifierGraphEpoch device classes batchSize lr st examples
+        case stepped of
+          Left err -> pure (Left err)
+          Right st' -> go (epoch + 1) st'
+
+-- | The @(features, class label)@ pairs the typed layer-graph classifier
+-- trainers consume, in dataset order.
+datasetClassifierExamples :: Dataset -> [(Vector Double, Int)]
+datasetClassifierExamples = fmap (\ex -> (exampleFeatures ex, exampleLabel ex))
+
+-- | Sprint 238.1 — the initial dense-trainable classification 'LayerGraph' the
+-- architecture trains and then serves. Flat (Dense/DeepDense) families expand
+-- their freshly initialized @[LayerState]@ into a dense chain graph
+-- ('denseChainGraph'), so graph training reproduces the historical device MLP
+-- training within the @Double@-vs-@float32@ skew; the correct-operator token
+-- families train the architecture's dense-trainable @archLayerGraph@ (every node
+-- a @DenseOp@) directly. Correct-operator device training (real conv/attention)
+-- arrives in Phase 241 and the literal correct-operator architectures in Phases
+-- 242–244.
+initialClassifierGraph :: ArchitectureSpec -> [LayerState] -> Either Text LayerGraph.LayerGraph
+initialClassifierGraph spec states =
+  case archFamily spec of
+    DenseFamily -> denseChainGraph graphName states
+    DeepDenseFamily -> denseChainGraph graphName states
+    _ -> Right (archLayerGraph spec)
+ where
+  graphName = problemName (archProblem spec)
+
+-- | Sprint 238.1 — train one classification epoch through the device the
+-- architecture was given. The pure reference device (no 'Env') trains through the
+-- CPU reverse-mode autodiff loop; a real JIT substrate device (@Just env@) trains
+-- through the oneDNN device loop. Both share the one pure Adam step
+-- ('LayerGraph.graphAdamBatchStep'), threading Adam moments across epochs through
+-- 'LayerGraph.GraphClassifierAdam'.
+trainClassifierGraphEpoch
+  :: MlpDevice
+  -> Int
+  -> Int
+  -> Double
+  -> LayerGraph.GraphClassifierAdam
+  -> [(Vector Double, Int)]
+  -> IO (Either Text LayerGraph.GraphClassifierAdam)
+trainClassifierGraphEpoch device classes batchSize lr st examples =
+  case mlpdEnv device of
+    Nothing ->
+      pure (LayerGraph.trainLayerGraphClassifierEpochPure classes batchSize lr st examples)
+    Just env ->
+      LayerGraphOneDnn.trainLayerGraphClassifierEpochOneDnn env classes batchSize lr st examples
+
+-- | Batch-summed classification cross-entropy parameter gradient through the
+-- architecture's device: CPU autodiff for the pure reference device, oneDNN for a
+-- real substrate.
+classifierGraphBatchGradient
+  :: MlpDevice
+  -> Int
+  -> LayerGraph.LayerGraph
+  -> [(Vector Double, Int)]
+  -> IO (Either Text (Vector Double))
+classifierGraphBatchGradient device classes graph batch =
+  case mlpdEnv device of
+    Nothing -> pure (LayerGraph.pureClassifierBatchGradient classes graph batch)
+    Just env -> LayerGraphOneDnn.classifierBatchGradientOneDnn env classes graph batch
+
+-- | Apply one optimizer update (Adam or plain SGD) to the graph parameters from a
+-- batch-summed gradient. Adam reuses the shared 'LayerGraph.graphAdamBatchStep'
+-- (moments threaded through 'LayerGraph.GraphClassifierAdam'); SGD steps the flat
+-- parameter vector directly. The step counter advances for both.
+applyGraphOptimizerStep
+  :: OptimizerConfig
+  -> LayerGraph.GraphClassifierAdam
+  -> Vector Double
+  -> Int
+  -> Either Text LayerGraph.GraphClassifierAdam
+applyGraphOptimizerStep optimizerConfig st summed batchLen =
+  case optimizerConfig of
+    AdamOptimizer adamConfig ->
+      LayerGraph.graphAdamBatchStep (adamLearningRate adamConfig) st summed batchLen
+    AdamWOptimizer adamConfig weightDecay -> do
+      -- AdamW: the Adam step, then decoupled weight decay on the weight tensors
+      -- only (biases are not decayed), matching the retired [LayerState] path.
+      stepped <- LayerGraph.graphAdamBatchStep (adamLearningRate adamConfig) st summed batchLen
+      let decay = max 0.0 (1.0 - adamLearningRate adamConfig * weightDecay)
+      Right
+        stepped {LayerGraph.gcaGraph = LayerGraph.decayGraphWeights decay (LayerGraph.gcaGraph stepped)}
+    SgdOptimizer learningRate ->
+      let grad = VU.map (/ fromIntegral batchLen) summed
+          params = LayerGraph.graphParameterVector (LayerGraph.gcaGraph st)
+          params' = VU.zipWith (\p g -> p - learningRate * g) params grad
+       in do
+            graph' <- LayerGraph.replaceGraphParameterVector (LayerGraph.gcaGraph st) params'
+            Right st {LayerGraph.gcaGraph = graph', LayerGraph.gcaStep = LayerGraph.gcaStep st + 1}
+
+-- | One optimizer update of the trained graph over a single mini-batch through
+-- the architecture's device, used by the exact-update tuning runtime.
+trainClassifierGraphBatch
+  :: MlpDevice
+  -> Int
+  -> OptimizerConfig
+  -> LayerGraph.GraphClassifierAdam
+  -> [(Vector Double, Int)]
+  -> IO (Either Text LayerGraph.GraphClassifierAdam)
+trainClassifierGraphBatch device classes optimizerConfig st batch = do
+  summedE <- classifierGraphBatchGradient device classes (LayerGraph.gcaGraph st) batch
+  pure (summedE >>= \summed -> applyGraphOptimizerStep optimizerConfig st summed (length batch))
+
 accuracyArchitectureWithDevice
   :: MlpDevice -> TrainedArchitecture -> Dataset -> IO (Either Text Double)
 accuracyArchitectureWithDevice _ _ [] = pure (Left "accuracyArchitectureWithDevice: empty evaluation dataset")
-accuracyArchitectureWithDevice device trained dataset = do
-  outE <- forwardOnly device (trainedArchLayers trained) (FlatBatch (fmap exampleFeatures dataset))
-  pure $ do
-    outs <- outE
-    case outs of
-      FlatBatch vectors ->
-        let classes = clfClasses (trainedArchConfig trained)
-            predicted = fmap (VU.maxIndex . VU.take classes) vectors
-            correct =
-              length
-                (filter id (zipWith (==) predicted (fmap exampleLabel dataset)))
-         in Right (fromIntegral correct / fromIntegral (length dataset))
-      TokenBatch _ -> Left "accuracyArchitectureWithDevice: final representation is token-shaped"
+accuracyArchitectureWithDevice _device trained dataset =
+  -- Sprint 237.1: every family serves through the typed LayerGraph IR executor.
+  pure
+    ( serveClassifierGraphAccuracy
+        (clfClasses (trainedArchConfig trained))
+        (trainedArchGraph trained)
+        dataset
+    )
 
--- | Sprint 8.13 — real mean softmax cross-entropy of a trained architecture
--- over a dataset, computed through the device forward. This is the SL loss the
--- runtime publishes; it replaces the @1 − accuracy@ stand-in. Empty evaluation
--- data fails closed instead of manufacturing a zero loss.
+-- | Sprint 8.13 — real mean softmax cross-entropy of a trained architecture over
+-- a dataset, computed through the typed 'LayerGraph.runLayerGraph' serving
+-- executor over the first @classes@ logits. This is the SL loss the runtime
+-- publishes; it replaces the @1 − accuracy@ stand-in. Empty evaluation data fails
+-- closed instead of manufacturing a zero loss.
 crossEntropyArchitectureWithDevice
   :: MlpDevice -> TrainedArchitecture -> Dataset -> IO (Either Text Double)
 crossEntropyArchitectureWithDevice _ _ [] = pure (Left "crossEntropyArchitectureWithDevice: empty evaluation dataset")
-crossEntropyArchitectureWithDevice device trained dataset = do
-  outE <- forwardOnly device (trainedArchLayers trained) (FlatBatch (fmap exampleFeatures dataset))
-  pure $ do
-    outs <- outE
-    case outs of
-      FlatBatch vectors ->
-        let classes = clfClasses (trainedArchConfig trained)
-            losses = zipWith (crossEntropyOne classes) vectors (fmap exampleLabel dataset)
-         in Right (sum losses / fromIntegral (length dataset))
-      TokenBatch _ -> Left "crossEntropyArchitectureWithDevice: final representation is token-shaped"
+crossEntropyArchitectureWithDevice _device trained dataset =
+  -- Sprint 237.1: every family serves through the typed LayerGraph IR executor.
+  pure
+    ( serveClassifierGraphCrossEntropy
+        (clfClasses (trainedArchConfig trained))
+        (trainedArchGraph trained)
+        dataset
+    )
+
+-- | Expand a chain of dense @[LayerState]@ into a single dense 'LayerGraph'
+-- carrying the trained weights. Fails closed on any non-'DenseState' layer.
+denseChainGraph :: Text -> [LayerState] -> Either Text LayerGraph.LayerGraph
+denseChainGraph graphName states =
+  case traverse denseParams states of
+    Left err -> Left err
+    Right [] -> Left "denseChainGraph: no dense layer states"
+    Right paramsList@(firstParams : _) -> do
+      nodeGroups <- traverse (uncurry denseNodes) (zip [0 ..] paramsList)
+      let firstShape = paramShape firstParams
+          lastShape = paramShape (List.foldl' (\_ p -> p) firstParams paramsList)
+      Right
+        LayerGraph.LayerGraph
+          { LayerGraph.layerGraphName = graphName
+          , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [mlpInputs firstShape]
+          , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [mlpOutputs lastShape]
+          , LayerGraph.layerGraphNodes = concat nodeGroups
+          }
+ where
+  denseParams (DenseState _ params _) = Right params
+  denseParams other =
+    Left ("denseChainGraph: expected DenseState, got " <> runtimeStateKind other)
+  denseNodes :: Int -> MlpParams -> Either Text [LayerGraph.LayerNode]
+  denseNodes idx params = do
+    let shape = paramShape params
+        prefix = graphName <> "-l" <> Text.pack (show idx)
+    hidden <-
+      LayerGraph.mkAffineLayer
+        (prefix <> "-hidden")
+        LayerGraph.DenseLayer
+        (mlpInputs shape)
+        (mlpHidden shape)
+        LayerGraph.TanhActivation
+        LayerGraph.InferenceMode
+        LayerGraph.LayerParameters
+          { LayerGraph.layerWeights = paramW1 params
+          , LayerGraph.layerBias = paramB1 params
+          }
+    output <-
+      LayerGraph.mkAffineLayer
+        (prefix <> "-output")
+        LayerGraph.DenseLayer
+        (mlpHidden shape)
+        (mlpOutputs shape)
+        LayerGraph.LinearActivation
+        LayerGraph.InferenceMode
+        LayerGraph.LayerParameters
+          { LayerGraph.layerWeights = paramW2 params
+          , LayerGraph.layerBias = paramB2 params
+          }
+    Right [hidden, output]
+
+-- | Run one flat feature vector through a served classifier 'LayerGraph' and
+-- return the raw output logits (width @classes + 1@).
+classifierGraphLogits :: LayerGraph.LayerGraph -> Vector Double -> Either Text (Vector Double)
+classifierGraphLogits graph input =
+  LayerGraph.layerTapeOutput <$> LayerGraph.runLayerGraph graph input
+
+-- | IR-served accuracy: argmax over the semantic-prefix @classes@ logits.
+serveClassifierGraphAccuracy :: Int -> LayerGraph.LayerGraph -> Dataset -> Either Text Double
+serveClassifierGraphAccuracy _ _ [] =
+  Left "serveClassifierGraphAccuracy: empty evaluation dataset"
+serveClassifierGraphAccuracy classes graph dataset = do
+  predicted <-
+    traverse
+      (fmap (VU.maxIndex . VU.take classes) . classifierGraphLogits graph . exampleFeatures)
+      dataset
+  let correct = length (filter id (zipWith (==) predicted (fmap exampleLabel dataset)))
+  Right (fromIntegral correct / fromIntegral (length dataset))
+
+-- | IR-served mean softmax cross-entropy over the semantic-prefix @classes@
+-- logits, matching 'crossEntropyOne'.
+serveClassifierGraphCrossEntropy :: Int -> LayerGraph.LayerGraph -> Dataset -> Either Text Double
+serveClassifierGraphCrossEntropy _ _ [] =
+  Left "serveClassifierGraphCrossEntropy: empty evaluation dataset"
+serveClassifierGraphCrossEntropy classes graph dataset = do
+  losses <-
+    traverse
+      ( \ex ->
+          (\logits -> crossEntropyOne classes logits (exampleLabel ex))
+            <$> classifierGraphLogits graph (exampleFeatures ex)
+      )
+      dataset
+  Right (sum losses / fromIntegral (length dataset))
+
+-- Sprint 237.1 / 238.1 — config-driven correct-operators Vision Transformer graph.
+--
+-- Replaces the decorative single-affine placeholder for the VisionTransformer
+-- family with a graph that executes the FD-validated Phase-233 operators: patch
+-- embedding of a @C×H×W@ image into @N@ tokens of width @D@, a normalization, a
+-- multi-head self-attention node (carrying @W_O@ and the transformer residual),
+-- a GeGLU collapse over the flattened tokens, and a linear classifier. Every
+-- shape chains @C*H*W -> N*D -> N*D -> N*D -> D -> outputs@, so
+-- 'LayerGraph.runLayerGraph' serves (and 'LayerGraphOneDnn.trainLayerGraphClassifierOneDnn'
+-- trains) the true transformer math rather than a stack of plain affines. The
+-- embedding width is forced even so the two attention heads divide it.
+correctOpsVitGraph
+  :: Text
+  -> Int
+  -- ^ input width @C*H*W@
+  -> Int
+  -- ^ output width @classes + 1@
+  -> Int
+  -- ^ seed
+  -> Int
+  -- ^ latent width hint
+  -> Either Text LayerGraph.LayerGraph
+correctOpsVitGraph name inputs outputs seed latentHint = do
+  let geometry = geometryForInput inputs
+      channels = geomChannels geometry
+      height = geomHeight geometry
+      width = geomWidth geometry
+      patch = max 1 (vitPatchSide geometry)
+      tokensH = max 1 ((height - patch) `div` patch + 1)
+      tokensW = max 1 ((width - patch) `div` patch + 1)
+      tokens = tokensH * tokensW
+      heads = 2
+      embedD = let base = max heads (clamp 4 256 latentHint) in base - (base `mod` heads)
+      flatTokens = tokens * embedD
+      ffHidden = max 4 embedD
+      patchSpec = LayerGraph.PatchSpec channels height width patch patch embedD
+      normSpec = LayerGraph.NormSpec LayerGraph.NormLayerWise embedD tokens 1.0e-5
+      attnSpec = LayerGraph.AttentionSpec tokens embedD heads False
+      gegluSpec = LayerGraph.GeGLUSpec flatTokens ffHidden embedD
+  patchNode <-
+    LayerGraph.mkPatchEmbedLayer
+      (name <> "-patch-embedding")
+      patchSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters seed (LayerGraph.PatchOp patchSpec))
+  normNode <-
+    LayerGraph.mkNormLayer
+      (name <> "-layernorm")
+      normSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 1) (LayerGraph.NormOp normSpec))
+  attnNode <-
+    LayerGraph.mkAttentionLayer
+      (name <> "-self-attention")
+      attnSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 2) (LayerGraph.AttentionOp attnSpec))
+  gegluNode <-
+    LayerGraph.mkGeGLULayer
+      (name <> "-geglu")
+      gegluSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 3) (LayerGraph.GeGLUOp gegluSpec))
+  headNode <-
+    LayerGraph.mkAffineLayer
+      (name <> "-classifier")
+      LayerGraph.DenseLayer
+      embedD
+      outputs
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 4) embedD outputs)
+  Right
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = name
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [channels, height, width]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputs]
+      , LayerGraph.layerGraphNodes = [patchNode, normNode, attnNode, gegluNode, headNode]
+      }
+
+-- Sprint 237.1 / 238.1 — config-driven correct-operators LeNet-style conv graph.
+--
+-- Executes the real 'ConvOp' (padded 3×3 stride-1 stem preserving the spatial
+-- extent) followed by a global-average 'PoolOp' and a linear classifier, so the
+-- Conv2DLeNet family serves through the typed IR convolution rather than the
+-- decorative single affine. Shapes chain @C*H*W -> convOut*H*W -> convOut ->
+-- outputs@. Shared by the residual families' convolutional stem.
+correctOpsConvLeNetGraph
+  :: Text
+  -> Int
+  -- ^ input width @C*H*W@
+  -> Int
+  -- ^ output width @classes + 1@
+  -> Int
+  -- ^ seed
+  -> Int
+  -- ^ conv-channel width hint
+  -> Either Text LayerGraph.LayerGraph
+correctOpsConvLeNetGraph name inputs outputs seed channelHint = do
+  let geometry = geometryForInput inputs
+      channels = geomChannels geometry
+      height = geomHeight geometry
+      width = geomWidth geometry
+      convOut = max 1 (clamp 4 256 channelHint)
+      convSpec =
+        LayerGraph.ConvSpec channels convOut [height, width] [3, 3] [1, 1] [1, 1]
+      poolShape = LayerGraph.SpatialShape convOut height width
+  convNode <-
+    LayerGraph.mkConvLayer
+      (name <> "-conv-stem")
+      convSpec
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters seed (LayerGraph.ConvOp convSpec))
+  poolNode <-
+    LayerGraph.mkPoolLayer
+      (name <> "-global-avg-pool")
+      poolShape
+      LayerGraph.PoolGlobal
+      LayerGraph.TrainingMode
+  headNode <-
+    LayerGraph.mkAffineLayer
+      (name <> "-classifier")
+      LayerGraph.DenseLayer
+      convOut
+      outputs
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 1) convOut outputs)
+  Right
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = name
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [channels, height, width]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputs]
+      , LayerGraph.layerGraphNodes = [convNode, poolNode, headNode]
+      }
 
 -- | Run one input through the exact trained layer-state path. The inference
 -- boundary is deliberately strict: callers must provide the configured input
@@ -839,19 +1171,7 @@ predictArchitectureWithDevice
   -> TrainedArchitecture
   -> Vector Double
   -> IO (Either Text (Vector Double))
-predictArchitectureWithDevice device trained input
-  | null states =
-      pure (Left "predictArchitectureWithDevice: trained architecture has no layer states")
-  | length states /= length specs =
-      pure
-        ( Left
-            ( "predictArchitectureWithDevice: layer state/spec count mismatch (states="
-                <> showText (length states)
-                <> ", specs="
-                <> showText (length specs)
-                <> ")"
-            )
-        )
+predictArchitectureWithDevice _device trained input
   | expectedWidth <= 0 =
       pure (Left "predictArchitectureWithDevice: configured input width must be positive")
   | VU.length input /= expectedWidth =
@@ -866,31 +1186,18 @@ predictArchitectureWithDevice device trained input
         )
   | not (VU.all isFiniteDouble input) =
       pure (Left "predictArchitectureWithDevice: input contains a non-finite value")
-  | otherwise = do
-      outE <- forwardOnly device states (FlatBatch [input])
+  | otherwise =
+      -- Sprint 237.1: inference runs the trained typed LayerGraph IR and returns
+      -- the raw @classes + 1@ logits; callers take the semantic-prefix argmax.
       pure $ do
-        output <- case outE of
-          Left err -> Left err
-          Right (TokenBatch _) ->
-            Left "predictArchitectureWithDevice: final representation is token-shaped"
-          Right (FlatBatch []) ->
-            Left "predictArchitectureWithDevice: device path returned no outputs"
-          Right (FlatBatch [flatOutput]) -> Right flatOutput
-          Right (FlatBatch flatOutputs) ->
-            Left
-              ( "predictArchitectureWithDevice: device path returned multiple outputs (count="
-                  <> showText (length flatOutputs)
-                  <> ")"
-              )
+        output <- classifierGraphLogits (trainedArchGraph trained) input
         if VU.null output
-          then Left "predictArchitectureWithDevice: device path returned an empty flat output"
+          then Left "predictArchitectureWithDevice: served graph returned an empty flat output"
           else
             if VU.all isFiniteDouble output
               then Right output
-              else Left "predictArchitectureWithDevice: device path returned a non-finite flat output"
+              else Left "predictArchitectureWithDevice: served graph returned a non-finite flat output"
  where
-  states = trainedArchLayers trained
-  specs = archLayers (trainedArchSpec trained)
   expectedWidth = clfInputs (trainedArchConfig trained)
 
 -- | Bind the exact fitted feature transform that must run before the trained
@@ -1078,27 +1385,16 @@ projectTrainedArchitectureRuntime trained = do
   validateTrainedArchitectureInputTransform
     config
     (trainedArchInputTransform trained)
-  pairs <-
-    zipExact
-      "trained runtime layer spec/state count"
-      (archLayers spec)
-      (trainedArchLayers trained)
-  layers <- traverse (uncurry projectRuntimeLayer) pairs
+  -- Sprint 239.1 (bridge): the checkpoint runtime structure is the canonical
+  -- classification contract; the trained weights are the graph-ordered parameter
+  -- vector ('trainedArchitectureWeights'). Full re-anchoring of the token-family
+  -- contract to the dense-trainable graph parameter count is Phase 239.
   contract <- canonicalClassificationRuntimeContract config problem
-  let contractWithInputTransform =
+  let rawRuntime =
         contract
           { RuntimeArtifact.rawSupervisedRuntimeInputTransform =
               trainedArchInputTransform trained
           }
-      rawRuntime =
-        contractWithInputTransform
-          { RuntimeArtifact.rawSupervisedRuntimeLayers = layers
-          }
-  if rawRuntime == contractWithInputTransform
-    then Right ()
-    else
-      Left
-        "trained runtime topology differs from the canonical LayerSpec runtime contract"
   refined <- RuntimeArtifact.refineSupervisedRuntime rawRuntime
   if RuntimeArtifact.supervisedRuntimeToRaw refined == rawRuntime
     then Right rawRuntime
@@ -1128,195 +1424,6 @@ rawRuntimeFamily family =
     WideResidualFamily depth -> RuntimeArtifact.RawWideResidualRuntimeFamily depth
     VisionTransformerFamily -> RuntimeArtifact.RawVisionTransformerRuntimeFamily
 
-projectRuntimeLayer
-  :: LayerSpec
-  -> LayerState
-  -> Either Text RuntimeArtifact.RawRuntimeLayer
-projectRuntimeLayer spec state =
-  case (spec, state) of
-    (DenseSpec expectedName inputs hidden outputs, DenseState actualName params _) -> do
-      requireRuntimeLayerName expectedName actualName
-      validateRuntimeMlpParams
-        expectedName
-        (MlpShape inputs hidden outputs)
-        params
-      Right (RuntimeArtifact.RawDenseLayer actualName (rawMlpShape params))
-    ( ResidualSpec expectedName width hidden expectedScale
-      , ResidualState actualName actualScale params _
-      ) -> do
-        requireRuntimeLayerName expectedName actualName
-        requireRuntimeAttribute expectedName "residual scale" expectedScale actualScale
-        validateRuntimeMlpParams
-          expectedName
-          (MlpShape width hidden width)
-          params
-        Right
-          ( RuntimeArtifact.RawResidualLayer
-              actualName
-              actualScale
-              (rawMlpShape params)
-          )
-    (LayerNormSpec expectedName, LayerNormState actualName) -> do
-      requireRuntimeLayerName expectedName actualName
-      Right (RuntimeArtifact.RawLayerNormLayer actualName)
-    ( TokenMixingSpec expectedName expectedTokens hidden
-      , TokenMixingState actualName actualTokens params _
-      ) -> do
-        requireRuntimeLayerName expectedName actualName
-        requireRuntimeAttribute
-          expectedName
-          "token-mix token count"
-          expectedTokens
-          actualTokens
-        validateRuntimeMlpParams
-          expectedName
-          (MlpShape expectedTokens hidden expectedTokens)
-          params
-        let actualShape = paramShape params
-        Right
-          ( RuntimeArtifact.RawTokenMixLayer
-              actualName
-              actualTokens
-              (mlpHidden actualShape)
-          )
-    ( PatchSpec expectedName expectedGeometry size stride hidden outputs
-      , PatchState actualName runtime params _
-      ) -> do
-        requireRuntimeLayerName expectedName actualName
-        requireRuntimeAttribute
-          expectedName
-          "patch geometry"
-          expectedGeometry
-          (patchRuntimeGeometry runtime)
-        let expectedPositions = patchPositions expectedGeometry size stride
-            expectedInputCount =
-              geomWidth expectedGeometry
-                * geomHeight expectedGeometry
-                * geomChannels expectedGeometry
-            expectedPatchInputs =
-              size * size * geomChannels expectedGeometry + 2
-        requireRuntimeAttribute
-          expectedName
-          "patch positions"
-          expectedPositions
-          (patchRuntimePositions runtime)
-        requireRuntimeAttribute
-          expectedName
-          "patch input element count"
-          expectedInputCount
-          (patchRuntimeInputCount runtime)
-        validateRuntimeMlpParams
-          expectedName
-          (MlpShape expectedPatchInputs hidden outputs)
-          params
-        let actualShape = paramShape params
-        Right
-          ( RuntimeArtifact.RawPatchLayer
-              actualName
-              (rawImageGeometry (patchRuntimeGeometry runtime))
-              size
-              stride
-              (mlpHidden actualShape)
-              (mlpOutputs actualShape)
-          )
-    (AttentionSpec expectedName width hidden, AttentionState actualName params _) -> do
-      requireRuntimeLayerName expectedName actualName
-      validateRuntimeMlpParams
-        expectedName
-        (MlpShape width hidden (width * 3))
-        params
-      let actualShape = paramShape params
-      Right
-        ( RuntimeArtifact.RawAttentionLayer
-            actualName
-            (mlpInputs actualShape)
-            (mlpHidden actualShape)
-        )
-    (MeanPoolSpec expectedName, MeanPoolState actualName) -> do
-      requireRuntimeLayerName expectedName actualName
-      Right (RuntimeArtifact.RawMeanPoolLayer actualName)
-    _ ->
-      Left
-        ( "trained runtime layer kind drift (spec="
-            <> runtimeSpecKind spec
-            <> ", state="
-            <> runtimeStateKind state
-            <> ")"
-        )
-
-requireRuntimeLayerName :: Text -> Text -> Either Text ()
-requireRuntimeLayerName expected actual
-  | expected == actual = Right ()
-  | otherwise =
-      Left
-        ( "trained runtime layer name drift (expected="
-            <> expected
-            <> ", actual="
-            <> actual
-            <> ")"
-        )
-
-requireRuntimeAttribute
-  :: (Eq value, Show value)
-  => Text
-  -> Text
-  -> value
-  -> value
-  -> Either Text ()
-requireRuntimeAttribute name attribute expected actual
-  | expected == actual = Right ()
-  | otherwise =
-      Left
-        ( name
-            <> ": trained runtime "
-            <> attribute
-            <> " drift (expected="
-            <> showText expected
-            <> ", actual="
-            <> showText actual
-            <> ")"
-        )
-
-validateRuntimeMlpParams :: Text -> MlpShape -> MlpParams -> Either Text ()
-validateRuntimeMlpParams name expected params = do
-  requireRuntimeAttribute name "MLP shape" expected actual
-  requireParameterLength
-    "W1"
-    (toInteger (mlpHidden actual) * toInteger (mlpInputs actual))
-    (paramW1 params)
-  requireParameterLength "b1" (toInteger (mlpHidden actual)) (paramB1 params)
-  requireParameterLength
-    "W2"
-    (toInteger (mlpOutputs actual) * toInteger (mlpHidden actual))
-    (paramW2 params)
-  requireParameterLength "b2" (toInteger (mlpOutputs actual)) (paramB2 params)
- where
-  actual = paramShape params
-  requireParameterLength label expectedLength vector
-    | toInteger (VU.length vector) /= expectedLength =
-        Left
-          ( name
-              <> ": trained runtime parameter "
-              <> label
-              <> " length drift (expected="
-              <> showText expectedLength
-              <> ", actual="
-              <> showText (VU.length vector)
-              <> ")"
-          )
-    | not (VU.all isFiniteDouble vector) =
-        Left (name <> ": trained runtime parameter " <> label <> " contains a non-finite value")
-    | otherwise = Right ()
-
-rawMlpShape :: MlpParams -> RuntimeArtifact.RawRuntimeMlpShape
-rawMlpShape params =
-  let shape = paramShape params
-   in RuntimeArtifact.RawRuntimeMlpShape
-        { RuntimeArtifact.rawRuntimeMlpInputs = mlpInputs shape
-        , RuntimeArtifact.rawRuntimeMlpHidden = mlpHidden shape
-        , RuntimeArtifact.rawRuntimeMlpOutputs = mlpOutputs shape
-        }
-
 rawImageGeometry :: ImageGeometry -> RuntimeArtifact.RawRuntimeImageGeometry
 rawImageGeometry geometry =
   RuntimeArtifact.RawRuntimeImageGeometry
@@ -1324,17 +1431,6 @@ rawImageGeometry geometry =
     , RuntimeArtifact.rawRuntimeImageHeight = geomHeight geometry
     , RuntimeArtifact.rawRuntimeImageChannels = geomChannels geometry
     }
-
-runtimeSpecKind :: LayerSpec -> Text
-runtimeSpecKind spec =
-  case spec of
-    DenseSpec {} -> "Dense"
-    ResidualSpec {} -> "Residual"
-    LayerNormSpec {} -> "LayerNorm"
-    TokenMixingSpec {} -> "TokenMix"
-    PatchSpec {} -> "Patch"
-    AttentionSpec {} -> "Attention"
-    MeanPoolSpec {} -> "MeanPool"
 
 runtimeStateKind :: LayerState -> Text
 runtimeStateKind state =
@@ -1434,61 +1530,59 @@ trainArchitectureWithDeviceSelectedWithEpochOrder epochOrder device spec config 
   | clfBatchSize config <= 0 =
       pure (Left "trainArchitectureWithDeviceSelected: batch size must be positive")
   | otherwise = do
-      let adamConfig = defaultAdamConfig {adamLearningRate = clfLearningRate config}
-          optimizerConfig = AdamOptimizer adamConfig
-          epochs = clfEpochs config
+      let epochs = clfEpochs config
+          classes = clfClasses config
+          batchSize = clfBatchSize config
+          lr = clfLearningRate config
           selectionSet = validationSet
-          mkTrained states =
+          mkTrained graph =
             TrainedArchitecture
               { trainedArchSpec = spec
-              , trainedArchLayers = states
+              , trainedArchGraph = graph
               , trainedArchConfig = config
               , trainedArchInputTransform =
                   defaultTrainedArchitectureInputTransform config
               }
       statesE <- initialiseLayers (clfSeed config) (archLayers spec)
-      case statesE of
+      case statesE >>= initialClassifierGraph spec of
         Left err -> pure (Left err)
-        Right states0 -> do
-          let initialWeights = architectureLayerWeights states0
+        Right graph0 -> do
+          -- Sprint 238.1: train the typed LayerGraph epoch by epoch (Adam moments
+          -- threaded through GraphClassifierAdam), selecting the snapshot with the
+          -- lowest held-out validation cross-entropy — the same model-selection
+          -- and update/example accounting the [LayerState] loop used.
+          let initialWeights = VU.toList (LayerGraph.graphParameterVector graph0)
           folded <-
             foldM
               ( \acc epoch -> case acc of
                   Left err -> pure (Left err)
-                  Right (states, best, updatesExecuted) -> do
-                    let epochTrainSet = epochOrder epoch trainSet
-                    stepE <-
-                      trainEpoch
-                        (clfBatchSize config)
-                        device
-                        optimizerConfig
-                        (clfClasses config)
-                        (fmap exampleLabel epochTrainSet)
-                        states
-                        (FlatBatch (fmap exampleFeatures epochTrainSet))
+                  Right (st, best, updatesExecuted) -> do
+                    let epochExamples = datasetClassifierExamples (epochOrder epoch trainSet)
+                        epochUpdates =
+                          fromIntegral (length (LayerGraph.classifierBatches batchSize epochExamples)) :: Word64
+                    stepE <- trainClassifierGraphEpoch device classes batchSize lr st epochExamples
                     case stepE of
                       Left err -> pure (Left err)
-                      Right (states', epochUpdates) -> do
-                        valE <- crossEntropyArchitectureWithDevice device (mkTrained states') selectionSet
-                        case valE of
+                      Right st' ->
+                        case serveClassifierGraphCrossEntropy classes (LayerGraph.gcaGraph st') selectionSet of
                           Left err -> pure (Left err)
                           Right valLoss ->
                             let best' = case best of
                                   Just (_, bestVal) | bestVal <= valLoss -> best
-                                  _ -> Just (states', valLoss)
+                                  _ -> Just (LayerGraph.gcaGraph st', valLoss)
                              in pure $ do
                                   totalUpdates <-
                                     checkedOptimizerUpdateSum updatesExecuted epochUpdates
-                                  Right (states', best', totalUpdates)
+                                  Right (st', best', totalUpdates)
               )
-              (Right (states0, Nothing, 0))
+              (Right (LayerGraph.initGraphClassifierAdam graph0, Nothing, 0))
               [1 .. epochs]
           case folded of
             Left err -> pure (Left err)
             Right (_, Nothing, _) ->
               pure (Left "trainArchitectureWithDeviceSelected: no epoch produced a validation measurement")
-            Right (_, Just (bestStates, bestValLoss), updatesExecuted) -> do
-              let trained = mkTrained bestStates
+            Right (_, Just (bestGraph, bestValLoss), updatesExecuted) -> do
+              let trained = mkTrained bestGraph
               trainLossE <- crossEntropyArchitectureWithDevice device trained trainSet
               trainAccE <- accuracyArchitectureWithDevice device trained trainSet
               pure $ do
@@ -1558,7 +1652,7 @@ initialiseExactArchitectureTraining spec config optimizer dropout trainSet valid
       statesE <- initialiseLayers (clfSeed config) (archLayers spec)
       pure $
         fmap
-          ( \states ->
+          ( \graph0 ->
               ExactArchitectureTraining
                 { exactTrainingSpec = spec
                 , exactTrainingConfig = config
@@ -1566,13 +1660,13 @@ initialiseExactArchitectureTraining spec config optimizer dropout trainSet valid
                 , exactTrainingDropout = dropout
                 , exactTrainingTrainSet = trainSet
                 , exactTrainingValidationSet = validationSet
-                , exactTrainingStates = states
+                , exactTrainingAdam = LayerGraph.initGraphClassifierAdam graph0
                 , exactTrainingUpdates = 0
                 , exactTrainingExamplesProcessed = 0
-                , exactTrainingInitialWeights = architectureLayerWeights states
+                , exactTrainingInitialWeights = VU.toList (LayerGraph.graphParameterVector graph0)
                 }
           )
-          statesE
+          (statesE >>= initialClassifierGraph spec)
 
 advanceExactArchitectureTraining
   :: MlpDevice
@@ -1615,24 +1709,25 @@ advanceExactArchitectureTraining device additionalUpdates training
               (length batchLabels) of
               Left err -> pure (Left err)
               Right examplesProcessed -> do
-                statesE <-
-                  trainBatch
+                -- Sprint 238.1: one optimizer update of the trained typed graph
+                -- over this (dropout-masked) mini-batch through the device.
+                adamE <-
+                  trainClassifierGraphBatch
                     device
-                    (exactTrainingOptimizer current)
                     (clfClasses config)
-                    batchLabels
-                    (exactTrainingStates current)
-                    (FlatBatch droppedInputs)
+                    (exactTrainingOptimizer current)
+                    (exactTrainingAdam current)
+                    (zip droppedInputs batchLabels)
                 pure $
                   fmap
-                    ( \states ->
+                    ( \adam ->
                         current
-                          { exactTrainingStates = states
+                          { exactTrainingAdam = adam
                           , exactTrainingUpdates = absoluteUpdate
                           , exactTrainingExamplesProcessed = examplesProcessed
                           }
                     )
-                    statesE
+                    adamE
 
 measureExactArchitectureValidation
   :: MlpDevice
@@ -1675,7 +1770,7 @@ exactTrainingTrainedArchitecture :: ExactArchitectureTraining -> TrainedArchitec
 exactTrainingTrainedArchitecture training =
   TrainedArchitecture
     { trainedArchSpec = exactTrainingSpec training
-    , trainedArchLayers = exactTrainingStates training
+    , trainedArchGraph = LayerGraph.gcaGraph (exactTrainingAdam training)
     , trainedArchConfig = exactTrainingConfig training
     , trainedArchInputTransform =
         defaultTrainedArchitectureInputTransform (exactTrainingConfig training)
@@ -1688,7 +1783,8 @@ exactArchitectureInitialWeights :: ExactArchitectureTraining -> [Double]
 exactArchitectureInitialWeights = exactTrainingInitialWeights
 
 exactArchitectureTrainedWeights :: ExactArchitectureTraining -> [Double]
-exactArchitectureTrainedWeights = architectureLayerWeights . exactTrainingStates
+exactArchitectureTrainedWeights =
+  VU.toList . LayerGraph.graphParameterVector . LayerGraph.gcaGraph . exactTrainingAdam
 
 applyDeterministicInputDropout
   :: Int -> Int -> Double -> [Vector Double] -> [Vector Double]
@@ -1726,51 +1822,9 @@ dropoutUnit seed updateIndex exampleIndex featureIndex =
 -- nothing.
 trainedArchitectureWeights :: TrainedArchitecture -> [Double]
 trainedArchitectureWeights =
-  architectureLayerWeights . trainedArchLayers
-
-architectureLayerWeights :: [LayerState] -> [Double]
-architectureLayerWeights =
-  concatMap layerWeights
- where
-  layerWeights (DenseState _ params _) = mlpParamsToFlat params
-  layerWeights (ResidualState _ _ params _) = mlpParamsToFlat params
-  layerWeights (LayerNormState _) = []
-  layerWeights (TokenMixingState _ _ params _) = mlpParamsToFlat params
-  layerWeights (PatchState _ _ params _) = mlpParamsToFlat params
-  layerWeights (AttentionState _ params _) = mlpParamsToFlat params
-  layerWeights (MeanPoolState _) = []
-
-trainEpoch
-  :: Int
-  -> MlpDevice
-  -> OptimizerConfig
-  -> Int
-  -> [Int]
-  -> [LayerState]
-  -> BatchRep
-  -> IO (Either Text ([LayerState], Word64))
-trainEpoch batchSize device optimizerConfig numClasses labels states (FlatBatch inputs) =
-  if batchSize <= 0
-    then pure (Left "trainArchitectureWithDevice: batch size must be positive")
-    else
-      foldM
-        ( \acc (batchInputs, batchLabels) -> case acc of
-            Left err -> pure (Left err)
-            Right (current, updatesExecuted) ->
-              case checkedOptimizerUpdateSum updatesExecuted 1 of
-                Left err -> pure (Left err)
-                Right nextUpdatesExecuted -> do
-                  updatedE <-
-                    trainBatch device optimizerConfig numClasses batchLabels current (FlatBatch batchInputs)
-                  pure $
-                    fmap
-                      (,nextUpdatesExecuted)
-                      updatedE
-        )
-        (Right (states, 0))
-        (miniBatches batchSize inputs labels)
-trainEpoch _ _ _ _ _ _ (TokenBatch _) =
-  pure (Left "trainArchitectureWithDevice: top-level epoch expected flat inputs")
+  -- Sprint 237.1: graph-ordered flat parameters (weights ++ bias per node, in
+  -- node order) are the single trained-weight witness for checkpoints and tuning.
+  VU.toList . LayerGraph.graphParameterVector . trainedArchGraph
 
 checkedOptimizerUpdateSum :: Word64 -> Word64 -> Either Text Word64
 checkedOptimizerUpdateSum current additional
@@ -1791,25 +1845,6 @@ checkedExactExamplesProcessed current additional
   | additional > maxBound - current =
       Left "exact architecture examples-processed count exceeds the Int range"
   | otherwise = Right (current + additional)
-
-trainBatch
-  :: MlpDevice
-  -> OptimizerConfig
-  -> Int
-  -> [Int]
-  -> [LayerState]
-  -> BatchRep
-  -> IO (Either Text [LayerState])
-trainBatch device optimizerConfig numClasses labels states inputs = do
-  fwdE <- forwardWithTapes device states inputs
-  case fwdE of
-    Left err -> pure (Left err)
-    Right (FlatBatch outputs, tapes) -> do
-      let outputGrads = zipWith (classifierOutputGradient numClasses) outputs labels
-      backE <- backwardAll device optimizerConfig states tapes (FlatBatch outputGrads) (length labels)
-      pure (fmap fst backE)
-    Right (TokenBatch _, _) ->
-      pure (Left "trainArchitectureWithDevice: final layer produced token representation")
 
 miniBatches :: Int -> [Vector Double] -> [Int] -> [([Vector Double], [Int])]
 miniBatches size inputs labels =
@@ -1867,716 +1902,6 @@ initialiseLayers seed specs =
              in Right (AttentionState name params (adamInit shape))
           MeanPoolSpec name -> Right (MeanPoolState name)
 
-forwardOnly :: MlpDevice -> [LayerState] -> BatchRep -> IO (Either Text BatchRep)
-forwardOnly device states input =
-  foldM step (Right input) states
- where
-  step acc state = case acc of
-    Left err -> pure (Left err)
-    Right rep -> do
-      next <- forwardLayer device state rep
-      pure (fmap fst next)
-
-forwardWithTapes
-  :: MlpDevice -> [LayerState] -> BatchRep -> IO (Either Text (BatchRep, [LayerTape]))
-forwardWithTapes device states input = do
-  result <- foldM step (Right (input, [])) states
-  pure (fmap (second reverse) result)
- where
-  step acc state = case acc of
-    Left err -> pure (Left err)
-    Right (rep, tapes) -> do
-      next <- forwardLayer device state rep
-      pure (fmap (\(rep', tape) -> (rep', tape : tapes)) next)
-
-forwardLayer :: MlpDevice -> LayerState -> BatchRep -> IO (Either Text (BatchRep, LayerTape))
-forwardLayer device state rep =
-  case (state, rep) of
-    (DenseState _ params _, FlatBatch xs) -> do
-      outsE <- mlpdForwardBatch device params xs
-      pure (fmap (\outs -> (FlatBatch outs, DenseTape xs)) outsE)
-    (ResidualState _ scale params _, FlatBatch xs) -> do
-      outsE <- mlpdForwardBatch device params xs
-      pure $
-        fmap
-          ( \outs ->
-              let scaled = fmap (VU.map (* scale)) outs
-               in (FlatBatch (zipWith addVec xs scaled), ResidualTape xs)
-          )
-          outsE
-    (ResidualState _ scale params _, TokenBatch samples) -> do
-      let flatTokens = concat samples
-      outsE <- mlpdForwardBatch device params flatTokens
-      pure $
-        fmap
-          ( \flatOuts ->
-              let scaled = fmap (VU.map (* scale)) flatOuts
-                  residualTokens = zipWith addVec flatTokens scaled
-               in ( TokenBatch (unflattenBy (fmap length samples) residualTokens)
-                  , ResidualTape flatTokens
-                  )
-          )
-          outsE
-    (LayerNormState _, TokenBatch samples) ->
-      let normalized = fmap (fmap layerNormForward) samples
-       in pure
-            ( Right
-                ( TokenBatch (fmap (fmap layerNormOutput) normalized)
-                , LayerNormTape normalized
-                )
-            )
-    (TokenMixingState name expectedTokens params _, TokenBatch samples) ->
-      case tokenMixingInputsExact name expectedTokens params samples of
-        Left err -> pure (Left err)
-        Right (width, channelInputs) -> do
-          outsE <- mlpdForwardBatch device params (concat channelInputs)
-          pure $ do
-            flatOuts <- outsE
-            mixedChannels <-
-              unflattenByExact
-                (name <> ": token-mixing forward device outputs")
-                (fmap length channelInputs)
-                flatOuts
-            mixedTokens <-
-              tokenMixingOutputsExact name expectedTokens width mixedChannels
-            Right
-              ( TokenBatch mixedTokens
-              , TokenMixingTape width channelInputs
-              )
-    (PatchState _ runtime params _, FlatBatch xs) -> do
-      let patchesBySample = fmap (extractPatches runtime) xs
-          flatPatches = concat patchesBySample
-      outsE <- mlpdForwardBatch device params flatPatches
-      pure $
-        fmap
-          ( \flatOuts ->
-              ( TokenBatch (unflattenBy (fmap length patchesBySample) flatOuts)
-              , PatchTape patchesBySample
-              )
-          )
-          outsE
-    (AttentionState name params _, TokenBatch samples) ->
-      case validateAttentionInputs name params samples of
-        Left err -> pure (Left err)
-        Right () -> do
-          let flatTokens = concat samples
-          qkvE <- mlpdForwardBatch device params flatTokens
-          pure $ do
-            flatQkv <- qkvE
-            grouped <-
-              unflattenByExact
-                (name <> ": attention forward device outputs")
-                (fmap length samples)
-                flatQkv
-            samplePairs <-
-              zipExact
-                (name <> ": attention forward sample count")
-                samples
-                grouped
-            attended <- traverse (uncurry (attentionForward name)) samplePairs
-            Right
-              ( TokenBatch (fmap (fmap attentionOutput) attended)
-              , AttentionTape attended
-              )
-    (MeanPoolState name, TokenBatch samples) ->
-      pure $ do
-        _ <- validateTokenBatch (name <> ": mean-pool inputs") Nothing samples
-        pooled <- traverse (meanVectorExact name) samples
-        Right (FlatBatch pooled, MeanPoolTape (fmap length samples))
-    (DenseState name _ _, TokenBatch _) ->
-      pure (Left (name <> ": dense layer expected flat inputs"))
-    (LayerNormState name, FlatBatch _) ->
-      pure (Left (name <> ": layernorm expected token inputs"))
-    (TokenMixingState name _ _ _, FlatBatch _) ->
-      pure (Left (name <> ": token-mixing expected token inputs"))
-    (PatchState name _ _ _, TokenBatch _) ->
-      pure (Left (name <> ": patch layer expected flat inputs"))
-    (AttentionState name _ _, FlatBatch _) ->
-      pure (Left (name <> ": attention layer expected token inputs"))
-    (MeanPoolState name, FlatBatch _) ->
-      pure (Left (name <> ": mean-pool layer expected token inputs"))
-
-backwardAll
-  :: MlpDevice
-  -> OptimizerConfig
-  -> [LayerState]
-  -> [LayerTape]
-  -> BatchRep
-  -> Int
-  -> IO (Either Text ([LayerState], BatchRep))
-backwardAll device optimizerConfig states tapes upstream batchN = do
-  let reversed = zip (reverse states) (reverse tapes)
-      lastIndex = length reversed - 1
-      step acc (idx, (state, tape)) = case acc of
-        Left err -> pure (Left err)
-        Right (statesRev, grad) -> do
-          let needInputGradient = idx < lastIndex
-          back <- backwardLayer device optimizerConfig needInputGradient state tape grad batchN
-          pure (fmap (\(state', grad') -> (state' : statesRev, grad')) back)
-  result <-
-    foldM
-      step
-      (Right ([], upstream))
-      (zip [0 :: Int ..] reversed)
-  pure $ fmap (\(statesRev, grad) -> (statesRev, grad)) result
-
-backwardLayer
-  :: MlpDevice
-  -> OptimizerConfig
-  -> Bool
-  -> LayerState
-  -> LayerTape
-  -> BatchRep
-  -> Int
-  -> IO (Either Text (LayerState, BatchRep))
-backwardLayer device optimizerConfig needInputGradient state tape upstream batchN =
-  case (state, tape, upstream) of
-    (DenseState name params adam, DenseTape xs, FlatBatch dys) -> do
-      result <- deviceGradientStep device optimizerConfig needInputGradient params adam xs dys batchN
-      pure (fmap (\(params', adam', dxs) -> (DenseState name params' adam', FlatBatch dxs)) result)
-    (ResidualState name scale params adam, ResidualTape xs, FlatBatch dys) -> do
-      let residualDys = fmap (VU.map (* scale)) dys
-      result <-
-        deviceGradientStep device optimizerConfig needInputGradient params adam xs residualDys batchN
-      pure $
-        fmap
-          ( \(params', adam', dxs) ->
-              ( ResidualState name scale params' adam'
-              , FlatBatch (zipWith addVec dys dxs)
-              )
-          )
-          result
-    (ResidualState name scale params adam, ResidualTape xs, TokenBatch dysBySample) -> do
-      let flatDys = concat dysBySample
-          residualDys = fmap (VU.map (* scale)) flatDys
-      result <-
-        deviceGradientStep device optimizerConfig needInputGradient params adam xs residualDys batchN
-      pure $
-        fmap
-          ( \(params', adam', dxs) ->
-              let flatCombined = zipWith addVec flatDys dxs
-               in ( ResidualState name scale params' adam'
-                  , TokenBatch (unflattenBy (fmap length dysBySample) flatCombined)
-                  )
-          )
-          result
-    (LayerNormState name, LayerNormTape normalized, TokenBatch dysBySample) ->
-      pure
-        ( Right
-            ( LayerNormState name
-            , TokenBatch (zipWith (zipWith layerNormBackward) normalized dysBySample)
-            )
-        )
-    ( TokenMixingState name expectedTokens params adam
-      , TokenMixingTape width channelInputs
-      , TokenBatch dysBySample
-      ) ->
-        case tokenMixingGradientsExact
-          name
-          expectedTokens
-          width
-          channelInputs
-          dysBySample of
-          Left err -> pure (Left err)
-          Right channelDys -> do
-            result <-
-              deviceGradientStep
-                device
-                optimizerConfig
-                True
-                params
-                adam
-                (concat channelInputs)
-                (concat channelDys)
-                batchN
-            pure $ do
-              (params', adam', channelDxsFlat) <- result
-              channelDxs <-
-                unflattenByExact
-                  (name <> ": token-mixing backward device input gradients")
-                  (fmap length channelInputs)
-                  channelDxsFlat
-              mixerTokenDxs <-
-                tokenMixingOutputsExact name expectedTokens width channelDxs
-              Right
-                ( TokenMixingState name expectedTokens params' adam'
-                , TokenBatch mixerTokenDxs
-                )
-    (PatchState name runtime params adam, PatchTape patchesBySample, TokenBatch tokenDys) -> do
-      let flatPatches = concat patchesBySample
-          flatDys = concat tokenDys
-      result <-
-        deviceGradientStep device optimizerConfig needInputGradient params adam flatPatches flatDys batchN
-      pure $
-        fmap
-          ( \(params', adam', patchDxs) ->
-              let dxs =
-                    scatterPatchGradients
-                      runtime
-                      (fmap length patchesBySample)
-                      patchDxs
-               in (PatchState name runtime params' adam', FlatBatch dxs)
-          )
-          result
-    (AttentionState name params adam, AttentionTape attended, TokenBatch dysBySample) -> do
-      case zipExact (name <> ": attention backward sample count") attended dysBySample of
-        Left err -> pure (Left err)
-        Right samplePairs ->
-          case traverse (uncurry (attentionBackward name)) samplePairs of
-            Left err -> pure (Left err)
-            Right back -> do
-              let tokenInputs = concatMap (fmap tokenInput) attended
-                  qkvDys = concatMap fst back
-                  zeroDirectTokenDxs = fmap snd back
-              result <-
-                deviceGradientStep device optimizerConfig True params adam tokenInputs qkvDys batchN
-              pure $ do
-                (params', adam', tokenDxsFromQkv) <- result
-                qkvGrouped <-
-                  unflattenByExact
-                    (name <> ": attention backward QKV input gradients")
-                    (fmap length attended)
-                    tokenDxsFromQkv
-                combined <-
-                  addTokenBatchesExact
-                    (name <> ": attention backward input-gradient components")
-                    zeroDirectTokenDxs
-                    qkvGrouped
-                Right (AttentionState name params' adam', TokenBatch combined)
-    (MeanPoolState name, MeanPoolTape counts, FlatBatch dys) ->
-      pure $ do
-        if null counts
-          then Left (name <> ": mean-pool backward has no recorded samples")
-          else Right ()
-        countGradientPairs <-
-          zipExact (name <> ": mean-pool backward sample count") counts dys
-        expanded <- traverse (uncurry (expandMeanPoolGradient name)) countGradientPairs
-        Right (MeanPoolState name, TokenBatch expanded)
-    _ -> pure (Left "backwardLayer: layer/tape/upstream shape mismatch")
-
-deviceGradientStep
-  :: MlpDevice
-  -> OptimizerConfig
-  -> Bool
-  -> MlpParams
-  -> AdamState
-  -> [Vector Double]
-  -> [Vector Double]
-  -> Int
-  -> IO (Either Text (MlpParams, AdamState, [Vector Double]))
-deviceGradientStep device optimizerConfig needInputGradient params adam xs dys batchN
-  | length xs /= length dys =
-      pure (Left "deviceGradientStep: input/gradient batch size mismatch")
-  -- @batchN@ is the outer example count used to average the loss gradient.
-  -- Patch, token, and channel layers legitimately expand each example into
-  -- multiple device rows, so it need not equal @length xs@.
-  | batchN <= 0 = pure (Left "deviceGradientStep: batch size must be positive")
-  | otherwise = do
-      dxE <-
-        if needInputGradient
-          then mlpdInputGradientBatch device params (zip xs dys)
-          else pure (Right [])
-      gradE <- mlpdBatchGradient device params (zip xs dys)
-      pure $ do
-        dxs <- dxE
-        grad <- gradE
-        let meanGrad = scaleMlpGradient (1.0 / fromIntegral batchN) grad
-            (params', adam') = applyOptimizer optimizerConfig adam params meanGrad
-        Right (params', adam', dxs)
-
-applyOptimizer
-  :: OptimizerConfig -> AdamState -> MlpParams -> MlpGradient -> (MlpParams, AdamState)
-applyOptimizer optimizer adam params gradient =
-  case optimizer of
-    AdamOptimizer config -> adamStep config adam params gradient
-    AdamWOptimizer config weightDecay ->
-      let (adamParams, adam') = adamStep config adam params gradient
-          decay = max 0.0 (1.0 - adamLearningRate config * weightDecay)
-       in ( decayMlpWeights decay adamParams
-          , adam'
-          )
-    SgdOptimizer learningRate ->
-      ( applySgd learningRate params gradient
-      , adam
-      )
-
-decayMlpWeights :: Double -> MlpParams -> MlpParams
-decayMlpWeights factor params =
-  params
-    { paramW1 = VU.map (* factor) (paramW1 params)
-    , paramW2 = VU.map (* factor) (paramW2 params)
-    }
-
-applySgd :: Double -> MlpParams -> MlpGradient -> MlpParams
-applySgd learningRate params gradient =
-  params
-    { paramW1 = descend (paramW1 params) (gradW1 gradient)
-    , paramB1 = descend (paramB1 params) (gradB1 gradient)
-    , paramW2 = descend (paramW2 params) (gradW2 gradient)
-    , paramB2 = descend (paramB2 params) (gradB2 gradient)
-    }
- where
-  descend = VU.zipWith (\value grad -> value - learningRate * grad)
-
-classifierOutputGradient :: Int -> Vector Double -> Int -> Vector Double
-classifierOutputGradient numClasses outputVec label =
-  let logits = VU.take numClasses outputVec
-      probs = softmax logits
-      dLogits =
-        VU.imap
-          (\i p -> p - if i == label then 1.0 else 0.0)
-          probs
-      tailCount = max 0 (VU.length outputVec - numClasses)
-   in dLogits VU.++ VU.replicate tailCount 0.0
-
-scaleMlpGradient :: Double -> MlpGradient -> MlpGradient
-scaleMlpGradient s grad =
-  MlpGradient
-    { gradW1 = VU.map (* s) (gradW1 grad)
-    , gradB1 = VU.map (* s) (gradB1 grad)
-    , gradW2 = VU.map (* s) (gradW2 grad)
-    , gradB2 = VU.map (* s) (gradB2 grad)
-    }
-
-validateAttentionInputs :: Text -> MlpParams -> [[Vector Double]] -> Either Text ()
-validateAttentionInputs name params samples = do
-  width <- validateTokenBatch (name <> ": attention inputs") Nothing samples
-  let shape = paramShape params
-  if mlpInputs shape /= width
-    then
-      Left
-        ( name
-            <> ": attention parameter input width mismatch (tokens="
-            <> showText width
-            <> ", parameters="
-            <> showText (mlpInputs shape)
-            <> ")"
-        )
-    else Right ()
-  if mlpOutputs shape /= width * 3
-    then
-      Left
-        ( name
-            <> ": attention parameter output width mismatch (expected="
-            <> showText (width * 3)
-            <> ", actual="
-            <> showText (mlpOutputs shape)
-            <> ")"
-        )
-    else Right ()
-
-attentionForward
-  :: Text
-  -> [Vector Double]
-  -> [Vector Double]
-  -> Either Text [AttentionToken]
-attentionForward name inputs qkvs = do
-  width <- validateTokenBatch (name <> ": attention sample inputs") Nothing [inputs]
-  inputQkvPairs <-
-    zipExact (name <> ": attention sample input/QKV count") inputs qkvs
-  triples <-
-    traverse
-      (\(_, qkv) -> splitQkvExact name width qkv)
-      inputQkvPairs
-  let qs = fmap first3 triples
-      ks = fmap second3 triples
-      vs = fmap third3 triples
-      scale = 1.0 / sqrt (fromIntegral width)
-      weightsByToken =
-        [ softmax (VU.fromList [dot q k * scale | k <- ks])
-        | q <- qs
-        ]
-      outputs =
-        [ weightedSum weights vs
-        | weights <- weightsByToken
-        ]
-  buildAttentionTokens name inputs qs ks vs weightsByToken outputs
- where
-  first3 (a, _, _) = a
-  second3 (_, b, _) = b
-  third3 (_, _, c) = c
-
-buildAttentionTokens
-  :: Text
-  -> [Vector Double]
-  -> [Vector Double]
-  -> [Vector Double]
-  -> [Vector Double]
-  -> [Vector Double]
-  -> [Vector Double]
-  -> Either Text [AttentionToken]
-buildAttentionTokens _ [] [] [] [] [] [] = Right []
-buildAttentionTokens name (input : inputs) (q : qs) (k : ks) (v : vs) (weights : weightsByToken) (output : outputs) = do
-  rest <- buildAttentionTokens name inputs qs ks vs weightsByToken outputs
-  Right
-    ( AttentionToken
-        { tokenInput = input
-        , tokenQ = q
-        , tokenK = k
-        , tokenV = v
-        , tokenWeights = weights
-        , tokenOutput = output
-        }
-        : rest
-    )
-buildAttentionTokens name _ _ _ _ _ _ =
-  Left (name <> ": attention internal component-count mismatch")
-
-attentionOutput :: AttentionToken -> Vector Double
-attentionOutput = tokenOutput
-
-attentionBackward
-  :: Text
-  -> [AttentionToken]
-  -> [Vector Double]
-  -> Either Text ([Vector Double], [Vector Double])
-attentionBackward name tokens dzs = do
-  tokenGradientPairs <-
-    zipExact (name <> ": attention backward token/gradient count") tokens dzs
-  case tokens of
-    [] -> Left (name <> ": attention backward received an empty token sample")
-    firstToken : _ -> do
-      let width = VU.length (tokenInput firstToken)
-          n = length tokens
-      if width <= 0
-        then Left (name <> ": attention backward token width must be positive")
-        else Right ()
-      mapM_
-        (uncurry (validateAttentionBackwardToken name n width))
-        (zip [0 :: Int ..] tokenGradientPairs)
-      let qs = VB.fromList (fmap tokenQ tokens)
-          ks = VB.fromList (fmap tokenK tokens)
-          vs = VB.fromList (fmap tokenV tokens)
-          weightsByToken = VB.fromList (fmap tokenWeights tokens)
-          dzsVector = VB.fromList dzs
-          scale = 1.0 / sqrt (fromIntegral width)
-          dV =
-            VB.generate n $ \j ->
-              VU.generate width $ \d ->
-                sum
-                  [ (weightsByToken VB.! i VU.! j) * (dzsVector VB.! i VU.! d)
-                  | i <- [0 .. n - 1]
-                  ]
-          dScores =
-            VB.generate n $ \i ->
-              let weights = weightsByToken VB.! i
-                  dA =
-                    VU.generate n $ \j ->
-                      dot (dzsVector VB.! i) (vs VB.! j)
-                  weightedMean = VU.sum (VU.zipWith (*) weights dA)
-               in VU.imap (\j w -> w * ((dA VU.! j) - weightedMean)) weights
-          dQ =
-            VB.generate n $ \i ->
-              VU.generate width $ \d ->
-                sum
-                  [ (dScores VB.! i VU.! j) * (ks VB.! j VU.! d) * scale
-                  | j <- [0 .. n - 1]
-                  ]
-          dK =
-            VB.generate n $ \j ->
-              VU.generate width $ \d ->
-                sum
-                  [ (dScores VB.! i VU.! j) * (qs VB.! i VU.! d) * scale
-                  | i <- [0 .. n - 1]
-                  ]
-          dQkv =
-            VB.toList $ VB.generate n $ \index ->
-              concat3 (dQ VB.! index) (dK VB.! index) (dV VB.! index)
-          directInputDxs = replicate n (VU.replicate width 0.0)
-      -- The current compact attention executable has no outer residual branch.
-      -- Its input gradient therefore comes exclusively from the QKV projection;
-      -- the explicit zero term keeps the strict component-count validation in
-      -- the caller without pulling Sprint 23.1's residual correction forward.
-      Right (dQkv, directInputDxs)
-
-validateAttentionBackwardToken
-  :: Text
-  -> Int
-  -> Int
-  -> Int
-  -> (AttentionToken, Vector Double)
-  -> Either Text ()
-validateAttentionBackwardToken name tokenCount width index (token, dz) = do
-  requireVectorWidth name "input" index width (tokenInput token)
-  requireVectorWidth name "query" index width (tokenQ token)
-  requireVectorWidth name "key" index width (tokenK token)
-  requireVectorWidth name "value" index width (tokenV token)
-  requireVectorWidth name "output" index width (tokenOutput token)
-  requireVectorWidth name "upstream gradient" index width dz
-  requireVectorWidth name "attention weights" index tokenCount (tokenWeights token)
-
-splitQkvExact
-  :: Text
-  -> Int
-  -> Vector Double
-  -> Either Text (Vector Double, Vector Double, Vector Double)
-splitQkvExact name width vector
-  | VU.length vector /= width * 3 =
-      Left
-        ( name
-            <> ": attention QKV width mismatch (expected="
-            <> showText (width * 3)
-            <> ", actual="
-            <> showText (VU.length vector)
-            <> ")"
-        )
-  | otherwise =
-      Right
-        ( VU.slice 0 width vector
-        , VU.slice width width vector
-        , VU.slice (2 * width) width vector
-        )
-
-concat3 :: Vector Double -> Vector Double -> Vector Double -> Vector Double
-concat3 a b c = a VU.++ b VU.++ c
-
-layerNormEpsilon :: Double
-layerNormEpsilon = 1.0e-5
-
-layerNormForward :: Vector Double -> LayerNormToken
-layerNormForward input =
-  let width = max 1 (VU.length input)
-      mean = VU.sum input / fromIntegral width
-      centered = VU.map (subtract mean) input
-      variance = VU.sum (VU.map (\x -> x * x) centered) / fromIntegral width
-      invStd = 1.0 / sqrt (variance + layerNormEpsilon)
-      output = VU.map (* invStd) centered
-   in LayerNormToken
-        { layerNormInvStd = invStd
-        , layerNormOutput = output
-        }
-
-layerNormBackward :: LayerNormToken -> Vector Double -> Vector Double
-layerNormBackward token dy =
-  let output = layerNormOutput token
-      width = max 1 (VU.length output)
-      meanDy = VU.sum dy / fromIntegral width
-      meanDyY = VU.sum (VU.zipWith (*) dy output) / fromIntegral width
-      invStd = layerNormInvStd token
-   in VU.zipWith
-        (\dyI yI -> invStd * (dyI - meanDy - yI * meanDyY))
-        dy
-        output
-
-tokenMixingInputsExact
-  :: Text
-  -> Int
-  -> MlpParams
-  -> [[Vector Double]]
-  -> Either Text (Int, [[Vector Double]])
-tokenMixingInputsExact name expectedTokens params samples = do
-  width <-
-    validateTokenBatch
-      (name <> ": token-mixing inputs")
-      (Just expectedTokens)
-      samples
-  let shape = paramShape params
-  if mlpInputs shape /= expectedTokens || mlpOutputs shape /= expectedTokens
-    then
-      Left
-        ( name
-            <> ": token-mixing parameter shape mismatch (expected="
-            <> showText expectedTokens
-            <> "->"
-            <> showText expectedTokens
-            <> ", actual="
-            <> showText (mlpInputs shape)
-            <> "->"
-            <> showText (mlpOutputs shape)
-            <> ")"
-        )
-    else Right ()
-  let sampleChannels sample =
-        [ VU.fromList [token VU.! channel | token <- sample]
-        | channel <- [0 .. width - 1]
-        ]
-  Right (width, fmap sampleChannels samples)
-
-tokenMixingOutputsExact
-  :: Text
-  -> Int
-  -> Int
-  -> [[Vector Double]]
-  -> Either Text [[Vector Double]]
-tokenMixingOutputsExact name expectedTokens width channelSamples
-  | null channelSamples =
-      Left (name <> ": token-mixing channel batch is empty")
-  | width <= 0 =
-      Left (name <> ": token-mixing channel width must be positive")
-  | otherwise = do
-      mapM_
-        validateChannelSample
-        (zip [0 :: Int ..] channelSamples)
-      Right (fmap transposeChannels channelSamples)
- where
-  validateChannelSample (sampleIndex, channels)
-    | length channels /= width =
-        Left
-          ( name
-              <> ": token-mixing channel count mismatch at sample "
-              <> showText sampleIndex
-              <> " (expected="
-              <> showText width
-              <> ", actual="
-              <> showText (length channels)
-              <> ")"
-          )
-    | otherwise =
-        mapM_
-          ( \(channelIndex, channel) ->
-              requireVectorWidth
-                name
-                "token-mixing channel"
-                (sampleIndex * width + channelIndex)
-                expectedTokens
-                channel
-          )
-          (zip [0 :: Int ..] channels)
-  transposeChannels channels =
-    [ VU.fromList [channel VU.! tokenIndex | channel <- channels]
-    | tokenIndex <- [0 .. expectedTokens - 1]
-    ]
-
-tokenMixingGradientsExact
-  :: Text
-  -> Int
-  -> Int
-  -> [[Vector Double]]
-  -> [[Vector Double]]
-  -> Either Text [[Vector Double]]
-tokenMixingGradientsExact name expectedTokens width channelInputs dysBySample = do
-  upstreamWidth <-
-    validateTokenBatch
-      (name <> ": token-mixing backward upstream")
-      (Just expectedTokens)
-      dysBySample
-  if upstreamWidth /= width
-    then
-      Left
-        ( name
-            <> ": token-mixing backward width mismatch (tape="
-            <> showText width
-            <> ", upstream="
-            <> showText upstreamWidth
-            <> ")"
-        )
-    else Right ()
-  _ <- tokenMixingOutputsExact name expectedTokens width channelInputs
-  _ <-
-    zipExact
-      (name <> ": token-mixing backward sample count")
-      channelInputs
-      dysBySample
-  Right
-    ( fmap
-        ( \tokens ->
-            [ VU.fromList [token VU.! channel | token <- tokens]
-            | channel <- [0 .. width - 1]
-            ]
-        )
-        dysBySample
-    )
-
 patchPositions :: ImageGeometry -> Int -> Int -> [[Int]]
 patchPositions geometry size stride =
   [ [ pixelIndex geometry (x + dx) (y + dy) c
@@ -2587,49 +1912,6 @@ patchPositions geometry size stride =
   | y <- takeWhile (<= geomHeight geometry - size) [0, stride ..]
   , x <- takeWhile (<= geomWidth geometry - size) [0, stride ..]
   ]
-
-extractPatches :: PatchRuntime -> Vector Double -> [Vector Double]
-extractPatches runtime input =
-  [ VU.fromList
-      ( [ if idx < VU.length input then input VU.! idx else 0.0
-        | idx <- indices
-        ]
-          <> patchPositionFeatures runtime indices
-      )
-  | indices <- patchRuntimePositions runtime
-  ]
-
-patchPositionFeatures :: PatchRuntime -> [Int] -> [Double]
-patchPositionFeatures runtime indices =
-  case indices of
-    [] -> [0.0, 0.0]
-    firstIdx : _ ->
-      let geometry = patchRuntimeGeometry runtime
-          pixel = firstIdx `div` max 1 (geomChannels geometry)
-          x = pixel `mod` max 1 (geomWidth geometry)
-          y = pixel `div` max 1 (geomWidth geometry)
-          norm coordinate extent =
-            if extent <= 1
-              then 0.0
-              else (fromIntegral coordinate / fromIntegral (extent - 1)) * 2.0 - 1.0
-       in [norm x (geomWidth geometry), norm y (geomHeight geometry)]
-
-scatterPatchGradients :: PatchRuntime -> [Int] -> [Vector Double] -> [Vector Double]
-scatterPatchGradients runtime counts patchDxs =
-  fmap scatterOne (unflattenBy counts patchDxs)
- where
-  inputCount = patchRuntimeInputCount runtime
-  positions = patchRuntimePositions runtime
-  scatterOne dxs =
-    VU.accum (+) (VU.replicate inputCount 0.0) $
-      concat
-        [ [ (idx, dx VU.! offset)
-          | (offset, idx) <- zip [0 ..] indices
-          , idx < inputCount
-          , offset < VU.length dx
-          ]
-        | (indices, dx) <- zip positions dxs
-        ]
 
 pixelIndex :: ImageGeometry -> Int -> Int -> Int -> Int
 pixelIndex geometry x y c =
@@ -2673,202 +1955,6 @@ vitPatchSide geometry
   -- this executable Mixer approximation with the single typed ViT graph.
   | geomWidth geometry >= 32 = 4
   | otherwise = patchSide geometry
-
-meanVectorExact :: Text -> [Vector Double] -> Either Text (Vector Double)
-meanVectorExact name vectors = do
-  width <- validateTokenBatch (name <> ": mean-pool sample") Nothing [vectors]
-  let summed = List.foldl' addVec (VU.replicate width 0.0) vectors
-  Right (VU.map (/ fromIntegral (length vectors)) summed)
-
-expandMeanPoolGradient
-  :: Text
-  -> Int
-  -> Vector Double
-  -> Either Text [Vector Double]
-expandMeanPoolGradient name tokenCount dy
-  | tokenCount <= 0 =
-      Left (name <> ": mean-pool backward token count must be positive")
-  | VU.null dy =
-      Left (name <> ": mean-pool backward gradient width must be positive")
-  | otherwise =
-      Right (replicate tokenCount (VU.map (/ fromIntegral tokenCount) dy))
-
-validateTokenBatch
-  :: Text
-  -> Maybe Int
-  -> [[Vector Double]]
-  -> Either Text Int
-validateTokenBatch label expectedTokenCount samples =
-  case samples of
-    [] -> Left (label <> ": batch is empty")
-    [] : _ -> Left (label <> ": sample 0 has no tokens")
-    (firstToken : _) : _ -> do
-      let width = VU.length firstToken
-      if width <= 0
-        then Left (label <> ": token width must be positive")
-        else Right ()
-      mapM_ (validateSample width) (zip [0 :: Int ..] samples)
-      Right width
- where
-  validateSample width (sampleIndex, tokens)
-    | null tokens =
-        Left
-          ( label
-              <> ": sample "
-              <> showText sampleIndex
-              <> " has no tokens"
-          )
-    | Just expected <- expectedTokenCount
-    , length tokens /= expected =
-        Left
-          ( label
-              <> ": token count mismatch at sample "
-              <> showText sampleIndex
-              <> " (expected="
-              <> showText expected
-              <> ", actual="
-              <> showText (length tokens)
-              <> ")"
-          )
-    | otherwise =
-        mapM_
-          ( \(tokenIndex, token) ->
-              requireVectorWidth
-                label
-                ("token in sample " <> showText sampleIndex)
-                tokenIndex
-                width
-                token
-          )
-          (zip [0 :: Int ..] tokens)
-
-requireVectorWidth
-  :: Text
-  -> Text
-  -> Int
-  -> Int
-  -> Vector Double
-  -> Either Text ()
-requireVectorWidth label role index expected vector
-  | VU.length vector == expected = Right ()
-  | otherwise =
-      Left
-        ( label
-            <> ": "
-            <> role
-            <> " width mismatch at index "
-            <> showText index
-            <> " (expected="
-            <> showText expected
-            <> ", actual="
-            <> showText (VU.length vector)
-            <> ")"
-        )
-
-zipExact :: Text -> [a] -> [b] -> Either Text [(a, b)]
-zipExact label left right
-  | leftCount /= rightCount =
-      Left
-        ( label
-            <> " mismatch (left="
-            <> showText leftCount
-            <> ", right="
-            <> showText rightCount
-            <> ")"
-        )
-  | otherwise = Right (zip left right)
- where
-  leftCount = length left
-  rightCount = length right
-
-addVecExact
-  :: Text
-  -> Vector Double
-  -> Vector Double
-  -> Either Text (Vector Double)
-addVecExact label left right
-  | VU.length left /= VU.length right =
-      Left
-        ( label
-            <> " vector width mismatch (left="
-            <> showText (VU.length left)
-            <> ", right="
-            <> showText (VU.length right)
-            <> ")"
-        )
-  | otherwise = Right (VU.zipWith (+) left right)
-
-addTokenBatchesExact
-  :: Text
-  -> [[Vector Double]]
-  -> [[Vector Double]]
-  -> Either Text [[Vector Double]]
-addTokenBatchesExact label left right = do
-  samplePairs <- zipExact (label <> " sample count") left right
-  traverse addSample (zip [0 :: Int ..] samplePairs)
- where
-  addSample (sampleIndex, (leftTokens, rightTokens)) = do
-    tokenPairs <-
-      zipExact
-        (label <> " token count at sample " <> showText sampleIndex)
-        leftTokens
-        rightTokens
-    traverse
-      ( \(tokenIndex, (leftToken, rightToken)) ->
-          addVecExact
-            ( label
-                <> " at sample "
-                <> showText sampleIndex
-                <> ", token "
-                <> showText tokenIndex
-            )
-            leftToken
-            rightToken
-      )
-      (zip [0 :: Int ..] tokenPairs)
-
-addVec :: Vector Double -> Vector Double -> Vector Double
-addVec = VU.zipWith (+)
-
-dot :: Vector Double -> Vector Double -> Double
-dot a b = VU.sum (VU.zipWith (*) a b)
-
-weightedSum :: Vector Double -> [Vector Double] -> Vector Double
-weightedSum weights vectors =
-  case vectors of
-    [] -> VU.empty
-    first : _ ->
-      let vectorsVector = VB.fromList vectors
-       in VU.generate (VU.length first) $ \d ->
-            sum
-              [ (weights VU.! i) * (vectorsVector VB.! i VU.! d)
-              | i <- [0 .. VB.length vectorsVector - 1]
-              ]
-
-unflattenBy :: [Int] -> [a] -> [[a]]
-unflattenBy counts values =
-  case counts of
-    [] -> []
-    n : ns ->
-      let (chunk, rest) = splitAt n values
-       in chunk : unflattenBy ns rest
-
-unflattenByExact :: Text -> [Int] -> [a] -> Either Text [[a]]
-unflattenByExact label counts values
-  | any (< 0) counts = Left (label <> ": negative group size")
-  | expected /= actual =
-      Left
-        ( label
-            <> " count mismatch (expected="
-            <> showText expected
-            <> ", actual="
-            <> showText actual
-            <> ")"
-        )
-  | otherwise = Right (unflattenBy counts values)
- where
-  expected = sum counts
-  actual = length values
 
 clamp :: Int -> Int -> Int -> Int
 clamp lo hi value = max lo (min hi value)

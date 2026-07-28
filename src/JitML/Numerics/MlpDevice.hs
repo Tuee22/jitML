@@ -94,6 +94,16 @@ data MlpDevice = MlpDevice
       :: MlpParams
       -> [(VU.Vector Double, VU.Vector Double)]
       -> IO (Either Text [VU.Vector Double])
+  , mlpdEnv :: Maybe Env
+  -- ^ The device's execution environment when it is backed by a real JIT
+  -- substrate (@Just@ from 'mlpDeviceFromSpec'), or @Nothing@ for the pure
+  -- reference device. Supervised classifier training on the typed layer graph
+  -- dispatches on this: @Just env@ trains through the oneDNN device loop
+  -- (@JitML.Numerics.LayerGraphOneDnn.trainLayerGraphClassifierEpochOneDnn@) and
+  -- @Nothing@ trains through the pure CPU-autodiff loop
+  -- (@JitML.Numerics.LayerGraph.trainLayerGraphClassifierEpochPure@), keeping the
+  -- toolchain-free callers (the offline tuning objective) referentially
+  -- transparent.
   }
 
 -- | Sprint 8.11 — verify the device's JIT kernel actually compiles, loads,
@@ -118,6 +128,7 @@ mlpDeviceFromSpec spec env =
     , mlpdForwardBatch = mlpForwardBatchWith spec env
     , mlpdBatchGradient = mlpBatchGradientWith spec env
     , mlpdInputGradientBatch = mlpInputGradientBatchWith spec env
+    , mlpdEnv = Just env
     }
 
 -- | A pure-Haskell reference 'MlpDevice' backed by the pure
@@ -160,6 +171,7 @@ pureReferenceMlpDevice =
           if batchShapeMismatch params batch
             then Left pureShapeMismatch
             else Right [mlpInputGradient params (mlpForward params i) dy | (i, dy) <- batch]
+    , mlpdEnv = Nothing
     }
  where
   shapeInputs params = mlpInputs (paramShape params)

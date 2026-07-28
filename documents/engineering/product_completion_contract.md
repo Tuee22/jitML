@@ -10,6 +10,18 @@
 > treat catalog rows, fake scaffolds, or representative smoke checks as product
 > completion.
 
+## Current Status
+
+**Implemented today.** Supervised ProductRows require Product-origin exact V2 with
+no companion pointer; RL, AlphaZero, and tuning rows are canonical Product V1 with
+one companion pointer.
+
+**Target (Phases `235`–`239`, `245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The distinction becomes a typed **payload variant** of one self-describing
+envelope — supervised-graph (no companion) versus weight-only (ProductRow
+companion). Until those phases close, the V2-versus-V1 admission described below is
+the implemented reality and the payload-variant form is a target contract.
+
 ## Status Ownership
 
 Current phase state, remaining work, blockers, and validation evidence live only
@@ -222,7 +234,7 @@ scenario/report evidence. A finite below-bar generic run is successful training
 with no eligible checkpoint or completed-checkpoint event; absence of optional
 legacy weight-list projections does not change that miss. It is not a failed
 metric disguised as product completion. The exact wire rules are owned by
-[Checkpoint Format](checkpoint_format.md#frozen-v1-and-exact-supervised-v2).
+[Checkpoint Format](checkpoint_format.md#the-self-describing-checkpoint-envelope).
 
 Product-origin admission also checks observations rather than declarations. The
 publisher requires exact processed examples and constructs the canonical four

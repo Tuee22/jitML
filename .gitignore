@@ -4,6 +4,7 @@
 /.roms/
 /dist-newstyle/
 /.dist-newstyle/
+/scratchpad/
 /.hlint-output
 chart/charts/
 *.lock

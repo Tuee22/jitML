@@ -9,6 +9,18 @@
 > delivery-settlement, lifecycle, and reporting contract so invalid workflow
 > states cannot cross the raw input boundary.
 
+## Current Status
+
+**Implemented today.** Supervised rows require Product-origin exact V2; RL,
+AlphaZero, and tuning rows retain canonical Product V1, and provenance is bound to
+those version-specific served bytes.
+
+**Target (Phases `235`, `239`, `245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+Provenance is bound to **one self-describing envelope** distinguished by payload
+variant — weight-only (RL/AlphaZero/tuning) versus supervised-graph — rather than
+by wire version. Until those phases close, the V1-vs-V2 provenance described below
+is the implemented reality and the payload-variant form is a target contract.
+
 ## Scope and Ownership
 
 This document is the single source of truth for the common contract followed by
@@ -156,7 +168,7 @@ requires canonical rendering and `PlanId` equality, binds the selected substrate
 and manifest experiment to that plan, and rejects collision with a ProductRow
 experiment hash. The addressed composite origin, not `PlanId` alone, binds the
 canonical row semantics. See
-[Checkpoint Format → Frozen V1 and Exact Supervised V2](checkpoint_format.md#frozen-v1-and-exact-supervised-v2)
+[Checkpoint Format → The Self-Describing Checkpoint Envelope](checkpoint_format.md#the-self-describing-checkpoint-envelope)
 for the byte contract and migration rule.
 
 Generic execution also consumes that plan's seed: the supervised boundary

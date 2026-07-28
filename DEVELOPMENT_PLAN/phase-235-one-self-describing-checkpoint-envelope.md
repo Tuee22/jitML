@@ -9,16 +9,18 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 234 (Sprint 234.1). This is the anchor of the
-IR-single-owner redesign that reopened at Phase `234`: the checkpoint wire is
-consolidated here before serving/training/construction land on the typed
-`LayerGraph` IR in Phases `237`–`239`. See the dated renumber note and old→new
-map in [README.md](README.md).
+✅ **Done** (closed 2026-07-27). The checkpoint wire is consolidated into one
+self-describing envelope carrying the typed `RawCheckpointBody` payload sum
+(weight-only vs supervised-graph); the byte-freeze golden, the dead V3
+`LayerGraph` encoder, the retained legacy decoder, and the parallel canonicalizer
+are retired. This anchors the IR-single-owner redesign before
+serving/training/construction land on the typed `LayerGraph` IR in Phases
+`237`–`239`. Phase `236` (checkpoint admission single-path) is the next frontier;
+see the dated renumber note and old→new map in [README.md](README.md).
 
-## Sprint 235.1: One Self-Describing Checkpoint Envelope [⏸️ Blocked]
+## Sprint 235.1: One Self-Describing Checkpoint Envelope [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `234.1`
+**Status**: Done
 **Implementation**: `src/JitML/Checkpoint/Format.hs`, `test/unit/SupervisedCheckpointV2.hs`, `test/unit/Main.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/determinism_contract.md`
 
@@ -51,6 +53,22 @@ current source (no persisted bytes are reinterpreted).
   recorded in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) under this
   sprint.
+
+### Closure Evidence
+
+All [Deliverables](#deliverables) are met. `src/JitML/Checkpoint/Format.hs`
+defines one `RawCheckpointEnvelope` carrying the typed `RawCheckpointBody`
+payload sum (`RawWeightOnlyBody` vs `RawSupervisedGraphBody`); `encodeManifestCbor`
+is a single arm, `decodeAddressedManifestCbor` a single decode that dispatches on
+the payload sum with no version cascade, and `canonicalManifest` is the one
+canonicalizer. The frozen-V1 golden (SHA `30db4da5…`) and its byte-freeze, the
+dead `RawV3*` / `encode`/`decodeV3Checkpoint` DTOs, and the retained legacy
+decoder cascade are deleted. `test/unit/SupervisedCheckpointV2.hs` proves a
+weight-only payload and a supervised-graph payload each round-trip exactly and
+that the two variants are never mis-classified; the removed surfaces are recorded
+in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) under this
+sprint. Validated by the `### Validation` gate below (`jitml test jitml-unit
+--linux-cpu` **771 / 771**, `jitml check-code`, `jitml docs check`).
 
 ### Validation
 

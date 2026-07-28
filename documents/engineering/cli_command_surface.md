@@ -1,6 +1,6 @@
 # CLI Command Surface
 
-**Status**: Reference only
+**Status**: Supporting reference
 **Supersedes**: N/A
 **Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md
 **Generated sections**: cli-commands.help-blocks

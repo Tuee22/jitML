@@ -13,6 +13,19 @@
 > `MTLDevice.makeLibrary(source:)`, and the host executes it on the Metal GPU),
 > and the hardware auto-tuning surface.
 
+## Current Status
+
+**Implemented today.** The supervised served path uses the V2 structural-operation
+ABI (the generated nine-operation `RuntimeBackendExecutor` per substrate), and the
+`LayerGraphOneDnn` device path evaluates one example at a time.
+
+**Target (Phases `234`, `237`–`239`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The oneDNN layer kernels gain a **batched** forward/backward path (Phase `234`),
+the reloaded typed `LayerGraph` is executed directly, and the V2
+structural-operation ABI is removed. Until those phases close, the per-example V2
+ABI described below is the implemented reality and the batched IR-executor form is
+a target contract.
+
 ## Cache Layout
 
 ```

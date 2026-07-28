@@ -16,6 +16,20 @@ This document owns the numerical representation and execution boundary; it does
 not infer product or substrate-lane closure from catalog coverage or dated pass
 counts.
 
+## Current Status
+
+**Implemented today.** The executable `[LayerSpec]` / `[LayerState]` program
+trains and serves the supervised rows; the typed `archLayerGraph` IR is a parallel
+decorative representation (finite-difference-validated) that the served path does
+not execute. The catalog tables below are current.
+
+**Target (Phases `237`–`238`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The typed `LayerGraph` IR becomes the **single owner** of supervised training,
+serving, and graph-ordered parameter identity; the parallel `[LayerSpec]` /
+`[LayerState]` program is retired. Until those phases close, the parallel program
+is the implemented executor and the IR-as-sole-owner statement is a target
+contract.
+
 ## Execution Boundary
 
 Training and evaluation select a substrate device and run the current

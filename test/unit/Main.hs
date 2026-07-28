@@ -1392,6 +1392,41 @@ main =
             @?= [ "metadata.generated-sections.cluster.routes"
                 , "metadata.generated-sections.cluster.routes"
                 ]
+      , testCase "docs root metadata check accepts complete root-doc headers" $ do
+          DocsCheck.checkRootDocMetadataText
+            "README.md"
+            ( Text.unlines
+                [ "# jitML"
+                , ""
+                , "**Status**: Governed orientation document"
+                , "**Supersedes**: N/A"
+                , "**Canonical homes**: [documents/README.md](documents/README.md)"
+                , ""
+                , "> **Purpose**: Orientation."
+                ]
+            )
+            @?= []
+      , testCase "docs root metadata check rejects missing root header fields" $ do
+          let drifts =
+                DocsCheck.checkRootDocMetadataText
+                  "AGENTS.md"
+                  ( Text.unlines
+                      [ "# AGENTS.md"
+                      , ""
+                      , "**Status**: Governed entry document"
+                      , ""
+                      , "> **Purpose**: Entry."
+                      ]
+                  )
+          fmap DocsCheck.driftKey drifts
+            @?= ["metadata.supersedes", "metadata.canonical-homes"]
+      , testCase "docs taxonomy and naming predicates hold for the canonical layout" $ do
+          DocsCheck.docsCategoryAllowed "engineering" @?= True
+          DocsCheck.docsCategoryAllowed "cli" @?= True
+          DocsCheck.docsCategoryAllowed "operations" @?= False
+          DocsCheck.docNameConforms "checkpoint_format.md" @?= True
+          DocsCheck.docNameConforms "README.md" @?= True
+          DocsCheck.docNameConforms "Not-Snake.md" @?= False
       , testCase "docs closure-claim check rejects premature current product closure claims" $ do
           let claimDoc = "The no-caveat product complete status is current."
               activeDrifts =
@@ -4165,7 +4200,6 @@ main =
       , testCase "checkpoint manifest round-trips LayerGraph topology and parameter tensors (Sprint 23.3)" $ do
           graph <- either (assertFailure . Text.unpack) pure (vitShapedLayerGraph 31)
           let tensors = layerGraphCheckpointTensors graph
-              loaded = loadedLayerGraphWeights graph
               manifest =
                 (Checkpoint.emptyManifest "m-layergraph" "exp-layergraph" tensors)
                   { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
@@ -4182,11 +4216,9 @@ main =
                   }
           case Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor manifest) of
             Left err -> assertFailure ("manifest decode failed: " <> Text.unpack err)
-            Right decoded -> do
+            Right decoded ->
               Checkpoint.architectureLayerGraph (Checkpoint.manifestArchitecture decoded)
                 @?= Just (Checkpoint.layerGraphMetadataFromGraph graph)
-              CheckpointStore.layerGraphFromCheckpoint decoded loaded
-                @?= Right (Just graph)
       , testCase "checkpoint metadata covers every no-caveat trainable family" $ do
           let tensor = Checkpoint.TensorBlob "weights" [1] "blob"
               families =
@@ -6096,8 +6128,8 @@ main =
           ]
       , testGroup
           "Product phase status registry (Phase 221)"
-          [ testCase "enumerates product phases 220 through 287" $ do
-              PhaseStatus.productPhaseNumbers @?= [220 .. 287]
+          [ testCase "enumerates product phases 220 through 288" $ do
+              PhaseStatus.productPhaseNumbers @?= [220 .. 288]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports incomplete while any product sprint is open" $ do
               PhaseStatus.allProductPhasesDone @?= False
@@ -8804,38 +8836,6 @@ layerGraphCheckpointTensors =
                 [outputWidth]
                 ("jitml-checkpoints/exp-layergraph/blobs/" <> biasName)
             ]
-
-loadedLayerGraphWeights :: LayerGraph.LayerGraph -> [CheckpointStore.LoadedWeightTensor]
-loadedLayerGraphWeights graph =
-  concatMap loadedNode (LayerGraph.layerGraphNodes graph)
- where
-  tensorByName =
-    [(Checkpoint.tensorName tensor, tensor) | tensor <- layerGraphCheckpointTensors graph]
-  loadedNode node =
-    case LayerGraph.layerParameters node of
-      Nothing -> []
-      Just params ->
-        [ CheckpointStore.LoadedWeightTensor
-            (lookupTensor (LayerGraph.layerNodeName node <> ".weights"))
-            (Data.Vector.Unboxed.toList (LayerGraph.layerWeights params))
-            ( ByteString.toStrict
-                ( Checkpoint.encodeJmw1
-                    (Data.Vector.Unboxed.toList (LayerGraph.layerWeights params))
-                )
-            )
-        , CheckpointStore.LoadedWeightTensor
-            (lookupTensor (LayerGraph.layerNodeName node <> ".bias"))
-            (Data.Vector.Unboxed.toList (LayerGraph.layerBias params))
-            ( ByteString.toStrict
-                ( Checkpoint.encodeJmw1
-                    (Data.Vector.Unboxed.toList (LayerGraph.layerBias params))
-                )
-            )
-        ]
-  lookupTensor name =
-    case lookup name tensorByName of
-      Just tensor -> tensor
-      Nothing -> error ("missing layer graph test tensor " <> Text.unpack name)
 
 layerShapeWidth :: LayerGraph.TensorShape -> Int
 layerShapeWidth shape =

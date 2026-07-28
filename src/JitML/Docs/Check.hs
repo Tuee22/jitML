@@ -5,12 +5,17 @@ module JitML.Docs.Check
   , checkDocs
   , checkDocumentClosureClaimsText
   , checkDocumentMetadataText
+  , checkRootDocMetadataText
+  , docNameConforms
+  , docsCategoryAllowed
   , docsDriftRemedy
   , renderDocsDrift
   , replaceGeneratedSection
   )
 where
 
+import Control.Monad (filterM)
+import Data.Char (isAsciiLower, isDigit)
 import Data.List (find, findIndex, sort)
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
@@ -18,7 +23,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (takeExtension, (</>))
+import System.FilePath (takeBaseName, takeExtension, takeFileName, (</>))
 
 import JitML.Generated.Paths (TrackedGeneratedPath (..), trackingGeneratedPaths)
 import JitML.Generated.Registry
@@ -48,7 +53,16 @@ checkDocs = do
   governedPaths <- governedMarkdownPaths
   metadataDrifts <- concat <$> traverse checkDocumentMetadata governedPaths
   closureClaimDrifts <- concat <$> traverse checkDocumentClosureClaims governedPaths
-  pure (sectionDrifts <> pathDrifts <> metadataDrifts <> closureClaimDrifts)
+  taxonomyDrifts <- checkDocumentsTaxonomy
+  namingDrifts <- checkDocumentsNaming
+  pure
+    ( sectionDrifts
+        <> pathDrifts
+        <> metadataDrifts
+        <> closureClaimDrifts
+        <> taxonomyDrifts
+        <> namingDrifts
+    )
 
 renderDocsDrift :: DocsDrift -> Text
 renderDocsDrift drift =
@@ -93,10 +107,16 @@ checkTrackedGeneratedPath tracked = do
 
 governedMarkdownPaths :: IO [FilePath]
 governedMarkdownPaths = do
-  rootReadme <- markdownFileIfPresent "README.md"
+  rootDocs <- concat <$> traverse markdownFileIfPresent rootDocNames
   planDocs <- markdownFilesUnder "DEVELOPMENT_PLAN"
   governedDocs <- markdownFilesUnder "documents"
-  pure (sort (rootReadme <> planDocs <> governedDocs))
+  pure (sort (rootDocs <> planDocs <> governedDocs))
+
+rootDocNames :: [FilePath]
+rootDocNames = ["README.md", "AGENTS.md", "CLAUDE.md"]
+
+isRootDoc :: FilePath -> Bool
+isRootDoc path = path `elem` rootDocNames
 
 markdownFileIfPresent :: FilePath -> IO [FilePath]
 markdownFileIfPresent path = do
@@ -114,9 +134,54 @@ markdownFilesUnder path = do
       concat <$> traverse (markdownFilesUnder . (path </>)) entries
     _ -> pure []
 
+checkDocumentsTaxonomy :: IO [DocsDrift]
+checkDocumentsTaxonomy = do
+  dirExists <- doesDirectoryExist "documents"
+  if not dirExists
+    then pure []
+    else do
+      entries <- sort <$> listDirectory "documents"
+      subdirs <- filterM (doesDirectoryExist . ("documents" </>)) entries
+      pure
+        [ metadataDrift
+            ("documents" </> name)
+            "taxonomy.category"
+            ("documents/ category `" <> Text.pack name <> "` is not an allowed category (cli, engineering)")
+        | name <- subdirs
+        , not (docsCategoryAllowed name)
+        ]
+
+docsCategoryAllowed :: FilePath -> Bool
+docsCategoryAllowed name = name `elem` ["cli", "engineering"]
+
+checkDocumentsNaming :: IO [DocsDrift]
+checkDocumentsNaming = do
+  paths <- markdownFilesUnder "documents"
+  pure
+    [ metadataDrift
+        path
+        "naming.snake-case"
+        ("governed document name `" <> Text.pack (takeFileName path) <> "` is not lowercase snake_case")
+    | path <- paths
+    , not (docNameConforms (takeFileName path))
+    ]
+
+docNameConforms :: FilePath -> Bool
+docNameConforms name
+  | name == "README.md" = True
+  | takeExtension name /= ".md" = False
+  | otherwise = not (null base) && all conformingChar base
+ where
+  base = takeBaseName name
+  conformingChar c = isAsciiLower c || isDigit c || c == '_'
+
 checkDocumentMetadata :: FilePath -> IO [DocsDrift]
 checkDocumentMetadata path =
-  checkDocumentMetadataText path <$> Text.IO.readFile path
+  metadataChecker path <$> Text.IO.readFile path
+ where
+  metadataChecker
+    | isRootDoc path = checkRootDocMetadataText
+    | otherwise = checkDocumentMetadataText
 
 checkDocumentClosureClaims :: FilePath -> IO [DocsDrift]
 checkDocumentClosureClaims path =
@@ -128,72 +193,92 @@ checkDocumentClosureClaimsText productPhasesDone path =
 
 checkDocumentMetadataText :: FilePath -> Text -> [DocsDrift]
 checkDocumentMetadataText path content =
-  missingHeaderDrifts <> generatedSectionDrifts
- where
-  headerLines = take 80 (Text.lines content)
-  field prefix =
-    Text.strip . Text.drop (Text.length prefix)
-      <$> find (Text.isPrefixOf prefix . Text.strip) headerLines
-  requiredFields =
-    [ ("metadata.status", "**Status**:")
-    , ("metadata.supersedes", "**Supersedes**:")
-    , ("metadata.referenced-by", "**Referenced by**:")
-    , ("metadata.generated-sections", "**Generated sections**:")
-    , ("metadata.purpose", "> **Purpose**:")
-    ]
-  missingHeaderDrifts =
-    [ metadataDrift path key ("missing required header field `" <> prefix <> "`")
-    | (key, prefix) <- requiredFields
-    , isNothing (field prefix)
-    ]
-  generatedSectionDrifts =
-    case field "**Generated sections**:" of
-      Nothing -> []
-      Just value ->
-        case parseGeneratedSectionsMetadata value of
-          Left reason -> [metadataDrift path "metadata.generated-sections" reason]
-          Right declared ->
-            let (startKeys, endKeys) = scanGeneratedMarkers content
-                completePhysicalKeys = sortUnique [key | key <- startKeys, key `elem` endKeys]
-                registeredKeys = sortUnique [ruleKey rule | rule <- generatedSectionRules, rulePath rule == path]
-             in concat
-                  [ [ metadataDrift
-                        path
-                        ("metadata.generated-sections." <> key)
-                        "generated-section start marker has no matching end marker"
-                    | key <- difference startKeys endKeys
-                    ]
-                  , [ metadataDrift
-                        path
-                        ("metadata.generated-sections." <> key)
-                        "generated-section end marker has no matching start marker"
-                    | key <- difference endKeys startKeys
-                    ]
-                  , [ metadataDrift
-                        path
-                        ("metadata.generated-sections." <> key)
-                        "Generated sections metadata declares a key without a physical marker pair"
-                    | key <- difference declared completePhysicalKeys
-                    ]
-                  , [ metadataDrift
-                        path
-                        ("metadata.generated-sections." <> key)
-                        "physical generated-section marker pair is missing from Generated sections metadata"
-                    | key <- difference completePhysicalKeys declared
-                    ]
-                  , [ metadataDrift
-                        path
-                        ("metadata.generated-sections." <> key)
-                        "Generated sections metadata omits a key registered for this file"
-                    | key <- difference registeredKeys declared
-                    ]
-                  , [ metadataDrift
-                        path
-                        ("metadata.generated-sections." <> key)
-                        "Generated sections metadata names a key not registered for this file"
-                    | key <- difference declared registeredKeys
-                    ]
+  missingRequiredFieldDrifts path content topicRequiredFields
+    <> generatedSectionDrifts path content
+
+checkRootDocMetadataText :: FilePath -> Text -> [DocsDrift]
+checkRootDocMetadataText path content =
+  missingRequiredFieldDrifts path content rootRequiredFields
+    <> generatedSectionDrifts path content
+
+topicRequiredFields :: [(Text, Text)]
+topicRequiredFields =
+  [ ("metadata.status", "**Status**:")
+  , ("metadata.supersedes", "**Supersedes**:")
+  , ("metadata.referenced-by", "**Referenced by**:")
+  , ("metadata.generated-sections", "**Generated sections**:")
+  , ("metadata.purpose", "> **Purpose**:")
+  ]
+
+rootRequiredFields :: [(Text, Text)]
+rootRequiredFields =
+  [ ("metadata.status", "**Status**:")
+  , ("metadata.supersedes", "**Supersedes**:")
+  , ("metadata.canonical-homes", "**Canonical homes**:")
+  , ("metadata.purpose", "> **Purpose**:")
+  ]
+
+headerField :: Text -> Text -> Maybe Text
+headerField content prefix =
+  Text.strip . Text.drop (Text.length prefix)
+    <$> find (Text.isPrefixOf prefix . Text.strip) (take 80 (Text.lines content))
+
+missingRequiredFieldDrifts :: FilePath -> Text -> [(Text, Text)] -> [DocsDrift]
+missingRequiredFieldDrifts path content requiredFields =
+  [ metadataDrift path key ("missing required header field `" <> prefix <> "`")
+  | (key, prefix) <- requiredFields
+  , isNothing (headerField content prefix)
+  ]
+
+generatedSectionDrifts :: FilePath -> Text -> [DocsDrift]
+generatedSectionDrifts path content =
+  case headerField content "**Generated sections**:" of
+    Nothing -> []
+    Just value ->
+      case parseGeneratedSectionsMetadata value of
+        Left reason -> [metadataDrift path "metadata.generated-sections" reason]
+        Right declared ->
+          let (startKeys, endKeys) = scanGeneratedMarkers content
+              completePhysicalKeys = sortUnique [key | key <- startKeys, key `elem` endKeys]
+              registeredKeys = sortUnique [ruleKey rule | rule <- generatedSectionRules, rulePath rule == path]
+           in concat
+                [ [ metadataDrift
+                      path
+                      ("metadata.generated-sections." <> key)
+                      "generated-section start marker has no matching end marker"
+                  | key <- difference startKeys endKeys
                   ]
+                , [ metadataDrift
+                      path
+                      ("metadata.generated-sections." <> key)
+                      "generated-section end marker has no matching start marker"
+                  | key <- difference endKeys startKeys
+                  ]
+                , [ metadataDrift
+                      path
+                      ("metadata.generated-sections." <> key)
+                      "Generated sections metadata declares a key without a physical marker pair"
+                  | key <- difference declared completePhysicalKeys
+                  ]
+                , [ metadataDrift
+                      path
+                      ("metadata.generated-sections." <> key)
+                      "physical generated-section marker pair is missing from Generated sections metadata"
+                  | key <- difference completePhysicalKeys declared
+                  ]
+                , [ metadataDrift
+                      path
+                      ("metadata.generated-sections." <> key)
+                      "Generated sections metadata omits a key registered for this file"
+                  | key <- difference registeredKeys declared
+                  ]
+                , [ metadataDrift
+                      path
+                      ("metadata.generated-sections." <> key)
+                      "Generated sections metadata names a key not registered for this file"
+                  | key <- difference declared registeredKeys
+                  ]
+                ]
 
 replaceGeneratedSection :: GeneratedSectionRule -> Text -> Either Text Text
 replaceGeneratedSection rule current = do
@@ -248,7 +333,7 @@ closureClaimDrift claim =
     { driftPath = closureClaimPath claim
     , driftKey = closureClaimKey claim
     , driftReason =
-        "product closure claim before Phases 220-283 are Done at line "
+        "product closure claim before Phases 220-287 are Done at line "
           <> Text.pack (show (closureClaimLineNumber claim))
           <> ": "
           <> closureClaimLine claim

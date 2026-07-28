@@ -374,55 +374,53 @@ productExperimentExactnessTests =
           )
     , testCase "architecture seed headroom follows the realised topology" $
         traverse_ assertArchitectureSeedHeadroomTopology SL.canonicalProblems
-    , testCase "expanded patch batches retain sample-count gradient normalization" $ do
-        problem <-
-          case find ((== "mnist-lenet") . SL.problemName) SL.canonicalProblems of
-            Nothing -> assertFailure "missing mnist-lenet canonical problem"
-            Just value -> pure value
-        let config =
-              Classifier.defaultClassifierConfig
-                { Classifier.clfHidden = 4
-                , Classifier.clfEpochs = 1
-                , Classifier.clfBatchSize = 2
+    , testCase "exact-update graph optimizer averages the gradient by outer example count" $ do
+        -- Sprint 238.1 — the retired [LayerState] patch-expansion normalization
+        -- check, migrated onto the typed-graph optimizer step. One SGD update over
+        -- a batch of @n@ examples with an all-ones batch-summed gradient must move
+        -- every parameter by @lr * (1 / n)@: the gradient is averaged by the
+        -- number of outer examples, never by an expanded device-row count.
+        node <-
+          either (assertFailure . Text.unpack) pure $
+            LayerGraph.mkAffineLayer
+              "exact-normalization"
+              LayerGraph.DenseLayer
+              2
+              2
+              LayerGraph.LinearActivation
+              LayerGraph.TrainingMode
+              (LayerGraph.deterministicParameters 1 2 2)
+        let graph =
+              LayerGraph.LayerGraph
+                { LayerGraph.layerGraphName = "exact-normalization"
+                , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [2]
+                , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                , LayerGraph.layerGraphNodes = [node]
                 }
-            sample value =
-              Classifier.LabeledExample
-                (VU.replicate (Classifier.clfInputs config) value)
-            trainSet = [sample 0.0 0, sample 1.0 1]
-            validationSet = [sample 0.5 0]
-            spec = Architecture.architectureSpecForProblem config problem
-            unitGradient params =
-              Mlp.MlpGradient
-                { Mlp.gradW1 = VU.replicate (VU.length (Mlp.paramW1 params)) 1.0
-                , Mlp.gradB1 = VU.replicate (VU.length (Mlp.paramB1 params)) 1.0
-                , Mlp.gradW2 = VU.replicate (VU.length (Mlp.paramW2 params)) 1.0
-                , Mlp.gradB2 = VU.replicate (VU.length (Mlp.paramB2 params)) 1.0
-                }
-            unitGradientDevice =
-              pureReferenceMlpDevice
-                { mlpdBatchGradient = \params _ -> pure (Right (unitGradient params))
-                }
-            expectedDelta =
-              Classifier.clfLearningRate config / fromIntegral (length trainSet)
-        initialE <-
-          Architecture.initialiseExactArchitectureTraining
-            spec
-            config
-            Architecture.ArchitectureSGD
-            0.0
-            trainSet
-            validationSet
-        initial <- either (assertFailure . Text.unpack) pure initialE
-        advancedE <- Architecture.advanceExactArchitectureTraining unitGradientDevice 1 initial
-        advanced <- either (assertFailure . Text.unpack) pure advancedE
+            st0 = LayerGraph.initGraphClassifierAdam graph
+            params0 = LayerGraph.graphParameterVector graph
+            paramCount = VU.length params0
+            learningRate = 0.1 :: Double
+            batchLen = 2 :: Int
+            summed = VU.replicate paramCount 1.0
+            expectedDelta = learningRate / fromIntegral batchLen
+        st1 <-
+          either (assertFailure . Text.unpack) pure $
+            Architecture.applyGraphOptimizerStep
+              (Architecture.SgdOptimizer learningRate)
+              st0
+              summed
+              batchLen
         let deltas =
-              zipWith
-                (-)
-                (Architecture.exactArchitectureInitialWeights initial)
-                (Architecture.exactArchitectureTrainedWeights advanced)
+              VU.toList
+                ( VU.zipWith
+                    (-)
+                    params0
+                    (LayerGraph.graphParameterVector (LayerGraph.gcaGraph st1))
+                )
         assertBool
-          "every expanded-layer gradient is averaged by outer examples, not device rows"
-          (not (null deltas) && all (\delta -> abs (delta - expectedDelta) < 1.0e-12) deltas)
+          "every parameter moves by learning-rate * (summed gradient / outer example count)"
+          (paramCount > 0 && all (\delta -> abs (delta - expectedDelta) < 1.0e-12) deltas)
     , testCase "supervised seed headroom follows each exact architecture" $
         traverse_ assertSupervisedSeedBoundary supervisedRows
     , testCase "RL seed headroom follows each exact trainer" $

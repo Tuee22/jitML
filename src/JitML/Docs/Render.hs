@@ -71,7 +71,7 @@ renderMarkdownReference =
   Text.unlines $
     [ "# jitML CLI Command Reference"
     , ""
-    , "**Status**: Reference only"
+    , "**Status**: Supporting reference"
     , "**Supersedes**: N/A"
     , "**Referenced by**: ../../README.md, ../engineering/cli_command_surface.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md"
     , "**Generated sections**: none"

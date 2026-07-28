@@ -12,6 +12,20 @@
 > Phase 32/33 realness stanzas owned here — the doctrine-category mapping,
 > and the integration/e2e verification boundary for typed run contracts.
 
+## Current Status
+
+**Implemented today.** `jitml-sl-canonicals` asserts the `cifar10-vit` exact V2
+parameter layout (123,595 parameters and its slice offsets); a byte-frozen V1
+golden fixture is retained; `jitml-backends` covers per-example layer forward/
+backward against the pure oracle.
+
+**Target (Phases `234`, `243`, `245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The persisted representation these assert against becomes the single envelope with
+the IR parameter layout (the `cifar10-vit` count is re-measured), the byte-freeze
+golden is retired, and `jitml-backends` gains batched-gradient coverage. Until
+those phases close, the assertions described below are the implemented reality and
+the single-envelope/IR-layout form is a target contract.
+
 ## Doctrine Deferrals
 
 This doc defers to [../../README.md](../../README.md) for:

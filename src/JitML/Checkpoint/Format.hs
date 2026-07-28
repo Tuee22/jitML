@@ -25,11 +25,8 @@ module JitML.Checkpoint.Format
   , PointerWriteResult (..)
   , PreprocessingMetadata (..)
   , RawCheckpointEnvelope (..)
+  , RawCheckpointBody (..)
   , RawCheckpointBodyV2 (..)
-  , RawCheckpointEnvelopeV2 (..)
-  , RawCheckpointBodyV3 (..)
-  , RawV3Graph (..)
-  , RawV3LayerNode (..)
   , RawCheckpointManifest (..)
   , RngBlob (..)
   , SubstrateArtifact (..)
@@ -48,11 +45,6 @@ module JitML.Checkpoint.Format
   , checkpointManifestToRaw
   , checkpointWireVersion
   , checkpointWireVersionV2
-  , checkpointWireVersionV3
-  , encodeV3Checkpoint
-  , decodeV3Checkpoint
-  , layerGraphToRawV3
-  , rawV3ToLayerGraph
   , canonicalSupervisedRuntimeManifestMetadata
   , decodeJmw1
   , decodeAddressedManifestCbor
@@ -63,7 +55,9 @@ module JitML.Checkpoint.Format
   , encodeJmw1
   , encodeManifestCbor
   , latestPointerKey
+  , layerGraphFromMetadata
   , layerGraphMetadataFromGraph
+  , layerGraphMetadataParameterCount
   , manifestContentSha
   , manifestKey
   , manifestPointer
@@ -110,8 +104,6 @@ import JitML.Plan.Plan
   ( PlanId
   , RunKind (..)
   , RunKindWitness (..)
-  , Validation (..)
-  , planIdFromCanonicalText
   , planIdText
   , quantityValue
   , refinePlanIdText
@@ -124,9 +116,6 @@ import JitML.Plan.Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Evidence
   ( TrainingEvidence
-  , evidenceDatasetShaAtRead
-  , evidenceFinalWeightHash
-  , evidenceInitialWeightHash
   , evidenceUpdateCount
   , mkTrainingEvidence
   )
@@ -142,14 +131,10 @@ import JitML.Substrate qualified as Substrate
 import JitML.Training.Budget
   ( BudgetKind (..)
   , CompletedTraining
-  , ConvergenceObservation
-  , MetricGoal (..)
   , RawCompletedTraining
-  , TensorBoardRunMetadata
   , TrainingBudget
   , coMetricName
   , coMetricValue
-  , completedTraining
   , completedTrainingBudget
   , completedTrainingDatasetShaAtRead
   , completedTrainingEvidence
@@ -162,8 +147,6 @@ import JitML.Training.Budget
   , completedTrainingToRaw
   , completedTrainingUpdateCount
   , convergencePassed
-  , measureCriterion
-  , measureCriterionExcluding
   , mkTrainingBudget
   , refineCompletedTraining
   , tbrLogPrefix
@@ -407,67 +390,36 @@ data RawCheckpointManifest = RawCheckpointManifest
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
+-- | The one self-describing checkpoint envelope.  Every checkpoint — weight-only
+-- (RL, AlphaZero, tuning, generic rows) and supervised-graph — serializes through
+-- this single outer shape: a payload-variant version, the raw 32-byte SHA-256 of
+-- the exact canonical body bytes, and those body bytes.  The body deserializes to
+-- the typed 'RawCheckpointBody' payload sum, so the envelope is self-describing;
+-- there is no multi-version cascade and no persisted bytes are reinterpreted.
 data RawCheckpointEnvelope = RawCheckpointEnvelope
   { rawCheckpointVersion :: Word64
-  , rawCheckpointPayload :: RawCheckpointManifest
+  , rawCheckpointBodySha256 :: StrictByteString.ByteString
+  , rawCheckpointBodyBytes :: StrictByteString.ByteString
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
--- | V2 has a canonical embedded body whose exact bytes have their own
--- identity.  The V1 manifest DTO is deliberately embedded unchanged so the
--- frozen V1 encoder remains byte-for-byte stable.
+-- | The typed payload sum carried by the one envelope.  A weight-only payload is
+-- the bare canonical manifest; a supervised-graph payload additionally embeds the
+-- exact supervised runtime program returned by training.  Decode dispatches on
+-- this sum rather than a version fall-through.
+data RawCheckpointBody
+  = RawWeightOnlyBody RawCheckpointManifest
+  | RawSupervisedGraphBody RawCheckpointBodyV2
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
+-- | The supervised-graph payload body: the canonical raw manifest plus the
+-- refined supervised runtime DTO.  Its exact serialized bytes have their own
+-- identity via 'rawCheckpointBodySha256'.
 data RawCheckpointBodyV2 = RawCheckpointBodyV2
   { rawCheckpointV2Manifest :: RawCheckpointManifest
   , rawCheckpointV2SupervisedRuntime :: RuntimeArtifact.RawSupervisedRuntimePayload
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
--- | Exact V2 outer envelope.  The digest is the raw 32-byte SHA-256 of
--- 'rawCheckpointV2BodyBytes'; the address is separately derived from the exact
--- serialized bytes of this whole value.
-data RawCheckpointEnvelopeV2 = RawCheckpointEnvelopeV2
-  { rawCheckpointV2Version :: Word64
-  , rawCheckpointV2BodySha256 :: StrictByteString.ByteString
-  , rawCheckpointV2BodyBytes :: StrictByteString.ByteString
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
--- | One serialised layer-graph node.  Reuses the numerical 'LayerGraph'
--- operator/kind/shape/mode/activation types directly (all pure 'Serialise'
--- values); only the packed parameters are carried as @[Double]@ so the
--- unboxed vectors round-trip.  Weight and bias are both present or both absent.
-data RawV3LayerNode = RawV3LayerNode
-  { rawV3NodeName :: Text
-  , rawV3NodeKind :: LayerGraph.LayerKind
-  , rawV3NodeOp :: LayerGraph.LayerOp
-  , rawV3NodeInputShape :: LayerGraph.TensorShape
-  , rawV3NodeOutputShape :: LayerGraph.TensorShape
-  , rawV3NodeMode :: LayerGraph.LayerMode
-  , rawV3NodeActivation :: LayerGraph.LayerActivation
-  , rawV3NodeWeights :: Maybe [Double]
-  , rawV3NodeBias :: Maybe [Double]
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
--- | The full serialised trained graph topology + parameters.
-data RawV3Graph = RawV3Graph
-  { rawV3GraphName :: Text
-  , rawV3GraphInputShape :: [Int]
-  , rawV3GraphOutputShape :: [Int]
-  , rawV3GraphNodes :: [RawV3LayerNode]
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
--- | V3 body: the canonical manifest (for identity/metadata, reusing the V2
--- projection) plus the exact trained layer graph.
-data RawCheckpointBodyV3 = RawCheckpointBodyV3
-  { rawCheckpointV3Manifest :: RawCheckpointManifest
-  , rawCheckpointV3Graph :: RawV3Graph
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
@@ -484,67 +436,6 @@ data AddressedCheckpointManifest = AddressedCheckpointManifest
   , addressedManifestBodySha :: Maybe Text
   }
   deriving stock (Eq, Show)
-
--- Retained decoder-only DTOs for manifests written before Sprint 10.12.  They
--- mirror the former generic record layout exactly, but are never exposed as
--- proof-bearing values.  The stored verdict is checked against the recomputed
--- typed criterion and then discarded; because the legacy wire carried no
--- canonical PlanId, a legacy manifest always remains a resumable candidate and
--- cannot satisfy the current structural completion refinement.
-data LegacyTrainingBudget = LegacyTrainingBudget
-  { legacyBudgetKind :: BudgetKind
-  , legacyBudgetTargetUnits :: Word64
-  , legacyBudgetUnitLabel :: Text
-  , legacyBudgetSeed :: Maybe Word64
-  }
-  deriving stock (Generic)
-  deriving anyclass (Serialise)
-
-data LegacyConvergenceObservation = LegacyConvergenceObservation
-  { legacyMetricName :: Text
-  , legacyMetricValue :: Double
-  , legacyMetricGoal :: MetricGoal
-  , legacyMetricThreshold :: Maybe Double
-  , legacyMetricPassed :: Bool
-  }
-  deriving stock (Generic)
-  deriving anyclass (Serialise)
-
-data LegacyCompletedTraining = LegacyCompletedTraining
-  { legacyCompletedBudget :: LegacyTrainingBudget
-  , legacyCompletedObservedUnits :: Word64
-  , legacyCompletedEvidence :: TrainingEvidence
-  , legacyCompletedMetrics :: [LegacyConvergenceObservation]
-  , legacyCompletedTensorBoard :: TensorBoardRunMetadata
-  }
-  deriving stock (Generic)
-  deriving anyclass (Serialise)
-
-data LegacyCheckpointManifest = LegacyCheckpointManifest
-  { legacyManifestId :: Text
-  , legacyManifestExperiment :: Text
-  , legacyManifestModelFamily :: ModelFamily
-  , legacyManifestArchitecture :: ArchitectureMetadata
-  , legacyManifestPreprocessing :: [PreprocessingMetadata]
-  , legacyManifestOutputDecoders :: [OutputDecoder]
-  , legacyManifestWeightLayout :: WeightLayout
-  , legacyManifestReplayPointers :: [ArtifactPointer]
-  , legacyManifestTranscriptPointers :: [ArtifactPointer]
-  , legacyManifestSubstrateArtifacts :: [SubstrateArtifact]
-  , legacyManifestTensors :: [TensorBlob]
-  , legacyManifestOptimizer :: [OptimizerBlob]
-  , legacyManifestRng :: [RngBlob]
-  , legacyManifestStep :: Word64
-  , legacyManifestMetrics :: [(Text, Double)]
-  , legacyManifestCompletedTraining :: Maybe LegacyCompletedTraining
-  , legacyManifestInitialWeightHash :: Maybe Text
-  , legacyManifestFinalWeightHash :: Maybe Text
-  , legacyManifestUpdateCount :: Maybe Word64
-  , legacyManifestDatasetShaAtRead :: Maybe Text
-  , legacyManifestParentManifestSha :: Maybe Text
-  }
-  deriving stock (Generic)
-  deriving anyclass (Serialise)
 
 -- | Pure structural completion refinement.  Its constructor is hidden;
 -- candidate and partial manifests remain inspectable but cannot inhabit this
@@ -1884,6 +1775,115 @@ layerKindMetadata (LayerGraph.MultiHeadAttentionLayer heads) = LayerGraphMultiHe
 layerKindMetadata LayerGraph.GeGLULayer = LayerGraphGeGLULayer
 layerKindMetadata LayerGraph.PatchEmbedLayer = LayerGraphPatchEmbedLayer
 
+-- ---------------------------------------------------------------------------
+-- Phase 239 — reverse converters: reconstruct a served dense 'LayerGraph' from
+-- the checkpoint's 'LayerGraphMetadata'.  The trained supervised graph is an
+-- all-'DenseOp' / 'IdentityOp' chain (every parameterised node is built by
+-- 'LayerGraph.mkAffineLayer', every parameterless node by
+-- 'LayerGraph.mkIdentityLayer').  The metadata carries the exact per-node
+-- structure (name, kind, single-dimension in/out shapes, mode, activation, and
+-- whether the node owns weight/bias tensors), so from-metadata rebuilds each
+-- node with zeroed placeholder parameters of the right size; the real trained
+-- weights are injected afterwards via
+-- 'LayerGraph.replaceGraphParameterVector'.  Round-trip is exact for dense
+-- graphs: reconstructing then re-injecting the original parameter vector
+-- reproduces the source graph.
+metadataLayerMode :: LayerGraphModeMetadata -> LayerGraph.LayerMode
+metadataLayerMode LayerGraphTrainingMode = LayerGraph.TrainingMode
+metadataLayerMode LayerGraphInferenceMode = LayerGraph.InferenceMode
+
+metadataLayerActivation :: LayerGraphActivationMetadata -> LayerGraph.LayerActivation
+metadataLayerActivation LayerGraphLinearActivation = LayerGraph.LinearActivation
+metadataLayerActivation LayerGraphTanhActivation = LayerGraph.TanhActivation
+metadataLayerActivation LayerGraphReluActivation = LayerGraph.ReluActivation
+metadataLayerActivation LayerGraphSoftmaxActivation = LayerGraph.SoftmaxActivation
+
+metadataLayerKind :: LayerGraphKindMetadata -> LayerGraph.LayerKind
+metadataLayerKind LayerGraphDenseLayer = LayerGraph.DenseLayer
+metadataLayerKind LayerGraphConv2DLayer = LayerGraph.Conv2DLayer
+metadataLayerKind LayerGraphConv3DLayer = LayerGraph.Conv3DLayer
+metadataLayerKind LayerGraphMaxPoolLayer = LayerGraph.PoolLayer LayerGraph.MaxPool
+metadataLayerKind LayerGraphAvgPoolLayer = LayerGraph.PoolLayer LayerGraph.AvgPool
+metadataLayerKind LayerGraphGlobalAvgPoolLayer = LayerGraph.PoolLayer LayerGraph.GlobalAvgPool
+metadataLayerKind LayerGraphBatchNormLayer = LayerGraph.NormLayer LayerGraph.BatchNorm
+metadataLayerKind LayerGraphLayerNormLayer = LayerGraph.NormLayer LayerGraph.LayerNorm
+metadataLayerKind (LayerGraphGroupNormLayer groups) = LayerGraph.NormLayer (LayerGraph.GroupNorm groups)
+metadataLayerKind (LayerGraphDropoutLayer rate) = LayerGraph.DropoutLayer rate
+metadataLayerKind (LayerGraphResidualLayer scale) = LayerGraph.ResidualLayer scale
+metadataLayerKind (LayerGraphBasicBlockLayer scale) = LayerGraph.BasicBlockLayer scale
+metadataLayerKind (LayerGraphBottleneckBlockLayer scale) = LayerGraph.BottleneckBlockLayer scale
+metadataLayerKind (LayerGraphMultiHeadAttentionLayer heads) = LayerGraph.MultiHeadAttentionLayer heads
+metadataLayerKind LayerGraphGeGLULayer = LayerGraph.GeGLULayer
+metadataLayerKind LayerGraphPatchEmbedLayer = LayerGraph.PatchEmbedLayer
+
+-- | The dense graph's total trained-parameter count derived purely from the
+-- metadata shapes: each parameterised node contributes
+-- @inputWidth * outputWidth@ weights plus @outputWidth@ biases.  This is the
+-- graph-ordered parameter count carried by @supervised.weights@ and is the
+-- admission/serving anchor once a manifest advertises a layer graph.
+layerGraphMetadataParameterCount :: LayerGraphMetadata -> Int
+layerGraphMetadataParameterCount =
+  sum . fmap nodeParameterCount . layerGraphMetadataNodes
+ where
+  nodeParameterCount node =
+    case layerGraphNodeWeightTensor node of
+      Nothing -> 0
+      Just _ ->
+        let inputWidth = product (layerGraphNodeInputShape node)
+            outputWidth = product (layerGraphNodeOutputShape node)
+         in inputWidth * outputWidth + outputWidth
+
+-- | Reconstruct the served dense 'LayerGraph' (structure only; parameters are
+-- zeroed placeholders) from checkpoint metadata.  A node that owns weight and
+-- bias tensors is rebuilt as a Tier-1 affine ('LayerGraph.mkAffineLayer'); a
+-- parameterless node is rebuilt as an identity passthrough
+-- ('LayerGraph.mkIdentityLayer').  Callers inject the real trained parameter
+-- vector with 'LayerGraph.replaceGraphParameterVector'.
+layerGraphFromMetadata :: LayerGraphMetadata -> Either Text LayerGraph.LayerGraph
+layerGraphFromMetadata meta = do
+  nodes <- traverse nodeFromMetadata (layerGraphMetadataNodes meta)
+  Right
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = layerGraphMetadataName meta
+      , LayerGraph.layerGraphInputShape =
+          LayerGraph.TensorShape (layerGraphMetadataInputShape meta)
+      , LayerGraph.layerGraphOutputShape =
+          LayerGraph.TensorShape (layerGraphMetadataOutputShape meta)
+      , LayerGraph.layerGraphNodes = nodes
+      }
+ where
+  nodeFromMetadata node =
+    let name = layerGraphNodeName node
+        kind = metadataLayerKind (layerGraphNodeKind node)
+        mode = metadataLayerMode (layerGraphNodeMode node)
+        activation = metadataLayerActivation (layerGraphNodeActivation node)
+        inputWidth = product (layerGraphNodeInputShape node)
+        outputWidth = product (layerGraphNodeOutputShape node)
+     in case ( layerGraphNodeWeightTensor node
+             , layerGraphNodeBiasTensor node
+             ) of
+          (Just _, Just _) ->
+            LayerGraph.mkAffineLayer
+              name
+              kind
+              inputWidth
+              outputWidth
+              activation
+              mode
+              LayerGraph.LayerParameters
+                { LayerGraph.layerWeights =
+                    VU.replicate (inputWidth * outputWidth) 0.0
+                , LayerGraph.layerBias = VU.replicate outputWidth 0.0
+                }
+          (Nothing, Nothing) ->
+            LayerGraph.mkIdentityLayer name kind inputWidth mode
+          _ ->
+            Left
+              ( "layer graph node "
+                  <> name
+                  <> " must declare both weight and bias tensors or neither"
+              )
+
 tensorSpecFromBlob :: TensorBlob -> TensorSpec
 tensorSpecFromBlob tensor =
   TensorSpec
@@ -1899,24 +1899,17 @@ deriveExperimentHash resolvedDhall substrateFingerprint =
     SHA256.hash $
       Text.Encoding.encodeUtf8 (resolvedDhall <> "||" <> substrateFingerprint)
 
+-- | The weight-only payload variant tag (RL, AlphaZero, tuning, and generic
+-- rows).  It is carried in 'rawCheckpointVersion' so the checkpoint store can
+-- coarsely classify a decoded envelope, but the authoritative discriminant is
+-- the 'RawCheckpointBody' payload sum.
 checkpointWireVersion :: Word64
 checkpointWireVersion = 1
 
--- | The byte-preserving supervised-runtime envelope.  V1 remains the default
--- for every manifest which does not carry a refined runtime payload.
+-- | The supervised-graph payload variant tag (the supervised rows, whose body
+-- embeds the exact supervised runtime program).
 checkpointWireVersionV2 :: Word64
 checkpointWireVersionV2 = 2
-
--- | The Tier-2 layer-graph runtime envelope.  V3 serialises the exact trained
--- typed 'LayerGraph.LayerGraph' — every node's operator, kind, shapes, mode,
--- activation, and packed parameters — so a strict runtime can reload and
--- execute it through the layer-graph oneDNN kernels.  It reuses the V2
--- three-field outer envelope shape ('RawCheckpointEnvelopeV2') with this
--- distinct version, so decode dispatches on the shared Word64 version field
--- rather than a structural fall-through.  V1 (SHA-frozen) and V2 remain
--- byte-identical.
-checkpointWireVersionV3 :: Word64
-checkpointWireVersionV3 = 3
 
 checkpointManifestToRaw :: CheckpointManifest -> RawCheckpointManifest
 checkpointManifestToRaw manifest =
@@ -1978,212 +1971,153 @@ refineCheckpointManifest raw = do
       , manifestSupervisedRuntime = Nothing
       }
 
+-- | Encode a manifest through the one self-describing envelope.  The payload
+-- variant is selected by the presence of a refined supervised runtime; both
+-- variants share the outer body-digest shape, so there is no separate
+-- weight-only wire form and no persisted bytes are ever reinterpreted.
 encodeManifestCbor :: CheckpointManifest -> LazyByteString.ByteString
 encodeManifestCbor manifest =
-  case manifestSupervisedRuntime manifest of
-    Nothing ->
-      -- Do not change this branch without updating the frozen V1 golden.  In
-      -- particular, V1 continues to sort Flat layouts by tensor name.
-      serialise
+  let canonical = canonicalManifest manifest
+      (version, body) =
+        case manifestSupervisedRuntime canonical of
+          Nothing ->
+            ( checkpointWireVersion
+            , RawWeightOnlyBody (checkpointManifestToRaw canonical)
+            )
+          Just runtimePayload ->
+            ( checkpointWireVersionV2
+            , RawSupervisedGraphBody
+                RawCheckpointBodyV2
+                  { rawCheckpointV2Manifest = checkpointManifestToRaw canonical
+                  , rawCheckpointV2SupervisedRuntime =
+                      RuntimeArtifact.supervisedRuntimePayloadToRaw runtimePayload
+                  }
+            )
+      bodyBytes = LazyByteString.toStrict (serialise body)
+   in serialise
         RawCheckpointEnvelope
-          { rawCheckpointVersion = checkpointWireVersion
-          , rawCheckpointPayload = checkpointManifestToRaw (canonicalManifest manifest)
+          { rawCheckpointVersion = version
+          , rawCheckpointBodySha256 = SHA256.hash bodyBytes
+          , rawCheckpointBodyBytes = bodyBytes
           }
-    Just runtimePayload ->
-      let canonical = canonicalManifestV2 manifest
-          body =
-            RawCheckpointBodyV2
-              { rawCheckpointV2Manifest = checkpointManifestToRaw canonical
-              , rawCheckpointV2SupervisedRuntime =
-                  RuntimeArtifact.supervisedRuntimePayloadToRaw runtimePayload
-              }
-          bodyBytes = LazyByteString.toStrict (serialise body)
-       in serialise
-            RawCheckpointEnvelopeV2
-              { rawCheckpointV2Version = checkpointWireVersionV2
-              , rawCheckpointV2BodySha256 = SHA256.hash bodyBytes
-              , rawCheckpointV2BodyBytes = bodyBytes
-              }
 
 decodeManifestCbor :: LazyByteString.ByteString -> Either Text CheckpointManifest
 decodeManifestCbor payload =
   addressedManifest <$> decodeAddressedManifestCbor payload
 
--- ---------------------------------------------------------------------------
--- V3 layer-graph checkpoint (Sprint 235.1)
--- ---------------------------------------------------------------------------
-
-layerGraphToRawV3 :: LayerGraph.LayerGraph -> RawV3Graph
-layerGraphToRawV3 graph =
-  RawV3Graph
-    { rawV3GraphName = LayerGraph.layerGraphName graph
-    , rawV3GraphInputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphInputShape graph)
-    , rawV3GraphOutputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphOutputShape graph)
-    , rawV3GraphNodes = fmap nodeToRaw (LayerGraph.layerGraphNodes graph)
-    }
- where
-  nodeToRaw node =
-    RawV3LayerNode
-      { rawV3NodeName = LayerGraph.layerNodeName node
-      , rawV3NodeKind = LayerGraph.layerNodeKind node
-      , rawV3NodeOp = LayerGraph.layerNodeOp node
-      , rawV3NodeInputShape = LayerGraph.layerInputShape node
-      , rawV3NodeOutputShape = LayerGraph.layerOutputShape node
-      , rawV3NodeMode = LayerGraph.layerMode node
-      , rawV3NodeActivation = LayerGraph.layerActivation node
-      , rawV3NodeWeights = VU.toList . LayerGraph.layerWeights <$> LayerGraph.layerParameters node
-      , rawV3NodeBias = VU.toList . LayerGraph.layerBias <$> LayerGraph.layerParameters node
-      }
-
-rawV3ToLayerGraph :: RawV3Graph -> Either Text LayerGraph.LayerGraph
-rawV3ToLayerGraph raw = do
-  nodes <- traverse nodeFromRaw (rawV3GraphNodes raw)
-  pure
-    LayerGraph.LayerGraph
-      { LayerGraph.layerGraphName = rawV3GraphName raw
-      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape (rawV3GraphInputShape raw)
-      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape (rawV3GraphOutputShape raw)
-      , LayerGraph.layerGraphNodes = nodes
-      }
- where
-  nodeFromRaw n = do
-    params <- case (rawV3NodeWeights n, rawV3NodeBias n) of
-      (Nothing, Nothing) -> Right Nothing
-      (Just w, Just b) ->
-        Right (Just (LayerGraph.LayerParameters (VU.fromList w) (VU.fromList b)))
-      _ ->
-        Left ("V3 node " <> rawV3NodeName n <> " has mismatched weight/bias presence")
-    pure
-      LayerGraph.LayerNode
-        { LayerGraph.layerNodeName = rawV3NodeName n
-        , LayerGraph.layerNodeKind = rawV3NodeKind n
-        , LayerGraph.layerNodeOp = rawV3NodeOp n
-        , LayerGraph.layerInputShape = rawV3NodeInputShape n
-        , LayerGraph.layerOutputShape = rawV3NodeOutputShape n
-        , LayerGraph.layerMode = rawV3NodeMode n
-        , LayerGraph.layerActivation = rawV3NodeActivation n
-        , LayerGraph.layerParameters = params
-        }
-
--- | Encode a trained layer graph as a V3 checkpoint.  Reuses the shared
--- three-field outer envelope with 'checkpointWireVersionV3'; the V1/V2
--- encoders are untouched, so their frozen bytes are unaffected.
-encodeV3Checkpoint :: CheckpointManifest -> LayerGraph.LayerGraph -> LazyByteString.ByteString
-encodeV3Checkpoint manifest graph =
-  let body =
-        RawCheckpointBodyV3
-          { rawCheckpointV3Manifest = checkpointManifestToRaw (canonicalManifestV2 manifest)
-          , rawCheckpointV3Graph = layerGraphToRawV3 graph
-          }
-      bodyBytes = LazyByteString.toStrict (serialise body)
-   in serialise
-        RawCheckpointEnvelopeV2
-          { rawCheckpointV2Version = checkpointWireVersionV3
-          , rawCheckpointV2BodySha256 = SHA256.hash bodyBytes
-          , rawCheckpointV2BodyBytes = bodyBytes
-          }
-
--- | Decode a V3 checkpoint into its manifest and exact trained graph.  Fails
--- closed on a wrong version, digest mismatch, malformed body, or malformed
--- graph.
-decodeV3Checkpoint
-  :: LazyByteString.ByteString -> Either Text (CheckpointManifest, LayerGraph.LayerGraph)
-decodeV3Checkpoint payload = do
-  envelope <- decodeRawCheckpointEnvelopeV2 payload
-  if rawCheckpointV2Version envelope /= checkpointWireVersionV3
-    then Left "decodeV3Checkpoint: not a V3 checkpoint"
-    else do
-      let bodyBytes = rawCheckpointV2BodyBytes envelope
-      if SHA256.hash bodyBytes /= rawCheckpointV2BodySha256 envelope
-        then Left "decodeV3Checkpoint: body digest mismatch"
-        else case deserialiseOrFail (LazyByteString.fromStrict bodyBytes) of
-          Left _ -> Left "decodeV3Checkpoint: malformed V3 body"
-          Right body -> do
-            manifest <- refineCheckpointManifest (rawCheckpointV3Manifest body)
-            graph <- rawV3ToLayerGraph (rawCheckpointV3Graph body)
-            pure (manifest, graph)
-
--- | Structurally dispatch and retain the exact fetched representation.  A
--- successful structural decode selects a wire form permanently: semantic or
--- canonical validation failures never fall through to an older decoder.
+-- | Decode the one self-describing checkpoint envelope, retaining the exact
+-- fetched bytes and their identity.  There is no version cascade: a structural
+-- envelope failure is final, and the typed 'RawCheckpointBody' payload sum
+-- selects the weight-only or supervised-graph refinement.  A successful
+-- structural decode is permanent: semantic or canonical validation failures
+-- never fall through to an older decoder.
 decodeAddressedManifestCbor
   :: LazyByteString.ByteString -> Either Text AddressedCheckpointManifest
-decodeAddressedManifestCbor payload =
-  case decodeRawCheckpointEnvelopeV2 payload of
-    Right envelope -> decodeAddressedV2 payload envelope
-    Left v2StructuralFailure ->
-      case decodeRawCheckpointEnvelope payload of
-        Right envelope -> decodeAddressedV1 payload envelope
-        Left v1StructuralFailure ->
-          case decodeLegacyCheckpointManifest payload of
-            Right legacy -> decodeAddressedLegacy payload legacy
-            Left legacyStructuralFailure ->
-              Left
-                ( "invalid checkpoint DTO: V2 decode: "
-                    <> v2StructuralFailure
-                    <> "; V1 decode: "
-                    <> v1StructuralFailure
-                    <> "; legacy decode: "
-                    <> legacyStructuralFailure
-                )
-
-decodeAddressedV2
-  :: LazyByteString.ByteString
-  -> RawCheckpointEnvelopeV2
-  -> Either Text AddressedCheckpointManifest
-decodeAddressedV2 outerBytes envelope = do
-  if rawCheckpointV2Version envelope == checkpointWireVersionV2
-    then Right ()
-    else
-      Left
-        ( "unsupported V2 checkpoint version: "
-            <> Text.pack (show (rawCheckpointV2Version envelope))
-        )
+decodeAddressedManifestCbor outerBytes = do
+  envelope <-
+    case deserialiseOrFail outerBytes of
+      Left failure ->
+        Left ("invalid checkpoint envelope: " <> Text.pack (show failure))
+      Right envelope -> Right envelope
   if serialise envelope == outerBytes
     then Right ()
-    else Left "V2 checkpoint outer envelope is not in canonical CBOR form"
-  let bodyBytes = rawCheckpointV2BodyBytes envelope
-      expectedBodyDigest = rawCheckpointV2BodySha256 envelope
+    else Left "checkpoint outer envelope is not in canonical CBOR form"
+  let bodyBytes = rawCheckpointBodyBytes envelope
+      expectedBodyDigest = rawCheckpointBodySha256 envelope
       actualBodyDigest = SHA256.hash bodyBytes
   if StrictByteString.length expectedBodyDigest == 32
     then Right ()
-    else Left "V2 checkpoint body SHA-256 must contain exactly 32 raw bytes"
+    else Left "checkpoint body SHA-256 must contain exactly 32 raw bytes"
   if expectedBodyDigest == actualBodyDigest
     then Right ()
     else
       Left
-        ( "V2 checkpoint body SHA-256 mismatch: expected "
+        ( "checkpoint body SHA-256 mismatch: expected "
             <> hexBytes expectedBodyDigest
             <> ", got "
             <> hexBytes actualBodyDigest
         )
-  body <- decodeRawCheckpointBodyV2 bodyBytes
-  if LazyByteString.toStrict (serialise body) == bodyBytes
+  body <-
+    case deserialiseOrFail (LazyByteString.fromStrict bodyBytes) of
+      Left failure ->
+        Left ("invalid checkpoint body: " <> Text.pack (show failure))
+      Right decoded -> Right decoded
+  if LazyByteString.toStrict (serialise (body :: RawCheckpointBody)) == bodyBytes
     then Right ()
-    else Left "V2 checkpoint embedded body is not in canonical CBOR form"
+    else Left "checkpoint embedded body is not in canonical CBOR form"
+  case body of
+    RawWeightOnlyBody rawManifest ->
+      decodeAddressedWeightOnly outerBytes envelope rawManifest
+    RawSupervisedGraphBody supervisedBody ->
+      decodeAddressedSupervisedGraph
+        outerBytes
+        envelope
+        bodyBytes
+        actualBodyDigest
+        supervisedBody
+
+decodeAddressedWeightOnly
+  :: LazyByteString.ByteString
+  -> RawCheckpointEnvelope
+  -> RawCheckpointManifest
+  -> Either Text AddressedCheckpointManifest
+decodeAddressedWeightOnly outerBytes envelope rawManifest = do
+  if rawCheckpointVersion envelope == checkpointWireVersion
+    then Right ()
+    else
+      Left
+        ( "weight-only checkpoint payload carries version "
+            <> Text.pack (show (rawCheckpointVersion envelope))
+        )
+  manifest <- refineCheckpointManifest rawManifest
+  Right
+    AddressedCheckpointManifest
+      { addressedManifest = manifest
+      , addressedManifestWireVersion = checkpointWireVersion
+      , addressedManifestBytes = outerBytes
+      , addressedManifestSha = hexBytes (SHA256.hashlazy outerBytes)
+      , addressedManifestBodyBytes = Nothing
+      , addressedManifestBodySha = Nothing
+      }
+
+decodeAddressedSupervisedGraph
+  :: LazyByteString.ByteString
+  -> RawCheckpointEnvelope
+  -> StrictByteString.ByteString
+  -> StrictByteString.ByteString
+  -> RawCheckpointBodyV2
+  -> Either Text AddressedCheckpointManifest
+decodeAddressedSupervisedGraph outerBytes envelope bodyBytes actualBodyDigest body = do
+  if rawCheckpointVersion envelope == checkpointWireVersionV2
+    then Right ()
+    else
+      Left
+        ( "supervised-graph checkpoint payload carries version "
+            <> Text.pack (show (rawCheckpointVersion envelope))
+        )
   baseManifest <- refineCheckpointManifest (rawCheckpointV2Manifest body)
   runtimePayload <-
     mapLeftText
-      "invalid V2 supervised runtime payload: "
+      "invalid supervised runtime payload: "
       ( RuntimeArtifact.refineSupervisedRuntimePayload
           (rawCheckpointV2SupervisedRuntime body)
       )
   let manifest = baseManifest {manifestSupervisedRuntime = Just runtimePayload}
-      canonical = canonicalManifestV2 manifest
+      canonical = canonicalManifest manifest
       canonicalRawManifest = checkpointManifestToRaw canonical
       canonicalRawRuntime =
         RuntimeArtifact.supervisedRuntimePayloadToRaw runtimePayload
   if rawCheckpointV2Manifest body == canonicalRawManifest
     then Right ()
-    else Left "V2 checkpoint base manifest is not in canonical value order"
+    else Left "supervised checkpoint base manifest is not in canonical value order"
   if rawCheckpointV2SupervisedRuntime body == canonicalRawRuntime
     then Right ()
-    else Left "V2 checkpoint supervised runtime DTO is not canonical"
+    else Left "supervised checkpoint runtime DTO is not canonical"
   case validateSupervisedV2Bindings manifest runtimePayload of
     [] -> Right ()
     errors ->
       Left
-        ( "invalid V2 supervised checkpoint binding: "
+        ( "invalid supervised checkpoint binding: "
             <> Text.intercalate "; " errors
         )
   Right
@@ -2195,202 +2129,6 @@ decodeAddressedV2 outerBytes envelope = do
       , addressedManifestBodyBytes = Just bodyBytes
       , addressedManifestBodySha = Just (hexBytes actualBodyDigest)
       }
-
-decodeAddressedV1
-  :: LazyByteString.ByteString
-  -> RawCheckpointEnvelope
-  -> Either Text AddressedCheckpointManifest
-decodeAddressedV1 outerBytes envelope = do
-  if rawCheckpointVersion envelope == checkpointWireVersion
-    then Right ()
-    else
-      Left
-        ( "unsupported checkpoint version: "
-            <> Text.pack (show (rawCheckpointVersion envelope))
-        )
-  manifest <- refineCheckpointManifest (rawCheckpointPayload envelope)
-  Right
-    AddressedCheckpointManifest
-      { addressedManifest = manifest
-      , addressedManifestWireVersion = checkpointWireVersion
-      , addressedManifestBytes = outerBytes
-      , addressedManifestSha = hexBytes (SHA256.hashlazy outerBytes)
-      , addressedManifestBodyBytes = Nothing
-      , addressedManifestBodySha = Nothing
-      }
-
-decodeAddressedLegacy
-  :: LazyByteString.ByteString
-  -> LegacyCheckpointManifest
-  -> Either Text AddressedCheckpointManifest
-decodeAddressedLegacy outerBytes legacy = do
-  manifest <- refineLegacyCheckpointManifest legacy
-  Right
-    AddressedCheckpointManifest
-      { addressedManifest = manifest
-      , addressedManifestWireVersion = 0
-      , addressedManifestBytes = outerBytes
-      , addressedManifestSha = hexBytes (SHA256.hashlazy outerBytes)
-      , addressedManifestBodyBytes = Nothing
-      , addressedManifestBodySha = Nothing
-      }
-
-decodeRawCheckpointEnvelopeV2
-  :: LazyByteString.ByteString -> Either Text RawCheckpointEnvelopeV2
-decodeRawCheckpointEnvelopeV2 payload =
-  case deserialiseOrFail payload of
-    Left failure -> Left (Text.pack (show failure))
-    Right envelope -> Right envelope
-
-decodeRawCheckpointBodyV2
-  :: StrictByteString.ByteString -> Either Text RawCheckpointBodyV2
-decodeRawCheckpointBodyV2 payload =
-  case deserialiseOrFail (LazyByteString.fromStrict payload) of
-    Left failure -> Left ("invalid V2 checkpoint body: " <> Text.pack (show failure))
-    Right body -> Right body
-
-decodeRawCheckpointEnvelope
-  :: LazyByteString.ByteString -> Either Text RawCheckpointEnvelope
-decodeRawCheckpointEnvelope payload =
-  case deserialiseOrFail payload of
-    Left failure -> Left (Text.pack (show failure))
-    Right envelope -> Right envelope
-
-decodeLegacyCheckpointManifest
-  :: LazyByteString.ByteString -> Either Text LegacyCheckpointManifest
-decodeLegacyCheckpointManifest payload =
-  case deserialiseOrFail payload of
-    Left failure -> Left (Text.pack (show failure))
-    Right manifest -> Right manifest
-
-refineLegacyCheckpointManifest
-  :: LegacyCheckpointManifest -> Either Text CheckpointManifest
-refineLegacyCheckpointManifest legacy = do
-  candidate <- refineCheckpointManifest (legacyManifestToRawCandidate legacy)
-  traverse_ refineLegacyCompletedTraining (legacyManifestCompletedTraining legacy)
-  pure candidate
-
-legacyManifestToRawCandidate :: LegacyCheckpointManifest -> RawCheckpointManifest
-legacyManifestToRawCandidate legacy =
-  RawCheckpointManifest
-    { rawManifestId = legacyManifestId legacy
-    , rawManifestExperiment = legacyManifestExperiment legacy
-    , rawManifestModelFamily = legacyManifestModelFamily legacy
-    , rawManifestArchitecture = legacyManifestArchitecture legacy
-    , rawManifestPreprocessing = legacyManifestPreprocessing legacy
-    , rawManifestOutputDecoders = legacyManifestOutputDecoders legacy
-    , rawManifestWeightLayout = legacyManifestWeightLayout legacy
-    , rawManifestReplayPointers = legacyManifestReplayPointers legacy
-    , rawManifestTranscriptPointers = legacyManifestTranscriptPointers legacy
-    , rawManifestSubstrateArtifacts = legacyManifestSubstrateArtifacts legacy
-    , rawManifestTensors = legacyManifestTensors legacy
-    , rawManifestOptimizer = legacyManifestOptimizer legacy
-    , rawManifestRng = legacyManifestRng legacy
-    , rawManifestStep = legacyManifestStep legacy
-    , rawManifestMetrics = legacyManifestMetrics legacy
-    , rawManifestPlanId = Nothing
-    , rawManifestCompletedTraining = Nothing
-    , rawManifestInitialWeightHash = legacyManifestInitialWeightHash legacy
-    , rawManifestFinalWeightHash = legacyManifestFinalWeightHash legacy
-    , rawManifestUpdateCount = legacyManifestUpdateCount legacy
-    , rawManifestDatasetShaAtRead = legacyManifestDatasetShaAtRead legacy
-    , rawManifestParentManifestSha = legacyManifestParentManifestSha legacy
-    }
-
-refineLegacyCompletedTraining
-  :: LegacyCompletedTraining -> Either Text CompletedTraining
-refineLegacyCompletedTraining legacy = do
-  budget <- refineLegacyBudget (legacyCompletedBudget legacy)
-  planId <- legacyCompletionPlanId legacy
-  observations <- traverse refineLegacyObservation (legacyCompletedMetrics legacy)
-  completedTraining
-    planId
-    budget
-    (legacyCompletedObservedUnits legacy)
-    (legacyCompletedEvidence legacy)
-    observations
-    (legacyCompletedTensorBoard legacy)
-
-legacyCompletionPlanId :: LegacyCompletedTraining -> Either Text PlanId
-legacyCompletionPlanId legacy =
-  case planIdFromCanonicalText canonical of
-    Success planId -> Right planId
-    Failure errors -> Left ("invalid legacy completion plan identity: " <> Text.pack (show errors))
- where
-  budget = legacyCompletedBudget legacy
-  evidence = legacyCompletedEvidence legacy
-  canonical =
-    Text.intercalate
-      "\NUL"
-      [ "legacy-checkpoint-completion-v1"
-      , Text.pack (show (legacyBudgetKind budget))
-      , Text.pack (show (legacyBudgetTargetUnits budget))
-      , legacyBudgetUnitLabel budget
-      , maybe "seedless" (Text.pack . show) (legacyBudgetSeed budget)
-      , evidenceInitialWeightHash evidence
-      , evidenceFinalWeightHash evidence
-      , Text.pack (show (evidenceUpdateCount evidence))
-      , evidenceDatasetShaAtRead evidence
-      ]
-
-refineLegacyBudget :: LegacyTrainingBudget -> Either Text TrainingBudget
-refineLegacyBudget legacy = do
-  if legacyBudgetUnitLabel legacy `elem` legacyUnitAliases (legacyBudgetKind legacy)
-    then pure ()
-    else
-      Left
-        ( "legacy training budget unit mismatch for "
-            <> renderLegacyBudgetKind (legacyBudgetKind legacy)
-            <> ": "
-            <> legacyBudgetUnitLabel legacy
-        )
-  mkTrainingBudget
-    (legacyBudgetKind legacy)
-    (legacyBudgetTargetUnits legacy)
-    (legacyBudgetSeed legacy)
-
-legacyUnitAliases :: BudgetKind -> [Text]
-legacyUnitAliases kind =
-  case kind of
-    SupervisedEpochBudget -> ["epochs", "epoch", "fixed-epochs", "steps", "units"]
-    RlEnvironmentStepBudget -> ["environment-steps", "env-steps", "goal-conditioned-env-steps", "units"]
-    AlphaZeroSelfPlayBudget -> ["self-play-generations", "self-play-samples", "units"]
-    TuningTrialBudget -> ["trials", "units"]
-
-renderLegacyBudgetKind :: BudgetKind -> Text
-renderLegacyBudgetKind = Text.pack . show
-
-refineLegacyObservation
-  :: LegacyConvergenceObservation -> Either Text ConvergenceObservation
-refineLegacyObservation legacy = do
-  threshold <-
-    maybe
-      (Left ("legacy convergence metric is missing a criterion: " <> legacyMetricName legacy))
-      Right
-      (legacyMetricThreshold legacy)
-  observation <-
-    if legacyMetricName legacy == "arena_win_rate"
-      then
-        measureCriterionExcluding
-          (legacyMetricName legacy)
-          (legacyMetricGoal legacy)
-          threshold
-          0.5
-          1.0e-12
-          (legacyMetricValue legacy)
-      else
-        measureCriterion
-          (legacyMetricName legacy)
-          (legacyMetricGoal legacy)
-          threshold
-          (legacyMetricValue legacy)
-  if convergencePassed observation == legacyMetricPassed legacy
-    then Right observation
-    else
-      Left
-        ( "legacy stored convergence verdict contradicts criterion for "
-            <> legacyMetricName legacy
-        )
 
 validateFiniteManifest :: RawCheckpointManifest -> Either Text ()
 validateFiniteManifest raw = do
@@ -2462,6 +2200,12 @@ applyPointerWrite currentETag write
   | otherwise =
       PointerConflict (pointerWriteKey write)
 
+-- | The single canonicalizer for both payload variants.  Deterministic
+-- orderings apply to tensors, optimizer/RNG blobs, metrics, architecture specs,
+-- preprocessing, output decoders, replay/transcript/substrate pointers, and a
+-- 'NamedTensorWeightLayout'.  A 'FlatWeightLayout' is an execution-meaningful
+-- graph traversal, not a map, so its virtual slices keep graph order rather than
+-- being name-sorted; sorting them would sever slice-to-parameter identity.
 canonicalManifest :: CheckpointManifest -> CheckpointManifest
 canonicalManifest manifest =
   manifest
@@ -2473,25 +2217,16 @@ canonicalManifest manifest =
     , manifestPreprocessing =
         sortOn preprocessingName (fmap canonicalPreprocessing (manifestPreprocessing manifest))
     , manifestOutputDecoders = sortOn outputDecoderName (manifestOutputDecoders manifest)
-    , manifestWeightLayout = canonicalWeightLayout (manifestWeightLayout manifest)
+    , manifestWeightLayout =
+        case manifestWeightLayout manifest of
+          FlatWeightLayout specs -> FlatWeightLayout specs
+          NamedTensorWeightLayout tensors ->
+            NamedTensorWeightLayout (sortOn tensorSpecName tensors)
     , manifestReplayPointers = sortOn artifactPointerSortKey (manifestReplayPointers manifest)
     , manifestTranscriptPointers = sortOn artifactPointerSortKey (manifestTranscriptPointers manifest)
     , manifestSubstrateArtifacts =
         sortOn substrateArtifactSortKey (manifestSubstrateArtifacts manifest)
     }
-
--- | V2 shares every deterministic V1 ordering rule except the Flat virtual
--- layout.  Those specs are an execution-meaningful graph traversal, not a map,
--- so sorting them would sever slice-to-parameter identity.
-canonicalManifestV2 :: CheckpointManifest -> CheckpointManifest
-canonicalManifestV2 manifest =
-  let canonical = canonicalManifest manifest
-   in canonical
-        { manifestWeightLayout =
-            case manifestWeightLayout manifest of
-              FlatWeightLayout specs -> FlatWeightLayout specs
-              NamedTensorWeightLayout _ -> manifestWeightLayout canonical
-        }
 
 canonicalArchitecture :: ArchitectureMetadata -> ArchitectureMetadata
 canonicalArchitecture architecture =
@@ -2505,14 +2240,6 @@ canonicalPreprocessing preprocessing =
   preprocessing
     { preprocessingInputs = sortOn tensorSpecName (preprocessingInputs preprocessing)
     }
-
-canonicalWeightLayout :: WeightLayout -> WeightLayout
-canonicalWeightLayout layout =
-  case layout of
-    FlatWeightLayout tensors ->
-      FlatWeightLayout (sortOn tensorSpecName tensors)
-    NamedTensorWeightLayout tensors ->
-      NamedTensorWeightLayout (sortOn tensorSpecName tensors)
 
 artifactPointerSortKey :: ArtifactPointer -> (Text, Text, Maybe Text)
 artifactPointerSortKey pointer =

@@ -39,45 +39,81 @@ manifest.
 **Real trained weights only.** Checkpoint payloads carry weights produced by the
 declared training workflow with correct per-tensor shapes; synthetic,
 zero-padded, byte-identical-across-models, randomly initialized, or untrained
-weight payloads are prohibited. The 2026-06-26 audit reopened the demo and
-all-model runtime closure because seeded and smoke checkpoints are not enough:
-inference must require a trained-artifact witness refined from completed run
+weight payloads are prohibited. Seeded and smoke checkpoints are not enough:
+inference requires a trained-artifact witness refined from completed run
 evidence. See
 [Typed Run Contract](run_contract.md) and
 [Training Metrics and Data Splits](training_metrics_and_splits.md).
 
-## Frozen V1 and Exact Supervised V2
+## Current Status
 
-The V1 encoder is a compatibility surface, not a template for new supervised
-artifacts. Its golden fixture is exactly **134 bytes**, with SHA-256
-`30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
-Its declaration, field order, canonicalization, encoder, and decoder remain
-frozen. Historical supervised V1 is decodable for inspection and resume, but
-it has no exact executable supervised runtime and is categorically
-inference-ineligible. Generic V1 writing remains available for the retained RL,
-AlphaZero, tuning, and generic compatibility paths; its public guards reject an
-authoritative supervised ProductRow, a supervised completion budget, or a
-reserved supervised tensor name. The Product-only V1 writer narrows that
-surface further: completed publication accepts only a canonical
-non-supervised ProductRow and binds already-persisted companion evidence into
-the immutable manifest before advancing `latest`. Store may refine such an
-exact V1 graph into `AdmittedCompletedCheckpoint`; non-product V1 and every
-supervised V1 remain inspection/resume-only at the completed Product boundary.
+**Implemented today (Phase `235` closed 2026-07-27).** The checkpoint wire is
+**one self-describing envelope**: a payload-variant version, the raw 32-byte
+SHA-256 of the exact canonical body bytes, and those body bytes. The body is the
+typed `RawCheckpointBody` payload sum with two variants — **weight-only** (the
+bare canonical manifest, for the RL, AlphaZero, tuning, and generic rows) and
+**supervised-graph** (the manifest plus the exact supervised runtime program, for
+the eleven supervised rows). A single `encodeManifestCbor` arm, a single
+`decodeAddressedManifestCbor` that dispatches on the payload sum (no version
+cascade or fall-through), and one `canonicalManifest` serve every row. The
+byte-frozen V1 golden fixture, the dead V3 `LayerGraph` encoder, the retained
+pre-Sprint-`10.12` legacy decoder, and the parallel `canonicalManifestV2` were
+all retired; checkpoints are regenerated deterministically from current source,
+so no persisted bytes are reinterpreted. Store admission is likewise **one path**
+(Phase `236` closed 2026-07-27): a decode with no per-version allow-list, then a
+single classify-on-payload-variant — a supervised-graph checkpoint is admissible
+only with no companion pointer, a weight-only checkpoint routes through the
+authoritative non-supervised ProductRow companion rules. The dormant
+`LayerGraph`-from-checkpoint reconstruction helpers were deleted.
 
-Supervised V2 is a distinct, byte-preserving envelope:
+**Target (Phases `237`–`245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The supervised-graph payload becomes the trained `LayerGraph` itself (Phases
+`237`–`239`), replacing the embedded `SupervisedRuntime` served representation
+described below; the V2 `SupervisedRuntime` read/serving path
+(`loadSupervisedRuntimeFromCheckpoint`) is removed in Phase `237` when serving is
+rewired onto the IR. Until those phases close, the supervised-graph payload carries
+that `SupervisedRuntime` program; the reader/serving migration onto the IR is a
+target contract, not yet a current claim.
 
-1. the canonical body contains the raw manifest plus the refined supervised
-   runtime DTO;
-2. the outer envelope stores version `2`, the raw 32-byte SHA-256 of those exact
-   body bytes, and those same body bytes; and
-3. the object address is SHA-256 of the exact final outer-envelope bytes.
+## The Self-Describing Checkpoint Envelope
 
-`AddressedCheckpointManifest` retains the exact fetched outer bytes and, for
-V2, exact body bytes plus both identities behind a hidden constructor. Decoding
-checks canonical outer bytes, the embedded raw body digest, canonical body
-bytes, semantic refinement, and cross-field bindings. Once a wire form is
-structurally recognized, semantic failure is final: V2 cannot fall through to
-V1, and V1 cannot fall through to the retained legacy decoder.
+Every checkpoint serializes through one outer envelope: a payload-variant
+version, the raw 32-byte SHA-256 of the exact canonical body bytes, and those
+body bytes. The body is the typed `RawCheckpointBody` payload sum, and decode
+dispatches on that sum — there is no version cascade and no fall-through.
+
+The **weight-only** payload is the bare canonical manifest, carried at the
+weight-only variant tag. It serves the RL, AlphaZero, tuning, and generic rows,
+has no embedded supervised runtime, and is categorically inference-ineligible on
+the supervised path. Generic weight-only writing rejects an authoritative
+supervised ProductRow, a supervised completion budget, or a reserved supervised
+tensor name. The Product-only weight-only writer narrows that surface further:
+completed publication accepts only a canonical non-supervised ProductRow and
+binds already-persisted companion evidence into the immutable manifest before
+advancing `latest`. Store may refine such an exact weight-only graph into
+`AdmittedCompletedCheckpoint`; non-product and every supervised weight-only
+manifest remain inspection/resume-only at the completed Product boundary.
+
+The **supervised-graph** payload (the eleven supervised rows) carries, in one
+canonical body:
+
+1. the raw manifest plus the refined supervised runtime DTO; the outer envelope
+   stores the raw 32-byte SHA-256 of those exact body bytes and those same body
+   bytes; and
+2. the object address is SHA-256 of the exact final outer-envelope bytes.
+
+`AddressedCheckpointManifest` retains the exact fetched outer bytes and, for the
+supervised-graph payload, exact body bytes plus both identities behind a hidden
+constructor. Decoding checks canonical outer bytes, the embedded raw body digest,
+canonical body bytes, semantic refinement, and cross-field bindings. A structural
+decode is permanent: once the payload sum selects a variant, a semantic failure
+never falls through to another decoder.
+
+The supervised-graph runtime program and its closed origin contract (immediately
+below) are the artifact formerly serialized as the "supervised V2" body; where
+the prose that follows says "supervised V2" it means this supervised-graph
+payload. Phases `237`–`239` will later replace that embedded `SupervisedRuntime`
+program with the trained `LayerGraph` itself.
 
 The supervised V2 body carries the complete executable program returned by
 training: runtime family and task, exact input/output transforms, ordered
@@ -426,14 +462,19 @@ supervised runtime payload. The CBOR boundary does not serialize that refined
 domain value directly. Its persisted values are forgeable raw DTOs which must
 be refined on decode.
 
-V1 retains the frozen envelope shape:
+The one self-describing envelope carries a typed payload sum:
 
 ```haskell
 -- File: src/JitML/Checkpoint/Format.hs
 data RawCheckpointEnvelope = RawCheckpointEnvelope
-  { rawCheckpointVersion :: !Word64
-  , rawCheckpointPayload :: !RawCheckpointManifest
+  { rawCheckpointVersion    :: !Word64      -- payload-variant tag (1 weight-only, 2 supervised-graph)
+  , rawCheckpointBodySha256 :: !ByteString  -- raw 32-byte SHA-256 of the exact body bytes
+  , rawCheckpointBodyBytes  :: !ByteString  -- serialise (RawCheckpointBody)
   }
+
+data RawCheckpointBody
+  = RawWeightOnlyBody RawCheckpointManifest
+  | RawSupervisedGraphBody RawCheckpointBodyV2
 
 data RawCheckpointManifest = RawCheckpointManifest
   { rawManifestPlanId            :: !(Maybe Text)
@@ -442,18 +483,10 @@ data RawCheckpointManifest = RawCheckpointManifest
 }
 ```
 
-V2 serializes a canonical `RawCheckpointBodyV2` containing that raw manifest
-plus `RawSupervisedRuntimePayload`, then embeds its exact bytes in this outer
-shape:
-
-```haskell
--- File: src/JitML/Checkpoint/Format.hs
-data RawCheckpointEnvelopeV2 = RawCheckpointEnvelopeV2
-  { rawCheckpointV2Version    :: !Word64
-  , rawCheckpointV2BodySha256 :: !ByteString
-  , rawCheckpointV2BodyBytes  :: !ByteString
-  }
-```
+The weight-only body is the bare `RawCheckpointManifest`; the supervised-graph
+body is a canonical `RawCheckpointBodyV2` containing that raw manifest plus
+`RawSupervisedRuntimePayload`. Both are wrapped in the one envelope above, whose
+`rawCheckpointBodySha256` independently identifies the exact body bytes.
 
 The optional fields make candidate and partial checkpoints representable for
 inspection and resume. They do not make completion optional at the completed

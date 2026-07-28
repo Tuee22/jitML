@@ -27,6 +27,7 @@ import Test.Tasty.HUnit
   )
 
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as Store
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Codegen.RuntimeOperationsCpu qualified as RuntimeOperationsCodegen
 import JitML.Codegen.SourceFile (SourceFile (..))
@@ -34,9 +35,12 @@ import JitML.Engines.Engine qualified as Engine
 import JitML.Engines.RuntimeOperations qualified as RuntimeOperations
 import JitML.Engines.RuntimeOperationsDevice qualified as RuntimeOperationsDevice
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Mlp qualified as Mlp
 import JitML.Plan.Plan (Validation (..), planIdText)
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.SL.Architecture qualified as Architecture
+import JitML.SL.Classifier (LabeledExample (..))
 import JitML.SL.RuntimeArtifact qualified as Runtime
 import JitML.Substrate (Substrate (..))
 
@@ -44,7 +48,212 @@ supervisedRuntimeArtifactTests :: TestTree
 supervisedRuntimeArtifactTests =
   testGroup
     "SupervisedRuntimeArtifact"
-    [ testCase "isolated JMW1 codec preserves the frozen bytes exactly" $ do
+    [ testCase "Sprint 237.1: flat-family IR serving reproduces the MLP reference" $ do
+        -- A dense classifier LayerGraph (hidden tanh + linear output) served via
+        -- Architecture.serveClassifierGraph* must reproduce the reference
+        -- Mlp.mlpForward accuracy/cross-entropy over the semantic-prefix classes,
+        -- confirming the Phase 237 IR serving path is faithful to the trained MLP.
+        let shape = Mlp.MlpShape 4 3 3
+            params = Mlp.mlpInit shape 11
+            classes = 2 :: Int
+            feats =
+              [ VU.fromList [0.3, -0.7, 0.1, 0.9]
+              , VU.fromList [-0.2, 0.5, -0.4, 0.6]
+              , VU.fromList [0.8, 0.1, -0.9, 0.2]
+              ]
+            labels = [0, 1, 0]
+            dataset = zipWith LabeledExample feats labels
+            refLogits f = Mlp.forwardOutput (Mlp.mlpForward params f)
+            refPred f = VU.maxIndex (VU.take classes (refLogits f))
+            refCEOne f l =
+              let probs = Mlp.softmax (VU.take classes (refLogits f))
+               in negate (log (max 1.0e-12 (probs VU.! l)))
+            refAcc =
+              fromIntegral (length (filter id (zipWith (\f l -> refPred f == l) feats labels)))
+                / fromIntegral (length feats)
+                :: Double
+            refCE = sum (zipWith refCEOne feats labels) / fromIntegral (length feats)
+        graph <-
+          either (assertFailure . ("mlpLayerGraph: " <>)) pure (Mlp.mlpLayerGraph params)
+        servedAcc <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (Architecture.serveClassifierGraphAccuracy classes graph dataset)
+        servedCE <-
+          either
+            (assertFailure . Text.unpack)
+            pure
+            (Architecture.serveClassifierGraphCrossEntropy classes graph dataset)
+        servedAcc @?= refAcc
+        assertBool
+          ("IR-served cross-entropy " <> show servedCE <> " differs from reference " <> show refCE)
+          (abs (servedCE - refCE) < 1.0e-9)
+    , testCase "Sprint 237.1: correct-operators ViT graph builds and serves via runLayerGraph" $ do
+        -- The config-driven Vision Transformer graph (patch-embed -> LayerNorm ->
+        -- multi-head attention with W_O -> GeGLU -> classifier) must build with
+        -- chained shapes for the CIFAR-10 config (3*32*32 = 3072 input, 10 classes
+        -- + 1 = 11 output) and execute end to end through the typed IR executor,
+        -- confirming the correct-operators serving path Phase 237/238 target.
+        let inputs = 3072
+            outputs = 11
+            latent = 64
+        graph <-
+          either
+            (assertFailure . ("correctOpsVitGraph: " <>) . Text.unpack)
+            pure
+            (Architecture.correctOpsVitGraph "cifar10-vit" inputs outputs 17 latent)
+        let input = VU.generate inputs (\i -> 0.01 * sin (fromIntegral i))
+        tape <-
+          either
+            (assertFailure . ("runLayerGraph: " <>) . Text.unpack)
+            pure
+            (LayerGraph.runLayerGraph graph input)
+        let logits = LayerGraph.layerTapeOutput tape
+        VU.length logits @?= outputs
+        assertBool
+          "ViT graph logits must be finite"
+          (VU.all (\v -> not (isNaN v) && not (isInfinite v)) logits)
+    , testCase "Sprint 237.1: correct-operators LeNet conv graph builds and serves via runLayerGraph" $ do
+        -- The config-driven LeNet-style graph (ConvOp stem -> global-avg PoolOp ->
+        -- classifier) must build with chained shapes for the CIFAR-10 config and
+        -- execute through the typed IR convolution + pooling operators.
+        let inputs = 3072
+            outputs = 11
+            convChannels = 8
+        graph <-
+          either
+            (assertFailure . ("correctOpsConvLeNetGraph: " <>) . Text.unpack)
+            pure
+            (Architecture.correctOpsConvLeNetGraph "cifar10-lenet" inputs outputs 23 convChannels)
+        let input = VU.generate inputs (\i -> 0.02 * cos (fromIntegral i))
+        tape <-
+          either
+            (assertFailure . ("runLayerGraph: " <>) . Text.unpack)
+            pure
+            (LayerGraph.runLayerGraph graph input)
+        let logits = LayerGraph.layerTapeOutput tape
+        VU.length logits @?= outputs
+        assertBool
+          "LeNet conv graph logits must be finite"
+          (VU.all (\v -> not (isNaN v) && not (isInfinite v)) logits)
+    , testCase "Phase 239: supervised-graph checkpoint read path reproduces the runLayerGraph oracle" $ do
+        -- A representative trained dense graph (two DenseOp affine nodes around a
+        -- parameterless LayerNorm-tagged IdentityOp passthrough) is projected to
+        -- checkpoint LayerGraphMetadata, then reconstructed from that metadata and
+        -- re-injected with its graph-ordered parameter vector.  The Store/engine
+        -- read path (reconstruct-from-metadata + inject weights + runLayerGraph)
+        -- must reproduce the pure runLayerGraph oracle exactly, and the full
+        -- backend serving helper must reproduce it end to end under identity
+        -- input/output transforms.
+        node1 <-
+          expectRight
+            ( LayerGraph.mkAffineLayer
+                "oracle-dense-1"
+                LayerGraph.DenseLayer
+                2
+                4
+                LayerGraph.ReluActivation
+                LayerGraph.TrainingMode
+                LayerGraph.LayerParameters
+                  { LayerGraph.layerWeights =
+                      VU.fromList [0.1, -0.2, 0.3, 0.05, -0.15, 0.25, 0.2, -0.1]
+                  , LayerGraph.layerBias = VU.fromList [0.01, -0.02, 0.03, 0.0]
+                  }
+            )
+        node2 <-
+          expectRight
+            ( LayerGraph.mkIdentityLayer
+                "oracle-layernorm"
+                (LayerGraph.NormLayer LayerGraph.LayerNorm)
+                4
+                LayerGraph.TrainingMode
+            )
+        node3 <-
+          expectRight
+            ( LayerGraph.mkAffineLayer
+                "oracle-dense-2"
+                LayerGraph.DenseLayer
+                4
+                2
+                LayerGraph.LinearActivation
+                LayerGraph.TrainingMode
+                LayerGraph.LayerParameters
+                  { LayerGraph.layerWeights =
+                      VU.fromList [0.4, -0.3, 0.2, -0.1, 0.15, 0.25, -0.35, 0.05]
+                  , LayerGraph.layerBias = VU.fromList [0.02, -0.03]
+                  }
+            )
+        let graph =
+              LayerGraph.LayerGraph
+                { LayerGraph.layerGraphName = "oracle"
+                , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [2]
+                , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                , LayerGraph.layerGraphNodes = [node1, node2, node3]
+                }
+            meta = Checkpoint.layerGraphMetadataFromGraph graph
+            parameters = LayerGraph.graphParameterVector graph
+            input = VU.fromList [0.7, -0.4]
+        -- The metadata-derived parameter count is the graph-ordered blob count.
+        Checkpoint.layerGraphMetadataParameterCount meta @?= VU.length parameters
+        -- Reconstruct structure from metadata, then re-inject the trained vector.
+        skeleton <- expectRight (Checkpoint.layerGraphFromMetadata meta)
+        injected <- expectRight (LayerGraph.replaceGraphParameterVector skeleton parameters)
+        injected @?= graph
+        oracleTape <- expectRight (LayerGraph.runLayerGraph graph input)
+        injectedTape <- expectRight (LayerGraph.runLayerGraph injected input)
+        LayerGraph.layerTapeOutput injectedTape @?= LayerGraph.layerTapeOutput oracleTape
+        -- Drive the actual Store read path used by the engines.
+        let oracleRuntime =
+              denseRuntime
+                { Runtime.rawSupervisedRuntimeInputTransform = Runtime.RawIdentityInput 2
+                , Runtime.rawSupervisedRuntimeOutputTransform = Runtime.RawIdentityOutput
+                , Runtime.rawSupervisedRuntimeLayers =
+                    [ Runtime.RawDenseLayer
+                        "classifier"
+                        (Runtime.RawRuntimeMlpShape 2 2 2)
+                    ]
+                }
+            initialBytes =
+              WeightCodec.encodeJmw1 (replicate (VU.length parameters) 0.0)
+            finalBytes = WeightCodec.encodeJmw1 (VU.toList parameters)
+        payload <-
+          expectRight (payloadFor oracleRuntime initialBytes finalBytes)
+        let loaded =
+              Store.LoadedWeightTensor
+                { Store.loadedWeightTensor =
+                    Checkpoint.TensorBlob
+                      "supervised.weights"
+                      [VU.length parameters]
+                      "oracle-blob-key"
+                , Store.loadedWeightValues = VU.toList parameters
+                , Store.loadedWeightJmw1Bytes = LazyByteString.toStrict finalBytes
+                }
+            manifest =
+              (Checkpoint.emptyManifest "oracle-checkpoint" "oracle-experiment" [Store.loadedWeightTensor loaded])
+                { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+                , Checkpoint.manifestArchitecture =
+                    Checkpoint.ArchitectureMetadata
+                      { Checkpoint.architectureName = "oracle"
+                      , Checkpoint.architectureModelFamily = Checkpoint.SupervisedModelFamily
+                      , Checkpoint.architectureInputs = []
+                      , Checkpoint.architectureOutputs = []
+                      , Checkpoint.architectureLayerGraph = Just meta
+                      }
+                , Checkpoint.manifestSupervisedRuntime = Just payload
+                }
+        (_, storeInjected) <-
+          expectRight (Store.reconstructSupervisedGraphFromCheckpoint manifest [loaded])
+        storeInjected @?= graph
+        served <-
+          Store.runSupervisedGraphCheckpointInference
+            (testBackend exactVisionCallback)
+            manifest
+            [loaded]
+            (VU.toList input)
+        servedOutput <- expectRight served
+        servedOutput @?= VU.toList (LayerGraph.layerTapeOutput oracleTape)
+    , testCase "isolated JMW1 codec preserves the frozen bytes exactly" $ do
         let values = [0.0, -1.25, pi, 1.0e-200]
             bytes = WeightCodec.encodeJmw1 values
         bytes

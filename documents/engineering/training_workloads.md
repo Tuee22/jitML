@@ -27,6 +27,18 @@ persisted manifest and physical payload graph. A primitive budget record,
 declared metric, write receipt, caller-held completion, checkpoint pointer, or
 browser event cannot independently mint completion or inference eligibility.
 
+## Current Status
+
+**Implemented today.** The supervised token-mix / attention / LayerNorm workloads
+execute the pre-Sprint-23.1 served algebra frozen into the exact V2 runtime
+(single-head attention without a `W_O` output projection or transformer residual).
+
+**Target (Phases `237`–`238`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The served math is the finite-difference-validated typed `LayerGraph` IR
+(multi-head + `W_O` + residual `Y = X + O`, affine LayerNorm), inherited once the
+IR becomes the supervised executor. Until those phases close, the frozen V2 algebra
+described below is the implemented reality and the IR math is a target contract.
+
 ## SL Training Loops
 
 `src/JitML/SL/` owns the supervised-learning surface. The current worktree has
@@ -148,7 +160,7 @@ then binds its substrate, experiment, epoch/update budget, and seed. The
 addressed composite origin binds those row semantics; `PlanId` alone does not.
 The generic origin is not permitted to occupy a ProductRow experiment hash.
 The complete wire and eligibility rules live in
-[Checkpoint Format → Frozen V1 and Exact Supervised V2](checkpoint_format.md#frozen-v1-and-exact-supervised-v2).
+[Checkpoint Format → The Self-Describing Checkpoint Envelope](checkpoint_format.md#the-self-describing-checkpoint-envelope).
 
 Generic execution consumes the plan seed rather than merely persisting it.
 `supervisedExecutionSeed` requires exactly one refined plan seed, rejects an

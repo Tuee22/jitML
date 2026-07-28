@@ -9,21 +9,25 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-07-26). The per-example oneDNN layer kernels are in
-place and were validated on the `linux-cpu` container lane 2026-07-25 (`jitml test
-jitml-backends --linux-cpu` **24 / 24**, `jitml test jitml-unit --linux-cpu`
-**766 / 766**, `jitml check-code` **ok**; retained under
-[Historical Validation](#historical-validation)). The IR-single-owner redesign
-adds a new obligation on this phase's owned surface — **batched** oneDNN
-forward/backward — so that layer-graph training is tractable for the vision rows
-once [Phase 235](phase-235-one-self-describing-checkpoint-envelope.md) onward make
-the typed `LayerGraph` IR the supervised executor. The unmet obligation is
-enumerated in [Remaining Work](#remaining-work). Reopening to `Active` (not
-`Blocked`) because the prerequisite Phase `233` is Done.
+✅ **Done** (batched kernels landed + validated 2026-07-27). The oneDNN layer
+kernels compute the update-critical forward/backward over a **batch** of N
+examples in one device call per layer: the generated C ABI (`jitml_layer_forward`
+/ `jitml_layer_backward_data` / `jitml_layer_backward_weights`) and the
+`LayerGraphOneDnn` dispatch carry a batch dimension, `jitml_matmul_backward_weights`
+reduces the weight/bias gradient over the batch (transposed-`d_pre` GEMM
+contraction over N), and `convolution_backward_weights` reduces natively — so the
+former per-example device round-trips collapse to one batched call per layer,
+making layer-graph training tractable once [Phase 235](phase-235-one-self-describing-checkpoint-envelope.md)
+onward make the typed `LayerGraph` IR the supervised executor. Validated on the
+`linux-cpu` container lane 2026-07-27: `jitml test jitml-backends --linux-cpu`
+**26 / 26** (including "batched LayerGraph oneDNN gradient matches the per-example
+summed oracle (Phase 234)"), `jitml test jitml-unit --linux-cpu` **771 / 771**,
+and `jitml check-code` **ok**. Earlier per-example kernel evidence is retained
+under [Historical Validation](#historical-validation).
 
-## Sprint 234.1: oneDNN Layer Kernels for Training [🔄 Active]
+## Sprint 234.1: oneDNN Layer Kernels for Training [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/Numerics/MlpOneDnn.hs`, `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/Engines/OneDnnRuntime.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -53,19 +57,15 @@ the backend computes update-critical gradients rather than only the pure oracle.
   executed the update-critical operations (device evidence for the product row).
 - Runtime absence of `libdnnl` fails the lane up front; no layer kernel passes
   vacuously.
-
-### Remaining Work
-
-- **Batched oneDNN forward/backward kernels.** The current
-  `JitML.Numerics.LayerGraphOneDnn` device path evaluates one example at a time.
-  Extend the `jitml_layer_forward` / `jitml_layer_backward_data` /
-  `jitml_layer_backward_weights` ABI and its `LayerGraphOneDnn` dispatch to run
-  over a batch dimension (oneDNN batched primitives), so IR training converges the
-  vision rows within the single-threaded `linux-cpu` lane's time budget once the
-  IR becomes the supervised executor downstream. Backend-vs-pure-oracle agreement
-  and per-node device evidence must continue to hold, now over a batch. This is
-  the only unmet obligation; the per-example kernels above stay valid for the
-  surface they exercised. Close with the `### Validation` gate below.
+- The generated ABI and the `LayerGraphOneDnn` dispatch run forward/backward over
+  a **batch** of N examples in one device call per layer (oneDNN batched matmul
+  and convolution): `jitml_matmul_backward_weights` reduces the weight/bias
+  gradient over the batch and `convolution_backward_weights` reduces natively,
+  replacing the former per-example device round-trips. The pure `Autodiff` oracle
+  still runs per example to seed each layer's pre-activation gradient. A backends
+  test asserts the batched device gradient reproduces the per-example summed
+  oracle within tolerance, with one evidence entry per parameterized node (not per
+  example); the training loop takes one batched device call per mini-batch.
 
 ### Validation
 

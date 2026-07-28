@@ -31,12 +31,14 @@ import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format
-  ( CheckpointManifest (..)
+  ( ArchitectureMetadata (..)
+  , CheckpointManifest (..)
   , validateSupervisedRuntimePlanForSubstrate
   )
 import JitML.Checkpoint.Store
   ( LoadedWeightTensor (..)
   , loadSupervisedRuntimeFromCheckpoint
+  , runSupervisedGraphCheckpointInference
   )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
@@ -49,7 +51,6 @@ import JitML.Engines.Engine
   ( KernelHandle (..)
   , engineForSubstrate
   )
-import JitML.Engines.LayerGraphCheckpoint (runLayerGraphCheckpointForwardOneDnn)
 import JitML.Engines.Loader
   ( ensureKernelArtifact
   , kernelArtifactCompileCommand
@@ -197,36 +198,44 @@ runLinuxCpuWeightedCheckpointInference
 runLinuxCpuWeightedCheckpointInference env manifest weights input = do
   case traverse (validateSupervisedRuntimePlanForSubstrate LinuxCPU) (manifestSupervisedRuntime manifest) of
     Left err -> pure (Left ("V2 linux-cpu PlanId incompatibility: " <> err))
-    Right _ ->
-      case loadSupervisedRuntimeFromCheckpoint manifest weights of
-        Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
-        Right (Just runtime) ->
-          fmap VU.toList
-            <$> RuntimeArtifact.executeLoadedRuntime
-              (linuxCpuRuntimeBackend env)
-              runtime
-              (VU.fromList input)
-        Right Nothing -> do
-          graphResult <- runLayerGraphCheckpointForwardOneDnn env manifest weights input
-          case graphResult of
-            Just result -> pure result
-            Nothing -> do
-              mlpResult <- runMlpCheckpointForwardWith (mlpForwardOneDnn env) manifest weights input
-              case mlpResult of
-                Just result -> pure result
-                Nothing -> do
-                  let flatWeights = flattenLoadedWeights weights
-                  kernelResult <-
-                    runLinuxCpuWeightedFamilyKernel
-                      env
-                      Dense2D
-                      (fmap realToFrac input)
-                      flatWeights
-                  pure $
-                    case kernelResult of
-                      Left err -> Left err
-                      Right kernelRun ->
-                        Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
+    Right _
+      -- Phase 239: a supervised-graph checkpoint serves the trained dense
+      -- LayerGraph directly (reconstruct + inject + runLayerGraph); the token
+      -- runtime engine path is retired for these manifests.
+      | Just _ <- architectureLayerGraph (manifestArchitecture manifest) ->
+          runSupervisedGraphCheckpointInference
+            (linuxCpuRuntimeBackend env)
+            manifest
+            weights
+            input
+      | otherwise ->
+          case loadSupervisedRuntimeFromCheckpoint manifest weights of
+            Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
+            Right (Just runtime) ->
+              fmap VU.toList
+                <$> RuntimeArtifact.executeLoadedRuntime
+                  (linuxCpuRuntimeBackend env)
+                  runtime
+                  (VU.fromList input)
+            Right Nothing -> mlpFallback
+ where
+  mlpFallback = do
+    mlpResult <- runMlpCheckpointForwardWith (mlpForwardOneDnn env) manifest weights input
+    case mlpResult of
+      Just result -> pure result
+      Nothing -> do
+        let flatWeights = flattenLoadedWeights weights
+        kernelResult <-
+          runLinuxCpuWeightedFamilyKernel
+            env
+            Dense2D
+            (fmap realToFrac input)
+            flatWeights
+        pure $
+          case kernelResult of
+            Left err -> Left err
+            Right kernelRun ->
+              Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
 
 -- | Complete Linux-CPU ownership of the persisted V2 graph.  The numerical
 -- MLP callback is the real oneDNN substrate path; every structural operation

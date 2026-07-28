@@ -1,11 +1,11 @@
 # jitML
 
-**Status**: Authoritative source
+**Status**: Governed orientation document
 **Supersedes**: N/A
-**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/apple_silicon_metal_headless_builds.md, documents/engineering/numerical_core.md, documents/engineering/product_completion_contract.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md, documents/engineering/run_contract.md
+**Canonical homes**: [documents/README.md](documents/README.md), [documents/documentation_standards.md](documents/documentation_standards.md), [DEVELOPMENT_PLAN/README.md](DEVELOPMENT_PLAN/README.md), [documents/engineering/checkpoint_format.md](documents/engineering/checkpoint_format.md), [documents/engineering/numerical_core.md](documents/engineering/numerical_core.md)
 **Generated sections**: command-tree, command-registry
 
-> **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
+> **Purpose**: Operator-facing orientation for jitML, pointing to the canonical engineering and plan homes. (Body architecture content is being migrated into `documents/` homes per the documentation doctrine; see the follow-on in [documents/documentation_standards.md](documents/documentation_standards.md).)
 
 > Deterministic, reproducible, JIT-compiled machine learning for Haskell.
 
