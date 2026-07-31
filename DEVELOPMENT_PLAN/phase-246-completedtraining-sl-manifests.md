@@ -9,14 +9,18 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 245 (Sprint 245.1).
+✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
+Every supervised row's CompletedTraining SL manifest now carries the exact
+trained `LayerGraph`, initial and final flat weights, verified dataset-at-read
+digest, measured update count, and exact plan identity/budget; partial,
+synthetic, non-finite, untrained, unchanged-weight, wrong-plan, and wrong-dataset
+results cannot construct the completion input. All 55 product rows admit.
 
-## Sprint 246.1: CompletedTraining SL Manifests [⏸️ Blocked]
+## Sprint 246.1: CompletedTraining SL Manifests [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/SL/{Architecture,TrainingExecution}.hs`,
 `src/JitML/Product/Completion.hs`, `test/sl-canonicals/Main.hs`
-**Blocked by**: Sprint `245.1`
 **Docs to update**: `../documents/engineering/training_workloads.md`,
 `../documents/engineering/training_metrics_and_splits.md`
 
@@ -49,16 +53,6 @@ migrates the checkpoint test surface to the single envelope.
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) under this
   sprint).
 
-### Remaining Work
-
-- Produce non-optional completion inputs for the exact Phase `245` run: canonical
-  `PlanId`, exact dataset-at-read identity, measured budget/update count, passing
-  observations, and exact initial/final JMW1 identities.
-- Prove the completed supervised manifest and the model later served describe the
-  same trained `LayerGraph` and bytes (envelope construction is Phase `239`;
-  admission is Phase `236`).
-- Complete the checkpoint test migration and the byte-freeze golden retirement.
-
 ### Validation
 
 ```bash
@@ -66,6 +60,17 @@ docker compose run --rm jitml jitml test jitml-integration --linux-cpu
 docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
+
+### Closure Evidence
+
+Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
+jitml-integration 157/157 (incl. "ProductRow admitted-inventory-55 is exact and
+unique" and the fail-closed partial/synthetic/untrained/malformed manifest loader
+cases), jitml-sl-canonicals 36/36 (incl. all-eleven trained==Store-loaded V2
+parity), jitml-unit passed with 0 failures, `jitml check-code` ok,
+`jitml docs check` ok, and
+`jitml internal train-and-publish-product-rows --linux-cpu` exit 0 with 55/55
+admitted.
 
 ### Historical Validation (completion-input surface)
 

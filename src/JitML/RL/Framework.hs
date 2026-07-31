@@ -4,6 +4,7 @@
 
 module JitML.RL.Framework
   ( ActionDistribution (..)
+  , ActionDomain (..)
   , ActionNoise (..)
   , AdvantageEstimator (..)
   , Callback (..)
@@ -17,6 +18,7 @@ module JitML.RL.Framework
   , TuneSweepLifecycle (..)
   , TuneSweepPhase (..)
   , rlRunPlan
+  , renderActionDomain
   , renderFrameworkCatalog
   , renderRLRunPhase
   , trainingLifecyclePlan
@@ -83,6 +85,25 @@ data ActionDistribution
   | DiagonalGaussian
   | DeterministicPolicy
   deriving stock (Eq, Show)
+
+-- | Phase 250 — the action domain a canonical @(algorithm, environment)@ cohort
+-- exercises. This is the type the typed cohort ('JitML.RL.Algorithms.Registry')
+-- attaches to every admissible pair so that a discrete trainer can never be
+-- paired with a continuous simulator (or a goal-conditioned relabelling trainer
+-- with a non-goal environment). @lunar-lander@ is deliberately dual-domain: it
+-- is 'DiscreteDomain' under the on-policy / ARS cohorts and 'ContinuousDomain'
+-- under the DDPG/TD3/SAC/CrossQ/TQC cohorts, so the domain is a function of both
+-- the algorithm and the environment, never the environment name alone.
+data ActionDomain
+  = DiscreteDomain
+  | ContinuousDomain
+  | GoalConditionedDomain
+  deriving stock (Eq, Show)
+
+renderActionDomain :: ActionDomain -> Text
+renderActionDomain DiscreteDomain = "discrete"
+renderActionDomain ContinuousDomain = "continuous"
+renderActionDomain GoalConditionedDomain = "goal-conditioned"
 
 data ActionNoise
   = NoActionNoise

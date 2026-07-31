@@ -51,11 +51,9 @@ import ProductExperimentExactness qualified
 import ProductTuneTranscript qualified
 import ReconcileStamp qualified
 import RegressionStandardization qualified
-import RuntimeOperationsAccelerators qualified
 import SupervisedCheckpointV2 qualified
-import SupervisedRuntimeArtifact qualified
 import SupervisedTrainingSeed qualified
-import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.App
@@ -133,6 +131,7 @@ import JitML.Lint.ProductTruth qualified as ProductTruth
 import JitML.Lint.Stack.Types (LintFinding (..))
 import JitML.Numerics.Autodiff qualified as Autodiff
 import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Numerics.LayerGraphMetadata qualified as LayerGraphMetadata
 import JitML.Numerics.Mlp qualified as Mlp
 import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
 import JitML.Numerics.Schema
@@ -223,6 +222,7 @@ import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.RL.Simulator qualified as Sim
 import JitML.Routes qualified as Routes
+import JitML.SL.RuntimeArtifact qualified as Runtime
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.CatalogSchema (catalogFileSchemas)
@@ -547,9 +547,7 @@ main =
       , ProductTuneTranscript.productTuneTranscriptTests
       , ReconcileStamp.reconcileStampTests
       , RegressionStandardization.regressionStandardizationTests
-      , RuntimeOperationsAccelerators.runtimeOperationsAcceleratorTests
       , SupervisedCheckpointV2.supervisedCheckpointV2Tests
-      , SupervisedRuntimeArtifact.supervisedRuntimeArtifactTests
       , SupervisedTrainingSeed.supervisedTrainingSeedTests
       , HostWorkloadRegistry.hostWorkloadRegistryTests
       , InferenceBatch.inferenceBatchTests
@@ -3612,6 +3610,30 @@ main =
             @?= Just
               "RL trainer sac does not support environment key-door-grid; supported environments: pendulum, lunar-lander"
           rlTrainerEnvironmentCompatibilityError "unknown" "mountain-car" @?= Nothing
+      , testCase "Phase 250 — typed cohort smart constructor rejects/accepts action-domain pairs" $ do
+          let isRejected result =
+                case result of
+                  Left _ -> True
+                  Right _ -> False
+          -- Incompatible discrete/continuous/goal-conditioned pairs have no value.
+          assertBool "SAC+cartpole rejected" (isRejected (AlgorithmRegistry.mkCohort "SAC" "cartpole"))
+          assertBool "DQN+pendulum rejected" (isRejected (AlgorithmRegistry.mkCohort "DQN" "pendulum"))
+          assertBool "HER+cartpole rejected" (isRejected (AlgorithmRegistry.mkCohort "HER" "cartpole"))
+          -- Canonical pairs construct with the exact action domain and trainer kind.
+          fmap AlgorithmRegistry.cohortActionDomain (AlgorithmRegistry.mkCohort "PPO" "cartpole")
+            @?= Right AlgorithmRegistry.DiscreteDomain
+          fmap AlgorithmRegistry.cohortActionDomain (AlgorithmRegistry.mkCohort "SAC" "pendulum")
+            @?= Right AlgorithmRegistry.ContinuousDomain
+          fmap AlgorithmRegistry.cohortActionDomain (AlgorithmRegistry.mkCohort "HER" "goal-reaching")
+            @?= Right AlgorithmRegistry.GoalConditionedDomain
+          -- lunar-lander is dual-domain, resolved from the (algorithm, environment) pair.
+          fmap AlgorithmRegistry.cohortActionDomain (AlgorithmRegistry.mkCohort "PPO" "lunar-lander")
+            @?= Right AlgorithmRegistry.DiscreteDomain
+          fmap AlgorithmRegistry.cohortActionDomain (AlgorithmRegistry.mkCohort "SAC" "lunar-lander")
+            @?= Right AlgorithmRegistry.ContinuousDomain
+          -- The cohort renders the identity-critical trainer-kind string.
+          fmap AlgorithmRegistry.cohortTrainerKind (AlgorithmRegistry.mkCohort "QR-DQN" "cartpole")
+            @?= Right "qrdqn"
       , testCase "AlphaZero catalog includes games, two-headed network, and arena summary" $ do
           fmap AlphaZero.pigName AlphaZero.canonicalGames
             @?= ["connect4", "othello", "hex", "gomoku"]
@@ -4689,6 +4711,102 @@ main =
                     ("schedules 1229312" `Text.isInfixOf` err)
                 Right schedule ->
                   assertFailure ("unexpected exact vector schedule: " <> show schedule)
+          , testCase "Phase 251 — evaluation episode count cannot move any training dimension" $ do
+              -- One trainer per coupling site (on-policy, fixed-step off-policy,
+              -- continuous control, ARS, HER): the compiled training schedule
+              -- must be identical whether the run is scored over a handful of
+              -- evaluation episodes or an absurdly large number, while the
+              -- recorded evaluation dimension itself changes.
+              let trainingFor trainerKind environment =
+                    ProductBudget.TrainingPlan
+                      { ProductBudget.trainingPlanTrainerKind = trainerKind
+                      , ProductBudget.trainingPlanEnvironment = environment
+                      , ProductBudget.trainingPlanSeed = 7
+                      , ProductBudget.trainingPlanMaxEpisodeSteps =
+                          ProductBudget.productRlDefaultMaxEpisodeSteps
+                      , ProductBudget.trainingPlanEpisodeBudgetFloor =
+                          ProductBudget.productRlDefaultTrainingEpisodeFloor
+                      , ProductBudget.trainingPlanVectorEnvironments = Nothing
+                      , ProductBudget.trainingPlanRequestedTransitionFloor =
+                          Just ProductBudget.productRlRequestedStepFloor
+                      , ProductBudget.trainingPlanExactTransitionTarget = Nothing
+                      }
+              mapM_
+                ( \(trainerKind, environment) ->
+                    case ( ProductBudget.compileRlPlan
+                             (trainingFor trainerKind environment)
+                             (ProductBudget.EvaluationPlan 4)
+                         , ProductBudget.compileRlPlan
+                             (trainingFor trainerKind environment)
+                             (ProductBudget.EvaluationPlan 250_000)
+                         ) of
+                      (Right small, Right large) -> do
+                        assertEqual
+                          ( "schedule for "
+                              <> Text.unpack trainerKind
+                              <> "/"
+                              <> Text.unpack environment
+                              <> " must ignore evaluation episode count"
+                          )
+                          (ProductBudget.compiledRlSchedule small)
+                          (ProductBudget.compiledRlSchedule large)
+                        assertBool
+                          "the evaluation dimension itself must differ"
+                          ( ProductBudget.compiledRlEvaluationEpisodes small
+                              /= ProductBudget.compiledRlEvaluationEpisodes large
+                          )
+                      other ->
+                        assertFailure
+                          ( "expected two compiled plans for "
+                              <> Text.unpack trainerKind
+                              <> "/"
+                              <> Text.unpack environment
+                              <> ": "
+                              <> show other
+                          )
+                )
+                [ ("ppo", "cartpole")
+                , ("dqn", "cartpole")
+                , ("sac", "pendulum")
+                , ("ars", "cartpole")
+                , ("her", "goal-reaching")
+                ]
+          , testCase
+              "Phase 251 — compiled RL plan transport round-trips and the worker RunConfig re-validates it"
+              $ do
+                -- Mirrors the daemon 'Workload.rlRunConfigFor' path: compile a
+                -- plan from raw request inputs, serialize it, then re-parse and
+                -- re-validate it worker-side.
+                let training =
+                      ProductBudget.TrainingPlan
+                        { ProductBudget.trainingPlanTrainerKind = "ppo"
+                        , ProductBudget.trainingPlanEnvironment = "cartpole"
+                        , ProductBudget.trainingPlanSeed = 7
+                        , ProductBudget.trainingPlanMaxEpisodeSteps = 128
+                        , ProductBudget.trainingPlanEpisodeBudgetFloor =
+                            ProductBudget.productRlDefaultTrainingEpisodeFloor
+                        , ProductBudget.trainingPlanVectorEnvironments = Nothing
+                        , ProductBudget.trainingPlanRequestedTransitionFloor = Nothing
+                        , ProductBudget.trainingPlanExactTransitionTarget = Nothing
+                        }
+                case ProductBudget.compileRlPlan training (ProductBudget.EvaluationPlan 4) of
+                  Left err -> assertFailure ("compile failed: " <> Text.unpack err)
+                  Right plan -> do
+                    let transport = ProductBudget.renderCompiledRlPlanTransport plan
+                        planId = ProductBudget.compiledRlPlanId plan
+                    ProductBudget.parseCompiledRlPlanTransport transport @?= Right plan
+                    let config =
+                          RunConfig.RlRunConfig
+                            { RunConfig.rlcExperimentHash = "exp-251"
+                            , RunConfig.rlcPlanId = planId
+                            , RunConfig.rlcResolvedPlan = transport
+                            , RunConfig.rlcAtariRomPath = Nothing
+                            , RunConfig.rlcPulsarWsUrl = "ws://broker"
+                            }
+                    RunConfig.rlPlanFromRunConfig config @?= Right plan
+                    case RunConfig.rlPlanFromRunConfig config {RunConfig.rlcPlanId = "deadbeef"} of
+                      Left _ -> pure ()
+                      Right _ -> assertFailure "a tampered planId must be rejected"
           , testCase "HER and every AlphaZero game have fixed-budget convergence metrics" $ do
               let her = ConvergenceThresholds.herGoalMetric
                   games =
@@ -5219,7 +5337,7 @@ main =
                 @?= either
                   (error . Text.unpack)
                   id
-                  (TrainingBudget.mkTrainingBudget TrainingBudget.SupervisedEpochBudget 5 (Just 1009))
+                  (TrainingBudget.mkTrainingBudget TrainingBudget.SupervisedEpochBudget 40 (Just 1009))
               case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
                 RunPlan.Failure errors -> assertFailure (show errors)
                 RunPlan.Success (ProductMatrix.SomeProductProjection witness projection) ->
@@ -5230,10 +5348,10 @@ main =
                       case ProductMatrix.productProjectionResolvedPlan projection of
                         ProductMatrix.ResolvedSupervisedProductPlan plan -> do
                           RunPlan.quantityValue (ResolvedWorkload.supervisedPlanTrainingExamples plan) @?= 2000
-                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanEpochs plan) @?= 5
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanEpochs plan) @?= 40
                           RunPlan.quantityValue (ResolvedWorkload.supervisedPlanEvaluationExamples plan) @?= 1000
                           RunPlan.quantityValue (ResolvedWorkload.supervisedPlanBatchExamples plan) @?= 128
-                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanOptimizerUpdates plan) @?= 80
+                          RunPlan.quantityValue (ResolvedWorkload.supervisedPlanOptimizerUpdates plan) @?= 640
                     _ -> assertFailure "cifar10-vit projected to a non-supervised run kind"
           , testCase "supervised recipe fields are refined and participate in ProductRow PlanId" $ do
               row <-
@@ -5643,11 +5761,11 @@ main =
                     , ("mnist-lenet", 10)
                     , ("fashion-mnist-mlp", 10)
                     , ("fashion-mnist-resnet", 10)
-                    , ("cifar10-resnet20", 5)
-                    , ("cifar10-resnet56", 5)
+                    , ("cifar10-resnet20", 40)
+                    , ("cifar10-resnet56", 40)
                     , ("cifar100-wide-resnet", 10)
-                    , ("cifar10-vit", 5)
-                    , ("tiny-imagenet-resnet50", 5)
+                    , ("cifar10-vit", 40)
+                    , ("tiny-imagenet-resnet50", 15)
                     , ("california-housing-mlp", 10)
                     ]
           , testCase "canonical RL, HER, and AlphaZero ProductRows pin config seed 42" $ do
@@ -6866,6 +6984,7 @@ main =
               Data.Vector.Unboxed.length (LayerGraph.layerTapeOutput tape) @?= 3
               length (LayerGraph.layerGraphLayerGradients gradient) @?= 3
           , sprint231NodeAutodiffTests
+          , reloadedGraphServingTests
           , testCase "mlpForward is run-to-run deterministic on same seed" $ do
               let shape = Mlp.MlpShape 4 8 3
                   paramsA = Mlp.mlpInit shape 99
@@ -8217,7 +8336,13 @@ sprint231NodeAutodiffTests =
                 LayerGraph.TanhActivation
                 LayerGraph.TrainingMode
                 (LayerGraph.deterministicOpParameters 12 (LayerGraph.ConvOp spec))
-    , testCase "MaxPool routes gradient to the argmax switch (no params)" $ do
+    , testCase "Conv2D fast forward equals a naive reference within 1e-9" $ do
+        -- Proves the optimized 2-D convForward specialization (exercised by
+        -- runLayerGraph with a linear activation) equals an independent naive
+        -- reference on host, without oneDNN, across two geometries including a
+        -- strided/padded case. Byte-identical accumulation keeps the diff ~0.
+        conv2DFastMatchesReference 3 8 8 8 3 3 2 2 1 1 41
+        conv2DFastMatchesReference 2 5 7 6 3 3 1 1 0 0 57
         let win = LayerGraph.PoolWindow 2 2 2 2 0 0 False
             sp = LayerGraph.SpatialShape 1 4 4
         node <-
@@ -8607,6 +8732,274 @@ realVitGraph = do
       , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [1, 4, 4]
       , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [3]
       , LayerGraph.layerGraphNodes = [patch, ln1, attn, geglu, headNode]
+      }
+
+-- | Run the optimized 2-D 'LayerGraph.convForward' (through 'runLayerGraph' with a
+-- linear activation so the output is the raw convolution) and assert it equals an
+-- independent naive reference within 1e-9. Proves the fast specialization on host
+-- without oneDNN. Arguments: @cIn cOut H W Kh Kw sH sW pH pW seed@.
+conv2DFastMatchesReference
+  :: Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Assertion
+conv2DFastMatchesReference cI cO h w kh kw sh sw ph pw seed = do
+  let spec = LayerGraph.ConvSpec cI cO [h, w] [kh, kw] [sh, sw] [ph, pw]
+      params = LayerGraph.deterministicOpParameters seed (LayerGraph.ConvOp spec)
+  node <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      ( LayerGraph.mkConvLayer
+          "conv2d-fast-vs-ref"
+          spec
+          LayerGraph.LinearActivation
+          LayerGraph.TrainingMode
+          params
+      )
+  let input = detVec seed (cI * h * w)
+  tape <-
+    either
+      (assertFailure . Text.unpack)
+      pure
+      (LayerGraph.runLayerGraph (singleNodeGraph node) input)
+  let got = LayerGraph.layerTapeOutput tape
+      ref =
+        naiveConv2DRef
+          cO
+          cI
+          h
+          w
+          kh
+          kw
+          sh
+          sw
+          ph
+          pw
+          (LayerGraph.layerWeights params)
+          (LayerGraph.layerBias params)
+          input
+      diff = maxAbsDiffVec got ref
+  assertBool
+    ( "Conv2D fast forward differs from naive reference (cIn="
+        <> show cI
+        <> ", cOut="
+        <> show cO
+        <> ", stride="
+        <> show (sh, sw)
+        <> ", pad="
+        <> show (ph, pw)
+        <> "): max|delta| = "
+        <> show diff
+    )
+    (diff < 1.0e-9)
+
+-- | Independent naive 2-D cross-correlation reference (NCHW input, OIHW weights,
+-- zero padding), computed from scratch in the test so it does not share code with
+-- 'LayerGraph.convForward'. Arguments: @cOut cIn H W Kh Kw sH sW pH pW weights bias input@.
+naiveConv2DRef
+  :: Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Data.Vector.Unboxed.Vector Double
+  -> Data.Vector.Unboxed.Vector Double
+  -> Data.Vector.Unboxed.Vector Double
+  -> Data.Vector.Unboxed.Vector Double
+naiveConv2DRef cO cI h w kh kw sh sw ph pw weights bias x =
+  Data.Vector.Unboxed.fromList
+    [ (bias Data.Vector.Unboxed.! co)
+        + sum
+          [ (weights Data.Vector.Unboxed.! (((co * cI + ci) * kh * kw) + ky * kw + kx))
+              * xAt ci (oh * sh + ky - ph) (ow * sw + kx - pw)
+          | ci <- [0 .. cI - 1]
+          , ky <- [0 .. kh - 1]
+          , kx <- [0 .. kw - 1]
+          ]
+    | co <- [0 .. cO - 1]
+    , oh <- [0 .. ohDim - 1]
+    , ow <- [0 .. owDim - 1]
+    ]
+ where
+  ohDim = (h + 2 * ph - kh) `div` sh + 1
+  owDim = (w + 2 * pw - kw) `div` sw + 1
+  xAt ci ih iw
+    | ih >= 0 && ih < h && iw >= 0 && iw < w =
+        x Data.Vector.Unboxed.! (ci * h * w + ih * w + iw)
+    | otherwise = 0.0
+
+maxAbsDiffVec
+  :: Data.Vector.Unboxed.Vector Double -> Data.Vector.Unboxed.Vector Double -> Double
+maxAbsDiffVec a b
+  | Data.Vector.Unboxed.length a /= Data.Vector.Unboxed.length b = 1.0 / 0.0
+  | Data.Vector.Unboxed.null a = 0.0
+  | otherwise =
+      Data.Vector.Unboxed.maximum (Data.Vector.Unboxed.zipWith (\p q -> abs (p - q)) a b)
+
+-- Phase 240 — the reloaded supervised-graph serving contract. The refinement is
+-- the tamper gate; since the widening it serves every correct operator (not only
+-- dense), and the reloaded graph is served through the pure reference executor
+-- 'Runtime.executeSupervisedGraphRuntime' (which runs 'LayerGraph.runLayerGraph'
+-- with the transforms outside the graph), so the serving output equals the
+-- trained graph's pure inference bit-for-bit.
+reloadedGraphServingTests :: TestTree
+reloadedGraphServingTests =
+  testGroup
+    "Reloaded supervised graph refinement + pure serving (Phase 240)"
+    [ testCase "refineReloadedLayerGraph accepts a Conv+Norm+Attention graph with correct params" $ do
+        graph <- eitherAssert reloadConvNormAttnGraph
+        case LayerGraph.refineReloadedLayerGraph graph of
+          Left err -> assertFailure ("expected acceptance, got: " <> Text.unpack err)
+          Right refined -> refined @?= graph
+    , testCase "refineReloadedLayerGraph rejects a duplicate node name" $ do
+        graph <- eitherAssert reloadDuplicateNameGraph
+        case LayerGraph.refineReloadedLayerGraph graph of
+          Right _ -> assertFailure "duplicate node name was accepted"
+          Left err ->
+            assertBool
+              ("rejected for the wrong reason: " <> Text.unpack err)
+              ("duplicate node name" `Text.isInfixOf` err)
+    , testCase "refineReloadedLayerGraph rejects a wrong parameter count" $ do
+        graph <- eitherAssert reloadWrongParamGraph
+        case LayerGraph.refineReloadedLayerGraph graph of
+          Right _ -> assertFailure "wrong parameter count was accepted"
+          Left err ->
+            assertBool
+              ("rejected for the wrong reason: " <> Text.unpack err)
+              ("weights" `Text.isInfixOf` err)
+    , testCase "executeSupervisedGraphRuntime over a reconstructed Conv+Norm graph equals runLayerGraph" $ do
+        trained <- eitherAssert reloadConvNormGraph
+        inputWidth <-
+          eitherAssert (LayerGraph.tensorShapeWidth (LayerGraph.layerGraphInputShape trained))
+        outputWidth <-
+          eitherAssert (LayerGraph.tensorShapeWidth (LayerGraph.layerGraphOutputShape trained))
+        -- Reconstruct exactly as the read path does: metadata -> topology ->
+        -- inject the frozen graph-ordered parameters.
+        let metadata = LayerGraphMetadata.layerGraphMetadataFromGraph trained
+            params = LayerGraph.graphParameterVector trained
+        topology <- eitherAssert (LayerGraphMetadata.layerGraphFromMetadata metadata)
+        reconstructed <- eitherAssert (LayerGraph.replaceGraphParameterVector topology params)
+        payload <- eitherAssert (reloadIdentityServingPayload inputWidth outputWidth)
+        let input = detVec 7 inputWidth
+        expected <- eitherAssert (LayerGraph.runLayerGraph trained input)
+        served <- eitherAssert (Runtime.executeSupervisedGraphRuntime payload reconstructed input)
+        served @?= LayerGraph.layerTapeOutput expected
+    ]
+
+eitherAssert :: Either Text value -> IO value
+eitherAssert = either (assertFailure . Text.unpack) pure
+
+-- A Conv(1x1) -> LayerNorm -> Attention graph, all boundaries 16 wide, each node
+-- carrying correctly-sized packed parameters. This is the literal-architecture
+-- shape the dense-only serving path used to reject.
+reloadConvNormAttnGraph :: Either Text LayerGraph.LayerGraph
+reloadConvNormAttnGraph = do
+  conv <- reloadConvNode
+  norm <- reloadNormNode
+  attn <- reloadAttnNode
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "reload-conv-norm-attn"
+      , LayerGraph.layerGraphInputShape = LayerGraph.layerInputShape conv
+      , LayerGraph.layerGraphOutputShape = LayerGraph.layerOutputShape attn
+      , LayerGraph.layerGraphNodes = [conv, norm, attn]
+      }
+
+reloadConvNormGraph :: Either Text LayerGraph.LayerGraph
+reloadConvNormGraph = do
+  conv <- reloadConvNode
+  norm <- reloadNormNode
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "reload-conv-norm"
+      , LayerGraph.layerGraphInputShape = LayerGraph.layerInputShape conv
+      , LayerGraph.layerGraphOutputShape = LayerGraph.layerOutputShape norm
+      , LayerGraph.layerGraphNodes = [conv, norm]
+      }
+
+reloadConvNode :: Either Text LayerGraph.LayerNode
+reloadConvNode =
+  let spec = LayerGraph.ConvSpec 1 1 [4, 4] [1, 1] [1, 1] [0, 0]
+   in LayerGraph.mkConvLayer
+        "reload-conv"
+        spec
+        LayerGraph.LinearActivation
+        LayerGraph.InferenceMode
+        (LayerGraph.deterministicOpParameters 101 (LayerGraph.ConvOp spec))
+
+reloadNormNode :: Either Text LayerGraph.LayerNode
+reloadNormNode =
+  let spec = LayerGraph.NormSpec LayerGraph.NormLayerWise 16 1 1.0e-5
+   in LayerGraph.mkNormLayer
+        "reload-norm"
+        spec
+        LayerGraph.InferenceMode
+        (LayerGraph.deterministicOpParameters 102 (LayerGraph.NormOp spec))
+
+reloadAttnNode :: Either Text LayerGraph.LayerNode
+reloadAttnNode =
+  let spec = LayerGraph.AttentionSpec 4 4 2 False
+   in LayerGraph.mkAttentionLayer
+        "reload-attn"
+        spec
+        LayerGraph.InferenceMode
+        (LayerGraph.deterministicOpParameters 103 (LayerGraph.AttentionOp spec))
+
+-- Rename the second node to collide with the first: a duplicate stable identity
+-- the refinement gate must reject.
+reloadDuplicateNameGraph :: Either Text LayerGraph.LayerGraph
+reloadDuplicateNameGraph = do
+  graph <- reloadConvNormAttnGraph
+  case LayerGraph.layerGraphNodes graph of
+    (n0 : n1 : rest) ->
+      Right
+        graph
+          { LayerGraph.layerGraphNodes =
+              n0 : n1 {LayerGraph.layerNodeName = LayerGraph.layerNodeName n0} : rest
+          }
+    _ -> Left "reload duplicate fixture expected at least two nodes"
+
+-- Truncate the first node's packed weights so its length no longer matches the
+-- operator's segment layout: a tampered parameter identity.
+reloadWrongParamGraph :: Either Text LayerGraph.LayerGraph
+reloadWrongParamGraph = do
+  graph <- reloadConvNormAttnGraph
+  case LayerGraph.layerGraphNodes graph of
+    (n0 : rest) ->
+      let bad =
+            LayerGraph.LayerParameters
+              { LayerGraph.layerWeights = Data.Vector.Unboxed.fromList [0.0, 0.0]
+              , LayerGraph.layerBias = Data.Vector.Unboxed.fromList [0.0]
+              }
+       in Right
+            graph
+              { LayerGraph.layerGraphNodes =
+                  n0 {LayerGraph.layerParameters = Just bad} : rest
+              }
+    _ -> Left "reload wrong-param fixture expected at least one node"
+
+-- Identity ingress/egress payload so executeSupervisedGraphRuntime's transforms
+-- are no-ops and its output equals the reconstructed graph's runLayerGraph output.
+reloadIdentityServingPayload :: Int -> Int -> Either Text Runtime.SupervisedRuntimePayload
+reloadIdentityServingPayload inputWidth semanticWidth =
+  Runtime.refineSupervisedRuntimePayload
+    Runtime.RawSupervisedRuntimePayload
+      { Runtime.rawRuntimePayloadRowId = "reload-conv-norm"
+      , Runtime.rawRuntimePayloadOrigin = Runtime.RawProductRowProjectionOrigin
+      , Runtime.rawRuntimePayloadPlanId = Text.replicate 64 "e"
+      , Runtime.rawRuntimePayloadDatasetSha256 = Text.replicate 64 "a"
+      , Runtime.rawRuntimePayloadInitialJmw1Sha256 = Text.replicate 64 "b"
+      , Runtime.rawRuntimePayloadFinalJmw1Sha256 = Text.replicate 64 "c"
+      , Runtime.rawRuntimePayloadRuntime =
+          Runtime.RawSupervisedRuntime
+            { Runtime.rawSupervisedRuntimeTask = Runtime.RawRegressionRuntimeTask semanticWidth
+            , Runtime.rawSupervisedRuntimeInputTransform = Runtime.RawIdentityInput inputWidth
+            , Runtime.rawSupervisedRuntimeOutputTransform = Runtime.RawIdentityOutput
+            }
+      , Runtime.rawRuntimePayloadLayerGraphMetadata = Nothing
       }
 
 detVec :: Int -> Int -> Data.Vector.Unboxed.Vector Double

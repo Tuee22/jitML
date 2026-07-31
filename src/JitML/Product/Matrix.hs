@@ -791,10 +791,10 @@ supervisedRow problem =
 supervisedEpochBudget :: Text -> Word64
 supervisedEpochBudget problemName =
   case problemName of
-    "cifar10-resnet20" -> 5
-    "cifar10-resnet56" -> 5
-    "cifar10-vit" -> 5
-    "tiny-imagenet-resnet50" -> 5
+    "cifar10-resnet20" -> 40
+    "cifar10-resnet56" -> 40
+    "cifar10-vit" -> 40
+    "tiny-imagenet-resnet50" -> 15
     _ -> 10
 
 rlConvergenceRows :: [ProductRow 'Declared]
@@ -1001,11 +1001,11 @@ supervisedTrainingExampleCount rowId' =
     "cifar10-resnet20" -> 1000
     "cifar10-resnet56" -> 1000
     "cifar10-vit" -> 2000
-    "tiny-imagenet-resnet50" -> 256
+    "tiny-imagenet-resnet50" -> 8000
     _ -> 7000
 
 supervisedEvaluationExampleCount :: Text -> Word64
-supervisedEvaluationExampleCount "tiny-imagenet-resnet50" = 500
+supervisedEvaluationExampleCount "tiny-imagenet-resnet50" = 1000
 supervisedEvaluationExampleCount _ = 1000
 
 alphaZeroProductGames :: Text -> Word64
@@ -1512,17 +1512,36 @@ validateProductDescriptorSemantics row descriptor =
                     )
                 )
          where
+          -- Phase 251 — the descriptor is cross-checked against the compiled
+          -- plan's own schedule. The evaluation episode count feeds only the
+          -- plan's EvaluationPlan; the schedule is planned against the canonical
+          -- training episode-budget floor, so no training dimension the
+          -- descriptor is asserted against can depend on it.
           exactRlSchedule = do
             evaluationCount <- word64ToInt "RL evaluation episodes" evaluationEpisodes
             episodeCount <- word64ToInt "RL episode steps" episodeSteps
             vectorCount <- word64ToInt "RL vector environments" vectorEnvironments
-            ProductBudget.planExactRlTrainingSchedule
-              (ProductBudget.trainerKindForAlgorithm algorithm)
-              environment
-              evaluationCount
-              episodeCount
-              (Just vectorCount)
-              (trainingBudgetTargetUnits (trainingBudget row))
+            plan <-
+              ProductBudget.compileRlPlan
+                ProductBudget.TrainingPlan
+                  { ProductBudget.trainingPlanTrainerKind =
+                      ProductBudget.trainerKindForAlgorithm algorithm
+                  , ProductBudget.trainingPlanEnvironment = environment
+                  , ProductBudget.trainingPlanSeed = 0
+                  , ProductBudget.trainingPlanMaxEpisodeSteps = episodeCount
+                  , ProductBudget.trainingPlanEpisodeBudgetFloor =
+                      ProductBudget.productRlDefaultTrainingEpisodeFloor
+                  , ProductBudget.trainingPlanVectorEnvironments = Just vectorCount
+                  , ProductBudget.trainingPlanRequestedTransitionFloor =
+                      Just (trainingBudgetTargetUnits (trainingBudget row))
+                  , ProductBudget.trainingPlanExactTransitionTarget =
+                      Just (trainingBudgetTargetUnits (trainingBudget row))
+                  }
+                (ProductBudget.EvaluationPlan evaluationCount)
+            maybe
+              (Left "projected RL plan is missing a training schedule")
+              Right
+              (ProductBudget.compiledRlSchedule plan)
       _ -> Success ()
 
 validateProductExecutorQuantities

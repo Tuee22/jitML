@@ -740,6 +740,366 @@ main =
             close "conv input gradient" devDx pureDx
             close "conv weight gradient" devDw pureDw
             close "conv bias gradient" devDb pureDb
+            -- Phase 242: strided downsampling stem (stride 2) — the compact literal
+            -- ResNet/LeNet stems use a stride>1 conv, so validate the device kernel
+            -- against the pure oracle at stride 2 (3->4 ch, 8x8 in -> 4x4 out).
+            let stridedSpec = LayerGraph.ConvSpec 3 4 [8, 8] [3, 3] [2, 2] [1, 1]
+                stridedParams = LayerGraph.deterministicOpParameters 92 (LayerGraph.ConvOp stridedSpec)
+                stridedInput = VU.generate 192 (\i -> sin (0.21 * fromIntegral i))
+                stridedDy = VU.generate 64 (\i -> cos (0.17 * fromIntegral (i + 1)))
+            stridedNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkConvLayer
+                  "conv-strided"
+                  stridedSpec
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  stridedParams
+            let stridedGraph =
+                  LayerGraph.LayerGraph
+                    { LayerGraph.layerGraphName = "conv-strided"
+                    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [3, 8, 8]
+                    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [4, 4, 4]
+                    , LayerGraph.layerGraphNodes = [stridedNode]
+                    }
+            stridedTape <-
+              either (assertFailure . Text.unpack) pure (LayerGraph.runLayerGraph stridedGraph stridedInput)
+            stridedGrad <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                (LayerGraph.backwardLayerGraph stridedGraph stridedTape stridedDy)
+            (stridedPureDw, stridedPureDb) <-
+              case LayerGraph.layerGraphLayerGradients stridedGrad of
+                [lg]
+                  | Just pg <- LayerGraph.layerGradientParameters lg ->
+                      pure (LayerGraph.layerGradWeights pg, LayerGraph.layerGradBias pg)
+                _ -> assertFailure "expected exactly one parameterized strided-conv gradient"
+            stridedDeviceResult <-
+              LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ ->
+                LayerGraphOneDnn.runDeviceSpatialConv functions stridedSpec stridedParams stridedInput stridedDy
+            (stridedDevOut, stridedDevDx, stridedDevDw, stridedDevDb) <-
+              either (assertFailure . Text.unpack) pure stridedDeviceResult
+            close "strided conv forward output" stridedDevOut (LayerGraph.layerTapeOutput stridedTape)
+            close "strided conv input gradient" stridedDevDx (LayerGraph.layerGraphInputGradient stridedGrad)
+            close "strided conv weight gradient" stridedDevDw stridedPureDw
+            close "strided conv bias gradient" stridedDevDb stridedPureDb
+      , testCase
+          "linux-cpu Phase 241 oneDNN Norm (LayerNorm) device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let normSpec = LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5
+                gamma = VU.fromList [1.3, 0.7, 1.1, 0.9]
+                beta = VU.fromList [0.05, -0.1, 0.2, -0.15]
+                params = LayerGraph.LayerParameters gamma beta
+                input = VU.fromList [0.4, -0.9, 1.3, -0.2]
+                dY = VU.fromList [0.5, -0.3, 0.7, 0.1]
+            node <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkNormLayer "norm-layer" normSpec LayerGraph.TrainingMode params
+            assertDeviceOpOracle env "layernorm" node input dY
+      , testCase
+          "linux-cpu Phase 241 oneDNN Norm (GroupNorm) device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let normSpec = LayerGraph.NormSpec (LayerGraph.NormGroup 2) 4 2 1.0e-5
+                gamma = VU.fromList [1.2, 0.8, 1.05, 0.95]
+                beta = VU.fromList [0.1, -0.05, 0.15, -0.2]
+                params = LayerGraph.LayerParameters gamma beta
+                input = VU.generate 8 (\i -> sin (0.35 * fromIntegral i + 0.2))
+                dY = VU.generate 8 (\i -> cos (0.25 * fromIntegral (i + 1)))
+            node <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkNormLayer "groupnorm" normSpec LayerGraph.TrainingMode params
+            assertDeviceOpOracle env "groupnorm" node input dY
+      , testCase
+          "linux-cpu Phase 241 oneDNN GeGLU device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let ggSpec = LayerGraph.GeGLUSpec 3 4 3
+                params = LayerGraph.deterministicOpParameters 23 (LayerGraph.GeGLUOp ggSpec)
+                input = VU.generate 3 (\i -> sin (0.4 * fromIntegral i + 0.1))
+                dY = VU.generate 3 (\i -> cos (0.3 * fromIntegral (i + 1)))
+            node <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkGeGLULayer "geglu" ggSpec LayerGraph.TrainingMode params
+            assertDeviceOpOracle env "geglu" node input dY
+      , testCase
+          "linux-cpu Phase 241 oneDNN multi-head Attention device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let input = VU.generate 8 (\i -> sin (0.2 * fromIntegral (i + 1)))
+                dY = VU.generate 8 (\i -> cos (0.15 * fromIntegral i))
+                mkNode causal =
+                  either (assertFailure . Text.unpack) pure $
+                    LayerGraph.mkAttentionLayer
+                      "attn"
+                      (LayerGraph.AttentionSpec 2 4 2 causal)
+                      LayerGraph.TrainingMode
+                      ( LayerGraph.deterministicOpParameters
+                          31
+                          (LayerGraph.AttentionOp (LayerGraph.AttentionSpec 2 4 2 causal))
+                      )
+            nodeFull <- mkNode False
+            assertDeviceOpOracle env "attention-full" nodeFull input dY
+            nodeCausal <- mkNode True
+            assertDeviceOpOracle env "attention-causal" nodeCausal input dY
+      , testCase
+          "linux-cpu Phase 241 oneDNN Patch-embed device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let patchSpec = LayerGraph.PatchSpec 1 4 4 2 2 3
+                params = LayerGraph.deterministicOpParameters 41 (LayerGraph.PatchOp patchSpec)
+                input = VU.generate 16 (\i -> sin (0.25 * fromIntegral i))
+                dY = VU.generate 12 (\i -> cos (0.2 * fromIntegral (i + 1)))
+            node <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkPatchEmbedLayer "patch" patchSpec LayerGraph.TrainingMode params
+            assertDeviceOpOracle env "patch" node input dY
+      , testCase
+          "linux-cpu Phase 241 oneDNN Residual device kernel matches the pure oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let inner = LayerGraph.AffineSpec 4 4
+                residOp = LayerGraph.ResidualOp inner LayerGraph.IdentityShortcut 0.5 LayerGraph.ReluActivation
+                residParams = LayerGraph.deterministicOpParameters 51 residOp
+                inputR = VU.fromList [0.6, -0.4, 0.9, -0.2]
+                dYR = VU.fromList [0.3, 0.5, -0.2, 0.4]
+            residNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkResidualNode
+                  "resid-id"
+                  inner
+                  LayerGraph.IdentityShortcut
+                  0.5
+                  LayerGraph.ReluActivation
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  residParams
+            assertDeviceOpOracle env "residual-identity" residNode inputR dYR
+            let innerP = LayerGraph.AffineSpec 3 4
+                projSpec = LayerGraph.AffineSpec 3 4
+                residOpP =
+                  LayerGraph.ResidualOp innerP (LayerGraph.ProjectionShortcut projSpec) 0.5 LayerGraph.TanhActivation
+                residParamsP = LayerGraph.deterministicOpParameters 53 residOpP
+                inputRP = VU.fromList [0.5, -0.7, 0.3]
+                dYRP = VU.fromList [0.2, -0.4, 0.6, 0.1]
+            residNodeP <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkResidualNode
+                  "resid-proj"
+                  innerP
+                  (LayerGraph.ProjectionShortcut projSpec)
+                  0.5
+                  LayerGraph.TanhActivation
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  residParamsP
+            assertDeviceOpOracle env "residual-projection" residNodeP inputRP dYRP
+      , testCase
+          "linux-cpu Phase 241/242 oneDNN BlockOp device backward matches the pure blockBackward oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            -- (1) BasicBlock, identity shortcut: two affine->LayerNorm->ReLU stages
+            -- with a final ReLU, composed on device from the dense-affine + norm
+            -- sub-kernels. dW/dB come back in the block's packed segment order.
+            let normSpec4 = LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5
+                basicStage = LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) (Just normSpec4) LayerGraph.ReluActivation
+                basicSpec =
+                  LayerGraph.BlockSpec
+                    [basicStage, basicStage]
+                    LayerGraph.IdentityShortcut
+                    0.5
+                    LayerGraph.ReluActivation
+                basicParams = LayerGraph.deterministicOpParameters 61 (LayerGraph.BlockOp basicSpec)
+                inputB = VU.fromList [0.6, -0.4, 0.9, -0.2]
+                dYB = VU.fromList [0.3, 0.5, -0.2, 0.4]
+            basicNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkBasicBlock "block-basic-id" basicSpec LayerGraph.TrainingMode basicParams
+            assertDeviceBlockOracle env "block-basic-id" basicNode inputB dYB
+            -- (2) BasicBlock, projection shortcut (3 -> 4): the shortcut runs the
+            -- final-activation gradient (not the scaled branch gradient) through a
+            -- device dense affine, exercising the projection segment order.
+            let normStage0 = LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5
+                projStage0 = LayerGraph.BlockStage (LayerGraph.AffineSpec 3 4) (Just normStage0) LayerGraph.TanhActivation
+                projStage1 = LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) (Just normStage0) LayerGraph.TanhActivation
+                projSpec =
+                  LayerGraph.BlockSpec
+                    [projStage0, projStage1]
+                    (LayerGraph.ProjectionShortcut (LayerGraph.AffineSpec 3 4))
+                    0.5
+                    LayerGraph.LinearActivation
+                projParams = LayerGraph.deterministicOpParameters 67 (LayerGraph.BlockOp projSpec)
+                inputP = VU.fromList [0.5, -0.7, 0.3]
+                dYP = VU.fromList [0.2, -0.4, 0.6, 0.1]
+            projNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkBasicBlock "block-basic-proj" projSpec LayerGraph.TrainingMode projParams
+            assertDeviceBlockOracle env "block-basic-proj" projNode inputP dYP
+            -- (3) Bottleneck, identity shortcut: three stages (4->2->2->4) with a
+            -- reduced middle width, exercising the distinct bottleneck topology.
+            let normMid = LayerGraph.NormSpec LayerGraph.NormLayerWise 2 1 1.0e-5
+                normOut = LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5
+                bnStage0 = LayerGraph.BlockStage (LayerGraph.AffineSpec 4 2) (Just normMid) LayerGraph.ReluActivation
+                bnStage1 = LayerGraph.BlockStage (LayerGraph.AffineSpec 2 2) (Just normMid) LayerGraph.ReluActivation
+                bnStage2 = LayerGraph.BlockStage (LayerGraph.AffineSpec 2 4) (Just normOut) LayerGraph.ReluActivation
+                bnSpec =
+                  LayerGraph.BlockSpec
+                    [bnStage0, bnStage1, bnStage2]
+                    LayerGraph.IdentityShortcut
+                    1.0
+                    LayerGraph.LinearActivation
+                bnParams = LayerGraph.deterministicOpParameters 83 (LayerGraph.BlockOp bnSpec)
+                inputBn = VU.fromList [0.4, -0.9, 1.3, -0.2]
+                dYBn = VU.fromList [0.5, -0.3, 0.7, 0.1]
+            bottleneckNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkBottleneck "block-bottleneck-id" bnSpec LayerGraph.TrainingMode bnParams
+            assertDeviceBlockOracle env "block-bottleneck-id" bottleneckNode inputBn dYBn
+            -- (4) End-to-end: a BlockOp node in the trained graph reduces
+            -- cross-entropy through the device training loop.
+            let ceStage = LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) (Just normSpec4) LayerGraph.ReluActivation
+                ceBlockSpec =
+                  LayerGraph.BlockSpec
+                    [ceStage, ceStage]
+                    LayerGraph.IdentityShortcut
+                    0.5
+                    LayerGraph.LinearActivation
+                ceBlockParams = LayerGraph.deterministicOpParameters 89 (LayerGraph.BlockOp ceBlockSpec)
+                ceHeadParams = LayerGraph.deterministicParameters 97 4 2
+            ceBlockNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkBasicBlock "ce-block" ceBlockSpec LayerGraph.TrainingMode ceBlockParams
+            ceHeadNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkAffineLayer
+                  "ce-head"
+                  LayerGraph.DenseLayer
+                  4
+                  2
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  ceHeadParams
+            let ceGraph =
+                  LayerGraph.LayerGraph
+                    { LayerGraph.layerGraphName = "block-classifier"
+                    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+                    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                    , LayerGraph.layerGraphNodes = [ceBlockNode, ceHeadNode]
+                    }
+                ceDataset =
+                  [ (VU.fromList [1.0, 0.5, -0.5, -1.0], 0)
+                  , (VU.fromList [0.8, 0.6, -0.4, -0.9], 0)
+                  , (VU.fromList [-1.0, -0.5, 0.5, 1.0], 1)
+                  , (VU.fromList [-0.9, -0.4, 0.6, 0.8], 1)
+                  ]
+                totalLoss g =
+                  fmap sum (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) ceDataset)
+            -- (4a) batched device gradient matches the per-example summed oracle.
+            refGrad <-
+              either (assertFailure . Text.unpack) pure $ do
+                grads <-
+                  traverse
+                    (\(i, l) -> snd <$> LayerGraph.layerGraphClassifierCrossEntropyGradient ceGraph 2 i l)
+                    ceDataset
+                case grads of
+                  [] -> Left "empty batch"
+                  (g : gs) -> Right (foldl addLayerGraphGradient g gs)
+            run <-
+              LayerGraphOneDnn.layerGraphCrossEntropyGradientBatchOneDnn env 2 ceGraph ceDataset
+                >>= expectRight "block batched device gradient failed"
+            assertLayerGraphGradientClose
+              2.0e-3
+              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              refGrad
+            -- (4b) training the block graph on device reduces cross-entropy.
+            loss0 <- either (assertFailure . Text.unpack) pure (totalLoss ceGraph)
+            trained <-
+              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env 2 60 2 0.05 ceGraph ceDataset
+                >>= expectRight "block device training failed"
+            loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
+            assertBool
+              ( "BlockOp device training must reduce cross-entropy: before="
+                  <> show loss0
+                  <> " after="
+                  <> show loss1
+              )
+              (loss1 < loss0)
+      , testCase
+          "linux-cpu Phase 241 mixed correct-operator graph trains on device and matches the oracle"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let classes = 2
+                normSpec = LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5
+                normParams =
+                  LayerGraph.LayerParameters
+                    (VU.fromList [1.1, 0.9, 1.05, 0.95])
+                    (VU.fromList [0.05, -0.05, 0.1, -0.1])
+                ggSpec = LayerGraph.GeGLUSpec 4 6 4
+                ggParams = LayerGraph.deterministicOpParameters 71 (LayerGraph.GeGLUOp ggSpec)
+                headParams = LayerGraph.deterministicParameters 73 4 2
+            normNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkNormLayer "mix-norm" normSpec LayerGraph.TrainingMode normParams
+            ggNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkGeGLULayer "mix-geglu" ggSpec LayerGraph.TrainingMode ggParams
+            headNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkAffineLayer
+                  "mix-head"
+                  LayerGraph.DenseLayer
+                  4
+                  2
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  headParams
+            let graph =
+                  LayerGraph.LayerGraph
+                    { LayerGraph.layerGraphName = "mixed-correct-op"
+                    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+                    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                    , LayerGraph.layerGraphNodes = [normNode, ggNode, headNode]
+                    }
+                dataset =
+                  [ (VU.fromList [1.0, 0.5, -0.5, -1.0], 0)
+                  , (VU.fromList [0.8, 0.6, -0.4, -0.9], 0)
+                  , (VU.fromList [-1.0, -0.5, 0.5, 1.0], 1)
+                  , (VU.fromList [-0.9, -0.4, 0.6, 0.8], 1)
+                  ]
+            -- (a) batched device gradient matches the per-example summed oracle.
+            refGrad <-
+              either (assertFailure . Text.unpack) pure $ do
+                grads <-
+                  traverse
+                    (\(i, l) -> snd <$> LayerGraph.layerGraphClassifierCrossEntropyGradient graph classes i l)
+                    dataset
+                case grads of
+                  [] -> Left "empty batch"
+                  (g : gs) -> Right (foldl addLayerGraphGradient g gs)
+            run <-
+              LayerGraphOneDnn.layerGraphCrossEntropyGradientBatchOneDnn env classes graph dataset
+                >>= expectRight "mixed-op batched device gradient failed"
+            assertLayerGraphGradientClose
+              1.0e-3
+              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              refGrad
+            -- (b) training the mixed graph on device reduces cross-entropy.
+            let totalLoss g =
+                  fmap sum (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) dataset)
+            loss0 <- either (assertFailure . Text.unpack) pure (totalLoss graph)
+            trained <-
+              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env classes 40 2 0.05 graph dataset
+                >>= expectRight "mixed-op device training failed"
+            loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
+            assertBool
+              ( "mixed correct-operator device training must reduce cross-entropy: before="
+                  <> show loss0
+                  <> " after="
+                  <> show loss1
+              )
+              (loss1 < loss0)
       , testCase
           "linux-cpu MLP kernels are bit-deterministic across repeated runs (Phase 2 rebalance)"
           $ do
@@ -2128,6 +2488,89 @@ addLayerGradient a b =
                 }
           _ -> LayerGraph.layerGradientParameters a
     }
+
+-- | Phase 241 per-operator device-vs-oracle check: build a single-node graph
+-- from a correct-operator node, take the pure oracle forward + backward
+-- (@runLayerGraph@ + @backwardLayerGraph@), run the operator's device training
+-- kernel via @runDeviceOp@, and assert @out / dInput / dWeights / dBias@ all
+-- agree within float32 tolerance (1e-3).
+assertDeviceOpOracle
+  :: Env -> String -> LayerGraph.LayerNode -> VU.Vector Double -> VU.Vector Double -> IO ()
+assertDeviceOpOracle env =
+  assertDeviceNodeOracle
+    1.0e-3
+    ( \node input dY -> LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ -> LayerGraphOneDnn.runDeviceOp functions node input dY
+    )
+
+-- | Phase 241/242 per-block device-vs-oracle check: the same single-node
+-- device-vs-oracle contract as 'assertDeviceOpOracle' but driven through
+-- 'LayerGraphOneDnn.runDeviceBlock' (the on-device composition of the block's
+-- affine + norm sub-kernels). Slightly looser tolerance to absorb the float32
+-- error accumulated across the composed sub-kernels.
+assertDeviceBlockOracle
+  :: Env -> String -> LayerGraph.LayerNode -> VU.Vector Double -> VU.Vector Double -> IO ()
+assertDeviceBlockOracle env =
+  assertDeviceNodeOracle
+    2.0e-3
+    ( \node input dY -> LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ -> LayerGraphOneDnn.runDeviceBlock functions node input dY
+    )
+
+-- | Build a single-node graph from a correct-operator node, take the pure oracle
+-- forward + backward (@runLayerGraph@ + @backwardLayerGraph@), run the operator's
+-- device training path via @deviceRun@, and assert @out / dInput / dWeights /
+-- dBias@ all agree within @tol@.
+assertDeviceNodeOracle
+  :: Double
+  -> ( LayerGraph.LayerNode
+       -> VU.Vector Double
+       -> VU.Vector Double
+       -> IO (Either Text.Text (VU.Vector Double, VU.Vector Double, VU.Vector Double, VU.Vector Double))
+     )
+  -> String
+  -> LayerGraph.LayerNode
+  -> VU.Vector Double
+  -> VU.Vector Double
+  -> IO ()
+assertDeviceNodeOracle tol deviceRun label node input dY = do
+  let graph =
+        LayerGraph.LayerGraph
+          { LayerGraph.layerGraphName = Text.pack label
+          , LayerGraph.layerGraphInputShape = LayerGraph.layerInputShape node
+          , LayerGraph.layerGraphOutputShape = LayerGraph.layerOutputShape node
+          , LayerGraph.layerGraphNodes = [node]
+          }
+  tape <-
+    either (assertFailure . Text.unpack) pure (LayerGraph.runLayerGraph graph input)
+  grad <-
+    either (assertFailure . Text.unpack) pure (LayerGraph.backwardLayerGraph graph tape dY)
+  let pureOut = LayerGraph.layerTapeOutput tape
+      pureDx = LayerGraph.layerGraphInputGradient grad
+  (pureDw, pureDb) <-
+    case LayerGraph.layerGraphLayerGradients grad of
+      [lg]
+        | Just pg <- LayerGraph.layerGradientParameters lg ->
+            pure (LayerGraph.layerGradWeights pg, LayerGraph.layerGradBias pg)
+      _ -> assertFailure (label <> ": expected exactly one parameterized gradient")
+  deviceResult <- deviceRun node input dY
+  (devOut, devDx, devDw, devDb) <-
+    either (assertFailure . Text.unpack) pure deviceResult
+  let close what a b =
+        assertBool
+          ( label
+              <> " "
+              <> what
+              <> ": device/oracle mismatch\n device="
+              <> show (VU.toList a)
+              <> "\n oracle="
+              <> show (VU.toList b)
+          )
+          ( VU.length a == VU.length b
+              && VU.and (VU.zipWith (\x y -> abs (x - y) <= tol) a b)
+          )
+  close "forward output" devOut pureOut
+  close "input gradient" devDx pureDx
+  close "weight gradient" devDw pureDw
+  close "bias gradient" devDb pureDb
 
 layerGraphOneDnnFixture :: Either Text.Text LayerGraph.LayerGraph
 layerGraphOneDnnFixture = do

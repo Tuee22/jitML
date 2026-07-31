@@ -12,21 +12,43 @@ module JitML.RL.ProductBudget
   , planRlTrainingSchedule
   , productRlDefaultEvaluationEpisodes
   , productRlDefaultMaxEpisodeSteps
+  , productRlDefaultTrainingEpisodeFloor
   , productRlRequestedStepFloor
   , rlTrainerEnvironmentCompatibilityError
   , trainerKindForAlgorithm
+
+    -- * Phase 251 — TrainingPlan/EvaluationPlan compiler
+  , TrainingPlan (..)
+  , EvaluationPlan (..)
+  , CompiledRlPlan (..)
+  , compileRlPlan
+  , compiledRlTrainerKind
+  , compiledRlEnvironment
+  , compiledRlSeed
+  , compiledRlMaxEpisodeSteps
+  , compiledRlEvaluationEpisodes
+  , isAleAdapterEnvironment
+  , compiledRlPlanId
+  , renderCompiledRlPlanTransport
+  , parseCompiledRlPlanTransport
   )
 where
 
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
+import Data.Char (isDigit)
 import Data.Foldable (traverse_)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Word (Word64)
+import Data.Text.Encoding qualified as Text.Encoding
+import Data.Word (Word64, Word8)
+import Text.Read (readMaybe)
 
 import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
 import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
 import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
+import JitML.RL.Algorithms.Registry qualified as Cohort
 import JitML.RL.Simulator
   ( ContinuousEnvironment (cEnvMaxEpisodeSteps)
   , SimulatedEnvironment (envMaxEpisodeSteps)
@@ -73,6 +95,16 @@ data RlTrainingSchedule
 productRlDefaultEvaluationEpisodes :: Int
 productRlDefaultEvaluationEpisodes = 20
 
+-- | Phase 251 — the canonical /training-side/ episode-budget floor. This is a
+-- training dimension: it scales the requested rollout/step floor a schedule is
+-- planned against, independently of how many /evaluation/ episodes the run will
+-- later score. It shares the value @20@ with
+-- 'productRlDefaultEvaluationEpisodes' by history, but the two are now separate
+-- inputs: changing the evaluation episode count can never move a training
+-- dimension, because the schedule reads only this training floor.
+productRlDefaultTrainingEpisodeFloor :: Int
+productRlDefaultTrainingEpisodeFloor = 20
+
 productRlDefaultMaxEpisodeSteps :: Int
 productRlDefaultMaxEpisodeSteps = 200
 
@@ -87,7 +119,7 @@ canonicalProductRlSchedule algorithm environment =
   planRlTrainingSchedule
     (trainerKindForAlgorithm algorithm)
     environment
-    productRlDefaultEvaluationEpisodes
+    productRlDefaultTrainingEpisodeFloor
     productRlDefaultMaxEpisodeSteps
     Nothing
     (Just productRlRequestedStepFloor)
@@ -109,7 +141,7 @@ planExactRlTrainingSchedule
   -> Maybe Int
   -> Word64
   -> Either Text RlTrainingSchedule
-planExactRlTrainingSchedule trainer environment evalEpisodes maxEpisodeSteps vectorOverride expected = do
+planExactRlTrainingSchedule trainer environment trainingEpisodeFloor maxEpisodeSteps vectorOverride expected = do
   case rlTrainerEnvironmentCompatibilityError trainer environment of
     Just err -> Left err
     Nothing -> Right ()
@@ -117,7 +149,7 @@ planExactRlTrainingSchedule trainer environment evalEpisodes maxEpisodeSteps vec
     planRlTrainingSchedule
       trainer
       environment
-      evalEpisodes
+      trainingEpisodeFloor
       maxEpisodeSteps
       vectorOverride
       (Just expected)
@@ -136,75 +168,30 @@ planExactRlTrainingSchedule trainer environment evalEpisodes maxEpisodeSteps vec
         )
 
 -- | Worker-side trainer selector used by the canonical schedule.  Unknown
--- selectors remain unknown so 'planRlTrainingSchedule' fails closed.
+-- selectors remain unknown so 'planRlTrainingSchedule' fails closed.  The
+-- rendering is owned by the typed cohort registry
+-- ('JitML.RL.Algorithms.Registry') so the daemon, worker, publisher, and
+-- completion path all derive the same identity string from one source.
 trainerKindForAlgorithm :: Text -> Text
-trainerKindForAlgorithm algorithm =
-  case Text.toUpper (Text.strip algorithm) of
-    "PPO" -> "ppo"
-    "A2C" -> "a2c"
-    "TRPO" -> "trpo"
-    "MASKABLEPPO" -> "maskableppo"
-    "RECURRENTPPO" -> "recurrentppo"
-    "DQN" -> "dqn"
-    "QR-DQN" -> "qrdqn"
-    "QRDQN" -> "qrdqn"
-    "DDPG" -> "ddpg"
-    "TD3" -> "td3"
-    "SAC" -> "sac"
-    "CROSSQ" -> "crossq"
-    "TQC" -> "tqc"
-    "ARS" -> "ars"
-    "HER" -> "her"
-    _ -> Text.toLower (Text.strip algorithm)
+trainerKindForAlgorithm = Cohort.trainerKindForAlgorithmName
 
 -- | Closed compatibility relation shared by ProductRow refinement and every
 -- runtime adapter.  Scheduling alone is insufficient: several trainers can
 -- derive a numerical schedule for a simulator whose action domain they do not
--- implement.
+-- implement.  Backed by the typed action-domain cohort registry.
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
-rlTrainerEnvironmentCompatibilityError rawTrainer rawEnvironment =
-  case supportedEnvironments of
-    Nothing -> Nothing
-    Just environments
-      | environment `elem` environments -> Nothing
-      | otherwise ->
-          Just
-            ( "RL trainer "
-                <> trainer
-                <> " does not support environment "
-                <> environment
-                <> "; supported environments: "
-                <> Text.intercalate ", " environments
-            )
- where
-  trainer = Text.toLower (Text.strip rawTrainer)
-  environment = Text.toLower (Text.strip rawEnvironment)
-  supportedEnvironments =
-    case trainer of
-      "ppo" -> Just discreteProductEnvironments
-      "a2c" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "trpo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "maskableppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "recurrentppo" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "dqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
-      "qrdqn" -> Just ["cartpole", "mountain-car", "key-door-grid"]
-      "ddpg" -> Just continuousProductEnvironments
-      "td3" -> Just continuousProductEnvironments
-      "sac" -> Just continuousProductEnvironments
-      "crossq" -> Just continuousProductEnvironments
-      "tqc" -> Just continuousProductEnvironments
-      "ars" -> Just ["cartpole", "mountain-car", "lunar-lander", "key-door-grid"]
-      "her" -> Just ["goal-reaching"]
-      _ -> Nothing
-  discreteProductEnvironments =
-    ["cartpole", "mountain-car", "acrobot", "lunar-lander", "key-door-grid", "gridworld-deterministic"]
-  continuousProductEnvironments = ["pendulum", "lunar-lander"]
+rlTrainerEnvironmentCompatibilityError = Cohort.trainerEnvironmentCompatibilityError
 
 -- | Plan one real trainer run.  The optional target is a requested minimum,
 -- not an observed count: the returned count includes every vector environment
 -- and is rounded only where the trainer's indivisible rollout/episode shape
 -- requires it.  Callers that own an exact resolved budget must compare that
 -- budget with 'scheduleObservedEnvironmentSteps' before executing the trainer.
+--
+-- Phase 251: the third argument is the /training/ episode-budget floor, not the
+-- evaluation episode count. Evaluation episodes never reach this function, so no
+-- training dimension the schedule produces can depend on how many episodes the
+-- run is later scored over.
 planRlTrainingSchedule
   :: Text
   -> Text
@@ -213,8 +200,8 @@ planRlTrainingSchedule
   -> Maybe Int
   -> Maybe Word64
   -> Either Text RlTrainingSchedule
-planRlTrainingSchedule rawTrainer environment evalEpisodes requestedMaxSteps vectorOverride requestedFloor = do
-  positive "RL evaluation episodes" evalEpisodes
+planRlTrainingSchedule rawTrainer environment trainingEpisodeFloor requestedMaxSteps vectorOverride requestedFloor = do
+  positive "RL training episode budget floor" trainingEpisodeFloor
   positive "RL maximum episode steps" requestedMaxSteps
   traverse_ (positive "RL vector-environment count") vectorOverride
   case trainer of
@@ -257,7 +244,7 @@ planRlTrainingSchedule rawTrainer environment evalEpisodes requestedMaxSteps vec
         stepsPerIteration =
           toInteger rolloutSteps * toInteger vectorEnvironments
         defaultSteps =
-          toInteger (max iterationFloor evalEpisodes) * stepsPerIteration
+          toInteger (max iterationFloor trainingEpisodeFloor) * stepsPerIteration
         requestedSteps = max defaultSteps targetFloor
         iterationsInteger =
           max (toInteger iterationFloor) (ceilingDiv requestedSteps stepsPerIteration)
@@ -279,7 +266,7 @@ planRlTrainingSchedule rawTrainer environment evalEpisodes requestedMaxSteps vec
         requestedSteps =
           maximum
             [ toInteger algorithmFloor
-            , toInteger evalEpisodes * toInteger effectiveMax
+            , toInteger trainingEpisodeFloor * toInteger effectiveMax
             , targetFloor
             ]
     steps <- checkedInt "off-policy environment-step count" requestedSteps
@@ -297,7 +284,7 @@ planRlTrainingSchedule rawTrainer environment evalEpisodes requestedMaxSteps vec
         requestedSteps =
           maximum
             [ toInteger algorithmFloor
-            , toInteger evalEpisodes * toInteger effectiveMax
+            , toInteger trainingEpisodeFloor * toInteger effectiveMax
             , targetFloor
             ]
     steps <- checkedInt "continuous-control environment-step count" requestedSteps
@@ -317,7 +304,7 @@ planRlTrainingSchedule rawTrainer environment evalEpisodes requestedMaxSteps vec
           2 * toInteger directions * toInteger effectiveMax
         requestedSteps =
           maximum
-            [ toInteger evalEpisodes * stepsPerIteration
+            [ toInteger trainingEpisodeFloor * stepsPerIteration
             , targetFloor
             , 50 * stepsPerIteration
             ]
@@ -337,7 +324,7 @@ planRlTrainingSchedule rawTrainer environment evalEpisodes requestedMaxSteps vec
     let stepsPerEpisode = HerTrainer.herNumBits HerTrainer.defaultHerTrainConfig
         requestedSteps =
           maximum
-            [ toInteger evalEpisodes * toInteger stepsPerEpisode
+            [ toInteger trainingEpisodeFloor * toInteger stepsPerEpisode
             , targetFloor
             , 200 * toInteger stepsPerEpisode
             ]
@@ -397,3 +384,280 @@ checkedWord64 label value
   | value <= 0 = Left (label <> " must be positive")
   | value > toInteger (maxBound :: Word64) = Left (label <> " exceeds the Word64 range")
   | otherwise = Right (fromInteger value)
+
+-- Phase 251 — TrainingPlan/EvaluationPlan compiler. -----------------------
+--
+-- The pure plan compiler is the single owner of RL dimensional arithmetic. A
+-- 'TrainingPlan' carries every input that shapes a training run (the trainer,
+-- the environment, the seed, the episode-length cap, the training episode
+-- budget floor, the vector-environment width, and either a requested transition
+-- floor or an exact resolved transition target). A separate 'EvaluationPlan'
+-- carries only the number of episodes the trained policy is later scored over.
+-- 'compileRlPlan' derives a validated 'CompiledRlPlan' whose training
+-- dimensions are a function of the 'TrainingPlan' alone: the 'EvaluationPlan'
+-- can never move the schedule.
+
+-- | The training-shaping inputs for one RL run. No evaluation episode count
+-- appears here — that is the whole point.
+data TrainingPlan = TrainingPlan
+  { trainingPlanTrainerKind :: !Text
+  -- ^ Worker-side trainer selector (for example @qrdqn@).
+  , trainingPlanEnvironment :: !Text
+  -- ^ Canonical environment name (for example @lunar-lander@).
+  , trainingPlanSeed :: !Int
+  -- ^ Deterministic run seed. Does not affect the scheduled dimensions.
+  , trainingPlanMaxEpisodeSteps :: !Int
+  -- ^ Requested per-episode step cap; the schedule combines it with the
+  --   environment's own geometry maximum.
+  , trainingPlanEpisodeBudgetFloor :: !Int
+  -- ^ The training episode-budget floor (see
+  --   'productRlDefaultTrainingEpisodeFloor'). Scales the schedule's requested
+  --   floor. Distinct from the evaluation episode count.
+  , trainingPlanVectorEnvironments :: !(Maybe Int)
+  -- ^ Optional exact vector-environment width; 'Nothing' lets the compiler pick
+  --   the trainer default.
+  , trainingPlanRequestedTransitionFloor :: !(Maybe Word64)
+  -- ^ Optional requested minimum total transitions.
+  , trainingPlanExactTransitionTarget :: !(Maybe Word64)
+  -- ^ When 'Just', the schedule must reproduce this exact transition total or
+  --   compilation fails closed.
+  }
+  deriving stock (Eq, Show)
+
+-- | The evaluation-only inputs for one RL run. Nothing here can reach the
+-- schedule.
+newtype EvaluationPlan = EvaluationPlan
+  { evaluationPlanEpisodes :: Int
+  }
+  deriving stock (Eq, Show)
+
+-- | A validated plan: the training inputs, the evaluation inputs, and the
+-- derived training schedule. The schedule is 'Nothing' only for the ALE
+-- @atari-subset@ adapter, which has no neural-trainer schedule.
+data CompiledRlPlan = CompiledRlPlan
+  { compiledRlTraining :: !TrainingPlan
+  , compiledRlEvaluation :: !EvaluationPlan
+  , compiledRlSchedule :: !(Maybe RlTrainingSchedule)
+  }
+  deriving stock (Eq, Show)
+
+compiledRlTrainerKind :: CompiledRlPlan -> Text
+compiledRlTrainerKind = trainingPlanTrainerKind . compiledRlTraining
+
+compiledRlEnvironment :: CompiledRlPlan -> Text
+compiledRlEnvironment = trainingPlanEnvironment . compiledRlTraining
+
+compiledRlSeed :: CompiledRlPlan -> Int
+compiledRlSeed = trainingPlanSeed . compiledRlTraining
+
+compiledRlMaxEpisodeSteps :: CompiledRlPlan -> Int
+compiledRlMaxEpisodeSteps = trainingPlanMaxEpisodeSteps . compiledRlTraining
+
+compiledRlEvaluationEpisodes :: CompiledRlPlan -> Int
+compiledRlEvaluationEpisodes = evaluationPlanEpisodes . compiledRlEvaluation
+
+-- | The lone environment routed through the runtime-loaded ALE adapter rather
+-- than a scheduled neural trainer.
+isAleAdapterEnvironment :: Text -> Bool
+isAleAdapterEnvironment environment = Text.toLower (Text.strip environment) == "atari-subset"
+
+-- | Compile a 'TrainingPlan' and a separate 'EvaluationPlan' into a validated
+-- 'CompiledRlPlan'. The derived schedule is a function of the 'TrainingPlan'
+-- alone; the 'EvaluationPlan' only records how many episodes the policy will be
+-- scored over.
+compileRlPlan :: TrainingPlan -> EvaluationPlan -> Either Text CompiledRlPlan
+compileRlPlan training evaluation = do
+  positive "RL evaluation episodes" (evaluationPlanEpisodes evaluation)
+  positive "RL maximum episode steps" (trainingPlanMaxEpisodeSteps training)
+  positive "RL training episode budget floor" (trainingPlanEpisodeBudgetFloor training)
+  traverse_ (positive "RL vector-environment count") (trainingPlanVectorEnvironments training)
+  scheduleMaybe <-
+    if isAleAdapterEnvironment (trainingPlanEnvironment training)
+      then Right Nothing
+      else Just <$> planTrainingScheduleFor training
+  pure
+    CompiledRlPlan
+      { compiledRlTraining = training
+      , compiledRlEvaluation = evaluation
+      , compiledRlSchedule = scheduleMaybe
+      }
+
+planTrainingScheduleFor :: TrainingPlan -> Either Text RlTrainingSchedule
+planTrainingScheduleFor training =
+  case trainingPlanExactTransitionTarget training of
+    Just target ->
+      planExactRlTrainingSchedule
+        (trainingPlanTrainerKind training)
+        (trainingPlanEnvironment training)
+        (trainingPlanEpisodeBudgetFloor training)
+        (trainingPlanMaxEpisodeSteps training)
+        (trainingPlanVectorEnvironments training)
+        target
+    Nothing ->
+      planRlTrainingSchedule
+        (trainingPlanTrainerKind training)
+        (trainingPlanEnvironment training)
+        (trainingPlanEpisodeBudgetFloor training)
+        (trainingPlanMaxEpisodeSteps training)
+        (trainingPlanVectorEnvironments training)
+        (trainingPlanRequestedTransitionFloor training)
+
+-- Phase 251 — canonical transport for the mounted worker RunConfig. ---------
+--
+-- A single-line, pipe-delimited @key=value@ transport (mirroring the supervised
+-- plan transport) carrying only the plan inputs; the schedule is re-derived on
+-- parse. The plan id is the SHA-256 of the canonical input fields, so it is
+-- stable across the daemon→worker hop and independent of schedule derivation.
+
+-- | The content-addressed identity of a compiled plan: a hex SHA-256 over its
+-- canonical input fields.
+compiledRlPlanId :: CompiledRlPlan -> Text
+compiledRlPlanId plan =
+  sha256Hex
+    ( renderTransportFieldList
+        (canonicalRlPlanFields (compiledRlTraining plan) (compiledRlEvaluation plan))
+    )
+
+-- | Render the full transport: the plan id followed by the canonical inputs.
+renderCompiledRlPlanTransport :: CompiledRlPlan -> Text
+renderCompiledRlPlanTransport plan =
+  renderTransportFieldList
+    ( ("plan-id", compiledRlPlanId plan)
+        : canonicalRlPlanFields (compiledRlTraining plan) (compiledRlEvaluation plan)
+    )
+
+-- | Parse and re-validate a compiled-plan transport. Fails closed unless the
+-- declared plan id matches the recomputed id and the canonical re-render is
+-- byte-identical to the input.
+parseCompiledRlPlanTransport :: Text -> Either Text CompiledRlPlan
+parseCompiledRlPlanTransport input = do
+  fields <- parseTransportFieldList input
+  declaredPlanId <- lookupField "plan-id" fields
+  training <-
+    TrainingPlan
+      <$> (decodeHexField =<< lookupField "trainer-kind" fields)
+      <*> (decodeHexField =<< lookupField "environment" fields)
+      <*> (intField "seed" =<< lookupField "seed" fields)
+      <*> (intField "max-episode-steps" =<< lookupField "max-episode-steps" fields)
+      <*> (intField "training-episode-floor" =<< lookupField "training-episode-floor" fields)
+      <*> (maybeIntField "vector-environments" =<< lookupField "vector-environments" fields)
+      <*> (maybeWord64Field "requested-transition-floor" =<< lookupField "requested-transition-floor" fields)
+      <*> (maybeWord64Field "exact-transition-target" =<< lookupField "exact-transition-target" fields)
+  evaluation <-
+    EvaluationPlan <$> (intField "evaluation-episodes" =<< lookupField "evaluation-episodes" fields)
+  plan <- compileRlPlan training evaluation
+  if compiledRlPlanId plan /= declaredPlanId
+    then Left "compiled RL plan id does not match its declared transport id"
+    else
+      if renderCompiledRlPlanTransport plan /= input
+        then Left "compiled RL plan transport is not canonical"
+        else Right plan
+
+canonicalRlPlanFields :: TrainingPlan -> EvaluationPlan -> [(Text, Text)]
+canonicalRlPlanFields training evaluation =
+  [ ("transport-version", "1")
+  , ("kind", "rl-compiled-plan")
+  , ("trainer-kind", encodeHexField (trainingPlanTrainerKind training))
+  , ("environment", encodeHexField (trainingPlanEnvironment training))
+  , ("seed", showText (trainingPlanSeed training))
+  , ("max-episode-steps", showText (trainingPlanMaxEpisodeSteps training))
+  , ("training-episode-floor", showText (trainingPlanEpisodeBudgetFloor training))
+  , ("vector-environments", renderMaybeInt (trainingPlanVectorEnvironments training))
+  , ("requested-transition-floor", renderMaybeWord64 (trainingPlanRequestedTransitionFloor training))
+  , ("exact-transition-target", renderMaybeWord64 (trainingPlanExactTransitionTarget training))
+  , ("evaluation-episodes", showText (evaluationPlanEpisodes evaluation))
+  ]
+
+renderTransportFieldList :: [(Text, Text)] -> Text
+renderTransportFieldList =
+  Text.intercalate "|" . fmap (\(key, value) -> key <> "=" <> value)
+
+parseTransportFieldList :: Text -> Either Text [(Text, Text)]
+parseTransportFieldList input =
+  traverse parsePair (Text.splitOn "|" input)
+ where
+  parsePair raw =
+    case Text.breakOn "=" raw of
+      (key, rest)
+        | Text.null rest -> Left ("malformed RL plan transport field: " <> raw)
+        | otherwise -> Right (key, Text.drop 1 rest)
+
+lookupField :: Text -> [(Text, Text)] -> Either Text Text
+lookupField key fields =
+  case lookup key fields of
+    Just value -> Right value
+    Nothing -> Left ("RL plan transport is missing field: " <> key)
+
+intField :: Text -> Text -> Either Text Int
+intField label raw =
+  case readMaybe (Text.unpack raw) of
+    Just value -> Right value
+    Nothing -> Left ("RL plan transport field " <> label <> " is not an integer")
+
+maybeIntField :: Text -> Text -> Either Text (Maybe Int)
+maybeIntField label raw
+  | raw == "none" = Right Nothing
+  | Just rest <- Text.stripPrefix "some:" raw = Just <$> intField label rest
+  | otherwise = Left ("RL plan transport field " <> label <> " is not an optional integer")
+
+maybeWord64Field :: Text -> Text -> Either Text (Maybe Word64)
+maybeWord64Field label raw
+  | raw == "none" = Right Nothing
+  | Just rest <- Text.stripPrefix "some:" raw =
+      case readMaybe (Text.unpack rest) of
+        Just value -> Right (Just value)
+        Nothing -> Left ("RL plan transport field " <> label <> " is not an optional Word64")
+  | otherwise = Left ("RL plan transport field " <> label <> " is not an optional Word64")
+
+renderMaybeInt :: Maybe Int -> Text
+renderMaybeInt Nothing = "none"
+renderMaybeInt (Just value) = "some:" <> showText value
+
+renderMaybeWord64 :: Maybe Word64 -> Text
+renderMaybeWord64 Nothing = "none"
+renderMaybeWord64 (Just value) = "some:" <> showText value
+
+showText :: (Show value) => value -> Text
+showText = Text.pack . show
+
+encodeHexField :: Text -> Text
+encodeHexField =
+  Text.pack . concatMap byteHex . ByteString.unpack . Text.Encoding.encodeUtf8
+ where
+  byteHex :: Word8 -> String
+  byteHex b = [hexDigit (fromIntegral b `div` 16), hexDigit (fromIntegral b `mod` 16)]
+
+decodeHexField :: Text -> Either Text Text
+decodeHexField raw =
+  case pairs (Text.unpack raw) of
+    Nothing -> Left "RL plan transport hex field is malformed"
+    Just bytes ->
+      case Text.Encoding.decodeUtf8' (ByteString.pack bytes) of
+        Left _ -> Left "RL plan transport hex field is not valid UTF-8"
+        Right value -> Right value
+ where
+  pairs [] = Just []
+  pairs (h : l : rest) = do
+    hi <- hexValue h
+    lo <- hexValue l
+    ((fromIntegral (hi * 16 + lo) :: Word8) :) <$> pairs rest
+  pairs [_] = Nothing
+
+hexDigit :: Int -> Char
+hexDigit n
+  | n < 10 = toEnum (fromEnum '0' + n)
+  | otherwise = toEnum (fromEnum 'a' + n - 10)
+
+hexValue :: Char -> Maybe Int
+hexValue c
+  | isDigit c = Just (fromEnum c - fromEnum '0')
+  | c >= 'a' && c <= 'f' = Just (fromEnum c - fromEnum 'a' + 10)
+  | c >= 'A' && c <= 'F' = Just (fromEnum c - fromEnum 'A' + 10)
+  | otherwise = Nothing
+
+sha256Hex :: Text -> Text
+sha256Hex =
+  Text.pack . concatMap byteHex . ByteString.unpack . SHA256.hash . Text.Encoding.encodeUtf8
+ where
+  byteHex :: Word8 -> String
+  byteHex b = [hexDigit (fromIntegral b `div` 16), hexDigit (fromIntegral b `mod` 16)]

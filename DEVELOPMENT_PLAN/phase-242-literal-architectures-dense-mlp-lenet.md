@@ -9,13 +9,17 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 241 (Sprint 241.1).
+✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
+The Dense classifier, the deep MLP with BatchNorm and Dropout, LeNet-5
+(Conv2D + pooling), and the tabular/regression MLP are each built as literal
+layer graphs over the Phase `233` typed layer engine, trained on the Phase `241`
+device kernels; each row binds to its constructing function and feature parity is
+enforced (a simplified or mislabeled topology fails the production-path test).
 
-## Sprint 242.1: Literal Architectures - Dense, MLP, LeNet [⏸️ Blocked]
+## Sprint 242.1: Literal Architectures - Dense, MLP, LeNet [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
-**Blocked by**: Sprint `241.1`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
 ### Objective
@@ -38,15 +42,6 @@ architecture rather than a shared flat topology standing in for many rows.
   implemented layer graph; no simplified topology satisfies a row naming
   BatchNorm, Dropout, or Conv2D.
 
-### Remaining Work
-
-- Implement the Dense, deep-MLP, LeNet-5, and tabular-MLP rows as their literal
-  named architectures on the typed `LayerGraph` IR (trained via Phase `238`), including
-  real convolution, pooling, and BatchNorm/Dropout structure rather than a shared
-  flat approximation.
-- Bind the registry's claimed features to that executed graph, and make a
-  simplified or mislabeled topology fail the production-path test.
-
 ### Validation
 
 ```bash
@@ -54,6 +49,15 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
+
+### Closure Evidence
+
+Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
+jitml-sl-canonicals 36/36 (incl. the feature-parity and simplified-topology
+negative cases and the all-eleven trained==Store-loaded V2 parity), jitml-unit
+passed with 0 failures, `jitml check-code` ok, `jitml docs check` ok, and
+`jitml internal train-and-publish-product-rows --linux-cpu` exit 0 with 55/55
+admitted.
 
 ### Historical Validation
 

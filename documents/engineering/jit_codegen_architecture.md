@@ -15,16 +15,14 @@
 
 ## Current Status
 
-**Implemented today.** The supervised served path uses the V2 structural-operation
-ABI (the generated nine-operation `RuntimeBackendExecutor` per substrate), and the
-`LayerGraphOneDnn` device path evaluates one example at a time.
+**Implemented today.** The supervised served path reconstructs the reloaded typed
+`LayerGraph` from checkpoint metadata and executes it directly through
+`LayerGraph.runLayerGraph` (Phases `237`–`239`); the V2 structural-operation ABI
+has been removed. The `LayerGraphOneDnn` device path evaluates one example at a
+time.
 
-**Target (Phases `234`, `237`–`239`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-The oneDNN layer kernels gain a **batched** forward/backward path (Phase `234`),
-the reloaded typed `LayerGraph` is executed directly, and the V2
-structural-operation ABI is removed. Until those phases close, the per-example V2
-ABI described below is the implemented reality and the batched IR-executor form is
-a target contract.
+**Target (Phase `234`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
+The oneDNN layer kernels gain a **batched** forward/backward path (Phase `234`).
 
 ## Cache Layout
 
@@ -50,11 +48,10 @@ Generated compiler inputs live alongside the cache under:
 
 `src/JitML/Codegen/RuntimeSource.hs` owns the generated-source ADT and
 materialization discipline. `src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` render the
-general per-substrate source bundles, while
-`src/JitML/Codegen/RuntimeOperations{Cpu,Cuda,Metal}.hs` render the supervised
-V2 structural-runtime `kernel.cc`, `kernel.cu`, and MSL-bearing
-`kernel.metal.json` bundles. The repository does not keep checked-in
-substrate-source directories for generated compiler inputs.
+general per-substrate source bundles. (Phase `239` removed the supervised V2
+structural-runtime `RuntimeOperations{Cpu,Cuda,Metal}` renderers; supervised
+serving now runs the reloaded typed `LayerGraph` directly.) The repository does
+not keep checked-in substrate-source directories for generated compiler inputs.
 
 The generated-source rule applies to every source file that participates in a
 JIT cache miss. Checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, per-kernel MSL,
@@ -179,39 +176,27 @@ parameter-commit effects. `EngineEnvelope` is already the local
 reproducibility witness surface; see
 [determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
 
-### Supervised V2 structural-operation ABI
+### Supervised serving through the trained graph
 
-The exact supervised V2 runtime graph is split between the selected backend's
-real MLP implementation and one generated structural-operation bundle for that
-same substrate. `RuntimeBackendExecutor` requires input/output transforms,
-MLP, residual add, LayerNorm, token-mix pack/merge, patch extraction, attention,
-and mean pooling; a missing operation is a failure rather than permission to
-run a shared host implementation.
+Phase `239` retired the V2 structural-operation ABI. A supervised checkpoint's
+sole served representation is its trained typed `LayerGraph` (persisted as
+`architectureLayerGraph` metadata); there is no persisted or executed layer-op
+program, no per-substrate `RuntimeBackendExecutor`, and no generated
+`RuntimeOperations{Cpu,Cuda,Metal}` structural bundle. The
+`JitML.Codegen.RuntimeOperations*`, `JitML.Engines.RuntimeOperations*`, and the
+`RuntimeArtifact` `executeLoadedRuntime` / `RuntimeBackendExecutor` /
+`RuntimeLayerOperation` surfaces are deleted.
 
-- `JitML.Codegen.RuntimeOperationsCpu` and
-  `JitML.Codegen.RuntimeOperationsCuda` render a status-returning version-`1`
-  `double` C ABI with capability mask `0xff`. The generated CUDA exports are
-  host-callable wrappers around real device allocation, transfer, launch,
-  synchronization, and readback.
-- `JitML.Engines.RuntimeOperationsDevice` provides the common Linux
-  compile/load/ABI/capability/symbol/marshalling boundary;
-  `JitML.Engines.RuntimeOperationsCuda` supplies the guarded CUDA source,
-  toolchain fingerprint, and runtime-probe specialization.
-- `JitML.Codegen.RuntimeOperationsMetal` embeds the generated MSL, all nine
-  function names, ABI/capability values, bridge ABI, fast-math-off policy, and
-  source SHA in exact `.metal.json` bytes.
-  `JitML.Engines.RuntimeOperationsMetal` verifies those exact cached bytes and
-  the fp32 transport contract before using the fixed bridge.
-- `JitML.Engines.Local`, `CudaLocal`, and `MetalLocal` install the generated
-  structural executor plus their selected real MLP callback. They install no
-  `RuntimeOperations.host*` callbacks and cannot substitute the pure/reference
-  oracle for recognized V2.
-
-Compile, artifact load, symbol lookup, ABI mismatch, capability mismatch,
-operation contract, native status, execution, and nested selected-backend MLP
-failures remain distinct typed errors. Linux CPU exercises the native
-compile/load/execute route in Sprint `10.6`; real-device CUDA and Metal
-reattestation stays in the numerical-order single-accelerator lanes.
+`JitML.Engines.{Local,CudaLocal,MetalLocal}` serve a supervised checkpoint
+through `runSupervisedGraphCheckpointInference`: reconstruct the trained
+`LayerGraph` from its metadata, inject the one physical graph-ordered
+`supervised.weights` blob as the parameter vector, run
+`LayerGraph.runLayerGraph`, and apply the exact input/output transforms (which
+ride OUTSIDE the graph) as pure functions
+(`RuntimeArtifact.executeSupervisedGraphRuntime`). The transforms — feature
+standardisation / unit-image ingress and the semantic-prefix / destandardize
+egress — are the only supervised-runtime state that survives alongside the
+graph.
 
 ## Product Scaffold Boundary
 
@@ -268,6 +253,18 @@ scaffolding modules.
   execute oneDNN `convolution_forward` in `forward_training` mode plus
   `convolution_backward_data` and `convolution_backward_weights` over the
   graph's flat 1x1 channel projection.
+- Phase `241` replaces that flat 1×1 projection with a **real `dnnl` primitive
+  per operator kind**. `renderOneDnnLayerTrainingSource` renders spatial `ConvOp`
+  (`convolution_{forward,backward_data,backward_weights}` over the true
+  `[C_in,H,W]` / kernel / stride / padding geometry), `NormOp` (batch / layer /
+  group norm), `GeGLUOp` (three-projection gated GELU), multi-head `AttentionOp`
+  including the `W_O` output projection, `PatchOp`, `ResidualOp`, and the
+  BasicBlock/Bottleneck `BlockOp` composed from dense + norm device sub-kernels.
+  The FFI carries each operator's true geometry and packed-parameter layout, and
+  `deviceLayerGradient` dispatches on the node's `LayerOp` to the matching kernel.
+  Each kernel is validated against the pure `backwardLayerGraph` oracle within
+  float32 tolerance in the backends lane; the pure gradient is never a runtime
+  fallback (the hardware-native determinism contract forbids it).
 - `src/JitML/Service/Runtime.hs` exposes
   `daemonWorkloadDispatcherWithInference`; the `jitml service` entrypoint
   selects the Linux CPU generated-kernel checkpoint runner for

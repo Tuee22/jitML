@@ -186,7 +186,7 @@ executable: patch size/stride `4/4` over `32×32×3`, token-mixing count `64`,
 latest target and the current canonical runtime contract. A stale 16×16 or
 8×8 V2 artifact therefore cannot pass merely by retaining the right row and
 `PlanId`. The current ProductRow plan supplies **2,000** training examples,
-five epochs, batch size 128, **10,000** processed examples, **80** successful
+forty epochs, batch size 128, **80,000** processed examples, **640** successful
 optimizer updates, and the typed `1.5e-3` rate. The final current-image
 publisher and full stanza are still required
 by the Active sprint; the structural assertion alone is not convergence or

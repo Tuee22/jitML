@@ -1960,6 +1960,17 @@ reload-parity, and full-suite validation. Blocked Phases `23` and `24` still own
 the deferred residual corrections, and the literal two-head small-ViT/GeGLU
 topology shown below.
 
+**2026-07-30 closure:** Phases `240`–`246` closed the coupled literal-architecture
+landing. Each supervised row now trains its literal named layer graph on the
+oneDNN device kernels (Phase `241`) and hands that exact trained `LayerGraph` to
+the checkpoint boundary. The ResNet family (`fashion-mnist-resnet`,
+`cifar10-resnet20`, `cifar10-resnet56`, `cifar100-wide-resnet`, and the
+`tiny-imagenet-resnet50` bottleneck) are literal mixer-ResNet layer graphs — real
+`Conv2D` behind a two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`,
+residual BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as compact
+proxies under the bounded product budget, with the 2-D convolution forward
+implemented as a tight unboxed kernel. All 55 product rows admit.
+
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
 | MNIST | shallow MLP (1×128 hidden) | Dense + ReLU + Softmax | ~98.0% test acc | LeCun et al. 1998 [^lecun1998] |

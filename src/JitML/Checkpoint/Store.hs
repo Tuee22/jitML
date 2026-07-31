@@ -1901,52 +1901,32 @@ decodeLoadedWeightTensor manifest tensor bytes = do
       , loadedWeightJmw1Bytes = bytes
       }
 
--- | Reconstruct a V2 supervised runtime solely from its persisted refined
--- payload and the one exact physical @supervised.weights@ JMW1 blob.  A
--- runtime-free V1 manifest deliberately returns 'Nothing' so legacy engine
--- fallbacks remain isolated from the strict V2 path.
+-- | Validate that a manifest's persisted supervised runtime and its one exact
+-- physical @supervised.weights@ blob are coherent.  A runtime-free manifest (RL,
+-- AlphaZero, tuning) deliberately returns @()@ so weight-only engine paths stay
+-- isolated from the supervised-graph path.
 --
--- Phase 239: when the manifest advertises a trained dense layer graph
--- (@architectureLayerGraph@), the @supervised.weights@ blob is the
--- graph-ordered parameter vector, so its length is anchored to the graph's
--- parameter count (not the token-op program's), and the strict token-runtime
--- reconstruction is bypassed — serving reconstructs and runs the graph
--- directly ('runSupervisedGraphCheckpointInference').  This function still
--- performs the physical-tensor and graph-count admission checks and returns
--- 'Nothing' for the graph path so callers do not mis-slice a graph-ordered
--- blob into the token program's per-layer parameters.
+-- Phase 239: every supervised checkpoint advertises a trained layer graph
+-- (@architectureLayerGraph@), so the @supervised.weights@ blob is the
+-- graph-ordered parameter vector and its length is anchored to the graph's
+-- parameter count.  Serving reconstructs and runs the graph directly
+-- ('runSupervisedGraphCheckpointInference'); there is no token-runtime
+-- reconstruction.  This function performs the physical-tensor and graph-count
+-- admission checks.
 loadSupervisedRuntimeFromCheckpoint
   :: CheckpointManifest
   -> [LoadedWeightTensor]
-  -> Either Text (Maybe RuntimeArtifact.LoadedRuntime)
+  -> Either Text ()
 loadSupervisedRuntimeFromCheckpoint manifest weights =
   case manifestSupervisedRuntime manifest of
-    Nothing -> Right Nothing
-    Just payload ->
+    Nothing -> Right ()
+    Just _payload ->
       case architectureLayerGraph (manifestArchitecture manifest) of
         Just graphMeta -> do
           _ <- requireSupervisedWeightsTensor weights (layerGraphMetadataParameterCount graphMeta)
-          Right Nothing
+          Right ()
         Nothing ->
-          case weights of
-            [loaded] -> do
-              _ <-
-                requireSupervisedWeightsTensor
-                  weights
-                  ( RuntimeArtifact.supervisedRuntimeParameterCount
-                      (RuntimeArtifact.payloadRuntime payload)
-                  )
-              Just
-                <$> RuntimeArtifact.loadSupervisedRuntime
-                  payload
-                  (LazyByteString.fromStrict (loadedWeightJmw1Bytes loaded))
-            [] -> Left "V2 supervised runtime is missing supervised.weights"
-            _ ->
-              Left
-                ( "V2 supervised runtime requires exactly one physical weight "
-                    <> "blob, got "
-                    <> Text.pack (show (length weights))
-                )
+          Left "supervised checkpoint is missing its trained layer-graph metadata"
 
 -- | Validate the one physical @supervised.weights@ tensor against the expected
 -- (graph-ordered or token-op) parameter count and return its loaded values.
@@ -2010,30 +1990,38 @@ reconstructSupervisedGraphFromCheckpoint manifest weights = do
       (VU.fromList (loadedWeightValues loaded))
   Right (payload, injected)
 
--- | Phase 239 — full served inference for a supervised-graph checkpoint on the
--- selected backend: reconstruct the trained dense graph, inject the persisted
--- parameters, apply the backend input transform, run the graph, and apply the
--- backend output transform.  This replaces the retired token-runtime engine
--- path ('RuntimeArtifact.executeLoadedRuntime') for manifests that advertise a
--- layer graph.
+-- | Phase 239/240 — full served inference for a supervised-graph checkpoint:
+-- reconstruct the trained typed graph, inject the persisted parameters, gate the
+-- reloaded graph through 'LayerGraph.refineReloadedLayerGraph' (a tampered or
+-- structurally malformed envelope fails closed), then apply the exact input
+-- transform, run the graph, and apply the exact output transform.  Serving is a
+-- pure deterministic function of the checkpoint and input; the transforms ride
+-- outside the graph and the graph is run through the pure reference executor
+-- 'LayerGraph.runLayerGraph' (via 'RuntimeArtifact.executeSupervisedGraphRuntime'),
+-- which handles every correct operator.  This is the sole supervised serving
+-- path — the linux-cuda and apple-silicon engines delegate to it — and is
+-- substrate-independent (bit-identical across substrates); the V2 token-runtime
+-- engine path has been retired.
 runSupervisedGraphCheckpointInference
-  :: RuntimeArtifact.RuntimeBackendExecutor
-  -> CheckpointManifest
+  :: CheckpointManifest
   -> [LoadedWeightTensor]
   -> [Double]
   -> IO (Either Text [Double])
-runSupervisedGraphCheckpointInference backend manifest weights input =
-  case reconstructSupervisedGraphFromCheckpoint manifest weights of
-    Left err -> pure (Left err)
-    Right (payload, graph) ->
-      fmap
-        (fmap VU.toList)
-        ( RuntimeArtifact.executeSupervisedGraphRuntime
-            backend
-            payload
-            graph
-            (VU.fromList input)
-        )
+runSupervisedGraphCheckpointInference manifest weights input =
+  pure $
+    case reconstructSupervisedGraphFromCheckpoint manifest weights of
+      Left err -> Left err
+      Right (payload, reloadedGraph) ->
+        case LayerGraph.refineReloadedLayerGraph reloadedGraph of
+          Left err -> Left ("reloaded supervised graph refinement failed: " <> err)
+          Right graph ->
+            fmap
+              VU.toList
+              ( RuntimeArtifact.executeSupervisedGraphRuntime
+                  payload
+                  graph
+                  (VU.fromList input)
+              )
 
 validateLoadedManifest
   :: Text

@@ -144,6 +144,28 @@ full `LayerGraph.allLayerKinds` catalog and records per-node primitive evidence.
 Sprint `23.3` serializes that graph topology into checkpoints and runs
 checkpoint inference through the stored graph.
 
+Phase `241` completes that device training path: the layer-graph oneDNN training
+kernel now renders a **real `dnnl` primitive per operator kind** rather than the
+earlier flat 1×1 channel projection. `ConvOp` executes spatial
+`convolution_{forward,backward_data,backward_weights}` over the true `[C_in,H,W]`
+/ kernel / stride / padding geometry; `NormOp` runs batch / layer / group
+normalization; `GeGLUOp` runs the three-projection gated-GELU; `AttentionOp` runs
+multi-head scaled-dot-product attention including the `W_O` output projection; and
+`PatchOp`, `ResidualOp`, and the BasicBlock/Bottleneck `BlockOp` (composed from
+dense + norm device sub-kernels) run on their real packed parameter layouts.
+`deviceLayerGradient` dispatches on the node's `LayerOp` to the matching kernel,
+and each device kernel is validated against the pure `backwardLayerGraph` oracle
+within float32 tolerance in the backends lane; the pure gradient is the oracle
+only, never a runtime fallback.
+
+Phases `242`–`244` bind each supervised row to a literal graph on this surface.
+The ResNet family (small ResNet, ResNet-20, ResNet-56, WideResNet-28-10, and the
+ResNet-50 bottleneck) is a literal mixer-ResNet layer graph — real `Conv2D` with a
+two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`, residual
+BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as a compact proxy
+under the bounded product budget; the 2-D convolution forward is a tight unboxed
+kernel.
+
 Blocked Sprint `24.1` must bind the canonical supervised rows to literal graph
 topology and feature metadata. `ArchitectureFeature` records the feature claims
 that product rows make (`Dense`, `BatchNorm`, `Dropout`, `Conv2D`, pooling,

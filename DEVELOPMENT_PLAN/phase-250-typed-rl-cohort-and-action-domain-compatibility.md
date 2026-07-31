@@ -9,16 +9,23 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 246 (Sprint 246.1).
+✅ **Done** (closed 2026-07-30). The typed `RLCohort` (abstract; only the
+`mkCohort` smart constructor mints one) encodes the per-`(algorithm, environment)`
+action domain (`Discrete` / `Continuous` / `GoalConditioned`) so an incompatible
+discrete/continuous/goal-conditioned pair cannot be constructed, drives trainer
+dispatch, and retires the redundant `algorithm`/`trainerKind` duality (the stored
+`rlcTrainerKind` field and its Dhall schema entry are removed; the exact trainer
+strings are rendered from the cohort so content-addressed checkpoint identity is
+unchanged). Phase `251` is the next executable phase; the apple-silicon wall at
+Phase `272` is the hard stop on non-Apple hosts.
 
-## Sprint 250.1: Typed RL Cohort and Action-Domain Compatibility [⏸️ Blocked]
+## Sprint 250.1: Typed RL Cohort and Action-Domain Compatibility [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/RL/Framework.hs`,
 `src/JitML/RL/Algorithms/Registry.hs`,
 `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/Proto/Rl.hs`,
 `test/rl-canonicals/Main.hs`
-**Blocked by**: Sprint `246.1`
 **Docs to update**: `../documents/engineering/training_workloads.md`,
 `../documents/engineering/run_contract.md`, `system-components.md`,
 `legacy-tracking-for-deletion.md`
@@ -51,12 +58,18 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Blocked until Sprint `246.1` completes exact supervised completion manifests;
-  Sprint `229.1` provides the phase-specific evidence payloads transitively.
-- Land the typed cohort registry and delete the parallel
-  `algorithm`/`trainerKind` fields once dispatch flows through the cohort type.
+Closed 2026-07-30 (container `jitml:local`, live `linux-cpu`). Gates:
+`jitml test jitml-rl-canonicals --linux-cpu` passed (0 failures — incl. the new
+cohort rejection case for SAC+cartpole / DQN+pendulum / HER+cartpole, the
+acceptance case pinning both `lunar-lander` domains, and the golden case that
+every `cohortThresholds` pair renders its byte-identical trainer kind);
+`jitml test jitml-unit --linux-cpu` passed (0 failures — incl. the reflected
+Dhall `RunConfig` schema parity after the `trainerKind` field removal);
+`jitml check-code` and `jitml docs check` both ok. `RLCohort`/`ActionDomain` live
+in `RL/Framework.hs` + `RL/Algorithms/Registry.hs`; the three former mapping
+functions delegate to the cohort.
 
 ## Documentation Requirements
 

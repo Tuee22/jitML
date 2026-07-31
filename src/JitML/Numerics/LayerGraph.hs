@@ -89,6 +89,7 @@ module JitML.Numerics.LayerGraph
 
     -- * Forward / backward
   , runLayerGraph
+  , refineReloadedLayerGraph
   , backwardLayerGraph
   , layerGraphSquaredErrorGradient
   , layerGraphLoss
@@ -120,6 +121,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
+import Data.Vector.Unboxed.Mutable qualified as VUM
 import GHC.Generics (Generic)
 import System.Random qualified as Random
 
@@ -128,7 +130,7 @@ import System.Random qualified as Random
 -- ---------------------------------------------------------------------------
 
 newtype TensorShape = TensorShape {unTensorShape :: [Int]}
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 tensorShapeWidth :: TensorShape -> Either Text Int
@@ -143,7 +145,7 @@ tensorShapeRank = length . unTensorShape
 data LayerMode
   = TrainingMode
   | InferenceMode
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data LayerActivation
@@ -151,7 +153,7 @@ data LayerActivation
   | TanhActivation
   | ReluActivation
   | SoftmaxActivation
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | Serialization / identity tag for pooling and normalization families. Kept
@@ -161,14 +163,14 @@ data PoolKind
   = MaxPool
   | AvgPool
   | GlobalAvgPool
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data NormKind
   = BatchNorm
   | LayerNorm
   | GroupNorm Int
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | Stable node identity tag. The real per-node geometry lives in 'LayerOp';
@@ -186,7 +188,7 @@ data LayerKind
   | MultiHeadAttentionLayer Int
   | GeGLULayer
   | PatchEmbedLayer
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 layerKindName :: LayerKind -> Text
@@ -242,7 +244,7 @@ data ConvSpec = ConvSpec
   , convStride :: ![Int]
   , convPadding :: ![Int]
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data SpatialShape = SpatialShape
@@ -250,7 +252,7 @@ data SpatialShape = SpatialShape
   , spH :: !Int
   , spW :: !Int
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data PoolWindow = PoolWindow
@@ -262,21 +264,21 @@ data PoolWindow = PoolWindow
   , pwPw :: !Int
   , pwCountPad :: !Bool
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data PoolSpec
   = PoolMax !PoolWindow
   | PoolAvg !PoolWindow
   | PoolGlobal
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data NormFlavor
   = NormBatch
   | NormLayerWise
   | NormGroup !Int
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | Normalization spec. @nChannels@ is the per-channel affine width (gamma/beta
@@ -290,7 +292,7 @@ data NormSpec = NormSpec
   , nSpatial :: !Int
   , nEps :: !Double
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data AttentionSpec = AttentionSpec
@@ -299,7 +301,7 @@ data AttentionSpec = AttentionSpec
   , attnNumHeads :: !Int
   , attnCausal :: !Bool
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data GeGLUSpec = GeGLUSpec
@@ -307,7 +309,7 @@ data GeGLUSpec = GeGLUSpec
   , ggFf :: !Int
   , ggOut :: !Int
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | An affine map @W : [asOut, asIn]@ (row-major) plus bias @b : [asOut]@. Data
@@ -316,13 +318,13 @@ data AffineSpec = AffineSpec
   { asIn :: !Int
   , asOut :: !Int
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data Shortcut
   = IdentityShortcut
   | ProjectionShortcut !AffineSpec
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | One block stage: an affine map, an optional normalization, and an
@@ -332,7 +334,7 @@ data BlockStage = BlockStage
   , bsNorm :: !(Maybe NormSpec)
   , bsAct :: !LayerActivation
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 data BlockSpec = BlockSpec
@@ -341,7 +343,7 @@ data BlockSpec = BlockSpec
   , blScale :: !Double
   , blFinalAct :: !LayerActivation
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | Non-overlapping (or overlapping) patch embedding spec. No learned
@@ -355,7 +357,7 @@ data PatchSpec = PatchSpec
   , peStride :: !Int
   , peD :: !Int
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- | The verified operator geometry carried by every node. Tier-1 coarse nodes
@@ -372,7 +374,7 @@ data LayerOp
   | PatchOp !PatchSpec
   | ResidualOp !AffineSpec !Shortcut !Double !LayerActivation
   | BlockOp !BlockSpec
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
 -- ---------------------------------------------------------------------------
@@ -1085,6 +1087,151 @@ runLayerGraph graph input = do
         }
     )
 
+-- ---------------------------------------------------------------------------
+-- Reloaded-graph refinement (Phase 240)
+-- ---------------------------------------------------------------------------
+
+-- | Phase 240 — structural refinement gate for a reloaded / deserialised
+-- supervised 'LayerGraph'.  'runLayerGraph' and the oneDNN device forward assume
+-- a well-formed graph, but a checkpoint envelope is forgeable, so the inference
+-- read path runs this gate before it executes a reloaded graph.  A graph whose
+-- individual nodes each reconstruct is still rejected when it is globally
+-- malformed:
+--
+--   * an empty node path (nothing to execute);
+--   * a duplicate node name (ambiguous stable identities);
+--   * dangling / edge-inconsistent topology — the graph input width, every
+--     node-to-node boundary, and the graph output width must agree;
+--   * an impossible tensor shape (a non-positive or empty dimension anywhere in
+--     the graph or its nodes, surfaced through 'tensorShapeWidth');
+--   * a packed parameter identity that is inconsistent with the operator's
+--     segment layout — a parameterless op carrying weights, a parameterized op
+--     missing them, or an operator whose packed weight/bias lengths disagree
+--     with its own segment layout (dense uses its declared input/output widths;
+--     every other correct operator uses 'opWeightSegments' / 'opBiasSegments').
+--
+-- Every correct operator is part of the reloaded-serving contract; refinement is
+-- the tamper gate (duplicate names, dangling edges, impossible shapes, wrong
+-- param counts), not an operator allow-list, so a legitimately typed
+-- conv/norm/attention/geglu/patch/residual/block graph is served, not rejected.
+--
+-- On success the (unchanged) graph is returned so the reload path can execute
+-- it; on any inconsistency the reload fails closed with a specific reason.
+refineReloadedLayerGraph :: LayerGraph -> Either Text LayerGraph
+refineReloadedLayerGraph graph =
+  case layerGraphNodes graph of
+    [] -> Left (graphName <> ": reloaded layer graph has no nodes")
+    nodes@(firstNode : _) -> do
+      graphInputWidth <- tensorShapeWidth (layerGraphInputShape graph)
+      graphOutputWidth <- tensorShapeWidth (layerGraphOutputShape graph)
+      case firstDuplicateName (fmap layerNodeName nodes) of
+        Just duplicate ->
+          Left (graphName <> ": reloaded layer graph has a duplicate node name " <> duplicate)
+        Nothing -> Right ()
+      boundaries <- traverse refineReloadedNode nodes
+      firstInputWidth <- tensorShapeWidth (layerInputShape firstNode)
+      when (firstInputWidth /= graphInputWidth) $
+        Left
+          ( graphName
+              <> ": reloaded graph input width "
+              <> tshow graphInputWidth
+              <> " does not feed the first node input width "
+              <> tshow firstInputWidth
+          )
+      lastOutputWidth <-
+        case reverse boundaries of
+          ((_, out) : _) -> Right out
+          [] -> Left (graphName <> ": reloaded layer graph has no nodes")
+      when (lastOutputWidth /= graphOutputWidth) $
+        Left
+          ( graphName
+              <> ": reloaded graph output width "
+              <> tshow graphOutputWidth
+              <> " does not match the last node output width "
+              <> tshow lastOutputWidth
+          )
+      refineReloadedEdges nodes boundaries
+      Right graph
+ where
+  graphName = layerGraphName graph
+
+-- | Validate one reloaded node in isolation, returning its @(input, output)@
+-- widths for the topology-edge check.  Impossible shapes, unserved operators,
+-- and parameter identities inconsistent with the operator are rejected.
+refineReloadedNode :: LayerNode -> Either Text (Int, Int)
+refineReloadedNode node = do
+  inputWidth <- tensorShapeWidth (layerInputShape node)
+  outputWidth <- tensorShapeWidth (layerOutputShape node)
+  expected <- reloadedParameterWidths node inputWidth outputWidth
+  case (expected, layerParameters node) of
+    (Nothing, Nothing) -> Right (inputWidth, outputWidth)
+    (Nothing, Just _) ->
+      Left (layerNodeName node <> ": parameterless operator must not carry packed parameters")
+    (Just _, Nothing) ->
+      Left (layerNodeName node <> ": parameterized operator is missing its packed parameters")
+    (Just (expectedWeights, expectedBias), Just params) -> do
+      when (VU.length (layerWeights params) /= expectedWeights) $
+        Left
+          ( layerNodeName node
+              <> ": operator expects "
+              <> tshow expectedWeights
+              <> " weights, reloaded "
+              <> tshow (VU.length (layerWeights params))
+          )
+      when (VU.length (layerBias params) /= expectedBias) $
+        Left
+          ( layerNodeName node
+              <> ": operator expects "
+              <> tshow expectedBias
+              <> " bias values, reloaded "
+              <> tshow (VU.length (layerBias params))
+          )
+      Right (inputWidth, outputWidth)
+
+-- | Expected @(weights, bias)@ segment widths for a reloaded operator, or
+-- 'Nothing' for a parameterless operator.  Every correct operator is part of
+-- the reloaded-serving contract: its packed widths come from the same segment
+-- layout ('opWeightSegments' / 'opBiasSegments') the forward and backward paths
+-- use, and 'DenseOp' derives its width from the node's declared input/output
+-- widths.  A parameter blob whose length disagrees with the operator then fails
+-- closed on the count check in 'refineReloadedNode'.
+reloadedParameterWidths :: LayerNode -> Int -> Int -> Either Text (Maybe (Int, Int))
+reloadedParameterWidths node inputWidth outputWidth =
+  case layerNodeOp node of
+    DenseOp -> Right (Just (inputWidth * outputWidth, outputWidth))
+    IdentityOp -> Right Nothing
+    DropoutOp _ -> Right Nothing
+    PoolOp _ _ -> Right Nothing
+    op -> Right (Just (sum (opWeightSegments op), sum (opBiasSegments op)))
+
+-- | Reject a dangling edge: each node's output width must feed the next node's
+-- input width, in reloaded node order.
+refineReloadedEdges :: [LayerNode] -> [(Int, Int)] -> Either Text ()
+refineReloadedEdges nodes boundaries = go (zip nodes boundaries)
+ where
+  go ((from, (_, fromOut)) : rest@((to, (toIn, _)) : _))
+    | fromOut /= toIn =
+        Left
+          ( layerNodeName from
+              <> " output width "
+              <> tshow fromOut
+              <> " does not feed "
+              <> layerNodeName to
+              <> " input width "
+              <> tshow toIn
+          )
+    | otherwise = go rest
+  go _ = Right ()
+
+-- | First name that repeats in reloaded node order, if any.
+firstDuplicateName :: [Text] -> Maybe Text
+firstDuplicateName = go []
+ where
+  go _ [] = Nothing
+  go seen (x : xs)
+    | x `elem` seen = Just x
+    | otherwise = go (x : seen) xs
+
 backwardLayerGraph
   :: LayerGraph -> LayerGraphTape -> Vector Double -> Either Text LayerGraphGradient
 backwardLayerGraph graph tape upstream = do
@@ -1583,8 +1730,94 @@ affBwd w spec x dz =
 -- Convolution (2D/3D via one N-D path)
 -- ---------------------------------------------------------------------------
 
+-- | Convolution forward (2-D or 3-D). The common 2-D case (@convInputDims@ has
+-- two entries) whose packed tensors match the declared geometry is dispatched to
+-- 'conv2DForwardFast', a tight unboxed-vector inner loop; every other shape (3-D,
+-- or a mismatched/degenerate packing) falls back to the dimension-general
+-- 'convForwardGeneral'. The fast path is bit-for-bit equal to the general path.
 convForward :: ConvSpec -> LayerParameters -> Vector Double -> Vector Double
 convForward spec params x =
+  case (convInputDims spec, convKernelDims spec, convStride spec, convPadding spec) of
+    ([h, w], [kh, kw], [sh, sw], [ph, pw])
+      | cO > 0
+      , cI > 0
+      , h > 0
+      , w > 0
+      , VU.length weights == cO * cI * kh * kw
+      , VU.length bias == cO
+      , VU.length x == cI * h * w ->
+          conv2DForwardFast cO cI h w kh kw sh sw ph pw weights bias x
+    _ -> convForwardGeneral spec params x
+ where
+  cO = convOut spec
+  cI = convIn spec
+  weights = layerWeights params
+  bias = layerBias params
+
+-- | Byte-identical tight-loop specialization of 'convForward' for the common 2-D
+-- case (NCHW input, OIHW weights, cross-correlation with zero padding). Each
+-- output element accumulates its taps in the exact @ci → ky → kx@ order of
+-- 'convForwardGeneral' — a strict left fold from zero with the channel bias added
+-- last (@base@'s list @sum@ is @foldl' (+) 0@) — using unboxed 'VU.unsafeIndex'
+-- reads whose bounds are guaranteed by the caller's length guards. Out-of-bounds
+-- taps are skipped rather than adding a @w * 0@ term; for the finite parameters
+-- and activations here that is identical (@acc + 0 == acc@), so the result equals
+-- 'convForwardGeneral' bit-for-bit (up to the irrelevant sign of an all-zero
+-- accumulation).
+conv2DForwardFast
+  :: Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> Vector Double
+  -> Vector Double
+conv2DForwardFast cO cI h w kh kw sh sw ph pw weights bias x =
+  VU.generate (cO * outVol) $ \o ->
+    let (co, r) = o `quotRem` outVol
+        (oh, ow) = r `quotRem` owDim
+        woBase = co * cI * kVol
+        goCi ci !acc
+          | ci >= cI = acc
+          | otherwise = goCi (ci + 1) (goKy ci 0 acc)
+        goKy ci ky !acc
+          | ky >= kh = acc
+          | otherwise =
+              let ih = oh * sh + ky - ph
+               in if ih < 0 || ih >= h
+                    then goKy ci (ky + 1) acc
+                    else goKy ci (ky + 1) (goKx ci ih ky 0 acc)
+        goKx ci ih ky kx !acc
+          | kx >= kw = acc
+          | otherwise =
+              let iw = ow * sw + kx - pw
+               in if iw < 0 || iw >= w
+                    then goKx ci ih ky (kx + 1) acc
+                    else
+                      let term =
+                            VU.unsafeIndex weights (woBase + ci * kVol + ky * kw + kx)
+                              * VU.unsafeIndex x (ci * inVol + ih * w + iw)
+                       in goKx ci ih ky (kx + 1) (acc + term)
+     in VU.unsafeIndex bias co + goCi 0 0.0
+ where
+  ohDim = convOutDim h kh sh ph
+  owDim = convOutDim w kw sw pw
+  outVol = ohDim * owDim
+  kVol = kh * kw
+  inVol = h * w
+
+-- | Dimension-general convolution forward (retained for the 3-D path and any
+-- geometry the fast 2-D specialization declines). This is the reference the
+-- 2-D fast path is validated against.
+convForwardGeneral :: ConvSpec -> LayerParameters -> Vector Double -> Vector Double
+convForwardGeneral spec params x =
   VU.generate (cO * outVol) $ \o ->
     let (co, r) = o `quotRem` outVol
         outCoord = unflatten outDims r
@@ -1612,13 +1845,137 @@ convForward spec params x =
     | otherwise = 0.0
   kIdx co ci kc = ((co * cI + ci) * kVol) + flatten kDims kc
 
+-- | Convolution backward. Dispatches the common 2-D case to 'conv2DBackwardFast'
+-- (a tight unboxed loop for each of @dW@, @dBias@, and the @dInput@ scatter) and
+-- falls back to 'convBackwardGeneral' otherwise. The fast path reproduces the
+-- general path's accumulation order exactly and is bit-for-bit equal.
 convBackward
   :: ConvSpec
   -> LayerParameters
   -> Vector Double
   -> Vector Double
   -> (Vector Double, LayerParameterGradient)
-convBackward spec params x dY = (dX, LayerParameterGradient dW db)
+convBackward spec params x dY =
+  case (convInputDims spec, convKernelDims spec, convStride spec, convPadding spec) of
+    ([h, w], [kh, kw], [sh, sw], [ph, pw])
+      | cO > 0
+      , cI > 0
+      , h > 0
+      , w > 0
+      , VU.length weights == cO * cI * kh * kw
+      , VU.length x == cI * h * w
+      , VU.length dY == cO * convOutDim h kh sh ph * convOutDim w kw sw pw ->
+          conv2DBackwardFast cO cI h w kh kw sh sw ph pw weights x dY
+    _ -> convBackwardGeneral spec params x dY
+ where
+  cO = convOut spec
+  cI = convIn spec
+  weights = layerWeights params
+
+-- | Byte-identical tight-loop specialization of 'convBackward' for the common 2-D
+-- case. @dW@ and @dBias@ are strict left-fold gathers in the general path's tap
+-- order; @dInput@ is a mutable scatter that applies exactly the same
+-- @co → ci → oh → ow → ky → kx@ in-bounds updates, in the same order, as the
+-- 'VU.accum' the general path uses — so all three outputs match
+-- 'convBackwardGeneral' bit-for-bit. Bounds on every 'VU.unsafeIndex' /
+-- 'VUM.unsafeRead' / 'VUM.unsafeWrite' are guaranteed by the caller's length
+-- guards and the in-bounds tap filter.
+conv2DBackwardFast
+  :: Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> Vector Double
+  -> (Vector Double, LayerParameterGradient)
+conv2DBackwardFast cO cI h w kh kw sh sw ph pw weights x dY =
+  (dX, LayerParameterGradient dW db)
+ where
+  ohDim = convOutDim h kh sh ph
+  owDim = convOutDim w kw sw pw
+  outVol = ohDim * owDim
+  kVol = kh * kw
+  inVol = h * w
+  dW =
+    VU.generate (cO * cI * kVol) $ \ix ->
+      let (r2, kFlat) = ix `quotRem` kVol
+          (co, ci) = r2 `quotRem` cI
+          ky = kFlat `quot` kw
+          kx = kFlat `rem` kw
+          goOh oh !acc
+            | oh >= ohDim = acc
+            | otherwise = goOh (oh + 1) (goOw oh 0 acc)
+          goOw oh ow !acc
+            | ow >= owDim = acc
+            | otherwise =
+                let ih = oh * sh + ky - ph
+                    iw = ow * sw + kx - pw
+                 in if ih < 0 || ih >= h || iw < 0 || iw >= w
+                      then goOw oh (ow + 1) acc
+                      else
+                        let term =
+                              VU.unsafeIndex dY (co * outVol + oh * owDim + ow)
+                                * VU.unsafeIndex x (ci * inVol + ih * w + iw)
+                         in goOw oh (ow + 1) (acc + term)
+       in goOh 0 0.0
+  db =
+    VU.generate cO $ \co ->
+      let go r !acc
+            | r >= outVol = acc
+            | otherwise = go (r + 1) (acc + VU.unsafeIndex dY (co * outVol + r))
+       in go 0 0.0
+  dX = VU.create $ do
+    mv <- VUM.replicate (cI * inVol) 0.0
+    let goCo co
+          | co >= cO = pure ()
+          | otherwise = goCi co 0 >> goCo (co + 1)
+        goCi co ci
+          | ci >= cI = pure ()
+          | otherwise = goOh co ci 0 >> goCi co (ci + 1)
+        goOh co ci oh
+          | oh >= ohDim = pure ()
+          | otherwise = goOw co ci oh 0 >> goOh co ci (oh + 1)
+        goOw co ci oh ow
+          | ow >= owDim = pure ()
+          | otherwise = goKy co ci oh ow 0 >> goOw co ci oh (ow + 1)
+        goKy co ci oh ow ky
+          | ky >= kh = pure ()
+          | otherwise = goKx co ci oh ow ky 0 >> goKy co ci oh ow (ky + 1)
+        goKx co ci oh ow ky kx
+          | kx >= kw = pure ()
+          | otherwise =
+              let ih = oh * sh + ky - ph
+                  iw = ow * sw + kx - pw
+               in if ih < 0 || ih >= h || iw < 0 || iw >= w
+                    then goKx co ci oh ow ky (kx + 1)
+                    else do
+                      let idx = ci * inVol + ih * w + iw
+                          contrib =
+                            VU.unsafeIndex weights (((co * cI + ci) * kVol) + ky * kw + kx)
+                              * VU.unsafeIndex dY (co * outVol + oh * owDim + ow)
+                      old <- VUM.unsafeRead mv idx
+                      VUM.unsafeWrite mv idx (old + contrib)
+                      goKx co ci oh ow ky (kx + 1)
+    goCo 0
+    pure mv
+
+-- | Dimension-general convolution backward (retained for the 3-D path and any
+-- geometry the fast 2-D specialization declines). This is the reference the
+-- 2-D fast path is validated against.
+convBackwardGeneral
+  :: ConvSpec
+  -> LayerParameters
+  -> Vector Double
+  -> Vector Double
+  -> (Vector Double, LayerParameterGradient)
+convBackwardGeneral spec params x dY = (dX, LayerParameterGradient dW db)
  where
   cO = convOut spec
   cI = convIn spec

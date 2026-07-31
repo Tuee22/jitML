@@ -66,14 +66,15 @@ only with no companion pointer, a weight-only checkpoint routes through the
 authoritative non-supervised ProductRow companion rules. The dormant
 `LayerGraph`-from-checkpoint reconstruction helpers were deleted.
 
-**Target (Phases `237`–`245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-The supervised-graph payload becomes the trained `LayerGraph` itself (Phases
-`237`–`239`), replacing the embedded `SupervisedRuntime` served representation
-described below; the V2 `SupervisedRuntime` read/serving path
-(`loadSupervisedRuntimeFromCheckpoint`) is removed in Phase `237` when serving is
-rewired onto the IR. Until those phases close, the supervised-graph payload carries
-that `SupervisedRuntime` program; the reader/serving migration onto the IR is a
-target contract, not yet a current claim.
+**Supervised-graph payload is the trained `LayerGraph` (Phases `237`–`239`,
+closed).** The supervised-graph payload's served representation is the trained
+typed `LayerGraph` (persisted as `architectureLayerGraph` metadata). Phase `239`
+deleted the embedded V2 `SupervisedRuntime` served layer-operation program and
+its per-substrate `RuntimeBackendExecutor` structural ABI. The runtime payload
+that rides alongside the graph is slimmed to the task and the exact input/output
+transforms; serving reconstructs the graph, injects the one physical
+graph-ordered `supervised.weights` blob, runs `LayerGraph.runLayerGraph`, and
+applies the transforms outside the graph.
 
 ## The Self-Describing Checkpoint Envelope
 
@@ -109,17 +110,17 @@ canonical body bytes, semantic refinement, and cross-field bindings. A structura
 decode is permanent: once the payload sum selects a variant, a semantic failure
 never falls through to another decoder.
 
-The supervised-graph runtime program and its closed origin contract (immediately
-below) are the artifact formerly serialized as the "supervised V2" body; where
-the prose that follows says "supervised V2" it means this supervised-graph
-payload. Phases `237`–`239` will later replace that embedded `SupervisedRuntime`
-program with the trained `LayerGraph` itself.
+The supervised-graph payload and its closed origin contract (immediately below)
+are the artifact formerly serialized as the "supervised V2" body; where the prose
+that follows says "supervised V2" it means this supervised-graph payload. Phase
+`239` replaced the embedded served layer-operation program with the trained
+`LayerGraph` metadata; the runtime payload now carries only the task, the exact
+input/output transforms, and that graph metadata.
 
-The supervised V2 body carries the complete executable program returned by
-training: runtime family and task, exact input/output transforms, ordered
-layers and their attributes and representation transitions, authoritative
-canonical supervised-row identity, and one member of the closed runtime-origin
-sum:
+The supervised-graph body carries the trained model returned by training: the
+task, the exact input/output transforms, the trained typed `LayerGraph` metadata
+(`architectureLayerGraph`), authoritative canonical supervised-row identity, and
+one member of the closed runtime-origin sum:
 
 - `RawProductRowProjectionOrigin` binds the payload row and `PlanId` to exactly
   one supported-substrate projection of that authoritative ProductRow. Its
@@ -145,28 +146,21 @@ budget, seed, substrate, and experiment may be bound to those semantics.
 The supervised descriptor's finite-positive learning rate is part of semantic
 `PlanId`: `3e-3` for `fashion-mnist-resnet`, `1.1e-3` for
 `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight
-supervised rows. The manifest architecture, preprocessing, output decoder,
-physical tensor, and weight layout are derived from that same refined payload.
-For classification, labels are deterministic `class-0` through the row's
-semantic class width. California Housing declares regression output units
-`median-house-value` and persists the fitted feature transform plus target
-inverse-transform.
+supervised rows. The manifest architecture (including the trained
+`architectureLayerGraph`), preprocessing, output decoder, physical tensor, and
+weight layout are derived from that same refined payload. For classification,
+labels are deterministic `class-0` through the row's semantic class width.
+California Housing declares regression output units `median-house-value` and
+persists the fitted feature transform plus target inverse-transform.
 
-Every supervised V2 checkpoint contains exactly one physical tensor,
-`supervised.weights`, whose bytes are one canonical JMW1 vector. Parameterized
-layers contribute `W1`, `b1`, `W2`, and `b2` virtual slices in graph order.
-Offsets and element lengths are not serialized: refinement derives them as
-checked prefix sums of the persisted shapes, proves complete non-overlapping
-coverage of the physical vector, and exposes them as `FlatWeightLayout`
-metadata. New supervised writes therefore emit neither name-derived generic
+Every supervised-graph checkpoint contains exactly one physical tensor,
+`supervised.weights`, whose bytes are one canonical JMW1 vector — the
+graph-ordered parameter vector of the trained `LayerGraph`. Its length is
+anchored to the graph's parameter count (`layerGraphMetadataParameterCount`), and
+the `FlatWeightLayout` is one graph-ordered spec of that length. There is no
+per-layer `W1`/`b1`/`W2`/`b2` virtual-slice decomposition: the graph metadata is
+the parameter layout, so new supervised writes emit neither name-derived generic
 manifests nor per-node physical weight objects.
-
-The retained `LayerGraphMetadata`/`NamedTensorWeightLayout` decoder remains for
-older non-V2 manifests. It is not the supervised V2 representation. Later
-Sprint `23.1` still owns removal of the parallel decorative layer-graph versus
-executable layer/state paths in the general training engine; V2 records and
-strictly replays the exact supervised runtime program currently returned by
-training without claiming that later graph unification is already complete.
 
 The origin field is a required V2 body field, not a compatibility default.
 Adding it changes the exact canonical body, outer envelope, and object address,
@@ -503,8 +497,9 @@ architecture input/output specs by name, preprocessing inputs by name,
 weight-layout tensors by name, output decoders by name, and artifact pointers
 by their identity fields; the format decoder round-trips a versioned raw
 representation, semantic refinement constructs the domain manifest, and
-`manifestContentSha` hashes the exact encoded outer bytes. V2 preserves graph
-order for `FlatWeightLayout` instead of name-sorting the virtual slices.
+`manifestContentSha` hashes the exact encoded outer bytes. A supervised-graph
+checkpoint's `FlatWeightLayout` is one graph-ordered `supervised.weights` spec of
+the trained graph's parameter count.
 Persisted admission requires every replay/transcript `ArtifactPointer` to carry
 an exact SHA and rejects duplicate physical keys. For Product publication,
 supervised V2 has no companion pointer; each RL V1 row has one
@@ -622,8 +617,9 @@ re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
   the `latest` chain (by `cmStep`). `pointers/best/<m>` target manifests are
   always live regardless of `LastN`.
 - **Blob GC.** A blob is reapable iff no live manifest references it.
-  A supervised V2 manifest roots its one physical `supervised.weights` object;
-  derived virtual slices are neither objects nor independent GC roots.
+  A supervised-graph manifest roots its one physical `supervised.weights` object;
+  the graph-ordered flat weight layout is derived metadata, neither an object nor
+  an independent GC root.
 - **Audit trail.** GC emits a structured `gc_reaped` event per doctrine
   `At-Least-Once Event Processing`, naming every reaped manifest and blob
   SHA so the audit trail survives the deletion.
@@ -665,95 +661,36 @@ address uses `admitCheckpointAt` followed by
 `requireAdmittedCompletedCheckpoint`; this performs the same exact immutable
 manifest/blob binding without a pointer lookup.
 
-For supervised V2, `loadSupervisedRuntimeFromCheckpoint` accepts only one
-`supervised.weights` object, verifies its flat shape and exact bytes, derives
-all graph-order parameter slices, and constructs an executable solely from the
-persisted runtime. A recognized V2 cannot fall back to a legacy layer graph,
-Dense/MLP shortcut, demo topology, caller-supplied model, pure/reference
-engine, or another substrate. The loader resolves the closed origin first,
-reconstructs its exact bound plan, and validates that plan's substrate rather
-than assuming every supervised V2 is a ProductRow publication. Unsupported
-operations, shapes, transforms, decoders, origins, and substrate/`PlanId`
-combinations fail with typed text before a result is returned. Historical V1
-remains on the isolated compatibility path and supervised V1 fails before
-execution.
+For a supervised-graph checkpoint, `loadSupervisedRuntimeFromCheckpoint` accepts
+only one `supervised.weights` object and verifies its flat shape and exact bytes
+against the trained graph's parameter count
+(`layerGraphMetadataParameterCount`). Serving reconstructs the trained
+`LayerGraph` from `architectureLayerGraph`, injects that one physical
+graph-ordered vector as the parameter vector, runs `LayerGraph.runLayerGraph`,
+and applies the exact input/output transforms outside the graph
+(`runSupervisedGraphCheckpointInference` /
+`RuntimeArtifact.executeSupervisedGraphRuntime`). Phase `239` deleted the
+per-substrate structural-operation ABI, the `RuntimeBackendExecutor`, and the
+served layer-operation program: there is no fall back to a legacy layer graph,
+Dense/MLP shortcut, demo topology, caller-supplied model, or another substrate.
+The loader resolves the closed origin first, reconstructs its exact bound plan,
+and validates that plan's substrate rather than assuming every supervised
+checkpoint is a ProductRow publication. Historical V1 remains on the isolated
+compatibility path and supervised V1 fails before execution.
 
-The current `cifar10-vit` V2 body contract is intentionally exact about the
-executable that exists now. Its `RawStandardizeInput` carries RGB means and
-positive scales
-fitted from the raw training partition only and repeated in pixel-major order
-across all 3,072 inputs; validation and test values cannot influence those
-statistics, and loaded inference applies the transform to the retained raw
-`[0,1]` probe. The body then records input geometry `32×32×3`, patch
-size/stride `4/4`, a patch-projection MLP with 50 inputs, and token-mixing count
-`64`, followed by the executed LayerNorm, 64→128→64 token-mixing MLP,
-LayerNorm, 128-wide single-head attention/QKV MLP, mean pool, and 128-wide
-classifier. Its one physical `supervised.weights` vector contains **123,595**
-values; graph-order slice ends are **23,040**, **39,616**, **105,664**, and
-**123,595**, so refinement proves exact cover without persisted offsets. A V2
-artifact with the older 16×16/four-token, 8×8/16-token, or unit-image
-4×4/64-token contract is not equal to this current canonical runtime. Fresh
-publication also uses the supervised descriptor's exact
-finite-positive learning rate as part of semantic `PlanId` identity: `3e-3`
-for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for
-`cifar10-vit`, and `1e-3` for the other eight rows. Its exact plan fixes
-**2,000** training examples, five epochs, batch size 128, **10,000** processed
-examples, and **80** successful optimizer updates. This byte-exact Mixer
-persistence does not satisfy Blocked
-Sprint `23.1`'s single typed graph or Blocked Sprint `24.1`'s literal small-ViT
-topology. Measured chronology and validation evidence live in Sprint `10.6`.
+The exact per-row served topology (`cifar10-vit` and the other token families) is
+the trained typed `LayerGraph`; its end-to-end coherence is validated on the
+`jitml-sl-canonicals` lane. The one physical `supervised.weights` vector is the
+graph-ordered parameter vector whose length is the graph's parameter count. Fresh
+publication uses the supervised descriptor's exact finite-positive learning rate
+as part of semantic `PlanId` identity: `3e-3` for `fashion-mnist-resnet`,
+`1.1e-3` for `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the
+other eight rows.
 
-Boxed-vector constant-time indexing in attention backward and immediate
-per-layer tape projection in `forwardOnly` do not change this persisted runtime
-or its parameter order. `forwardOnly` may transiently construct the current
-layer's tape through `forwardLayer`, but it never accumulates those tapes across
-the graph. Neither execution correction is a new checkpoint field.
-
-`RuntimeBackendExecutor` makes the selected engine's complete operation surface
-explicit: input transform, output transform, MLP, residual add, LayerNorm,
-token mixing, patch extraction, attention, and mean pooling are mandatory
-callbacks. Linux CPU renders a content-addressed `kernel.cc`, and Linux CUDA
-renders a content-addressed `kernel.cu`; both implement version `1` of the
-status-returning `double`-buffer runtime-operation C ABI. Before dispatch, the
-loader compiles and loads the selected artifact, resolves the ABI-version and
-capability probes plus the required operation symbols, and requires capability
-mask `0xff`. The eight capability bits cover input transform, output transform,
-residual add, LayerNorm, token mixing, patch extraction, attention, and mean
-pooling. Token mixing uses native pack/merge around the selected MLP callback;
-the merge replaces the token input with the mixed result. Attention uses that
-same selected MLP for QKV projection and native scaled-softmax attended-value
-assembly. Only `RawResidualLayer` adds a skip. Those are the frozen pre-Sprint-
-`23.1` V2 equations; the deferred Sprint `23.1` residual corrections require
-distinguishable operation/version metadata and cannot reinterpret existing V2
-bytes.
-
-Apple Silicon renders content-addressed `.metal.json` metadata containing the
-generated MSL, ABI version `1`, capability mask `0xff`, all nine operation
-symbols (token mixing has separate pack and merge symbols), and fast-math-off
-compile metadata. `JitML.Engines.RuntimeOperationsMetal` checks the metadata
-contract, exact fp32-representability for integer arguments, finite/range/shape
-preconditions, and output shape before dispatching through the fixed bridge.
-The bridge performs explicit `Double`↔fp32 transport and compiles with
-`MTLDevice.makeLibrary(source:options:)` on the visible Metal device. Metal
-does not pretend to provide fp64 execution.
-
-Parameterized MLP calls remain the selected real oneDNN, CUDA, or fixed-bridge
-Metal implementation. Structural operations do not call
-`RuntimeOperations.host*` in any selected production engine. Compile, load,
-symbol, ABI, capability, contract, native-status, dispatch/execution, and
-nested selected-backend MLP failures remain typed and fail closed; none selects
-a host/reference operation or another substrate.
-
-V2 trained-versus-Store numerical parity has an explicit substrate-local
-precision policy, encoded by `sameSubstrateV2Tolerance` in
-`test/sl-canonicals/Main.hs`. The `linux-cpu` and `linux-cuda` structural ABIs
-compute in `double`, so their maximum absolute output difference must be at
-most `1e-9`. Apple Metal computes in fp32 through the fixed bridge, so its
-declared bound is `1e-5`. These are within-substrate bounds, not
-cross-substrate equivalence.
-Sprint `10.6` closes only on `linux-cpu`; the real Apple hardware retest and any
-evidence-driven adjustment of the fp32 bound belong to the downstream
-`apple-silicon` product lane and are not claimed here.
+Because serving runs the same pure `LayerGraph.runLayerGraph` reference executor
+the training path uses, over the same frozen graph-ordered parameters, there is
+no separate structural-ABI reimplementation and thus no trained-versus-Store
+cross-implementation parity band to maintain.
 
 The pointer-selected loader reads `P1`, verifies the exact addressed manifest,
 reads `P2`, and only then fetches and binds physical payloads. A changed exact

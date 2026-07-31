@@ -5,57 +5,42 @@
 
 -- | Exact, persistence-safe supervised inference runtimes.
 --
+-- Phase 239: the trained typed 'LayerGraph.LayerGraph' is the single supervised
+-- served representation.  This module no longer persists or executes a V2
+-- structural layer-operation program; it retains only the pieces required to
+-- serve and admit a supervised-graph checkpoint: the task, the input/output
+-- transforms that ride OUTSIDE the graph, and the trained graph metadata.  The
+-- served forward pass reconstructs and runs the graph
+-- ('executeSupervisedGraphRuntime'); the transforms are applied as exact pure
+-- functions before and after that graph run.
+--
 -- Raw values are deliberately forgeable serialisation DTOs.  The refined
 -- constructors are hidden: callers can obtain them only by checking the full
--- family/task/transform/graph contract and, for a loaded value, the exact JMW1
--- bytes.  The module is independent of checkpoint manifests, the ProductRow
--- registry, and the training architecture implementation so those layers can
--- project into one stable V2 runtime boundary without a dependency cycle.
+-- task/transform contract and, for a loaded value, the exact JMW1 bytes against
+-- the graph parameter count.
 module JitML.SL.RuntimeArtifact
   ( -- * Forgeable wire DTOs
-    RawRuntimeFamily (..)
-  , RawRuntimeTask (..)
-  , RawRuntimeMlpShape (..)
+    RawRuntimeTask (..)
   , RawRuntimeImageGeometry (..)
   , RawRuntimeInputTransform (..)
   , RawRuntimeOutputTransform (..)
-  , RawRuntimeLayer (..)
   , RawSupervisedRuntime (..)
   , RawSupervisedRuntimeOrigin (..)
   , RawSupervisedRuntimePayload (..)
   , RawTrainingRuntimeArtifact (..)
 
     -- * Hidden refined runtime values
-  , RuntimeFamily
   , RuntimeTask
-  , RuntimeMlpShape
   , RuntimeImageGeometry
   , RuntimeInputTransform
   , RuntimeOutputTransform
-  , RuntimeRepresentation
-  , RuntimeLayerKind (..)
-  , RuntimeLayer
   , SupervisedRuntime
   , SupervisedRuntimeOrigin
   , SupervisedRuntimePayload
-  , RuntimeVirtualSlice
   , TrainingRuntimeArtifact
-  , LoadedRuntime
-  , RuntimeMlpExecutor
-  , RuntimeInputTransformExecutor
-  , RuntimeOutputTransformExecutor
-  , RuntimeResidualAddExecutor
-  , RuntimeLayerNormExecutor
-  , RuntimeTokenMixExecutor
-  , RuntimePatchExtractExecutor
-  , RuntimeAttentionExecutor
-  , RuntimeMeanPoolExecutor
-  , RuntimeBackendExecutor (..)
 
     -- * Refinement and construction
-  , refineRuntimeFamily
   , refineRuntimeTask
-  , refineRuntimeMlpShape
   , refineRuntimeImageGeometry
   , refineRuntimeInputTransform
   , refineRuntimeOutputTransform
@@ -63,17 +48,12 @@ module JitML.SL.RuntimeArtifact
   , refineSupervisedRuntimePayload
   , refineTrainingRuntimeArtifact
   , mkTrainingRuntimeArtifact
-  , loadSupervisedRuntime
-  , loadTrainingRuntimeArtifact
 
     -- * Raw projections
-  , runtimeFamilyToRaw
   , runtimeTaskToRaw
-  , runtimeMlpShapeToRaw
   , runtimeImageGeometryToRaw
   , runtimeInputTransformToRaw
   , runtimeOutputTransformToRaw
-  , runtimeLayerToRaw
   , supervisedRuntimeToRaw
   , supervisedRuntimeOriginToRaw
   , supervisedRuntimePayloadToRaw
@@ -82,36 +62,15 @@ module JitML.SL.RuntimeArtifact
     -- * Refined accessors
   , runtimeTaskSemanticWidth
   , runtimeTaskIsClassification
-  , runtimeMlpInputs
-  , runtimeMlpHidden
-  , runtimeMlpOutputs
-  , runtimeMlpParameterCount
   , runtimeImageWidth
   , runtimeImageHeight
   , runtimeImageChannels
   , runtimeImageElementCount
   , runtimeInputWidth
-  , runtimeRepresentationShape
-  , runtimeLayerName
-  , runtimeLayerKind
-  , runtimeLayerInputRepresentation
-  , runtimeLayerOutputRepresentation
-  , runtimeLayerMlpShape
-  , supervisedRuntimeFamily
   , supervisedRuntimeTask
   , supervisedRuntimeInputTransform
   , supervisedRuntimeOutputTransform
-  , supervisedRuntimeLayers
   , supervisedRuntimeInputWidth
-  , supervisedRuntimeRawOutputWidth
-  , supervisedRuntimeParameterCount
-  , supervisedRuntimeVirtualSlices
-  , runtimeVirtualSliceLayerName
-  , runtimeVirtualSliceParameterName
-  , runtimeVirtualSliceQualifiedName
-  , runtimeVirtualSliceOffset
-  , runtimeVirtualSliceLength
-  , runtimeVirtualSliceShape
   , payloadRowId
   , payloadOrigin
   , payloadPlanId
@@ -120,30 +79,24 @@ module JitML.SL.RuntimeArtifact
   , payloadInitialJmw1Sha256
   , payloadFinalJmw1Sha256
   , payloadRuntime
+  , payloadLayerGraphMetadata
+  , supervisedPayloadParameterCount
   , trainingArtifactPayload
   , trainingArtifactInitialJmw1Bytes
   , trainingArtifactFinalJmw1Bytes
-  , loadedRuntimePayload
-  , loadedRuntimeFinalJmw1Bytes
-  , loadedRuntimeWeights
-  , loadedRuntimeLayerParameters
 
-    -- * Strict inference
-  , executeLoadedRuntime
+    -- * Exact serving through the trained graph
+  , applyRuntimeInputTransform
+  , applyRuntimeOutputTransform
   , executeSupervisedGraphRuntime
   )
 where
 
 import Codec.Serialise (Serialise)
-import Control.Monad (foldM, join)
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (isDigit)
 import Data.Foldable (traverse_)
-import Data.List qualified as List
-import Data.Maybe (isJust, isNothing)
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
@@ -156,10 +109,9 @@ import JitML.Checkpoint.WeightCodec
   , jmw1ContentSha
   )
 import JitML.Numerics.LayerGraph qualified as LayerGraph
-import JitML.Numerics.Mlp
-  ( MlpParams
-  , MlpShape (..)
-  , mlpParamsFromFlat
+import JitML.Numerics.LayerGraphMetadata
+  ( LayerGraphMetadata
+  , layerGraphMetadataParameterCount
   )
 import JitML.Plan.Plan
   ( PlanId
@@ -169,28 +121,9 @@ import JitML.Plan.Plan
 
 -- Raw DTOs -------------------------------------------------------------------
 
-data RawRuntimeFamily
-  = RawDenseRuntimeFamily
-  | RawDeepDenseRuntimeFamily
-  | RawConv2DLeNetRuntimeFamily
-  | RawResidualRuntimeFamily Int
-  | RawWideResidualRuntimeFamily Int
-  | RawVisionTransformerRuntimeFamily
-  | RawTabularRegressionRuntimeFamily
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
 data RawRuntimeTask
   = RawClassificationRuntimeTask Int
   | RawRegressionRuntimeTask Int
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
-data RawRuntimeMlpShape = RawRuntimeMlpShape
-  { rawRuntimeMlpInputs :: Int
-  , rawRuntimeMlpHidden :: Int
-  , rawRuntimeMlpOutputs :: Int
-  }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
@@ -222,47 +155,27 @@ data RawRuntimeOutputTransform
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
--- | Parameterised layers name only their MLP shape or the attributes from
--- which that shape is derived.  No weight offset is persisted.  Refinement
--- derives every @W1,b1,W2,b2@ virtual slice cumulatively in graph order.
---
--- V2 freezes the pre-Sprint-23.1 operation algebra: 'RawTokenMixLayer'
--- replaces its input with the transposed channel-MLP result, and
--- 'RawAttentionLayer' returns attended values without an outer skip.  Only
--- 'RawResidualLayer' denotes an explicit residual addition.  Sprint 23.1 must
--- introduce a distinguishable operation/version if it later adds those skips;
--- existing V2 bytes cannot be reinterpreted.
-data RawRuntimeLayer
-  = RawDenseLayer Text RawRuntimeMlpShape
-  | RawResidualLayer Text Double RawRuntimeMlpShape
-  | RawLayerNormLayer Text
-  | RawTokenMixLayer Text Int Int
-  | RawPatchLayer Text RawRuntimeImageGeometry Int Int Int Int
-  | RawAttentionLayer Text Int Int
-  | RawMeanPoolLayer Text
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
-
+-- | Phase 239 — the supervised runtime carries only the task and the exact
+-- input/output transforms applied outside the trained graph.  The topology and
+-- parameters live in the trained 'LayerGraph.LayerGraph' description
+-- ('rawRuntimePayloadLayerGraphMetadata'); there is no persisted structural
+-- layer-operation program.
 data RawSupervisedRuntime = RawSupervisedRuntime
-  { rawSupervisedRuntimeFamily :: RawRuntimeFamily
-  , rawSupervisedRuntimeTask :: RawRuntimeTask
+  { rawSupervisedRuntimeTask :: RawRuntimeTask
   , rawSupervisedRuntimeInputTransform :: RawRuntimeInputTransform
   , rawSupervisedRuntimeOutputTransform :: RawRuntimeOutputTransform
-  , rawSupervisedRuntimeLayers :: [RawRuntimeLayer]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
--- | Closed provenance for the plan bound into a supervised V2 runtime.
+-- | Closed provenance for the plan bound into a supervised runtime.
 --
 -- Product publication carries the exact registry projection implicitly: the
 -- row plus PlanId must re-project to exactly one supported substrate.  A
 -- public/daemon @jitml train@ command is intentionally broader than the
 -- ProductRow matrix, so it persists a composite execution origin: the exact
 -- canonical problem row plus the complete canonical 'SupervisedPlan'
--- transport that produced its PlanId.  The addressed V2 body binds that pair;
--- checkpoint refinement re-parses it and keeps generic completion distinct
--- from ProductRow evidence.
+-- transport that produced its PlanId.
 data RawSupervisedRuntimeOrigin
   = RawProductRowProjectionOrigin
   | RawGenericSupervisedExecutionOrigin
@@ -280,6 +193,11 @@ data RawSupervisedRuntimePayload = RawSupervisedRuntimePayload
   , rawRuntimePayloadInitialJmw1Sha256 :: Text
   , rawRuntimePayloadFinalJmw1Sha256 :: Text
   , rawRuntimePayloadRuntime :: RawSupervisedRuntime
+  , rawRuntimePayloadLayerGraphMetadata :: Maybe LayerGraphMetadata
+  -- ^ Phase 237/239: the trained typed 'LayerGraph.LayerGraph' projected into
+  -- its serialisable checkpoint description.  Every supervised checkpoint now
+  -- carries this graph; the served checkpoint reconstructs and runs it directly
+  -- and admission anchors the weight blob length to its parameter count.
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
@@ -297,22 +215,9 @@ data RawTrainingRuntimeArtifact = RawTrainingRuntimeArtifact
 
 -- Refined values --------------------------------------------------------------
 
-data RuntimeFamily
-  = DenseRuntimeFamily
-  | DeepDenseRuntimeFamily
-  | Conv2DLeNetRuntimeFamily
-  | ResidualRuntimeFamily Int
-  | WideResidualRuntimeFamily Int
-  | VisionTransformerRuntimeFamily
-  | TabularRegressionRuntimeFamily
-  deriving stock (Eq, Show)
-
 data RuntimeTask
   = ClassificationRuntimeTask Int
   | RegressionRuntimeTask Int
-  deriving stock (Eq, Show)
-
-data RuntimeMlpShape = RuntimeMlpShape !Int !Int !Int
   deriving stock (Eq, Show)
 
 data RuntimeImageGeometry = RuntimeImageGeometry !Int !Int !Int
@@ -330,53 +235,11 @@ data RuntimeOutputTransform
   | DestandardizeOutput !(Vector Double) !(Vector Double)
   deriving stock (Eq, Show)
 
-data RuntimeRepresentation
-  = FlatRuntimeRepresentation !Int
-  | TokenRuntimeRepresentation !Int !Int
-  deriving stock (Eq, Show)
-
-data RuntimeLayerKind
-  = DenseRuntimeLayerKind
-  | ResidualRuntimeLayerKind
-  | LayerNormRuntimeLayerKind
-  | TokenMixRuntimeLayerKind
-  | PatchRuntimeLayerKind
-  | AttentionRuntimeLayerKind
-  | MeanPoolRuntimeLayerKind
-  deriving stock (Eq, Ord, Show)
-
-data RuntimeLayerOperation
-  = DenseOperation !RuntimeMlpShape
-  | ResidualOperation !Double !RuntimeMlpShape
-  | LayerNormOperation
-  | TokenMixOperation !Int !Int !RuntimeMlpShape
-  | PatchOperation
-      !RuntimeImageGeometry
-      !Int
-      !Int
-      !RuntimeMlpShape
-      ![[Int]]
-  | AttentionOperation !Int !Int !RuntimeMlpShape
-  | MeanPoolOperation
-  deriving stock (Eq, Show)
-
-data RuntimeLayer = RuntimeLayer
-  { refinedLayerName :: !Text
-  , refinedLayerOperation :: !RuntimeLayerOperation
-  , refinedLayerInput :: !RuntimeRepresentation
-  , refinedLayerOutput :: !RuntimeRepresentation
-  }
-  deriving stock (Eq, Show)
-
 data SupervisedRuntime = SupervisedRuntime
-  { refinedRuntimeFamily :: !RuntimeFamily
-  , refinedRuntimeTask :: !RuntimeTask
+  { refinedRuntimeTask :: !RuntimeTask
   , refinedRuntimeInputTransform :: !RuntimeInputTransform
   , refinedRuntimeOutputTransform :: !RuntimeOutputTransform
-  , refinedRuntimeLayers :: ![RuntimeLayer]
   , refinedRuntimeInputWidth :: !Int
-  , refinedRuntimeRawOutputWidth :: !Int
-  , refinedRuntimeParameterCount :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -396,15 +259,7 @@ data SupervisedRuntimePayload = SupervisedRuntimePayload
   , refinedPayloadInitialJmw1Sha256 :: !RuntimeSha256
   , refinedPayloadFinalJmw1Sha256 :: !RuntimeSha256
   , refinedPayloadRuntime :: !SupervisedRuntime
-  }
-  deriving stock (Eq, Show)
-
-data RuntimeVirtualSlice = RuntimeVirtualSlice
-  { refinedSliceLayerName :: !Text
-  , refinedSliceParameterName :: !Text
-  , refinedSliceOffset :: !Int
-  , refinedSliceLength :: !Int
-  , refinedSliceShape :: ![Int]
+  , refinedPayloadLayerGraphMetadata :: !(Maybe LayerGraphMetadata)
   }
   deriving stock (Eq, Show)
 
@@ -415,94 +270,7 @@ data TrainingRuntimeArtifact = TrainingRuntimeArtifact
   }
   deriving stock (Eq, Show)
 
-data LoadedRuntime = LoadedRuntime
-  { refinedLoadedPayload :: !SupervisedRuntimePayload
-  , refinedLoadedFinalBytes :: !StrictByteString.ByteString
-  , refinedLoadedWeights :: ![Double]
-  , refinedLoadedLayerParameters :: ![Maybe MlpParams]
-  }
-  deriving stock (Eq, Show)
-
-type RuntimeMlpExecutor =
-  MlpParams -> Vector Double -> IO (Either Text (Vector Double))
-
-type RuntimeInputTransformExecutor =
-  RuntimeInputTransform -> Vector Double -> IO (Either Text (Vector Double))
-
-type RuntimeOutputTransformExecutor =
-  RuntimeTask
-  -> RuntimeOutputTransform
-  -> Vector Double
-  -> IO (Either Text (Vector Double))
-
-type RuntimeResidualAddExecutor =
-  Double
-  -> Vector Double
-  -> Vector Double
-  -> IO (Either Text (Vector Double))
-
-type RuntimeLayerNormExecutor =
-  Vector Double -> IO (Either Text (Vector Double))
-
-type RuntimeTokenMixExecutor =
-  RuntimeBackendExecutor
-  -> RuntimeLayer
-  -> Int
-  -> Int
-  -> RuntimeMlpShape
-  -> MlpParams
-  -> [Vector Double]
-  -> IO (Either Text [Vector Double])
-
-type RuntimePatchExtractExecutor =
-  RuntimeImageGeometry
-  -> [[Int]]
-  -> Vector Double
-  -> IO (Either Text [Vector Double])
-
-type RuntimeAttentionExecutor =
-  RuntimeBackendExecutor
-  -> RuntimeLayer
-  -> Int
-  -> RuntimeMlpShape
-  -> MlpParams
-  -> [Vector Double]
-  -> IO (Either Text [Vector Double])
-
-type RuntimeMeanPoolExecutor =
-  [Vector Double] -> IO (Either Text (Vector Double))
-
--- | Complete selected-substrate execution contract for a persisted V2 graph.
--- Every operation has a mandatory callback.  A backend which cannot support
--- an operation returns a typed 'Left'; the dispatcher never substitutes an
--- implementation or another backend after the runtime has been recognized.
-data RuntimeBackendExecutor = RuntimeBackendExecutor
-  { runtimeBackendLabel :: !Text
-  , runtimeBackendInputTransformExecutor :: RuntimeInputTransformExecutor
-  , runtimeBackendOutputTransformExecutor :: RuntimeOutputTransformExecutor
-  , runtimeBackendMlpExecutor :: RuntimeMlpExecutor
-  , runtimeBackendResidualAddExecutor :: RuntimeResidualAddExecutor
-  , runtimeBackendLayerNormExecutor :: RuntimeLayerNormExecutor
-  , runtimeBackendTokenMixExecutor :: RuntimeTokenMixExecutor
-  , runtimeBackendPatchExtractExecutor :: RuntimePatchExtractExecutor
-  , runtimeBackendAttentionExecutor :: RuntimeAttentionExecutor
-  , runtimeBackendMeanPoolExecutor :: RuntimeMeanPoolExecutor
-  }
-
 -- Leaf refinement -------------------------------------------------------------
-
-refineRuntimeFamily :: RawRuntimeFamily -> Either Text RuntimeFamily
-refineRuntimeFamily raw =
-  case raw of
-    RawDenseRuntimeFamily -> Right DenseRuntimeFamily
-    RawDeepDenseRuntimeFamily -> Right DeepDenseRuntimeFamily
-    RawConv2DLeNetRuntimeFamily -> Right Conv2DLeNetRuntimeFamily
-    RawResidualRuntimeFamily depth ->
-      ResidualRuntimeFamily <$> requirePositive "residual depth" depth
-    RawWideResidualRuntimeFamily depth ->
-      WideResidualRuntimeFamily <$> requirePositive "wide-residual depth" depth
-    RawVisionTransformerRuntimeFamily -> Right VisionTransformerRuntimeFamily
-    RawTabularRegressionRuntimeFamily -> Right TabularRegressionRuntimeFamily
 
 refineRuntimeTask :: RawRuntimeTask -> Either Text RuntimeTask
 refineRuntimeTask raw =
@@ -513,21 +281,6 @@ refineRuntimeTask raw =
     RawRegressionRuntimeTask width ->
       RegressionRuntimeTask
         <$> requirePositive "regression semantic width" width
-
-refineRuntimeMlpShape :: RawRuntimeMlpShape -> Either Text RuntimeMlpShape
-refineRuntimeMlpShape raw = do
-  inputs <- requirePositive "MLP input width" (rawRuntimeMlpInputs raw)
-  hidden <- requirePositive "MLP hidden width" (rawRuntimeMlpHidden raw)
-  outputs <- requirePositive "MLP output width" (rawRuntimeMlpOutputs raw)
-  _ <-
-    checkedIntSum
-      "MLP parameter count"
-      [ toInteger inputs * toInteger hidden
-      , toInteger hidden
-      , toInteger outputs * toInteger hidden
-      , toInteger outputs
-      ]
-  Right (RuntimeMlpShape inputs hidden outputs)
 
 refineRuntimeImageGeometry
   :: RawRuntimeImageGeometry -> Either Text RuntimeImageGeometry
@@ -581,211 +334,30 @@ refineRuntimeOutputTransform raw =
 refineSupervisedRuntime
   :: RawSupervisedRuntime -> Either Text SupervisedRuntime
 refineSupervisedRuntime raw = do
-  family <- refineRuntimeFamily (rawSupervisedRuntimeFamily raw)
   task <- refineRuntimeTask (rawSupervisedRuntimeTask raw)
   inputTransform <-
     refineRuntimeInputTransform (rawSupervisedRuntimeInputTransform raw)
   outputTransform <-
     refineRuntimeOutputTransform (rawSupervisedRuntimeOutputTransform raw)
-  let inputWidth = runtimeInputWidth inputTransform
-      rawLayers = rawSupervisedRuntimeLayers raw
-  if null rawLayers
-    then Left "supervised runtime graph must contain at least one layer"
-    else Right ()
-  (_, finalRepresentation, reverseLayers) <-
-    foldM
-      refineNextLayer
-      (Set.empty, FlatRuntimeRepresentation inputWidth, [])
-      rawLayers
-  layers <- Right (reverse reverseLayers)
-  rawOutputWidth <-
-    case finalRepresentation of
-      FlatRuntimeRepresentation width -> Right width
-      TokenRuntimeRepresentation _ _ ->
-        Left "supervised runtime graph must end in a flat representation"
-  validateTaskAndTransforms task inputTransform outputTransform rawOutputWidth
-  validateFamilyGraph family task inputTransform layers
-  parameterCount <-
-    checkedIntSum
-      "supervised runtime parameter count"
-      ( fmap
-          (maybe 0 (toInteger . runtimeMlpParameterCount) . runtimeLayerMlpShape)
-          layers
-      )
+  validateTaskAndTransforms task inputTransform outputTransform
   Right
     SupervisedRuntime
-      { refinedRuntimeFamily = family
-      , refinedRuntimeTask = task
+      { refinedRuntimeTask = task
       , refinedRuntimeInputTransform = inputTransform
       , refinedRuntimeOutputTransform = outputTransform
-      , refinedRuntimeLayers = layers
-      , refinedRuntimeInputWidth = inputWidth
-      , refinedRuntimeRawOutputWidth = rawOutputWidth
-      , refinedRuntimeParameterCount = parameterCount
+      , refinedRuntimeInputWidth = runtimeInputWidth inputTransform
       }
 
-refineNextLayer
-  :: (Set Text, RuntimeRepresentation, [RuntimeLayer])
-  -> RawRuntimeLayer
-  -> Either Text (Set Text, RuntimeRepresentation, [RuntimeLayer])
-refineNextLayer (seenNames, inputRepresentation, layers) raw = do
-  name <- refineLayerName (rawLayerName raw)
-  if Set.member name seenNames
-    then Left ("duplicate runtime layer name: " <> name)
-    else Right ()
-  layer <- refineLayer name inputRepresentation raw
-  Right
-    ( Set.insert name seenNames
-    , refinedLayerOutput layer
-    , layer : layers
-    )
-
-refineLayer
-  :: Text
-  -> RuntimeRepresentation
-  -> RawRuntimeLayer
-  -> Either Text RuntimeLayer
-refineLayer name inputRepresentation raw =
-  case raw of
-    RawDenseLayer _ rawShape -> do
-      inputWidth <- requireFlatInput name inputRepresentation
-      shape <- refineRuntimeMlpShape rawShape
-      if runtimeMlpInputs shape /= inputWidth
-        then layerShapeMismatch name "dense input" inputWidth (runtimeMlpInputs shape)
-        else Right ()
-      let output = FlatRuntimeRepresentation (runtimeMlpOutputs shape)
-      Right (RuntimeLayer name (DenseOperation shape) inputRepresentation output)
-    RawResidualLayer _ scale rawShape -> do
-      requireFinitePositive (name <> " residual scale") scale
-      shape <- refineRuntimeMlpShape rawShape
-      let width = representationFeatureWidth inputRepresentation
-      if runtimeMlpInputs shape /= width
-        then layerShapeMismatch name "residual input" width (runtimeMlpInputs shape)
-        else Right ()
-      if runtimeMlpOutputs shape /= width
-        then layerShapeMismatch name "residual output" width (runtimeMlpOutputs shape)
-        else Right ()
-      Right
-        ( RuntimeLayer
-            name
-            (ResidualOperation scale shape)
-            inputRepresentation
-            inputRepresentation
-        )
-    RawLayerNormLayer _ -> do
-      _ <- requireTokenInput name inputRepresentation
-      Right
-        ( RuntimeLayer
-            name
-            LayerNormOperation
-            inputRepresentation
-            inputRepresentation
-        )
-    RawTokenMixLayer _ rawTokens rawHidden -> do
-      (tokens, width) <- requireTokenInput name inputRepresentation
-      expectedTokens <- requirePositive (name <> " token-mix token count") rawTokens
-      hidden <- requirePositive (name <> " token-mix hidden width") rawHidden
-      if tokens /= expectedTokens
-        then layerShapeMismatch name "token-mix token count" tokens expectedTokens
-        else Right ()
-      shape <-
-        refineRuntimeMlpShape
-          RawRuntimeMlpShape
-            { rawRuntimeMlpInputs = tokens
-            , rawRuntimeMlpHidden = hidden
-            , rawRuntimeMlpOutputs = tokens
-            }
-      Right
-        ( RuntimeLayer
-            name
-            (TokenMixOperation tokens width shape)
-            inputRepresentation
-            inputRepresentation
-        )
-    RawPatchLayer _ rawGeometry rawSize rawStride rawHidden rawOutputs -> do
-      inputWidth <- requireFlatInput name inputRepresentation
-      geometry <- refineRuntimeImageGeometry rawGeometry
-      if runtimeImageElementCount geometry /= inputWidth
-        then
-          layerShapeMismatch
-            name
-            "patch image element count"
-            inputWidth
-            (runtimeImageElementCount geometry)
-        else Right ()
-      size <- requirePositive (name <> " patch size") rawSize
-      stride <- requirePositive (name <> " patch stride") rawStride
-      hidden <- requirePositive (name <> " patch hidden width") rawHidden
-      outputs <- requirePositive (name <> " patch output width") rawOutputs
-      if size > runtimeImageWidth geometry || size > runtimeImageHeight geometry
-        then Left (name <> ": patch size exceeds image geometry")
-        else Right ()
-      let positions = patchPositions geometry size stride
-      if null positions
-        then Left (name <> ": image geometry produced no patches")
-        else Right ()
-      patchInputs <-
-        checkedIntSum
-          (name <> " patch input width")
-          [ toInteger size * toInteger size * toInteger (runtimeImageChannels geometry)
-          , 2
-          ]
-      shape <-
-        refineRuntimeMlpShape
-          RawRuntimeMlpShape
-            { rawRuntimeMlpInputs = patchInputs
-            , rawRuntimeMlpHidden = hidden
-            , rawRuntimeMlpOutputs = outputs
-            }
-      let output = TokenRuntimeRepresentation (length positions) outputs
-      Right
-        ( RuntimeLayer
-            name
-            (PatchOperation geometry size stride shape positions)
-            inputRepresentation
-            output
-        )
-    RawAttentionLayer _ rawWidth rawHidden -> do
-      (tokens, inputWidth) <- requireTokenInput name inputRepresentation
-      width <- requirePositive (name <> " attention width") rawWidth
-      hidden <- requirePositive (name <> " attention hidden width") rawHidden
-      if width /= inputWidth
-        then layerShapeMismatch name "attention width" inputWidth width
-        else Right ()
-      qkvWidth <-
-        checkedIntProduct (name <> " attention QKV width") [3, width]
-      shape <-
-        refineRuntimeMlpShape
-          RawRuntimeMlpShape
-            { rawRuntimeMlpInputs = width
-            , rawRuntimeMlpHidden = hidden
-            , rawRuntimeMlpOutputs = qkvWidth
-            }
-      let representation = TokenRuntimeRepresentation tokens width
-      Right
-        ( RuntimeLayer
-            name
-            (AttentionOperation width hidden shape)
-            representation
-            representation
-        )
-    RawMeanPoolLayer _ -> do
-      (_, width) <- requireTokenInput name inputRepresentation
-      Right
-        ( RuntimeLayer
-            name
-            MeanPoolOperation
-            inputRepresentation
-            (FlatRuntimeRepresentation width)
-        )
-
+-- | Cross-check that the task and its transforms are mutually consistent.  The
+-- graph itself owns the topology and output width, so this validates only the
+-- transform algebra: transform kind vs task kind, and the semantic width of the
+-- semantic-prefix / destandardize transforms.
 validateTaskAndTransforms
   :: RuntimeTask
   -> RuntimeInputTransform
   -> RuntimeOutputTransform
-  -> Int
   -> Either Text ()
-validateTaskAndTransforms task inputTransform outputTransform rawOutputWidth = do
+validateTaskAndTransforms task inputTransform outputTransform = do
   case (task, inputTransform) of
     (RegressionRuntimeTask _, UnitImageInput _) ->
       Left "regression runtime cannot use a unit-image transform"
@@ -796,119 +368,17 @@ validateTaskAndTransforms task inputTransform outputTransform rawOutputWidth = d
       Left "classification runtime cannot destandardize regression targets"
     (RegressionRuntimeTask _, SemanticPrefixOutput _) ->
       Left "regression runtime cannot use a classification semantic prefix"
-    (_, IdentityOutput)
-      | rawOutputWidth == semanticWidth -> Right ()
-      | otherwise ->
-          outputWidthMismatch "identity" semanticWidth rawOutputWidth
+    (_, IdentityOutput) -> Right ()
     (ClassificationRuntimeTask _, SemanticPrefixOutput width)
       | width /= semanticWidth ->
           outputWidthMismatch "semantic-prefix task" semanticWidth width
-      | rawOutputWidth < width ->
-          Left "semantic output prefix exceeds the graph output width"
       | otherwise -> Right ()
     (RegressionRuntimeTask _, DestandardizeOutput means scales)
       | VU.length means /= semanticWidth ->
           outputWidthMismatch "destandardize mean" semanticWidth (VU.length means)
       | VU.length scales /= semanticWidth ->
           outputWidthMismatch "destandardize scale" semanticWidth (VU.length scales)
-      | rawOutputWidth /= semanticWidth ->
-          outputWidthMismatch "destandardize graph" semanticWidth rawOutputWidth
       | otherwise -> Right ()
-
-validateFamilyGraph
-  :: RuntimeFamily
-  -> RuntimeTask
-  -> RuntimeInputTransform
-  -> [RuntimeLayer]
-  -> Either Text ()
-validateFamilyGraph family task inputTransform layers = do
-  case (family, task) of
-    (DenseRuntimeFamily, ClassificationRuntimeTask _) ->
-      requireLayerKinds "dense" [DenseRuntimeLayerKind] kinds
-    (DenseRuntimeFamily, RegressionRuntimeTask _) ->
-      Left "regression task requires the tabular-regression runtime family"
-    (DeepDenseRuntimeFamily, ClassificationRuntimeTask _)
-      | length kinds >= 2 && all (== DenseRuntimeLayerKind) kinds -> Right ()
-      | otherwise -> Left "deep-dense runtime requires at least two dense layers"
-    (DeepDenseRuntimeFamily, RegressionRuntimeTask _) ->
-      Left "regression task requires the tabular-regression runtime family"
-    (Conv2DLeNetRuntimeFamily, ClassificationRuntimeTask _) ->
-      requireLayerKinds
-        "conv2d-lenet"
-        [PatchRuntimeLayerKind, MeanPoolRuntimeLayerKind, DenseRuntimeLayerKind]
-        kinds
-    (Conv2DLeNetRuntimeFamily, RegressionRuntimeTask _) ->
-      Left "regression task requires the tabular-regression runtime family"
-    (ResidualRuntimeFamily _, ClassificationRuntimeTask _) ->
-      requireResidualGraph "residual" kinds
-    (WideResidualRuntimeFamily _, ClassificationRuntimeTask _) ->
-      requireResidualGraph "wide-residual" kinds
-    (ResidualRuntimeFamily _, RegressionRuntimeTask _) ->
-      Left "regression task requires the tabular-regression runtime family"
-    (WideResidualRuntimeFamily _, RegressionRuntimeTask _) ->
-      Left "regression task requires the tabular-regression runtime family"
-    (VisionTransformerRuntimeFamily, ClassificationRuntimeTask _) ->
-      if hasKind PatchRuntimeLayerKind
-        && hasKind TokenMixRuntimeLayerKind
-        && hasKind AttentionRuntimeLayerKind
-        && hasKind MeanPoolRuntimeLayerKind
-        && lastKind == Just DenseRuntimeLayerKind
-        then Right ()
-        else
-          Left
-            "vision-transformer runtime requires patch, token-mix, attention, mean-pool, and final dense layers"
-    (VisionTransformerRuntimeFamily, RegressionRuntimeTask _) ->
-      Left "regression task requires the tabular-regression runtime family"
-    (TabularRegressionRuntimeFamily, RegressionRuntimeTask _) ->
-      requireLayerKinds "tabular-regression" [DenseRuntimeLayerKind] kinds
-    (TabularRegressionRuntimeFamily, ClassificationRuntimeTask _) ->
-      Left "classification task cannot use the tabular-regression runtime family"
-  case inputTransform of
-    UnitImageInput geometry ->
-      traverse_ (validatePatchGeometry geometry) layers
-    _ -> Right ()
- where
-  kinds = fmap runtimeLayerKind layers
-  hasKind kind = kind `elem` kinds
-  lastKind = case reverse kinds of kind : _ -> Just kind; [] -> Nothing
-  requireResidualGraph label graphKinds =
-    case graphKinds of
-      firstKind : _
-        | firstKind == PatchRuntimeLayerKind
-            && ResidualRuntimeLayerKind `elem` graphKinds
-            && MeanPoolRuntimeLayerKind `elem` graphKinds
-            && lastKind == Just DenseRuntimeLayerKind ->
-            Right ()
-      _ ->
-        Left
-          ( label
-              <> " runtime requires an initial patch, residual block, mean-pool, and final dense layer"
-          )
-
-validatePatchGeometry
-  :: RuntimeImageGeometry -> RuntimeLayer -> Either Text ()
-validatePatchGeometry expected layer =
-  case refinedLayerOperation layer of
-    PatchOperation actual _ _ _ _
-      | actual == expected -> Right ()
-      | otherwise ->
-          Left
-            ( runtimeLayerName layer
-                <> ": patch geometry differs from the unit-image input geometry"
-            )
-    _ -> Right ()
-
-requireLayerKinds :: Text -> [RuntimeLayerKind] -> [RuntimeLayerKind] -> Either Text ()
-requireLayerKinds label expected actual
-  | expected == actual = Right ()
-  | otherwise =
-      Left
-        ( label
-            <> " runtime layer sequence mismatch: expected "
-            <> showText expected
-            <> ", got "
-            <> showText actual
-        )
 
 -- Payload and exact bytes -----------------------------------------------------
 
@@ -941,6 +411,8 @@ refineSupervisedRuntimePayload raw = do
       , refinedPayloadInitialJmw1Sha256 = initialSha
       , refinedPayloadFinalJmw1Sha256 = finalSha
       , refinedPayloadRuntime = runtime
+      , refinedPayloadLayerGraphMetadata =
+          rawRuntimePayloadLayerGraphMetadata raw
       }
 
 refineSupervisedRuntimeOrigin
@@ -962,23 +434,35 @@ refineTrainingRuntimeArtifact raw = do
     (LazyByteString.fromStrict (rawTrainingArtifactInitialJmw1Bytes raw))
     (LazyByteString.fromStrict (rawTrainingArtifactFinalJmw1Bytes raw))
 
+-- | The graph-ordered parameter count a supervised payload's exact JMW1 blobs
+-- must have.  Every supervised checkpoint carries its trained graph metadata,
+-- so a payload without it is rejected before any bytes are trusted.
+supervisedPayloadParameterCount
+  :: SupervisedRuntimePayload -> Either Text Int
+supervisedPayloadParameterCount payload =
+  case refinedPayloadLayerGraphMetadata payload of
+    Just graphMeta -> Right (layerGraphMetadataParameterCount graphMeta)
+    Nothing ->
+      Left "supervised runtime payload is missing its trained layer graph metadata"
+
 mkTrainingRuntimeArtifact
   :: SupervisedRuntimePayload
   -> LazyByteString.ByteString
   -> LazyByteString.ByteString
   -> Either Text TrainingRuntimeArtifact
 mkTrainingRuntimeArtifact payload initialBytes finalBytes = do
+  expectedCount <- supervisedPayloadParameterCount payload
   _ <-
     validateExactJmw1
       "initial"
       (runtimeShaText (refinedPayloadInitialJmw1Sha256 payload))
-      (supervisedRuntimeParameterCount (payloadRuntime payload))
+      expectedCount
       initialBytes
   _ <-
     validateExactJmw1
       "final"
       (runtimeShaText (refinedPayloadFinalJmw1Sha256 payload))
-      (supervisedRuntimeParameterCount (payloadRuntime payload))
+      expectedCount
       finalBytes
   Right
     TrainingRuntimeArtifact
@@ -986,34 +470,6 @@ mkTrainingRuntimeArtifact payload initialBytes finalBytes = do
       , refinedTrainingInitialBytes = LazyByteString.toStrict initialBytes
       , refinedTrainingFinalBytes = LazyByteString.toStrict finalBytes
       }
-
-loadSupervisedRuntime
-  :: SupervisedRuntimePayload
-  -> LazyByteString.ByteString
-  -> Either Text LoadedRuntime
-loadSupervisedRuntime payload finalBytes = do
-  values <-
-    validateExactJmw1
-      "final"
-      (runtimeShaText (refinedPayloadFinalJmw1Sha256 payload))
-      (supervisedRuntimeParameterCount (payloadRuntime payload))
-      finalBytes
-  parameters <-
-    buildLayerParameters (supervisedRuntimeLayers (payloadRuntime payload)) values
-  Right
-    LoadedRuntime
-      { refinedLoadedPayload = payload
-      , refinedLoadedFinalBytes = LazyByteString.toStrict finalBytes
-      , refinedLoadedWeights = values
-      , refinedLoadedLayerParameters = parameters
-      }
-
-loadTrainingRuntimeArtifact
-  :: TrainingRuntimeArtifact -> Either Text LoadedRuntime
-loadTrainingRuntimeArtifact artifact =
-  loadSupervisedRuntime
-    (trainingArtifactPayload artifact)
-    (trainingArtifactFinalJmw1Bytes artifact)
 
 validateExactJmw1
   :: Text
@@ -1051,97 +507,13 @@ validateExactJmw1 label expectedSha expectedCount bytes = do
     then Left (label <> " JMW1 bytes are not the canonical frozen encoding")
     else Right values
 
-buildLayerParameters
-  :: [RuntimeLayer] -> [Double] -> Either Text [Maybe MlpParams]
-buildLayerParameters layers values = do
-  (remaining, reverseParameters) <-
-    foldM consume (values, []) layers
-  if null remaining
-    then Right (reverse reverseParameters)
-    else Left "runtime weight vector has unconsumed trailing parameters"
- where
-  consume (remaining, parameters) layer =
-    case runtimeLayerMlpShape layer of
-      Nothing -> Right (remaining, Nothing : parameters)
-      Just shape -> do
-        let count = runtimeMlpParameterCount shape
-            (layerValues, rest) = splitAt count remaining
-        if length layerValues /= count
-          then
-            Left
-              ( runtimeLayerName layer
-                  <> ": truncated exact MLP parameter slice"
-              )
-          else do
-            params <-
-              mapLeft
-                (\err -> runtimeLayerName layer <> ": " <> Text.pack err)
-                (mlpParamsFromFlat (toMlpShape shape) layerValues)
-            Right (rest, Just params : parameters)
-
--- Virtual layout --------------------------------------------------------------
-
-supervisedRuntimeVirtualSlices :: SupervisedRuntime -> [RuntimeVirtualSlice]
-supervisedRuntimeVirtualSlices runtime =
-  join (snd (List.mapAccumL deriveLayerSlices 0 (supervisedRuntimeLayers runtime)))
-
-deriveLayerSlices :: Int -> RuntimeLayer -> (Int, [RuntimeVirtualSlice])
-deriveLayerSlices offset layer =
-  case runtimeLayerMlpShape layer of
-    Nothing -> (offset, [])
-    Just shape ->
-      let specs =
-            [ ("W1", [runtimeMlpHidden shape, runtimeMlpInputs shape])
-            , ("b1", [runtimeMlpHidden shape])
-            , ("W2", [runtimeMlpOutputs shape, runtimeMlpHidden shape])
-            , ("b2", [runtimeMlpOutputs shape])
-            ]
-          (nextOffset, slices) = List.mapAccumL (deriveOne layer) offset specs
-       in (nextOffset, slices)
-
-deriveOne
-  :: RuntimeLayer
-  -> Int
-  -> (Text, [Int])
-  -> (Int, RuntimeVirtualSlice)
-deriveOne layer offset (parameterName, shape) =
-  let count = product shape
-   in ( offset + count
-      , RuntimeVirtualSlice
-          { refinedSliceLayerName = runtimeLayerName layer
-          , refinedSliceParameterName = parameterName
-          , refinedSliceOffset = offset
-          , refinedSliceLength = count
-          , refinedSliceShape = shape
-          }
-      )
-
 -- Raw projections -------------------------------------------------------------
-
-runtimeFamilyToRaw :: RuntimeFamily -> RawRuntimeFamily
-runtimeFamilyToRaw family =
-  case family of
-    DenseRuntimeFamily -> RawDenseRuntimeFamily
-    DeepDenseRuntimeFamily -> RawDeepDenseRuntimeFamily
-    Conv2DLeNetRuntimeFamily -> RawConv2DLeNetRuntimeFamily
-    ResidualRuntimeFamily depth -> RawResidualRuntimeFamily depth
-    WideResidualRuntimeFamily depth -> RawWideResidualRuntimeFamily depth
-    VisionTransformerRuntimeFamily -> RawVisionTransformerRuntimeFamily
-    TabularRegressionRuntimeFamily -> RawTabularRegressionRuntimeFamily
 
 runtimeTaskToRaw :: RuntimeTask -> RawRuntimeTask
 runtimeTaskToRaw task =
   case task of
     ClassificationRuntimeTask width -> RawClassificationRuntimeTask width
     RegressionRuntimeTask width -> RawRegressionRuntimeTask width
-
-runtimeMlpShapeToRaw :: RuntimeMlpShape -> RawRuntimeMlpShape
-runtimeMlpShapeToRaw shape =
-  RawRuntimeMlpShape
-    { rawRuntimeMlpInputs = runtimeMlpInputs shape
-    , rawRuntimeMlpHidden = runtimeMlpHidden shape
-    , rawRuntimeMlpOutputs = runtimeMlpOutputs shape
-    }
 
 runtimeImageGeometryToRaw
   :: RuntimeImageGeometry -> RawRuntimeImageGeometry
@@ -1170,41 +542,14 @@ runtimeOutputTransformToRaw transform =
     DestandardizeOutput means scales ->
       RawDestandardizeOutput (VU.toList means) (VU.toList scales)
 
-runtimeLayerToRaw :: RuntimeLayer -> RawRuntimeLayer
-runtimeLayerToRaw layer =
-  case refinedLayerOperation layer of
-    DenseOperation shape ->
-      RawDenseLayer (runtimeLayerName layer) (runtimeMlpShapeToRaw shape)
-    ResidualOperation scale shape ->
-      RawResidualLayer (runtimeLayerName layer) scale (runtimeMlpShapeToRaw shape)
-    LayerNormOperation -> RawLayerNormLayer (runtimeLayerName layer)
-    TokenMixOperation tokens _ shape ->
-      RawTokenMixLayer
-        (runtimeLayerName layer)
-        tokens
-        (runtimeMlpHidden shape)
-    PatchOperation geometry size stride shape _ ->
-      RawPatchLayer
-        (runtimeLayerName layer)
-        (runtimeImageGeometryToRaw geometry)
-        size
-        stride
-        (runtimeMlpHidden shape)
-        (runtimeMlpOutputs shape)
-    AttentionOperation width hidden _ ->
-      RawAttentionLayer (runtimeLayerName layer) width hidden
-    MeanPoolOperation -> RawMeanPoolLayer (runtimeLayerName layer)
-
 supervisedRuntimeToRaw :: SupervisedRuntime -> RawSupervisedRuntime
 supervisedRuntimeToRaw runtime =
   RawSupervisedRuntime
-    { rawSupervisedRuntimeFamily = runtimeFamilyToRaw (supervisedRuntimeFamily runtime)
-    , rawSupervisedRuntimeTask = runtimeTaskToRaw (supervisedRuntimeTask runtime)
+    { rawSupervisedRuntimeTask = runtimeTaskToRaw (supervisedRuntimeTask runtime)
     , rawSupervisedRuntimeInputTransform =
         runtimeInputTransformToRaw (supervisedRuntimeInputTransform runtime)
     , rawSupervisedRuntimeOutputTransform =
         runtimeOutputTransformToRaw (supervisedRuntimeOutputTransform runtime)
-    , rawSupervisedRuntimeLayers = fmap runtimeLayerToRaw (supervisedRuntimeLayers runtime)
     }
 
 supervisedRuntimeOriginToRaw
@@ -1227,6 +572,7 @@ supervisedRuntimePayloadToRaw payload =
     , rawRuntimePayloadInitialJmw1Sha256 = payloadInitialJmw1Sha256 payload
     , rawRuntimePayloadFinalJmw1Sha256 = payloadFinalJmw1Sha256 payload
     , rawRuntimePayloadRuntime = supervisedRuntimeToRaw (payloadRuntime payload)
+    , rawRuntimePayloadLayerGraphMetadata = payloadLayerGraphMetadata payload
     }
 
 trainingRuntimeArtifactToRaw
@@ -1253,22 +599,6 @@ runtimeTaskIsClassification task =
     ClassificationRuntimeTask _ -> True
     RegressionRuntimeTask _ -> False
 
-runtimeMlpInputs :: RuntimeMlpShape -> Int
-runtimeMlpInputs (RuntimeMlpShape inputs _ _) = inputs
-
-runtimeMlpHidden :: RuntimeMlpShape -> Int
-runtimeMlpHidden (RuntimeMlpShape _ hidden _) = hidden
-
-runtimeMlpOutputs :: RuntimeMlpShape -> Int
-runtimeMlpOutputs (RuntimeMlpShape _ _ outputs) = outputs
-
-runtimeMlpParameterCount :: RuntimeMlpShape -> Int
-runtimeMlpParameterCount shape =
-  runtimeMlpHidden shape * runtimeMlpInputs shape
-    + runtimeMlpHidden shape
-    + runtimeMlpOutputs shape * runtimeMlpHidden shape
-    + runtimeMlpOutputs shape
-
 runtimeImageWidth :: RuntimeImageGeometry -> Int
 runtimeImageWidth (RuntimeImageGeometry width _ _) = width
 
@@ -1291,46 +621,6 @@ runtimeInputWidth transform =
     UnitImageInput geometry -> runtimeImageElementCount geometry
     StandardizeInput means _ -> VU.length means
 
-runtimeRepresentationShape :: RuntimeRepresentation -> [Int]
-runtimeRepresentationShape representation =
-  case representation of
-    FlatRuntimeRepresentation width -> [width]
-    TokenRuntimeRepresentation tokens width -> [tokens, width]
-
-runtimeLayerName :: RuntimeLayer -> Text
-runtimeLayerName = refinedLayerName
-
-runtimeLayerKind :: RuntimeLayer -> RuntimeLayerKind
-runtimeLayerKind layer =
-  case refinedLayerOperation layer of
-    DenseOperation _ -> DenseRuntimeLayerKind
-    ResidualOperation _ _ -> ResidualRuntimeLayerKind
-    LayerNormOperation -> LayerNormRuntimeLayerKind
-    TokenMixOperation {} -> TokenMixRuntimeLayerKind
-    PatchOperation {} -> PatchRuntimeLayerKind
-    AttentionOperation {} -> AttentionRuntimeLayerKind
-    MeanPoolOperation -> MeanPoolRuntimeLayerKind
-
-runtimeLayerInputRepresentation :: RuntimeLayer -> RuntimeRepresentation
-runtimeLayerInputRepresentation = refinedLayerInput
-
-runtimeLayerOutputRepresentation :: RuntimeLayer -> RuntimeRepresentation
-runtimeLayerOutputRepresentation = refinedLayerOutput
-
-runtimeLayerMlpShape :: RuntimeLayer -> Maybe RuntimeMlpShape
-runtimeLayerMlpShape layer =
-  case refinedLayerOperation layer of
-    DenseOperation shape -> Just shape
-    ResidualOperation _ shape -> Just shape
-    LayerNormOperation -> Nothing
-    TokenMixOperation _ _ shape -> Just shape
-    PatchOperation _ _ _ shape _ -> Just shape
-    AttentionOperation _ _ shape -> Just shape
-    MeanPoolOperation -> Nothing
-
-supervisedRuntimeFamily :: SupervisedRuntime -> RuntimeFamily
-supervisedRuntimeFamily = refinedRuntimeFamily
-
 supervisedRuntimeTask :: SupervisedRuntime -> RuntimeTask
 supervisedRuntimeTask = refinedRuntimeTask
 
@@ -1340,36 +630,8 @@ supervisedRuntimeInputTransform = refinedRuntimeInputTransform
 supervisedRuntimeOutputTransform :: SupervisedRuntime -> RuntimeOutputTransform
 supervisedRuntimeOutputTransform = refinedRuntimeOutputTransform
 
-supervisedRuntimeLayers :: SupervisedRuntime -> [RuntimeLayer]
-supervisedRuntimeLayers = refinedRuntimeLayers
-
 supervisedRuntimeInputWidth :: SupervisedRuntime -> Int
 supervisedRuntimeInputWidth = refinedRuntimeInputWidth
-
-supervisedRuntimeRawOutputWidth :: SupervisedRuntime -> Int
-supervisedRuntimeRawOutputWidth = refinedRuntimeRawOutputWidth
-
-supervisedRuntimeParameterCount :: SupervisedRuntime -> Int
-supervisedRuntimeParameterCount = refinedRuntimeParameterCount
-
-runtimeVirtualSliceLayerName :: RuntimeVirtualSlice -> Text
-runtimeVirtualSliceLayerName = refinedSliceLayerName
-
-runtimeVirtualSliceParameterName :: RuntimeVirtualSlice -> Text
-runtimeVirtualSliceParameterName = refinedSliceParameterName
-
-runtimeVirtualSliceQualifiedName :: RuntimeVirtualSlice -> Text
-runtimeVirtualSliceQualifiedName slice =
-  runtimeVirtualSliceLayerName slice <> "." <> runtimeVirtualSliceParameterName slice
-
-runtimeVirtualSliceOffset :: RuntimeVirtualSlice -> Int
-runtimeVirtualSliceOffset = refinedSliceOffset
-
-runtimeVirtualSliceLength :: RuntimeVirtualSlice -> Int
-runtimeVirtualSliceLength = refinedSliceLength
-
-runtimeVirtualSliceShape :: RuntimeVirtualSlice -> [Int]
-runtimeVirtualSliceShape = refinedSliceShape
 
 payloadRowId :: SupervisedRuntimePayload -> Text
 payloadRowId = refinedPayloadRowId
@@ -1395,6 +657,9 @@ payloadFinalJmw1Sha256 = runtimeShaText . refinedPayloadFinalJmw1Sha256
 payloadRuntime :: SupervisedRuntimePayload -> SupervisedRuntime
 payloadRuntime = refinedPayloadRuntime
 
+payloadLayerGraphMetadata :: SupervisedRuntimePayload -> Maybe LayerGraphMetadata
+payloadLayerGraphMetadata = refinedPayloadLayerGraphMetadata
+
 trainingArtifactPayload :: TrainingRuntimeArtifact -> SupervisedRuntimePayload
 trainingArtifactPayload = refinedTrainingPayload
 
@@ -1408,327 +673,82 @@ trainingArtifactFinalJmw1Bytes
 trainingArtifactFinalJmw1Bytes =
   LazyByteString.fromStrict . refinedTrainingFinalBytes
 
-loadedRuntimePayload :: LoadedRuntime -> SupervisedRuntimePayload
-loadedRuntimePayload = refinedLoadedPayload
+-- Exact serving through the trained graph --------------------------------------
 
-loadedRuntimeFinalJmw1Bytes :: LoadedRuntime -> LazyByteString.ByteString
-loadedRuntimeFinalJmw1Bytes = LazyByteString.fromStrict . refinedLoadedFinalBytes
-
-loadedRuntimeWeights :: LoadedRuntime -> [Double]
-loadedRuntimeWeights = refinedLoadedWeights
-
-loadedRuntimeLayerParameters :: LoadedRuntime -> [(Text, MlpParams)]
-loadedRuntimeLayerParameters loaded =
-  [ (runtimeLayerName layer, params)
-  | (layer, Just params) <-
-      zip
-        (supervisedRuntimeLayers (payloadRuntime (loadedRuntimePayload loaded)))
-        (refinedLoadedLayerParameters loaded)
-  ]
-
--- Strict inference ------------------------------------------------------------
-
-data RuntimeValue
-  = FlatRuntimeValue !(Vector Double)
-  | TokenRuntimeValue ![Vector Double]
-
-executeLoadedRuntime
-  :: RuntimeBackendExecutor
-  -> LoadedRuntime
-  -> Vector Double
-  -> IO (Either Text (Vector Double))
-executeLoadedRuntime backend loaded rawInput =
-  case requireCanonicalText "runtime backend label" (runtimeBackendLabel backend) of
-    Left err -> pure (Left err)
-    Right _ -> do
-      transformed <-
-        invokeRuntimeBackend backend "input-transform" $
-          runtimeBackendInputTransformExecutor
-            backend
-            (supervisedRuntimeInputTransform runtime)
-            rawInput
-      case transformed of
-        Left err -> pure (Left err)
-        Right input -> executeGraph input
- where
-  runtime = payloadRuntime (loadedRuntimePayload loaded)
-
-  executeGraph input = do
-    executed <-
-      foldM
-        executeOne
-        (Right (FlatRuntimeValue input))
-        ( zip3
-            [0 :: Int ..]
-            (supervisedRuntimeLayers runtime)
-            (refinedLoadedLayerParameters loaded)
+-- | Apply the exact input transform outside the graph.  Pure and deterministic:
+-- the served forward pass runs entirely through 'LayerGraph.runLayerGraph', so
+-- the pre-transform stays a plain function on the input vector.
+applyRuntimeInputTransform
+  :: RuntimeInputTransform -> Vector Double -> Either Text (Vector Double)
+applyRuntimeInputTransform transform input = do
+  validateVectorWidth "runtime input" (runtimeInputWidth transform) input
+  case transform of
+    IdentityInput _ -> Right input
+    UnitImageInput _ ->
+      VU.mapM
+        ( \value ->
+            if value < 0.0 || value > 1.0
+              then Left "unit-image input values must be in [0,1]"
+              else Right value
         )
-    case executed of
-      Left err -> pure (Left err)
-      Right finalValue ->
-        case finalValue of
-          TokenRuntimeValue _ ->
-            pure (Left "loaded supervised runtime ended in a token representation")
-          FlatRuntimeValue output ->
-            invokeRuntimeBackend backend "output-transform" $
-              runtimeBackendOutputTransformExecutor
-                backend
-                (supervisedRuntimeTask runtime)
-                (supervisedRuntimeOutputTransform runtime)
-                output
+        input
+    StandardizeInput means scales ->
+      VU.generateM
+        (VU.length input)
+        ( \index -> do
+            let value = input VU.! index
+                meanValue = means VU.! index
+                scale = scales VU.! index
+                standardized = (value - meanValue) / scale
+            requireFinite "standardized runtime input" standardized
+            Right standardized
+        )
 
-  executeOne acc (_, layer, parameters) =
-    case acc of
-      Left err -> pure (Left err)
-      Right value -> do
-        case validateRuntimeValue (runtimeLayerInputRepresentation layer) value of
-          Left err -> pure (Left (runtimeLayerName layer <> ": " <> err))
-          Right () -> do
-            result <- executeLayer backend layer parameters value
-            pure $ do
-              next <- result
-              mapLeft
-                (\err -> runtimeLayerName layer <> ": " <> err)
-                (validateRuntimeValue (runtimeLayerOutputRepresentation layer) next)
-              Right next
+-- | Apply the exact output transform outside the graph (semantic-prefix slice
+-- for classification, inverse standardisation for regression).
+applyRuntimeOutputTransform
+  :: RuntimeTask
+  -> RuntimeOutputTransform
+  -> Vector Double
+  -> Either Text (Vector Double)
+applyRuntimeOutputTransform task transform output = do
+  traverse_ (requireFinite "runtime raw output") (VU.toList output)
+  let semanticWidth = runtimeTaskSemanticWidth task
+  case transform of
+    IdentityOutput -> do
+      validateVectorWidth "runtime semantic output" semanticWidth output
+      Right output
+    SemanticPrefixOutput width ->
+      if width /= semanticWidth || VU.length output < width
+        then Left "semantic-prefix output width mismatch"
+        else Right (VU.slice 0 width output)
+    DestandardizeOutput means scales -> do
+      validateVectorWidth "destandardize raw output" semanticWidth output
+      VU.generateM semanticWidth $ \index -> do
+        let value = output VU.! index * scales VU.! index + means VU.! index
+        requireFinite "destandardized runtime output" value
+        Right value
 
--- | Phase 239 — execute a served supervised dense 'LayerGraph.LayerGraph'
--- through the selected backend's input/output transforms.  The graph is the
--- graph-ordered trained topology reconstructed from the checkpoint layer-graph
--- metadata with its parameters already injected; the input standardisation and
--- output decode transforms stay OUTSIDE the graph, applied before/after exactly
--- as 'executeLoadedRuntime' does for the token program.  This is the retirement
--- target for the token-runtime engine serving path: engines that read a
--- supervised-graph checkpoint run this instead of 'executeLoadedRuntime'.
+-- | Phase 239 — serve a supervised-graph checkpoint: apply the exact input
+-- transform, run the reconstructed trained 'LayerGraph.LayerGraph' with its
+-- injected parameters, then apply the exact output transform.  The transforms
+-- ride OUTSIDE the graph; the graph is the sole topology and parameter owner.
 executeSupervisedGraphRuntime
-  :: RuntimeBackendExecutor
-  -> SupervisedRuntimePayload
+  :: SupervisedRuntimePayload
   -> LayerGraph.LayerGraph
   -> Vector Double
-  -> IO (Either Text (Vector Double))
-executeSupervisedGraphRuntime backend payload graph rawInput =
-  case requireCanonicalText "runtime backend label" (runtimeBackendLabel backend) of
-    Left err -> pure (Left err)
-    Right _ -> do
-      transformed <-
-        invokeRuntimeBackend backend "input-transform" $
-          runtimeBackendInputTransformExecutor
-            backend
-            (supervisedRuntimeInputTransform runtime)
-            rawInput
-      case transformed of
-        Left err -> pure (Left err)
-        Right input ->
-          case LayerGraph.runLayerGraph graph input of
-            Left err -> pure (Left err)
-            Right tape ->
-              invokeRuntimeBackend backend "output-transform" $
-                runtimeBackendOutputTransformExecutor
-                  backend
-                  (supervisedRuntimeTask runtime)
-                  (supervisedRuntimeOutputTransform runtime)
-                  (LayerGraph.layerTapeOutput tape)
+  -> Either Text (Vector Double)
+executeSupervisedGraphRuntime payload graph rawInput = do
+  input <- applyRuntimeInputTransform (supervisedRuntimeInputTransform runtime) rawInput
+  tape <- LayerGraph.runLayerGraph graph input
+  applyRuntimeOutputTransform
+    (supervisedRuntimeTask runtime)
+    (supervisedRuntimeOutputTransform runtime)
+    (LayerGraph.layerTapeOutput tape)
  where
   runtime = payloadRuntime payload
 
-executeLayer
-  :: RuntimeBackendExecutor
-  -> RuntimeLayer
-  -> Maybe MlpParams
-  -> RuntimeValue
-  -> IO (Either Text RuntimeValue)
-executeLayer backend layer parameters value =
-  case (refinedLayerOperation layer, parameters, value) of
-    (DenseOperation shape, Just params, FlatRuntimeValue input) ->
-      fmap FlatRuntimeValue <$> runMlpExact backend layer shape params input
-    (ResidualOperation scale shape, Just params, FlatRuntimeValue input) -> do
-      residual <- runMlpExact backend layer shape params input
-      case residual of
-        Left err -> pure (Left err)
-        Right output ->
-          fmap (fmap FlatRuntimeValue) (runResidualAdd backend scale input output)
-    (ResidualOperation scale shape, Just params, TokenRuntimeValue tokens) -> do
-      residuals <- traverse (runMlpExact backend layer shape params) tokens
-      case sequence residuals of
-        Left err -> pure (Left err)
-        Right outputs -> do
-          added <-
-            traverse
-              (uncurry (runResidualAdd backend scale))
-              (zip tokens outputs)
-          pure (TokenRuntimeValue <$> sequence added)
-    (LayerNormOperation, Nothing, TokenRuntimeValue tokens) -> do
-      normalised <-
-        traverse
-          ( invokeRuntimeBackend backend "layer-norm"
-              . runtimeBackendLayerNormExecutor backend
-          )
-          tokens
-      pure (TokenRuntimeValue <$> sequence normalised)
-    (TokenMixOperation tokenCount width shape, Just params, TokenRuntimeValue tokens) ->
-      fmap (fmap TokenRuntimeValue) $
-        invokeRuntimeBackend backend "token-mix" $
-          runtimeBackendTokenMixExecutor
-            backend
-            backend
-            layer
-            tokenCount
-            width
-            shape
-            params
-            tokens
-    (PatchOperation geometry _ _ shape positions, Just params, FlatRuntimeValue input) -> do
-      extracted <-
-        invokeRuntimeBackend backend "patch-extract" $
-          runtimeBackendPatchExtractExecutor backend geometry positions input
-      case extracted of
-        Left err -> pure (Left err)
-        Right patches -> do
-          outputs <- traverse (runMlpExact backend layer shape params) patches
-          pure (TokenRuntimeValue <$> sequence outputs)
-    (AttentionOperation width _ shape, Just params, TokenRuntimeValue tokens) ->
-      fmap (fmap TokenRuntimeValue) $
-        invokeRuntimeBackend backend "attention" $
-          runtimeBackendAttentionExecutor
-            backend
-            backend
-            layer
-            width
-            shape
-            params
-            tokens
-    (MeanPoolOperation, Nothing, TokenRuntimeValue tokens) ->
-      fmap (fmap FlatRuntimeValue) $
-        invokeRuntimeBackend backend "mean-pool" $
-          runtimeBackendMeanPoolExecutor backend tokens
-    (_, Nothing, _)
-      | isJust (runtimeLayerMlpShape layer) ->
-          pure (Left "parameterised runtime layer has no exact parameter slice")
-    (_, Just _, _)
-      | isNothing (runtimeLayerMlpShape layer) ->
-          pure (Left "parameter-free runtime layer unexpectedly has parameters")
-    _ -> pure (Left "runtime layer representation transition mismatch")
-
-runMlpExact
-  :: RuntimeBackendExecutor
-  -> RuntimeLayer
-  -> RuntimeMlpShape
-  -> MlpParams
-  -> Vector Double
-  -> IO (Either Text (Vector Double))
-runMlpExact backend layer shape params input =
-  case validateVectorWidth "MLP input" (runtimeMlpInputs shape) input of
-    Left err -> pure (Left err)
-    Right () -> do
-      result <-
-        invokeRuntimeBackend backend "mlp" $
-          runtimeBackendMlpExecutor backend params input
-      pure $ do
-        output <- result
-        mapLeft
-          (\err -> runtimeLayerName layer <> " callback: " <> err)
-          (validateVectorWidth "MLP output" (runtimeMlpOutputs shape) output)
-        Right output
-
-runResidualAdd
-  :: RuntimeBackendExecutor
-  -> Double
-  -> Vector Double
-  -> Vector Double
-  -> IO (Either Text (Vector Double))
-runResidualAdd backend scale input residual =
-  invokeRuntimeBackend backend "residual-add" $
-    runtimeBackendResidualAddExecutor backend scale input residual
-
-invokeRuntimeBackend
-  :: RuntimeBackendExecutor
-  -> Text
-  -> IO (Either Text value)
-  -> IO (Either Text value)
-invokeRuntimeBackend backend operation =
-  fmap
-    ( mapLeft
-        ( \err ->
-            "runtime backend "
-              <> runtimeBackendLabel backend
-              <> " "
-              <> operation
-              <> " failed: "
-              <> err
-        )
-    )
-
-validateRuntimeValue
-  :: RuntimeRepresentation -> RuntimeValue -> Either Text ()
-validateRuntimeValue representation value =
-  case (representation, value) of
-    (FlatRuntimeRepresentation width, FlatRuntimeValue vector) ->
-      validateVectorWidth "flat representation" width vector
-    (TokenRuntimeRepresentation tokenCount width, TokenRuntimeValue tokens) ->
-      validateTokens tokenCount width tokens
-    (FlatRuntimeRepresentation _, TokenRuntimeValue _) ->
-      Left "expected a flat representation, got tokens"
-    (TokenRuntimeRepresentation _ _, FlatRuntimeValue _) ->
-      Left "expected a token representation, got flat values"
-
-validateTokens :: Int -> Int -> [Vector Double] -> Either Text ()
-validateTokens expectedCount expectedWidth tokens = do
-  if length tokens /= expectedCount
-    then
-      Left
-        ( "token count mismatch: expected "
-            <> showText expectedCount
-            <> ", got "
-            <> showText (length tokens)
-        )
-    else Right ()
-  traverse_ (validateVectorWidth "token width" expectedWidth) tokens
-
-validateVectorWidth :: Text -> Int -> Vector Double -> Either Text ()
-validateVectorWidth label expected vector = do
-  if VU.length vector /= expected
-    then
-      Left
-        ( label
-            <> " mismatch: expected "
-            <> showText expected
-            <> ", got "
-            <> showText (VU.length vector)
-        )
-    else Right ()
-  traverse_ (requireFinite label) (VU.toList vector)
-
-patchPositions :: RuntimeImageGeometry -> Int -> Int -> [[Int]]
-patchPositions geometry size stride =
-  [ [ pixelIndex geometry (x + dx) (y + dy) channel
-    | dy <- [0 .. size - 1]
-    , dx <- [0 .. size - 1]
-    , channel <- [0 .. runtimeImageChannels geometry - 1]
-    ]
-  | y <- takeWhile (<= runtimeImageHeight geometry - size) [0, stride ..]
-  , x <- takeWhile (<= runtimeImageWidth geometry - size) [0, stride ..]
-  ]
-
-pixelIndex :: RuntimeImageGeometry -> Int -> Int -> Int -> Int
-pixelIndex geometry x y channel =
-  ((y * runtimeImageWidth geometry) + x) * runtimeImageChannels geometry
-    + channel
-
 -- Validation helpers ----------------------------------------------------------
-
-rawLayerName :: RawRuntimeLayer -> Text
-rawLayerName raw =
-  case raw of
-    RawDenseLayer name _ -> name
-    RawResidualLayer name _ _ -> name
-    RawLayerNormLayer name -> name
-    RawTokenMixLayer name _ _ -> name
-    RawPatchLayer name _ _ _ _ _ -> name
-    RawAttentionLayer name _ _ -> name
-    RawMeanPoolLayer name -> name
-
-refineLayerName :: Text -> Either Text Text
-refineLayerName = requireCanonicalText "runtime layer name"
 
 requireCanonicalText :: Text -> Text -> Either Text Text
 requireCanonicalText label value
@@ -1770,48 +790,25 @@ checkedIntProduct :: Text -> [Int] -> Either Text Int
 checkedIntProduct label values =
   checkedIntValue label (product (fmap toInteger values))
 
-checkedIntSum :: Text -> [Integer] -> Either Text Int
-checkedIntSum label = checkedIntValue label . sum
-
 checkedIntValue :: Text -> Integer -> Either Text Int
 checkedIntValue label value
   | value <= 0 = Left (label <> " must be positive")
   | value > toInteger (maxBound :: Int) = Left (label <> " exceeds Int range")
   | otherwise = Right (fromInteger value)
 
-requireFlatInput :: Text -> RuntimeRepresentation -> Either Text Int
-requireFlatInput name representation =
-  case representation of
-    FlatRuntimeRepresentation width -> Right width
-    TokenRuntimeRepresentation _ _ ->
-      Left (name <> ": layer requires a flat input representation")
-
-requireTokenInput
-  :: Text -> RuntimeRepresentation -> Either Text (Int, Int)
-requireTokenInput name representation =
-  case representation of
-    TokenRuntimeRepresentation tokens width -> Right (tokens, width)
-    FlatRuntimeRepresentation _ ->
-      Left (name <> ": layer requires a token input representation")
-
-representationFeatureWidth :: RuntimeRepresentation -> Int
-representationFeatureWidth representation =
-  case representation of
-    FlatRuntimeRepresentation width -> width
-    TokenRuntimeRepresentation _ width -> width
-
-layerShapeMismatch
-  :: Text -> Text -> Int -> Int -> Either Text ()
-layerShapeMismatch name label expected actual =
-  Left
-    ( name
-        <> ": "
-        <> label
-        <> " mismatch: expected "
-        <> showText expected
-        <> ", got "
-        <> showText actual
-    )
+validateVectorWidth :: Text -> Int -> Vector Double -> Either Text ()
+validateVectorWidth label expected vector = do
+  if VU.length vector /= expected
+    then
+      Left
+        ( label
+            <> " mismatch: expected "
+            <> showText expected
+            <> ", got "
+            <> showText (VU.length vector)
+        )
+    else Right ()
+  traverse_ (requireFinite label) (VU.toList vector)
 
 outputWidthMismatch :: Text -> Int -> Int -> Either Text ()
 outputWidthMismatch label expected actual =
@@ -1822,14 +819,6 @@ outputWidthMismatch label expected actual =
         <> ", got "
         <> showText actual
     )
-
-toMlpShape :: RuntimeMlpShape -> MlpShape
-toMlpShape shape =
-  MlpShape
-    { mlpInputs = runtimeMlpInputs shape
-    , mlpHidden = runtimeMlpHidden shape
-    , mlpOutputs = runtimeMlpOutputs shape
-    }
 
 mapLeft :: (left -> other) -> Either left value -> Either other value
 mapLeft transform result =

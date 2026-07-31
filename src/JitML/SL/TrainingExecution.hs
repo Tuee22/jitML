@@ -17,6 +17,7 @@ module JitML.SL.TrainingExecution
 where
 
 import Control.Monad.Reader (ask, liftIO)
+import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (traverse_)
@@ -31,10 +32,17 @@ import Data.Word (Word64)
 import JitML.CLI.Output (writeText)
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Env.Env (App)
+import JitML.Numerics.LayerGraph (layerTapeOutput, runLayerGraph)
+import JitML.Numerics.LayerGraphMetadata
+  ( LayerGraphMetadata
+  , layerGraphMetadataFromGraph
+  , layerGraphMetadataParameterCount
+  )
 import JitML.Numerics.Mlp
   ( MlpParams (paramShape)
   , MlpShape (..)
   , mlpInit
+  , mlpLayerGraph
   , mlpParamsToFlat
   )
 import JitML.Numerics.MlpDevice (MlpDevice)
@@ -134,6 +142,11 @@ data TrainingMetrics = TrainingMetrics
   -- and before decoder label/unit interpretation).  This mandatory pair lets
   -- the V2 parity gate compare training and Store-loaded inference without
   -- reconstructing a model or inventing a synthetic probe.
+  , tmTrainedLayerGraphMetadata :: !(Maybe LayerGraphMetadata)
+  -- ^ Phase 237/239: the trained typed 'LayerGraph.LayerGraph' projected into
+  -- its serialisable checkpoint description.  This rides through the supervised
+  -- runtime payload into the manifest architecture so every served supervised
+  -- checkpoint carries and serves its trained dense graph directly.
   }
   deriving stock (Eq, Show)
 
@@ -315,12 +328,26 @@ trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metr
   if Architecture.slmOptimizerUpdatesExecuted metrics <= 0
     then Left "supervised executed optimizer-update count must be positive"
     else Right ()
-  runtime <- Architecture.projectTrainedArchitectureRuntime trained
+  let config = Architecture.trainedArchConfig trained
+      runtime =
+        RuntimeArtifact.RawSupervisedRuntime
+          { RuntimeArtifact.rawSupervisedRuntimeTask =
+              RuntimeArtifact.RawClassificationRuntimeTask (Classifier.clfClasses config)
+          , RuntimeArtifact.rawSupervisedRuntimeInputTransform =
+              Architecture.trainedArchInputTransform trained
+          , RuntimeArtifact.rawSupervisedRuntimeOutputTransform =
+              RuntimeArtifact.RawSemanticPrefixOutput (Classifier.clfClasses config)
+          }
+      graphMeta =
+        layerGraphMetadataFromGraph (Architecture.trainedArchGraph trained)
   validateTrainingParityProbe runtime probeInput probeOutput
   let initialWeights = Architecture.slmInitialWeights metrics
       finalWeights = Architecture.trainedArchitectureWeights trained
   (initialBytes, finalBytes) <-
-    exactRuntimeWeightBytes runtime initialWeights finalWeights
+    exactGraphWeightBytes
+      (layerGraphMetadataParameterCount graphMeta)
+      initialWeights
+      finalWeights
   Right
     TrainingMetrics
       { tmTrainLoss = Architecture.slmTrainLoss metrics
@@ -338,6 +365,7 @@ trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metr
       , tmVerifiedDatasetShaAtRead = datasetShaAtRead
       , tmParityProbeInput = VU.toList probeInput
       , tmParityProbeOutput = VU.toList probeOutput
+      , tmTrainedLayerGraphMetadata = Just graphMeta
       }
 
 validateTrainingParityProbe
@@ -376,14 +404,16 @@ validateTrainingParityProbe rawRuntime probeInput probeOutput = do
     | VU.all (\value -> not (isNaN value || isInfinite value)) values = Right ()
     | otherwise = Left ("supervised parity probe " <> label <> " contains a non-finite value")
 
-exactRuntimeWeightBytes
-  :: RuntimeArtifact.RawSupervisedRuntime
+-- | Phase 239 — encode the exact initial/final JMW1 weight blobs for a
+-- supervised checkpoint whose sole representation is the trained graph.  The
+-- expected length is the graph-ordered parameter count; both blobs must decode
+-- and re-encode to the canonical frozen JMW1 form.
+exactGraphWeightBytes
+  :: Int
   -> [Double]
   -> [Double]
   -> Either Text (LazyByteString.ByteString, LazyByteString.ByteString)
-exactRuntimeWeightBytes rawRuntime initialWeights finalWeights = do
-  runtime <- RuntimeArtifact.refineSupervisedRuntime rawRuntime
-  let expected = RuntimeArtifact.supervisedRuntimeParameterCount runtime
+exactGraphWeightBytes expected initialWeights finalWeights = do
   requireCount "initial" expected initialWeights
   requireCount "final" expected finalWeights
   let initialBytes = WeightCodec.encodeJmw1 initialWeights
@@ -395,14 +425,14 @@ exactRuntimeWeightBytes rawRuntime initialWeights finalWeights = do
     then Right (initialBytes, finalBytes)
     else Left "supervised exact JMW1 bytes were not canonical under decode/re-encode"
  where
-  requireCount label expected actual
-    | length actual == expected = Right ()
+  requireCount label expectedCount actual
+    | length actual == expectedCount = Right ()
     | otherwise =
         Left
           ( "supervised "
               <> label
-              <> " weight count differs from runtime graph (expected="
-              <> Text.pack (show expected)
+              <> " weight count differs from trained graph (expected="
+              <> Text.pack (show expectedCount)
               <> ", actual="
               <> Text.pack (show (length actual))
               <> ")"
@@ -988,7 +1018,7 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                                         case validateTrainingParityProbe runtime probeInput probeOutput of
                                           Left err -> pure (Left err)
                                           Right () ->
-                                            case exactRuntimeWeightBytes runtime initialWeights finalWeights of
+                                            case exactGraphWeightBytes (length finalWeights) initialWeights finalWeights of
                                               Left err -> pure (Left err)
                                               Right (initialBytes, finalBytes) -> do
                                                 writeText
@@ -1030,6 +1060,13 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                                                         , tmVerifiedDatasetShaAtRead = datasetShaAtRead
                                                         , tmParityProbeInput = VU.toList probeInput
                                                         , tmParityProbeOutput = VU.toList probeOutput
+                                                        , tmTrainedLayerGraphMetadata =
+                                                            either
+                                                              (const Nothing)
+                                                              (Just . layerGraphMetadataFromGraph)
+                                                              ( mlpLayerGraph
+                                                                  (Regression.trainedRegressorParams trained)
+                                                              )
                                                         }
                                                   )
 
@@ -1040,16 +1077,25 @@ californiaHousingParityProbe
   -> [Regression.RegressionExample]
   -> [Regression.RegressionExample]
   -> IO (Either Text (VU.Vector Double, VU.Vector Double))
-californiaHousingParityProbe device standardization trained rawHeldOut standardizedHeldOut =
+californiaHousingParityProbe _device standardization trained rawHeldOut standardizedHeldOut =
   case (listToMaybe rawHeldOut, listToMaybe standardizedHeldOut) of
-    (Just rawProbe, Just standardizedProbe) -> do
-      predictionE <-
-        Regression.predictRegressorWithDevice
-          device
-          trained
-          (Regression.regressionFeatures standardizedProbe)
+    (Just rawProbe, Just standardizedProbe) ->
+      -- Serving reloads the checkpoint's @mlpLayerGraph@ and runs it through the
+      -- pure reference executor (Phase 240). The parity probe must reflect that
+      -- served representation exactly — the same pure @runLayerGraph@ over the
+      -- same @mlpLayerGraph@, not the device (float32) regressor forward — so the
+      -- trained-returned and Store-loaded regression paths are one implementation
+      -- (bit-identical), matching the classification probe.
       pure $ do
-        standardizedPrediction <- predictionE
+        graph <-
+          Bifunctor.first Text.pack (mlpLayerGraph (Regression.trainedRegressorParams trained))
+        tape <-
+          runLayerGraph graph (Regression.regressionFeatures standardizedProbe)
+        let standardizedOutput = layerTapeOutput tape
+        standardizedPrediction <-
+          if VU.null standardizedOutput
+            then Left "supervised regression parity probe produced an empty graph output"
+            else Right (VU.head standardizedOutput)
         rawPrediction <-
           Regression.inverseRegressionTarget standardization standardizedPrediction
         Right
@@ -1105,9 +1151,7 @@ californiaHousingRuntimeProgram problem expectedConfig standardization trained =
         )
   let rawRuntime =
         RuntimeArtifact.RawSupervisedRuntime
-          { RuntimeArtifact.rawSupervisedRuntimeFamily =
-              RuntimeArtifact.RawTabularRegressionRuntimeFamily
-          , RuntimeArtifact.rawSupervisedRuntimeTask =
+          { RuntimeArtifact.rawSupervisedRuntimeTask =
               RuntimeArtifact.RawRegressionRuntimeTask 1
           , RuntimeArtifact.rawSupervisedRuntimeInputTransform =
               RuntimeArtifact.RawStandardizeInput
@@ -1117,15 +1161,6 @@ californiaHousingRuntimeProgram problem expectedConfig standardization trained =
               RuntimeArtifact.RawDestandardizeOutput
                 [Regression.regressionTargetMean standardization]
                 [Regression.regressionTargetScale standardization]
-          , RuntimeArtifact.rawSupervisedRuntimeLayers =
-              [ RuntimeArtifact.RawDenseLayer
-                  "regressor"
-                  RuntimeArtifact.RawRuntimeMlpShape
-                    { RuntimeArtifact.rawRuntimeMlpInputs = mlpInputs (paramShape params)
-                    , RuntimeArtifact.rawRuntimeMlpHidden = mlpHidden (paramShape params)
-                    , RuntimeArtifact.rawRuntimeMlpOutputs = mlpOutputs (paramShape params)
-                    }
-              ]
           }
   refined <- RuntimeArtifact.refineSupervisedRuntime rawRuntime
   if RuntimeArtifact.supervisedRuntimeToRaw refined == rawRuntime

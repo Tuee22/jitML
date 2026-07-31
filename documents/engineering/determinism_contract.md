@@ -11,29 +11,22 @@
 
 ## Current Status
 
-**Implemented today.** Supervised served determinism runs through the exact V2
-structural runtime (the `RuntimeOperations` nine-operation set across
-`RuntimeOperationsCpu`/`Cuda`/`Metal`), and content addressing spans the frozen V1
-and exact V2 envelopes.
-
-**Target (Phases `235`, `237`–`239`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-The reloaded typed `LayerGraph` is executed directly, so the V2 served-operator
-ABI is removed; origin determinism folds into the single self-describing envelope.
-Until those phases close, the V2 structural runtime described below is the
-implemented determinism boundary and the reloaded-graph form is a target contract.
+**Implemented today.** Supervised served determinism runs through the reloaded
+typed `LayerGraph` executed directly by `LayerGraph.runLayerGraph` (Phases
+`237`–`239`); the exact V2 structural-operation ABI has been removed. Content
+addressing spans the frozen V1 and the supervised-graph envelopes.
 
 ## The Contract
 
 jitML guarantees **same-substrate bit-equality** when the same numerical path is
 repeated on `<substrate>` against the same toolchain pin (every
 codegen-toolchain fingerprint from `cabal.project` plus the
-substrate-specific kernel-compiler version). Exact V2 reconstruction has an
-additional same-substrate *path comparison* between the training-returned
-model and the Store-loaded structural executor: its maximum-absolute-difference
-bound is `1e-9` for the Linux CPU/CUDA `double` structural ABIs and initially
-`1e-5` for Metal's explicit fp32 transport. Each path remains independently
-replayable; that comparison does not claim that two different implementations
-produce bit-identical floats. Cross-substrate bit-equality is **not** guaranteed
+substrate-specific kernel-compiler version). Supervised reconstruction (Phase
+`239`) serves the reloaded typed `LayerGraph` through the same pure reference
+executor the training path uses, over the same frozen graph-ordered parameters,
+so the training-returned and Store-loaded serving paths are one implementation
+rather than two — there is no separate structural-ABI path-comparison band to
+maintain. Cross-substrate bit-equality is **not** guaranteed
 — RNG draws and float reduction order differ across substrates — and
 cross-substrate equivalence is **not asserted**: there is no cross-substrate
 numeric-parity check or tolerance band.
@@ -46,8 +39,8 @@ contract holds across:
   ProductRow descriptor and semantic `PlanId`, then passed unchanged as `3e-3`
   for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for
   `cifar10-vit`, or `1e-3` for the other eight supervised rows),
-- the current `cifar10-vit` fixed plan (2,000 training examples, five epochs,
-  batch size 128, 10,000 processed examples, and 80 successful optimizer
+- the current `cifar10-vit` fixed plan (2,000 training examples, forty epochs,
+  batch size 128, 80,000 processed examples, and 640 successful optimizer
   updates),
 - canonical supervised classification minibatch ordering (for each one-based
   epoch, the trainer derives a SplitMix stream from the classifier seed and
@@ -224,53 +217,34 @@ own floating-point determinism contract.
   20–50% slower than the non-deterministic defaults on training workloads;
   this is the price of the bit-determinism contract.
 
-## Exact V2 Structural Runtime
+## Supervised Serving via the Reloaded Graph
 
-The supervised V2 artifact executes preprocessing, graph structure, and output
-decoding through the selected substrate rather than through shared host
-callbacks. The common logical operation set is input transform, output
-transform, residual add, LayerNorm, token-mix pack/merge, patch extraction,
-scaled attention, and mean pool. MLP projection remains the selected real
-oneDNN/CUDA/fixed-bridge Metal MLP path nested inside that executor.
-Selected-substrate validation uses the plan resolved from the persisted closed
-origin: the unique ProductRow projection for product publication or the
-canonically reparsed exact `SupervisedPlan` for generic publication. It never
-guesses substrate from a row label or switches origins during replay.
-For V2, token-mix merge is replacement rather than implicit residual addition,
-and attention returns attended values without an outer skip; only the explicit
-residual operation adds one. Sprint `23.1` must version any corrected algebra
-rather than changing the meaning of existing V2 bytes.
+Phase `239` retired the exact V2 structural runtime. A supervised checkpoint's
+sole served representation is its trained typed `LayerGraph`, persisted as
+`architectureLayerGraph` metadata. There is no persisted or executed structural
+layer-operation program, no per-substrate `RuntimeBackendExecutor`, and no
+generated `RuntimeOperations{Cpu,Cuda,Metal}` bundle; those surfaces are deleted.
 
-- `JitML.Codegen.RuntimeOperationsCpu` renders content-addressed `kernel.cc`.
-  `JitML.Codegen.RuntimeOperationsCuda` renders content-addressed `kernel.cu`
-  whose host wrappers allocate/copy/launch/synchronize/read back real device
-  buffers. Both expose the status-returning `jitml-runtime-operations-v1`
-  `double` C ABI, ABI version `1`, and complete capability mask `0xff`.
-- `JitML.Engines.RuntimeOperationsDevice` owns Linux compile/load, symbol
-  resolution, ABI/capability checks, exact buffer contracts, and deterministic
-  marshalling. CPU and CUDA reductions and softmax traverse values in fixed
-  order; unavailable capabilities or nonzero native status fail closed.
-- `JitML.Codegen.RuntimeOperationsMetal` renders all nine MSL entry points and
-  their source hash inside the content-addressed `.metal.json` artifact.
-  `JitML.Engines.RuntimeOperationsMetal` requires the cached metadata bytes to
-  equal the generated ABI/capability/source envelope, validates finite values,
-  shapes, ranges, scales, and fp32-exact integer arguments, and dispatches the
-  MSL through the fixed bridge with fast math disabled and explicit
-  `Double`↔fp32 transport.
-- `JitML.Engines.Local`, `CudaLocal`, and `MetalLocal` install no
-  `RuntimeOperations.host*` callbacks. Compile, load, symbol, ABI, capability,
-  contract, native-status, execution, and selected-backend MLP failures remain
-  distinct typed failures; recognized V2 execution never changes substrate or
-  falls back to the pure/reference oracle.
+Serving reconstructs the trained `LayerGraph` from its metadata, injects the one
+physical graph-ordered `supervised.weights` blob as the parameter vector, and
+runs the graph through the pure reference executor
+`LayerGraph.runLayerGraph`. The exact input/output transforms — feature
+standardisation / unit-image ingress and the semantic-prefix / destandardize
+egress — ride OUTSIDE the graph and are applied as pure deterministic functions
+before and after the graph run
+(`RuntimeArtifact.executeSupervisedGraphRuntime`). Selected-substrate validation
+still uses the plan resolved from the persisted closed origin: the unique
+ProductRow projection for product publication or the canonically reparsed exact
+`SupervisedPlan` for generic publication; it never guesses substrate from a row
+label or switches origins during replay.
 
-The V2 training-returned-versus-Store-loaded reconstruction check is an
-additional same-substrate parity gate: maximum absolute difference is `1e-9`
-for the Linux CPU/CUDA `double` structural ABIs and initially `1e-5` for the
-fixed-bridge Metal fp32 transport. These bounds compare two implementations of
-the same persisted program on one substrate; they do not assert cross-substrate
-equivalence and do not replace the fresh-run bit-equality tests. Real-device
-CUDA and Metal reattestations remain with their single-accelerator product
-lanes.
+Admission anchors the one physical `supervised.weights` blob's length to the
+trained graph's parameter count (`layerGraphMetadataParameterCount`) and binds
+the final-weight SHA-256 to the completed-training witness. Because serving is a
+pure deterministic function of the reloaded graph and input, the training path
+and the Store-loaded serving path are the same reference executor over the same
+frozen parameters; there is no separate structural-ABI reimplementation and thus
+no cross-implementation parity band to maintain.
 
 ## RNG Split and Per-Experiment Seed Derivation
 

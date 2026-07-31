@@ -459,17 +459,18 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-07-20): Pending Removal is open with 13 rows.** The open
+**Current state (2026-07-31): Pending Removal is open with 11 rows.** The open
 suffix begins with Active Sprint `19.4`; every later owner is Blocked by its
 direct numerical predecessor. Earlier counts are historical snapshots, not the
-current ledger. These are deletion targets, not substitutes for the primary
+current ledger. Phase `251` (2026-07-31) moved the "Primitive traditional-RL
+`RunConfig` execution adapter" row to Completed and narrowed the RL
+budget-argument row to its remaining measured-counter half (owned by Phase
+`252`). These are deletion targets, not substitutes for the primary
 implementation obligations in the owning sprint documents.
 
 | Item | Location | Reason for removal | Owning sprint | Replacement |
 |------|----------|--------------------|---------------|-------------|
-| Primitive traditional-RL `RunConfig` execution adapter | `src/JitML/Service/RunConfig.hs` (`RlRunConfig`); corresponding adapters in `src/JitML/Service/Workload.hs` and `src/JitML/App.hs` | Traditional RL still serializes primitive fields and lets workers reconstruct execution semantics. Supervised training, tuning, and AlphaZero mounts now contain one canonical resolved plan plus `PlanId`. | Sprint `25.4` | A versioned raw request refines once to a resolved traditional-RL plan; the serialized plan and `PlanId` become the worker's only semantic execution input. |
-| Duplicated RL algorithm/trainer selector axes | `src/JitML/Service/Workload.hs` (`rlTrainerForAlgorithm`, `rlRunConfigFor`), `src/JitML/Service/RunConfig.hs` (`rlcAlgorithm`, `rlcTrainerKind`), reverse mapping in `src/JitML/App.hs` | Independent algorithm/trainer strings can disagree and require forward/reverse partial mappings. | Sprint `25.4` | One validated, action-domain-indexed RL plan; any versioned raw compatibility DTO is refined once at the boundary. |
-| Overloaded and silently repaired RL budget arguments | `src/JitML/App.hs` (`runTrainerEpisodes`, PPO/off-policy/HER branches, `max 1` helpers and caller-reconstructed update counts) | `maxSteps` means both horizon and rollout length, `evalEpisodes` means both evaluation count and a training-iteration floor, vector-environment multiplication changes the unit, and clamping hides invalid requests. | Sprint `25.4` | A dimensionally checked training/evaluation plan with unit-indexed quantities; the trainer returns measured counters in the plan's unit. |
+| Overloaded and silently repaired RL budget arguments — measured-counter half | `src/JitML/RL/TrainerExecution.hs` (PPO/off-policy/HER/ARS branches: caller-derived `updateCount` threaded into `trainerRunWithEvidence`) | The dimensional-overload half landed in Phase `251` — the overloaded `maxSteps`/`evalEpisodes`, the vector-env unit slippage, and the `max 1` clamps are gone, replaced by the dimensionally checked `CompiledRlPlan`. What remains: each trainer branch still reconstructs its `updateCount` in the caller rather than returning a measured typed counter in the plan's unit. | Phase `252` | Trainers return measured typed transition/update counters (no caller reconstruction), consumed directly from the plan's unit. |
 | Partially trained `TrainerRun` represented by independent optional weights and evidence | `src/JitML/App.hs` (`TrainerRun`, `trainerRunWithEvidence`) | Weights without evidence, evidence without weights, and an alleged trained run with neither are representable. | Sprint `25.4` | `EvaluationOnly` or `Trained TrainedArtifact`, where a trained artifact carries weights, measured counters, and evidence together. |
 | Phase-indexed product rows carrying every phase's optional evidence | `src/JitML/Product/Matrix.hs`, `src/JitML/Product/Pipeline.hs` | An allegedly completed/eligible row can retain `Nothing` for evidence required by that phase, while constructor export permits callers to mint those contradictions. | Sprint `21.4` | Hidden constructors and phase-specific GADT/data-family payloads that contain exactly the evidence legal in that phase. |
 | Decorative `archLayerGraph` beside a parallel executable layer/state path | `src/JitML/SL/Architecture.hs`, `src/JitML/Numerics/LayerGraph.hs` | Sprint `23.1` made the typed IR's reverse-mode input/parameter gradients correct for every catalog node (finite-difference-verified) and replaced silent shape/fallback seams with explicit failures, but the served/serialized path still follows paired `[LayerSpec]` / `[LayerState]` values: wiring the verified Tier-2 nodes and the attention residual into it needs a checkpoint format version bump held out of `23.1` by the byte-frozen Sprint `10.6` pre-23.1-semantics contract. | Sprint `23.2` | One typed executable layer IR owns forward, reverse-mode input/parameter gradients, serialization order, and inference reconstruction; unsupported shapes and layer kinds fail explicitly. |
@@ -495,6 +496,47 @@ listed in the relevant phase document. Rows whose blocker is an external
 upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
+
+On 2026-07-28 Sprint `239.1` deleted the superseded V2 `SupervisedRuntime`
+projection and its nine-operation served ABI, now that the trained typed
+`LayerGraph` is the sole supervised served representation (Phases `237`–`238`).
+Removed surfaces:
+
+- `src/JitML/SL/RuntimeArtifact.hs`: `executeLoadedRuntime` and the nine
+  `RuntimeLayerOperation` executors, `RuntimeBackendExecutor` and every executor
+  type alias, `RuntimeLayerOperation` / `RuntimeLayer` / `RuntimeMlpShape` /
+  `RuntimeRepresentation` / `RuntimeLayerKind` / `RuntimeFamily` /
+  `RuntimeVirtualSlice` / `LoadedRuntime`, and the `RawRuntimeFamily` /
+  `RawRuntimeMlpShape` / `RawRuntimeLayer` wire DTOs plus their
+  refinement/projection/accessor surfaces. `RawSupervisedRuntime` /
+  `SupervisedRuntime` are slimmed to the task and the input/output transforms;
+  serving is `executeSupervisedGraphRuntime` over the reconstructed graph with
+  pure `applyRuntimeInputTransform` / `applyRuntimeOutputTransform`.
+- Deleted whole modules: `src/JitML/Codegen/RuntimeOperations{Cpu,Cuda,Metal}.hs`,
+  `src/JitML/Engines/RuntimeOperations{,Device,Cuda,Metal}.hs` (and their
+  `jitml.cabal` entries); the engine `*RuntimeBackend` builders in
+  `Local`/`CudaLocal`/`MetalLocal`.
+- `src/JitML/SL/Architecture.hs`: `projectTrainedArchitectureRuntime` (and its
+  `runtimeLayerContract` / `rawRuntimeFamily` / `exactArchitectureFamilyForModel`
+  helpers); `canonicalClassificationRuntimeContract` slimmed to task + transforms.
+- `src/JitML/SL/TrainingExecution.hs`: `exactRuntimeWeightBytes` replaced by the
+  graph-parameter-count `exactGraphWeightBytes`.
+- `src/JitML/Checkpoint/Store.hs`: `loadSupervisedRuntimeFromCheckpoint` reduced
+  to graph-count admission; `runSupervisedGraphCheckpointInference` no longer
+  takes a backend. `src/JitML/Checkpoint/Format.hs`: `validateAuthoritativeRuntime`
+  / `validateClassificationRuntimeContract` / `validateClassificationInputTransform`
+  / `validateCaliforniaRuntime` / `classificationProductionDimensions` removed;
+  `encodeManifestCbor` selects the supervised body on `architectureLayerGraph`;
+  admission anchors the weight blob to `layerGraphMetadataParameterCount` and the
+  `FlatWeightLayout` to one graph-ordered spec.
+- Deleted unit modules `test/unit/SupervisedRuntimeArtifact.hs` and
+  `test/unit/RuntimeOperationsAccelerators.hs`; migrated
+  `test/unit/SupervisedCheckpointV2.hs` fixtures onto the trained dense graph.
+
+Validated on host: `cabal build lib:jitml --ghc-options='-fasm -Werror'` clean;
+`jitml-unit` 743 / 743. The `jitml-backends` / `check-code` / `docs check`
+container lanes and the `jitml-sl-canonicals` token-family coherence lane
+(Phase `245`) run in their own substrate/container contexts.
 
 On 2026-06-11 Sprint `11.8` closed the demo endpoint and browser-value
 assertion rows on the CUDA machine. `Web.Server` now renders policy/value output
@@ -577,6 +619,8 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Primitive traditional-RL `RunConfig` execution adapter | Phase `251` (2026-07-31, formerly Sprint `25.5`) | `RlRunConfig` now carries only one canonical resolved-plan transport (`rlcResolvedPlan`) plus its derived `rlcPlanId` — alongside `rlcExperimentHash`, `rlcAtariRomPath`, and `rlcPulsarWsUrl` — matching the supervised/tune/AlphaZero mounts; the primitive per-field trainer transport and the worker-side execution-semantics reconstruction (and the `Service/Workload.hs` + `App.hs` adapters) are gone. A pure `compileRlPlan` refines a validated `TrainingPlan` plus a separate `EvaluationPlan` into a `CompiledRlPlan` (the `ceil(total transitions / (rollout ticks per env * vector env count))` arithmetic lives only there, and evaluation episode count can no longer determine training dimensions), and every production trainer consumes it through `runTrainerEpisodesForPlan` — the positional `runTrainerEpisodes` adapter and the `App.hs` `max 1` budget clamps are deleted. The serialized plan + `PlanId` are the worker's only semantic execution input. All 39 canonical RL budget targets are byte-identical. The remaining measured-counter obligation (trainers returning typed counters instead of caller reconstruction) stays tracked by the "Overloaded and silently repaired RL budget arguments — measured-counter half" pending row, owned by Phase `252`. Validation on `linux-cpu`, all green 2026-07-31: `jitml test jitml-rl-canonicals`, `jitml test jitml-unit` (incl. the Phase 221 registry guard), `jitml test jitml-daemon-lifecycle` (compiled-plan admission fixture), and `jitml check-code`. |
+| Duplicated RL algorithm/trainer selector axes | Phase `250` (2026-07-30, formerly Sprint `25.4`) | An abstract typed `RLCohort` (in `RL/Framework.hs` + `RL/Algorithms/Registry.hs`; only the `mkCohort` smart constructor mints one, so an incompatible discrete/continuous/goal-conditioned pair is unconstructable) is action-domain-indexed. The redundant `rlcTrainerKind` field is removed from `RlRunConfig` and from the `dhall/run/Schema.dhall` `RunConfig` schema; dispatch flows through the cohort, and the former forward/reverse mappings (`rlTrainerForAlgorithm`, `trainerKindForAlgorithm`, `algorithmNameForTrainer`, `rlTrainerEnvironmentCompatibilityError`) delegate to it. The exact lowercase trainer strings are rendered byte-identically from the cohort, so content-addressed checkpoint identity (`rlEvidenceReadHash`, `rl-<trainerKind>-weights` tensor names) is unchanged; `lunar-lander`'s per-algorithm dual domain (discrete for on-policy/ARS, continuous for DDPG-family) is preserved. Validation: `jitml test jitml-rl-canonicals --linux-cpu` (incl. the cohort reject/accept + golden cases), `jitml test jitml-unit --linux-cpu` (incl. the reflected Dhall schema parity), `jitml check-code`, and `jitml docs check` all green. |
 | Dormant checkpoint layer-graph reconstruction + version-gated admission | Sprint `236.1` (2026-07-27) | The store's per-version admission allow-list (`decodeAddressedForAdmission`) and the `validateCompletedAdmissionScope` V1/V2 split collapsed to a single decode-then-classify on the payload variant (weight-only vs supervised-graph); a supervised-graph checkpoint carrying a companion pointer is now rejected on that single path. The dormant `layerGraphFromCheckpoint` / `rebuildLayerGraph` reconstruction chain (with its `layerKind`/`Mode`/`Activation`/`ParametersFromMetadata` helpers), the `JitML.Engines.LayerGraphCheckpoint` module, and the `Local.hs` graph-rebuild serving fallback are deleted — they never fired for real product rows, whose `architectureLayerGraph` is `Nothing`. The live V2 `SupervisedRuntime` read/serving path (`loadSupervisedRuntimeFromCheckpoint`, used by the Local/CUDA/Metal engines) is **not** removed here: that removal is an ownership transfer to Phase `237` (supervised serving on the IR), where serving is rewired off it (rule M(a)). Validation: `jitml test jitml-unit --linux-cpu` PASS (incl. the supervised-graph companion-rejection test), `jitml check-code` ok, `jitml docs check` ok. |
 | Multi-version checkpoint wire, byte-freeze golden, and parallel canonicalizer | Sprint `235.1` (2026-07-27) | The three accreted checkpoint wire versions collapsed into one self-describing `RawCheckpointEnvelope` carrying the typed `RawCheckpointBody` payload sum (weight-only vs supervised-graph). The byte-frozen V1 golden fixture (134 bytes, SHA-256 `30db4da5…`) and its `LazyByteString.length`/`manifestContentSha` golden test are gone; the dead V3 `LayerGraph` encoder (`RawCheckpointBodyV3`, `RawV3Graph`, `RawV3LayerNode`, `encodeV3Checkpoint`, `decodeV3Checkpoint`, `layerGraphToRawV3`, `rawV3ToLayerGraph`, `checkpointWireVersionV3`) is deleted; the retained pre-Sprint-`10.12` `LegacyCheckpointManifest` decoder cascade (`decodeAddressedLegacy`/`refineLegacy*`) and the separate `RawCheckpointEnvelopeV2` outer are removed; and `canonicalManifest` / `canonicalManifestV2` merged into one canonicalizer. `encodeManifestCbor` is a single arm and `decodeAddressedManifestCbor` a single decode that dispatches on the payload sum with no version fall-through. Checkpoints are regenerated deterministically from current source. Validation: `jitml test jitml-unit --linux-cpu` **771 / 771** (weight-only + supervised-graph round-trip and admission tests included); `jitml check-code` and `jitml docs check` pass in this same closure. |
 | Registry-derived ProductRow live-report bridge | Sprint `19.4` (implementation landed 2026-07-20; closure validation pending in the owning sprint) | `JitML.App.productRowReportEvidenceForTargets`, `productRowReportEvidence`, and their live-report call sites are gone. Product scenario completion now consumes Store's opaque `AdmittedCompletedCheckpoint`, exact projection/manifest/completion identity, and retains the admitted manifest SHA; declaration labels cannot populate `ReportMeasurements`. The freely constructible seven-column `ProductRowReportEvidence` DTO remains only for legacy Sprint `31.3` lane-fragment parsing/rendering and cannot cross this boundary; its removal is separately tracked by the pending “Prose/table ProductRow lane-fragment aggregation” row. Sprint `19.4` remains Active until its aligned-image validation passes. |

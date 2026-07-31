@@ -83,15 +83,17 @@ strict persisted-artifact reload. The frozen V1 encoding is 134 bytes with
 SHA-256
 `30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
 
-The current strict forward chain is `237 → 238 → 239 → 240 → 241 → 242 → 243 → 244 → 245 → 246 → 250 → 251 → 252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `235`
+The current strict forward chain is `252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `235`
 (One Self-Describing Checkpoint Envelope) closed `Done` on 2026-07-27 (jitml-unit
 771/771, check-code ok, docs check ok), and Phase `236` (Checkpoint Admission
 Single-Path — one classify-on-payload-variant admission path, dormant
 `LayerGraph`-from-checkpoint reconstruction deleted) closed `Done` on 2026-07-27.
-Phase `237` (supervised serving on the IR) is now the sole `Active` frontier;
-`238`–`239` are the remaining inserted training/construction phases; the former SL
-phases are redefined and the tail is renumbered `+4` to `240`–`287`. Every phase
-after `236` is Blocked by its immediate predecessor. Phase `10` validated its reopened work on `linux-cpu` only.
+Phases `237` (supervised serving on the IR) and `238` (supervised training on
+the IR) closed `Done` on 2026-07-28; Phase `239` (checkpoint construction from the
+trained graph) closed `Done` on 2026-07-28; Phases `240`–`246` (the coupled
+literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phase `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) closed `Done` on 2026-07-31; Phase `252` (Typed Measured Counters and Evidence Separation) is the next executable phase (`Planned`). Every later phase is Blocked by
+its immediate predecessor, and the apple-silicon wall at Phase `272` remains the
+hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
 Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 
 The binding architecture is
@@ -105,8 +107,8 @@ descriptor/`PlanId`-bound learning rate passed unchanged to the selected
 classification or California regression trainer. The canonical rates are
 `3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3`
 for `cifar10-vit`, and `1e-3` for the other eight rows. The current ViT plan
-fixes **2,000** training examples, five epochs, batch size 128, **10,000**
-processed examples, and **80** successful optimizer updates. Generic V2
+fixes **2,000** training examples, forty epochs, batch size 128, **80,000**
+processed examples, and **640** successful optimizer updates. Generic V2
 execution has a composite origin comprising its canonical row identity and
 exact canonical `SupervisedPlan` transport, while Product publication retains
 the authoritative `ProductRow` origin. Admission re-refines the origin and
@@ -1327,11 +1329,11 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 The 2026-07-18 checkpoint/runtime audit adds sprint-level dependencies without
 renumbering phases. After Sprints `10.6` and `10.12` closed, the current open
 suffix is:
-`237 → 238 → 239 → 240 → 241 → 242 → 243 → 244 → 245 → 246 → 250 → 251 → 252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
+`252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 This is an ownership-chain overlay on the phase DAG: later phases that are not
 named remain Done on their retained surfaces. Sprints `1.18`, `2.9`, `3.7`,
 `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Phase
-`237` is the `Active` frontier (Phases `235` and `236` closed `Done` 2026-07-27); every later phase in the chain is Blocked by its immediate predecessor (the 2026-07-26 IR-single-owner `+4` renumber inserted Phases `236`–`239` and shifted the tail to `240`–`287`). Prior Sprint
+`250` (Typed RL Cohort) is the next executable phase (`Planned`; Phases `235`–`246` closed `Done`, `240`–`246` on 2026-07-30); every later phase in the chain is Blocked by its immediate predecessor, and the apple-silicon wall at Phase `272` is the hard stop on non-Apple hosts (the 2026-07-26 IR-single-owner `+4` renumber inserted Phases `236`–`239` and shifted the tail to `240`–`287`). Prior Sprint
 `10.12` validation and pre-V2 publisher results remain historical evidence only.
 
 ## Status Vocabulary

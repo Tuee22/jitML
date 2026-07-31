@@ -1448,6 +1448,74 @@ main =
           assertProcessExitCode "echo fixture" ExitSuccess outcome
           assertProcessStreamEquals "echo fixture" ProcessStdout "subprocess-ok\n" outcome
           assertProcessStreamEquals "echo fixture" ProcessStderr "" outcome
+      , testCase
+          "Phase 240: linux-cpu serves the reloaded supervised graph through oneDNN and rejects tampered envelopes"
+          $ do
+            (manifest, weights) <-
+              either (assertFailure . Text.unpack) pure phase240SupervisedGraphEnvelope
+            let probeInput = [0.5, -0.25, 0.75]
+            env <- buildEnv defaultGlobalFlags
+            -- Device (oneDNN) served read path: reconstruct -> refine -> the
+            -- Phase 234 batched oneDNN device forward, transforms outside.
+            served <-
+              Local.runLinuxCpuWeightedCheckpointInference env manifest weights probeInput
+            -- Pure oracle: reconstruct -> runLayerGraph, identical transforms
+            -- outside the graph. Asserts the device forward matches the pure
+            -- runLayerGraph oracle within the f32 tolerance for the dense graph.
+            oracle <-
+              CheckpointStore.runSupervisedGraphCheckpointInference manifest weights probeInput
+            case (served, oracle) of
+              (Right servedValues, Right oracleValues) -> do
+                length servedValues @?= length oracleValues
+                for_ (zip servedValues oracleValues) $ \(deviceValue, oracleValue) ->
+                  assertBool
+                    ( "Phase 240 device served output "
+                        <> show deviceValue
+                        <> " differs from the pure runLayerGraph oracle "
+                        <> show oracleValue
+                        <> " beyond the 1e-3 f32 tolerance"
+                    )
+                    (abs (deviceValue - oracleValue) <= 1.0e-3)
+              (Left err, _) ->
+                assertFailure ("Phase 240 device serving unexpectedly failed: " <> Text.unpack err)
+              (_, Left err) ->
+                assertFailure ("Phase 240 pure oracle unexpectedly failed: " <> Text.unpack err)
+            -- Tamper A (mutate a node): duplicate a reloaded graph node name so
+            -- the refinement gate rejects the envelope fail-closed, before any
+            -- execution difference could hide it.
+            nodeTamper <-
+              Local.runLinuxCpuWeightedCheckpointInference
+                env
+                (phase240DuplicateNodeName manifest)
+                weights
+                probeInput
+            case nodeTamper of
+              Right values ->
+                assertFailure
+                  ( "Phase 240 tampered-node envelope was served instead of rejected: "
+                      <> show values
+                  )
+              Left err ->
+                assertBool
+                  ("Phase 240 node tamper rejected for the wrong reason: " <> Text.unpack err)
+                  ( "refinement failed" `Text.isInfixOf` err
+                      && "duplicate node name" `Text.isInfixOf` err
+                  )
+            -- Tamper B (mutate the weight blob): a short weight vector no longer
+            -- matches the reloaded graph parameter count and is rejected.
+            weightTamper <-
+              Local.runLinuxCpuWeightedCheckpointInference
+                env
+                manifest
+                (phase240TruncateWeights weights)
+                probeInput
+            case weightTamper of
+              Right values ->
+                assertFailure
+                  ( "Phase 240 tampered weight blob was served instead of rejected: "
+                      <> show values
+                  )
+              Left _ -> pure ()
       , testCase "runStreaming does not wait on descendant-held stdout pipes" $ do
           result <-
             Timeout.timeout 1_000_000 $
@@ -6457,6 +6525,164 @@ runVisibleWeightedCheckpointInference env manifest weights values = do
     then MetalLocal.runMetalWeightedCheckpointInference env manifest weights values
     else Local.runLinuxCpuWeightedCheckpointInference env manifest weights values
 
+-- | Phase 240 — a self-contained supervised-graph checkpoint envelope for a
+-- tiny trained dense @[3] -> [4] -> [2]@ regression graph. The runtime payload
+-- binds the authoritative @mnist-shallow-mlp@ ProductRow's linux-cpu PlanId so
+-- it clears substrate plan validation, while the served graph, its identity
+-- transforms, and its weights are the tiny fixture that the reload read path
+-- reconstructs, refines, and runs through oneDNN. Building the envelope in
+-- memory keeps the case local (no live cluster / MinIO).
+phase240SupervisedGraphEnvelope
+  :: Either Text (Checkpoint.CheckpointManifest, [CheckpointStore.LoadedWeightTensor])
+phase240SupervisedGraphEnvelope = do
+  graph <- phase240Graph
+  planId <- phase240LinuxCpuPlanId
+  let metadata = Checkpoint.layerGraphMetadataFromGraph graph
+      parameterCount = Checkpoint.layerGraphMetadataParameterCount metadata
+      paramVec = [fromIntegral i * 0.01 | i <- [0 .. parameterCount - 1]]
+      experimentHash = "phase-240-supervised-graph"
+      finalSha = Text.replicate 64 "c"
+      weightKey = Checkpoint.blobKey experimentHash finalSha
+      tensorBlob = Checkpoint.TensorBlob "supervised.weights" [parameterCount] weightKey
+  payload <-
+    RuntimeArtifact.refineSupervisedRuntimePayload
+      RuntimeArtifact.RawSupervisedRuntimePayload
+        { RuntimeArtifact.rawRuntimePayloadRowId = "mnist-shallow-mlp"
+        , RuntimeArtifact.rawRuntimePayloadOrigin =
+            RuntimeArtifact.RawProductRowProjectionOrigin
+        , RuntimeArtifact.rawRuntimePayloadPlanId = planIdText planId
+        , RuntimeArtifact.rawRuntimePayloadDatasetSha256 = Text.replicate 64 "a"
+        , RuntimeArtifact.rawRuntimePayloadInitialJmw1Sha256 = Text.replicate 64 "b"
+        , RuntimeArtifact.rawRuntimePayloadFinalJmw1Sha256 = finalSha
+        , RuntimeArtifact.rawRuntimePayloadRuntime =
+            RuntimeArtifact.RawSupervisedRuntime
+              { RuntimeArtifact.rawSupervisedRuntimeTask =
+                  RuntimeArtifact.RawRegressionRuntimeTask 2
+              , RuntimeArtifact.rawSupervisedRuntimeInputTransform =
+                  RuntimeArtifact.RawIdentityInput 3
+              , RuntimeArtifact.rawSupervisedRuntimeOutputTransform =
+                  RuntimeArtifact.RawIdentityOutput
+              }
+        , RuntimeArtifact.rawRuntimePayloadLayerGraphMetadata = Just metadata
+        }
+  let manifest =
+        (Checkpoint.emptyManifest "phase-240-supervised" experimentHash [tensorBlob])
+          { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
+          , Checkpoint.manifestArchitecture =
+              (Checkpoint.defaultArchitectureMetadata Checkpoint.SupervisedModelFamily)
+                { Checkpoint.architectureName = LayerGraph.layerGraphName graph
+                , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "input" [3] "F64"]
+                , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "output" [2] "F64"]
+                , Checkpoint.architectureLayerGraph = Just metadata
+                }
+          , Checkpoint.manifestWeightLayout =
+              Checkpoint.NamedTensorWeightLayout [Checkpoint.tensorSpecFromBlob tensorBlob]
+          , Checkpoint.manifestSupervisedRuntime = Just payload
+          }
+      loaded =
+        CheckpointStore.LoadedWeightTensor
+          { CheckpointStore.loadedWeightTensor = tensorBlob
+          , CheckpointStore.loadedWeightValues = paramVec
+          , CheckpointStore.loadedWeightJmw1Bytes =
+              ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 paramVec)
+          }
+  Right (manifest, [loaded])
+
+-- | The tiny trained dense graph the Phase 240 fixture serves. Parameter values
+-- are placeholders; the reload path injects the persisted parameter vector.
+phase240Graph :: Either Text LayerGraph.LayerGraph
+phase240Graph = do
+  nodeA <-
+    LayerGraph.mkAffineLayer
+      "phase240-dense-a"
+      LayerGraph.DenseLayer
+      3
+      4
+      LayerGraph.LinearActivation
+      LayerGraph.InferenceMode
+      (phase240Params 12 4)
+  nodeB <-
+    LayerGraph.mkAffineLayer
+      "phase240-dense-b"
+      LayerGraph.DenseLayer
+      4
+      2
+      LayerGraph.LinearActivation
+      LayerGraph.InferenceMode
+      (phase240Params 8 2)
+  Right
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "phase-240-dense"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [3]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+      , LayerGraph.layerGraphNodes = [nodeA, nodeB]
+      }
+
+phase240Params :: Int -> Int -> LayerGraph.LayerParameters
+phase240Params weightCount biasCount =
+  LayerGraph.LayerParameters
+    { LayerGraph.layerWeights = VU.replicate weightCount 0.0
+    , LayerGraph.layerBias = VU.replicate biasCount 0.0
+    }
+
+-- | The authoritative mnist-shallow-mlp ProductRow's linux-cpu PlanId, which the
+-- fixture payload binds so 'validateSupervisedRuntimePlanForSubstrate' clears.
+phase240LinuxCpuPlanId :: Either Text PlanId
+phase240LinuxCpuPlanId = do
+  row <-
+    maybe
+      (Left "Phase 240 fixture missing the authoritative mnist-shallow-mlp ProductRow")
+      Right
+      (List.find ((== "mnist-shallow-mlp") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+  case ProductMatrix.projectProductRow LinuxCPU row of
+    Failure errors ->
+      Left ("Phase 240 fixture linux-cpu projection failed: " <> Text.pack (show errors))
+    Success (ProductMatrix.SomeProductProjection _witness projection) ->
+      Right (ProductMatrix.productProjectionPlanId projection)
+
+-- | Phase 240 tamper — rename the second reloaded graph node to collide with the
+-- first, so the refinement gate rejects the duplicate identity fail-closed.
+phase240DuplicateNodeName
+  :: Checkpoint.CheckpointManifest -> Checkpoint.CheckpointManifest
+phase240DuplicateNodeName manifest =
+  manifest
+    { Checkpoint.manifestArchitecture =
+        arch
+          { Checkpoint.architectureLayerGraph =
+              fmap collideNodeNames (Checkpoint.architectureLayerGraph arch)
+          }
+    }
+ where
+  arch = Checkpoint.manifestArchitecture manifest
+  collideNodeNames metadata =
+    case Checkpoint.layerGraphMetadataNodes metadata of
+      (firstNode : secondNode : rest) ->
+        metadata
+          { Checkpoint.layerGraphMetadataNodes =
+              firstNode
+                : secondNode
+                  { Checkpoint.layerGraphNodeName =
+                      Checkpoint.layerGraphNodeName firstNode
+                  }
+                : rest
+          }
+      _ -> metadata
+
+-- | Phase 240 tamper — drop a value from the weight blob so its length no longer
+-- matches the reloaded graph's parameter count, and the reload gate rejects it.
+phase240TruncateWeights
+  :: [CheckpointStore.LoadedWeightTensor] -> [CheckpointStore.LoadedWeightTensor]
+phase240TruncateWeights = fmap truncateOne
+ where
+  truncateOne loaded =
+    let values = CheckpointStore.loadedWeightValues loaded
+        shorter = take (max 0 (length values - 1)) values
+        tensor = CheckpointStore.loadedWeightTensor loaded
+     in loaded
+          { CheckpointStore.loadedWeightValues = shorter
+          , CheckpointStore.loadedWeightTensor = tensor {Checkpoint.tensorShape = [length shorter]}
+          }
+
 layerGraphCheckpointFixture :: Either Text LayerGraph.LayerGraph
 layerGraphCheckpointFixture = do
   node <-
@@ -6501,7 +6727,11 @@ supervisedCompletedManifestFor experimentHash problem =
               { Checkpoint.architectureName = SL.problemName problem
               , Checkpoint.architectureModelFamily = Checkpoint.SupervisedModelFamily
               , Checkpoint.architectureInputs =
-                  [Checkpoint.TensorSpec "input" [clfInputs config] "F64"]
+                  [ Checkpoint.TensorSpec
+                      "input"
+                      (LayerGraph.unTensorShape (LayerGraph.layerGraphInputShape graph))
+                      "F64"
+                  ]
               , Checkpoint.architectureOutputs =
                   [ Checkpoint.TensorSpec
                       "output"

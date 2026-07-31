@@ -111,7 +111,6 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
-import JitML.Numerics.MlpDevice (MlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Command qualified as PlanCommand
@@ -1493,35 +1492,6 @@ checkpointTrainingBudgetForTensor
 checkpointTrainingBudgetForTensor = CheckpointWriter.checkpointTrainingBudgetForTensor
 {-# NOINLINE checkpointTrainingBudgetForTensor #-}
 
-runTrainerEpisodes
-  :: Substrate
-  -> MlpDevice
-  -> Maybe Text
-  -> Text
-  -> Text
-  -> Int
-  -> Int
-  -> Int
-  -> Maybe Word64
-  -> IO (Either Text TrainerRun)
-runTrainerEpisodes = TrainerExecution.runTrainerEpisodes
-{-# NOINLINE runTrainerEpisodes #-}
-
-runTrainerEpisodesForProductProjection
-  :: Substrate
-  -> MlpDevice
-  -> Text
-  -> Text
-  -> Int
-  -> Int
-  -> Int
-  -> Word64
-  -> Int
-  -> IO (Either Text TrainerRun)
-runTrainerEpisodesForProductProjection =
-  TrainerExecution.runTrainerEpisodesForProductProjection
-{-# NOINLINE runTrainerEpisodesForProductProjection #-}
-
 validateTrainerEvidenceCounters :: Word64 -> Word64 -> Either Text ()
 validateTrainerEvidenceCounters =
   TrainerExecution.validateTrainerEvidenceCounters
@@ -1666,18 +1636,16 @@ measureTestRlFinalRewardText = do
   substrate <- workerSubstrateBase
   env <- ask
   episodesE <-
-    liftIO
-      ( runTrainerEpisodes
-          substrate
-          (rlDeviceForSubstrate substrate env)
-          Nothing
-          "ppo"
-          "cartpole"
-          42
-          4
-          200
-          Nothing
-      )
+    liftIO $ do
+      planE <- TrainerExecution.compileTraditionalRlPlan "ppo" "cartpole" 42 4 200 Nothing
+      case planE of
+        Left err -> pure (Left err)
+        Right plan ->
+          TrainerExecution.runTrainerEpisodesForPlan
+            substrate
+            (rlDeviceForSubstrate substrate env)
+            Nothing
+            plan
   pure $ case episodesE of
     Left _ -> Nothing
     Right trainerRun
@@ -1907,18 +1875,9 @@ productPublisherRuntime =
               batchSize
               (Just exactLearningRate)
     , ProductPublisher.publisherRunRlTraining =
-        \substrate device trainerKind environment seed evaluationEpisodes episodeSteps targetTransitions vectorEnvironments ->
+        \substrate device plan ->
           fmap rlPublishRunFromTrainerRun
-            <$> runTrainerEpisodesForProductProjection
-              substrate
-              device
-              trainerKind
-              environment
-              seed
-              evaluationEpisodes
-              episodeSteps
-              targetTransitions
-              vectorEnvironments
+            <$> TrainerExecution.runTrainerEpisodesForPlan substrate device Nothing plan
     , ProductPublisher.publisherCompleteProductRow = ProductCompletion.completedTrainingForProductRow
     , ProductPublisher.publisherCompleteSupervisedProductRowWithWeightHashes =
         ProductCompletion.completedTrainingForProductRowWithWeightHashes
@@ -1969,6 +1928,8 @@ supervisedPublishRunFromTrainingMetrics metrics =
     , ProductPublisher.supervisedPublishOptimizerUpdatesExecuted =
         tmOptimizerUpdatesExecuted metrics
     , ProductPublisher.supervisedPublishRuntimeProgram = tmSupervisedRuntimeProgram metrics
+    , ProductPublisher.supervisedPublishLayerGraphMetadata =
+        tmTrainedLayerGraphMetadata metrics
     , ProductPublisher.supervisedPublishInitialJmw1Bytes = tmInitialJmw1Bytes metrics
     , ProductPublisher.supervisedPublishFinalJmw1Bytes = tmFinalJmw1Bytes metrics
     , ProductPublisher.supervisedPublishVerifiedDatasetShaAtRead =

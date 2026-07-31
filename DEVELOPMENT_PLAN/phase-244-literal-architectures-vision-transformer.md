@@ -9,13 +9,17 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 243 (Sprint 243.1).
+✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
+The small ViT is built as a literal layer graph over the Phase `233` typed layer
+engine — patch-embed → LayerNorm → multi-head self-attention → GeGLU → head — so
+`cifar10-vit` is its named Transformer architecture; the untrained
+`architectureLayerGraphForFamily` parity stand-in is retired, so `archLayerGraph`
+IS the trained graph the completion boundary receives.
 
-## Sprint 244.1: Literal Architectures - Vision Transformer [⏸️ Blocked]
+## Sprint 244.1: Literal Architectures - Vision Transformer [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
-**Blocked by**: Sprint `243.1`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
 ### Objective
@@ -37,17 +41,6 @@ widened patch/MLP-Mixer approximation.
   implemented layer graph; no simplified topology satisfies a row naming ViT,
   attention, or LayerNorm.
 
-### Remaining Work
-
-- Implement the small ViT as its literal named architecture on the single
-  typed `LayerGraph` IR (trained via Phase `238`), including real patch/attention structure rather
-  than a shared patch/MLP-Mixer approximation, and retire the untrained
-  `architectureLayerGraphForFamily` parity stand-in so the completion boundary
-  receives the graph that training executed.
-- Bind the registry's claimed attention/LayerNorm features to that executed
-  graph, and make a simplified or mislabeled topology fail the production-path
-  test.
-
 ### Validation
 
 ```bash
@@ -55,6 +48,17 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
+
+### Closure Evidence
+
+Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
+jitml-sl-canonicals 36/36 (incl. the attention/LayerNorm feature-parity and
+simplified-topology negative cases and all-eleven trained==Store-loaded V2
+parity), jitml-unit passed with 0 failures, `jitml check-code` ok,
+`jitml docs check` ok, and
+`jitml internal train-and-publish-product-rows --linux-cpu` exit 0 with 55/55
+admitted — the trained `LayerGraph` (now `archLayerGraph` itself) reaches the
+completion boundary.
 
 ### Historical Closure Evidence (withdrawn by the 2026-07-18 audit)
 

@@ -75,6 +75,14 @@ bag of patches, but it remains distinct from the decorative graph and from the
 literal Phase `24` target. Exact V2 persistence must describe what ran; it
 cannot promote this current approximation into a literal architecture.
 
+Phase `243` lands the literal ResNet family. The `fashion-mnist-resnet`,
+`cifar10-resnet20`, `cifar10-resnet56`, `cifar100-wide-resnet`, and
+`tiny-imagenet-resnet50` rows are now literal mixer-ResNet layer graphs — real
+`Conv2D` behind a two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`,
+residual BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as compact
+proxies under the bounded product budget; the 2-D convolution forward is a tight
+unboxed kernel.
+
 | Current problem key | Owning module | Exact-V2 validation and later architecture boundary |
 |---------------------|---------------|-----------------------------------------------------|
 | `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Sprint `10.6` validated exact current-executable V2 publication, Store reload, and real `linux-cpu` trained-versus-loaded parity. That evidence does not close the later single-typed-graph/literal-architecture obligations. |
@@ -397,10 +405,11 @@ remaining supervised rows execute `10`. The `sl_epochs=5` report-card knob
 belongs to the canonical measurement stanza; it does not override a ProductRow
 schedule and cannot produce ProductRow completion evidence.
 
-The `cifar10-vit` ProductRow uses 4×4/64-token geometry, **2,000** training
-examples, five epochs, batch size 128, **10,000** processed examples, and **80**
-successful optimizer updates. Its RGB statistics are fitted from the training
-partition only. The supervised recipe is likewise refined before execution:
+The `cifar10-vit` ProductRow uses an 8×8-patch/16-token literal ViT geometry
+(patch embedding → LayerNorm → multi-head attention → GeGLU → linear head),
+**2,000** training examples, forty epochs, batch size 128, **80,000** processed
+examples, and **640** successful optimizer updates. Its RGB statistics are fitted
+from the training partition only. The supervised recipe is likewise refined before execution:
 `fashion-mnist-resnet` uses `3e-3`, `cifar10-resnet20` uses `1.1e-3`,
 `cifar10-vit` uses `1.5e-3`, and the other eight rows use `1e-3`. The
 finite-positive rate participates in `PlanId`, is

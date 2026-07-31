@@ -9,16 +9,26 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 250 (Sprint 250.1).
+✅ **Done** (closed 2026-07-31). A pure `compileRlPlan` compiles a `TrainingPlan`
+and a separate `EvaluationPlan` into a `CompiledRlPlan`; the evaluation episode
+count never reaches the schedule arithmetic (it is decoupled from the training
+floor), the `ceil(total transitions / (rollout ticks per env * vector env count))`
+dimensional arithmetic lives in that one pure compiler, and every production
+trainer is fed the validated `CompiledRlPlan` through `runTrainerEpisodesForPlan`
+— the positional primitive arguments and the `max 1` request-repairs are gone.
+`RlRunConfig` now carries the serialized `CompiledRlPlan` + `PlanId` (like the
+supervised/tune/AlphaZero configs), so the worker's only semantic input is one
+validated plan. All 39 canonical RL budget targets are preserved byte-for-byte.
+Phase `252` is the next executable phase; the apple-silicon wall at Phase `272`
+is the hard stop on non-Apple hosts.
 
-## Sprint 251.1: TrainingPlan/EvaluationPlan Compiler and Trainer Migration [⏸️ Blocked]
+## Sprint 251.1: TrainingPlan/EvaluationPlan Compiler and Trainer Migration [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/RL/Framework.hs`,
 `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/RL/VecEnv.hs`,
 `src/JitML/Service/RunConfig.hs`, `src/JitML/RL/Algorithms/Registry.hs`,
 `test/rl-canonicals/Main.hs`
-**Blocked by**: Sprint `250.1`
 **Docs to update**: `../documents/engineering/run_contract.md`,
 `../documents/engineering/training_workloads.md`,
 `legacy-tracking-for-deletion.md`
@@ -52,11 +62,17 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Remaining Work
+### Closure Evidence
 
-- Migrate all production trainers onto the `CompiledRlPlan` and delete the
-  positional trainer calls and `max 1` clamps once the plan compiler is
-  authoritative.
+Validated 2026-07-31 in-container on `linux-cpu` — every gate 0-fail:
+
+- `jitml test jitml-rl-canonicals --linux-cpu` — green; all 39 canonical RL
+  budget targets reproduced byte-for-byte through the compiled-plan trainer path.
+- `jitml test jitml-unit --linux-cpu` — green, including the Phase 221 registry
+  guard (registry ↔ phase-doc `**Status**:` headers agree, forward-only edges).
+- `jitml test jitml-daemon-lifecycle --linux-cpu` — green (the reloaded-plan
+  admission fixture updated to the compiled-plan transport; no regression).
+- `jitml check-code` — clean (container fourmolu 0.19.0.1 + hlint + docs-drift).
 
 ## Documentation Requirements
 

@@ -35,11 +35,15 @@ payload sum and retiring the byte-freeze golden) **closed `Done` on 2026-07-27**
 store's version-gated admission onto one classify-on-payload-variant path and
 deleting the dormant `LayerGraph`-from-checkpoint reconstruction) **closed `Done`
 on 2026-07-27** (`jitml-unit`, `jitml check-code`, `jitml docs check` all green).
-Phase `237` (supervised serving on the IR) is now the sole `Active` frontier; the
-remaining inserted single-session phases are `238` supervised training on the IR
-(retiring the `[LayerState]` program) and `239` checkpoint construction from the
-trained graph — the former SL phases are redefined, and the tail is renumbered
-`+4` to `240`–`287`. Every phase after `236` is Blocked by its immediate predecessor.** Sprint `23.1` (Phase `233`) delivered the correct reverse-mode
+Phases `237` (supervised serving on the IR) and `238` (supervised training on
+the IR, retiring the `[LayerState]` program) **closed `Done` on 2026-07-28**
+(`jitml-unit` 777/777, `jitml-backends` 27/27, `check-code` ok). Phase `239`
+(checkpoint construction from the trained graph — the V2 `SupervisedRuntime`
+nine-operation ABI deleted) **closed `Done` on 2026-07-28** (`jitml-unit`
+743/743, `jitml-backends` 27/27, `check-code` ok, `docs check` ok). Phases
+`235`–`246` have closed `Done` (`240`–`246` on 2026-07-30); Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phase `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) closed `Done` on 2026-07-31; Phase `252` (Typed Measured Counters and Evidence Separation) is the next executable phase, `Planned`; every later phase is Blocked by
+its immediate predecessor, and the apple-silicon wall at Phase `272` remains the
+hard stop on non-Apple hosts. Sprint `23.1` (Phase `233`) delivered the correct reverse-mode
 autodiff node library over the enriched typed `LayerGraph` IR,
 finite-difference-validated for parameter and input gradients across the full
 catalog; its `cifar10-vit` convergence go/no-go returned
@@ -77,7 +81,7 @@ V1 fingerprint (SHA-256
 134 encoded bytes) is **retired** by Phase `235`; checkpoints are regenerated
 deterministically under the single self-describing envelope.
 
-The current open suffix is Phase `237 → 238 → 239 → 240 → 241 → 242 → 243 → 244 → 245 → 246 → 250 → 251 → 252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288` (Phases `235` and `236` closed `Done` 2026-07-27; Phase `237` is the `Active` frontier; every later phase Blocked by its immediate predecessor). Sprint `10.6` closed the exact supervised runtime
+The current open suffix is Phase `252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288` (Phases `235`–`246` closed `Done`; `240`–`246` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phase `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) closed `Done` on 2026-07-31; Phase `252` (Typed Measured Counters and Evidence Separation) is the next executable phase — `Planned`; every later phase Blocked by its immediate predecessor, and the apple-silicon wall at Phase `272` is the hard stop on non-Apple hosts). Sprint `10.6` closed the exact supervised runtime
 artifact and strict V2 reload; Sprint `10.12` closed persisted admission; Sprint
 `19.4` closed the total ProductRow projection and admitted-evidence gate
 (idempotent publisher reuse, `55 eligible / 0 unsupported / 0 errors`,

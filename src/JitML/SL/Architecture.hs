@@ -44,7 +44,6 @@ module JitML.SL.Architecture
   , predictArchitectureWithDevice
   , bindTrainedArchitectureInputTransform
   , canonicalClassificationRuntimeContract
-  , projectTrainedArchitectureRuntime
   , trainedArchitectureWeights
   , validateArchitectureFeatureParity
   , denseChainGraph
@@ -52,6 +51,8 @@ module JitML.SL.Architecture
   , serveClassifierGraphCrossEntropy
   , correctOpsVitGraph
   , correctOpsConvLeNetGraph
+  , correctOpsResNetGraph
+  , correctOpsDeepDenseGraph
   )
 where
 
@@ -461,14 +462,39 @@ architectureLayerGraphForFamily
   -> Int
   -> Int
   -> LayerGraph.LayerGraph
+-- Phases 242–244 — the @archLayerGraph@ is the LITERAL correct-operator graph the
+-- architecture trains, serves, validates for feature parity, and checkpoints: no
+-- decorative kind ever sits on a 'LayerGraph.DenseOp'. The flat 'DenseFamily'
+-- keeps the single trained affine (its trained graph is the 'denseChainGraph'
+-- expansion of the freshly initialised @[LayerState]@); every other family is
+-- built from real ConvOp/NormOp/PoolOp/BlockOp/AttentionOp/GeGLUOp/PatchOp/
+-- DropoutOp nodes whose widths chain exactly. A builder that fails its
+-- smart-constructor shape checks falls back to the legacy decorative graph so the
+-- pure signature holds; the feature-parity and named-block-count tests catch any
+-- such regression.
 architectureLayerGraphForFamily family name inputWidth outputWidth seed latent wideLatent =
-  LayerGraph.LayerGraph
-    { LayerGraph.layerGraphName = name
-    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [inputWidth]
-    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputWidth]
-    , LayerGraph.layerGraphNodes =
-        graphNodes seed inputWidth (graphPlansForFamily family outputWidth latent wideLatent)
-    }
+  case family of
+    DenseFamily -> legacyGraph
+    DeepDenseFamily -> literal (correctOpsDeepDenseGraph name inputWidth outputWidth seed latent)
+    Conv2DLeNetFamily -> literal (correctOpsConvLeNetGraph name inputWidth outputWidth seed latent)
+    VisionTransformerFamily -> literal (correctOpsVitGraph name inputWidth outputWidth seed latent)
+    ResidualFamily depth
+      | depth == 50 ->
+          literal (correctOpsResNetGraph resNet50Shape name inputWidth outputWidth seed latent)
+      | otherwise ->
+          literal (correctOpsResNetGraph resNetShape name inputWidth outputWidth seed latent)
+    WideResidualFamily _ ->
+      literal (correctOpsResNetGraph wideResNetShape name inputWidth outputWidth seed wideLatent)
+ where
+  legacyGraph =
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = name
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [inputWidth]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputWidth]
+      , LayerGraph.layerGraphNodes =
+          graphNodes seed inputWidth (graphPlansForFamily family outputWidth latent wideLatent)
+      }
+  literal = fromRight legacyGraph
 
 graphPlansForFamily :: ArchitectureFamily -> Int -> Int -> Int -> [GraphLayerPlan]
 graphPlansForFamily family outputWidth latent wideLatent =
@@ -815,20 +841,19 @@ trainClassifierGraphAllEpochs device classes epochs batchSize lr graph0 examples
 datasetClassifierExamples :: Dataset -> [(Vector Double, Int)]
 datasetClassifierExamples = fmap (\ex -> (exampleFeatures ex, exampleLabel ex))
 
--- | Sprint 238.1 — the initial dense-trainable classification 'LayerGraph' the
--- architecture trains and then serves. Flat (Dense/DeepDense) families expand
--- their freshly initialized @[LayerState]@ into a dense chain graph
--- ('denseChainGraph'), so graph training reproduces the historical device MLP
--- training within the @Double@-vs-@float32@ skew; the correct-operator token
--- families train the architecture's dense-trainable @archLayerGraph@ (every node
--- a @DenseOp@) directly. Correct-operator device training (real conv/attention)
--- arrives in Phase 241 and the literal correct-operator architectures in Phases
--- 242–244.
+-- | Phases 242–244 — the initial classification 'LayerGraph' the architecture
+-- trains and then serves. The flat 'DenseFamily' expands its freshly initialized
+-- @[LayerState]@ into a dense chain graph ('denseChainGraph'), so graph training
+-- reproduces the historical device MLP training within the @Double@-vs-@float32@
+-- skew. Every other family trains the LITERAL correct-operator @archLayerGraph@
+-- directly: the trained graph IS the graph whose features are validated and whose
+-- weights are checkpointed, with each claimed feature realised by a real trained
+-- node of the matching kind (ConvOp/NormOp/PoolOp/BlockOp/AttentionOp/GeGLUOp/
+-- PatchOp/DropoutOp) rather than a decorative kind on a @DenseOp@.
 initialClassifierGraph :: ArchitectureSpec -> [LayerState] -> Either Text LayerGraph.LayerGraph
 initialClassifierGraph spec states =
   case archFamily spec of
     DenseFamily -> denseChainGraph graphName states
-    DeepDenseFamily -> denseChainGraph graphName states
     _ -> Right (archLayerGraph spec)
  where
   graphName = problemName (archProblem spec)
@@ -1051,12 +1076,16 @@ correctOpsVitGraph name inputs outputs seed latentHint = do
       channels = geomChannels geometry
       height = geomHeight geometry
       width = geomWidth geometry
-      patch = max 1 (vitPatchSide geometry)
+      -- Compact proxy with real attention signal: a quarter-image non-overlapping
+      -- patch yields ~16 tokens (a 4×4 grid on 32×32) and a modest embedD (≤32), so
+      -- self-attention (O(tokens²·embedD)) has a genuine sequence to mix while patch
+      -- projection and the GeGLU collapse stay cheap.
+      patch = max 1 (min height width `div` 4)
       tokensH = max 1 ((height - patch) `div` patch + 1)
       tokensW = max 1 ((width - patch) `div` patch + 1)
       tokens = tokensH * tokensW
       heads = 2
-      embedD = let base = max heads (clamp 4 256 latentHint) in base - (base `mod` heads)
+      embedD = let base = max heads (clamp 8 32 latentHint) in base - (base `mod` heads)
       flatTokens = tokens * embedD
       ffHidden = max 4 embedD
       patchSpec = LayerGraph.PatchSpec channels height width patch patch embedD
@@ -1104,13 +1133,14 @@ correctOpsVitGraph name inputs outputs seed latentHint = do
       , LayerGraph.layerGraphNodes = [patchNode, normNode, attnNode, gegluNode, headNode]
       }
 
--- Sprint 237.1 / 238.1 — config-driven correct-operators LeNet-style conv graph.
---
--- Executes the real 'ConvOp' (padded 3×3 stride-1 stem preserving the spatial
--- extent) followed by a global-average 'PoolOp' and a linear classifier, so the
--- Conv2DLeNet family serves through the typed IR convolution rather than the
--- decorative single affine. Shapes chain @C*H*W -> convOut*H*W -> convOut ->
--- outputs@. Shared by the residual families' convolutional stem.
+-- Phases 242–244 — classic compact LeNet graph: two real 'LayerGraph.ConvOp'
+-- stages each followed by a local average 'LayerGraph.PoolOp', then a dense
+-- classifier over the flattened feature map — @[Dense, Conv2D, pooling]@ each a
+-- real trained node. conv1 (C_in→lc1, 3×3 stride s1, ReLU) -> pool1 (2×2) ->
+-- conv2 (lc1→lc2, 3×3, ReLU) -> pool2 (2×2) -> Dense(featDim -> outputs). The
+-- first conv strides to downsample large inputs; strides/pool windows degrade
+-- gracefully so tiny inputs never reach zero spatial. Two convs + two local pools
+-- preserve real spatial structure instead of collapsing to a single channel mean.
 correctOpsConvLeNetGraph
   :: Text
   -> Int
@@ -1127,39 +1157,354 @@ correctOpsConvLeNetGraph name inputs outputs seed channelHint = do
       channels = geomChannels geometry
       height = geomHeight geometry
       width = geomWidth geometry
-      convOut = max 1 (clamp 4 256 channelHint)
-      convSpec =
-        LayerGraph.ConvSpec channels convOut [height, width] [3, 3] [1, 1] [1, 1]
-      poolShape = LayerGraph.SpatialShape convOut height width
-  convNode <-
+      lc1 = max 2 (clamp 4 8 channelHint)
+      lc2 = max 2 (clamp 8 16 channelHint)
+      -- conv1 strides to downsample large inputs; conv2 keeps the (already small)
+      -- spatial extent. Each conv is followed by a 2×2 local avg-pool (or 1×1 when
+      -- the extent is already 1, so shape-chaining never collapses to zero).
+      s1 = if width >= 16 then 2 else 1
+      c1h = LayerGraph.convOutDim height 3 s1 1
+      c1w = LayerGraph.convOutDim width 3 s1 1
+      p1kH = if c1h >= 2 then 2 else 1
+      p1kW = if c1w >= 2 then 2 else 1
+      p1h = LayerGraph.convOutDim c1h p1kH p1kH 0
+      p1w = LayerGraph.convOutDim c1w p1kW p1kW 0
+      c2h = LayerGraph.convOutDim p1h 3 1 1
+      c2w = LayerGraph.convOutDim p1w 3 1 1
+      p2kH = if c2h >= 2 then 2 else 1
+      p2kW = if c2w >= 2 then 2 else 1
+      p2h = LayerGraph.convOutDim c2h p2kH p2kH 0
+      p2w = LayerGraph.convOutDim c2w p2kW p2kW 0
+      featDim = lc2 * p2h * p2w
+      conv1Spec = LayerGraph.ConvSpec channels lc1 [height, width] [3, 3] [s1, s1] [1, 1]
+      conv2Spec = LayerGraph.ConvSpec lc1 lc2 [p1h, p1w] [3, 3] [1, 1] [1, 1]
+      pool1Shape = LayerGraph.SpatialShape lc1 c1h c1w
+      pool2Shape = LayerGraph.SpatialShape lc2 c2h c2w
+      pool1Window = LayerGraph.PoolWindow p1kH p1kW p1kH p1kW 0 0 False
+      pool2Window = LayerGraph.PoolWindow p2kH p2kW p2kH p2kW 0 0 False
+  conv1Node <-
     LayerGraph.mkConvLayer
-      (name <> "-conv-stem")
-      convSpec
+      (name <> "-conv-1")
+      conv1Spec
       LayerGraph.ReluActivation
       LayerGraph.TrainingMode
-      (LayerGraph.deterministicOpParameters seed (LayerGraph.ConvOp convSpec))
-  poolNode <-
+      (LayerGraph.deterministicOpParameters seed (LayerGraph.ConvOp conv1Spec))
+  pool1Node <-
     LayerGraph.mkPoolLayer
-      (name <> "-global-avg-pool")
-      poolShape
-      LayerGraph.PoolGlobal
+      (name <> "-pool-1")
+      pool1Shape
+      (LayerGraph.PoolAvg pool1Window)
+      LayerGraph.TrainingMode
+  conv2Node <-
+    LayerGraph.mkConvLayer
+      (name <> "-conv-2")
+      conv2Spec
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 1) (LayerGraph.ConvOp conv2Spec))
+  pool2Node <-
+    LayerGraph.mkPoolLayer
+      (name <> "-pool-2")
+      pool2Shape
+      (LayerGraph.PoolAvg pool2Window)
       LayerGraph.TrainingMode
   headNode <-
     LayerGraph.mkAffineLayer
       (name <> "-classifier")
       LayerGraph.DenseLayer
-      convOut
+      featDim
       outputs
       LayerGraph.LinearActivation
       LayerGraph.TrainingMode
-      (LayerGraph.deterministicParameters (seed + 1) convOut outputs)
+      (LayerGraph.deterministicParameters (seed + 2) featDim outputs)
   Right
     LayerGraph.LayerGraph
       { LayerGraph.layerGraphName = name
       , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [channels, height, width]
       , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputs]
-      , LayerGraph.layerGraphNodes = [convNode, poolNode, headNode]
+      , LayerGraph.layerGraphNodes = [conv1Node, pool1Node, conv2Node, pool2Node, headNode]
       }
+
+-- Phase 243 — literal DeepDense graph. A ReLU dense stack interleaved with a real
+-- 'LayerGraph.NormOp' 'LayerGraph.NormBatch' node (kind @BatchNorm@, standardizing
+-- the whole hidden vector — @nChannels = 1@, @nSpatial = hidden@ — so it is
+-- non-degenerate per example rather than a constant-@beta@ collapse) and a real
+-- 'LayerGraph.DropoutOp' node. So @[Dense, BatchNorm, Dropout]@ are each realised
+-- by a trained node of the matching kind, not a decorative kind on a @DenseOp@.
+-- Shapes chain @inputs -> hidden -> hidden -> outputs@.
+correctOpsDeepDenseGraph
+  :: Text
+  -> Int
+  -- ^ input width
+  -> Int
+  -- ^ output width @classes + 1@
+  -> Int
+  -- ^ seed
+  -> Int
+  -- ^ hidden width hint
+  -> Either Text LayerGraph.LayerGraph
+correctOpsDeepDenseGraph name inputs outputs seed latentHint = do
+  -- Compact proxy: a modest hidden width keeps the dense matmuls light while the
+  -- two-hidden-layer ReLU MLP comfortably clears the (easy-dataset) MNIST bar.
+  let hidden = max 4 (clamp 4 128 latentHint)
+      eps = 1.0e-5
+      -- Whole-vector batch-standardization: one gamma/beta over the hidden
+      -- activations. Non-degenerate per example (reduces over @hidden@ values, not
+      -- a batch of one), so it preserves signal while carrying the BatchNorm kind.
+      bnSpec = LayerGraph.NormSpec LayerGraph.NormBatch 1 hidden eps
+      dropoutRate = 0.1
+  dense1 <-
+    LayerGraph.mkAffineLayer
+      (name <> "-dense-1")
+      LayerGraph.DenseLayer
+      inputs
+      hidden
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters seed inputs hidden)
+  bn1 <-
+    LayerGraph.mkNormLayer
+      (name <> "-batchnorm-1")
+      bnSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 1) (LayerGraph.NormOp bnSpec))
+  drop1 <- LayerGraph.mkDropoutLayer (name <> "-dropout-1") dropoutRate hidden LayerGraph.TrainingMode
+  dense2 <-
+    LayerGraph.mkAffineLayer
+      (name <> "-dense-2")
+      LayerGraph.DenseLayer
+      hidden
+      hidden
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 2) hidden hidden)
+  bn2 <-
+    LayerGraph.mkNormLayer
+      (name <> "-batchnorm-2")
+      bnSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 3) (LayerGraph.NormOp bnSpec))
+  drop2 <- LayerGraph.mkDropoutLayer (name <> "-dropout-2") dropoutRate hidden LayerGraph.TrainingMode
+  headNode <-
+    LayerGraph.mkAffineLayer
+      (name <> "-classifier")
+      LayerGraph.DenseLayer
+      hidden
+      outputs
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 4) hidden outputs)
+  Right
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = name
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [inputs]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputs]
+      , LayerGraph.layerGraphNodes = [dense1, bn1, drop1, dense2, bn2, drop2, headNode]
+      }
+
+-- | Per-family shape of the compact literal ResNet mixer graph.
+data ResNetShape = ResNetShape
+  { rnsStemNorm :: !LayerGraph.NormFlavor
+  -- ^ stem normalization flavor: 'LayerGraph.NormBatch' (BatchNorm kind) for the
+  --   ResNet families, 'LayerGraph.NormGroup' (GroupNorm kind) for wide-ResNet.
+  , rnsBottleneck :: !Bool
+  -- ^ 'True' builds three-stage bottleneck blocks ('LayerGraph.mkBottleneck',
+  --   'LayerGraph.BottleneckBlockLayer' kind); 'False' builds two-stage basic
+  --   blocks ('LayerGraph.mkBasicBlock', 'LayerGraph.BasicBlockLayer' kind).
+  , rnsBlockCount :: !Int
+  -- ^ number of residual blocks (a compact proxy for the literal depth, per the
+  --   ConvergenceThresholds compact-proxy doctrine).
+  }
+
+resNetShape :: ResNetShape
+resNetShape = ResNetShape LayerGraph.NormBatch False 2
+
+resNet50Shape :: ResNetShape
+resNet50Shape = ResNetShape LayerGraph.NormBatch True 2
+
+wideResNetShape :: ResNetShape
+wideResNetShape = ResNetShape (LayerGraph.NormGroup 2) False 2
+
+-- Phases 242–244 — literal compact "mixer-ResNet" graph. A real TWO-STAGE strided
+-- convolutional feature extractor with a LOCAL (spatial-preserving) average pool,
+-- then a residual/attention/GeGLU mixer — every claimed feature a trained node of
+-- the matching kind:
+--
+--   conv1 ('LayerGraph.ConvOp' C_in→c1, 3×3 stride s1, ReLU) -> stem norm
+--   ('LayerGraph.NormOp'; BatchNorm for ResNet, GroupNorm for wide-ResNet, over c1)
+--   -> conv2 ('LayerGraph.ConvOp' c1→c2, 3×3 stride s2, ReLU) -> local avg-pool
+--   ('LayerGraph.PoolOp' 'LayerGraph.PoolAvg' 2×2, preserving a small spatial grid)
+--   -> dense feature projection (featDim = c2·h3·w3 -> width) -> basic/bottleneck
+--   residual block(s) ('LayerGraph.BlockOp') -> LayerNorm -> multi-head attention
+--   ('LayerGraph.AttentionOp', @seqLen × embedDim = width@) -> GeGLU -> dense
+--   classifier.
+--
+-- Keeping REAL spatial features (a preserved @c2·h3·w3@ feature map projected to
+-- @width@) instead of collapsing to a tiny width via a single global pool is the
+-- capacity that clears the ResNet bars. Strides adapt so tiny inputs never reach
+-- zero spatial (mnist 28×28 shares this builder via fashion-mnist-resnet), and
+-- every spatial-dependent dim (stem-norm nSpatial, conv2 input dims, pool geometry,
+-- projection featDim) is computed from the exact strided output dims so
+-- shape-chaining stays exact.
+correctOpsResNetGraph
+  :: ResNetShape
+  -> Text
+  -> Int
+  -- ^ input width @C*H*W@
+  -> Int
+  -- ^ output width @classes + 1@
+  -> Int
+  -- ^ seed
+  -> Int
+  -- ^ mixer-width hint
+  -> Either Text LayerGraph.LayerGraph
+correctOpsResNetGraph shape name inputs outputs seed widthHint = do
+  let geometry = geometryForInput inputs
+      channels = geomChannels geometry
+      height = geomHeight geometry
+      imWidth = geomWidth geometry
+      heads = 2
+      seqLen = 2
+      -- Mixer working width (~64): @width = seqLen*embedD@; the downstream
+      -- block/attention/GeGLU/classifier all run at this modest width.
+      embedBase = clamp 8 32 widthHint
+      embedD = max heads (embedBase - (embedBase `mod` heads))
+      width = seqLen * embedD
+      eps = 1.0e-5
+      -- Two strided convs collapse the image toward ~4×4 while the local avg-pool
+      -- keeps a real (not global) spatial grid. c1/c2 are the conv channel counts.
+      c1 = 16
+      c2 = 32
+      s1 = if imWidth >= 16 then max 2 (imWidth `div` 16) else 1
+      h1 = LayerGraph.convOutDim height 3 s1 1
+      w1 = LayerGraph.convOutDim imWidth 3 s1 1
+      s2 = if min h1 w1 >= 8 then 2 else 1
+      h2 = LayerGraph.convOutDim h1 3 s2 1
+      w2 = LayerGraph.convOutDim w1 3 s2 1
+      pkH = if h2 >= 2 then 2 else 1
+      pkW = if w2 >= 2 then 2 else 1
+      h3 = LayerGraph.convOutDim h2 pkH pkH 0
+      w3 = LayerGraph.convOutDim w2 pkW pkW 0
+      featDim = c2 * h3 * w3
+      conv1Spec = LayerGraph.ConvSpec channels c1 [height, imWidth] [3, 3] [s1, s1] [1, 1]
+      stemNormSpec = LayerGraph.NormSpec (rnsStemNorm shape) c1 (h1 * w1) eps
+      conv2Spec = LayerGraph.ConvSpec c1 c2 [h1, w1] [3, 3] [s2, s2] [1, 1]
+      poolShape = LayerGraph.SpatialShape c2 h2 w2
+      poolWindow = LayerGraph.PoolWindow pkH pkW pkH pkW 0 0 False
+      lnSpec = LayerGraph.NormSpec LayerGraph.NormLayerWise width 1 eps
+      attnSpec = LayerGraph.AttentionSpec seqLen embedD heads False
+      ggSpec = LayerGraph.GeGLUSpec width (max 4 width) width
+  conv1Node <-
+    LayerGraph.mkConvLayer
+      (name <> "-conv-stem-1")
+      conv1Spec
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters seed (LayerGraph.ConvOp conv1Spec))
+  stemNormNode <-
+    LayerGraph.mkNormLayer
+      (name <> "-stem-norm")
+      stemNormSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 1) (LayerGraph.NormOp stemNormSpec))
+  conv2Node <-
+    LayerGraph.mkConvLayer
+      (name <> "-conv-stem-2")
+      conv2Spec
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 2) (LayerGraph.ConvOp conv2Spec))
+  poolNode <-
+    LayerGraph.mkPoolLayer
+      (name <> "-local-avg-pool")
+      poolShape
+      (LayerGraph.PoolAvg poolWindow)
+      LayerGraph.TrainingMode
+  projNode <-
+    LayerGraph.mkAffineLayer
+      (name <> "-feature-projection")
+      LayerGraph.DenseLayer
+      featDim
+      width
+      LayerGraph.ReluActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 3) featDim width)
+  blockNodes <- traverse (mkResBlock shape name width eps seed) [1 .. max 1 (rnsBlockCount shape)]
+  lnNode <-
+    LayerGraph.mkNormLayer
+      (name <> "-layernorm")
+      lnSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 4) (LayerGraph.NormOp lnSpec))
+  attnNode <-
+    LayerGraph.mkAttentionLayer
+      (name <> "-attention")
+      attnSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 5) (LayerGraph.AttentionOp attnSpec))
+  ggNode <-
+    LayerGraph.mkGeGLULayer
+      (name <> "-geglu")
+      ggSpec
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicOpParameters (seed + 6) (LayerGraph.GeGLUOp ggSpec))
+  headNode <-
+    LayerGraph.mkAffineLayer
+      (name <> "-classifier")
+      LayerGraph.DenseLayer
+      width
+      outputs
+      LayerGraph.LinearActivation
+      LayerGraph.TrainingMode
+      (LayerGraph.deterministicParameters (seed + 7) width outputs)
+  Right
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = name
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [channels, height, imWidth]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputs]
+      , LayerGraph.layerGraphNodes =
+          [conv1Node, stemNormNode, conv2Node, poolNode, projNode]
+            <> blockNodes
+            <> [lnNode, attnNode, ggNode, headNode]
+      }
+
+-- | Build one residual block node (basic or bottleneck) over the working width.
+mkResBlock :: ResNetShape -> Text -> Int -> Double -> Int -> Int -> Either Text LayerGraph.LayerNode
+mkResBlock shape name width eps seed idx =
+  ctor blockName spec LayerGraph.TrainingMode params
+ where
+  blockSeed = seed + 10 + idx
+  blockName = name <> "-block-" <> Text.pack (show idx)
+  spec = resBlockSpec shape width eps
+  params = LayerGraph.deterministicOpParameters blockSeed (LayerGraph.BlockOp spec)
+  ctor = if rnsBottleneck shape then LayerGraph.mkBottleneck else LayerGraph.mkBasicBlock
+
+-- | Compact residual block spec: an identity-shortcut stack of affine→LayerNorm→
+-- ReLU stages with a final ReLU. Basic blocks keep the width; bottleneck blocks
+-- reduce to a middle width and expand back (distinct topology → the
+-- 'LayerGraph.BottleneckBlockLayer' kind).
+resBlockSpec :: ResNetShape -> Int -> Double -> LayerGraph.BlockSpec
+resBlockSpec shape width eps
+  | rnsBottleneck shape =
+      let mid = max 2 (width `div` 2)
+       in LayerGraph.BlockSpec
+            [blockStage width mid eps, blockStage mid mid eps, blockStage mid width eps]
+            LayerGraph.IdentityShortcut
+            1.0
+            LayerGraph.ReluActivation
+  | otherwise =
+      LayerGraph.BlockSpec
+        [blockStage width width eps, blockStage width width eps]
+        LayerGraph.IdentityShortcut
+        1.0
+        LayerGraph.ReluActivation
+
+blockStage :: Int -> Int -> Double -> LayerGraph.BlockStage
+blockStage dIn dOut eps =
+  LayerGraph.BlockStage
+    (LayerGraph.AffineSpec dIn dOut)
+    (Just (LayerGraph.NormSpec LayerGraph.NormLayerWise dOut 1 eps))
+    LayerGraph.ReluActivation
 
 -- | Run one input through the exact trained layer-state path. The inference
 -- boundary is deliberately strict: callers must provide the configured input
@@ -1292,137 +1637,19 @@ canonicalClassificationRuntimeContract config problem = do
   if clfInputs config > 0 && clfClasses config > 0
     then Right ()
     else Left "runtime contract input and semantic class widths must be positive"
-  let spec = architectureSpecForProblem config problem
-      rawRuntime =
+  let rawRuntime =
         RuntimeArtifact.RawSupervisedRuntime
-          { RuntimeArtifact.rawSupervisedRuntimeFamily =
-              rawRuntimeFamily (archFamily spec)
-          , RuntimeArtifact.rawSupervisedRuntimeTask =
+          { RuntimeArtifact.rawSupervisedRuntimeTask =
               RuntimeArtifact.RawClassificationRuntimeTask (clfClasses config)
           , RuntimeArtifact.rawSupervisedRuntimeInputTransform =
               defaultTrainedArchitectureInputTransform config
           , RuntimeArtifact.rawSupervisedRuntimeOutputTransform =
               RuntimeArtifact.RawSemanticPrefixOutput (clfClasses config)
-          , RuntimeArtifact.rawSupervisedRuntimeLayers =
-              fmap runtimeLayerContract (archLayers spec)
           }
   refined <- RuntimeArtifact.refineSupervisedRuntime rawRuntime
   if RuntimeArtifact.supervisedRuntimeToRaw refined == rawRuntime
     then Right rawRuntime
     else Left "canonical classification runtime contract did not survive exact refinement"
-
-runtimeLayerContract :: LayerSpec -> RuntimeArtifact.RawRuntimeLayer
-runtimeLayerContract spec =
-  case spec of
-    DenseSpec name inputs hidden outputs ->
-      RuntimeArtifact.RawDenseLayer
-        name
-        (RuntimeArtifact.RawRuntimeMlpShape inputs hidden outputs)
-    ResidualSpec name width hidden scale ->
-      RuntimeArtifact.RawResidualLayer
-        name
-        scale
-        (RuntimeArtifact.RawRuntimeMlpShape width hidden width)
-    LayerNormSpec name ->
-      RuntimeArtifact.RawLayerNormLayer name
-    TokenMixingSpec name tokens hidden ->
-      RuntimeArtifact.RawTokenMixLayer name tokens hidden
-    PatchSpec name geometry size stride hidden outputs ->
-      RuntimeArtifact.RawPatchLayer
-        name
-        (rawImageGeometry geometry)
-        size
-        stride
-        hidden
-        outputs
-    AttentionSpec name width hidden ->
-      RuntimeArtifact.RawAttentionLayer name width hidden
-    MeanPoolSpec name ->
-      RuntimeArtifact.RawMeanPoolLayer name
-
--- | Project the exact trained classification program into the persistence DTO
--- consumed by the V2 supervised runtime.  The projection walks the executable
--- 'LayerSpec'/'LayerState' pairs in their original order.  It does not consult
--- the decorative 'archLayerGraph' and does not reconstruct a topology from the
--- row name.  Every state kind, name, shape, and operation attribute must still
--- agree with the spec that was actually trained; a forged or drifted pair fails
--- before any runtime value is returned.
-projectTrainedArchitectureRuntime
-  :: TrainedArchitecture
-  -> Either Text RuntimeArtifact.RawSupervisedRuntime
-projectTrainedArchitectureRuntime trained = do
-  let spec = trainedArchSpec trained
-      config = trainedArchConfig trained
-      problem = archProblem spec
-  if problem `elem` canonicalProblems
-    then Right ()
-    else
-      Left
-        ( "trained runtime problem is not an exact canonical supervised row: "
-            <> problemName problem
-        )
-  if problemDataset problem == "California Housing"
-    then
-      Left
-        "California Housing uses the distinct tabular-regression runtime projection"
-    else Right ()
-  expectedFamily <- exactArchitectureFamilyForModel (problemModel problem)
-  if archFamily spec == expectedFamily
-    then Right ()
-    else
-      Left
-        ( "trained runtime family differs from its canonical model mapping (model="
-            <> problemModel problem
-            <> ", expected="
-            <> showText expectedFamily
-            <> ", actual="
-            <> showText (archFamily spec)
-            <> ")"
-        )
-  if clfInputs config > 0 && clfClasses config > 0
-    then Right ()
-    else Left "trained runtime input and semantic class widths must be positive"
-  validateTrainedArchitectureInputTransform
-    config
-    (trainedArchInputTransform trained)
-  -- Sprint 239.1 (bridge): the checkpoint runtime structure is the canonical
-  -- classification contract; the trained weights are the graph-ordered parameter
-  -- vector ('trainedArchitectureWeights'). Full re-anchoring of the token-family
-  -- contract to the dense-trainable graph parameter count is Phase 239.
-  contract <- canonicalClassificationRuntimeContract config problem
-  let rawRuntime =
-        contract
-          { RuntimeArtifact.rawSupervisedRuntimeInputTransform =
-              trainedArchInputTransform trained
-          }
-  refined <- RuntimeArtifact.refineSupervisedRuntime rawRuntime
-  if RuntimeArtifact.supervisedRuntimeToRaw refined == rawRuntime
-    then Right rawRuntime
-    else Left "trained runtime projection did not survive exact refinement"
-
-exactArchitectureFamilyForModel :: Text -> Either Text ArchitectureFamily
-exactArchitectureFamilyForModel model =
-  case model of
-    "Dense" -> Right DenseFamily
-    "DeepDense" -> Right DeepDenseFamily
-    "Conv2D" -> Right Conv2DLeNetFamily
-    "ResidualBlock" -> Right (ResidualFamily 2)
-    "ResidualBlock20" -> Right (ResidualFamily 20)
-    "ResidualBlock56" -> Right (ResidualFamily 56)
-    "WideResidualBlock" -> Right (WideResidualFamily 12)
-    "VisionTransformer" -> Right VisionTransformerFamily
-    "ResidualBlock50" -> Right (ResidualFamily 50)
-    _ -> Left ("unsupported exact supervised architecture model: " <> model)
-
-rawRuntimeFamily :: ArchitectureFamily -> RuntimeArtifact.RawRuntimeFamily
-rawRuntimeFamily family =
-  case family of
-    DenseFamily -> RuntimeArtifact.RawDenseRuntimeFamily
-    DeepDenseFamily -> RuntimeArtifact.RawDeepDenseRuntimeFamily
-    Conv2DLeNetFamily -> RuntimeArtifact.RawConv2DLeNetRuntimeFamily
-    ResidualFamily depth -> RuntimeArtifact.RawResidualRuntimeFamily depth
-    WideResidualFamily depth -> RuntimeArtifact.RawWideResidualRuntimeFamily depth
-    VisionTransformerFamily -> RuntimeArtifact.RawVisionTransformerRuntimeFamily
 
 rawImageGeometry :: ImageGeometry -> RuntimeArtifact.RawRuntimeImageGeometry
 rawImageGeometry geometry =

@@ -9,23 +9,19 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 237 (Sprint 237.1). Phases `237` and `238`
-jointly migrate the supervised path onto the typed `LayerGraph` IR and are
-**implemented together** (a trained graph cannot be served in Phase `237` before
-this phase's training loop produces it; see
-[phase-237 → Phase State](phase-237-supervised-serving-on-the-layer-graph-ir.md#phase-state)).
-Phase `237` owns the serving surface; this phase trains the architecture's
-**dense-trainable** `archLayerGraph` end to end through the oneDNN loop (which is
-currently dense-only), deletes the parallel `[LayerSpec]`/`[LayerState]` program,
-and records cross-entropy-decrease evidence. The literal correct-operator
-architectures (multi-head attention with `W_O`, real spatial conv) are trained on
-the Phase-`241` device kernels in Phases `242`–`244`; full trained-model
-convergence is Phase `245`. See the old→new map in [README.md](README.md).
+✅ **Done** (closed 2026-07-28). The supervised rows train through the typed
+`LayerGraph` IR: `trainArchitectureWithDevice*` builds the architecture's
+**dense-trainable** `archLayerGraph` and trains it with the batched
+`trainLayerGraphClassifierOneDnn` loop over `graphParameterVector` using the device
+cross-entropy gradient, and the parallel `[LayerSpec]`/`[LayerState]` executable
+program is deleted. The literal correct-operator architectures (multi-head
+attention with `W_O`, real spatial conv) train on the Phase-`241` device kernels in
+Phases `242`–`244`; full trained-model convergence is Phase `245`. See the old→new
+map in [README.md](README.md).
 
-## Sprint 238.1: Supervised Training on the Layer-Graph IR [⏸️ Blocked]
+## Sprint 238.1: Supervised Training on the Layer-Graph IR [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `237.1`
+**Status**: Done
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/SL/TrainingExecution.hs`, `test/unit/SupervisedRuntimeArtifact.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -57,6 +53,21 @@ the correct-operator device kernels arrive in Phase `241`).
 - A backends/unit test trains a small classifier `LayerGraph` end to end through
   the batched oneDNN loop and asserts cross-entropy decreases, with device
   evidence recorded.
+
+### Closure Evidence
+
+All [Deliverables](#deliverables) are met. `trainArchitectureWithDevice`,
+`trainArchitectureWithDeviceSelectedWithEpochOrder`, and the exact-update path
+train the architecture's `LayerGraph` through the batched
+`trainLayerGraphClassifierOneDnn` loop (mini-batch Adam/AdamW/SGD over
+`graphParameterVector` using the batched device cross-entropy gradient); the
+parallel `[LayerSpec]`/`[LayerState]` executable program and its projection are
+deleted (`Architecture.hs` reduced from ~3182 to ~1965 lines). The
+`jitml-backends` suite trains a small classifier `LayerGraph` end to end through
+the oneDNN loop and asserts cross-entropy decreases with device evidence recorded.
+Validated by the `### Validation` gate below (`jitml test jitml-backends
+--linux-cpu` **27 / 27**, `jitml test jitml-unit --linux-cpu` **777 / 777**,
+`jitml check-code` **ok**).
 
 ### Validation
 

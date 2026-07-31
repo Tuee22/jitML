@@ -148,61 +148,61 @@ allProductPhaseStatuses =
       237
       "Supervised Serving on the Layer-Graph IR"
       "DEVELOPMENT_PLAN/phase-237-supervised-serving-on-the-layer-graph-ir.md"
-      [ sprint "237.1" "Supervised Serving on the Layer-Graph IR" Active
+      [ sprint "237.1" "Supervised Serving on the Layer-Graph IR" Done
       ]
   , productPhase
       238
       "Supervised Training on the Layer-Graph IR"
       "DEVELOPMENT_PLAN/phase-238-supervised-training-on-the-layer-graph-ir.md"
-      [ sprint "238.1" "Supervised Training on the Layer-Graph IR" Blocked
+      [ sprint "238.1" "Supervised Training on the Layer-Graph IR" Done
       ]
   , productPhase
       239
       "Checkpoint Construction from the Trained Graph"
       "DEVELOPMENT_PLAN/phase-239-checkpoint-construction-from-the-trained-graph.md"
-      [ sprint "239.1" "Checkpoint Construction from the Trained Graph" Blocked
+      [ sprint "239.1" "Checkpoint Construction from the Trained Graph" Done
       ]
   , productPhase
       240
       "Layer-Graph Checkpoints + Inference"
       "DEVELOPMENT_PLAN/phase-240-layer-graph-checkpoints-inference.md"
-      [ sprint "240.1" "Layer-Graph Checkpoints + Inference" Blocked
+      [ sprint "240.1" "Layer-Graph Checkpoints + Inference" Done
       ]
   , productPhase
       241
       "oneDNN Device Training Kernels for Correct Operators"
       "DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md"
-      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Blocked
+      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Done
       ]
   , productPhase
       242
       "Literal Architectures - Dense, MLP, LeNet"
       "DEVELOPMENT_PLAN/phase-242-literal-architectures-dense-mlp-lenet.md"
-      [ sprint "242.1" "Literal Architectures - Dense, MLP, LeNet" Blocked
+      [ sprint "242.1" "Literal Architectures - Dense, MLP, LeNet" Done
       ]
   , productPhase
       243
       "Literal Architectures - ResNet Family"
       "DEVELOPMENT_PLAN/phase-243-literal-architectures-resnet-family.md"
-      [ sprint "243.1" "Literal Architectures - ResNet Family" Blocked
+      [ sprint "243.1" "Literal Architectures - ResNet Family" Done
       ]
   , productPhase
       244
       "Literal Architectures - Vision Transformer"
       "DEVELOPMENT_PLAN/phase-244-literal-architectures-vision-transformer.md"
-      [ sprint "244.1" "Literal Architectures - Vision Transformer" Blocked
+      [ sprint "244.1" "Literal Architectures - Vision Transformer" Done
       ]
   , productPhase
       245
       "Convergence and Evidence"
       "DEVELOPMENT_PLAN/phase-245-convergence-and-evidence.md"
-      [ sprint "245.1" "Convergence and Evidence" Blocked
+      [ sprint "245.1" "Convergence and Evidence" Done
       ]
   , productPhase
       246
       "CompletedTraining SL Manifests"
       "DEVELOPMENT_PLAN/phase-246-completedtraining-sl-manifests.md"
-      [ sprint "246.1" "CompletedTraining SL Manifests" Blocked
+      [ sprint "246.1" "CompletedTraining SL Manifests" Done
       ]
   , productPhase
       247
@@ -226,19 +226,19 @@ allProductPhaseStatuses =
       250
       "Typed RL Cohort and Action-Domain Compatibility"
       "DEVELOPMENT_PLAN/phase-250-typed-rl-cohort-and-action-domain-compatibility.md"
-      [ sprint "250.1" "Typed RL Cohort and Action-Domain Compatibility" Blocked
+      [ sprint "250.1" "Typed RL Cohort and Action-Domain Compatibility" Done
       ]
   , productPhase
       251
       "TrainingPlan/EvaluationPlan Compiler and Trainer Migration"
       "DEVELOPMENT_PLAN/phase-251-trainingplan-evaluationplan-compiler-and-trainer-migration.md"
-      [ sprint "251.1" "TrainingPlan/EvaluationPlan Compiler and Trainer Migration" Blocked
+      [ sprint "251.1" "TrainingPlan/EvaluationPlan Compiler and Trainer Migration" Done
       ]
   , productPhase
       252
       "Typed Measured Counters and Evidence Separation"
       "DEVELOPMENT_PLAN/phase-252-typed-measured-counters-and-evidence-separation.md"
-      [ sprint "252.1" "Typed Measured Counters and Evidence Separation" Blocked
+      [ sprint "252.1" "Typed Measured Counters and Evidence Separation" Planned
       ]
   , productPhase
       253

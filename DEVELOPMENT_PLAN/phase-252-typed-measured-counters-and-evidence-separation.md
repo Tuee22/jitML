@@ -9,15 +9,17 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 251 (Sprint 251.1).
+📋 **Planned** (next executable phase; promoted 2026-07-31 after Phase `251`
+closed the RL plan compiler and trainer migration). Every later phase remains
+Blocked behind its predecessor, and the apple-silicon wall at Phase `272` is the
+hard stop on non-Apple hosts.
 
-## Sprint 252.1: Typed Measured Counters and Evidence Separation [⏸️ Blocked]
+## Sprint 252.1: Typed Measured Counters and Evidence Separation [📋 Planned]
 
-**Status**: Blocked
+**Status**: Planned
 **Implementation**: `src/JitML/App.hs`, `src/JitML/RL/Framework.hs`,
 `src/JitML/RL/Algorithms/Common.hs`, `src/JitML/Proto/Rl.hs`,
 `test/rl-canonicals/Main.hs`
-**Blocked by**: Sprint `251.1`
 **Docs to update**: `../documents/engineering/training_metrics_and_splits.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/run_contract.md`, `../README.md`

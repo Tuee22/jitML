@@ -2,11 +2,11 @@
 
 module JitML.RL.TrainerExecution
   ( TrainerRun
+  , compileTraditionalRlPlan
   , rlObservedBudgetUnits
   , rlTrainerEnvironmentCompatibilityError
   , runDeviceRollout
-  , runTrainerEpisodes
-  , runTrainerEpisodesForProductProjection
+  , runTrainerEpisodesForPlan
   , trainerRunEpisodes
   , trainerRunEvidence
   , trainerRunObservedUnits
@@ -140,72 +140,69 @@ positiveWordFromInteger label value
       Left (label <> " exceeds the Word64 range")
   | otherwise = Right (fromIntegral value)
 
--- | Dispatch the worker-side RL run to the selected real trainer, projecting
--- trainer summaries into the 'EpisodeEnvelope.SimulatedEpisode' publication
--- envelope consumed by the trajectory artifact and @EpisodeDone@ path. Every
--- trainer is bit-deterministic on the same substrate / same seed per
+-- | Phase 251 — compile a traditional (non-product) RL run into a validated
+-- 'ProductBudget.CompiledRlPlan'. This is the sole reader of the
+-- @JITML_PRODUCT_RL_VEC_ENVS@ vector-width compatibility override; once it is
+-- resolved the schedule is derived by the pure plan compiler. The training
+-- episode-budget floor is the canonical training constant, never the evaluation
+-- episode count, so the evaluation count can never move a training dimension.
+compileTraditionalRlPlan
+  :: Text
+  -> Text
+  -> Int
+  -> Int
+  -> Int
+  -> Maybe Word64
+  -> IO (Either Text ProductBudget.CompiledRlPlan)
+compileTraditionalRlPlan trainerKind envName seed evalEpisodes maxEpisodeSteps requestedFloor = do
+  vectorOverrideE <- resolveCompatibilityVectorOverride
+  pure $ do
+    vectorOverride <- vectorOverrideE
+    let training =
+          ProductBudget.TrainingPlan
+            { ProductBudget.trainingPlanTrainerKind = trainerKind
+            , ProductBudget.trainingPlanEnvironment = envName
+            , ProductBudget.trainingPlanSeed = seed
+            , ProductBudget.trainingPlanMaxEpisodeSteps = maxEpisodeSteps
+            , ProductBudget.trainingPlanEpisodeBudgetFloor =
+                ProductBudget.productRlDefaultTrainingEpisodeFloor
+            , ProductBudget.trainingPlanVectorEnvironments = vectorOverride
+            , ProductBudget.trainingPlanRequestedTransitionFloor = requestedFloor
+            , ProductBudget.trainingPlanExactTransitionTarget = Nothing
+            }
+    ProductBudget.compileRlPlan training (ProductBudget.EvaluationPlan evalEpisodes)
+
+resolveCompatibilityVectorOverride :: IO (Either Text (Maybe Int))
+resolveCompatibilityVectorOverride = do
+  raw <- lookupEnv "JITML_PRODUCT_RL_VEC_ENVS"
+  pure $
+    case raw of
+      Nothing -> Right Nothing
+      Just encoded ->
+        case readMaybe encoded of
+          Nothing -> Left "JITML_PRODUCT_RL_VEC_ENVS must be a positive integer"
+          Just value
+            | value <= 0 -> Left "JITML_PRODUCT_RL_VEC_ENVS must be positive"
+            | otherwise -> Right (Just value)
+
+-- | Dispatch the worker-side RL run to the selected real trainer using a
+-- validated 'ProductBudget.CompiledRlPlan', projecting trainer summaries into
+-- the 'EpisodeEnvelope.SimulatedEpisode' publication envelope consumed by the
+-- trajectory artifact and @EpisodeDone@ path. Every training dimension is read
+-- from the pre-compiled schedule; the evaluation episode count feeds only the
+-- @evaluate*@ scoring calls. Every trainer is bit-deterministic on the same
+-- substrate / same seed per
 -- [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
 -- The @atari-subset@ environment always routes through ALE first; an
 -- unrecognised @trainerKind@ for other environments fails closed before any
 -- artifact or broker event is emitted.
-runTrainerEpisodes
+runTrainerEpisodesForPlan
   :: Substrate
   -> MlpDevice
   -> Maybe Text
-  -> Text
-  -> Text
-  -> Int
-  -> Int
-  -> Int
-  -> Maybe Word64
+  -> ProductBudget.CompiledRlPlan
   -> IO (Either Text TrainerRun)
-runTrainerEpisodes =
-  runTrainerEpisodesWithVectorSelection RlVectorEnvironmentFromCompatibilityEnv
-{-# NOINLINE runTrainerEpisodes #-}
-
-data RlVectorEnvironmentSelection
-  = RlVectorEnvironmentFromCompatibilityEnv
-  | RlVectorEnvironmentExact !Int
-  deriving stock (Eq, Show)
-
-runTrainerEpisodesForProductProjection
-  :: Substrate
-  -> MlpDevice
-  -> Text
-  -> Text
-  -> Int
-  -> Int
-  -> Int
-  -> Word64
-  -> Int
-  -> IO (Either Text TrainerRun)
-runTrainerEpisodesForProductProjection substrate device trainerKind envName seed evalEpisodes maxStepsPerEpisode targetEnvSteps vectorEnvironments =
-  runTrainerEpisodesWithVectorSelection
-    (RlVectorEnvironmentExact vectorEnvironments)
-    substrate
-    device
-    Nothing
-    trainerKind
-    envName
-    seed
-    evalEpisodes
-    maxStepsPerEpisode
-    (Just targetEnvSteps)
-{-# NOINLINE runTrainerEpisodesForProductProjection #-}
-
-runTrainerEpisodesWithVectorSelection
-  :: RlVectorEnvironmentSelection
-  -> Substrate
-  -> MlpDevice
-  -> Maybe Text
-  -> Text
-  -> Text
-  -> Int
-  -> Int
-  -> Int
-  -> Maybe Word64
-  -> IO (Either Text TrainerRun)
-runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode targetEnvStepsMaybe
+runTrainerEpisodesForPlan substrate device atariRomPath plan
   | Text.toLower envName == "atari-subset" = do
       -- Atari routes through the runtime-loaded ALE adapter (Sprint 8.8),
       -- not the MLP device; ROM-policy failures surface as a typed `Left`.
@@ -260,6 +257,13 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
             )
         Right () -> dispatchMlpTrainer
  where
+  training = ProductBudget.compiledRlTraining plan
+  trainerKind = ProductBudget.trainingPlanTrainerKind training
+  envName = ProductBudget.trainingPlanEnvironment training
+  seed = ProductBudget.trainingPlanSeed training
+  evalEpisodes = ProductBudget.compiledRlEvaluationEpisodes plan
+  maxStepsPerEpisode = ProductBudget.compiledRlMaxEpisodeSteps plan
+  scheduleMaybe = ProductBudget.compiledRlSchedule plan
   knownMlpTrainers =
     [ "ppo"
     , "a2c"
@@ -312,24 +316,6 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
    where
     goEvaluated _ [] = []
     goEvaluated i (episode : rest) = asEpisodeWithSteps i episode : goEvaluated (i + 1) rest
-  plannedSchedule vectorOverride =
-    case targetEnvStepsMaybe of
-      Just expected ->
-        ProductBudget.planExactRlTrainingSchedule
-          trainerKind
-          envName
-          evalEpisodes
-          maxStepsPerEpisode
-          vectorOverride
-          expected
-      Nothing ->
-        ProductBudget.planRlTrainingSchedule
-          trainerKind
-          envName
-          evalEpisodes
-          maxStepsPerEpisode
-          vectorOverride
-          Nothing
   -- Sprint 8.11 — every MLP-backed trainer routes through its `*OnDevice`
   -- variant against the resolved substrate device, with iteration budgets
   -- raised from the old `max 1 evalEpisodes` floor so training actually
@@ -337,11 +323,9 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
   onPolicyEpisodes variant = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
-      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) -> do
-        vecEnvCountOverrideE <- selectedVectorEnvironmentOverride
-        case vecEnvCountOverrideE >>= plannedSchedule of
-          Left err -> pure (Left err)
-          Right schedule@ProductBudget.OnPolicyTrainingSchedule {} -> do
+      Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
+        case scheduleMaybe of
+          Just schedule@ProductBudget.OnPolicyTrainingSchedule {} -> do
             let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
                 config =
                   PpoTrainer.defaultPpoTrainConfig
@@ -396,7 +380,7 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
                           finalWeights
                           (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                           episodes
-          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+          _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   -- One on-policy tuning across substrates: the cuBLAS (linux-cuda) and oneDNN
   -- (linux-cpu) GEMM paths are numerically close, so the same (epochs, lr) that
   -- converges cartpole/lunar on linux-cpu must be used on linux-cuda rather than
@@ -425,30 +409,12 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
   continuousCountBetaFor _ _ = 0.0
   continuousActorLrFor ContinuousTrainer.VariantSAC "pendulum" _ = 1.0e-10
   continuousActorLrFor _ _ fallback = fallback
-  productEnvMaybeIntPlain name = do
-    raw <- lookupEnv name
-    pure $
-      case raw of
-        Nothing -> Right Nothing
-        Just encoded ->
-          case readMaybe encoded of
-            Nothing -> Left (Text.pack name <> " must be a positive integer")
-            Just value
-              | value <= 0 -> Left (Text.pack name <> " must be positive")
-              | otherwise -> Right (Just value)
-  selectedVectorEnvironmentOverride =
-    case vectorSelection of
-      RlVectorEnvironmentFromCompatibilityEnv ->
-        productEnvMaybeIntPlain "JITML_PRODUCT_RL_VEC_ENVS"
-      RlVectorEnvironmentExact vectorEnvironments ->
-        pure (Right (Just vectorEnvironments))
   dqnEpisodes useDouble = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
-        case plannedSchedule Nothing of
-          Left err -> pure (Left err)
-          Right schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
+        case scheduleMaybe of
+          Just schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
             let config =
                   DqnTrainer.defaultDqnTrainConfig
                     { DqnTrainer.dqnSeed = seed
@@ -492,14 +458,13 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
                             finalWeights
                             (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                             episodes
-          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+          _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   qrDqnEpisodes = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
-        case plannedSchedule Nothing of
-          Left err -> pure (Left err)
-          Right schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
+        case scheduleMaybe of
+          Just schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
             let qrProductBatchSize =
                   if envName == "key-door-grid"
                     then QrDqnTrainer.qrBatchSize QrDqnTrainer.defaultQrDqnTrainConfig
@@ -546,14 +511,13 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
                           finalWeights
                           (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                           episodes
-          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+          _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   continuousEpisodes variant = do
     case RLSim.lookupContinuousEnvironmentByName envName of
       Nothing -> pure (Left ("unknown continuous RL environment: " <> envName))
       Just contEnv@(RLSim.SomeContinuousEnvironment environment) ->
-        case plannedSchedule Nothing of
-          Left err -> pure (Left err)
-          Right schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
+        case scheduleMaybe of
+          Just schedule@ProductBudget.FixedStepTrainingSchedule {} -> do
             let config =
                   (ContinuousTrainer.defaultContinuousTrainConfig variant)
                     { ContinuousTrainer.ctSeed = seed
@@ -602,14 +566,13 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
                           finalWeights
                           (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                           episodes
-          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+          _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   arsEpisodes = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
       Nothing -> pure (Left ("unknown discrete RL environment: " <> envName))
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
-        case plannedSchedule Nothing of
-          Left err -> pure (Left err)
-          Right schedule@ProductBudget.ArsTrainingSchedule {} -> do
+        case scheduleMaybe of
+          Just schedule@ProductBudget.ArsTrainingSchedule {} -> do
             let config =
                   ArsTrainer.defaultArsTrainConfig
                     { ArsTrainer.arsSeed = seed
@@ -641,11 +604,10 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
                 finalWeights
                 (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                 episodes
-          Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+          _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   herEpisodes = do
-    case plannedSchedule Nothing of
-      Left err -> pure (Left err)
-      Right schedule@ProductBudget.HerTrainingSchedule {} -> do
+    case scheduleMaybe of
+      Just schedule@ProductBudget.HerTrainingSchedule {} -> do
         let config =
               HerTrainer.defaultHerTrainConfig
                 { HerTrainer.herSeed = seed
@@ -692,7 +654,8 @@ runTrainerEpisodesWithVectorSelection vectorSelection substrate device atariRomP
                       finalWeights
                       (ProductBudget.scheduleObservedEnvironmentSteps schedule)
                       episodes
-      Right _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+      _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
+{-# NOINLINE runTrainerEpisodesForPlan #-}
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
 rlTrainerEnvironmentCompatibilityError =

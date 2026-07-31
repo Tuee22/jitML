@@ -37,8 +37,7 @@ import JitML.Checkpoint.Format
   )
 import JitML.Checkpoint.Store
   ( LoadedWeightTensor (..)
-  , loadSupervisedRuntimeFromCheckpoint
-  , runSupervisedGraphCheckpointInference
+  , reconstructSupervisedGraphFromCheckpoint
   )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
@@ -60,12 +59,8 @@ import JitML.Engines.Loader
   , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
-import JitML.Engines.RuntimeOperationsDevice
-  ( linuxCpuRuntimeOperationsSpec
-  , runtimeOperationsBackendExecutor
-  )
 import JitML.Env.Env (Env)
-import JitML.Numerics.Mlp (MlpForward (..))
+import JitML.Numerics.LayerGraph (refineReloadedLayerGraph)
 import JitML.Numerics.MlpOneDnn (mlpForwardOneDnn)
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate (Substrate (..))
@@ -199,25 +194,17 @@ runLinuxCpuWeightedCheckpointInference env manifest weights input = do
   case traverse (validateSupervisedRuntimePlanForSubstrate LinuxCPU) (manifestSupervisedRuntime manifest) of
     Left err -> pure (Left ("V2 linux-cpu PlanId incompatibility: " <> err))
     Right _
-      -- Phase 239: a supervised-graph checkpoint serves the trained dense
-      -- LayerGraph directly (reconstruct + inject + runLayerGraph); the token
-      -- runtime engine path is retired for these manifests.
+      -- Phase 240: a supervised-graph checkpoint reloads its single trained
+      -- LayerGraph envelope, refines it (a tampered or structurally malformed
+      -- graph fails closed), and serves it through the PURE reference executor
+      -- (runLayerGraph, with the input/output transforms applied OUTSIDE the
+      -- graph) — substrate-independent and bit-identical to the linux-cuda and
+      -- apple-silicon serving paths. There is no SupervisedRuntime executor and
+      -- no fallback graph on the supervised path. Weight-only manifests (no
+      -- supervised runtime and no layer graph) take the MLP/kernel fallback.
       | Just _ <- architectureLayerGraph (manifestArchitecture manifest) ->
-          runSupervisedGraphCheckpointInference
-            (linuxCpuRuntimeBackend env)
-            manifest
-            weights
-            input
-      | otherwise ->
-          case loadSupervisedRuntimeFromCheckpoint manifest weights of
-            Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
-            Right (Just runtime) ->
-              fmap VU.toList
-                <$> RuntimeArtifact.executeLoadedRuntime
-                  (linuxCpuRuntimeBackend env)
-                  runtime
-                  (VU.fromList input)
-            Right Nothing -> mlpFallback
+          runSupervisedGraphDeviceInference env manifest weights input
+      | otherwise -> mlpFallback
  where
   mlpFallback = do
     mlpResult <- runMlpCheckpointForwardWith (mlpForwardOneDnn env) manifest weights input
@@ -237,17 +224,36 @@ runLinuxCpuWeightedCheckpointInference env manifest weights input = do
             Right kernelRun ->
               Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
 
--- | Complete Linux-CPU ownership of the persisted V2 graph.  The numerical
--- MLP callback is the real oneDNN substrate path; every structural operation
--- is dispatched through the generated, capability-probed Double ABI.
-linuxCpuRuntimeBackend :: Env -> RuntimeArtifact.RuntimeBackendExecutor
-linuxCpuRuntimeBackend env =
-  runtimeOperationsBackendExecutor
-    linuxCpuRuntimeOperationsSpec
-    env
-    ( \params values ->
-        fmap (fmap forwardOutput) (mlpForwardOneDnn env params values)
-    )
+-- | Phase 240 — linux-cpu supervised-graph serving read path. Reload the single
+-- trained 'LayerGraph' envelope from the checkpoint (reconstruct + inject the
+-- persisted parameters), gate it with 'refineReloadedLayerGraph' so a tampered
+-- or structurally malformed graph fails closed, then serve it through the PURE
+-- reference executor 'RuntimeArtifact.executeSupervisedGraphRuntime' (which
+-- applies the exact input transform, runs 'LayerGraph.runLayerGraph', and applies
+-- the exact output transform, all OUTSIDE the graph). Serving is a
+-- substrate-independent pure function of the checkpoint and input — bit-identical
+-- to 'runSupervisedGraphCheckpointInference', which the linux-cuda and
+-- apple-silicon engines share — so it no longer routes through the dense-only
+-- oneDNN device forward. The graph is the sole topology and parameter owner;
+-- there is no SupervisedRuntime executor and no fallback graph. Training stays on
+-- the oneDNN device; only serving is pure.
+runSupervisedGraphDeviceInference
+  :: Env
+  -> CheckpointManifest
+  -> [LoadedWeightTensor]
+  -> [Double]
+  -> IO (Either Text [Double])
+runSupervisedGraphDeviceInference _env manifest weights input =
+  pure $
+    case reconstructSupervisedGraphFromCheckpoint manifest weights of
+      Left err -> Left err
+      Right (payload, reloadedGraph) ->
+        case refineReloadedLayerGraph reloadedGraph of
+          Left err -> Left ("reloaded supervised graph refinement failed: " <> err)
+          Right graph ->
+            fmap
+              VU.toList
+              (RuntimeArtifact.executeSupervisedGraphRuntime payload graph (VU.fromList input))
 
 -- | Flatten a list of `LoadedWeightTensor` into a row-major Float
 -- buffer suitable for the `jitml_weighted_kernel` ABI. Tensors are

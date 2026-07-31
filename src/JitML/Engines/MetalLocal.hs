@@ -26,7 +26,6 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Vector.Unboxed qualified as VU
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
@@ -37,7 +36,6 @@ import JitML.Checkpoint.Format
   )
 import JitML.Checkpoint.Store
   ( LoadedWeightTensor (..)
-  , loadSupervisedRuntimeFromCheckpoint
   , runSupervisedGraphCheckpointInference
   )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
@@ -63,11 +61,8 @@ import JitML.Engines.Loader
 import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
-import JitML.Engines.RuntimeOperationsMetal qualified as RuntimeOperationsMetal
 import JitML.Env.Env (Env)
-import JitML.Numerics.Mlp (MlpForward (..))
 import JitML.Numerics.MlpMetal (mlpForwardMetal)
-import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate (Substrate (..))
 
 data MetalKernelRun = MetalKernelRun
@@ -164,24 +159,12 @@ runMetalWeightedCheckpointInference env manifest weights input = do
     Left err -> pure (Left ("V2 apple-silicon PlanId incompatibility: " <> err))
     Right _
       -- Phase 239: a supervised-graph checkpoint serves the trained dense
-      -- LayerGraph directly (reconstruct + inject + runLayerGraph); the token
-      -- runtime engine path is retired for these manifests.
+      -- LayerGraph directly (reconstruct + inject + runLayerGraph). Weight-only
+      -- manifests (no supervised runtime and no layer graph) take the MLP/kernel
+      -- fallback; the V2 token-runtime serving path has been retired.
       | Just _ <- architectureLayerGraph (manifestArchitecture manifest) ->
-          runSupervisedGraphCheckpointInference
-            (metalRuntimeBackend env)
-            manifest
-            weights
-            input
-      | otherwise ->
-          case loadSupervisedRuntimeFromCheckpoint manifest weights of
-            Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
-            Right (Just runtime) ->
-              fmap VU.toList
-                <$> RuntimeArtifact.executeLoadedRuntime
-                  (metalRuntimeBackend env)
-                  runtime
-                  (VU.fromList input)
-            Right Nothing -> mlpFallback
+          runSupervisedGraphCheckpointInference manifest weights input
+      | otherwise -> mlpFallback
  where
   mlpFallback = do
     mlpResult <- runMlpCheckpointForwardWith (mlpForwardMetal env) manifest weights input
@@ -196,17 +179,6 @@ runMetalWeightedCheckpointInference env manifest weights input = do
             Left err -> Left err
             Right kernelRun ->
               Right (fmap realToFrac (metalWeightedKernelOutput kernelRun))
-
--- | Complete Apple-Silicon ownership of the persisted V2 graph. MLP work and
--- all structural operations dispatch generated MSL through the fixed bridge;
--- the structural transport explicitly converts Double values to Metal fp32.
-metalRuntimeBackend :: Env -> RuntimeArtifact.RuntimeBackendExecutor
-metalRuntimeBackend env =
-  RuntimeOperationsMetal.metalRuntimeOperationsBackendExecutor
-    env
-    ( \params values ->
-        fmap (fmap forwardOutput) (mlpForwardMetal env params values)
-    )
 
 runMetalWeightedFamilyKernel
   :: Env

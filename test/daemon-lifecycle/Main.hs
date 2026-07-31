@@ -8,7 +8,7 @@ import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, readMVar, takeMV
 import Control.Exception (bracket)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Foldable (traverse_)
-import Data.List (isInfixOf)
+import Data.List (find, isInfixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (isJust)
@@ -33,6 +33,7 @@ import Data.ByteString.Lazy qualified as LazyByteString
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TextEncoding
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 
@@ -46,6 +47,8 @@ import SigtermRegression qualified
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
@@ -54,9 +57,10 @@ import JitML.Coordinator.Topology
   , topicName
   )
 import JitML.Plan.Command qualified as PlanCommand
-import JitML.Plan.Plan (PlanId, Validation (..), refinePlanIdText)
-import JitML.Product.Evidence qualified as ProductEvidence
-import JitML.Product.ExternalBars qualified as ProductExternalBars
+import JitML.Plan.Plan (Validation (..))
+import JitML.Product.Completion qualified as ProductCompletion
+import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
@@ -991,7 +995,7 @@ main =
           let inferenceRequest =
                 Inference.InferenceRequest
                   { Inference.irCallId = "call-engine"
-                  , Inference.irExperimentHash = "inference-exp"
+                  , Inference.irExperimentHash = syntheticInferenceExperimentHash
                   , Inference.irReplyTopic = "inference.result.linux-cpu"
                   , Inference.irInput = [4.0, 5.0]
                   }
@@ -1011,8 +1015,14 @@ main =
               (SyntheticClientState clientLogRef)
           result @?= Right ()
           clientLog <- readIORef clientLogRef
+          -- Completed admission reads the latest pointer (P1), the addressed
+          -- manifest, the pointer again (P2), then binds the weight blob and the
+          -- companion transcript before the reloaded graph is served.
           clientLog
-            @?= [ "minio:read-object"
+            @?= [ "minio:read-bytes"
+                , "minio:read-bytes"
+                , "minio:read-bytes"
+                , "minio:read-bytes"
                 , "minio:read-bytes"
                 , "engine:linux-cpu:inference-exp"
                 , "pulsar:publish:persistent://public/default/inference.result.linux-cpu"
@@ -1074,7 +1084,7 @@ main =
               inferenceRequest =
                 Inference.InferenceRequest
                   { Inference.irCallId = "call-3"
-                  , Inference.irExperimentHash = "inference-exp"
+                  , Inference.irExperimentHash = syntheticInferenceExperimentHash
                   , Inference.irReplyTopic = "inference.result.linux-cpu"
                   , Inference.irInput = [4.0, 5.0]
                   }
@@ -1140,7 +1150,13 @@ main =
                 , "kubectl:apply:job/jitml-tune-tune-exp"
                 , "kubectl:delete:job/jitml-tune-tune-exp"
                 , "kubectl:delete:configmap/runconfig-jitml-tune-tune-exp"
-                , "minio:read-object"
+                , -- Completed admission (pointer P1, addressed manifest, pointer P2,
+                  -- weight blob, companion transcript) runs before the default
+                  -- runner reports that a weighted runner is required.
+                  "minio:read-bytes"
+                , "minio:read-bytes"
+                , "minio:read-bytes"
+                , "minio:read-bytes"
                 , "minio:read-bytes"
                 ]
       , testCase "Linux Stop attempts both deletions when either typed effect fails" $ do
@@ -1195,8 +1211,9 @@ main =
                           }
                     )
               rlCuda =
-                renderRlJob
-                  (Rl.StartRLRun "cuda-rl" "ppo" "cartpole" LinuxCUDA 7 128 4)
+                either (error . show) id $
+                  renderRlJob
+                    (Rl.StartRLRun "cuda-rl" "ppo" "cartpole" LinuxCUDA 7 128 4)
               tuneCuda =
                 either (error . show) id $
                   renderTuneJob
@@ -1926,12 +1943,12 @@ instance HasMinIO (StateT SyntheticClientState IO) where
   minioPutIfAbsent ref _payload = do
     recordClientCall "minio:put-if-absent"
     pure (Right ref)
-  minioReadObject _ref = do
+  minioReadObject ref = do
     recordClientCall "minio:read-object"
-    pure (Right (Checkpoint.manifestContentSha syntheticInferenceManifest))
-  minioReadBytes _ref = do
+    pure (fmap TextEncoding.decodeUtf8Lenient (lookupSyntheticObject ref))
+  minioReadBytes ref = do
     recordClientCall "minio:read-bytes"
-    pure (Right (LazyByteString.toStrict (Checkpoint.encodeManifestCbor syntheticInferenceManifest)))
+    pure (lookupSyntheticObject ref)
   putBlobIfAbsent _ref _payload = do
     recordClientCall "minio:put-blob-if-absent"
     pure (Right (ETag "synthetic-etag"))
@@ -1997,69 +2014,133 @@ instance HasPulsar (StateT SyntheticClientState IO) where
           )
       )
 
-syntheticInferenceManifest :: Checkpoint.CheckpointManifest
-syntheticInferenceManifest =
-  let step = 1
-      manifestMetrics = [("validation_accuracy", 0.99)]
-      evidence =
-        either
-          (error . Text.unpack)
-          id
-          ( ProductEvidence.mkTrainingEvidence
-              "daemon-initial-weights"
-              "daemon-final-weights"
-              step
-              "daemon-dataset-sha"
+-- | The current admission-before-serving inference path
+-- (`runInferenceRequestWithTarget` -> `loadInferenceCheckpointWith` ->
+-- `admitLatestCompletedCheckpoint`) resolves a checkpoint through the exact
+-- Store admission flow: read the latest pointer (whose body is a canonical
+-- SHA-256 manifest address), read the addressed manifest at that address,
+-- re-read the pointer, then bind every physical blob before the reloaded graph
+-- is served. Only a canonical, completion-admissible checkpoint reaches the
+-- injected engine runner, so the synthetic MinIO store must lay the objects out
+-- exactly as the real store does. This fixture is a genuinely admissible
+-- non-supervised (RL) ProductRow completed weight checkpoint — the smallest
+-- checkpoint that survives `requireAdmittedCompletedCheckpoint` and still routes
+-- through the unweighted `loadInferenceCheckpointWith` (its manifest carries no
+-- supervised-runtime payload). It is built purely from the real
+-- Checkpoint/Product helpers.
+data SyntheticInferenceFixture = SyntheticInferenceFixture
+  { sifExperimentHash :: Text
+  , sifObjects :: [(Text, ByteString.ByteString)]
+  -- ^ synthetic object store keyed by the checkpoint object key (the
+  -- `jitml-checkpoints/` bucket prefix stripped, matching `checkpointObjectRef`).
+  }
+
+-- | Experiment hash the daemon inference tests issue their `InferenceRequest`
+-- against; it must be a canonical non-supervised ProductRow so completed
+-- admission accepts the weight-only checkpoint.
+syntheticInferenceExperimentHash :: Text
+syntheticInferenceExperimentHash =
+  sifExperimentHash syntheticInferenceFixture
+
+syntheticInferenceFixture :: SyntheticInferenceFixture
+syntheticInferenceFixture =
+  either (error . Text.unpack) id buildSyntheticInferenceFixture
+
+buildSyntheticInferenceFixture :: Either Text SyntheticInferenceFixture
+buildSyntheticInferenceFixture = do
+  row <-
+    maybe
+      (Left "daemon inference fixture: missing canonical ProductRow DQN/cartpole")
+      Right
+      (find ((== "DQN/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+  planId <-
+    case ProductMatrix.projectProductRow LinuxCPU row of
+      Success (ProductMatrix.SomeProductProjection _ projection) ->
+        Right (ProductMatrix.productProjectionPlanId projection)
+      Failure errors ->
+        Left ("daemon inference fixture: plan projection failed: " <> Text.pack (show errors))
+  let experiment = ProductMatrix.productRowExperimentHash row
+      tensorName = "rl-dqn-weights"
+      initialWeights = [0.0, 0.0]
+      finalWeights = [0.25, 0.5]
+      initialBytes = WeightCodec.encodeJmw1 initialWeights
+      finalBytes = WeightCodec.encodeJmw1 finalWeights
+      finalSha = WeightCodec.jmw1ContentSha finalBytes
+      weightKey = Checkpoint.blobKey experiment finalSha
+      bar = ProductMatrix.convergenceBar row
+      convergenceMetrics =
+        [
+          ( ProductConvergence.convergenceMetricName bar
+          , ProductConvergence.convergenceThreshold bar
           )
-      observations =
-        either
-          (error . Text.unpack)
-          id
-          (convergenceObservationsFixture manifestMetrics)
-      completed =
-        either
-          (error . Text.unpack)
-          id
-          ( TrainingBudget.completedTraining
-              daemonFixturePlanId
-              ( either
-                  (error . Text.unpack)
-                  id
-                  ( TrainingBudget.mkTrainingBudget
-                      TrainingBudget.SupervisedEpochBudget
-                      step
-                      Nothing
-                  )
-              )
-              step
-              evidence
-              observations
-              TrainingBudget.TensorBoardRunMetadata
-                { TrainingBudget.tbrRunId = "inference-exp"
-                , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/inference-exp"
-                , TrainingBudget.tbrScalarTags = fmap fst manifestMetrics
-                }
-          )
-      manifest =
-        ( Checkpoint.emptyManifest
-            "inference-exp"
-            "inference-exp"
-            [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
-        )
-          { Checkpoint.manifestStep = step
-          , Checkpoint.manifestMetrics = manifestMetrics
+        ]
+      budget = ProductMatrix.trainingBudget row
+      step = TrainingBudget.trainingBudgetTargetUnits budget
+  completed <-
+    ProductCompletion.completedTrainingForProductRowWithWeightHashes
+      planId
+      budget
+      row
+      (Text.replicate 64 "d")
+      experiment
+      step
+      1
+      convergenceMetrics
+      (WeightCodec.jmw1ContentSha initialBytes)
+      finalSha
+  let companionPayload = LazyByteString.fromStrict (ByteString.pack "exact product transcript")
+      companionSha = WeightCodec.jmw1ContentSha companionPayload
+      companionKey =
+        "jitml-checkpoints/"
+          <> experiment
+          <> "/artifacts/rl-trajectory/"
+          <> companionSha
+          <> ".txt"
+      transcriptPointer =
+        Checkpoint.ArtifactPointer
+          { Checkpoint.artifactPointerKind = "rl-trajectory"
+          , Checkpoint.artifactPointerObjectKey = companionKey
+          , Checkpoint.artifactPointerSha = Just companionSha
           }
-   in Checkpoint.attachCompletedTraining completed manifest
+      tensor = Checkpoint.TensorBlob tensorName [length finalWeights] weightKey
+      manifest =
+        Checkpoint.attachCompletedTraining completed $
+          (Checkpoint.emptyManifest "inference-exp" experiment [tensor])
+            { Checkpoint.manifestModelFamily = Checkpoint.ReinforcementLearningPolicyFamily
+            , Checkpoint.manifestArchitecture =
+                Checkpoint.defaultArchitectureMetadata Checkpoint.ReinforcementLearningPolicyFamily
+            , Checkpoint.manifestStep = step
+            , Checkpoint.manifestMetrics = convergenceMetrics
+            , Checkpoint.manifestTranscriptPointers = [transcriptPointer]
+            }
+      manifestBytes = LazyByteString.toStrict (Checkpoint.encodeManifestCbor manifest)
+      manifestSha = Checkpoint.manifestContentSha manifest
+      objects =
+        [
+          ( CheckpointStore.checkpointObjectKey (Checkpoint.latestPointerKey experiment)
+          , TextEncoding.encodeUtf8 manifestSha
+          )
+        , (CheckpointStore.checkpointObjectKey (Checkpoint.manifestKey experiment manifestSha), manifestBytes)
+        , (CheckpointStore.checkpointObjectKey weightKey, LazyByteString.toStrict finalBytes)
+        , (CheckpointStore.checkpointObjectKey companionKey, LazyByteString.toStrict companionPayload)
+        ]
+  pure
+    SyntheticInferenceFixture
+      { sifExperimentHash = experiment
+      , sifObjects = objects
+      }
 
-daemonFixturePlanId :: PlanId
-daemonFixturePlanId =
-  either (error . Text.unpack) id (refinePlanIdText (Text.replicate 64 "f"))
-
-convergenceObservationsFixture
-  :: [(Text, Double)]
-  -> Either Text [TrainingBudget.ConvergenceObservation]
-convergenceObservationsFixture =
-  ProductExternalBars.convergenceObservationsForMetrics
+-- | Answer a synthetic MinIO read by the object key the real admission flow
+-- requests (bucket prefix already stripped by `checkpointObjectRef`).
+lookupSyntheticObject :: ObjectRef -> Either ServiceError ByteString.ByteString
+lookupSyntheticObject ref =
+  case lookup (unObjectKey (objectKey ref)) (sifObjects syntheticInferenceFixture) of
+    Just bytes -> Right bytes
+    Nothing ->
+      Left
+        ( SETransient
+            ("synthetic MinIO store has no object for key " <> unObjectKey (objectKey ref))
+        )
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")

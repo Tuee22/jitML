@@ -1974,12 +1974,9 @@ runHostAppleRl env start
         (Right evaluationEpisodes, Right maximumEpisodeSteps) -> do
           let trainerKind = Workload.rlTrainerForAlgorithm (ProtoRl.srlAlgorithm start)
               device = rlDeviceForSubstrate AppleSilicon env
-          episodesE <-
+          planE <-
             liftIO
-              ( TrainerExecution.runTrainerEpisodes
-                  AppleSilicon
-                  device
-                  Nothing
+              ( TrainerExecution.compileTraditionalRlPlan
                   trainerKind
                   (ProtoRl.srlEnvironment start)
                   (fromIntegral (ProtoRl.srlSeed start))
@@ -1987,11 +1984,16 @@ runHostAppleRl env start
                   maximumEpisodeSteps
                   Nothing
               )
-          case episodesE of
-            Left err -> pure (Left (SETransient ("host Apple RL failed: " <> err)))
-            Right trainerRun -> do
-              results <- traverse (publishHostRlEpisode start) (trainerRunEpisodes trainerRun)
-              pure $ maybe (Right ()) Left (firstLeft results)
+          case planE of
+            Left err -> pure (Left (SETransient ("host Apple RL plan invalid: " <> err)))
+            Right plan -> do
+              episodesE <-
+                liftIO (TrainerExecution.runTrainerEpisodesForPlan AppleSilicon device Nothing plan)
+              case episodesE of
+                Left err -> pure (Left (SETransient ("host Apple RL failed: " <> err)))
+                Right trainerRun -> do
+                  results <- traverse (publishHostRlEpisode start) (trainerRunEpisodes trainerRun)
+                  pure $ maybe (Right ()) Left (firstLeft results)
 
 runHostAppleAlphaZero
   :: Env

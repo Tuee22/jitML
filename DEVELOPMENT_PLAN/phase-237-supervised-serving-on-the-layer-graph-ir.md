@@ -9,51 +9,24 @@
 
 ## Phase State
 
-🔄 **Active** (frontier; promoted 2026-07-27 after Phase `236` closed the
-admission single-path).
+✅ **Done** (closed 2026-07-28). `runLayerGraph` over the typed `LayerGraph` IR is
+the single supervised **serving** executor: accuracy, cross-entropy, prediction,
+and graph-ordered weight identity all run through `runLayerGraph` /
+`graphParameterVector` over `TrainedArchitecture.trainedArchGraph`, and the
+engine/Store read path (`run{LinuxCpu,Cuda,Metal}WeightedCheckpointInference`)
+reconstructs the served `LayerGraph` from the checkpoint's architecture metadata
+and executes it via `runSupervisedGraphCheckpointInference`, so the frozen V2
+`SupervisedRuntime` `executeLayer` read operators are off the read path (the
+retired serving arm fails closed). Every family serves the **dense-trainable**
+`archLayerGraph`; the literal correct-operator architectures (multi-head attention
+with `W_O`, real spatial conv) train on the Phase-`241` kernels in Phases
+`242`–`244`, and end-to-end convergence is Phase `245`. Final operator-ABI removal
+completes in Phase `239`; see the old→new map in [README.md](README.md).
 
-**Code reality this phase corrects (2026-07-27 audit).** `runLayerGraph`'s
-`forwardOp` already executes the FD-validated Phase-233 operators — multi-head
-`AttentionOp` (four `d×d` projections including `W_O`), `GeGLUOp`, `ConvOp`,
-`PatchOp`, `ResidualOp`/`BlockOp`, `NormOp`. But `architectureLayerGraphForFamily`
-does **not** emit them: it builds every node with `mkAffineLayer` (hard-coded
-`DenseOp`) / `mkIdentityLayer`, so `archLayerGraph` is a decorative
-single-affine/identity placeholder that is never consumed for serving. A trained
-`[LayerState]` (2-layer `tanh` MLPs, single-`MlpParams` QKV) is structurally
-incompatible with a correct-operators graph — the parameter counts diverge per
-family, so `replaceGraphParameterVector` hard-errors and there is **no valid
-weight transfer**. The correct-operators graph only becomes a *trained* object
-once training runs through it.
+## Sprint 237.1: Supervised Serving on the Layer-Graph IR [✅ Done]
 
-**Coupling with Phase `238` (honest boundary).** Because a trained graph cannot
-be served here before Phase `238`'s graph-training loop produces it, Phases `237`
-and `238` jointly migrate the supervised path onto the typed `LayerGraph` IR and
-are **implemented together**. This phase owns and validates the
-**serving/measurement** surface (the executor is `runLayerGraph`, the engine/Store
-read path reproduces it, graph-ordered weight identity holds, and the frozen V2
-`SupervisedRuntime` read operators are retired). Phase `238` owns training on the
-graph via the oneDNN loop, deletion of the parallel `[LayerSpec]`/`[LayerState]`
-program, and cross-entropy-decrease evidence.
-
-**Correct-operator scope (2026-07-28 audit).** The IR training loop
-(`trainLayerGraphClassifierOneDnn` → `runDeviceLayer`) is currently **dense-only**
-— it can train an all-`DenseOp` graph but not the correct-operator nodes
-(`ConvOp`/`NormOp`/`GeGLUOp`/`AttentionOp`/`PatchOp`/`ResidualOp`/`BlockOp`), whose
-device training kernels do not yet exist. `runLayerGraph` **serves** all of them,
-but they cannot be **trained** until Phase `241` (oneDNN Device Training Kernels
-for Correct Operators). Therefore Phases `237`/`238` migrate serving and training
-onto the **dense-trainable** `LayerGraph`; the literal correct-operator
-architectures (multi-head attention with `W_O`, real spatial conv) are trained on
-the Phase-`241` kernels in Phases `242`–`244`, and end-to-end convergence is Phase
-`245`. This phase also inherits, by ownership transfer from Phase `236` (rule
-M(a)), removal of the live V2 `SupervisedRuntime` read/serving path
-(`loadSupervisedRuntimeFromCheckpoint`). The unmet obligations are in
-[Remaining Work](#remaining-work); see the old→new map in [README.md](README.md).
-
-## Sprint 237.1: Supervised Serving on the Layer-Graph IR [🔄 Active]
-
-**Status**: Active
-**Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Numerics/LayerGraph.hs`, `test/unit/SupervisedRuntimeArtifact.hs`
+**Status**: Done
+**Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Numerics/LayerGraph.hs`, `src/JitML/Numerics/LayerGraphMetadata.hs`, `src/JitML/Engines/Local.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/MetalLocal.hs`, `test/unit/SupervisedRuntimeArtifact.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/determinism_contract.md`
 
 ### Objective
@@ -103,32 +76,27 @@ trained-model convergence is Phase `245`.
   `graphParameterVector (trained graph) == trainedArchitectureWeights`, for a
   representative row.
 
-### Remaining Work
+### Closure Evidence
 
-- **In-process serving migration DONE and validated** (`jitml-unit` **775/775**,
-  `jitml-backends` **27/27**, `check-code` **ok** on `linux-cpu`). Every family —
-  flat and token — now carries the trained `LayerGraph` in `TrainedArchitecture`
-  (`trainedArchGraph`) and computes accuracy, cross-entropy, prediction, and
-  graph-ordered weights through `runLayerGraph` / `graphParameterVector`; the
-  parallel `[LayerState]` serving fork (`flatFamilyServingGraph` / `forwardOnly`)
-  is retired, and the trained-graph parameters are produced by Phase `238`'s
-  device loop (implemented together). `trainedArchitectureWeights` is
-  `graphParameterVector`; `projectTrainedArchitectureRuntime` is bridged to the
-  canonical contract.
-- **Unmet (coupled with Phase `239`):** the engine/Store read path
-  (`runLinuxCpuWeightedCheckpointInference` / `runCudaWeightedCheckpointInference`
-  / `runMetalWeightedCheckpointInference`) still reloads the V2
-  `SupervisedRuntime` (`loadSupervisedRuntimeFromCheckpoint` →
-  `executeLoadedRuntime`) instead of reconstructing the served `LayerGraph` and
-  running `runLayerGraph`, and the token-family checkpoint parameter count
-  (`canonicalClassificationRuntimeContract` → `supervisedRuntimeParameterCount`,
-  e.g. `cifar10-vit` `123595`) does not yet match the dense-trainable graph's
-  `graphParameterVector` count. Because the served graph is a *reconstruction*
-  from the checkpoint, the engine move is coupled to Phase `239`'s
-  checkpoint-construction-from-the-trained-graph re-anchor (`loadSupervisedRuntimeFromCheckpoint`
-  stays compiled for admission until then). Close with the `### Validation` gate
-  below plus a serving test asserting the engine/Store read path reproduces the
-  `runLayerGraph` oracle.
+All [Deliverables](#deliverables) are met. `TrainedArchitecture` carries
+`trainedArchGraph :: !LayerGraph`; `accuracyArchitectureWithDevice` /
+`crossEntropyArchitectureWithDevice` / `predictArchitectureWithDevice` /
+`trainedArchitectureWeights` compute through `runLayerGraph` /
+`graphParameterVector`, and the parallel `[LayerSpec]`/`[LayerState]` serving fork
+is deleted. The write path populates the checkpoint architecture metadata with the
+trained graph (`architectureLayerGraph = Just (layerGraphMetadataFromGraph
+trainedArchGraph)`), so the engine/Store read path
+(`run{LinuxCpu,Cuda,Metal}WeightedCheckpointInference`) reconstructs the served
+`LayerGraph` via `reconstructSupervisedGraphFromCheckpoint` and executes it with
+`runSupervisedGraphCheckpointInference`; the former V2 `executeLoadedRuntime`
+serving arm is retired to a fail-closed error (`loadSupervisedRuntimeFromCheckpoint`
+stays compiled for admission until the Phase `239` ABI removal). A write-path
+liveness test in `test/unit/SupervisedRuntimeArtifact.hs` drives the real
+production write plumbing, asserts the produced manifest carries the trained graph,
+reloads it, and asserts the engine/Store read path reproduces the pure
+`runLayerGraph` oracle. Validated by the `### Validation` gate below (`jitml test
+jitml-unit --linux-cpu` **777 / 777**, `jitml test jitml-backends --linux-cpu`
+**27 / 27**, `jitml check-code` **ok**).
 
 ### Validation
 

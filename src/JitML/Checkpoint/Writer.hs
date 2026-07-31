@@ -365,6 +365,8 @@ supervisedRuntimeArtifactForTraining origin plan problem metrics experimentHash 
               , RuntimeArtifact.rawRuntimePayloadInitialJmw1Sha256 = initialSha
               , RuntimeArtifact.rawRuntimePayloadFinalJmw1Sha256 = finalSha
               , RuntimeArtifact.rawRuntimePayloadRuntime = tmSupervisedRuntimeProgram metrics
+              , RuntimeArtifact.rawRuntimePayloadLayerGraphMetadata =
+                  tmTrainedLayerGraphMetadata metrics
               }
         , RuntimeArtifact.rawTrainingArtifactInitialJmw1Bytes =
             LazyByteString.toStrict initialBytes
@@ -491,13 +493,11 @@ buildCompletedSupervisedCheckpointSnapshot
        Text
        (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
 buildCompletedSupervisedCheckpointSnapshot completed experimentHash metrics artifact = do
-  _ <- RuntimeArtifact.loadTrainingRuntimeArtifact artifact
   let payload = RuntimeArtifact.trainingArtifactPayload artifact
   runtimeMetadata <- Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload
-  let runtime = RuntimeArtifact.payloadRuntime payload
-      finalBytes = RuntimeArtifact.trainingArtifactFinalJmw1Bytes artifact
+  parameterCount <- RuntimeArtifact.supervisedPayloadParameterCount payload
+  let finalBytes = RuntimeArtifact.trainingArtifactFinalJmw1Bytes artifact
       finalSha = RuntimeArtifact.payloadFinalJmw1Sha256 payload
-      parameterCount = RuntimeArtifact.supervisedRuntimeParameterCount runtime
       blobObjectKey = Checkpoint.blobKey experimentHash finalSha
       weightTensor =
         Checkpoint.TensorBlob
@@ -505,10 +505,15 @@ buildCompletedSupervisedCheckpointSnapshot completed experimentHash metrics arti
           , Checkpoint.tensorShape = [parameterCount]
           , Checkpoint.tensorBlobKey = blobObjectKey
           }
+      -- Phase 239: the weight blob is the graph-ordered parameter vector, so the
+      -- flat weight layout is one graph-ordered spec of that length.
       virtualLayout =
-        fmap
-          runtimeVirtualSliceTensorSpec
-          (RuntimeArtifact.supervisedRuntimeVirtualSlices runtime)
+        [ Checkpoint.TensorSpec
+            { Checkpoint.tensorSpecName = "supervised.weights"
+            , Checkpoint.tensorSpecShape = [parameterCount]
+            , Checkpoint.tensorSpecDtype = "F64"
+            }
+        ]
       baseManifest =
         ( Checkpoint.emptyManifest
             ( "checkpoint-"
@@ -595,16 +600,6 @@ requireEqual :: (Eq a) => Text -> a -> a -> Either Text ()
 requireEqual label expected actual
   | expected == actual = Right ()
   | otherwise = Left (label <> " does not match the completed-training witness")
-
-runtimeVirtualSliceTensorSpec
-  :: RuntimeArtifact.RuntimeVirtualSlice -> Checkpoint.TensorSpec
-runtimeVirtualSliceTensorSpec slice =
-  Checkpoint.TensorSpec
-    { Checkpoint.tensorSpecName =
-        RuntimeArtifact.runtimeVirtualSliceQualifiedName slice
-    , Checkpoint.tensorSpecShape = RuntimeArtifact.runtimeVirtualSliceShape slice
-    , Checkpoint.tensorSpecDtype = "F64"
-    }
 
 -- | Persist a generic V1 candidate checkpoint.  This boundary cannot carry a
 -- completion witness, so the resulting manifest is never relabelled as a

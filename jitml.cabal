@@ -49,9 +49,6 @@ library
         JitML.Codegen.MlpMetal
         JitML.Codegen.MlpOneDnn
         JitML.Codegen.OneDnn
-        JitML.Codegen.RuntimeOperationsCpu
-        JitML.Codegen.RuntimeOperationsCuda
-        JitML.Codegen.RuntimeOperationsMetal
         JitML.Codegen.RuntimeSource
         JitML.Codegen.SourceFile
         JitML.Checkpoint.Format
@@ -93,10 +90,6 @@ library
         JitML.Engines.MetalRuntime
         JitML.Engines.OneDnnRuntime
         JitML.Engines.Rng
-        JitML.Engines.RuntimeOperations
-        JitML.Engines.RuntimeOperationsCuda
-        JitML.Engines.RuntimeOperationsDevice
-        JitML.Engines.RuntimeOperationsMetal
         JitML.Engines.Tuning
         JitML.Engines.TuningBenchmark
         JitML.Engines.TuningCache
@@ -119,6 +112,7 @@ library
         JitML.Numerics.Catalog
         JitML.Numerics.FamilyReference
         JitML.Numerics.LayerGraph
+        JitML.Numerics.LayerGraphMetadata
         JitML.Numerics.LayerGraphOneDnn
         JitML.Numerics.Mlp
         JitML.Numerics.MlpCuda
@@ -402,9 +396,7 @@ test-suite jitml-unit
         ProtocolCodec
         ReconcileStamp
         RegressionStandardization
-        RuntimeOperationsAccelerators
         SupervisedCheckpointV2
-        SupervisedRuntimeArtifact
         SupervisedTrainingSeed
 
     default-language: GHC2024

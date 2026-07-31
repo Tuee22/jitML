@@ -49,6 +49,8 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Checkpoint.Writer qualified as CheckpointWriter
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.LayerGraphMetadata qualified as LayerGraphMetadata
+import JitML.Numerics.Mlp (MlpShape (..), mlpInit, mlpLayerGraph)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Completion qualified as ProductCompletion
@@ -164,32 +166,21 @@ supervisedCheckpointV2Tests =
                 (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
           )
           [productFixture, genericFixture]
-    , testCase "V2 uses one physical tensor and graph-ordered virtual slices" $ do
+    , testCase "V2 uses one physical tensor and a graph-ordered flat layout" $ do
         fixture <- expectRight makeFixture
         let manifest = fixtureManifest fixture
-            runtime = Runtime.payloadRuntime (fixturePayload fixture)
-            slices = Runtime.supervisedRuntimeVirtualSlices runtime
         Checkpoint.manifestTensors manifest
           @?= [ Checkpoint.TensorBlob
                   "supervised.weights"
-                  [Runtime.supervisedRuntimeParameterCount runtime]
+                  [fixtureParameterCount fixture]
                   ( Checkpoint.blobKey
                       (Checkpoint.manifestExperiment manifest)
                       (Runtime.payloadFinalJmw1Sha256 (fixturePayload fixture))
                   )
               ]
-        fmap Runtime.runtimeVirtualSliceQualifiedName slices
-          @?= [ "dense-classifier.W1"
-              , "dense-classifier.b1"
-              , "dense-classifier.W2"
-              , "dense-classifier.b2"
-              ]
-        fmap Runtime.runtimeVirtualSliceOffset slices
-          @?= [0, 100352, 100480, 101888]
-        fmap Runtime.runtimeVirtualSliceLength slices
-          @?= [100352, 128, 1408, 11]
         Checkpoint.manifestWeightLayout manifest
-          @?= Checkpoint.FlatWeightLayout (virtualSliceSpecs slices)
+          @?= Checkpoint.FlatWeightLayout
+            (supervisedWeightsLayout (fixtureParameterCount fixture))
         Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
     , testCase "canonical runtime metadata carries exact transforms and semantic decoder" $ do
         fixture <- expectRight makeFixture
@@ -215,99 +206,6 @@ supervisedCheckpointV2Tests =
                       Just "supervised-runtime-v2/semantic-prefix/10"
                   }
               ]
-    , testCase "cifar10-vit admission requires the exact repeated fitted RGB transform" $ do
-        payload <- expectRight makeCifarVitPayload
-        metadata <-
-          expectRight
-            (Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload)
-        case Checkpoint.supervisedRuntimePreprocessingMetadata metadata of
-          [preprocessing] ->
-            case Checkpoint.preprocessingSteps preprocessing of
-              "standardize" : _ -> pure ()
-              steps -> assertFailure ("unexpected CIFAR ViT preprocessing steps: " <> show steps)
-          preprocessing ->
-            assertFailure
-              ("unexpected CIFAR ViT preprocessing metadata: " <> show preprocessing)
-
-        let rawPayload = Runtime.supervisedRuntimePayloadToRaw payload
-            payloadRuntime = Runtime.rawRuntimePayloadRuntime rawPayload
-            unitImagePayload =
-              rawPayload
-                { Runtime.rawRuntimePayloadRuntime =
-                    payloadRuntime
-                      { Runtime.rawSupervisedRuntimeInputTransform =
-                          Runtime.RawUnitImageInput
-                            (Runtime.RawRuntimeImageGeometry 32 32 3)
-                      }
-                }
-            substitutedMeans =
-              case Runtime.rawSupervisedRuntimeInputTransform payloadRuntime of
-                Runtime.RawStandardizeInput (_ : rest) scales ->
-                  Runtime.RawStandardizeInput (0.6 : rest) scales
-                transform -> transform
-            perPixelPayload =
-              rawPayload
-                { Runtime.rawRuntimePayloadRuntime =
-                    payloadRuntime
-                      { Runtime.rawSupervisedRuntimeInputTransform = substitutedMeans
-                      }
-                }
-            outOfRangeMeanPayload =
-              rawPayload
-                { Runtime.rawRuntimePayloadRuntime =
-                    payloadRuntime
-                      { Runtime.rawSupervisedRuntimeInputTransform =
-                          Runtime.RawStandardizeInput
-                            (concat (replicate 1024 [1.1, 0.4, 0.3]))
-                            (concat (replicate 1024 [0.2, 0.25, 0.3]))
-                      }
-                }
-            excessiveScalePayload =
-              rawPayload
-                { Runtime.rawRuntimePayloadRuntime =
-                    payloadRuntime
-                      { Runtime.rawSupervisedRuntimeInputTransform =
-                          Runtime.RawStandardizeInput
-                            (concat (replicate 1024 [0.5, 0.4, 0.3]))
-                            (concat (replicate 1024 [0.6, 0.25, 0.3]))
-                      }
-                }
-        unitImage <- expectRight (Runtime.refineSupervisedRuntimePayload unitImagePayload)
-        assertLeftContaining
-          "must be fitted RGB standardization"
-          (Checkpoint.canonicalSupervisedRuntimeManifestMetadata unitImage)
-        perPixel <- expectRight (Runtime.refineSupervisedRuntimePayload perPixelPayload)
-        assertLeftContaining
-          "must repeat one RGB triplet per pixel"
-          (Checkpoint.canonicalSupervisedRuntimeManifestMetadata perPixel)
-        outOfRangeMean <-
-          expectRight (Runtime.refineSupervisedRuntimePayload outOfRangeMeanPayload)
-        assertLeftContaining
-          "finite decoded-unit values"
-          (Checkpoint.canonicalSupervisedRuntimeManifestMetadata outOfRangeMean)
-        excessiveScale <-
-          expectRight (Runtime.refineSupervisedRuntimePayload excessiveScalePayload)
-        assertLeftContaining
-          "decoded-unit population scales"
-          (Checkpoint.canonicalSupervisedRuntimeManifestMetadata excessiveScale)
-    , testCase "non-ViT classifiers cannot substitute fitted standardization" $ do
-        fixture <- expectRight makeFixture
-        let payload = Runtime.supervisedRuntimePayloadToRaw (fixturePayload fixture)
-            runtime = Runtime.rawRuntimePayloadRuntime payload
-            standardized =
-              payload
-                { Runtime.rawRuntimePayloadRuntime =
-                    runtime
-                      { Runtime.rawSupervisedRuntimeInputTransform =
-                          Runtime.RawStandardizeInput
-                            (replicate 784 0.0)
-                            (replicate 784 1.0)
-                      }
-                }
-        refined <- expectRight (Runtime.refineSupervisedRuntimePayload standardized)
-        assertLeftContaining
-          "classification input transform differs"
-          (Checkpoint.canonicalSupervisedRuntimeManifestMetadata refined)
     , testCase "weight-only payload round-trips through the one envelope (Sprint 235.1)" $ do
         let manifest =
               Checkpoint.emptyManifest
@@ -722,75 +620,6 @@ supervisedCheckpointV2Tests =
             "TensorBoard scalar tags do not exactly match convergence metrics"
         ]
     , testGroup
-        "authoritative ProductRow runtime contract"
-        [ runtimeSubstitutionTest
-            "family"
-            ( \runtime ->
-                runtime
-                  { Runtime.rawSupervisedRuntimeFamily =
-                      Runtime.RawDeepDenseRuntimeFamily
-                  , Runtime.rawSupervisedRuntimeLayers =
-                      [ Runtime.RawDenseLayer
-                          "substituted-1"
-                          (Runtime.RawRuntimeMlpShape 784 4 4)
-                      , Runtime.RawDenseLayer
-                          "substituted-2"
-                          (Runtime.RawRuntimeMlpShape 4 4 11)
-                      ]
-                  }
-            )
-            "classification runtime family differs"
-        , runtimeSubstitutionTest
-            "task"
-            ( \runtime ->
-                runtime
-                  { Runtime.rawSupervisedRuntimeTask =
-                      Runtime.RawClassificationRuntimeTask 9
-                  , Runtime.rawSupervisedRuntimeOutputTransform =
-                      Runtime.RawSemanticPrefixOutput 9
-                  }
-            )
-            "classification runtime task differs"
-        , runtimeSubstitutionTest
-            "production input dimension"
-            ( \runtime ->
-                runtime
-                  { Runtime.rawSupervisedRuntimeInputTransform =
-                      Runtime.RawIdentityInput 785
-                  , Runtime.rawSupervisedRuntimeLayers =
-                      [ Runtime.RawDenseLayer
-                          "dense-classifier"
-                          (Runtime.RawRuntimeMlpShape 785 128 11)
-                      ]
-                  }
-            )
-            "classification production input width differs"
-        , runtimeSubstitutionTest
-            "production output dimension"
-            ( \runtime ->
-                runtime
-                  { Runtime.rawSupervisedRuntimeLayers =
-                      [ Runtime.RawDenseLayer
-                          "dense-classifier"
-                          (Runtime.RawRuntimeMlpShape 784 128 12)
-                      ]
-                  }
-            )
-            "classification production raw-output width differs"
-        , runtimeSubstitutionTest
-            "layer topology"
-            ( \runtime ->
-                runtime
-                  { Runtime.rawSupervisedRuntimeLayers =
-                      [ Runtime.RawDenseLayer
-                          "renamed-classifier"
-                          (Runtime.RawRuntimeMlpShape 784 128 11)
-                      ]
-                  }
-            )
-            "classification runtime topology differs"
-        ]
-    , testGroup
         "manifest metadata is exactly bound to the runtime projection"
         [ manifestSubstitutionTest
             "architecture"
@@ -991,7 +820,7 @@ supervisedCheckpointV2Tests =
                           }
                     }
             assertLeftDirectV2
-              "classification production input width differs"
+              "manifest architecture metadata does not equal the exact runtime projection"
               (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
         , testCase "generic V2 manifest cannot occupy a ProductRow experiment hash" $ do
             (genericFixture, _) <- expectRight makeGenericFixture
@@ -2028,9 +1857,8 @@ makeTrainingCompletionFixture = do
   plan <-
     case ProductMatrix.productProjectionResolvedPlan projection of
       ProductMatrix.ResolvedSupervisedProductPlan value -> Right value
-  runtime <- Runtime.refineSupervisedRuntime rawRuntime
   datasetSha <- Dataset.canonicalDatasetReadShaForProblem problem
-  let parameterCount = Runtime.supervisedRuntimeParameterCount runtime
+  let parameterCount = mnistFixtureParameterCount
       initialWeights = replicate parameterCount 0.0
       finalWeights = 0.25 : replicate (parameterCount - 1) 0.0
       initialBytes = WeightCodec.encodeJmw1 initialWeights
@@ -2057,6 +1885,7 @@ makeTrainingCompletionFixture = do
           , TrainingExecution.tmCheckpointWeights = Just finalWeights
           , TrainingExecution.tmDatasetShaAtRead = Just datasetSha
           , TrainingExecution.tmSupervisedRuntimeProgram = rawRuntime
+          , TrainingExecution.tmTrainedLayerGraphMetadata = Just fixtureGraphMetadata
           , TrainingExecution.tmInitialJmw1Bytes = initialBytes
           , TrainingExecution.tmFinalJmw1Bytes = finalBytes
           , TrainingExecution.tmVerifiedDatasetShaAtRead = datasetSha
@@ -2115,8 +1944,7 @@ makeGenericFixture = do
           ProductMatrix.allProductRows
       )
   let payload = Runtime.trainingArtifactPayload artifact
-      runtime = Runtime.payloadRuntime payload
-      parameterCount = Runtime.supervisedRuntimeParameterCount runtime
+      parameterCount = mnistFixtureParameterCount
       metricName =
         ProductConvergence.convergenceMetricName
           (ProductMatrix.convergenceBar row)
@@ -2136,8 +1964,7 @@ makeGenericFixture = do
           , Checkpoint.manifestOutputDecoders =
               Checkpoint.supervisedRuntimeOutputDecoderMetadata metadata
           , Checkpoint.manifestWeightLayout =
-              Checkpoint.FlatWeightLayout
-                (virtualSliceSpecs (Runtime.supervisedRuntimeVirtualSlices runtime))
+              Checkpoint.FlatWeightLayout (supervisedWeightsLayout parameterCount)
           , Checkpoint.manifestStep =
               TrainingBudget.completedTrainingObservedUnits completed
           , Checkpoint.manifestMetrics = sortOn fst metricRows
@@ -2238,6 +2065,8 @@ supervisedPublishRunFixture metrics =
         TrainingExecution.tmOptimizerUpdatesExecuted metrics
     , ProductPublisher.supervisedPublishRuntimeProgram =
         TrainingExecution.tmSupervisedRuntimeProgram metrics
+    , ProductPublisher.supervisedPublishLayerGraphMetadata =
+        TrainingExecution.tmTrainedLayerGraphMetadata metrics
     , ProductPublisher.supervisedPublishInitialJmw1Bytes =
         TrainingExecution.tmInitialJmw1Bytes metrics
     , ProductPublisher.supervisedPublishFinalJmw1Bytes =
@@ -2311,10 +2140,9 @@ makeFixtureWithFinalBytes finalBytesFor = do
       (find ((== "mnist-shallow-mlp") . SL.problemName) SL.canonicalProblems)
   projection <- authoritativeSupervisedProjection Substrate.LinuxCPU row
   optimizerUpdates <- supervisedProjectionOptimizerUpdates projection
-  runtime <- Runtime.refineSupervisedRuntime rawRuntime
   datasetSha <- Dataset.canonicalDatasetReadShaForProblem problem
   let planId = ProductMatrix.productProjectionPlanId projection
-      parameterCount = Runtime.supervisedRuntimeParameterCount runtime
+      parameterCount = mnistFixtureParameterCount
       initialBytes = WeightCodec.encodeJmw1 (replicate parameterCount 0.0)
       finalBytes = finalBytesFor parameterCount
       initialSha = WeightCodec.jmw1ContentSha initialBytes
@@ -2335,6 +2163,7 @@ makeFixtureWithFinalBytes finalBytesFor = do
         , Runtime.rawRuntimePayloadInitialJmw1Sha256 = initialSha
         , Runtime.rawRuntimePayloadFinalJmw1Sha256 = finalSha
         , Runtime.rawRuntimePayloadRuntime = rawRuntime
+        , Runtime.rawRuntimePayloadLayerGraphMetadata = Just fixtureGraphMetadata
         }
   metadata <- Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload
   completed <-
@@ -2349,8 +2178,7 @@ makeFixtureWithFinalBytes finalBytesFor = do
       metrics
       initialSha
       finalSha
-  let slices = Runtime.supervisedRuntimeVirtualSlices runtime
-      tensor =
+  let tensor =
         Checkpoint.TensorBlob
           "supervised.weights"
           [parameterCount]
@@ -2365,7 +2193,7 @@ makeFixtureWithFinalBytes finalBytesFor = do
           , Checkpoint.manifestOutputDecoders =
               Checkpoint.supervisedRuntimeOutputDecoderMetadata metadata
           , Checkpoint.manifestWeightLayout =
-              Checkpoint.FlatWeightLayout (virtualSliceSpecs slices)
+              Checkpoint.FlatWeightLayout (supervisedWeightsLayout parameterCount)
           , Checkpoint.manifestStep = observedUnits
           , Checkpoint.manifestMetrics = metrics
           , Checkpoint.manifestSupervisedRuntime = Just payload
@@ -2389,56 +2217,56 @@ makeFixtureWithFinalBytes finalBytesFor = do
 rawRuntime :: Runtime.RawSupervisedRuntime
 rawRuntime =
   Runtime.RawSupervisedRuntime
-    { Runtime.rawSupervisedRuntimeFamily = Runtime.RawDenseRuntimeFamily
-    , Runtime.rawSupervisedRuntimeTask = Runtime.RawClassificationRuntimeTask 10
+    { Runtime.rawSupervisedRuntimeTask = Runtime.RawClassificationRuntimeTask 10
     , Runtime.rawSupervisedRuntimeInputTransform =
         Runtime.RawUnitImageInput (Runtime.RawRuntimeImageGeometry 28 28 1)
     , Runtime.rawSupervisedRuntimeOutputTransform =
         Runtime.RawSemanticPrefixOutput 10
-    , Runtime.rawSupervisedRuntimeLayers =
-        [ Runtime.RawDenseLayer
-            "dense-classifier"
-            (Runtime.RawRuntimeMlpShape 784 128 11)
-        ]
     }
 
-makeCifarVitPayload :: Either Text Runtime.SupervisedRuntimePayload
-makeCifarVitPayload = do
-  problem <-
-    maybe
-      (Left "missing authoritative cifar10-vit canonical problem")
-      Right
-      (find ((== "cifar10-vit") . SL.problemName) SL.canonicalProblems)
-  row <-
-    maybe
-      (Left "missing authoritative cifar10-vit ProductRow")
-      Right
-      (find ((== "cifar10-vit") . ProductMatrix.rowId) ProductMatrix.allProductRows)
-  planId <- authoritativeSupervisedPlanId Substrate.LinuxCPU row
-  datasetSha <- Dataset.canonicalDatasetReadShaForProblem problem
-  let config =
-        Classifier.defaultClassifierConfig
-          { Classifier.clfSeed = SL.problemSeed problem
-          , Classifier.clfInputs = 3072
-          , Classifier.clfClasses = 10
-          }
-      means = concat (replicate 1024 [0.5, 0.4, 0.3])
-      scales = concat (replicate 1024 [0.2, 0.25, 0.3])
-  canonical <- Architecture.canonicalClassificationRuntimeContract config problem
-  Runtime.refineSupervisedRuntimePayload
-    Runtime.RawSupervisedRuntimePayload
-      { Runtime.rawRuntimePayloadRowId = "cifar10-vit"
-      , Runtime.rawRuntimePayloadOrigin = Runtime.RawProductRowProjectionOrigin
-      , Runtime.rawRuntimePayloadPlanId = Plan.planIdText planId
-      , Runtime.rawRuntimePayloadDatasetSha256 = datasetSha
-      , Runtime.rawRuntimePayloadInitialJmw1Sha256 = Text.replicate 64 "c"
-      , Runtime.rawRuntimePayloadFinalJmw1Sha256 = Text.replicate 64 "d"
-      , Runtime.rawRuntimePayloadRuntime =
-          canonical
-            { Runtime.rawSupervisedRuntimeInputTransform =
-                Runtime.RawStandardizeInput means scales
-            }
+-- | Phase 239: the dense mnist-shallow-mlp trained graph is the fixture's sole
+-- representation.  Its graph-ordered parameter count anchors the synthetic
+-- weight blobs, the flat weight layout, and admission.
+mnistShallowMlpProblem :: SL.CanonicalProblem
+mnistShallowMlpProblem =
+  case find ((== "mnist-shallow-mlp") . SL.problemName) SL.canonicalProblems of
+    Just problem -> problem
+    Nothing -> error "missing canonical mnist-shallow-mlp problem"
+
+fixtureGraphMetadata :: LayerGraphMetadata.LayerGraphMetadata
+fixtureGraphMetadata =
+  LayerGraphMetadata.layerGraphMetadataFromGraph
+    ( Architecture.archLayerGraph
+        ( Architecture.architectureSpecForProblem
+            ( Classifier.defaultClassifierConfig
+                { Classifier.clfInputs = 784
+                , Classifier.clfClasses = 10
+                }
+            )
+            mnistShallowMlpProblem
+        )
+    )
+
+mnistFixtureParameterCount :: Int
+mnistFixtureParameterCount =
+  LayerGraphMetadata.layerGraphMetadataParameterCount fixtureGraphMetadata
+
+-- | The graph-ordered flat weight layout: one spec of the graph parameter
+-- count.  Both checkpoint construction and admission key on this single spec.
+supervisedWeightsLayout :: Int -> [Checkpoint.TensorSpec]
+supervisedWeightsLayout parameterCount =
+  [ Checkpoint.TensorSpec
+      { Checkpoint.tensorSpecName = "supervised.weights"
+      , Checkpoint.tensorSpecShape = [parameterCount]
+      , Checkpoint.tensorSpecDtype = "F64"
       }
+  ]
+
+californiaFixtureGraphMetadata :: LayerGraphMetadata.LayerGraphMetadata
+californiaFixtureGraphMetadata =
+  case mlpLayerGraph (mlpInit (MlpShape 8 32 1) 0) of
+    Right graph -> LayerGraphMetadata.layerGraphMetadataFromGraph graph
+    Left err -> error ("california fixture graph metadata: " <> err)
 
 makeCaliforniaPayload :: Either Text Runtime.SupervisedRuntimePayload
 makeCaliforniaPayload = do
@@ -2464,20 +2292,15 @@ makeCaliforniaPayload = do
       , Runtime.rawRuntimePayloadFinalJmw1Sha256 = Text.replicate 64 "d"
       , Runtime.rawRuntimePayloadRuntime =
           Runtime.RawSupervisedRuntime
-            { Runtime.rawSupervisedRuntimeFamily =
-                Runtime.RawTabularRegressionRuntimeFamily
-            , Runtime.rawSupervisedRuntimeTask =
+            { Runtime.rawSupervisedRuntimeTask =
                 Runtime.RawRegressionRuntimeTask 1
             , Runtime.rawSupervisedRuntimeInputTransform =
                 Runtime.RawStandardizeInput (replicate 8 0.0) (replicate 8 1.0)
             , Runtime.rawSupervisedRuntimeOutputTransform =
                 Runtime.RawDestandardizeOutput [100.0] [5.0]
-            , Runtime.rawSupervisedRuntimeLayers =
-                [ Runtime.RawDenseLayer
-                    "regressor"
-                    (Runtime.RawRuntimeMlpShape 8 32 1)
-                ]
             }
+      , Runtime.rawRuntimePayloadLayerGraphMetadata =
+          Just californiaFixtureGraphMetadata
       }
 
 authoritativeSupervisedPlanId
@@ -2515,17 +2338,6 @@ supervisedProjectionOptimizerUpdates projection =
             (WorkloadPlan.supervisedPlanOptimizerUpdates plan)
         )
 
-virtualSliceSpecs :: [Runtime.RuntimeVirtualSlice] -> [Checkpoint.TensorSpec]
-virtualSliceSpecs =
-  fmap
-    ( \slice ->
-        Checkpoint.TensorSpec
-          { Checkpoint.tensorSpecName = Runtime.runtimeVirtualSliceQualifiedName slice
-          , Checkpoint.tensorSpecShape = Runtime.runtimeVirtualSliceShape slice
-          , Checkpoint.tensorSpecDtype = "F64"
-          }
-    )
-
 bindingSubstitutionTest
   :: ( String
      , Runtime.RawSupervisedRuntimePayload
@@ -2541,28 +2353,6 @@ bindingSubstitutionTest (label, substitute, expectedError) =
           body
             { Checkpoint.rawCheckpointV2SupervisedRuntime =
                 substitute (Checkpoint.rawCheckpointV2SupervisedRuntime body)
-            }
-    assertLeftDirectV2
-      expectedError
-      (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
-
-runtimeSubstitutionTest
-  :: String
-  -> (Runtime.RawSupervisedRuntime -> Runtime.RawSupervisedRuntime)
-  -> Text
-  -> TestTree
-runtimeSubstitutionTest label substitute expectedError =
-  testCase (label <> " substitution is rejected") $ do
-    fixture <- expectRight makeFixture
-    let body = fixtureBody fixture
-        payload = Checkpoint.rawCheckpointV2SupervisedRuntime body
-        substituted =
-          body
-            { Checkpoint.rawCheckpointV2SupervisedRuntime =
-                payload
-                  { Runtime.rawRuntimePayloadRuntime =
-                      substitute (Runtime.rawRuntimePayloadRuntime payload)
-                  }
             }
     assertLeftDirectV2
       expectedError

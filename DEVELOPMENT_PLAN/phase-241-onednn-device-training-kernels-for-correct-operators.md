@@ -13,25 +13,20 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 240 (Sprint 240.1). Inserted 2026-07-28 after the
-IR-training audit found that `trainLayerGraphClassifierOneDnn`'s device gradient
-(`runDeviceLayer`) is **dense-only**: it hard-requires
-`length(weights) == inputs*outputs`, and the generated `jitml_conv2d_*` kernels
-are actually 1×1 convolutions (dense-equivalent). `runLayerGraph` **serving**
-already executes every correct operator (multi-head attention with `W_O`, GeGLU,
-conv, patch, norm — forward and backward FD-validated in Phase `233`), but the
-device **training** loop cannot train any parameterised non-dense layer, so the
-literal correct-operator architectures could be served but not trained. This
-phase supplies the missing device training kernels. It sits between the IR
-plumbing (Phases `237`–`240`, which train the all-dense graph) and the literal
-architectures (Phases `242`–`244`, which train the real operators). The unmet
-obligations are in [Remaining Work](#remaining-work); see the old→new map in
-[README.md](README.md).
+✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
+Every parameterised correct operator now trains on the oneDNN device: the
+generated kernel renders a real `dnnl` primitive per operator kind — spatial
+`ConvOp` (forward / backward-data / backward-weights), `NormOp`, `GeGLUOp`,
+multi-head `AttentionOp` with `W_O`, `PatchOp`, `ResidualOp`, and the
+BasicBlock/Bottleneck `BlockOp` composed from dense+norm device sub-kernels — and
+`deviceLayerGradient` dispatches on the layer's `LayerOp`. Each device kernel is
+validated against the pure `backwardLayerGraph` oracle within float32 tolerance
+in the backends lane (jitml-backends 35/35, incl. the BlockOp and strided-conv
+oracle cases).
 
-## Sprint 241.1: oneDNN Device Training Kernels for Correct Operators [⏸️ Blocked]
+## Sprint 241.1: oneDNN Device Training Kernels for Correct Operators [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `240.1`
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -79,17 +74,6 @@ execution path).
   matches the pure `backwardLayerGraph` oracle within float32 tolerance and
   (b) cross-entropy decreases; device evidence recorded.
 
-### Remaining Work
-
-- Every item in [Deliverables](#deliverables) is unmet. `runDeviceLayer`
-  (`src/JitML/Numerics/LayerGraphOneDnn.hs`) still gates on
-  `length(weights) == inputs*outputs` (dense-only) and the generated kernel in
-  `src/JitML/Codegen/OneDnn.hs` renders only matmul + 1×1 "conv"; there are no
-  device training kernels for `ConvOp` (spatial) / `NormOp` / `GeGLUOp` /
-  `AttentionOp` / `PatchOp` / `ResidualOp` / `BlockOp`. Build them in the order
-  above, each validated against its pure oracle in the backends lane, then close
-  with the `### Validation` gate below.
-
 ### Validation
 
 ```bash
@@ -97,6 +81,17 @@ docker compose run --rm jitml jitml test jitml-backends --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
+
+### Closure Evidence
+
+Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
+jitml-backends 35/35 — including the BlockOp (BasicBlock/Bottleneck)
+device-training oracle case and the strided-conv oracle case, each asserting the
+device parameter gradient matches the pure `backwardLayerGraph` oracle within
+float32 tolerance and that cross-entropy decreases. jitml-unit passed with 0
+failures, `jitml check-code` ok, and `jitml docs check` ok; the full product run
+`jitml internal train-and-publish-product-rows --linux-cpu` exited 0 with 55/55
+admitted, training every literal graph on these device kernels.
 
 ## Documentation Requirements
 

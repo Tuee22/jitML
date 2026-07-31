@@ -9,15 +9,21 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 238 (Sprint 238.1). Once the IR trains and
-serves, the checkpoint boundary is fed the trained graph directly; see the old→new
-map in [README.md](README.md).
+✅ **Done** (closed 2026-07-28). The supervised checkpoint payload is constructed
+directly from the trained typed `LayerGraph`: the write path carries the graph
+metadata in the manifest architecture, the envelope selects the supervised-graph
+body on `architectureLayerGraph == Just`, and admission validates the weight blob
+against the graph parameter count. The V2 `SupervisedRuntime` layer-operation
+projection (`projectTrainedArchitectureRuntime`, `exactRuntimeWeightBytes`) and its
+nine-operation served ABI (`executeLoadedRuntime`, `Codegen/RuntimeOperationsCpu`,
+`Engines/RuntimeOperationsDevice`, and the per-substrate operators) are deleted;
+the reloaded graph is executed directly by `runLayerGraph`. See the old→new map in
+[README.md](README.md).
 
-## Sprint 239.1: Checkpoint Construction from the Trained Graph [⏸️ Blocked]
+## Sprint 239.1: Checkpoint Construction from the Trained Graph [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `238.1`
-**Implementation**: `src/JitML/SL/TrainingExecution.hs`, `src/JitML/Checkpoint/Writer.hs`, `src/JitML/Tune/Catalog.hs`, `src/JitML/SL/RuntimeArtifact.hs`
+**Status**: Done
+**Implementation**: `src/JitML/SL/TrainingExecution.hs`, `src/JitML/Checkpoint/Writer.hs`, `src/JitML/Checkpoint/Format.hs`, `src/JitML/Tune/Catalog.hs`, `src/JitML/SL/RuntimeArtifact.hs`
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/determinism_contract.md`
 
 ### Objective
@@ -44,6 +50,30 @@ single supervised-graph envelope from Phase `235`.
 - A unit test builds a supervised checkpoint from a trained graph and reloads it,
   asserting the reloaded graph is byte-identical to the trained graph and serves
   the same predictions.
+
+### Closure Evidence
+
+All [Deliverables](#deliverables) are met. `src/JitML/SL/TrainingExecution.hs` and
+`src/JitML/Checkpoint/Writer.hs` construct the supervised checkpoint from the
+trained `LayerGraph` (the graph metadata rides in the manifest architecture);
+`encodeManifestCbor` selects the supervised-graph body on `architectureLayerGraph
+== Just`, and admission (`loadSupervisedRuntimeFromCheckpoint`,
+`validateBoundRuntimeAndCompletion`) validates the one `supervised.weights` blob
+against `layerGraphMetadataParameterCount`. The V2 `SupervisedRuntime` projection
+(`projectTrainedArchitectureRuntime`, `exactRuntimeWeightBytes`) and the
+nine-operation served ABI (`executeLoadedRuntime` + the structural executors,
+`Codegen/RuntimeOperationsCpu.hs`, `Engines/RuntimeOperations*.hs`,
+`RuntimeLayerOperation`/`LoadedRuntime`/the token layer DTOs) are deleted (~4600
+lines of whole files plus net reductions; recorded in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) under this
+sprint), and the reloaded graph is executed directly by `runLayerGraph`. The
+`SupervisedCheckpointV2` fixtures are re-anchored onto the graph parameter count,
+and the checkpoint/engineering docs are rewritten to the graph-only served
+representation. Token-family end-to-end convergence is validated on the
+`jitml-sl-canonicals` lane in Phase `245`. Validated by the `### Validation` gate
+below (`jitml test jitml-unit --linux-cpu` **743 / 743**, `jitml test
+jitml-backends --linux-cpu` **27 / 27**, `jitml check-code` **ok**, `jitml docs
+check` **ok**).
 
 ### Validation
 

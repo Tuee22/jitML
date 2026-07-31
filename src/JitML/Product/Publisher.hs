@@ -37,6 +37,7 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Env.Env (App)
 import JitML.Experiment.Product qualified as ProductExperiment
+import JitML.Numerics.LayerGraphMetadata (LayerGraphMetadata)
 import JitML.Numerics.Mlp (AdamState)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
@@ -101,13 +102,7 @@ data ProductPublisherRuntime = ProductPublisherRuntime
   , publisherRunRlTraining
       :: Substrate
       -> MlpDevice
-      -> Text
-      -> Text
-      -> Int
-      -> Int
-      -> Int
-      -> Word64
-      -> Int
+      -> ProductBudget.CompiledRlPlan
       -> IO (Either Text RlPublishRun)
   , publisherCompleteProductRow
       :: PlanId
@@ -211,6 +206,7 @@ data SupervisedPublishRun = SupervisedPublishRun
   , supervisedPublishCompletedUnits :: !Word64
   , supervisedPublishOptimizerUpdatesExecuted :: !Word64
   , supervisedPublishRuntimeProgram :: !RuntimeArtifact.RawSupervisedRuntime
+  , supervisedPublishLayerGraphMetadata :: !(Maybe LayerGraphMetadata)
   , supervisedPublishInitialJmw1Bytes :: !LazyByteString.ByteString
   , supervisedPublishFinalJmw1Bytes :: !LazyByteString.ByteString
   , supervisedPublishVerifiedDatasetShaAtRead :: !Text
@@ -564,6 +560,8 @@ trainAndPublishSupervisedProductRow runtime row projection experiment problem =
                                     finalSha
                                 , RuntimeArtifact.rawRuntimePayloadRuntime =
                                     supervisedPublishRuntimeProgram run
+                                , RuntimeArtifact.rawRuntimePayloadLayerGraphMetadata =
+                                    supervisedPublishLayerGraphMetadata run
                                 }
                           , RuntimeArtifact.rawTrainingArtifactInitialJmw1Bytes =
                               LazyByteString.toStrict initialBytes
@@ -816,10 +814,7 @@ trainAndPublishRlProductRow runtime row projection =
                 environment = projectedRlEnvironment execution
                 substrate = projectedRlSubstrate execution
                 seed = projectedRlSeed execution
-                evaluationEpisodes = projectedRlEvaluationEpisodes execution
-                episodeSteps = projectedRlEpisodeSteps execution
-                targetTransitions = projectedRlTargetTransitions execution
-                vectorEnvironments = projectedRlVectorEnvironments execution
+                plan = projectedRlPlan execution
                 budget = projectedRlTrainingBudget execution
              in case ProductBudget.rlTrainerEnvironmentCompatibilityError trainerKind environment of
                   Just err -> pure (productPublishUnsupported projection err)
@@ -831,13 +826,7 @@ trainAndPublishRlProductRow runtime row projection =
                             runtime
                             substrate
                             (rlDeviceForSubstrate substrate env)
-                            trainerKind
-                            environment
-                            seed
-                            evaluationEpisodes
-                            episodeSteps
-                            targetTransitions
-                            vectorEnvironments
+                            plan
                         )
                     case trainerRunE of
                       Left err -> pure (productPublishError projection err)
@@ -1404,10 +1393,7 @@ data ProjectedRlExecution = ProjectedRlExecution
   , projectedRlEnvironment :: !Text
   , projectedRlSubstrate :: !Substrate
   , projectedRlSeed :: !Int
-  , projectedRlEvaluationEpisodes :: !Int
-  , projectedRlEpisodeSteps :: !Int
-  , projectedRlTargetTransitions :: !Word64
-  , projectedRlVectorEnvironments :: !Int
+  , projectedRlPlan :: !ProductBudget.CompiledRlPlan
   , projectedRlTrainingBudget :: !TrainingBudget.TrainingBudget
   }
   deriving stock (Eq, Show)
@@ -1464,14 +1450,30 @@ projectedRlExecution row projection descriptor runPlan =
             TrainingBudget.RlEnvironmentStepBudget
             transitions
             seedWord
+        -- Phase 251 — compile the exact-target plan once; the schedule the
+        -- descriptor is cross-checked against is the plan's own derived
+        -- schedule, and the same plan is what the worker executes. The
+        -- training episode-budget floor is the canonical training constant, so
+        -- the evaluation episode count only feeds the plan's EvaluationPlan.
+        plan <-
+          ProductBudget.compileRlPlan
+            ProductBudget.TrainingPlan
+              { ProductBudget.trainingPlanTrainerKind = trainerKind
+              , ProductBudget.trainingPlanEnvironment = environment
+              , ProductBudget.trainingPlanSeed = seed
+              , ProductBudget.trainingPlanMaxEpisodeSteps = episodeSteps
+              , ProductBudget.trainingPlanEpisodeBudgetFloor =
+                  ProductBudget.productRlDefaultTrainingEpisodeFloor
+              , ProductBudget.trainingPlanVectorEnvironments = Just vectorEnvironments
+              , ProductBudget.trainingPlanRequestedTransitionFloor = Just transitions
+              , ProductBudget.trainingPlanExactTransitionTarget = Just transitions
+              }
+            (ProductBudget.EvaluationPlan evaluationEpisodes)
         schedule <-
-          ProductBudget.planExactRlTrainingSchedule
-            trainerKind
-            environment
-            evaluationEpisodes
-            episodeSteps
-            (Just vectorEnvironments)
-            transitions
+          maybe
+            (Left "projected RL plan is missing a training schedule")
+            Right
+            (ProductBudget.compiledRlSchedule plan)
         validateProjectedRlSchedule
           rolloutTicks
           vectorEnvironmentsWord
@@ -1484,10 +1486,7 @@ projectedRlExecution row projection descriptor runPlan =
             , projectedRlEnvironment = environment
             , projectedRlSubstrate = runPlanSubstrate runPlan
             , projectedRlSeed = seed
-            , projectedRlEvaluationEpisodes = evaluationEpisodes
-            , projectedRlEpisodeSteps = episodeSteps
-            , projectedRlTargetTransitions = transitions
-            , projectedRlVectorEnvironments = vectorEnvironments
+            , projectedRlPlan = plan
             , projectedRlTrainingBudget = budget
             }
 

@@ -16,7 +16,7 @@ import Data.Word (Word64)
 import System.Environment (lookupEnv)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
@@ -72,6 +72,7 @@ import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
+import JitML.RL.Algorithms.Registry qualified as Cohort
 import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
 import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
@@ -121,6 +122,7 @@ import JitML.RL.Environments
   , environmentTermination
   )
 import JitML.RL.Policy (defaultPolicy)
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator (cartPoleInitial)
 import JitML.RL.Simulator qualified as Sim
@@ -220,6 +222,103 @@ main =
           assertContains "SAC" names
           assertContains "HER" names
           assertContains "AlphaZero" names
+      , testCase "Phase 250 — typed cohort rejects incompatible action-domain pairs" $ do
+          let rejects algorithm environment =
+                case Cohort.mkCohort algorithm environment of
+                  Left _ -> pure ()
+                  Right cohort ->
+                    assertFailure
+                      ( "expected "
+                          <> Text.unpack algorithm
+                          <> "+"
+                          <> Text.unpack environment
+                          <> " to be rejected, but a cohort was constructed with domain "
+                          <> Text.unpack (Cohort.renderActionDomain (Cohort.cohortActionDomain cohort))
+                      )
+          -- Continuous-only trainers cannot pair with discrete simulators.
+          rejects "SAC" "cartpole"
+          rejects "TD3" "cartpole"
+          rejects "DDPG" "mountain-car"
+          -- Discrete trainers cannot pair with the continuous pendulum.
+          rejects "DQN" "pendulum"
+          rejects "PPO" "pendulum"
+          rejects "QR-DQN" "pendulum"
+          -- Goal relabelling only applies to the goal-conditioned environment.
+          rejects "HER" "cartpole"
+          rejects "HER" "pendulum"
+          -- Discrete off-policy trainers do not own the continuous lunar-lander cohort.
+          rejects "DQN" "lunar-lander"
+          rejects "QR-DQN" "lunar-lander"
+          -- An unknown algorithm has no cohort at all.
+          rejects "NOTANALGO" "cartpole"
+      , testCase
+          "Phase 250 — typed cohort accepts canonical pairs with the exact action domain and trainer kind"
+          $ do
+            let accepts algorithm environment domain trainerKind =
+                  case Cohort.mkCohort algorithm environment of
+                    Left err ->
+                      assertFailure
+                        ( "expected "
+                            <> Text.unpack algorithm
+                            <> "+"
+                            <> Text.unpack environment
+                            <> " to be admissible, got: "
+                            <> Text.unpack err
+                        )
+                    Right cohort -> do
+                      Cohort.cohortActionDomain cohort @?= domain
+                      Cohort.cohortTrainerKind cohort @?= trainerKind
+                      Cohort.cohortEnvironmentName cohort @?= environment
+                      Cohort.cohortAlgorithmName cohort @?= algorithm
+            accepts "PPO" "cartpole" Cohort.DiscreteDomain "ppo"
+            accepts "DQN" "mountain-car" Cohort.DiscreteDomain "dqn"
+            accepts "QR-DQN" "key-door-grid" Cohort.DiscreteDomain "qrdqn"
+            accepts "SAC" "pendulum" Cohort.ContinuousDomain "sac"
+            accepts "TD3" "lunar-lander" Cohort.ContinuousDomain "td3"
+            accepts "ARS" "lunar-lander" Cohort.DiscreteDomain "ars"
+            accepts "HER" "goal-reaching" Cohort.GoalConditionedDomain "her"
+            -- lunar-lander is dual-domain: discrete under on-policy/ARS, continuous
+            -- under DDPG/TD3/SAC/CrossQ/TQC. The cohort resolves the domain from
+            -- the (algorithm, environment) pair, never the environment name alone.
+            accepts "PPO" "lunar-lander" Cohort.DiscreteDomain "ppo"
+            accepts "SAC" "lunar-lander" Cohort.ContinuousDomain "sac"
+      , testCase
+          "Phase 250 — every canonical convergence cohort constructs and renders a byte-identical trainer kind"
+          $ do
+            let goldenTrainerKind algorithm =
+                  lookup
+                    algorithm
+                    [ ("PPO", "ppo")
+                    , ("A2C", "a2c")
+                    , ("TRPO", "trpo")
+                    , ("MaskablePPO", "maskableppo")
+                    , ("RecurrentPPO", "recurrentppo")
+                    , ("DQN", "dqn")
+                    , ("QR-DQN", "qrdqn")
+                    , ("DDPG", "ddpg")
+                    , ("TD3", "td3")
+                    , ("SAC", "sac")
+                    , ("CrossQ", "crossq")
+                    , ("TQC", "tqc")
+                    , ("ARS", "ars")
+                    , ("HER", "her")
+                    ]
+            mapM_
+              ( \((algorithm, environment), _threshold) ->
+                  case Cohort.mkCohort algorithm environment of
+                    Left err ->
+                      assertFailure
+                        ( "canonical cohort "
+                            <> Text.unpack algorithm
+                            <> "/"
+                            <> Text.unpack environment
+                            <> " must be admissible, got: "
+                            <> Text.unpack err
+                        )
+                    Right cohort ->
+                      Just (Cohort.cohortTrainerKind cohort) @?= goldenTrainerKind algorithm
+              )
+              RLConvergence.cohortThresholds
       , testCase "canonical RL environment catalog exposes native product dynamics metadata (Sprint 25.1)" $ do
           fmap environmentName canonicalEnvironments
             @?= [ "cartpole"
@@ -334,6 +433,9 @@ main =
       , testCase
           "RL product rows expose concrete thresholded evidence bars (Sprint 25.3)"
           assertRlProductRowsHaveEvidenceBars
+      , testCase
+          "Phase 251 — compiled RL plan reproduces each canonical row's exact executed counts"
+          assertCanonicalRlPlanReproducesExactCounts
       , testCase
           "AlphaZero arena win-rate convergence against the baseline opponent (Sprint 9.13)"
           assertAlphaZeroArenaConvergence
@@ -805,6 +907,66 @@ assertRlRowEvidenceContract = do
   assertBool
     "failed convergence is rejected"
     (any ("failed convergence" `Text.isInfixOf`) failures)
+
+-- | Phase 251 — the pure plan compiler, given each canonical RL row's exact
+-- transition target, reproduces exactly the schedule (and observed
+-- environment-step total) the producer executes and admits against. This is the
+-- executed-counts side of the CompiledRlPlan migration: the schedule the worker
+-- runs is the same one the canonical budget is content-addressed from.
+assertCanonicalRlPlanReproducesExactCounts :: IO ()
+assertCanonicalRlPlanReproducesExactCounts =
+  mapM_ checkRow ProductMatrix.allProductRows
+ where
+  checkRow row =
+    case ProductMatrix.rowClass row of
+      ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
+        checkPlan row algorithm environment
+      ProductMatrix.RlGoalConditioned environment ->
+        checkPlan row "HER" environment
+      _ -> pure ()
+  checkPlan row algorithm environment = do
+    let target = TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row)
+        training =
+          ProductBudget.TrainingPlan
+            { ProductBudget.trainingPlanTrainerKind =
+                ProductBudget.trainerKindForAlgorithm algorithm
+            , ProductBudget.trainingPlanEnvironment = environment
+            , ProductBudget.trainingPlanSeed = 0
+            , ProductBudget.trainingPlanMaxEpisodeSteps =
+                ProductBudget.productRlDefaultMaxEpisodeSteps
+            , ProductBudget.trainingPlanEpisodeBudgetFloor =
+                ProductBudget.productRlDefaultTrainingEpisodeFloor
+            , ProductBudget.trainingPlanVectorEnvironments = Nothing
+            , ProductBudget.trainingPlanRequestedTransitionFloor = Just target
+            , ProductBudget.trainingPlanExactTransitionTarget = Just target
+            }
+    case ( ProductBudget.compileRlPlan
+             training
+             (ProductBudget.EvaluationPlan ProductBudget.productRlDefaultEvaluationEpisodes)
+         , ProductBudget.canonicalProductRlSchedule algorithm environment
+         ) of
+      (Right plan, Right canonical) ->
+        case ProductBudget.compiledRlSchedule plan of
+          Just schedule -> do
+            assertEqual
+              (Text.unpack (ProductMatrix.rowId row) <> " compiled schedule matches the canonical schedule")
+              canonical
+              schedule
+            assertEqual
+              (Text.unpack (ProductMatrix.rowId row) <> " compiled observed units equal the exact row budget")
+              target
+              (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+          Nothing ->
+            assertFailure
+              (Text.unpack (ProductMatrix.rowId row) <> " compiled plan is missing a training schedule")
+      (planE, canonicalE) ->
+        assertFailure
+          ( Text.unpack (ProductMatrix.rowId row)
+              <> " failed to compile an exact plan: "
+              <> show planE
+              <> " / canonical="
+              <> show canonicalE
+          )
 
 assertRlProductRowsHaveEvidenceBars :: IO ()
 assertRlProductRowsHaveEvidenceBars = do

@@ -27,6 +27,8 @@ module JitML.Numerics.LayerGraphOneDnn
   , classifierBatchGradientOneDnn
   , withCompiledLayerGraphOneDnn
   , runDeviceSpatialConv
+  , runDeviceOp
+  , runDeviceBlock
   )
 where
 
@@ -162,6 +164,30 @@ type ConvBackwardWeightsFun =
   -> CInt
   -> IO ()
 
+-- Phase 241 — unified correct-operator device training entry. Geometry travels
+-- in the @geom@ int array + @fparams@ float array; @opcode@ selects the operator
+-- (10 GeGLU, 11 Norm, 12 Patch, 13 Attention, 14 Residual). Returns
+-- @(out, dX, dW, dB)@ with dW/dB in the operator's packed segment order.
+type OpTrainFun =
+  CInt -- opcode
+  -> Ptr CInt -- geom
+  -> CInt -- geom_len
+  -> Ptr CFloat -- fparams
+  -> CInt -- fparams_len
+  -> Ptr CFloat -- out
+  -> Ptr CFloat -- dx
+  -> Ptr CFloat -- dw
+  -> Ptr CFloat -- db
+  -> Ptr CFloat -- x
+  -> Ptr CFloat -- weights
+  -> Ptr CFloat -- bias
+  -> Ptr CFloat -- dy
+  -> CInt -- xlen
+  -> CInt -- outlen
+  -> CInt -- wlen
+  -> CInt -- blen
+  -> IO ()
+
 type BackendNameFun = IO CString
 
 type PrimitiveNameFun = CInt -> IO CString
@@ -183,6 +209,9 @@ foreign import ccall "dynamic"
 
 foreign import ccall "dynamic"
   mkConvBackwardWeightsFun :: FunPtr ConvBackwardWeightsFun -> ConvBackwardWeightsFun
+
+foreign import ccall "dynamic"
+  mkOpTrainFun :: FunPtr OpTrainFun -> OpTrainFun
 
 foreign import ccall "dynamic"
   mkBackendNameFun :: FunPtr BackendNameFun -> BackendNameFun
@@ -222,6 +251,7 @@ data LayerGraphOneDnnFunctions = LayerGraphOneDnnFunctions
   , lgConvForward :: ConvForwardFun
   , lgConvBackwardData :: ConvBackwardDataFun
   , lgConvBackwardWeights :: ConvBackwardWeightsFun
+  , lgOpTrain :: OpTrainFun
   , lgForwardPrimitive :: PrimitiveNameFun
   , lgBackwardDataPrimitive :: PrimitiveNameFun
   , lgBackwardWeightsPrimitive :: PrimitiveNameFun
@@ -255,7 +285,9 @@ layerGraphOneDnnToolchainFingerprint =
         , "jitml_conv2d_spatial_forward(...,int×11)"
         , "jitml_conv2d_spatial_backward_data(...,int×11)"
         , "jitml_conv2d_spatial_backward_weights(...,int×11)"
-        , "primitives=matmul+convolution-forward-training+convolution-backward-data+convolution-backward-weights+spatial-conv2d"
+        , "jitml_op_train(int,const int*,int,const float*,int,float*×4,const float*×4,int×4)"
+        , "correct-ops=geglu(10)+norm(11)+patch(12)+attention(13)+residual(14)"
+        , "primitives=matmul+convolution-forward-training+convolution-backward-data+convolution-backward-weights+spatial-conv2d+geglu-matmul-gelu+normalization+attention-matmul-softmax+patch-matmul+residual-matmul"
         ]
     )
 
@@ -281,6 +313,7 @@ layerGraphSquaredErrorGradientOneDnn env graph input target =
   case LayerGraph.layerGraphSquaredErrorGradient graph input target of
     Left err -> pure (Left err)
     Right (tape, pureGradient) -> do
+      let seed = VU.zipWith (-) (LayerGraph.layerTapeOutput tape) target
       withCompiledLayerGraphOneDnn env $ \functions backendName artifactPath artifactCompiled -> do
         deviceResult <-
           deviceGradient
@@ -288,6 +321,7 @@ layerGraphSquaredErrorGradientOneDnn env graph input target =
             backendName
             artifactPath
             artifactCompiled
+            seed
             tape
             pureGradient
         pure $
@@ -310,7 +344,9 @@ layerGraphCrossEntropyGradientOneDnn
 layerGraphCrossEntropyGradientOneDnn env graph input label =
   case LayerGraph.layerGraphCrossEntropyGradient graph input label of
     Left err -> pure (Left err)
-    Right (tape, pureGradient) ->
+    Right (tape, pureGradient) -> do
+      let logits = LayerGraph.layerTapeOutput tape
+          seed = VU.imap (\i p -> p - if i == label then 1.0 else 0.0) (softmax logits)
       withCompiledLayerGraphOneDnn env $ \functions backendName artifactPath artifactCompiled -> do
         deviceResult <-
           deviceGradient
@@ -318,6 +354,7 @@ layerGraphCrossEntropyGradientOneDnn env graph input label =
             backendName
             artifactPath
             artifactCompiled
+            seed
             tape
             pureGradient
         pure $
@@ -344,10 +381,15 @@ layerGraphSquaredErrorGradientBatchOneDnn env graph batch
       case traverse (uncurry (LayerGraph.layerGraphSquaredErrorGradient graph)) batch of
         Left err -> pure (Left err)
         Right [] -> pure (Left "layerGraphSquaredErrorGradientBatchOneDnn: empty batch")
-        Right pairs@(pair0 : _) ->
+        Right pairs@(pair0 : _) -> do
+          let seeds =
+                zipWith
+                  (\(tape, _) (_, target) -> VU.zipWith (-) (LayerGraph.layerTapeOutput tape) target)
+                  pairs
+                  batch
           withCompiledLayerGraphOneDnn env $ \functions backendName artifactPath artifactCompiled -> do
             deviceResult <-
-              deviceGradientBatch functions backendName artifactPath artifactCompiled pairs
+              deviceGradientBatch functions backendName artifactPath artifactCompiled seeds pairs
             pure (fmap (batchRun (fst pair0)) deviceResult)
 
 -- | Batched classification counterpart of
@@ -360,10 +402,15 @@ layerGraphCrossEntropyGradientBatchOneDnn env classes graph batch
       case traverse (uncurry (LayerGraph.layerGraphClassifierCrossEntropyGradient graph classes)) batch of
         Left err -> pure (Left err)
         Right [] -> pure (Left "layerGraphCrossEntropyGradientBatchOneDnn: empty batch")
-        Right pairs@(pair0 : _) ->
+        Right pairs@(pair0 : _) -> do
+          let seeds =
+                zipWith
+                  (\(tape, _) (_, label) -> classifierSeed classes (LayerGraph.layerTapeOutput tape) label)
+                  pairs
+                  batch
           withCompiledLayerGraphOneDnn env $ \functions backendName artifactPath artifactCompiled -> do
             deviceResult <-
-              deviceGradientBatch functions backendName artifactPath artifactCompiled pairs
+              deviceGradientBatch functions backendName artifactPath artifactCompiled seeds pairs
             pure (fmap (batchRun (fst pair0)) deviceResult)
 
 -- | Batch-summed flat classification cross-entropy parameter gradient over the
@@ -489,21 +536,23 @@ withCompiledLayerGraphOneDnn env useFunctions = do
                   withKernelSymbol path "jitml_layer_backward_weights" $ \weightsSymbol ->
                     withKernelSymbol path "jitml_conv2d_spatial_forward" $ \convFwdSymbol ->
                       withKernelSymbol path "jitml_conv2d_spatial_backward_data" $ \convDataSymbol ->
-                        withKernelSymbol path "jitml_conv2d_spatial_backward_weights" $ \convWeightsSymbol -> do
-                          backendName <- cStringText =<< mkBackendNameFun backendSymbol
-                          let functions =
-                                LayerGraphOneDnnFunctions
-                                  { lgForward = mkLayerForwardFun forwardSymbol
-                                  , lgBackwardData = mkLayerBackwardDataFun dataSymbol
-                                  , lgBackwardWeights = mkLayerBackwardWeightsFun weightsSymbol
-                                  , lgConvForward = mkConvForwardFun convFwdSymbol
-                                  , lgConvBackwardData = mkConvBackwardDataFun convDataSymbol
-                                  , lgConvBackwardWeights = mkConvBackwardWeightsFun convWeightsSymbol
-                                  , lgForwardPrimitive = mkPrimitiveNameFun forwardNameSymbol
-                                  , lgBackwardDataPrimitive = mkPrimitiveNameFun dataNameSymbol
-                                  , lgBackwardWeightsPrimitive = mkPrimitiveNameFun weightsNameSymbol
-                                  }
-                          useFunctions functions backendName artifactPath (kernelArtifactCompiled artifact)
+                        withKernelSymbol path "jitml_conv2d_spatial_backward_weights" $ \convWeightsSymbol ->
+                          withKernelSymbol path "jitml_op_train" $ \opTrainSymbol -> do
+                            backendName <- cStringText =<< mkBackendNameFun backendSymbol
+                            let functions =
+                                  LayerGraphOneDnnFunctions
+                                    { lgForward = mkLayerForwardFun forwardSymbol
+                                    , lgBackwardData = mkLayerBackwardDataFun dataSymbol
+                                    , lgBackwardWeights = mkLayerBackwardWeightsFun weightsSymbol
+                                    , lgConvForward = mkConvForwardFun convFwdSymbol
+                                    , lgConvBackwardData = mkConvBackwardDataFun convDataSymbol
+                                    , lgConvBackwardWeights = mkConvBackwardWeightsFun convWeightsSymbol
+                                    , lgOpTrain = mkOpTrainFun opTrainSymbol
+                                    , lgForwardPrimitive = mkPrimitiveNameFun forwardNameSymbol
+                                    , lgBackwardDataPrimitive = mkPrimitiveNameFun dataNameSymbol
+                                    , lgBackwardWeightsPrimitive = mkPrimitiveNameFun weightsNameSymbol
+                                    }
+                            useFunctions functions backendName artifactPath (kernelArtifactCompiled artifact)
 
 deviceForwardGraph
   :: LayerGraphOneDnnFunctions
@@ -651,19 +700,24 @@ deviceGradient
   -> Text
   -> Text
   -> Bool
+  -> Vector Double
+  -- ^ loss seed: gradient of the loss w.r.t. the graph output
   -> LayerGraphTape
   -> LayerGraphGradient
   -> IO (Either Text (LayerGraphGradient, [LayerGraphOneDnnEvidence]))
-deviceGradient functions backendName artifactPath artifactCompiled tape pureGradient = do
+deviceGradient functions backendName artifactPath artifactCompiled seed tape pureGradient = do
   let forwards = LayerGraph.layerTapeLayers tape
       gradients = layerGraphLayerGradients pureGradient
+      upstreams = perNodeUpstreams seed gradients
   if length forwards /= length gradients
     then pure (Left "layergraph-onednn: tape/gradient layer count mismatch")
     else do
       results <-
         traverse
-          (uncurry (deviceLayerGradient functions backendName artifactPath artifactCompiled))
-          (zip forwards gradients)
+          ( \(up, fwd, gr) ->
+              deviceLayerGradient functions backendName artifactPath artifactCompiled up fwd gr
+          )
+          (zip3 upstreams forwards gradients)
       pure $ do
         pairs <- sequence results
         let deviceGradients = fmap fst pairs
@@ -684,57 +738,29 @@ deviceLayerGradient
   -> Text
   -> Text
   -> Bool
+  -> Vector Double
+  -- ^ upstream: gradient of the loss w.r.t. this node's output
   -> LayerForward
   -> LayerGradient
   -> IO (Either Text (LayerGradient, Maybe LayerGraphOneDnnEvidence))
-deviceLayerGradient functions backendName artifactPath artifactCompiled forward pureGradient =
+deviceLayerGradient functions backendName artifactPath artifactCompiled upstream forward pureGradient =
   case (layerParameters node, layerGradientParameters pureGradient) of
     (Nothing, Nothing) -> pure (Right (pureGradient, Nothing))
-    (Just params, Just paramGradient) -> do
-      let input = layerForwardInput forward
-          transformedInput =
-            input
-          dPre = layerGradBias paramGradient
-          inputs = VU.length transformedInput
-          outputs = VU.length dPre
-          kindCode = layerKindCode (layerNodeKind node)
-      result <-
-        runDeviceLayer functions kindCode params transformedInput dPre inputs outputs 1
-      case result of
-        Left err -> pure (Left err)
-        Right (preActivation, transformedInputGradient, weightGradient, biasGradient)
-          | VU.length preActivation /= VU.length (layerForwardPreActivation forward) ->
-              pure
-                ( Left
-                    ("layergraph-onednn: forward output length mismatch for " <> layerNodeName node)
+    (Just params, Just paramGradient) ->
+      case LayerGraph.layerNodeOp node of
+        LayerGraph.DenseOp -> denseSingle params paramGradient
+        LayerGraph.ConvOp spec
+          | is2DConv spec -> convSingle spec params
+        LayerGraph.BlockOp _ -> blockSingle
+        op
+          | isGenericDeviceOp op -> genericSingle
+        _ ->
+          pure
+            ( Left
+                ( "layergraph-onednn: operator not supported on device: "
+                    <> LayerGraph.layerKindName (layerNodeKind node)
                 )
-          | otherwise -> do
-              evidence <-
-                mkEvidence
-                  functions
-                  backendName
-                  artifactPath
-                  artifactCompiled
-                  node
-                  kindCode
-              let deviceInputGradient =
-                    if isResidualKind (layerNodeKind node)
-                      then layerGradientInput pureGradient
-                      else transformedInputGradient
-                  deviceParamGradient =
-                    LayerParameterGradient
-                      { layerGradWeights = weightGradient
-                      , layerGradBias = biasGradient
-                      }
-              pure
-                ( Right
-                    ( pureGradient
-                        { layerGradientInput = deviceInputGradient
-                        , layerGradientParameters = Just deviceParamGradient
-                        }
-                    , Just evidence
-                    )
-                )
+            )
     _ ->
       pure
         ( Left
@@ -744,6 +770,82 @@ deviceLayerGradient functions backendName artifactPath artifactCompiled forward 
         )
  where
   node = layerForwardNode forward
+  input = layerForwardInput forward
+  finish evidenceCode dInput dW dB = do
+    evidence <- mkEvidence functions backendName artifactPath artifactCompiled node evidenceCode
+    pure
+      ( Right
+          ( pureGradient
+              { layerGradientInput = dInput
+              , layerGradientParameters =
+                  Just (LayerParameterGradient {layerGradWeights = dW, layerGradBias = dB})
+              }
+          , Just evidence
+          )
+      )
+  -- Existing dense flat path (unchanged): seeds the device backward with the
+  -- pure oracle's pre-activation gradient (== bias gradient for a dense op) and
+  -- dispatches on the coarse layer-kind tag, preserving Tier-1 fixture evidence.
+  denseSingle params paramGradient = do
+    let dPre = layerGradBias paramGradient
+        inputs = VU.length input
+        outputs = VU.length dPre
+        kindCode = layerKindCode (layerNodeKind node)
+    result <- runDeviceLayer functions kindCode params input dPre inputs outputs 1
+    case result of
+      Left err -> pure (Left err)
+      Right (preActivation, transformedInputGradient, weightGradient, biasGradient)
+        | VU.length preActivation /= VU.length (layerForwardPreActivation forward) ->
+            pure
+              ( Left
+                  ("layergraph-onednn: forward output length mismatch for " <> layerNodeName node)
+              )
+        | otherwise ->
+            finish
+              kindCode
+              ( if isResidualKind (layerNodeKind node)
+                  then layerGradientInput pureGradient
+                  else transformedInputGradient
+              )
+              weightGradient
+              biasGradient
+  -- Real spatial convolution: differentiate the node activation on the host to
+  -- recover the pre-activation gradient, then run the oneDNN spatial conv
+  -- forward/backward-data/backward-weights.
+  convSingle spec params = do
+    let dPre = activationBackwardLocal (layerActivation node) (layerForwardOutput forward) upstream
+    result <- runDeviceSpatialConv functions spec params input dPre
+    case result of
+      Left err -> pure (Left err)
+      Right (_out, dx, dw, db) -> finish 1 dx dw db
+  -- GeGLU / Norm / Attention / Patch / Residual: one unified device kernel per
+  -- operator driven by the true upstream output gradient; dW/dB come back in the
+  -- operator's packed segment order.
+  genericSingle = do
+    result <- runDeviceOp functions node input upstream
+    case result of
+      Left err -> pure (Left err)
+      Right (out, dx, dw, db)
+        | VU.length out /= VU.length (layerForwardPreActivation forward) ->
+            pure
+              ( Left
+                  ("layergraph-onednn: forward output length mismatch for " <> layerNodeName node)
+              )
+        | otherwise -> finish (deviceOpEvidenceCode (LayerGraph.layerNodeOp node)) dx dw db
+  -- BasicBlock / Bottleneck: composed on-device from the dense-affine and norm
+  -- sub-kernels ('runDeviceBlock'); dW/dB come back in the block's packed
+  -- 'opWeightSegments'/'opBiasSegments' order.
+  blockSingle = do
+    result <- runDeviceBlock functions node input upstream
+    case result of
+      Left err -> pure (Left err)
+      Right (out, dx, dw, db)
+        | VU.length out /= VU.length (layerForwardPreActivation forward) ->
+            pure
+              ( Left
+                  ("layergraph-onednn: forward output length mismatch for " <> layerNodeName node)
+              )
+        | otherwise -> finish (deviceOpEvidenceCode (LayerGraph.layerNodeOp node)) dx dw db
 
 -- | Batched analogue of 'deviceGradient': transposes N per-example tapes/pure
 -- gradients into per-layer bundles and takes one batched device call per layer.
@@ -754,18 +856,22 @@ deviceGradientBatch
   -> Text
   -> Text
   -> Bool
+  -> [Vector Double]
+  -- ^ per-example loss seeds (aligned with @pairs@)
   -> [(LayerGraphTape, LayerGraphGradient)]
   -> IO (Either Text (LayerGraphGradient, [LayerGraphOneDnnEvidence]))
-deviceGradientBatch _ _ _ _ [] = pure (Left "layergraph-onednn: empty batch")
-deviceGradientBatch functions backendName artifactPath artifactCompiled pairs@(pair0 : _)
+deviceGradientBatch _ _ _ _ _ [] = pure (Left "layergraph-onednn: empty batch")
+deviceGradientBatch functions backendName artifactPath artifactCompiled seeds pairs@(pair0 : _)
   | any ((/= layerCount) . length) forwardsN
       || any ((/= layerCount) . length) gradsN =
       pure (Left "layergraph-onednn: tape/gradient layer count mismatch")
   | otherwise = do
       results <-
         traverse
-          (uncurry (deviceLayerGradientBatch functions backendName artifactPath artifactCompiled))
-          (zip (transpose forwardsN) (transpose gradsN))
+          ( \(ups, fwds, grs) ->
+              deviceLayerGradientBatch functions backendName artifactPath artifactCompiled ups fwds grs
+          )
+          (zip3 (transpose upstreamsN) (transpose forwardsN) (transpose gradsN))
       pure $ do
         summedLayers <- sequence results
         let deviceLayers = fmap fst summedLayers
@@ -783,66 +889,56 @@ deviceGradientBatch functions backendName artifactPath artifactCompiled pairs@(p
  where
   forwardsN = fmap (LayerGraph.layerTapeLayers . fst) pairs
   gradsN = fmap (layerGraphLayerGradients . snd) pairs
+  upstreamsN = zipWith perNodeUpstreams seeds gradsN
   layerCount = length (LayerGraph.layerTapeLayers (fst pair0))
   template = snd pair0
 
 -- | Batched analogue of 'deviceLayerGradient' for one layer over N examples.
--- Parameter gradients (weights/bias) are summed over the batch inside oneDNN;
--- input gradients are summed on the host in ascending example order.
+-- The dense flat path takes one batched oneDNN call (@backward_weights@ sums the
+-- parameter gradient over the batch). The correct-operator paths (spatial conv,
+-- GeGLU/Norm/Attention/Patch/Residual) fold the single-example device kernel over
+-- the batch, summing parameter and input gradients in ascending example order.
 deviceLayerGradientBatch
   :: LayerGraphOneDnnFunctions
   -> Text
   -> Text
   -> Bool
+  -> [Vector Double]
+  -- ^ per-example upstream output gradients (aligned with @forwards@)
   -> [LayerForward]
   -> [LayerGradient]
   -> IO (Either Text (LayerGradient, Maybe LayerGraphOneDnnEvidence))
-deviceLayerGradientBatch _ _ _ _ [] _ =
+deviceLayerGradientBatch _ _ _ _ _ [] _ =
   pure (Left "layergraph-onednn: empty layer batch")
-deviceLayerGradientBatch _ _ _ _ _ [] =
+deviceLayerGradientBatch _ _ _ _ _ _ [] =
   pure (Left "layergraph-onednn: empty layer batch")
-deviceLayerGradientBatch functions backendName artifactPath artifactCompiled forwards@(forward0 : _) grads@(template : _) =
+deviceLayerGradientBatch functions backendName artifactPath artifactCompiled upstreams forwards@(forward0 : _) grads@(template : _) =
   case (layerParameters node, layerGradientParameters template) of
     (Nothing, Nothing) ->
       pure (Right (template {layerGradientInput = summedPureInput}, Nothing))
-    (Just params, Just paramGradient) -> do
-      let inputs = VU.length (layerForwardInput forward0)
-          outputs = VU.length (layerGradBias paramGradient)
-          kindCode = layerKindCode (layerNodeKind node)
-          inputFlat = VU.concat (fmap layerForwardInput forwards)
-          dPreFlat = VU.concat [layerGradBias pg | Just pg <- fmap layerGradientParameters grads]
-      result <-
-        runDeviceLayer functions kindCode params inputFlat dPreFlat inputs outputs batchN
-      case result of
-        Left err -> pure (Left err)
-        Right (preActivation, transformedInputGradient, weightGradient, biasGradient)
-          | VU.length preActivation
-              /= batchN * VU.length (layerForwardPreActivation forward0) ->
-              pure
-                ( Left
-                    ("layergraph-onednn: forward output length mismatch for " <> layerNodeName node)
+    (Just params, Just paramGradient) ->
+      case LayerGraph.layerNodeOp node of
+        LayerGraph.DenseOp -> denseBatch params paramGradient
+        LayerGraph.ConvOp spec
+          | is2DConv spec ->
+              foldExamples 1 $ \fwd up ->
+                let dPre =
+                      activationBackwardLocal (layerActivation node) (layerForwardOutput fwd) up
+                 in fmap (fmap dropForward) (runDeviceSpatialConv functions spec params (layerForwardInput fwd) dPre)
+        LayerGraph.BlockOp _ ->
+          foldExamples (deviceOpEvidenceCode (LayerGraph.layerNodeOp node)) $ \fwd up ->
+            fmap (fmap dropForward) (runDeviceBlock functions (layerForwardNode fwd) (layerForwardInput fwd) up)
+        op
+          | isGenericDeviceOp op ->
+              foldExamples (deviceOpEvidenceCode op) $ \fwd up ->
+                fmap (fmap dropForward) (runDeviceOp functions node (layerForwardInput fwd) up)
+        _ ->
+          pure
+            ( Left
+                ( "layergraph-onednn: operator not supported on device (batched): "
+                    <> LayerGraph.layerKindName (layerNodeKind node)
                 )
-          | otherwise -> do
-              evidence <-
-                mkEvidence functions backendName artifactPath artifactCompiled node kindCode
-              let deviceInputGradient =
-                    if isResidualKind (layerNodeKind node)
-                      then summedPureInput
-                      else sumRows batchN inputs transformedInputGradient
-                  deviceParamGradient =
-                    LayerParameterGradient
-                      { layerGradWeights = weightGradient
-                      , layerGradBias = biasGradient
-                      }
-              pure
-                ( Right
-                    ( template
-                        { layerGradientInput = deviceInputGradient
-                        , layerGradientParameters = Just deviceParamGradient
-                        }
-                    , Just evidence
-                    )
-                )
+            )
     _ ->
       pure
         ( Left
@@ -852,6 +948,78 @@ deviceLayerGradientBatch functions backendName artifactPath artifactCompiled for
   node = layerForwardNode forward0
   batchN = length forwards
   summedPureInput = sumVecs (fmap layerGradientInput grads)
+  dropForward (_out, dx, dw, db) = (dx, dw, db)
+  -- Existing dense flat path: one concatenated batched device round-trip.
+  denseBatch params paramGradient = do
+    let inputs = VU.length (layerForwardInput forward0)
+        outputs = VU.length (layerGradBias paramGradient)
+        kindCode = layerKindCode (layerNodeKind node)
+        inputFlat = VU.concat (fmap layerForwardInput forwards)
+        dPreFlat = VU.concat [layerGradBias pg | Just pg <- fmap layerGradientParameters grads]
+    result <- runDeviceLayer functions kindCode params inputFlat dPreFlat inputs outputs batchN
+    case result of
+      Left err -> pure (Left err)
+      Right (preActivation, transformedInputGradient, weightGradient, biasGradient)
+        | VU.length preActivation /= batchN * VU.length (layerForwardPreActivation forward0) ->
+            pure
+              ( Left
+                  ("layergraph-onednn: forward output length mismatch for " <> layerNodeName node)
+              )
+        | otherwise -> do
+            evidence <- mkEvidence functions backendName artifactPath artifactCompiled node kindCode
+            let deviceInputGradient =
+                  if isResidualKind (layerNodeKind node)
+                    then summedPureInput
+                    else sumRows batchN inputs transformedInputGradient
+            pure
+              ( Right
+                  ( template
+                      { layerGradientInput = deviceInputGradient
+                      , layerGradientParameters =
+                          Just (LayerParameterGradient weightGradient biasGradient)
+                      }
+                  , Just evidence
+                  )
+              )
+  -- Correct-operator path: fold the single-example device kernel over the batch.
+  foldExamples evCode runOne = do
+    folded <- foldDeviceExamples runOne forwards upstreams
+    case folded of
+      Left err -> pure (Left err)
+      Right (dxSum, dwSum, dbSum) -> do
+        evidence <- mkEvidence functions backendName artifactPath artifactCompiled node evCode
+        pure
+          ( Right
+              ( template
+                  { layerGradientInput = dxSum
+                  , layerGradientParameters = Just (LayerParameterGradient dwSum dbSum)
+                  }
+              , Just evidence
+              )
+          )
+
+-- | Fold a single-example device operator kernel over a batch, summing the
+-- @(dInput, dWeights, dBias)@ triples in ascending example order.
+foldDeviceExamples
+  :: (LayerForward -> Vector Double -> IO (Either Text (Vector Double, Vector Double, Vector Double)))
+  -> [LayerForward]
+  -> [Vector Double]
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double))
+foldDeviceExamples runOne forwards upstreams = go (zip forwards upstreams) Nothing
+ where
+  go [] Nothing = pure (Left "layergraph-onednn: empty layer batch")
+  go [] (Just acc) = pure (Right acc)
+  go ((fwd, up) : rest) macc = do
+    result <- runOne fwd up
+    case result of
+      Left err -> pure (Left err)
+      Right (dx, dw, db) ->
+        let acc' =
+              case macc of
+                Nothing -> (dx, dw, db)
+                Just (dxS, dwS, dbS) ->
+                  (VU.zipWith (+) dxS dx, VU.zipWith (+) dwS dw, VU.zipWith (+) dbS db)
+         in go rest (Just acc')
 
 -- | Fixed-order component-wise sum of equal-length vectors (empty when no input).
 sumVecs :: [Vector Double] -> Vector Double
@@ -1045,6 +1213,480 @@ applyConvBackwardWeights
 applyConvBackwardWeights f gw gb dpre i (ci, co, h, w, kh, kw, sh, sw, ph, pw, n) =
   f gw gb dpre i ci co h w kh kw sh sw ph pw n
 
+-- ---------------------------------------------------------------------------
+-- Phase 241 — correct-operator device dispatch helpers
+-- ---------------------------------------------------------------------------
+
+-- | Per-node upstream output gradients recovered from the pure per-layer
+-- gradients plus the loss seed: the upstream of node @i@ is the input gradient
+-- of node @i+1@, and the last node's upstream is the loss seed.
+perNodeUpstreams :: Vector Double -> [LayerGradient] -> [Vector Double]
+perNodeUpstreams seed grads =
+  case grads of
+    [] -> []
+    (_ : rest) -> fmap layerGradientInput rest ++ [seed]
+
+-- | The operator has a real 2-D spatial convolution device kernel.
+is2DConv :: LayerGraph.ConvSpec -> Bool
+is2DConv spec = length (LayerGraph.convInputDims spec) == 2
+
+-- | The operator is driven by the unified 'jitml_op_train' device kernel.
+isGenericDeviceOp :: LayerGraph.LayerOp -> Bool
+isGenericDeviceOp op =
+  case op of
+    LayerGraph.NormOp _ -> True
+    LayerGraph.GeGLUOp _ -> True
+    LayerGraph.AttentionOp _ -> True
+    LayerGraph.PatchOp _ -> True
+    LayerGraph.ResidualOp {} -> True
+    _ -> False
+
+-- | Descriptive evidence kind code for a correct-operator device kernel (maps to
+-- the generated primitive-name reporter). Conv uses the conv2d code (1).
+deviceOpEvidenceCode :: LayerGraph.LayerOp -> CInt
+deviceOpEvidenceCode op =
+  case op of
+    LayerGraph.ConvOp _ -> 1
+    LayerGraph.NormOp _ -> 3
+    LayerGraph.GeGLUOp _ -> 4
+    LayerGraph.AttentionOp _ -> 5
+    LayerGraph.PatchOp _ -> 6
+    LayerGraph.ResidualOp {} -> 7
+    LayerGraph.BlockOp _ -> 7
+    _ -> 0
+
+-- | Host mirror of 'LayerGraph.activationBackward' (used to differentiate the
+-- convolution node activation before the spatial-conv device backward).
+activationBackwardLocal :: LayerActivation -> Vector Double -> Vector Double -> Vector Double
+activationBackwardLocal LinearActivation _ up = up
+activationBackwardLocal TanhActivation activated up =
+  VU.zipWith (\a u -> (1.0 - a * a) * u) activated up
+activationBackwardLocal ReluActivation activated up =
+  VU.zipWith (\a u -> if a > 0.0 then u else 0.0) activated up
+activationBackwardLocal SoftmaxActivation activated up =
+  let d = VU.sum (VU.zipWith (*) activated up)
+   in VU.zipWith (\a u -> a * (u - d)) activated up
+
+-- | Integer activation code shared with the generated 'jitml_op_train' kernel
+-- (0 linear, 1 tanh, 2 relu). Softmax activation is not supported inside a
+-- device residual composition.
+activationCode :: LayerActivation -> Either Text Int
+activationCode LinearActivation = Right 0
+activationCode TanhActivation = Right 1
+activationCode ReluActivation = Right 2
+activationCode SoftmaxActivation =
+  Left "layergraph-onednn: softmax activation unsupported in device residual"
+
+data DeviceOpPlan = DeviceOpPlan
+  { dopCode :: !CInt
+  , dopGeom :: ![Int]
+  , dopFparams :: ![Double]
+  , dopOutLen :: !Int
+  }
+
+-- | Build the 'jitml_op_train' invocation plan (opcode, integer geometry, float
+-- params, output length) for a correct operator from its verified spec plus the
+-- node activation (used as the residual final activation).
+deviceOpPlan :: LayerGraph.LayerOp -> LayerActivation -> Int -> Either Text DeviceOpPlan
+deviceOpPlan op nodeAct inputLen =
+  case op of
+    LayerGraph.NormOp spec ->
+      let (flavorCode, groups) =
+            case LayerGraph.nFlavor spec of
+              LayerGraph.NormBatch -> (0, 1)
+              LayerGraph.NormLayerWise -> (1, 1)
+              LayerGraph.NormGroup g -> (2, g)
+       in Right
+            DeviceOpPlan
+              { dopCode = 11
+              , dopGeom =
+                  [flavorCode, LayerGraph.nChannels spec, LayerGraph.nSpatial spec, groups]
+              , dopFparams = [LayerGraph.nEps spec]
+              , dopOutLen = inputLen
+              }
+    LayerGraph.GeGLUOp spec ->
+      Right
+        DeviceOpPlan
+          { dopCode = 10
+          , dopGeom = [LayerGraph.ggIn spec, LayerGraph.ggFf spec, LayerGraph.ggOut spec]
+          , dopFparams = []
+          , dopOutLen = LayerGraph.ggOut spec
+          }
+    LayerGraph.AttentionOp spec ->
+      Right
+        DeviceOpPlan
+          { dopCode = 13
+          , dopGeom =
+              [ LayerGraph.attnSeqLen spec
+              , LayerGraph.attnEmbedDim spec
+              , LayerGraph.attnNumHeads spec
+              , if LayerGraph.attnCausal spec then 1 else 0
+              ]
+          , dopFparams = []
+          , dopOutLen = LayerGraph.attnSeqLen spec * LayerGraph.attnEmbedDim spec
+          }
+    LayerGraph.PatchOp spec ->
+      let nY = (LayerGraph.peH spec - LayerGraph.peP spec) `div` LayerGraph.peStride spec + 1
+          nX = (LayerGraph.peW spec - LayerGraph.peP spec) `div` LayerGraph.peStride spec + 1
+       in Right
+            DeviceOpPlan
+              { dopCode = 12
+              , dopGeom =
+                  [ LayerGraph.peC spec
+                  , LayerGraph.peH spec
+                  , LayerGraph.peW spec
+                  , LayerGraph.peP spec
+                  , LayerGraph.peStride spec
+                  , LayerGraph.peD spec
+                  ]
+              , dopFparams = []
+              , dopOutLen = nY * nX * LayerGraph.peD spec
+              }
+    LayerGraph.ResidualOp inner shortcut scale innerAct -> do
+      innerCode <- activationCode innerAct
+      finalCode <- activationCode nodeAct
+      let hasProj =
+            case shortcut of
+              LayerGraph.ProjectionShortcut _ -> 1
+              LayerGraph.IdentityShortcut -> 0
+      Right
+        DeviceOpPlan
+          { dopCode = 14
+          , dopGeom =
+              [LayerGraph.asIn inner, LayerGraph.asOut inner, hasProj, innerCode, finalCode]
+          , dopFparams = [scale]
+          , dopOutLen = LayerGraph.asOut inner
+          }
+    _ -> Left "layergraph-onednn: deviceOpPlan: unsupported operator"
+
+-- | Run a correct operator's forward + backward on the oneDNN device via the
+-- unified 'jitml_op_train' kernel, returning @(out, dInput, dWeights, dBias)@
+-- with dWeights/dBias in the operator's packed segment order. This is the device
+-- counterpart of the pure per-op oracle (@gegluBackward@ / @normBackward@ /
+-- @attentionBackward@ / @patchBackward@ / @residualBackward@) it is validated
+-- against within float32 tolerance. @upstream@ is the gradient w.r.t. the node
+-- output (single example).
+runDeviceOp
+  :: LayerGraphOneDnnFunctions
+  -> LayerNode
+  -> Vector Double
+  -> Vector Double
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runDeviceOp functions node input upstream =
+  case layerParameters node of
+    Nothing -> pure (Left ("runDeviceOp: " <> layerNodeName node <> " has no parameters"))
+    Just params ->
+      case deviceOpPlan (LayerGraph.layerNodeOp node) (layerActivation node) inLen of
+        Left err -> pure (Left err)
+        Right plan
+          | VU.length upstream /= dopOutLen plan ->
+              pure (Left "runDeviceOp: upstream length does not match operator output width")
+          | VU.length (layerWeights params) /= wLen ->
+              pure (Left "runDeviceOp: weight length does not match operator segment layout")
+          | VU.length (layerBias params) /= bLen ->
+              pure (Left "runDeviceOp: bias length does not match operator segment layout")
+          | otherwise ->
+              let outLen = dopOutLen plan
+               in withArray (fmap fromIntegral (dopGeom plan) :: [CInt]) $ \geomPtr ->
+                    withArray (toC (dopFparams plan)) $ \fPtr ->
+                      withArray (toC (VU.toList input)) $ \xPtr ->
+                        withArray (toC (VU.toList (layerWeights params))) $ \wPtr ->
+                          withArray (toC (VU.toList (layerBias params))) $ \bPtr ->
+                            withArray (toC (VU.toList upstream)) $ \dyPtr ->
+                              allocaArray outLen $ \outPtr ->
+                                allocaArray inLen $ \dxPtr ->
+                                  allocaArray (max 1 wLen) $ \dwPtr ->
+                                    allocaArray (max 1 bLen) $ \dbPtr -> do
+                                      lgOpTrain
+                                        functions
+                                        (dopCode plan)
+                                        geomPtr
+                                        (fromIntegral (length (dopGeom plan)))
+                                        fPtr
+                                        (fromIntegral (length (dopFparams plan)))
+                                        outPtr
+                                        dxPtr
+                                        dwPtr
+                                        dbPtr
+                                        xPtr
+                                        wPtr
+                                        bPtr
+                                        dyPtr
+                                        (fromIntegral inLen)
+                                        (fromIntegral outLen)
+                                        (fromIntegral wLen)
+                                        (fromIntegral bLen)
+                                      out <- VU.fromList <$> peekFloats outLen outPtr
+                                      dx <- VU.fromList <$> peekFloats inLen dxPtr
+                                      dw <- VU.fromList <$> peekFloats wLen dwPtr
+                                      dbv <- VU.fromList <$> peekFloats bLen dbPtr
+                                      pure (Right (out, dx, dw, dbv))
+ where
+  inLen = VU.length input
+  wLen = sum (LayerGraph.opWeightSegments (LayerGraph.layerNodeOp node))
+  bLen = sum (LayerGraph.opBiasSegments (LayerGraph.layerNodeOp node))
+
+-- | Phase 241/242 — @BasicBlock@ / @Bottleneck@ device backward composed from the
+-- existing device sub-kernels: the dense-affine forward/backward
+-- ('runDeviceForwardOnly' / 'runDeviceLayer', kind code 0) and the norm
+-- 'jitml_op_train' opcode-11 kernel (via 'runDeviceOp' on a synthetic norm node).
+-- Returns @(out, dInput, dWeights, dBias)@ with dWeights/dBias in the block's
+-- packed 'LayerGraph.opWeightSegments' / 'opBiasSegments' order, matching the pure
+-- 'LayerGraph.blockBackward' oracle within float32 tolerance. Every matmul and
+-- normalization runs on the device; only the elementwise glue (activation
+-- derivative, residual scale, and the skip/branch add) runs on the host — the same
+-- split the spatial-conv node already uses. There is no single-plan
+-- 'jitml_op_train' opcode for a block: it is a composition, so 'deviceOpPlan'
+-- deliberately stays "unsupported" for @BlockOp@ and this path is taken instead.
+runDeviceBlock
+  :: LayerGraphOneDnnFunctions
+  -> LayerNode
+  -> Vector Double
+  -- ^ block input @x@
+  -> Vector Double
+  -- ^ upstream: gradient of the loss w.r.t. the block output @y@
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runDeviceBlock functions node input upstream =
+  case (LayerGraph.layerNodeOp node, layerParameters node) of
+    (LayerGraph.BlockOp spec, Just params) ->
+      case blockDeviceParts spec params of
+        Left err -> pure (Left err)
+        Right (stageParts, shortcutPart) ->
+          runBlockDevice
+            functions
+            (layerActivation node)
+            (LayerGraph.blScale spec)
+            stageParts
+            shortcutPart
+            input
+            upstream
+    (LayerGraph.BlockOp _, Nothing) ->
+      pure (Left (layerNodeName node <> ": block requires parameters"))
+    _ -> pure (Left "runDeviceBlock: node operator is not a BlockOp")
+
+-- | One block stage's device-ready parameter split: the dense-affine weights/bias
+-- and dimensions, an optional (norm spec, gamma/beta) pair, and the stage
+-- activation.
+data DeviceStagePart = DeviceStagePart
+  { dspAffine :: !LayerParameters
+  , dspAffIn :: !Int
+  , dspAffOut :: !Int
+  , dspNorm :: !(Maybe (LayerGraph.NormSpec, LayerParameters))
+  , dspAct :: !LayerActivation
+  }
+
+-- | Per-stage forward tape kept for the backward pass: the stage input @x_i@, the
+-- affine pre-activation @z_i@ (norm input), and the activated stage output.
+data DeviceStageTape = DeviceStageTape
+  { dstInput :: !(Vector Double)
+  , dstAffineOut :: !(Vector Double)
+  , dstOutput :: !(Vector Double)
+  }
+
+-- | 'Nothing' is an identity shortcut; @'Just' (inWidth, outWidth, projection)@ is
+-- a projection shortcut with its own dense affine parameters.
+type DeviceShortcut = Maybe (Int, Int, LayerParameters)
+
+-- | Split a block node's packed weights/bias into per-stage device parts plus the
+-- shortcut part, in the exact 'LayerGraph.opWeightSegments' /
+-- 'LayerGraph.opBiasSegments' (@BlockOp spec@) order.
+blockDeviceParts
+  :: LayerGraph.BlockSpec
+  -> LayerParameters
+  -> Either Text ([DeviceStagePart], DeviceShortcut)
+blockDeviceParts spec params = do
+  let stages = LayerGraph.blStages spec
+      shortcut = LayerGraph.blShortcut spec
+      wLens = concatMap stageWeightLens stages <> shortcutWeightLens shortcut
+      bLens = concatMap stageBiasLens stages <> shortcutBiasLens shortcut
+      wSegs = splitDeviceSegs wLens (layerWeights params)
+      bSegs = splitDeviceSegs bLens (layerBias params)
+  (parts, wRest, bRest) <- consumeStages stages wSegs bSegs
+  shortcutPart <- buildDeviceShortcut shortcut wRest bRest
+  pure (parts, shortcutPart)
+ where
+  stageWeightLens st =
+    (LayerGraph.asOut (LayerGraph.bsAffine st) * LayerGraph.asIn (LayerGraph.bsAffine st))
+      : maybe [] (\n -> [LayerGraph.nChannels n]) (LayerGraph.bsNorm st)
+  stageBiasLens st =
+    LayerGraph.asOut (LayerGraph.bsAffine st)
+      : maybe [] (\n -> [LayerGraph.nChannels n]) (LayerGraph.bsNorm st)
+  shortcutWeightLens sc =
+    case sc of
+      LayerGraph.IdentityShortcut -> []
+      LayerGraph.ProjectionShortcut a -> [LayerGraph.asOut a * LayerGraph.asIn a]
+  shortcutBiasLens sc =
+    case sc of
+      LayerGraph.IdentityShortcut -> []
+      LayerGraph.ProjectionShortcut a -> [LayerGraph.asOut a]
+  consumeStages [] wSegs bSegs = Right ([], wSegs, bSegs)
+  consumeStages (st : sts) wSegs bSegs =
+    case (wSegs, bSegs) of
+      (wAff : wRest0, bAff : bRest0) -> do
+        let affParams = LayerParameters wAff bAff
+            aff = LayerGraph.bsAffine st
+        (normInfo, wRest1, bRest1) <-
+          case LayerGraph.bsNorm st of
+            Nothing -> Right (Nothing, wRest0, bRest0)
+            Just nspec ->
+              case (wRest0, bRest0) of
+                (wGamma : wR, bBeta : bR) ->
+                  Right (Just (nspec, LayerParameters wGamma bBeta), wR, bR)
+                _ -> Left "runDeviceBlock: missing block-stage norm parameters"
+        (rest, wFinal, bFinal) <- consumeStages sts wRest1 bRest1
+        Right
+          ( DeviceStagePart
+              affParams
+              (LayerGraph.asIn aff)
+              (LayerGraph.asOut aff)
+              normInfo
+              (LayerGraph.bsAct st)
+              : rest
+          , wFinal
+          , bFinal
+          )
+      _ -> Left "runDeviceBlock: missing block-stage affine parameters"
+  buildDeviceShortcut LayerGraph.IdentityShortcut _ _ = Right Nothing
+  buildDeviceShortcut (LayerGraph.ProjectionShortcut a) wSegs bSegs =
+    case (wSegs, bSegs) of
+      (w : _, b : _) -> Right (Just (LayerGraph.asIn a, LayerGraph.asOut a, LayerParameters w b))
+      _ -> Left "runDeviceBlock: missing projection-shortcut parameters"
+
+splitDeviceSegs :: [Int] -> Vector Double -> [Vector Double]
+splitDeviceSegs lens v = go 0 lens
+ where
+  go _ [] = []
+  go off (n : rest) = VU.slice off n v : go (off + n) rest
+
+-- | Forward through the block on device, then backward in reverse, matching the
+-- pure 'LayerGraph.blockForward' / 'blockBackward' composition exactly.
+runBlockDevice
+  :: LayerGraphOneDnnFunctions
+  -> LayerActivation
+  -> Double
+  -> [DeviceStagePart]
+  -> DeviceShortcut
+  -> Vector Double
+  -> Vector Double
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runBlockDevice functions finalAct scale stageParts shortcutPart input upstream =
+  bindE (forwardStages stageParts input) $ \(tapes, u) ->
+    bindE (shortcutForward shortcutPart input) $ \sx ->
+      if VU.length sx /= VU.length u
+        then pure (Left "runDeviceBlock: shortcut/branch width mismatch")
+        else do
+          let ypre = VU.zipWith (\p q -> p + scale * q) sx u
+              y = applyActivation finalAct ypre
+              d = activationBackwardLocal finalAct y upstream
+              du = VU.map (* scale) d
+          bindE (backwardStages stageParts tapes du) $ \(dxBranch, stageWGrads, stageBGrads) ->
+            bindE (shortcutBackward shortcutPart input d) $ \(dxShort, shortWGrads, shortBGrads) ->
+              let dInput = VU.zipWith (+) dxBranch dxShort
+                  dWeights = VU.concat (stageWGrads <> shortWGrads)
+                  dBias = VU.concat (stageBGrads <> shortBGrads)
+               in pure (Right (y, dInput, dWeights, dBias))
+ where
+  forwardStages parts x0 = go parts x0 []
+   where
+    go [] x acc = pure (Right (reverse acc, x))
+    go (p : ps) x acc =
+      bindE (deviceAffineForward functions (dspAffine p) x (dspAffIn p) (dspAffOut p)) $ \z ->
+        case dspNorm p of
+          Nothing ->
+            let out = applyActivation (dspAct p) z
+             in go ps out (DeviceStageTape x z out : acc)
+          Just (nspec, nparams) ->
+            bindE (deviceNormForward functions nspec nparams z) $ \zn ->
+              let out = applyActivation (dspAct p) zn
+               in go ps out (DeviceStageTape x z out : acc)
+  -- Reverse-thread the incoming gradient (last stage first); prepend each stage's
+  -- gradients so the accumulators end in forward (packed-segment) order.
+  backwardStages parts tapes du = goRev (reverse (zip parts tapes)) du [] []
+   where
+    goRev [] dIn wAcc bAcc = pure (Right (dIn, wAcc, bAcc))
+    goRev ((p, tape) : rest) dIn wAcc bAcc =
+      bindE (stageBackward p tape dIn) $ \(dPrev, wGrad, bGrad) ->
+        goRev rest dPrev (wGrad : wAcc) (bGrad : bAcc)
+  stageBackward p tape dIn =
+    let dActPre = activationBackwardLocal (dspAct p) (dstOutput tape) dIn
+     in case dspNorm p of
+          Nothing ->
+            bindE
+              (deviceAffineBackward functions (dspAffine p) (dstInput tape) dActPre (dspAffIn p) (dspAffOut p))
+              (\(dx, dW, dB) -> pure (Right (dx, dW, dB)))
+          Just (nspec, nparams) ->
+            bindE (deviceNormBackward functions nspec nparams (dstAffineOut tape) dActPre) $ \(dz, dGamma, dBeta) ->
+              bindE
+                (deviceAffineBackward functions (dspAffine p) (dstInput tape) dz (dspAffIn p) (dspAffOut p))
+                (\(dx, dW, dB) -> pure (Right (dx, VU.concat [dW, dGamma], VU.concat [dB, dBeta])))
+  shortcutForward Nothing x = pure (Right x)
+  shortcutForward (Just (sIn, sOut, projParams)) x =
+    deviceAffineForward functions projParams x sIn sOut
+  shortcutBackward Nothing _ d = pure (Right (d, [], []))
+  shortcutBackward (Just (sIn, sOut, projParams)) x d =
+    bindE
+      (deviceAffineBackward functions projParams x d sIn sOut)
+      (\(dx, dW, dB) -> pure (Right (dx, [dW], [dB])))
+
+-- | Short-circuiting bind for the @IO (Either Text a)@ device-call pipeline.
+bindE :: IO (Either Text a) -> (a -> IO (Either Text b)) -> IO (Either Text b)
+bindE m f = m >>= either (pure . Left) f
+
+-- | Device linear affine forward @z = W x + b@ (kind code 0).
+deviceAffineForward
+  :: LayerGraphOneDnnFunctions
+  -> LayerParameters
+  -> Vector Double
+  -> Int
+  -> Int
+  -> IO (Either Text (Vector Double))
+deviceAffineForward functions =
+  runDeviceForwardOnly functions 0
+
+-- | Device linear affine backward given the pre-activation gradient @dPre@:
+-- @(dInput = Wᵀ dPre, dW = dPre ⊗ x, dB = dPre)@ (single example).
+deviceAffineBackward
+  :: LayerGraphOneDnnFunctions
+  -> LayerParameters
+  -> Vector Double
+  -> Vector Double
+  -> Int
+  -> Int
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double))
+deviceAffineBackward functions params x dPre inW outW = do
+  result <- runDeviceLayer functions 0 params x dPre inW outW 1
+  pure (fmap (\(_pre, dx, dW, dB) -> (dx, dW, dB)) result)
+
+-- | Device norm forward (@out = norm(z)@) via the opcode-11 kernel with a zero
+-- upstream; the backward outputs are ignored on the forward pass.
+deviceNormForward
+  :: LayerGraphOneDnnFunctions
+  -> LayerGraph.NormSpec
+  -> LayerParameters
+  -> Vector Double
+  -> IO (Either Text (Vector Double))
+deviceNormForward functions nspec nparams z =
+  case LayerGraph.mkNormLayer "block-stage-norm" nspec TrainingMode nparams of
+    Left err -> pure (Left err)
+    Right normNode -> do
+      result <- runDeviceOp functions normNode z (VU.replicate (VU.length z) 0.0)
+      pure (fmap (\(out, _, _, _) -> out) result)
+
+-- | Device norm backward via the opcode-11 kernel: @(dInput, dGamma, dBeta)@.
+deviceNormBackward
+  :: LayerGraphOneDnnFunctions
+  -> LayerGraph.NormSpec
+  -> LayerParameters
+  -> Vector Double
+  -> Vector Double
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double))
+deviceNormBackward functions nspec nparams z dy =
+  case LayerGraph.mkNormLayer "block-stage-norm" nspec TrainingMode nparams of
+    Left err -> pure (Left err)
+    Right normNode -> do
+      result <- runDeviceOp functions normNode z dy
+      pure (fmap (\(_out, dz, dGamma, dBeta) -> (dz, dGamma, dBeta)) result)
+
 mkEvidence
   :: LayerGraphOneDnnFunctions
   -> Text
@@ -1135,6 +1777,17 @@ softmax values
        in if total == 0.0
             then VU.replicate (VU.length values) (1.0 / fromIntegral (VU.length values))
             else VU.map (/ total) exps
+
+-- | Semantic-prefix softmax cross-entropy loss seed, mirroring
+-- 'LayerGraph.layerGraphClassifierCrossEntropyGradient': softmax over the first
+-- @classes@ logits minus the one-hot label, with the trailing slack logit(s)
+-- receiving a zero upstream gradient.
+classifierSeed :: Int -> Vector Double -> Int -> Vector Double
+classifierSeed classes logits label =
+  let probs = softmax (VU.take classes logits)
+      dPrefix = VU.imap (\i p -> p - if i == label then 1.0 else 0.0) probs
+      width = VU.length logits
+   in dPrefix VU.++ VU.replicate (width - classes) 0.0
 
 resizeIdentity :: Vector Double -> Int -> Vector Double
 resizeIdentity input outputWidth

@@ -42,6 +42,7 @@ import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.RL.Algorithms.Registry qualified as Cohort
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
 import JitML.RL.TrainerExecution qualified as TrainerExecution
@@ -134,7 +135,14 @@ completedTrainingForProductRowWithWeightHashes planId budget row datasetShaAtRea
             <> Text.intercalate
               ","
               ( fmap
-                  TrainingBudget.coMetricName
+                  ( \o ->
+                      TrainingBudget.coMetricName o
+                        <> " (observed="
+                        <> Text.pack (show (TrainingBudget.coMetricValue o))
+                        <> ", required>="
+                        <> Text.pack (show (TrainingBudget.coThreshold o))
+                        <> ")"
+                  )
                   (NonEmpty.toList observations)
               )
         )
@@ -548,23 +556,16 @@ measuredObservation measured pinned =
     id
     (TrainingBudget.remeasureCriterion measured pinned)
 
+-- | Invert a worker trainer kind back to its canonical public algorithm name,
+-- delegating to the typed cohort registry so the mapping stays a single source
+-- of truth. HER is handled by the caller before this point (its convergence is
+-- a goal metric, not a return threshold).
 algorithmNameForTrainer :: Text -> Either Text Text
 algorithmNameForTrainer trainerKind =
-  case Text.toLower trainerKind of
-    "ppo" -> Right "PPO"
-    "a2c" -> Right "A2C"
-    "trpo" -> Right "TRPO"
-    "maskableppo" -> Right "MaskablePPO"
-    "recurrentppo" -> Right "RecurrentPPO"
-    "dqn" -> Right "DQN"
-    "qrdqn" -> Right "QR-DQN"
-    "ddpg" -> Right "DDPG"
-    "td3" -> Right "TD3"
-    "sac" -> Right "SAC"
-    "crossq" -> Right "CrossQ"
-    "tqc" -> Right "TQC"
-    "ars" -> Right "ARS"
-    other -> Left ("unknown RL trainer for convergence: " <> other)
+  maybe
+    (Left ("unknown RL trainer for convergence: " <> Text.toLower trainerKind))
+    Right
+    (Cohort.algorithmNameForTrainerKind trainerKind)
 
 metricValue :: Text -> [(Text, Double)] -> Either Text Double
 metricValue name metrics =

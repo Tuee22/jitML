@@ -110,7 +110,7 @@ data MlpDevice = MlpDevice
 -- and runs on this host by executing a trivial 1×1×1 forward. Returns
 -- @Right ()@ when the substrate toolchain/hardware is present and @Left@ (the
 -- engine error) when it is absent. This is the fail-closed gate the RL worker
--- dispatch ('JitML.RL.TrainerExecution.runTrainerEpisodes') probes before routing any trainer
+-- dispatch ('JitML.RL.TrainerExecution.runTrainerEpisodesForPlan') probes before routing any trainer
 -- through the device, so a missing substrate fails closed rather than
 -- silently degrading to a pure-Haskell path.
 probeMlpDevice :: MlpDevice -> IO (Either Text ())

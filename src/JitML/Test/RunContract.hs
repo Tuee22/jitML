@@ -29,6 +29,10 @@ import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Coordinator.Topology (ProtocolRoute (..), topicFor)
+import JitML.Numerics.LayerGraphMetadata
+  ( layerGraphMetadataFromGraph
+  , layerGraphMetadataParameterCount
+  )
 import JitML.Plan.Plan
   ( EventId
   , FiniteMeasurement
@@ -54,7 +58,9 @@ import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
 import JitML.Run.Contract
+import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
+import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Service.Capabilities
@@ -1067,12 +1073,25 @@ persistAndAdmitProductCompletion
   -> ProductMatrix.ProductProjection 'SupervisedTraining
   -> IO CheckpointStore.AdmittedCompletedCheckpoint
 persistAndAdmitProductCompletion root row problem projection = do
-  runtime <- expectRight (RuntimeArtifact.refineSupervisedRuntime reportFixtureRuntime)
   datasetSha <- expectRight (Dataset.canonicalDatasetReadShaForProblem problem)
   let plan =
         case ProductMatrix.productProjectionResolvedPlan projection of
           ProductMatrix.ResolvedSupervisedProductPlan resolved -> resolved
-      parameterCount = RuntimeArtifact.supervisedRuntimeParameterCount runtime
+      -- Phase 239: the fixture checkpoint is the trained dense mnist-shallow-mlp
+      -- graph.  Its graph-ordered parameter count anchors the synthetic weight
+      -- blobs, the flat weight layout, and admission.
+      fixtureConfig =
+        Classifier.defaultClassifierConfig
+          { Classifier.clfInputs = 784
+          , Classifier.clfClasses = 10
+          , Classifier.clfSeed = SL.problemSeed problem
+          }
+      graphMeta =
+        layerGraphMetadataFromGraph
+          ( Architecture.archLayerGraph
+              (Architecture.architectureSpecForProblem fixtureConfig problem)
+          )
+      parameterCount = layerGraphMetadataParameterCount graphMeta
       initialBytes = WeightCodec.encodeJmw1 (replicate parameterCount 0.0)
       finalBytes =
         WeightCodec.encodeJmw1
@@ -1104,6 +1123,7 @@ persistAndAdmitProductCompletion root row problem projection = do
             , RuntimeArtifact.rawRuntimePayloadInitialJmw1Sha256 = initialSha
             , RuntimeArtifact.rawRuntimePayloadFinalJmw1Sha256 = finalSha
             , RuntimeArtifact.rawRuntimePayloadRuntime = reportFixtureRuntime
+            , RuntimeArtifact.rawRuntimePayloadLayerGraphMetadata = Just graphMeta
             }
       )
   metadata <-
@@ -1139,7 +1159,12 @@ persistAndAdmitProductCompletion root row problem projection = do
                 Checkpoint.supervisedRuntimeOutputDecoderMetadata metadata
             , Checkpoint.manifestWeightLayout =
                 Checkpoint.FlatWeightLayout
-                  (fmap reportFixtureVirtualSliceSpec (RuntimeArtifact.supervisedRuntimeVirtualSlices runtime))
+                  [ Checkpoint.TensorSpec
+                      { Checkpoint.tensorSpecName = "supervised.weights"
+                      , Checkpoint.tensorSpecShape = [parameterCount]
+                      , Checkpoint.tensorSpecDtype = "F64"
+                      }
+                  ]
             , Checkpoint.manifestStep = observedUnits
             , Checkpoint.manifestMetrics = metrics
             , Checkpoint.manifestSupervisedRuntime = Just payload
@@ -1161,31 +1186,13 @@ persistAndAdmitProductCompletion root row problem projection = do
 reportFixtureRuntime :: RuntimeArtifact.RawSupervisedRuntime
 reportFixtureRuntime =
   RuntimeArtifact.RawSupervisedRuntime
-    { RuntimeArtifact.rawSupervisedRuntimeFamily =
-        RuntimeArtifact.RawDenseRuntimeFamily
-    , RuntimeArtifact.rawSupervisedRuntimeTask =
+    { RuntimeArtifact.rawSupervisedRuntimeTask =
         RuntimeArtifact.RawClassificationRuntimeTask 10
     , RuntimeArtifact.rawSupervisedRuntimeInputTransform =
         RuntimeArtifact.RawUnitImageInput
           (RuntimeArtifact.RawRuntimeImageGeometry 28 28 1)
     , RuntimeArtifact.rawSupervisedRuntimeOutputTransform =
         RuntimeArtifact.RawSemanticPrefixOutput 10
-    , RuntimeArtifact.rawSupervisedRuntimeLayers =
-        [ RuntimeArtifact.RawDenseLayer
-            "dense-classifier"
-            (RuntimeArtifact.RawRuntimeMlpShape 784 128 11)
-        ]
-    }
-
-reportFixtureVirtualSliceSpec
-  :: RuntimeArtifact.RuntimeVirtualSlice
-  -> Checkpoint.TensorSpec
-reportFixtureVirtualSliceSpec slice =
-  Checkpoint.TensorSpec
-    { Checkpoint.tensorSpecName =
-        RuntimeArtifact.runtimeVirtualSliceQualifiedName slice
-    , Checkpoint.tensorSpecShape = RuntimeArtifact.runtimeVirtualSliceShape slice
-    , Checkpoint.tensorSpecDtype = "F64"
     }
 
 withDifferentProductProjection

@@ -37,6 +37,8 @@ module JitML.Service.RunConfig
   , supervisedPlanFromRunConfig
   , tuningPlanFromRunConfig
   , alphaZeroPlanFromRunConfig
+  , rlPlanFromRunConfig
+  , validateRlRunConfig
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
   , renderAlphaZeroRunConfigDhall
@@ -70,6 +72,7 @@ import JitML.Plan.Workload
   , supervisedPlanId
   , tuningPlanId
   )
+import JitML.RL.ProductBudget qualified as ProductBudget
 
 data TrainingRunConfig = TrainingRunConfig
   { trcPlanId :: Text
@@ -92,15 +95,18 @@ data AlphaZeroRunConfig = AlphaZeroRunConfig
   }
   deriving stock (Eq, Show)
 
+-- | Phase 251 — the RL worker run config no longer ships primitive
+-- @maxSteps@/@evalEpisodes@/@algorithm@/@environment@/@seed@ budget arguments.
+-- It now carries a serialized, content-addressed 'ProductBudget.CompiledRlPlan'
+-- transport plus its @planId@, exactly like the supervised/tune/alphazero run
+-- configs. The daemon compiles the plan from the @StartRLRun@ proto at dispatch;
+-- the worker re-parses and re-validates it through 'rlPlanFromRunConfig' before
+-- executing, so the training dimensions can never be re-derived (or drifted)
+-- worker-side from an evaluation episode count.
 data RlRunConfig = RlRunConfig
   { rlcExperimentHash :: Text
-  , rlcAlgorithm :: Text
-  , rlcEnvironment :: Text
-  , rlcSubstrate :: Text
-  , rlcSeed :: Int
-  , rlcMaxSteps :: Int
-  , rlcEvalEpisodes :: Int
-  , rlcTrainerKind :: Text
+  , rlcPlanId :: Text
+  , rlcResolvedPlan :: Text
   , rlcAtariRomPath :: Maybe Text
   , rlcPulsarWsUrl :: Text
   }
@@ -168,13 +174,8 @@ rlRunConfigDecoder =
   Dhall.record $
     RlRunConfig
       <$> Dhall.field "experimentHash" Dhall.strictText
-      <*> Dhall.field "algorithm" Dhall.strictText
-      <*> Dhall.field "environment" Dhall.strictText
-      <*> Dhall.field "substrate" Dhall.strictText
-      <*> fmap naturalToInt (Dhall.field "seed" Dhall.natural)
-      <*> fmap naturalToInt (Dhall.field "maxSteps" Dhall.natural)
-      <*> fmap naturalToInt (Dhall.field "evalEpisodes" Dhall.natural)
-      <*> Dhall.field "trainerKind" Dhall.strictText
+      <*> Dhall.field "planId" Dhall.strictText
+      <*> Dhall.field "resolvedPlan" Dhall.strictText
       <*> Dhall.field "atariRomPath" (Dhall.maybe Dhall.strictText)
       <*> Dhall.field "pulsarWsUrl" Dhall.strictText
 
@@ -217,7 +218,9 @@ loadAlphaZeroRunConfig :: FilePath -> IO AlphaZeroRunConfig
 loadAlphaZeroRunConfig = Dhall.inputFile alphaZeroRunConfigDecoder
 
 loadRlRunConfig :: FilePath -> IO RlRunConfig
-loadRlRunConfig = Dhall.inputFile rlRunConfigDecoder
+loadRlRunConfig path = do
+  config <- Dhall.inputFile rlRunConfigDecoder path
+  either (fail . Text.unpack) pure (validateRlRunConfig config)
 
 loadInferenceSelectorConfig :: FilePath -> IO InferenceSelectorConfig
 loadInferenceSelectorConfig path = do
@@ -243,7 +246,7 @@ tryLoadAlphaZeroRunConfig =
   tryLoadValidatedFile alphaZeroRunConfigDecoder validateAlphaZeroRunConfig
 
 tryLoadRlRunConfig :: FilePath -> IO (RunConfigLoadResult RlRunConfig)
-tryLoadRlRunConfig = tryLoadFile rlRunConfigDecoder
+tryLoadRlRunConfig = tryLoadValidatedFile rlRunConfigDecoder validateRlRunConfig
 
 tryLoadInferenceSelectorConfig :: FilePath -> IO (RunConfigLoadResult InferenceSelectorConfig)
 tryLoadInferenceSelectorConfig =
@@ -318,6 +321,29 @@ validateAlphaZeroRunConfig config = do
   _ <- alphaZeroPlanFromRunConfig config
   requireNonEmpty "AlphaZeroRunConfig pulsarWsUrl" (azrcPulsarWsUrl config)
   pure config
+
+validateRlRunConfig :: RlRunConfig -> Either Text RlRunConfig
+validateRlRunConfig config = do
+  _ <- rlPlanFromRunConfig config
+  requireNonEmpty "RlRunConfig experimentHash" (rlcExperimentHash config)
+  requireNonEmpty "RlRunConfig pulsarWsUrl" (rlcPulsarWsUrl config)
+  pure config
+
+-- | Phase 251 — re-parse and re-validate the mounted RL plan transport,
+-- mirroring 'supervisedPlanFromRunConfig': the declared @planId@ must match the
+-- recomputed content-addressed id, and the transport must be canonical.
+rlPlanFromRunConfig :: RlRunConfig -> Either Text ProductBudget.CompiledRlPlan
+rlPlanFromRunConfig config = do
+  plan <-
+    first
+      ("RlRunConfig resolvedPlan: " <>)
+      (ProductBudget.parseCompiledRlPlanTransport (rlcResolvedPlan config))
+  requireEqual "RlRunConfig planId" (ProductBudget.compiledRlPlanId plan) (rlcPlanId config)
+  requireEqual
+    "RlRunConfig canonical resolvedPlan"
+    (ProductBudget.renderCompiledRlPlanTransport plan)
+    (rlcResolvedPlan config)
+  pure plan
 
 tuningPlanFromRunConfig :: TuneRunConfig -> Either Text TuningPlan
 tuningPlanFromRunConfig config = do
@@ -417,13 +443,8 @@ renderRlRunConfigDhall :: RlRunConfig -> Text
 renderRlRunConfigDhall c =
   Text.unlines
     [ "{ experimentHash = " <> quote (rlcExperimentHash c)
-    , ", algorithm = " <> quote (rlcAlgorithm c)
-    , ", environment = " <> quote (rlcEnvironment c)
-    , ", substrate = " <> quote (rlcSubstrate c)
-    , ", seed = " <> Text.pack (show (rlcSeed c))
-    , ", maxSteps = " <> Text.pack (show (rlcMaxSteps c))
-    , ", evalEpisodes = " <> Text.pack (show (rlcEvalEpisodes c))
-    , ", trainerKind = " <> quote (rlcTrainerKind c)
+    , ", planId = " <> quote (rlcPlanId c)
+    , ", resolvedPlan = " <> quote (rlcResolvedPlan c)
     , ", atariRomPath = " <> renderOptionalText (rlcAtariRomPath c)
     , ", pulsarWsUrl = " <> quote (rlcPulsarWsUrl c)
     , "}"

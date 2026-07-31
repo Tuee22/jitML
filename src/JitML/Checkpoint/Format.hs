@@ -94,12 +94,20 @@ import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
-import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64, Word8)
 import GHC.Generics (Generic)
 
 import JitML.Checkpoint.WeightCodec (decodeJmw1, encodeJmw1)
-import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Numerics.LayerGraphMetadata
+  ( LayerGraphActivationMetadata (..)
+  , LayerGraphKindMetadata (..)
+  , LayerGraphMetadata (..)
+  , LayerGraphModeMetadata (..)
+  , LayerGraphNodeMetadata (..)
+  , layerGraphFromMetadata
+  , layerGraphMetadataFromGraph
+  , layerGraphMetadataParameterCount
+  )
 import JitML.Plan.Plan
   ( PlanId
   , RunKind (..)
@@ -121,11 +129,8 @@ import JitML.Product.Evidence
   )
 import JitML.Product.ExternalBars qualified as ExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
-import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as Canonicals
-import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
-import JitML.SL.Regression qualified as Regression
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate qualified as Substrate
 import JitML.Training.Budget
@@ -201,62 +206,6 @@ data TensorSpec = TensorSpec
   { tensorSpecName :: Text
   , tensorSpecShape :: [Int]
   , tensorSpecDtype :: Text
-  }
-  deriving stock (Eq, Generic, Show, Ord)
-  deriving anyclass (Serialise)
-
-data LayerGraphModeMetadata
-  = LayerGraphTrainingMode
-  | LayerGraphInferenceMode
-  deriving stock (Eq, Generic, Show, Ord)
-  deriving anyclass (Serialise)
-
-data LayerGraphActivationMetadata
-  = LayerGraphLinearActivation
-  | LayerGraphTanhActivation
-  | LayerGraphReluActivation
-  | LayerGraphSoftmaxActivation
-  deriving stock (Eq, Generic, Show, Ord)
-  deriving anyclass (Serialise)
-
-data LayerGraphKindMetadata
-  = LayerGraphDenseLayer
-  | LayerGraphConv2DLayer
-  | LayerGraphConv3DLayer
-  | LayerGraphMaxPoolLayer
-  | LayerGraphAvgPoolLayer
-  | LayerGraphGlobalAvgPoolLayer
-  | LayerGraphBatchNormLayer
-  | LayerGraphLayerNormLayer
-  | LayerGraphGroupNormLayer Int
-  | LayerGraphDropoutLayer Double
-  | LayerGraphResidualLayer Double
-  | LayerGraphBasicBlockLayer Double
-  | LayerGraphBottleneckBlockLayer Double
-  | LayerGraphMultiHeadAttentionLayer Int
-  | LayerGraphGeGLULayer
-  | LayerGraphPatchEmbedLayer
-  deriving stock (Eq, Generic, Show, Ord)
-  deriving anyclass (Serialise)
-
-data LayerGraphNodeMetadata = LayerGraphNodeMetadata
-  { layerGraphNodeName :: Text
-  , layerGraphNodeKind :: LayerGraphKindMetadata
-  , layerGraphNodeInputShape :: [Int]
-  , layerGraphNodeOutputShape :: [Int]
-  , layerGraphNodeMode :: LayerGraphModeMetadata
-  , layerGraphNodeActivation :: LayerGraphActivationMetadata
-  , layerGraphNodeWeightTensor :: Maybe Text
-  , layerGraphNodeBiasTensor :: Maybe Text
-  }
-  deriving stock (Eq, Generic, Show, Ord)
-  deriving anyclass (Serialise)
-
-data LayerGraphMetadata = LayerGraphMetadata
-  { layerGraphMetadataName :: Text
-  , layerGraphMetadataInputShape :: [Int]
-  , layerGraphMetadataOutputShape :: [Int]
-  , layerGraphMetadataNodes :: [LayerGraphNodeMetadata]
   }
   deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
@@ -843,19 +792,23 @@ canonicalSupervisedRuntimeManifestMetadata
   :: RuntimeArtifact.SupervisedRuntimePayload
   -> Either Text SupervisedRuntimeManifestMetadata
 canonicalSupervisedRuntimeManifestMetadata payload = do
-  problem <- authoritativeSupervisedRuntimeProblem payload
-  validateAuthoritativeRuntime problem (RuntimeArtifact.payloadRuntime payload)
+  _ <- authoritativeSupervisedRuntimeProblem payload
+  graphMeta <-
+    maybe
+      (Left "supervised runtime payload is missing its trained layer graph metadata")
+      Right
+      (RuntimeArtifact.payloadLayerGraphMetadata payload)
   let runtime = RuntimeArtifact.payloadRuntime payload
       inputSpec =
         TensorSpec
           { tensorSpecName = "input"
-          , tensorSpecShape = [RuntimeArtifact.supervisedRuntimeInputWidth runtime]
+          , tensorSpecShape = layerGraphMetadataInputShape graphMeta
           , tensorSpecDtype = "F64"
           }
       outputSpec =
         TensorSpec
           { tensorSpecName = "raw-output"
-          , tensorSpecShape = [RuntimeArtifact.supervisedRuntimeRawOutputWidth runtime]
+          , tensorSpecShape = layerGraphMetadataOutputShape graphMeta
           , tensorSpecDtype = "F64"
           }
       task = RuntimeArtifact.supervisedRuntimeTask runtime
@@ -893,7 +846,8 @@ canonicalSupervisedRuntimeManifestMetadata payload = do
             , architectureModelFamily = SupervisedModelFamily
             , architectureInputs = [inputSpec]
             , architectureOutputs = [outputSpec]
-            , architectureLayerGraph = Nothing
+            , architectureLayerGraph =
+                RuntimeArtifact.payloadLayerGraphMetadata payload
             }
       , supervisedRuntimePreprocessingMetadata =
           [ PreprocessingMetadata
@@ -1127,173 +1081,6 @@ validateCanonicalProblemRow row problem =
         else Left "only the authoritative California Housing row is regression"
     _ -> Left "runtime ProductRow is not supervised"
 
-validateAuthoritativeRuntime
-  :: Canonicals.CanonicalProblem
-  -> RuntimeArtifact.SupervisedRuntime
-  -> Either Text ()
-validateAuthoritativeRuntime problem runtime
-  | Canonicals.problemDataset problem == "California Housing" =
-      validateCaliforniaRuntime runtime
-  | otherwise = do
-      (inputWidth, semanticWidth) <- classificationProductionDimensions problem
-      let config =
-            Classifier.defaultClassifierConfig
-              { Classifier.clfSeed = Canonicals.problemSeed problem
-              , Classifier.clfInputs = inputWidth
-              , Classifier.clfClasses = semanticWidth
-              }
-      expected <- Architecture.canonicalClassificationRuntimeContract config problem
-      requireRuntimeContract
-        "classification production input width"
-        inputWidth
-        (RuntimeArtifact.supervisedRuntimeInputWidth runtime)
-      requireRuntimeContract
-        "classification production raw-output width"
-        (semanticWidth + 1)
-        (RuntimeArtifact.supervisedRuntimeRawOutputWidth runtime)
-      validateClassificationRuntimeContract
-        problem
-        expected
-        (RuntimeArtifact.supervisedRuntimeToRaw runtime)
-
-classificationProductionDimensions
-  :: Canonicals.CanonicalProblem
-  -> Either Text (Int, Int)
-classificationProductionDimensions problem =
-  case Canonicals.problemDataset problem of
-    "MNIST" -> Right (784, 10)
-    "Fashion-MNIST" -> Right (784, 10)
-    "CIFAR-10" -> Right (3072, 10)
-    "CIFAR-100" -> Right (3072, 100)
-    "Tiny ImageNet" -> Right (12288, 200)
-    dataset ->
-      Left
-        ( "no authoritative classification dimensions for dataset "
-            <> dataset
-        )
-
-validateClassificationRuntimeContract
-  :: Canonicals.CanonicalProblem
-  -> RuntimeArtifact.RawSupervisedRuntime
-  -> RuntimeArtifact.RawSupervisedRuntime
-  -> Either Text ()
-validateClassificationRuntimeContract problem expected actual = do
-  requireRuntimeContract
-    "classification runtime family"
-    (RuntimeArtifact.rawSupervisedRuntimeFamily expected)
-    (RuntimeArtifact.rawSupervisedRuntimeFamily actual)
-  requireRuntimeContract
-    "classification runtime task"
-    (RuntimeArtifact.rawSupervisedRuntimeTask expected)
-    (RuntimeArtifact.rawSupervisedRuntimeTask actual)
-  validateClassificationInputTransform
-    problem
-    (RuntimeArtifact.rawSupervisedRuntimeInputTransform expected)
-    (RuntimeArtifact.rawSupervisedRuntimeInputTransform actual)
-  requireRuntimeContract
-    "classification output transform"
-    (RuntimeArtifact.rawSupervisedRuntimeOutputTransform expected)
-    (RuntimeArtifact.rawSupervisedRuntimeOutputTransform actual)
-  requireRuntimeContract
-    "classification runtime topology"
-    (RuntimeArtifact.rawSupervisedRuntimeLayers expected)
-    (RuntimeArtifact.rawSupervisedRuntimeLayers actual)
-
--- | The current CIFAR-10 ViT is the sole classification row whose exact
--- training program fits an ingress transform.  Its three population RGB
--- statistics are fitted from the authoritative training partition and then
--- repeated in pixel-major channel order across the 32x32 image.  Admission can
--- validate that complete structural contract without pretending to refit from
--- checkpoint metadata; every other classification row retains exact equality
--- with its canonical unit-image transform.
-validateClassificationInputTransform
-  :: Canonicals.CanonicalProblem
-  -> RuntimeArtifact.RawRuntimeInputTransform
-  -> RuntimeArtifact.RawRuntimeInputTransform
-  -> Either Text ()
-validateClassificationInputTransform problem expected actual
-  | Canonicals.problemName problem == "cifar10-vit" =
-      case actual of
-        RuntimeArtifact.RawStandardizeInput means scales -> do
-          requireRuntimeContract
-            "cifar10-vit standardization mean width"
-            cifar10InputWidth
-            (length means)
-          requireRuntimeContract
-            "cifar10-vit standardization scale width"
-            cifar10InputWidth
-            (length scales)
-          if all (\meanValue -> isFinite meanValue && meanValue >= 0.0 && meanValue <= 1.0) means
-            then Right ()
-            else Left "cifar10-vit standardization means must be finite decoded-unit values"
-          if all (\scale -> isFinite scale && scale > 0.0 && scale <= 0.5) scales
-            then Right ()
-            else
-              Left
-                "cifar10-vit standardization scales must be finite positive decoded-unit population scales"
-          if repeatsRgb means
-            then Right ()
-            else Left "cifar10-vit standardization means must repeat one RGB triplet per pixel"
-          if repeatsRgb scales
-            then Right ()
-            else Left "cifar10-vit standardization scales must repeat one RGB triplet per pixel"
-        _ ->
-          Left
-            "cifar10-vit classification input transform must be fitted RGB standardization"
-  | otherwise =
-      requireRuntimeContract
-        "classification input transform"
-        expected
-        actual
- where
-  cifar10InputWidth = 32 * 32 * 3
-  repeatsRgb values =
-    case take 3 values of
-      [red, green, blue] ->
-        values == concat (replicate (cifar10InputWidth `div` 3) [red, green, blue])
-      _ -> False
-  isFinite value = not (isNaN value || isInfinite value)
-
-validateCaliforniaRuntime :: RuntimeArtifact.SupervisedRuntime -> Either Text ()
-validateCaliforniaRuntime runtime = do
-  let raw = RuntimeArtifact.supervisedRuntimeToRaw runtime
-      inputWidth = Regression.regInputs Regression.defaultRegressionConfig
-      hiddenWidth = Regression.regHidden Regression.defaultRegressionConfig
-      semanticWidth = 1
-  requireRuntimeContract
-    "California runtime family"
-    RuntimeArtifact.RawTabularRegressionRuntimeFamily
-    (RuntimeArtifact.rawSupervisedRuntimeFamily raw)
-  requireRuntimeContract
-    "California runtime task"
-    (RuntimeArtifact.RawRegressionRuntimeTask semanticWidth)
-    (RuntimeArtifact.rawSupervisedRuntimeTask raw)
-  requireRuntimeContract
-    "California production input width"
-    inputWidth
-    (RuntimeArtifact.supervisedRuntimeInputWidth runtime)
-  requireRuntimeContract
-    "California production raw-output width"
-    semanticWidth
-    (RuntimeArtifact.supervisedRuntimeRawOutputWidth runtime)
-  case RuntimeArtifact.rawSupervisedRuntimeInputTransform raw of
-    RuntimeArtifact.RawStandardizeInput means scales -> do
-      requireRuntimeContract "California standardization mean width" inputWidth (length means)
-      requireRuntimeContract "California standardization scale width" inputWidth (length scales)
-    _ -> Left "California runtime requires fitted standardization input"
-  case RuntimeArtifact.rawSupervisedRuntimeOutputTransform raw of
-    RuntimeArtifact.RawDestandardizeOutput means scales -> do
-      requireRuntimeContract "California target mean width" semanticWidth (length means)
-      requireRuntimeContract "California target scale width" semanticWidth (length scales)
-    _ -> Left "California runtime requires fitted target destandardization"
-  requireRuntimeContract
-    "California runtime topology"
-    [ RuntimeArtifact.RawDenseLayer
-        "regressor"
-        (RuntimeArtifact.RawRuntimeMlpShape inputWidth hiddenWidth semanticWidth)
-    ]
-    (RuntimeArtifact.rawSupervisedRuntimeLayers raw)
-
 requireRuntimeContract :: (Eq value, Show value) => Text -> value -> value -> Either Text ()
 requireRuntimeContract label expected actual
   | expected == actual = Right ()
@@ -1355,25 +1142,30 @@ validateSupervisedV2Bindings manifest payload =
     , completionErrors
     , tensorErrors
     , flatLayoutErrors
+    , missingGraphMetadataErrors
     ]
  where
-  runtime = RuntimeArtifact.payloadRuntime payload
   runtimePlan = RuntimeArtifact.payloadPlanId payload
   runtimeDatasetSha = RuntimeArtifact.payloadDatasetSha256 payload
   runtimeInitialSha = RuntimeArtifact.payloadInitialJmw1Sha256 payload
   runtimeFinalSha = RuntimeArtifact.payloadFinalJmw1Sha256 payload
-  parameterCount = RuntimeArtifact.supervisedRuntimeParameterCount runtime
+  -- Phase 239: the trained graph is the sole parameter owner, so the physical
+  -- @supervised.weights@ blob is the graph-ordered parameter vector and the
+  -- flat weight layout is one graph-ordered spec of that length.
+  graphMetadata = RuntimeArtifact.payloadLayerGraphMetadata payload
+  parameterCount = maybe 0 layerGraphMetadataParameterCount graphMetadata
+  missingGraphMetadataErrors =
+    [ "V2 supervised runtime payload is missing its trained layer graph metadata"
+    | Nothing <- [graphMetadata]
+    ]
   expectedTensorKey = blobKey (manifestExperiment manifest) runtimeFinalSha
   expectedLayout =
-    fmap
-      ( \slice ->
-          TensorSpec
-            { tensorSpecName = RuntimeArtifact.runtimeVirtualSliceQualifiedName slice
-            , tensorSpecShape = RuntimeArtifact.runtimeVirtualSliceShape slice
-            , tensorSpecDtype = "F64"
-            }
-      )
-      (RuntimeArtifact.supervisedRuntimeVirtualSlices runtime)
+    [ TensorSpec
+        { tensorSpecName = "supervised.weights"
+        , tensorSpecShape = [parameterCount]
+        , tensorSpecDtype = "F64"
+        }
+    ]
 
   modelFamilyErrors =
     [ "V2 supervised runtime requires SupervisedModelFamily"
@@ -1724,166 +1516,6 @@ defaultArchitectureMetadata family =
     , architectureLayerGraph = Nothing
     }
 
-layerGraphMetadataFromGraph :: LayerGraph.LayerGraph -> LayerGraphMetadata
-layerGraphMetadataFromGraph graph =
-  LayerGraphMetadata
-    { layerGraphMetadataName = LayerGraph.layerGraphName graph
-    , layerGraphMetadataInputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphInputShape graph)
-    , layerGraphMetadataOutputShape = LayerGraph.unTensorShape (LayerGraph.layerGraphOutputShape graph)
-    , layerGraphMetadataNodes = fmap nodeMetadata (LayerGraph.layerGraphNodes graph)
-    }
- where
-  nodeMetadata node =
-    LayerGraphNodeMetadata
-      { layerGraphNodeName = LayerGraph.layerNodeName node
-      , layerGraphNodeKind = layerKindMetadata (LayerGraph.layerNodeKind node)
-      , layerGraphNodeInputShape = LayerGraph.unTensorShape (LayerGraph.layerInputShape node)
-      , layerGraphNodeOutputShape = LayerGraph.unTensorShape (LayerGraph.layerOutputShape node)
-      , layerGraphNodeMode = layerModeMetadata (LayerGraph.layerMode node)
-      , layerGraphNodeActivation = layerActivationMetadata (LayerGraph.layerActivation node)
-      , layerGraphNodeWeightTensor =
-          fmap (const (LayerGraph.layerNodeName node <> ".weights")) (LayerGraph.layerParameters node)
-      , layerGraphNodeBiasTensor =
-          fmap (const (LayerGraph.layerNodeName node <> ".bias")) (LayerGraph.layerParameters node)
-      }
-
-layerModeMetadata :: LayerGraph.LayerMode -> LayerGraphModeMetadata
-layerModeMetadata LayerGraph.TrainingMode = LayerGraphTrainingMode
-layerModeMetadata LayerGraph.InferenceMode = LayerGraphInferenceMode
-
-layerActivationMetadata :: LayerGraph.LayerActivation -> LayerGraphActivationMetadata
-layerActivationMetadata LayerGraph.LinearActivation = LayerGraphLinearActivation
-layerActivationMetadata LayerGraph.TanhActivation = LayerGraphTanhActivation
-layerActivationMetadata LayerGraph.ReluActivation = LayerGraphReluActivation
-layerActivationMetadata LayerGraph.SoftmaxActivation = LayerGraphSoftmaxActivation
-
-layerKindMetadata :: LayerGraph.LayerKind -> LayerGraphKindMetadata
-layerKindMetadata LayerGraph.DenseLayer = LayerGraphDenseLayer
-layerKindMetadata LayerGraph.Conv2DLayer = LayerGraphConv2DLayer
-layerKindMetadata LayerGraph.Conv3DLayer = LayerGraphConv3DLayer
-layerKindMetadata (LayerGraph.PoolLayer LayerGraph.MaxPool) = LayerGraphMaxPoolLayer
-layerKindMetadata (LayerGraph.PoolLayer LayerGraph.AvgPool) = LayerGraphAvgPoolLayer
-layerKindMetadata (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool) = LayerGraphGlobalAvgPoolLayer
-layerKindMetadata (LayerGraph.NormLayer LayerGraph.BatchNorm) = LayerGraphBatchNormLayer
-layerKindMetadata (LayerGraph.NormLayer LayerGraph.LayerNorm) = LayerGraphLayerNormLayer
-layerKindMetadata (LayerGraph.NormLayer (LayerGraph.GroupNorm groups)) = LayerGraphGroupNormLayer groups
-layerKindMetadata (LayerGraph.DropoutLayer rate) = LayerGraphDropoutLayer rate
-layerKindMetadata (LayerGraph.ResidualLayer scale) = LayerGraphResidualLayer scale
-layerKindMetadata (LayerGraph.BasicBlockLayer scale) = LayerGraphBasicBlockLayer scale
-layerKindMetadata (LayerGraph.BottleneckBlockLayer scale) = LayerGraphBottleneckBlockLayer scale
-layerKindMetadata (LayerGraph.MultiHeadAttentionLayer heads) = LayerGraphMultiHeadAttentionLayer heads
-layerKindMetadata LayerGraph.GeGLULayer = LayerGraphGeGLULayer
-layerKindMetadata LayerGraph.PatchEmbedLayer = LayerGraphPatchEmbedLayer
-
--- ---------------------------------------------------------------------------
--- Phase 239 — reverse converters: reconstruct a served dense 'LayerGraph' from
--- the checkpoint's 'LayerGraphMetadata'.  The trained supervised graph is an
--- all-'DenseOp' / 'IdentityOp' chain (every parameterised node is built by
--- 'LayerGraph.mkAffineLayer', every parameterless node by
--- 'LayerGraph.mkIdentityLayer').  The metadata carries the exact per-node
--- structure (name, kind, single-dimension in/out shapes, mode, activation, and
--- whether the node owns weight/bias tensors), so from-metadata rebuilds each
--- node with zeroed placeholder parameters of the right size; the real trained
--- weights are injected afterwards via
--- 'LayerGraph.replaceGraphParameterVector'.  Round-trip is exact for dense
--- graphs: reconstructing then re-injecting the original parameter vector
--- reproduces the source graph.
-metadataLayerMode :: LayerGraphModeMetadata -> LayerGraph.LayerMode
-metadataLayerMode LayerGraphTrainingMode = LayerGraph.TrainingMode
-metadataLayerMode LayerGraphInferenceMode = LayerGraph.InferenceMode
-
-metadataLayerActivation :: LayerGraphActivationMetadata -> LayerGraph.LayerActivation
-metadataLayerActivation LayerGraphLinearActivation = LayerGraph.LinearActivation
-metadataLayerActivation LayerGraphTanhActivation = LayerGraph.TanhActivation
-metadataLayerActivation LayerGraphReluActivation = LayerGraph.ReluActivation
-metadataLayerActivation LayerGraphSoftmaxActivation = LayerGraph.SoftmaxActivation
-
-metadataLayerKind :: LayerGraphKindMetadata -> LayerGraph.LayerKind
-metadataLayerKind LayerGraphDenseLayer = LayerGraph.DenseLayer
-metadataLayerKind LayerGraphConv2DLayer = LayerGraph.Conv2DLayer
-metadataLayerKind LayerGraphConv3DLayer = LayerGraph.Conv3DLayer
-metadataLayerKind LayerGraphMaxPoolLayer = LayerGraph.PoolLayer LayerGraph.MaxPool
-metadataLayerKind LayerGraphAvgPoolLayer = LayerGraph.PoolLayer LayerGraph.AvgPool
-metadataLayerKind LayerGraphGlobalAvgPoolLayer = LayerGraph.PoolLayer LayerGraph.GlobalAvgPool
-metadataLayerKind LayerGraphBatchNormLayer = LayerGraph.NormLayer LayerGraph.BatchNorm
-metadataLayerKind LayerGraphLayerNormLayer = LayerGraph.NormLayer LayerGraph.LayerNorm
-metadataLayerKind (LayerGraphGroupNormLayer groups) = LayerGraph.NormLayer (LayerGraph.GroupNorm groups)
-metadataLayerKind (LayerGraphDropoutLayer rate) = LayerGraph.DropoutLayer rate
-metadataLayerKind (LayerGraphResidualLayer scale) = LayerGraph.ResidualLayer scale
-metadataLayerKind (LayerGraphBasicBlockLayer scale) = LayerGraph.BasicBlockLayer scale
-metadataLayerKind (LayerGraphBottleneckBlockLayer scale) = LayerGraph.BottleneckBlockLayer scale
-metadataLayerKind (LayerGraphMultiHeadAttentionLayer heads) = LayerGraph.MultiHeadAttentionLayer heads
-metadataLayerKind LayerGraphGeGLULayer = LayerGraph.GeGLULayer
-metadataLayerKind LayerGraphPatchEmbedLayer = LayerGraph.PatchEmbedLayer
-
--- | The dense graph's total trained-parameter count derived purely from the
--- metadata shapes: each parameterised node contributes
--- @inputWidth * outputWidth@ weights plus @outputWidth@ biases.  This is the
--- graph-ordered parameter count carried by @supervised.weights@ and is the
--- admission/serving anchor once a manifest advertises a layer graph.
-layerGraphMetadataParameterCount :: LayerGraphMetadata -> Int
-layerGraphMetadataParameterCount =
-  sum . fmap nodeParameterCount . layerGraphMetadataNodes
- where
-  nodeParameterCount node =
-    case layerGraphNodeWeightTensor node of
-      Nothing -> 0
-      Just _ ->
-        let inputWidth = product (layerGraphNodeInputShape node)
-            outputWidth = product (layerGraphNodeOutputShape node)
-         in inputWidth * outputWidth + outputWidth
-
--- | Reconstruct the served dense 'LayerGraph' (structure only; parameters are
--- zeroed placeholders) from checkpoint metadata.  A node that owns weight and
--- bias tensors is rebuilt as a Tier-1 affine ('LayerGraph.mkAffineLayer'); a
--- parameterless node is rebuilt as an identity passthrough
--- ('LayerGraph.mkIdentityLayer').  Callers inject the real trained parameter
--- vector with 'LayerGraph.replaceGraphParameterVector'.
-layerGraphFromMetadata :: LayerGraphMetadata -> Either Text LayerGraph.LayerGraph
-layerGraphFromMetadata meta = do
-  nodes <- traverse nodeFromMetadata (layerGraphMetadataNodes meta)
-  Right
-    LayerGraph.LayerGraph
-      { LayerGraph.layerGraphName = layerGraphMetadataName meta
-      , LayerGraph.layerGraphInputShape =
-          LayerGraph.TensorShape (layerGraphMetadataInputShape meta)
-      , LayerGraph.layerGraphOutputShape =
-          LayerGraph.TensorShape (layerGraphMetadataOutputShape meta)
-      , LayerGraph.layerGraphNodes = nodes
-      }
- where
-  nodeFromMetadata node =
-    let name = layerGraphNodeName node
-        kind = metadataLayerKind (layerGraphNodeKind node)
-        mode = metadataLayerMode (layerGraphNodeMode node)
-        activation = metadataLayerActivation (layerGraphNodeActivation node)
-        inputWidth = product (layerGraphNodeInputShape node)
-        outputWidth = product (layerGraphNodeOutputShape node)
-     in case ( layerGraphNodeWeightTensor node
-             , layerGraphNodeBiasTensor node
-             ) of
-          (Just _, Just _) ->
-            LayerGraph.mkAffineLayer
-              name
-              kind
-              inputWidth
-              outputWidth
-              activation
-              mode
-              LayerGraph.LayerParameters
-                { LayerGraph.layerWeights =
-                    VU.replicate (inputWidth * outputWidth) 0.0
-                , LayerGraph.layerBias = VU.replicate outputWidth 0.0
-                }
-          (Nothing, Nothing) ->
-            LayerGraph.mkIdentityLayer name kind inputWidth mode
-          _ ->
-            Left
-              ( "layer graph node "
-                  <> name
-                  <> " must declare both weight and bias tensors or neither"
-              )
-
 tensorSpecFromBlob :: TensorBlob -> TensorSpec
 tensorSpecFromBlob tensor =
   TensorSpec
@@ -1971,20 +1603,21 @@ refineCheckpointManifest raw = do
       , manifestSupervisedRuntime = Nothing
       }
 
--- | Encode a manifest through the one self-describing envelope.  The payload
--- variant is selected by the presence of a refined supervised runtime; both
+-- | Encode a manifest through the one self-describing envelope.  Phase 239: the
+-- supervised-graph body is selected by the presence of the trained layer graph
+-- (@architectureLayerGraph@) — the graph is the canonical signal that a manifest
+-- is a served supervised checkpoint.  The supervised body carries the manifest
+-- plus its runtime payload (task, transforms, and graph metadata).  Both
 -- variants share the outer body-digest shape, so there is no separate
 -- weight-only wire form and no persisted bytes are ever reinterpreted.
 encodeManifestCbor :: CheckpointManifest -> LazyByteString.ByteString
 encodeManifestCbor manifest =
   let canonical = canonicalManifest manifest
       (version, body) =
-        case manifestSupervisedRuntime canonical of
-          Nothing ->
-            ( checkpointWireVersion
-            , RawWeightOnlyBody (checkpointManifestToRaw canonical)
-            )
-          Just runtimePayload ->
+        case ( architectureLayerGraph (manifestArchitecture canonical)
+             , manifestSupervisedRuntime canonical
+             ) of
+          (Just _, Just runtimePayload) ->
             ( checkpointWireVersionV2
             , RawSupervisedGraphBody
                 RawCheckpointBodyV2
@@ -1992,6 +1625,10 @@ encodeManifestCbor manifest =
                   , rawCheckpointV2SupervisedRuntime =
                       RuntimeArtifact.supervisedRuntimePayloadToRaw runtimePayload
                   }
+            )
+          _ ->
+            ( checkpointWireVersion
+            , RawWeightOnlyBody (checkpointManifestToRaw canonical)
             )
       bodyBytes = LazyByteString.toStrict (serialise body)
    in serialise

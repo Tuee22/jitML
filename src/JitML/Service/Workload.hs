@@ -825,14 +825,15 @@ planWorkloadPlacement residency launch =
           WorkloadHostCommand
             <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStart start)
       | otherwise ->
-          Right
-            ( WorkloadClusterJob
-                ClusterJobSpec
-                  { clusterJobResource =
-                      KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
-                  , clusterJobManifest = renderRlJob start
-                  }
-            )
+          renderRlJob start >>= \manifest ->
+            Right
+              ( WorkloadClusterJob
+                  ClusterJobSpec
+                    { clusterJobResource =
+                        KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
+                    , clusterJobManifest = manifest
+                    }
+              )
     AlphaZeroLaunch start plan
       | residency == Cluster && sazSubstrate start == AppleSilicon ->
           WorkloadHostCommand
@@ -1437,20 +1438,37 @@ alphaZeroRunConfigFor plan =
     , azrcPulsarWsUrl = inClusterPulsarWsUrl
     }
 
-rlRunConfigFor :: StartRLRun -> RlRunConfig
-rlRunConfigFor start =
-  RlRunConfig
-    { rlcExperimentHash = srlExperimentHash start
-    , rlcAlgorithm = srlAlgorithm start
-    , rlcEnvironment = srlEnvironment start
-    , rlcSubstrate = renderSubstrateText (srlSubstrate start)
-    , rlcSeed = fromIntegral (srlSeed start)
-    , rlcMaxSteps = fromIntegral (srlMaxSteps start)
-    , rlcEvalEpisodes = fromIntegral (srlEvalEpisodes start)
-    , rlcTrainerKind = rlTrainerForAlgorithm (srlAlgorithm start)
-    , rlcAtariRomPath = Nothing
-    , rlcPulsarWsUrl = inClusterPulsarWsUrl
-    }
+-- | Phase 251 — compile the daemon-side RL plan from the raw @StartRLRun@ proto
+-- request fields (@max_steps@/@eval_episodes@ stay raw request inputs feeding
+-- the compiler here) into the content-addressed transport the worker consumes.
+-- The training episode-budget floor is the canonical training constant, so the
+-- requested evaluation episode count only shapes the plan's @EvaluationPlan@.
+rlRunConfigFor :: StartRLRun -> Either Text RlRunConfig
+rlRunConfigFor start = do
+  let training =
+        ProductBudget.TrainingPlan
+          { ProductBudget.trainingPlanTrainerKind = rlTrainerForAlgorithm (srlAlgorithm start)
+          , ProductBudget.trainingPlanEnvironment = srlEnvironment start
+          , ProductBudget.trainingPlanSeed = fromIntegral (srlSeed start)
+          , ProductBudget.trainingPlanMaxEpisodeSteps = fromIntegral (srlMaxSteps start)
+          , ProductBudget.trainingPlanEpisodeBudgetFloor =
+              ProductBudget.productRlDefaultTrainingEpisodeFloor
+          , ProductBudget.trainingPlanVectorEnvironments = Nothing
+          , ProductBudget.trainingPlanRequestedTransitionFloor = Nothing
+          , ProductBudget.trainingPlanExactTransitionTarget = Nothing
+          }
+  plan <-
+    ProductBudget.compileRlPlan
+      training
+      (ProductBudget.EvaluationPlan (fromIntegral (srlEvalEpisodes start)))
+  pure
+    RlRunConfig
+      { rlcExperimentHash = srlExperimentHash start
+      , rlcPlanId = ProductBudget.compiledRlPlanId plan
+      , rlcResolvedPlan = ProductBudget.renderCompiledRlPlanTransport plan
+      , rlcAtariRomPath = Nothing
+      , rlcPulsarWsUrl = inClusterPulsarWsUrl
+      }
 
 renderTrainingJob :: StartTraining -> Either WorkloadDecodeError Text
 renderTrainingJob start = do
@@ -1480,14 +1498,17 @@ renderResolvedTuneJob start plan =
     ["tune", ssDhallObjectKey start]
     (renderTuneRunConfigDhall (tuneRunConfigFor plan))
 
-renderRlJob :: StartRLRun -> Text
-renderRlJob start =
-  renderJobWithRunConfig
-    (srlSubstrate start)
-    "rl"
-    (workloadName "jitml-rl" (srlExperimentHash start))
-    ["rl", "train", srlExperimentHash start]
-    (renderRlRunConfigDhall (rlRunConfigFor start))
+renderRlJob :: StartRLRun -> Either WorkloadDecodeError Text
+renderRlJob start = do
+  config <- firstPlanError (rlRunConfigFor start)
+  pure
+    ( renderJobWithRunConfig
+        (srlSubstrate start)
+        "rl"
+        (workloadName "jitml-rl" (srlExperimentHash start))
+        ["rl", "train", srlExperimentHash start]
+        (renderRlRunConfigDhall config)
+    )
 
 renderAlphaZeroJob :: StartAlphaZeroRun -> Either WorkloadDecodeError Text
 renderAlphaZeroJob start = do
@@ -1512,30 +1533,15 @@ inClusterPulsarWsUrl :: Text
 inClusterPulsarWsUrl = "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
 
 -- | Map an RL algorithm name to the worker-side trainer selector the
--- worker's @jitml rl train@ command reads from @JITML_RL_TRAINER@. Each
--- catalog algorithm selects its real trainer; an unrecognised name is
--- preserved as an unknown selector so worker dispatch fails closed.
+-- worker's @jitml rl train@ command reads from @JITML_RL_TRAINER@. The
+-- rendering is owned by the typed cohort registry (via
+-- 'ProductBudget.trainerKindForAlgorithm'); an unrecognised name is preserved
+-- as an unknown selector so worker dispatch fails closed, and an empty name
+-- becomes the sentinel @unknown@.
 rlTrainerForAlgorithm :: Text -> Text
 rlTrainerForAlgorithm algorithm =
-  case Text.toUpper (Text.strip algorithm) of
-    "PPO" -> "ppo"
-    "A2C" -> "a2c"
-    "TRPO" -> "trpo"
-    "MASKABLEPPO" -> "maskableppo"
-    "RECURRENTPPO" -> "recurrentppo"
-    "DQN" -> "dqn"
-    "QR-DQN" -> "qrdqn"
-    "QRDQN" -> "qrdqn"
-    "DDPG" -> "ddpg"
-    "TD3" -> "td3"
-    "SAC" -> "sac"
-    "CROSSQ" -> "crossq"
-    "TQC" -> "tqc"
-    "ARS" -> "ars"
-    "HER" -> "her"
-    _ ->
-      let stripped = Text.toLower (Text.strip algorithm)
-       in if Text.null stripped then "unknown" else stripped
+  let trainer = ProductBudget.trainerKindForAlgorithm algorithm
+   in if Text.null trainer then "unknown" else trainer
 
 renderRuntimeClassLines :: Substrate -> [Text]
 renderRuntimeClassLines substrate =
@@ -1697,10 +1703,6 @@ kubeChar char
 yamlString :: Text -> Text
 yamlString value =
   "\"" <> Text.replace "\"" "\\\"" value <> "\""
-
-renderSubstrateText :: Substrate -> Text
-renderSubstrateText =
-  renderSubstrate
 
 renderWorkloadEffectPayload :: WorkloadEffect kind -> Text
 renderWorkloadEffectPayload effect =

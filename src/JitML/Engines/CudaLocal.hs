@@ -20,7 +20,6 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Vector.Unboxed qualified as VU
 import Foreign.C.String (CString, peekCString)
 import Foreign.C.Types (CFloat (..), CSize (..))
 import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
@@ -35,7 +34,6 @@ import JitML.Checkpoint.Format
   )
 import JitML.Checkpoint.Store
   ( LoadedWeightTensor (..)
-  , loadSupervisedRuntimeFromCheckpoint
   , runSupervisedGraphCheckpointInference
   )
 import JitML.Codegen.Cuda (renderCudaFamilySource)
@@ -55,12 +53,8 @@ import JitML.Engines.Loader
   , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
-import JitML.Engines.RuntimeOperationsCuda qualified as RuntimeOperationsCuda
-import JitML.Engines.RuntimeOperationsDevice qualified as RuntimeOperationsDevice
 import JitML.Env.Env (Env)
-import JitML.Numerics.Mlp (MlpForward (..))
 import JitML.Numerics.MlpCuda (mlpForwardCuda)
-import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Substrate (Substrate (..))
 
 type KernelFunction =
@@ -181,24 +175,12 @@ runCudaWeightedCheckpointInference env manifest weights input = do
     Left err -> pure (Left ("V2 linux-cuda PlanId incompatibility: " <> err))
     Right _
       -- Phase 239: a supervised-graph checkpoint serves the trained dense
-      -- LayerGraph directly (reconstruct + inject + runLayerGraph); the token
-      -- runtime engine path is retired for these manifests.
+      -- LayerGraph directly (reconstruct + inject + runLayerGraph). Weight-only
+      -- manifests (no supervised runtime and no layer graph) take the MLP/kernel
+      -- fallback; the V2 token-runtime serving path has been retired.
       | Just _ <- architectureLayerGraph (manifestArchitecture manifest) ->
-          runSupervisedGraphCheckpointInference
-            (cudaRuntimeBackend env)
-            manifest
-            weights
-            input
-      | otherwise ->
-          case loadSupervisedRuntimeFromCheckpoint manifest weights of
-            Left err -> pure (Left ("V2 supervised runtime load failed: " <> err))
-            Right (Just runtime) ->
-              fmap VU.toList
-                <$> RuntimeArtifact.executeLoadedRuntime
-                  (cudaRuntimeBackend env)
-                  runtime
-                  (VU.fromList input)
-            Right Nothing -> mlpFallback
+          runSupervisedGraphCheckpointInference manifest weights input
+      | otherwise -> mlpFallback
  where
   mlpFallback = do
     mlpResult <- runMlpCheckpointForwardWith (mlpForwardCuda env) manifest weights input
@@ -213,18 +195,6 @@ runCudaWeightedCheckpointInference env manifest weights input = do
             Left err -> Left err
             Right kernelRun ->
               Right (fmap realToFrac (cudaWeightedKernelOutput kernelRun))
-
--- | Complete Linux-CUDA ownership of the persisted V2 graph. Parameterised
--- MLP work is dispatched by the real CUDA backend; every structural operation
--- crosses the versioned generated-CUDA ABI after a capability probe.
-cudaRuntimeBackend :: Env -> RuntimeArtifact.RuntimeBackendExecutor
-cudaRuntimeBackend env =
-  RuntimeOperationsDevice.runtimeOperationsBackendExecutor
-    RuntimeOperationsCuda.cudaRuntimeOperationsSpec
-    env
-    ( \params values ->
-        fmap (fmap forwardOutput) (mlpForwardCuda env params values)
-    )
 
 runCudaWeightedFamilyKernel
   :: Env

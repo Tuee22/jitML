@@ -34,7 +34,6 @@ import JitML.RL.Command.Options
   ( envWithDefault
   , mountedRunConfigDecodeError
   , parsePositiveAppInt
-  , requirePositiveAppInt
   , requireUserIntOptionAtLeast
   , selectedValue
   )
@@ -43,6 +42,7 @@ import JitML.RL.Command.Types
   , RlWorkerServices (..)
   )
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.TrainerExecution
   ( trainerRunEpisodes
   , trainerRunEvidence
@@ -122,20 +122,19 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
   let rlExperimentPath =
         Text.unpack (selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions)
   runConfigLoad <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
-  (envName, seed, maxSteps, evalEpisodes, trainerKind, atariRomPath) <- case runConfigLoad of
+  -- Phase 251 — the worker consumes a validated 'ProductBudget.CompiledRlPlan'.
+  -- In the cluster path it re-parses the daemon-compiled transport; a
+  -- developer-side invocation with no mount compiles a plan from the experiment
+  -- Dhall + env defaults. CLI @--seed@/@--algorithm@ overrides are applied to
+  -- the plan inputs and the plan is recompiled, so the schedule stays a pure
+  -- function of the (overridden) training inputs.
+  (plan, atariRomPath) <- case runConfigLoad of
     RunConfig.RunConfigLoaded rc -> do
-      resolvedMaxSteps <-
-        requirePositiveAppInt "RL maximum episode steps" (RunConfig.rlcMaxSteps rc)
-      resolvedEvalEpisodes <-
-        requirePositiveAppInt "RL evaluation episodes" (RunConfig.rlcEvalEpisodes rc)
-      pure
-        ( RunConfig.rlcEnvironment rc
-        , RunConfig.rlcSeed rc
-        , resolvedMaxSteps
-        , resolvedEvalEpisodes
-        , overrideTrainerKind overrides (Text.toLower (Text.strip (RunConfig.rlcTrainerKind rc)))
-        , RunConfig.rlcAtariRomPath rc
-        )
+      basePlan <-
+        either (exitWithError . InvalidConfig) pure (RunConfig.rlPlanFromRunConfig rc)
+      overriddenPlan <-
+        either (exitWithError . InvalidConfig) pure (applyOverridesToRlPlan overrides basePlan)
+      pure (overriddenPlan, RunConfig.rlcAtariRomPath rc)
     RunConfig.RunConfigMissing -> do
       loaded <- liftIO (ProductExperiment.loadRlExperimentByPath rlExperimentPath)
       experiment <-
@@ -146,23 +145,34 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
       eeR <- liftIO (envWithDefault "JITML_EVAL_EPISODES" "4")
       resolvedMaxSteps <- parsePositiveAppInt "JITML_MAX_STEPS" msR
       resolvedEvalEpisodes <- parsePositiveAppInt "JITML_EVAL_EPISODES" eeR
-      pure
-        ( ProductExperiment.rlExperimentEnvironment experiment
-        , fromIntegral (ProductExperiment.rlExperimentSeed experiment)
-        , resolvedMaxSteps
-        , resolvedEvalEpisodes
-        , Workload.rlTrainerForAlgorithm
-            (Overrides.overrideAlgorithm overrides (ProductExperiment.rlExperimentAlgorithm experiment))
-        , Nothing
-        )
+      let localTrainerKind =
+            Workload.rlTrainerForAlgorithm
+              (Overrides.overrideAlgorithm overrides (ProductExperiment.rlExperimentAlgorithm experiment))
+          localSeed =
+            fromIntegral
+              ( Overrides.overrideSeed
+                  overrides
+                  (fromIntegral (ProductExperiment.rlExperimentSeed experiment))
+              )
+      planE <-
+        liftIO
+          ( TrainerExecution.compileTraditionalRlPlan
+              localTrainerKind
+              (ProductExperiment.rlExperimentEnvironment experiment)
+              localSeed
+              resolvedEvalEpisodes
+              resolvedMaxSteps
+              Nothing
+          )
+      plan <- either (exitWithError . InvalidConfig) pure planE
+      pure (plan, Nothing)
     RunConfig.RunConfigDecodeFailed err ->
       exitWithError (mountedRunConfigDecodeError runConfigPath "RlRunConfig" err)
-  -- Sprint 1.12 — apply the CLI seed override before dispatch so the
-  -- override governs same-seed rollout generation. Substrate
-  -- override is recorded in the summary; it flows through to deeper RL
-  -- worker dispatch in follow-up work when RunConfig generation reads
-  -- the resolved value.
-  let resolvedSeed = fromIntegral (Overrides.overrideSeed overrides (fromIntegral seed)) :: Int
+  -- Phase 251 — the seed/algorithm overrides are already baked into the
+  -- compiled plan above; read the resolved training identity back from it.
+  let trainerKind = ProductBudget.compiledRlTrainerKind plan
+      envName = ProductBudget.compiledRlEnvironment plan
+      resolvedSeed = ProductBudget.compiledRlSeed plan
   -- Sprint 20.1 — route catalog trainers through the real dispatch path.
   -- Sprint 8.8 routes atari-subset through the runtime-loaded ALE adapter
   -- and an explicit uncommitted ROM path; all other recognized trainer
@@ -177,16 +187,11 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
   env <- ask
   episodesE <-
     liftIO
-      ( TrainerExecution.runTrainerEpisodes
+      ( TrainerExecution.runTrainerEpisodesForPlan
           substrate
           (rlDeviceForSubstrate substrate env)
           atariRomPath
-          trainerKind
-          envName
-          resolvedSeed
-          evalEpisodes
-          maxSteps
-          Nothing
+          plan
       )
   trainerRun <- case episodesE of
     Left err -> exitWithError (InvalidConfig err)
@@ -325,6 +330,31 @@ runRl _ _ path _ =
 overrideTrainerKind :: Overrides.ExperimentOverrides -> Text -> Text
 overrideTrainerKind overrides base =
   maybe base Workload.rlTrainerForAlgorithm (Overrides.eoAlgorithm overrides)
+
+-- | Phase 251 — apply the CLI @--seed@/@--algorithm@ overrides to a validated
+-- plan's training inputs and recompile. With no overrides the recompiled plan
+-- is identical to the input (the compiler is pure), so the cluster path is a
+-- no-op; a developer-side override re-derives the schedule from the overridden
+-- training inputs.
+applyOverridesToRlPlan
+  :: Overrides.ExperimentOverrides
+  -> ProductBudget.CompiledRlPlan
+  -> Either Text ProductBudget.CompiledRlPlan
+applyOverridesToRlPlan overrides plan =
+  ProductBudget.compileRlPlan overriddenTraining (ProductBudget.compiledRlEvaluation plan)
+ where
+  training = ProductBudget.compiledRlTraining plan
+  overriddenTraining =
+    training
+      { ProductBudget.trainingPlanSeed =
+          fromIntegral
+            ( Overrides.overrideSeed
+                overrides
+                (fromIntegral (ProductBudget.trainingPlanSeed training))
+            )
+      , ProductBudget.trainingPlanTrainerKind =
+          overrideTrainerKind overrides (ProductBudget.trainingPlanTrainerKind training)
+      }
 
 metricValueOrZero :: Text -> [(Text, Double)] -> Double
 metricValueOrZero metricName =

@@ -9,13 +9,19 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 242 (Sprint 242.1).
+✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
+The ResNet family (small ResNet, ResNet-20, ResNet-56, WideResNet-28-10, and the
+ResNet-50 bottleneck) is built as literal mixer-ResNet layer graphs over the
+Phase `233` typed layer engine — real Conv2D with a 2-conv strided stem,
+BatchNorm/GroupNorm, LayerNorm, residual BasicBlock/Bottleneck `BlockOp`,
+attention, and GeGLU — trained as compact proxies under the bounded product
+budget; feature parity and block counts are enforced and the compact proxies
+clear their bars (cifar10-resnet20 0.25, resnet56 0.20).
 
-## Sprint 243.1: Literal Architectures - ResNet Family [⏸️ Blocked]
+## Sprint 243.1: Literal Architectures - ResNet Family [✅ Done]
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/SL/Architecture.hs`, `src/JitML/Product/Matrix.hs`, `test/sl-canonicals/Main.hs`
-**Blocked by**: Sprint `242.1`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/numerical_core.md`, `../README.md`
 
 ### Objective
@@ -40,15 +46,6 @@ than a shared residual-MLP over flattened pixels.
   implemented layer graph; no simplified topology satisfies a row naming ResNet,
   WideResNet, Conv2D, GroupNorm, or residual structure.
 
-### Remaining Work
-
-- Implement each residual/bottleneck row as its literal named architecture on the
-  typed `LayerGraph` IR (trained via Phase `238`), including real convolution, pooling,
-  normalization, and residual/bottleneck depth and width rather than a shared
-  residual-MLP approximation.
-- Bind the registry's claimed features and block counts to that executed graph,
-  and make a simplified or mislabeled topology fail the production-path test.
-
 ### Validation
 
 ```bash
@@ -56,6 +53,16 @@ docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
+
+### Closure Evidence
+
+Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
+jitml-sl-canonicals 36/36 (incl. feature/block-count parity, the
+simplified-topology negative case, and all-eleven trained==Store-loaded V2
+parity), jitml-backends 35/35 (incl. the strided-conv and BlockOp oracles),
+jitml-unit passed with 0 failures, `jitml check-code` ok, `jitml docs check` ok,
+and `jitml internal train-and-publish-product-rows --linux-cpu` exit 0 with 55/55
+admitted.
 
 ### Historical Validation
 

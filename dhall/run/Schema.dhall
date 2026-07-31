@@ -59,13 +59,8 @@ let AlphaZeroRunConfig : Type =
 
 let RlRunConfig : Type =
       { experimentHash : Text
-      , algorithm : Text
-      , environment : Text
-      , substrate : Text
-      , seed : Natural
-      , maxSteps : Natural
-      , evalEpisodes : Natural
-      , trainerKind : Text
+      , planId : Text
+      , resolvedPlan : Text
       , atariRomPath : Optional Text
       , pulsarWsUrl : Text
       }

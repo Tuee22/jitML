@@ -24,7 +24,7 @@ import JitML.App qualified as App
 import JitML.Experiment.Product qualified as ProductExperiment
 import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Mlp qualified as Mlp
-import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
+import JitML.Numerics.MlpDevice (pureReferenceMlpDevice)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as Product
@@ -54,6 +54,32 @@ productExperimentExactnessTests =
         let paths = fmap Product.experimentConfig nonTuningRows
         paths @?= fmap (Product.productExperimentConfigPath . Product.rowId) nonTuningRows
         assertBool "exact ProductRow config paths collide" (length paths == length (nub paths))
+    , testCase
+        "every canonical SL architecture literally implements its claimed features (Phases 242-244)"
+        $ do
+          -- Rule N (honesty): each claimed architecture feature must be a real
+          -- trained node of the matching kind in the literal @archLayerGraph@ — the
+          -- same graph that is trained, served, and checkpointed — never a decorative
+          -- kind on a DenseOp. This pure assertion covers every canonical SL problem.
+          let config =
+                Classifier.defaultClassifierConfig
+                  { Classifier.clfInputs = 16
+                  , Classifier.clfHidden = 8
+                  , Classifier.clfClasses = 3
+                  }
+              parityFailures =
+                [ SL.problemName problem <> " -> " <> failure
+                | problem <- SL.canonicalProblems
+                , let spec = Architecture.architectureSpecForProblem config problem
+                , failure <-
+                    Architecture.validateArchitectureFeatureParity
+                      spec
+                      (Architecture.architectureClaimedFeatures spec)
+                ]
+          parityFailures @?= []
+          assertBool
+            "the canonical SL cohort covers at least ten problems"
+            (length SL.canonicalProblems >= 10)
     , testCase "whole-batch preflight accumulates later failures with zero runner effects" $ do
         preparedInputs <- newIORef ([] :: [Int])
         runnerInputs <- newIORef ([] :: [Int])
