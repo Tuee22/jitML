@@ -1944,14 +1944,6 @@ assertLoadedV2Bindings row projection stored artifact manifest weights = do
               [parameterCount]
               "F64"
           ]
-      expectedTensor =
-        Checkpoint.TensorBlob
-          "supervised.weights"
-          [parameterCount]
-          ( Checkpoint.blobKey
-              (ProductMatrix.productProjectionExperimentHash projection)
-              (RuntimeArtifact.payloadFinalJmw1Sha256 payload)
-          )
       isClassification =
         RuntimeArtifact.runtimeTaskIsClassification
           (RuntimeArtifact.supervisedRuntimeTask runtime)
@@ -1973,7 +1965,20 @@ assertLoadedV2Bindings row projection stored artifact manifest weights = do
   Checkpoint.manifestSupervisedRuntime manifest @?= Just payload
   Checkpoint.manifestWeightLayout manifest @?= expectedLayout
   Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
-  Checkpoint.manifestTensors manifest @?= [expectedTensor]
+  case Checkpoint.manifestTensors manifest of
+    [tensor] -> do
+      Checkpoint.tensorName tensor @?= "supervised.weights"
+      Checkpoint.tensorShape tensor @?= [parameterCount]
+      assertBool
+        "stored supervised tensor is isolated in its checkpoint snapshot"
+        ( "/snapshots/" `Text.isInfixOf` Checkpoint.tensorBlobKey tensor
+            && "/objects/" `Text.isInfixOf` Checkpoint.tensorBlobKey tensor
+        )
+    tensors ->
+      assertFailure
+        ( "expected one stored supervised tensor, got "
+            <> show (length tensors)
+        )
   expectedValues <-
     expectText
       ("exact final JMW1 decode for " <> Text.unpack (ProductMatrix.rowId row))
@@ -1993,17 +1998,17 @@ assertLoadedV2Bindings row projection stored artifact manifest weights = do
             <> " expected one persisted output decoder, got "
             <> show decoders
         )
-  case weights of
-    [loaded] -> do
+  case (Checkpoint.manifestTensors manifest, weights) of
+    ([expectedTensor], [loaded]) -> do
       CheckpointStore.loadedWeightTensor loaded @?= expectedTensor
       CheckpointStore.loadedWeightJmw1Bytes loaded
         @?= LazyByteString.toStrict finalBytes
       CheckpointStore.loadedWeightValues loaded @?= expectedValues
-    _ ->
+    (_, loadedWeights) ->
       assertFailure
         ( Text.unpack (ProductMatrix.rowId row)
             <> " expected one Store-loaded physical tensor, got "
-            <> show (length weights)
+            <> show (length loadedWeights)
         )
 
 runSelectedWeightedEngine

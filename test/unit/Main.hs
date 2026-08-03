@@ -1,34 +1,44 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
-import Control.Concurrent (newEmptyMVar, putMVar, takeMVar, threadDelay)
+import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import Control.Exception (IOException, bracket_, finally, try)
 import Control.Exception qualified as Exception
 import Control.Monad qualified
 import Control.Monad.Catch (ExitCase (..))
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (ReaderT, ask, asks, runReaderT)
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as AesonKey
+import Data.Aeson.KeyMap qualified as AesonKeyMap
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Char (isDigit)
-import Data.Foldable (toList, traverse_)
-import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Foldable (for_, toList, traverse_)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
+import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
 import Data.Word (Word64)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure)
 import Path (toFilePath)
 import Path.IO (resolveDir')
 import System.Directory
-  ( copyFile
+  ( canonicalizePath
+  , copyFile
   , createDirectoryIfMissing
+  , createDirectoryLink
   , doesFileExist
   , getCurrentDirectory
   , getPermissions
@@ -37,6 +47,7 @@ import System.Directory
   , setOwnerExecutable
   , setPermissions
   )
+import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -55,9 +66,12 @@ import SupervisedCheckpointV2 qualified
 import SupervisedTrainingSeed qualified
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase, (@?=))
 
+import Data.Vector qualified as Vector
 import Data.Vector.Unboxed qualified
 import JitML.App
   ( alphaZeroArtifactStep
+  , gcFreshPlanIntentsToPersist
+  , gcFreshTerminalRecoveryWork
   , inferenceReplyAppError
   , matchingInferenceResult
   , parseUserIntOptionAtLeast
@@ -86,6 +100,7 @@ import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
+import JitML.Checkpoint.Writer qualified as CheckpointWriter
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.Cuda qualified as Cuda
 import JitML.Codegen.KernelFamily (KernelFamily (..))
@@ -170,6 +185,7 @@ import JitML.Prerequisite.Registry
   , syntheticMissingPrerequisite
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
+import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
@@ -184,6 +200,7 @@ import JitML.Product.PhaseStatus qualified as PhaseStatus
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Inference qualified as ProtoInference
+import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Wire qualified as ProtoWire
 import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms qualified as RLAlgorithms
@@ -224,6 +241,7 @@ import JitML.RL.Simulator qualified as Sim
 import JitML.Routes qualified as Routes
 import JitML.SL.RuntimeArtifact qualified as Runtime
 import JitML.Service.BootConfig qualified as BootConfig
+import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.CatalogSchema (catalogFileSchemas)
 import JitML.Service.DhallSchema
@@ -233,6 +251,7 @@ import JitML.Service.DhallSchema
   , liveConfigSchema
   , runSchemaDhall
   )
+import JitML.Service.FilesystemMinIO (FilesystemMinIO, runFilesystemMinIO)
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.InferenceReplyScope (runInferenceReplyScope, runInferenceReplyScopeObserved)
 import JitML.Service.LiveConfig qualified as LiveConfig
@@ -265,9 +284,11 @@ import JitML.Sub.Stream
   ( defaultSubprocessEnv
   , observeProcessAction
   , runStreaming
+  , subprocessEnvOverrideAndRemove
   )
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
+import JitML.Test.BrowserEvidenceJournal qualified as BrowserEvidenceJournal
 import JitML.Test.HostWorkloadRegistry qualified as HostWorkloadRegistry
 import JitML.Test.InferenceBatch qualified as InferenceBatch
 import JitML.Test.LiveE2EScope qualified as LiveE2EScope
@@ -277,6 +298,8 @@ import JitML.Test.LivePlan
   , ScopedLivePlan (..)
   )
 import JitML.Test.PipedProcess qualified as PipedProcess
+import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
+import JitML.Test.ProductScenarioRunner qualified as ProductScenarioRunner
 import JitML.Test.PulsarBridge qualified as PulsarBridge
 import JitML.Test.PulsarTransport qualified as PulsarTransport
 import JitML.Test.Report qualified as Report
@@ -536,8 +559,1688 @@ instance FromJSON CommandSchema where
     withObject "CommandSchema" $ \object ->
       CommandSchema <$> object .: "commands"
 
+browserEvidenceJournalTests :: TestTree
+browserEvidenceJournalTests =
+  testGroup
+    "BrowserEvidenceJournal"
+    [ testCase "strict v1 round-trips the exact ordered 55-row Passed result" $
+        withBrowserEvidenceJournalFixture $ \fixture -> do
+          written <-
+            BrowserEvidenceJournal.writeBrowserEvidenceJournalAtomic
+              (browserJournalFixtureKey fixture)
+              (browserJournalFixturePath fixture)
+              (browserJournalFixtureExpectation fixture)
+              ( replicate
+                  BrowserEvidenceJournal.browserEvidenceCanonicalRowCount
+                  ( BrowserEvidenceJournal.BrowserEvidenceObservation
+                      BrowserEvidenceJournal.BrowserPassed
+                      ""
+                  )
+              )
+          case written of
+            Left errors -> assertFailure ("browser journal write failed: " <> show errors)
+            Right () -> pure ()
+          loaded <- readBrowserJournalFixture fixture
+          case loaded of
+            Left errors -> assertFailure ("browser journal read failed: " <> show errors)
+            Right report -> do
+              assertBool
+                "55 Passed rows did not close the browser report"
+                (BrowserEvidenceJournal.browserEvidenceReportAllPassed report)
+              let entries = BrowserEvidenceJournal.browserEvidenceReportEntries report
+              length entries
+                @?= BrowserEvidenceJournal.browserEvidenceCanonicalRowCount
+              fmap BrowserEvidenceJournal.browserEvidenceResultOrdinal entries
+                @?= [(0 :: Word64) .. 54]
+              fmap BrowserEvidenceJournal.browserEvidenceResultRowId entries
+                @?= fmap
+                  BrowserEvidenceJournal.expectedBrowserRowId
+                  browserJournalExpectedRows
+          let renderedKey =
+                BrowserEvidenceJournal.renderBrowserEvidenceJournalKey
+                  (browserJournalFixtureKey fixture)
+          Text.length renderedKey @?= 64
+          assertBool "browser key is not lowercase hex" (Text.all journalLowerHex renderedKey)
+          case BrowserEvidenceJournal.parseBrowserEvidenceJournalKey renderedKey of
+            Left err -> assertFailure ("rendered browser key did not parse: " <> show err)
+            Right parsedKey ->
+              assertBool
+                "parsed browser key differs from generated key"
+                (parsedKey == browserJournalFixtureKey fixture)
+          assertBool
+            "uppercase browser key unexpectedly parsed"
+            ( case BrowserEvidenceJournal.parseBrowserEvidenceJournalKey
+                ("A" <> Text.drop 1 renderedKey) of
+                Left _ -> True
+                Right _ -> False
+            )
+    , testCase "v1 HMAC material matches the independent UTF-8 frontend golden" $
+        withSystemTempDirectory "jitml-browser-evidence-hmac-golden" $ \root -> do
+          let fixedKeyText =
+                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+              expectedTag =
+                "edbf2a5a0a1398b629d54f039f693317e5f98dfb5a2980cfa092539fa90df879"
+              expectation =
+                browserExpectationOrFail
+                  "phase-262-browser-unit-current-run"
+                  (Text.replicate 64 "a")
+                  (Text.replicate 64 "b")
+                  browserJournalExpectedRows
+              observations =
+                replicate
+                  BrowserEvidenceJournal.browserEvidenceCanonicalRowCount
+                  ( BrowserEvidenceJournal.BrowserEvidenceObservation
+                      BrowserEvidenceJournal.BrowserPassed
+                      ""
+                  )
+              path = root </> "golden.json"
+          key <-
+            case BrowserEvidenceJournal.parseBrowserEvidenceJournalKey fixedKeyText of
+              Left err -> assertFailure ("fixed browser key did not parse: " <> show err) >> error "unreachable"
+              Right value -> pure value
+          written <-
+            BrowserEvidenceJournal.writeBrowserEvidenceJournalAtomic
+              key
+              path
+              expectation
+              observations
+          case written of
+            Left errors -> assertFailure ("golden browser journal write failed: " <> show errors)
+            Right () -> pure ()
+          readJournalValue path >>= \case
+            Aeson.Object record ->
+              journalTextField "run_receipt_hmac_sha256" record @?= expectedTag
+            other -> assertFailure ("golden browser journal is not an object: " <> show other)
+          let unicodeExpectedTag =
+                "c2b6ac58411e9bab5e85cc6ed4006117a3ce9ea4e9cdd1a3994228f3cca041b0"
+              unicodeObservations =
+                BrowserEvidenceJournal.BrowserEvidenceObservation
+                  BrowserEvidenceJournal.BrowserFailed
+                  "é 🧪 failure"
+                  : replicate
+                    (BrowserEvidenceJournal.browserEvidenceCanonicalRowCount - 1)
+                    ( BrowserEvidenceJournal.BrowserEvidenceObservation
+                        BrowserEvidenceJournal.BrowserPassed
+                        ""
+                    )
+          unicodeWritten <-
+            BrowserEvidenceJournal.writeBrowserEvidenceJournalAtomic
+              key
+              path
+              expectation
+              unicodeObservations
+          case unicodeWritten of
+            Left errors ->
+              assertFailure ("Unicode golden browser journal write failed: " <> show errors)
+            Right () -> pure ()
+          readJournalValue path >>= \case
+            Aeson.Object record ->
+              journalTextField "run_receipt_hmac_sha256" record @?= unicodeExpectedTag
+            other ->
+              assertFailure ("Unicode golden browser journal is not an object: " <> show other)
+    , testCase "initial journal honestly retains every row as NotRun" $
+        withBrowserEvidenceJournalFixture $ \fixture -> do
+          written <-
+            BrowserEvidenceJournal.writeInitialBrowserEvidenceJournalAtomic
+              (browserJournalFixtureKey fixture)
+              (browserJournalFixturePath fixture)
+              (browserJournalFixtureExpectation fixture)
+          case written of
+            Left errors -> assertFailure ("initial browser journal write failed: " <> show errors)
+            Right () -> pure ()
+          loaded <- readBrowserJournalFixture fixture
+          case loaded of
+            Left errors -> assertFailure ("initial browser journal read failed: " <> show errors)
+            Right report -> do
+              assertBool
+                "an all-NotRun seed journal was accepted as green"
+                (not (BrowserEvidenceJournal.browserEvidenceReportAllPassed report))
+              let entries = BrowserEvidenceJournal.browserEvidenceReportEntries report
+              assertBool
+                "initial browser journal did not preserve every NotRun cell"
+                ( all
+                    ( (== BrowserEvidenceJournal.BrowserNotRun)
+                        . BrowserEvidenceJournal.browserEvidenceResultStatus
+                    )
+                    entries
+                )
+              assertBool
+                "initial NotRun cells omitted their reason"
+                ( not
+                    ( any
+                        (Text.null . BrowserEvidenceJournal.browserEvidenceResultDetail)
+                        entries
+                    )
+                )
+    , testCase "authentication and strict schema reject tampering and unknown fields" $
+        withBrowserEvidenceJournalFixture $ \fixture -> do
+          writePassingBrowserJournal fixture
+          original <- readJournalValue (browserJournalFixturePath fixture)
+          wrongKey <- generateDifferentBrowserJournalKey (browserJournalFixtureKey fixture)
+          assertBrowserEvidenceJournalError
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalAuthenticationFailed -> True; _ -> False)
+            =<< BrowserEvidenceJournal.readBrowserEvidenceJournal
+              wrongKey
+              (browserJournalFixturePath fixture)
+              (browserJournalFixtureExpectation fixture)
+          writeJournalValue
+            (browserJournalFixturePath fixture)
+            (setJournalField "phase_262_unknown" Aeson.Null original)
+          assertBrowserEvidenceJournalError
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalMalformed {} -> True; _ -> False)
+            =<< readBrowserJournalFixture fixture
+          writeJournalValue
+            (browserJournalFixturePath fixture)
+            ( modifyFirstJournalRow
+                (setObjectField "status" (Aeson.String "PASS"))
+                original
+            )
+          assertBrowserEvidenceJournalError
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalStatusInvalid {} -> True; _ -> False)
+            =<< readBrowserJournalFixture fixture
+          writeJournalValue
+            (browserJournalFixturePath fixture)
+            (setJournalField "run_receipt_hmac_sha256" (Aeson.String "not-a-tag") original)
+          assertBrowserEvidenceJournalError
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalAuthenticationTagInvalid {} -> True; _ -> False)
+            =<< readBrowserJournalFixture fixture
+    , testCase "coverage rejects missing, duplicate, orphaned, and reordered rows" $
+        withBrowserEvidenceJournalFixture $ \fixture -> do
+          writePassingBrowserJournal fixture
+          original <- readJournalValue (browserJournalFixturePath fixture)
+          let check mutation predicate = do
+                writeJournalValue
+                  (browserJournalFixturePath fixture)
+                  (modifyJournalRows mutation original)
+                assertBrowserEvidenceJournalError predicate
+                  =<< readBrowserJournalFixture fixture
+          check
+            reverse
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalRowOrderMismatch {} -> True; _ -> False)
+          check
+            (take 54)
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalMissingRow {} -> True; _ -> False)
+          check
+            ( \case
+                first : _second : remaining -> first : first : remaining
+                [first] -> [first, first]
+                [] -> []
+            )
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalDuplicateRow {} -> True; _ -> False)
+          writeJournalValue
+            (browserJournalFixturePath fixture)
+            ( modifyFirstJournalRow
+                (setObjectField "row_id" (Aeson.String "orphan-browser-row"))
+                original
+            )
+          assertBrowserEvidenceJournalError
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalOrphanRow {} -> True; _ -> False)
+            =<< readBrowserJournalFixture fixture
+    , testCase "authenticated identity drift cannot join the canonical catalogue" $
+        withBrowserEvidenceJournalFixture $ \fixture -> do
+          assertBool
+            "oversized browser expectation identity unexpectedly refined"
+            ( case BrowserEvidenceJournal.browserEvidenceExpectation
+                (Text.replicate 4097 "x")
+                Substrate.LinuxCPU
+                (Text.replicate 64 "a")
+                (Text.replicate 64 "b")
+                browserJournalExpectedRows of
+                Left errors ->
+                  any
+                    ( \case
+                        BrowserEvidenceJournal.BrowserEvidenceExpectationIdentityInvalid
+                          "run_id"
+                          _ -> True
+                        _ -> False
+                    )
+                    errors
+                Right _ -> False
+            )
+          let expectedRows = browserJournalExpectedRows
+              wrongPlanRows =
+                case expectedRows of
+                  [] -> []
+                  first : remaining ->
+                    first
+                      { BrowserEvidenceJournal.expectedBrowserPlanId = Text.replicate 64 "f"
+                      }
+                      : remaining
+              alteredExpectation =
+                browserExpectationOrFail
+                  "phase-262-browser-unit-current-run"
+                  (Text.replicate 64 "a")
+                  (Text.replicate 64 "b")
+                  wrongPlanRows
+          written <-
+            BrowserEvidenceJournal.writeBrowserEvidenceJournalAtomic
+              (browserJournalFixtureKey fixture)
+              (browserJournalFixturePath fixture)
+              alteredExpectation
+              ( replicate
+                  BrowserEvidenceJournal.browserEvidenceCanonicalRowCount
+                  ( BrowserEvidenceJournal.BrowserEvidenceObservation
+                      BrowserEvidenceJournal.BrowserPassed
+                      ""
+                  )
+              )
+          case written of
+            Left errors -> assertFailure ("altered browser journal write failed: " <> show errors)
+            Right () -> pure ()
+          assertBrowserEvidenceJournalError
+            (\case BrowserEvidenceJournal.BrowserEvidenceJournalPlanMismatch {} -> True; _ -> False)
+            =<< readBrowserJournalFixture fixture
+    , testCase "status detail policy rejects fabricated or unsafe explanations" $
+        withBrowserEvidenceJournalFixture $ \fixture -> do
+          let rejected status detail = do
+                written <-
+                  BrowserEvidenceJournal.writeBrowserEvidenceJournalAtomic
+                    (browserJournalFixtureKey fixture)
+                    (browserJournalFixturePath fixture)
+                    (browserJournalFixtureExpectation fixture)
+                    ( replicate
+                        BrowserEvidenceJournal.browserEvidenceCanonicalRowCount
+                        (BrowserEvidenceJournal.BrowserEvidenceObservation status detail)
+                    )
+                case written of
+                  Left errors ->
+                    assertBool
+                      ("expected detail rejection, got " <> show errors)
+                      ( any
+                          (\case BrowserEvidenceJournal.BrowserEvidenceJournalDetailInvalid {} -> True; _ -> False)
+                          errors
+                      )
+                  Right () -> assertFailure "unsafe browser status detail was written"
+          rejected BrowserEvidenceJournal.BrowserPassed "fabricated pass detail"
+          rejected BrowserEvidenceJournal.BrowserFailed ""
+          rejected BrowserEvidenceJournal.BrowserNotRun "contains\ncontrol"
+          rejected BrowserEvidenceJournal.BrowserFailed "contains\x85\&control"
+          rejected BrowserEvidenceJournal.BrowserFailed (Text.replicate 4097 "x")
+    ]
+
+data BrowserEvidenceJournalFixture = BrowserEvidenceJournalFixture
+  { browserJournalFixturePath :: !FilePath
+  , browserJournalFixtureKey :: !BrowserEvidenceJournal.BrowserEvidenceJournalKey
+  , browserJournalFixtureExpectation :: !BrowserEvidenceJournal.BrowserEvidenceExpectation
+  }
+
+withBrowserEvidenceJournalFixture
+  :: (BrowserEvidenceJournalFixture -> IO result)
+  -> IO result
+withBrowserEvidenceJournalFixture action =
+  withSystemTempDirectory "jitml-browser-evidence-journal" $ \root -> do
+    key <-
+      BrowserEvidenceJournal.generateBrowserEvidenceJournalKey
+        >>= \case
+          Left err -> assertFailure ("browser key generation failed: " <> show err) >> error "unreachable"
+          Right value -> pure value
+    action
+      BrowserEvidenceJournalFixture
+        { browserJournalFixturePath = root </> "result.json"
+        , browserJournalFixtureKey = key
+        , browserJournalFixtureExpectation =
+            browserExpectationOrFail
+              "phase-262-browser-unit-current-run"
+              (Text.replicate 64 "a")
+              (Text.replicate 64 "b")
+              browserJournalExpectedRows
+        }
+
+browserJournalExpectedRows :: [BrowserEvidenceJournal.BrowserEvidenceExpectedRow]
+browserJournalExpectedRows =
+  [ BrowserEvidenceJournal.BrowserEvidenceExpectedRow
+      { BrowserEvidenceJournal.expectedBrowserOrdinal = ordinal
+      , BrowserEvidenceJournal.expectedBrowserRowId = "browser-row-" <> suffix
+      , BrowserEvidenceJournal.expectedBrowserPlanId = digestFor ordinal 'c'
+      , BrowserEvidenceJournal.expectedBrowserExperimentHash = digestFor ordinal 'd'
+      , BrowserEvidenceJournal.expectedBrowserManifestSha256 = digestFor ordinal 'e'
+      , BrowserEvidenceJournal.expectedBrowserE2ETest = "browser-e2e-" <> suffix
+      }
+  | ordinal <- [0 .. fromIntegral BrowserEvidenceJournal.browserEvidenceCanonicalRowCount - 1]
+  , let suffix = Text.justifyRight 2 '0' (Text.pack (show ordinal))
+  ]
+ where
+  digestFor ordinal prefix =
+    Text.cons
+      prefix
+      (Text.justifyRight 63 '0' (Text.pack (show ordinal)))
+
+browserExpectationOrFail
+  :: Text
+  -> Text
+  -> Text
+  -> [BrowserEvidenceJournal.BrowserEvidenceExpectedRow]
+  -> BrowserEvidenceJournal.BrowserEvidenceExpectation
+browserExpectationOrFail runId catalogueSha sourceSha rows =
+  case BrowserEvidenceJournal.browserEvidenceExpectation
+    runId
+    Substrate.LinuxCPU
+    catalogueSha
+    sourceSha
+    rows of
+    Left errors -> error ("invalid browser expectation fixture: " <> show errors)
+    Right expectation -> expectation
+
+writePassingBrowserJournal :: BrowserEvidenceJournalFixture -> IO ()
+writePassingBrowserJournal fixture = do
+  written <-
+    BrowserEvidenceJournal.writeBrowserEvidenceJournalAtomic
+      (browserJournalFixtureKey fixture)
+      (browserJournalFixturePath fixture)
+      (browserJournalFixtureExpectation fixture)
+      ( replicate
+          BrowserEvidenceJournal.browserEvidenceCanonicalRowCount
+          ( BrowserEvidenceJournal.BrowserEvidenceObservation
+              BrowserEvidenceJournal.BrowserPassed
+              ""
+          )
+      )
+  case written of
+    Left errors -> assertFailure ("browser journal write failed: " <> show errors)
+    Right () -> pure ()
+
+readBrowserJournalFixture
+  :: BrowserEvidenceJournalFixture
+  -> IO
+       ( Either
+           (NonEmpty BrowserEvidenceJournal.BrowserEvidenceJournalError)
+           BrowserEvidenceJournal.BrowserEvidenceReport
+       )
+readBrowserJournalFixture fixture =
+  BrowserEvidenceJournal.readBrowserEvidenceJournal
+    (browserJournalFixtureKey fixture)
+    (browserJournalFixturePath fixture)
+    (browserJournalFixtureExpectation fixture)
+
+assertBrowserEvidenceJournalError
+  :: (BrowserEvidenceJournal.BrowserEvidenceJournalError -> Bool)
+  -> Either
+       (NonEmpty BrowserEvidenceJournal.BrowserEvidenceJournalError)
+       BrowserEvidenceJournal.BrowserEvidenceReport
+  -> Assertion
+assertBrowserEvidenceJournalError predicate outcome =
+  case outcome of
+    Left errors ->
+      assertBool
+        ("unexpected browser journal errors: " <> show errors)
+        (any predicate errors)
+    Right _ -> assertFailure "invalid browser journal minted BrowserEvidenceReport"
+
+generateDifferentBrowserJournalKey
+  :: BrowserEvidenceJournal.BrowserEvidenceJournalKey
+  -> IO BrowserEvidenceJournal.BrowserEvidenceJournalKey
+generateDifferentBrowserJournalKey original = do
+  generated <- BrowserEvidenceJournal.generateBrowserEvidenceJournalKey
+  case generated of
+    Left err -> assertFailure ("browser key generation failed: " <> show err) >> error "unreachable"
+    Right key
+      | key == original -> generateDifferentBrowserJournalKey original
+      | otherwise -> pure key
+
+productScenarioJournalTests :: TestTree
+productScenarioJournalTests =
+  testGroup
+    "ProductScenarioJournal"
+    [ testCase "opaque local-executable evidence round-trips through exact-address journal admission" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          loaded <- readJournalFixture fixture (journalFixtureRunId fixture)
+          loaded @?= Right (journalFixtureReport fixture)
+          let checkpointAlias = journalFixtureRoot fixture </> "checkpoint-alias"
+              foreignCheckpointRoot =
+                journalFixtureRoot fixture </> "foreign-physical-checkpoints"
+              readAtRoot root =
+                ProductScenarioJournal.readProductScenarioJournal
+                  (journalFixtureKey fixture)
+                  (journalFixturePath fixture)
+                  root
+                  (journalFixtureRunId fixture)
+                  (journalFixtureExecutablePath fixture)
+                  (journalFixtureExecutableSha fixture)
+                  (journalFixtureBatch fixture)
+          createDirectoryLink
+            (journalFixtureCheckpointRoot fixture)
+            checkpointAlias
+          readAtRoot checkpointAlias
+            >>= (@?= Right (journalFixtureReport fixture))
+          removeFile checkpointAlias
+          createDirectoryIfMissing True foreignCheckpointRoot
+          createDirectoryLink foreignCheckpointRoot checkpointAlias
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalCheckpointScopeMismatch {} -> True; _ -> False)
+            =<< readAtRoot checkpointAlias
+          wrongRootWrite <-
+            ProductScenarioJournal.writeProductScenarioJournalAtomic
+              (journalFixtureKey fixture)
+              (journalFixtureRoot fixture </> "wrong-root-journal.json")
+              (journalFixtureRoot fixture </> "wrong-checkpoint-root")
+              (journalFixtureRunId fixture)
+              (journalFixtureBatch fixture)
+              (journalFixtureReport fixture)
+          case wrongRootWrite of
+            Left errors ->
+              assertBool
+                ("expected writer checkpoint-scope rejection, got " <> show errors)
+                ( any
+                    (\case ProductScenarioJournal.ProductScenarioJournalCheckpointScopeMismatch {} -> True; _ -> False)
+                    errors
+                )
+            Right () ->
+              assertFailure
+                "writer persisted opaque evidence under a foreign checkpoint root"
+          let renderedKey =
+                ProductScenarioJournal.renderProductScenarioJournalKey
+                  (journalFixtureKey fixture)
+          case ProductScenarioJournal.parseProductScenarioJournalKey renderedKey of
+            Left err ->
+              assertFailure
+                ("rendered journal key did not parse: " <> show err)
+            Right parsedKey ->
+              assertBool
+                "parsed journal key differs from the generated key"
+                (parsedKey == journalFixtureKey fixture)
+          assertBool
+            "rendered journal key is not exactly 32 lowercase-hex bytes"
+            (Text.length renderedKey == 64 && Text.all journalLowerHex renderedKey)
+          assertBool
+            "uppercase journal key unexpectedly parsed"
+            ( case ProductScenarioJournal.parseProductScenarioJournalKey
+                ("A" <> Text.drop 1 renderedKey) of
+                Left _ -> True
+                Right _ -> False
+            )
+          assertBool
+            "non-ASCII decimal digit unexpectedly parsed as journal hex"
+            ( case ProductScenarioJournal.parseProductScenarioJournalKey
+                ("\x0660" <> Text.drop 1 renderedKey) of
+                Left _ -> True
+                Right _ -> False
+            )
+          wrongKey <- generateDifferentJournalKey (journalFixtureKey fixture)
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< ProductScenarioJournal.readProductScenarioJournal
+              wrongKey
+              (journalFixturePath fixture)
+              (journalFixtureCheckpointRoot fixture)
+              (journalFixtureRunId fixture)
+              (journalFixtureExecutablePath fixture)
+              (journalFixtureExecutableSha fixture)
+              (journalFixtureBatch fixture)
+          let wrongExecutablePath =
+                journalFixtureRoot fixture </> "wrong-jitml-executable"
+          copyFile
+            (journalFixtureExecutablePath fixture)
+            wrongExecutablePath
+          canonicalWrongExecutablePath <- canonicalizePath wrongExecutablePath
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalExecutablePathMismatch {} -> True; _ -> False)
+            =<< ProductScenarioJournal.readProductScenarioJournal
+              (journalFixtureKey fixture)
+              (journalFixturePath fixture)
+              (journalFixtureCheckpointRoot fixture)
+              (journalFixtureRunId fixture)
+              canonicalWrongExecutablePath
+              (journalFixtureExecutableSha fixture)
+              (journalFixtureBatch fixture)
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalExecutableShaMismatch {} -> True; _ -> False)
+            =<< ProductScenarioJournal.readProductScenarioJournal
+              (journalFixtureKey fixture)
+              (journalFixturePath fixture)
+              (journalFixtureCheckpointRoot fixture)
+              (journalFixtureRunId fixture)
+              (journalFixtureExecutablePath fixture)
+              zeroJournalDigest
+              (journalFixtureBatch fixture)
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalMalformed {} -> True; _ -> False)
+            =<< ProductScenarioJournal.readProductScenarioJournal
+              (journalFixtureKey fixture)
+              (journalFixturePath fixture)
+              (journalFixtureCheckpointRoot fixture)
+              (journalFixtureRunId fixture)
+              (journalFixtureExecutablePath fixture)
+              ("\x0660" <> Text.drop 1 (journalFixtureExecutableSha fixture))
+              (journalFixtureBatch fixture)
+          let entries =
+                Report.completedProductScenarioReportEntries
+                  (journalFixtureReport fixture)
+          assertBool "journal fixture must cover two ProductRows" (length entries == 2)
+          traverse_
+            ( \entry -> do
+                assertBool
+                  "local executable evidence omitted its precondition rejection"
+                  (Report.completedProductScenarioPreconditionRejected entry)
+                assertBool
+                  "local executable evidence lost precondition < inference < completion order"
+                  ( Report.completedProductScenarioPreconditionSequence entry
+                      < Report.completedProductScenarioInferenceSequence entry
+                      && Report.completedProductScenarioInferenceSequence entry
+                        < Report.completedProductScenarioCompletionSequence entry
+                  )
+            )
+            entries
+    , testCase "strict current-run schema rejects malformed, unknown, stale-run, batch, and lane input" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          original <- readJournalValue (journalFixturePath fixture)
+          ByteString.writeFile (journalFixturePath fixture) "{"
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalMalformed {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          writeJournalValue
+            (journalFixturePath fixture)
+            (setJournalField "unknown_phase_261_field" Aeson.Null original)
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalMalformed {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          writeJournalValue
+            (journalFixturePath fixture)
+            ( modifyFirstJournalRow
+                (setObjectField "unknown_row_field" Aeson.Null)
+                original
+            )
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalMalformed {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          writeJournalValue
+            (journalFixturePath fixture)
+            (setJournalField "version" (Aeson.toJSON (1 :: Word64)) original)
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          writeJournalValue (journalFixturePath fixture) original
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalRunIdMismatch {} -> True; _ -> False)
+            =<< readJournalFixture fixture "phase-261-different-run"
+          let rewrittenRunId = "phase-261-rewritten-current-run"
+              relabelledRows =
+                modifyJournalRows
+                  ( fmap $ \case
+                      Aeson.Object row ->
+                        Aeson.Object
+                          ( setObjectField
+                              "run_id"
+                              (Aeson.String rewrittenRunId)
+                              row
+                          )
+                      row -> row
+                  )
+                  (setJournalField "run_id" (Aeson.String rewrittenRunId) original)
+          writeJournalValue
+            (journalFixturePath fixture)
+            (refreshJournalUnkeyedReceipt relabelledRows)
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture rewrittenRunId
+          writeJournalValue
+            (journalFixturePath fixture)
+            ( setJournalField
+                "checkpoint_scope_sha256"
+                (Aeson.String zeroJournalDigest)
+                original
+            )
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          writeJournalValue
+            (journalFixturePath fixture)
+            ( setJournalField
+                "projection_batch_sha256"
+                (Aeson.String zeroJournalDigest)
+                original
+            )
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          writeJournalValue
+            (journalFixturePath fixture)
+            ( setJournalField
+                "substrate"
+                (Aeson.String "linux-cuda")
+                original
+            )
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+    , testCase "journal coverage rejects reordered, missing, duplicate, and orphan rows" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          original <- readJournalValue (journalFixturePath fixture)
+          let check mutation predicate = do
+                writeJournalValue
+                  (journalFixturePath fixture)
+                  (modifyJournalRows mutation original)
+                assertProductScenarioJournalError predicate
+                  =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          check
+            reverse
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            (take 1)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            (\case first : rest -> first : rest <> [first]; [] -> [])
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          writeJournalValue
+            (journalFixturePath fixture)
+            ( modifyFirstJournalRow
+                (setObjectField "row_id" (Aeson.String "orphan-product-row"))
+                original
+            )
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+    , testCase "identity, contract, inference, and chronology drift cannot rehydrate opaque evidence" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          original <- readJournalValue (journalFixturePath fixture)
+          let check field value predicate = do
+                writeJournalValue
+                  (journalFixturePath fixture)
+                  (modifyFirstJournalRow (setObjectField field value) original)
+                assertProductScenarioJournalError predicate
+                  =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          check
+            "plan_id"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "run_id"
+            (Aeson.String "phase-261-row-run-drift")
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "executable_path"
+            (Aeson.String "/tmp/forged-jitml")
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "executable_sha256"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "invocation_digest"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "experiment_hash"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "command"
+            (Aeson.String "jitml internal wrong-command")
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "projection_sha256"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "contract_sha256"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "execution_journal_receipt"
+            (Aeson.String "tampered-execution-receipt")
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          let forgedReceipt = "self-consistent-forged-execution-receipt"
+              selfConsistentForgedReceipt =
+                refreshJournalUnkeyedReceipt
+                  ( modifyFirstJournalRow
+                      ( setObjectField
+                          "execution_journal_sha256"
+                          (Aeson.String (journalSha256Text forgedReceipt))
+                          . setObjectField
+                            "execution_journal_receipt"
+                            (Aeson.String forgedReceipt)
+                      )
+                      original
+                  )
+          writeJournalValue
+            (journalFixturePath fixture)
+            selfConsistentForgedReceipt
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          check
+            "execution_journal_sha256"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "inference_experiment_hash"
+            (Aeson.String "product-row-drifted-inference")
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "inference_manifest_sha256"
+            (Aeson.String zeroJournalDigest)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "precondition_rejected"
+            (Aeson.Bool False)
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          check
+            "completion_sequence"
+            (Aeson.toJSON (2 :: Word64))
+            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+          writeJournalValue (journalFixturePath fixture) original
+          assertProductScenarioJournalError
+            (\case ProductScenarioJournal.ProductScenarioJournalCheckpointScopeMismatch {} -> True; _ -> False)
+            =<< ProductScenarioJournal.readProductScenarioJournal
+              (journalFixtureKey fixture)
+              (journalFixturePath fixture)
+              (journalFixtureRoot fixture </> "absent-checkpoint-store")
+              (journalFixtureRunId fixture)
+              (journalFixtureExecutablePath fixture)
+              (journalFixtureExecutableSha fixture)
+              (journalFixtureBatch fixture)
+    ]
+
+data ProductScenarioJournalFixture = ProductScenarioJournalFixture
+  { journalFixtureRoot :: !FilePath
+  , journalFixturePath :: !FilePath
+  , journalFixtureCheckpointRoot :: !FilePath
+  , journalFixtureKey :: !ProductScenarioJournal.ProductScenarioJournalKey
+  , journalFixtureRunId :: !Text
+  , journalFixtureExecutablePath :: !FilePath
+  , journalFixtureExecutableSha :: !Text
+  , journalFixtureBatch :: !ProductMatrix.ProductProjectionBatch
+  , journalFixtureReport :: !Report.CompletedProductScenarioReport
+  }
+
+withProductScenarioJournalFixture
+  :: (ProductScenarioJournalFixture -> IO result)
+  -> IO result
+withProductScenarioJournalFixture action =
+  withSystemTempDirectory "jitml-product-scenario-journal" $ \cacheRoot -> do
+    let workdir = cacheRoot </> "workspace"
+        checkpointRoot = workdir </> ".build" </> "checkpoints"
+        executablePath = cacheRoot </> "jitml-product-scenario-fixture"
+        runId = "phase-261-unit-current-run"
+    createDirectoryIfMissing True workdir
+    unitExecutablePath <- getExecutablePath >>= canonicalizePath
+    writeProductScenarioFixtureExecutable
+      executablePath
+      unitExecutablePath
+    canonicalExecutablePath <- canonicalizePath executablePath
+    executableSha <-
+      WeightCodec.jmw1ContentSha <$> ByteString.readFile canonicalExecutablePath
+    key <-
+      journalExpectRight
+        =<< ProductScenarioJournal.generateProductScenarioJournalKey
+    rowsAndEvidence <-
+      traverse
+        ( journalProductScenarioEvidence
+            workdir
+            runId
+            canonicalExecutablePath
+            executableSha
+        )
+        [ "DQN/cartpole"
+        , "DQN/mountain-car"
+        ]
+    let rows = fmap fst rowsAndEvidence
+        evidence = fmap snd rowsAndEvidence
+        batch =
+          journalExpectSuccess
+            (ProductMatrix.projectProductRows Substrate.LinuxCPU rows)
+        report =
+          journalExpectEitherRight
+            (Report.projectCompletedProductScenarioReport batch evidence)
+        journalPath = cacheRoot </> "phase-261-product-scenarios.json"
+        fixture =
+          ProductScenarioJournalFixture
+            { journalFixtureRoot = cacheRoot
+            , journalFixturePath = journalPath
+            , journalFixtureCheckpointRoot = checkpointRoot
+            , journalFixtureKey = key
+            , journalFixtureRunId = runId
+            , journalFixtureExecutablePath = canonicalExecutablePath
+            , journalFixtureExecutableSha = executableSha
+            , journalFixtureBatch = batch
+            , journalFixtureReport = report
+            }
+    journalExpectRight
+      =<< ProductScenarioJournal.writeProductScenarioJournalAtomic
+        key
+        journalPath
+        checkpointRoot
+        runId
+        batch
+        report
+    action fixture
+
+journalProductScenarioEvidence
+  :: FilePath
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+  -> IO
+       ( ProductMatrix.ProductRow 'ProductMatrix.Declared
+       , Report.CompletedProductScenarioEvidence
+       )
+journalProductScenarioEvidence workdir runId executablePath executableSha rowId = do
+  row <-
+    maybe
+      (assertFailure ("missing journal ProductRow " <> Text.unpack rowId))
+      pure
+      (find ((== rowId) . ProductMatrix.rowId) ProductMatrix.allProductRows)
+  projection <-
+    case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+      RunPlan.Success
+        ( ProductMatrix.SomeProductProjection
+            RunPlan.ReinforcementLearningWitness
+            exactProjection
+          ) -> pure exactProjection
+      RunPlan.Success _ ->
+        assertFailure ("journal fixture ProductRow is not RL: " <> Text.unpack rowId)
+      RunPlan.Failure errors ->
+        assertFailure ("journal ProductRow projection failed: " <> show errors)
+  evidence <-
+    journalExpectRight
+      =<< ProductScenarioRunner.runProductScenario
+        runId
+        executablePath
+        executableSha
+        workdir
+        projection
+  pure (row, evidence)
+
+writeProductScenarioFixtureExecutable
+  :: FilePath
+  -> FilePath
+  -> IO ()
+writeProductScenarioFixtureExecutable
+  executablePath
+  unitExecutablePath = do
+    Text.IO.writeFile executablePath script
+    permissions <- getPermissions executablePath
+    setPermissions executablePath (setOwnerExecutable True permissions)
+   where
+    script =
+      Text.unlines
+        [ "#!/bin/sh"
+        , "set -eu"
+        , "export JITML_PRODUCT_SCENARIO_UNIT_FIXTURE_WORKER=1"
+        , "exec " <> shellQuote unitExecutablePath <> " \"$@\""
+        ]
+
+    shellQuote value =
+      "'" <> Text.replace "'" "'\\''" (Text.pack value) <> "'"
+
+runProductScenarioFixtureWorker :: IO ()
+runProductScenarioFixtureWorker = do
+  rawInvocation <-
+    lookupEnv "JITML_PRODUCT_SCENARIO_INVOCATION" >>= \case
+      Nothing ->
+        ioError
+          (userError "fixture worker did not receive ProductScenario invocation")
+      Just value -> pure (Text.pack value)
+  invocation <-
+    either
+      (ioError . userError . Text.unpack)
+      pure
+      (TrainingBudget.parseProductScenarioInvocation rawInvocation)
+  let rowId = TrainingBudget.productScenarioInvocationRowId invocation
+  row <-
+    maybe
+      (ioError (userError ("fixture worker has unknown ProductRow " <> Text.unpack rowId)))
+      pure
+      (find ((== rowId) . ProductMatrix.rowId) ProductMatrix.allProductRows)
+  projection <-
+    case ProductMatrix.projectProductRow
+      (TrainingBudget.productScenarioInvocationSubstrate invocation)
+      row of
+      RunPlan.Success
+        ( ProductMatrix.SomeProductProjection
+            RunPlan.ReinforcementLearningWitness
+            exactProjection
+          ) -> pure exactProjection
+      RunPlan.Success _ ->
+        ioError (userError "fixture worker ProductRow is not reinforcement learning")
+      RunPlan.Failure errors ->
+        ioError
+          (userError ("fixture worker projection failed: " <> show errors))
+  let experiment = ProductMatrix.productProjectionExperimentHash projection
+      planId = ProductMatrix.productProjectionPlanId projection
+      budget = ProductMatrix.productProjectionTrainingBudget projection
+      observedUnits = TrainingBudget.trainingBudgetTargetUnits budget
+      bar = ProductMatrix.productProjectionConvergenceBar projection
+      metrics =
+        [
+          ( ProductConvergence.convergenceMetricName bar
+          , ProductConvergence.convergenceThreshold bar
+          )
+        ]
+      initialWeights = [0.0, 0.0]
+      finalWeights = [0.25, 0.5]
+      initialSha =
+        WeightCodec.jmw1ContentSha (WeightCodec.encodeJmw1 initialWeights)
+      finalSha =
+        WeightCodec.jmw1ContentSha (WeightCodec.encodeJmw1 finalWeights)
+  completed <-
+    journalExpectRight
+      ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
+          planId
+          budget
+          row
+          (Text.replicate 64 "d")
+          experiment
+          observedUnits
+          1
+          metrics
+          initialSha
+          finalSha
+      )
+  invocationBound <-
+    journalExpectRight
+      ( TrainingBudget.bindCompletedTrainingToProductScenarioInvocation
+          invocation
+          completed
+      )
+  env <- buildEnv defaultGlobalFlags
+  artifact <-
+    runReaderT
+      ( CheckpointWriter.writeTextArtifact
+          experiment
+          "rl-trajectory"
+          ("phase-261 journal trajectory " <> rowId)
+      )
+      env
+  let transcriptPointer =
+        Checkpoint.ArtifactPointer
+          { Checkpoint.artifactPointerKind = "rl-trajectory"
+          , Checkpoint.artifactPointerObjectKey =
+              CheckpointWriter.storedArtifactObjectKey artifact
+          , Checkpoint.artifactPointerSha =
+              Just (CheckpointWriter.storedArtifactSha artifact)
+          }
+  _stored <-
+    runReaderT
+      ( CheckpointWriter.writeLocalCompletedProductWeightCheckpoint
+          invocationBound
+          experiment
+          "rl-dqn-unit-weights"
+          observedUnits
+          metrics
+          finalWeights
+          [transcriptPointer]
+      )
+      env
+  pure ()
+
+readJournalFixture
+  :: ProductScenarioJournalFixture
+  -> Text
+  -> IO
+       ( Either
+           (NonEmpty ProductScenarioJournal.ProductScenarioJournalError)
+           Report.CompletedProductScenarioReport
+       )
+readJournalFixture fixture expectedRunId =
+  ProductScenarioJournal.readProductScenarioJournal
+    (journalFixtureKey fixture)
+    (journalFixturePath fixture)
+    (journalFixtureCheckpointRoot fixture)
+    expectedRunId
+    (journalFixtureExecutablePath fixture)
+    (journalFixtureExecutableSha fixture)
+    (journalFixtureBatch fixture)
+
+assertProductScenarioJournalError
+  :: (ProductScenarioJournal.ProductScenarioJournalError -> Bool)
+  -> Either
+       (NonEmpty ProductScenarioJournal.ProductScenarioJournalError)
+       Report.CompletedProductScenarioReport
+  -> Assertion
+assertProductScenarioJournalError predicate outcome =
+  case outcome of
+    Left errors ->
+      assertBool
+        ("expected ProductScenarioJournal error, got " <> show errors)
+        (any predicate errors)
+    Right _report ->
+      assertFailure "invalid raw journal minted CompletedProductScenarioReport"
+
+readJournalValue :: FilePath -> IO Value
+readJournalValue path = do
+  payload <- ByteString.readFile path
+  case eitherDecode payload of
+    Left err -> assertFailure ("journal fixture JSON did not decode: " <> err)
+    Right value -> pure value
+
+writeJournalValue :: FilePath -> Value -> IO ()
+writeJournalValue path = ByteString.writeFile path . encode
+
+setJournalField :: Text -> Value -> Value -> Value
+setJournalField field value journal =
+  case journal of
+    Aeson.Object record ->
+      Aeson.Object (AesonKeyMap.insert (AesonKey.fromText field) value record)
+    _ -> journal
+
+modifyJournalRows :: ([Value] -> [Value]) -> Value -> Value
+modifyJournalRows modifyRows journal =
+  case journal of
+    Aeson.Object record ->
+      case AesonKeyMap.lookup "rows" record of
+        Just (Aeson.Array rows) ->
+          Aeson.Object
+            ( AesonKeyMap.insert
+                "rows"
+                (Aeson.Array (Vector.fromList (modifyRows (Vector.toList rows))))
+                record
+            )
+        _ -> journal
+    _ -> journal
+
+modifyFirstJournalRow :: (Aeson.Object -> Aeson.Object) -> Value -> Value
+modifyFirstJournalRow modifyRow =
+  modifyJournalRows $ \case
+    Aeson.Object first : rest -> Aeson.Object (modifyRow first) : rest
+    rows -> rows
+
+setObjectField :: Text -> Value -> Aeson.Object -> Aeson.Object
+setObjectField field =
+  AesonKeyMap.insert (AesonKey.fromText field)
+
+zeroJournalDigest :: Text
+zeroJournalDigest = Text.replicate 64 "0"
+
+journalLowerHex :: Char -> Bool
+journalLowerHex character =
+  isDigit character
+    || (character >= 'a' && character <= 'f')
+
+generateDifferentJournalKey
+  :: ProductScenarioJournal.ProductScenarioJournalKey
+  -> IO ProductScenarioJournal.ProductScenarioJournalKey
+generateDifferentJournalKey original = do
+  generated <-
+    journalExpectRight
+      =<< ProductScenarioJournal.generateProductScenarioJournalKey
+  if generated == original
+    then generateDifferentJournalKey original
+    else pure generated
+
+-- Mirrors the public wire material but deliberately applies an unkeyed SHA-256
+-- instead of the hidden HMAC operation.  Even a self-consistent raw rewrite
+-- must therefore fail authentication before semantic validation or Store IO.
+refreshJournalUnkeyedReceipt :: Value -> Value
+refreshJournalUnkeyedReceipt journal =
+  setJournalField
+    "run_receipt_hmac_sha256"
+    (Aeson.String (journalSha256Text (journalRunReceiptMaterial journal)))
+    journal
+
+journalRunReceiptMaterial :: Value -> Text
+journalRunReceiptMaterial journal =
+  case journal of
+    Aeson.Object record ->
+      Text.concat
+        ( [ journalReceiptField
+              "domain"
+              "jitml-product-scenario-run-receipt-hmac-v1"
+          , journalReceiptField "format" (journalTextField "format" record)
+          , journalReceiptField
+              "version"
+              (journalShowText (journalWordField "version" record))
+          , journalReceiptField "run_id" (journalTextField "run_id" record)
+          , journalReceiptField "substrate" (journalTextField "substrate" record)
+          , journalReceiptField
+              "projection_batch_sha256"
+              (journalTextField "projection_batch_sha256" record)
+          , journalReceiptField
+              "checkpoint_scope_sha256"
+              (journalTextField "checkpoint_scope_sha256" record)
+          , journalReceiptField "row_count" (journalShowText (length rows))
+          ]
+            <> concat
+              [ journalReceiptField "row_index" (journalShowText index)
+                  : journalRunReceiptRowFields row
+              | (index, row) <- zip [(0 :: Int) ..] rows
+              ]
+        )
+     where
+      rows = journalObjectRows record
+    _ -> error "ProductScenarioJournal test receipt expected an object"
+
+journalRunReceiptRowFields :: Aeson.Object -> [Text]
+journalRunReceiptRowFields row =
+  [ journalReceiptField "row_id" (journalTextField "row_id" row)
+  , journalReceiptField "run_id" (journalTextField "run_id" row)
+  , journalReceiptField "plan_id" (journalTextField "plan_id" row)
+  , journalReceiptField "row_substrate" (journalTextField "substrate" row)
+  , journalReceiptField "executable_path" (journalTextField "executable_path" row)
+  , journalReceiptField
+      "executable_sha256"
+      (journalTextField "executable_sha256" row)
+  , journalReceiptField
+      "invocation_digest"
+      (journalTextField "invocation_digest" row)
+  , journalReceiptField "experiment_hash" (journalTextField "experiment_hash" row)
+  , journalReceiptField "manifest_sha256" (journalTextField "manifest_sha256" row)
+  , journalReceiptField "projection_sha256" (journalTextField "projection_sha256" row)
+  , journalReceiptField "command" (journalTextField "command" row)
+  , journalReceiptField "contract_sha256" (journalTextField "contract_sha256" row)
+  , journalReceiptField
+      "execution_journal_receipt"
+      (journalTextField "execution_journal_receipt" row)
+  , journalReceiptField
+      "execution_journal_sha256"
+      (journalTextField "execution_journal_sha256" row)
+  , journalReceiptField
+      "inference_experiment_hash"
+      (journalTextField "inference_experiment_hash" row)
+  , journalReceiptField
+      "inference_manifest_sha256"
+      (journalTextField "inference_manifest_sha256" row)
+  , journalReceiptField
+      "precondition_rejected"
+      (journalShowText (journalBoolField "precondition_rejected" row))
+  , journalReceiptField
+      "precondition_sequence"
+      (journalShowText (journalWordField "precondition_sequence" row))
+  , journalReceiptField
+      "inference_sequence"
+      (journalShowText (journalWordField "inference_sequence" row))
+  , journalReceiptField
+      "completion_sequence"
+      (journalShowText (journalWordField "completion_sequence" row))
+  ]
+
+journalReceiptField :: Text -> Text -> Text
+journalReceiptField label value =
+  label
+    <> "="
+    <> journalShowText (Text.length value)
+    <> ":"
+    <> value
+    <> "\n"
+
+journalObjectRows :: Aeson.Object -> [Aeson.Object]
+journalObjectRows record =
+  case journalValueField "rows" record of
+    Aeson.Array rows ->
+      [ row
+      | Aeson.Object row <- Vector.toList rows
+      ]
+    _ -> error "ProductScenarioJournal test receipt expected rows to be an array"
+
+journalTextField :: Text -> Aeson.Object -> Text
+journalTextField field record =
+  case journalValueField field record of
+    Aeson.String value -> value
+    _ ->
+      error
+        ( "ProductScenarioJournal test receipt expected text field "
+            <> Text.unpack field
+        )
+
+journalWordField :: Text -> Aeson.Object -> Word64
+journalWordField field record =
+  case Aeson.fromJSON (journalValueField field record) of
+    Aeson.Success value -> value
+    Aeson.Error detail ->
+      error
+        ( "ProductScenarioJournal test receipt expected Word64 field "
+            <> Text.unpack field
+            <> ": "
+            <> detail
+        )
+
+journalBoolField :: Text -> Aeson.Object -> Bool
+journalBoolField field record =
+  case journalValueField field record of
+    Aeson.Bool value -> value
+    _ ->
+      error
+        ( "ProductScenarioJournal test receipt expected Bool field "
+            <> Text.unpack field
+        )
+
+journalValueField :: Text -> Aeson.Object -> Value
+journalValueField field record =
+  fromMaybe
+    ( error
+        ( "ProductScenarioJournal test receipt missing field "
+            <> Text.unpack field
+        )
+    )
+    (AesonKeyMap.lookup (AesonKey.fromText field) record)
+
+journalSha256Text :: Text -> Text
+journalSha256Text =
+  WeightCodec.jmw1ContentSha
+    . ByteString.fromStrict
+    . Text.Encoding.encodeUtf8
+
+journalShowText :: (Show value) => value -> Text
+journalShowText = Text.pack . show
+
+journalExpectRight :: (Show error) => Either error value -> IO value
+journalExpectRight outcome =
+  case outcome of
+    Left err ->
+      assertFailure ("expected Right, got Left " <> show err) >> error "unreachable"
+    Right value -> pure value
+
+journalExpectEitherRight :: (Show error) => Either error value -> value
+journalExpectEitherRight outcome =
+  case outcome of
+    Left err -> error ("expected Right, got Left " <> show err)
+    Right value -> value
+
+journalExpectSuccess :: (Show error) => RunPlan.Validation error value -> value
+journalExpectSuccess outcome =
+  case outcome of
+    RunPlan.Failure err -> error ("expected Success, got Failure " <> show err)
+    RunPlan.Success value -> value
+
+withGcSemanticId :: ProtoGc.GcReapedEvent -> ProtoGc.GcReapedEvent
+withGcSemanticId event =
+  event
+    { ProtoGc.gcEventId = ProtoGc.gcReapedEventSemanticId event
+    }
+
+phase262PreparedTensorSnapshot
+  :: Text
+  -> Text
+  -> Word64
+  -> CheckpointStore.PreparedCheckpointSnapshot
+phase262PreparedTensorSnapshot experimentHash tag step =
+  case CheckpointStore.prepareCheckpointSnapshot
+    CheckpointStore.WriterCandidateSnapshot
+    CheckpointStore.WriterNoPointerIntent
+    logicalManifest
+    [(logicalObjectKey, payload)] of
+    Left err -> error ("Phase 262 snapshot fixture failed: " <> Text.unpack err)
+    Right prepared -> prepared
+ where
+  payload = Checkpoint.encodeJmw1 [fromIntegral step + 1]
+  logicalObjectKey =
+    Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+  logicalManifest =
+    ( Checkpoint.emptyManifest
+        tag
+        experimentHash
+        [Checkpoint.TensorBlob (tag <> ".weights") [1] logicalObjectKey]
+    )
+      { Checkpoint.manifestStep = step
+      }
+
+phase262PreparedGcObjectKeys
+  :: CheckpointStore.PreparedCheckpointSnapshot
+  -> [Text]
+phase262PreparedGcObjectKeys prepared =
+  List.sort
+    ( fmap fst (CheckpointStore.preparedSnapshotPayloads prepared)
+        <> [ CheckpointStore.writerCommitObjectKey
+               (CheckpointStore.preparedSnapshotCommit prepared)
+           ]
+    )
+
+phase262ScopedGcObjectKeys :: Text -> Text -> [Text] -> [Text]
+phase262ScopedGcObjectKeys experimentHash snapshotId objectIds =
+  List.sort
+    ( [ "jitml-checkpoints/"
+          <> experimentHash
+          <> "/snapshots/"
+          <> snapshotId
+          <> "/objects/"
+          <> objectId
+      | objectId <- objectIds
+      ]
+        <> [ "jitml-checkpoints/"
+               <> experimentHash
+               <> "/snapshots/"
+               <> snapshotId
+               <> "/committed.cbor"
+           ]
+    )
+
+data Phase262FenceRaceEnv = Phase262FenceRaceEnv
+  { phase262FenceRaceRoot :: FilePath
+  , phase262FenceRaceFirstIntentList :: MVar ()
+  , phase262FenceRaceReleaseFirstIntentList :: MVar ()
+  , phase262FenceRaceIntentListCount :: IORef Int
+  }
+
+newtype Phase262FenceRaceMinIO value = Phase262FenceRaceMinIO
+  { unPhase262FenceRaceMinIO :: ReaderT Phase262FenceRaceEnv IO value
+  }
+  deriving (Functor, Applicative, Monad)
+
+runPhase262FenceRaceMinIO
+  :: Phase262FenceRaceEnv
+  -> Phase262FenceRaceMinIO value
+  -> IO value
+runPhase262FenceRaceMinIO environment action =
+  runReaderT (unPhase262FenceRaceMinIO action) environment
+
+phase262WithFilesystemMinIO
+  :: FilesystemMinIO value
+  -> Phase262FenceRaceMinIO value
+phase262WithFilesystemMinIO action = do
+  root <- Phase262FenceRaceMinIO (asks phase262FenceRaceRoot)
+  Phase262FenceRaceMinIO (liftIO (runFilesystemMinIO root action))
+
+instance HasMinIO Phase262FenceRaceMinIO where
+  minioPutIfAbsent ref payload =
+    phase262WithFilesystemMinIO (minioPutIfAbsent ref payload)
+  minioReadObject ref =
+    phase262WithFilesystemMinIO (minioReadObject ref)
+  minioReadBytes ref =
+    phase262WithFilesystemMinIO (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    phase262WithFilesystemMinIO (minioReadBytesWithETag ref)
+  putBlobIfAbsent ref payload =
+    phase262WithFilesystemMinIO (putBlobIfAbsent ref payload)
+  putBlobBytesIfAbsent ref payload =
+    phase262WithFilesystemMinIO (putBlobBytesIfAbsent ref payload)
+  casPointer ref expected payload =
+    phase262WithFilesystemMinIO (casPointer ref expected payload)
+  listObjects bucket prefix = do
+    listed <- phase262WithFilesystemMinIO (listObjects bucket prefix)
+    Control.Monad.when ("/gc/intents/" `Text.isSuffixOf` prefix) $ do
+      environment <- Phase262FenceRaceMinIO ask
+      listingNumber <-
+        Phase262FenceRaceMinIO . liftIO $
+          atomicModifyIORef'
+            (phase262FenceRaceIntentListCount environment)
+            (\count -> let next = count + 1 in (next, next))
+      Control.Monad.when (listingNumber == 1) $
+        Phase262FenceRaceMinIO . liftIO $ do
+          putMVar (phase262FenceRaceFirstIntentList environment) ()
+          takeMVar (phase262FenceRaceReleaseFirstIntentList environment)
+    pure listed
+  deleteObject ref =
+    phase262WithFilesystemMinIO (deleteObject ref)
+
+data Phase262CancellationDelayEnv = Phase262CancellationDelayEnv
+  { phase262CancellationDelayRoot :: FilePath
+  , phase262CancellationDelayReached :: MVar ()
+  , phase262CancellationDelayRelease :: MVar ()
+  }
+
+newtype Phase262CancellationDelayMinIO value = Phase262CancellationDelayMinIO
+  { unPhase262CancellationDelayMinIO :: ReaderT Phase262CancellationDelayEnv IO value
+  }
+  deriving (Functor, Applicative, Monad)
+
+runPhase262CancellationDelayMinIO
+  :: Phase262CancellationDelayEnv
+  -> Phase262CancellationDelayMinIO value
+  -> IO value
+runPhase262CancellationDelayMinIO environment action =
+  runReaderT (unPhase262CancellationDelayMinIO action) environment
+
+phase262WithCancellationDelayFilesystem
+  :: FilesystemMinIO value
+  -> Phase262CancellationDelayMinIO value
+phase262WithCancellationDelayFilesystem action = do
+  root <- Phase262CancellationDelayMinIO (asks phase262CancellationDelayRoot)
+  Phase262CancellationDelayMinIO (liftIO (runFilesystemMinIO root action))
+
+instance HasMinIO Phase262CancellationDelayMinIO where
+  minioPutIfAbsent ref payload =
+    phase262WithCancellationDelayFilesystem (minioPutIfAbsent ref payload)
+  minioReadObject ref =
+    phase262WithCancellationDelayFilesystem (minioReadObject ref)
+  minioReadBytes ref =
+    phase262WithCancellationDelayFilesystem (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    phase262WithCancellationDelayFilesystem (minioReadBytesWithETag ref)
+  putBlobIfAbsent ref payload =
+    phase262WithCancellationDelayFilesystem (putBlobIfAbsent ref payload)
+  putBlobBytesIfAbsent ref payload = do
+    environment <- Phase262CancellationDelayMinIO ask
+    if "/gc/cancelled/"
+      `Text.isInfixOf` Capabilities.unObjectKey (Capabilities.objectKey ref)
+      then Phase262CancellationDelayMinIO . liftIO $ do
+        putMVar (phase262CancellationDelayReached environment) ()
+        takeMVar (phase262CancellationDelayRelease environment)
+        runFilesystemMinIO
+          (phase262CancellationDelayRoot environment)
+          (putBlobBytesIfAbsent ref payload)
+      else
+        phase262WithCancellationDelayFilesystem
+          (putBlobBytesIfAbsent ref payload)
+  casPointer ref expected payload =
+    phase262WithCancellationDelayFilesystem (casPointer ref expected payload)
+  listObjects bucket prefix =
+    phase262WithCancellationDelayFilesystem (listObjects bucket prefix)
+  deleteObject ref =
+    phase262WithCancellationDelayFilesystem (deleteObject ref)
+
+data Phase262CancellationCompletionDelayEnv = Phase262CancellationCompletionDelayEnv
+  { phase262CancellationCompletionRoot :: FilePath
+  , phase262CancellationCompletionReached :: MVar ()
+  , phase262CancellationCompletionRelease :: MVar ()
+  , phase262CancellationCompletionDidDelay :: IORef Bool
+  }
+
+newtype Phase262CancellationCompletionDelayMinIO value
+  = Phase262CancellationCompletionDelayMinIO
+  { unPhase262CancellationCompletionDelayMinIO
+      :: ReaderT Phase262CancellationCompletionDelayEnv IO value
+  }
+  deriving (Functor, Applicative, Monad)
+
+runPhase262CancellationCompletionDelayMinIO
+  :: Phase262CancellationCompletionDelayEnv
+  -> Phase262CancellationCompletionDelayMinIO value
+  -> IO value
+runPhase262CancellationCompletionDelayMinIO environment action =
+  runReaderT
+    (unPhase262CancellationCompletionDelayMinIO action)
+    environment
+
+phase262WithCancellationCompletionFilesystem
+  :: FilesystemMinIO value
+  -> Phase262CancellationCompletionDelayMinIO value
+phase262WithCancellationCompletionFilesystem action = do
+  root <-
+    Phase262CancellationCompletionDelayMinIO
+      (asks phase262CancellationCompletionRoot)
+  Phase262CancellationCompletionDelayMinIO
+    (liftIO (runFilesystemMinIO root action))
+
+instance HasMinIO Phase262CancellationCompletionDelayMinIO where
+  minioPutIfAbsent ref payload =
+    phase262WithCancellationCompletionFilesystem (minioPutIfAbsent ref payload)
+  minioReadObject ref =
+    phase262WithCancellationCompletionFilesystem (minioReadObject ref)
+  minioReadBytes ref =
+    phase262WithCancellationCompletionFilesystem (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    phase262WithCancellationCompletionFilesystem (minioReadBytesWithETag ref)
+  putBlobIfAbsent ref payload =
+    phase262WithCancellationCompletionFilesystem (putBlobIfAbsent ref payload)
+  putBlobBytesIfAbsent ref payload =
+    phase262WithCancellationCompletionFilesystem
+      (putBlobBytesIfAbsent ref payload)
+  casPointer ref expected payload = do
+    environment <- Phase262CancellationCompletionDelayMinIO ask
+    let completesRearmedCancellation =
+          case CheckpointStore.decodeExperimentGcFence payload of
+            Left _ -> False
+            Right fence ->
+              any
+                ( \decision ->
+                    CheckpointStore.gcFenceDecisionGeneration decision == 1
+                      && CheckpointStore.gcFenceDecisionPhase decision
+                        == CheckpointStore.GcFenceCancelled
+                )
+                (CheckpointStore.experimentGcFenceDecisions fence)
+    delayThis <-
+      if completesRearmedCancellation
+        then
+          Phase262CancellationCompletionDelayMinIO . liftIO $
+            atomicModifyIORef'
+              (phase262CancellationCompletionDidDelay environment)
+              (\alreadyDelayed -> (True, not alreadyDelayed))
+        else pure False
+    if delayThis
+      then Phase262CancellationCompletionDelayMinIO . liftIO $ do
+        putMVar (phase262CancellationCompletionReached environment) ()
+        takeMVar (phase262CancellationCompletionRelease environment)
+        runFilesystemMinIO
+          (phase262CancellationCompletionRoot environment)
+          (casPointer ref expected payload)
+      else
+        phase262WithCancellationCompletionFilesystem
+          (casPointer ref expected payload)
+  listObjects bucket prefix =
+    phase262WithCancellationCompletionFilesystem (listObjects bucket prefix)
+  deleteObject ref =
+    phase262WithCancellationCompletionFilesystem (deleteObject ref)
+
+data Phase262DeleteFailureEnv = Phase262DeleteFailureEnv
+  { phase262DeleteFailureRoot :: FilePath
+  , phase262DeleteFailureRef :: Capabilities.ObjectRef
+  , phase262DeleteFailureCalls :: IORef [Capabilities.ObjectRef]
+  }
+
+newtype Phase262DeleteFailureMinIO value = Phase262DeleteFailureMinIO
+  { unPhase262DeleteFailureMinIO :: ReaderT Phase262DeleteFailureEnv IO value
+  }
+  deriving (Functor, Applicative, Monad)
+
+runPhase262DeleteFailureMinIO
+  :: Phase262DeleteFailureEnv
+  -> Phase262DeleteFailureMinIO value
+  -> IO value
+runPhase262DeleteFailureMinIO environment action =
+  runReaderT (unPhase262DeleteFailureMinIO action) environment
+
+phase262WithDeleteFailureFilesystem
+  :: FilesystemMinIO value
+  -> Phase262DeleteFailureMinIO value
+phase262WithDeleteFailureFilesystem action = do
+  root <- Phase262DeleteFailureMinIO (asks phase262DeleteFailureRoot)
+  Phase262DeleteFailureMinIO (liftIO (runFilesystemMinIO root action))
+
+instance HasMinIO Phase262DeleteFailureMinIO where
+  minioPutIfAbsent ref payload =
+    phase262WithDeleteFailureFilesystem (minioPutIfAbsent ref payload)
+  minioReadObject ref =
+    phase262WithDeleteFailureFilesystem (minioReadObject ref)
+  minioReadBytes ref =
+    phase262WithDeleteFailureFilesystem (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    phase262WithDeleteFailureFilesystem (minioReadBytesWithETag ref)
+  putBlobIfAbsent ref payload =
+    phase262WithDeleteFailureFilesystem (putBlobIfAbsent ref payload)
+  putBlobBytesIfAbsent ref payload =
+    phase262WithDeleteFailureFilesystem (putBlobBytesIfAbsent ref payload)
+  casPointer ref expected payload =
+    phase262WithDeleteFailureFilesystem (casPointer ref expected payload)
+  listObjects bucket prefix =
+    phase262WithDeleteFailureFilesystem (listObjects bucket prefix)
+  deleteObject ref = do
+    environment <- Phase262DeleteFailureMinIO ask
+    Phase262DeleteFailureMinIO . liftIO $
+      modifyIORef' (phase262DeleteFailureCalls environment) (<> [ref])
+    if ref == phase262DeleteFailureRef environment
+      then pure (Left (ServiceRetry.SETransient "injected manifest failure"))
+      else phase262WithDeleteFailureFilesystem (deleteObject ref)
+
+phase262LoadExperimentFence
+  :: FilePath
+  -> Text
+  -> IO CheckpointStore.ExperimentGcFence
+phase262LoadExperimentFence root experimentHash = do
+  loaded <-
+    runFilesystemMinIO root $
+      minioReadBytes
+        ( CheckpointStore.checkpointObjectRef
+            (CheckpointStore.experimentGcFenceObjectKey experimentHash)
+        )
+  case loaded of
+    Left err -> assertFailure ("could not read experiment GC fence: " <> show err) >> error "unreachable"
+    Right bytes ->
+      case Text.Encoding.decodeUtf8' bytes of
+        Left err -> assertFailure ("experiment GC fence is not UTF-8: " <> show err) >> error "unreachable"
+        Right encoded ->
+          case CheckpointStore.decodeExperimentGcFence encoded of
+            Left err -> assertFailure ("could not decode experiment GC fence: " <> show err) >> error "unreachable"
+            Right fence -> pure fence
+
+phase262SingleRevalidatedIntent
+  :: CheckpointStore.GcFenceEpoch
+  -> CheckpointStore.GcPlan
+  -> [Checkpoint.CheckpointManifest]
+  -> [Checkpoint.CheckpointManifest]
+  -> [CheckpointStore.WriterReservation]
+  -> [CheckpointStore.GcEvent]
+  -> CheckpointStore.GcIntent
+  -> CheckpointStore.RevalidatedGcIntent
+phase262SingleRevalidatedIntent epoch plan manifests roots reservations terminals intent =
+  case CheckpointStore.revalidateGcIntents
+    epoch
+    epoch
+    plan
+    manifests
+    roots
+    reservations
+    terminals
+    [intent] of
+    Right ([witness], []) -> witness
+    result -> error ("expected one freshly revalidated GC intent, got " <> show result)
+
+phase262LoadGcFenceEpoch
+  :: FilePath
+  -> Text
+  -> IO CheckpointStore.GcFenceEpoch
+phase262LoadGcFenceEpoch root experimentHash = do
+  loaded <-
+    runFilesystemMinIO
+      root
+      (CheckpointStore.loadGcFenceEpoch experimentHash)
+  case loaded of
+    Left err -> assertFailure ("could not load GC fence epoch: " <> show err) >> error "unreachable"
+    Right epoch -> pure epoch
+
+phase262SeedPreparedSnapshotMinIO
+  :: FilePath
+  -> CheckpointStore.PreparedCheckpointSnapshot
+  -> IO ()
+phase262SeedPreparedSnapshotMinIO root prepared = do
+  outcomes <-
+    runFilesystemMinIO root $
+      sequence
+        ( [ putBlobBytesIfAbsent
+              (CheckpointStore.checkpointObjectRef key)
+              (ByteString.toStrict payload)
+          | (key, payload) <- CheckpointStore.preparedSnapshotPayloads prepared
+          ]
+            <> [ putBlobBytesIfAbsent
+                   ( CheckpointStore.checkpointObjectRef
+                       ( Checkpoint.manifestKey
+                           (Checkpoint.manifestExperiment (CheckpointStore.preparedSnapshotManifest prepared))
+                           (CheckpointStore.preparedSnapshotManifestSha prepared)
+                       )
+                   )
+                   (ByteString.toStrict (CheckpointStore.preparedSnapshotManifestBytes prepared))
+               , putBlobBytesIfAbsent
+                   ( CheckpointStore.checkpointObjectRef
+                       ( CheckpointStore.writerCommitObjectKey
+                           (CheckpointStore.preparedSnapshotCommit prepared)
+                       )
+                   )
+                   ( CheckpointStore.encodeWriterCommit
+                       (CheckpointStore.preparedSnapshotCommit prepared)
+                   )
+               ]
+        )
+  traverse_
+    (\case Left err -> assertFailure (show err); Right _ -> pure ())
+    outcomes
+
 main :: IO ()
 main =
+  lookupEnv "JITML_PRODUCT_SCENARIO_UNIT_FIXTURE_WORKER" >>= \case
+    Just "1" -> runProductScenarioFixtureWorker
+    _ -> unitTestMain
+
+unitTestMain :: IO ()
+unitTestMain =
   defaultMain $
     testGroup
       "jitml-unit"
@@ -556,6 +2259,8 @@ main =
       , PulsarBridge.pulsarBridgeTests
       , PulsarTransport.pulsarTransportTests
       , RunContractTest.runContractTests
+      , browserEvidenceJournalTests
+      , productScenarioJournalTests
       , RunPlanTest.runPlanTests
       , WorkloadContractTest.workloadContractTests
       , WorkloadPlanTest.workloadPlanTests
@@ -762,6 +2467,9 @@ main =
                   "invalid --games value: \"0\"; expected an integer >= 1"
               )
       , testCase "substrateTestInvocations builds the right cabal lanes" $ do
+          assertBool
+            "integration ProductScenario rows must trigger the selected substrate runtime probe"
+            ("jitml-integration" `elem` Report.substrateRuntimeStanzas)
           -- No substrate: one exact invocation per target, with the opaque
           -- --test-options forwarded verbatim.
           Report.substrateTestInvocations Nothing ["jitml-unit", "jitml-backends"] Nothing
@@ -916,6 +2624,306 @@ main =
               )
           (observed :: Either Exception.AsyncException ObservedProcessOutcome)
             @?= Left Exception.ThreadKilled
+      , testCase "staged live e2e refines browser evidence before Haskell consumers" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "acquire" "bootstrap"
+              producer = plannedScopeTest "jitml-integration" "integration"
+              playwright = plannedScopeTest "jitml-e2e-playwright" "playwright"
+              haskellE2E = plannedScopeTest "jitml-e2e" "cabal-e2e"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
+                  , LiveE2EScope.liveE2EDiagnosticSteps = []
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+              producerRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-integration"
+                  , LiveE2EScope.liveE2ERefinementName = "product-browser-catalogue"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["producer-refinement"])
+                        >> pure (LiveE2EScope.LiveE2ERefined ())
+                  }
+              browserRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-e2e-playwright"
+                  , LiveE2EScope.liveE2ERefinementName = "browser-result-journal"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["browser-refinement"])
+                        >> pure
+                          ( LiveE2EScope.LiveE2ERefined
+                              ("measured-browser-report" :: Text)
+                          )
+                  }
+          result <-
+            LiveE2EScope.runStagedLiveE2EScope
+              backend
+              plan
+              [producer]
+              producerRefinement
+              [playwright]
+              browserRefinement
+              [haskellE2E]
+          readIORef executionOrder
+            >>= ( @?=
+                    [ "acquire"
+                    , "jitml-integration"
+                    , "producer-refinement"
+                    , "jitml-e2e-playwright"
+                    , "browser-refinement"
+                    , "jitml-e2e"
+                    , "release"
+                    ]
+                )
+          LiveE2EScope.liveE2EPrimaryFailure result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyFailure result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyResult result @?= Just "measured-browser-report"
+          case fmap
+            Report.invocationResult
+            ( Report.invocationJournalEntries
+                (LiveE2EScope.liveE2EInvocationJournal result)
+            ) of
+            [Report.Passed {}, Report.Passed {}, Report.Passed {}] -> pure ()
+            observed -> assertFailure ("unexpected staged success journal: " <> show observed)
+      , testCase "producer refinement failure honestly blocks browser invocations" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          finalRefinementRan <- newIORef False
+          let acquire = scopeStep "acquire" "bootstrap"
+              producer = plannedScopeTest "jitml-integration" "integration"
+              playwright = plannedScopeTest "jitml-e2e-playwright" "playwright"
+              haskellE2E = plannedScopeTest "jitml-e2e" "cabal-e2e"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+              producerRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-integration"
+                  , LiveE2EScope.liveE2ERefinementName = "product-browser-catalogue"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["producer-refinement"])
+                        >> pure
+                          ( LiveE2EScope.LiveE2ERefinementRejected
+                              "authenticated catalogue refinement failed"
+                          )
+                  }
+              browserRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-e2e-playwright"
+                  , LiveE2EScope.liveE2ERefinementName = "browser-result-journal"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      writeIORef finalRefinementRan True
+                        >> pure (LiveE2EScope.LiveE2ERefined ())
+                  }
+          result <-
+            LiveE2EScope.runStagedLiveE2EScope
+              backend
+              plan
+              [producer]
+              producerRefinement
+              [playwright]
+              browserRefinement
+              [haskellE2E]
+          readIORef executionOrder
+            >>= ( @?=
+                    [ "acquire"
+                    , "jitml-integration"
+                    , "producer-refinement"
+                    , "diagnostics"
+                    , "release"
+                    ]
+                )
+          readIORef finalRefinementRan >>= (@?= False)
+          LiveE2EScope.liveE2EPrimaryFailure result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyFailure result
+            @?= Just "authenticated catalogue refinement failed"
+          case fmap Report.invocationResult . Report.invocationJournalEntries $
+            LiveE2EScope.liveE2EInvocationJournal result of
+            [ Report.Passed {}
+              , Report.NotRunAfterRefinement firstBlocker
+              , Report.NotRunAfterRefinement secondBlocker
+              ] -> do
+                Report.refinementBlockerStanza firstBlocker @?= "jitml-integration"
+                Report.refinementBlockerName firstBlocker @?= "product-browser-catalogue"
+                Report.refinementBlockerDetail firstBlocker
+                  @?= "authenticated catalogue refinement failed"
+                secondBlocker @?= firstBlocker
+            observed -> assertFailure ("unexpected refinement-blocked journal: " <> show observed)
+      , testCase "browser journal refinement runs before propagating Playwright failure" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let acquire = scopeStep "acquire" "bootstrap"
+              producer = plannedScopeTest "jitml-integration" "integration"
+              playwright = plannedScopeTest "jitml-e2e-playwright" "playwright"
+              haskellE2E = plannedScopeTest "jitml-e2e" "cabal-e2e"
+              diagnostics = scopeStep "diagnostics" "diagnostics"
+              release = scopeStep "release" "release"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire = [acquire]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = [release]
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure $
+                        if livePlanStepName step == "jitml-e2e-playwright"
+                          then failedScopeOutcome 7 20 step
+                          else successfulScopeOutcome 10 step
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
+                  , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+              producerRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-integration"
+                  , LiveE2EScope.liveE2ERefinementName = "product-browser-catalogue"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["producer-refinement"])
+                        >> pure (LiveE2EScope.LiveE2ERefined ())
+                  }
+              browserRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-e2e-playwright"
+                  , LiveE2EScope.liveE2ERefinementName = "browser-result-journal"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["browser-refinement"])
+                        >> pure
+                          ( LiveE2EScope.LiveE2ERefinedWithIssue
+                              ()
+                              "browser result contains NotRun rows"
+                          )
+                  }
+          result <-
+            LiveE2EScope.runStagedLiveE2EScope
+              backend
+              plan
+              [producer]
+              producerRefinement
+              [playwright]
+              browserRefinement
+              [haskellE2E]
+          readIORef executionOrder
+            >>= ( @?=
+                    [ "acquire"
+                    , "jitml-integration"
+                    , "producer-refinement"
+                    , "jitml-e2e-playwright"
+                    , "browser-refinement"
+                    , "diagnostics"
+                    , "release"
+                    ]
+                )
+          fmap LiveE2EScope.liveE2EFailureStep (LiveE2EScope.liveE2EPrimaryFailure result)
+            @?= Just "jitml-e2e-playwright"
+          LiveE2EScope.liveE2EPostBodyResult result @?= Just ()
+          LiveE2EScope.liveE2EPostBodyFailure result
+            @?= Just "browser result contains NotRun rows"
+          case fmap Report.invocationResult . Report.invocationJournalEntries $
+            LiveE2EScope.liveE2EInvocationJournal result of
+            [Report.Passed {}, Report.Failed failure, Report.NotRun blocker] ->
+              Report.blockedByFailure blocker @?= failure
+            observed -> assertFailure ("unexpected browser failure journal: " <> show observed)
+      , testCase "browser refinement rejection blocks post-refinement stanzas honestly" $ do
+          executionOrder <- newIORef ([] :: [Text])
+          let producer = plannedScopeTest "jitml-integration" "integration"
+              playwright = plannedScopeTest "jitml-e2e-playwright" "playwright"
+              haskellE2E = plannedScopeTest "jitml-e2e" "cabal-e2e"
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = BorrowedLiveCluster
+                  , scopedLivePlanAcquire = []
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = []
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
+                      modifyIORef' executionOrder (<> [livePlanStepName step])
+                      pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
+                  , LiveE2EScope.liveE2EDiagnosticSteps = []
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+              producerRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-integration"
+                  , LiveE2EScope.liveE2ERefinementName = "product-browser-catalogue"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["producer-refinement"])
+                        >> pure (LiveE2EScope.LiveE2ERefined ())
+                  }
+              browserRefinement =
+                LiveE2EScope.LiveE2ERefinement
+                  { LiveE2EScope.liveE2ERefinementSourceStanza = "jitml-e2e-playwright"
+                  , LiveE2EScope.liveE2ERefinementName = "browser-result-journal"
+                  , LiveE2EScope.liveE2ERefinementAction =
+                      modifyIORef' executionOrder (<> ["browser-refinement"])
+                        >> pure
+                          ( LiveE2EScope.LiveE2ERefinementRejected
+                              "browser journal authentication failed"
+                              :: LiveE2EScope.LiveE2ERefinementOutcome Text
+                          )
+                  }
+          result <-
+            LiveE2EScope.runStagedLiveE2EScope
+              backend
+              plan
+              [producer]
+              producerRefinement
+              [playwright]
+              browserRefinement
+              [haskellE2E]
+          readIORef executionOrder
+            >>= ( @?=
+                    [ "jitml-integration"
+                    , "producer-refinement"
+                    , "jitml-e2e-playwright"
+                    , "browser-refinement"
+                    ]
+                )
+          LiveE2EScope.liveE2EPrimaryFailure result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyResult result @?= Nothing
+          LiveE2EScope.liveE2EPostBodyFailure result
+            @?= Just "browser journal authentication failed"
+          case fmap Report.invocationResult . Report.invocationJournalEntries $
+            LiveE2EScope.liveE2EInvocationJournal result of
+            [ Report.Passed {}
+              , Report.Passed {}
+              , Report.NotRunAfterRefinement blocker
+              ] -> do
+                Report.refinementBlockerStanza blocker @?= "jitml-e2e-playwright"
+                Report.refinementBlockerName blocker @?= "browser-result-journal"
+                Report.refinementBlockerDetail blocker
+                  @?= "browser journal authentication failed"
+            observed -> assertFailure ("unexpected browser rejection journal: " <> show observed)
       , testCase "live e2e scope preserves the primary failure and cleans up after diagnostics" $ do
           executionOrder <- newIORef ([] :: [Text])
           postBodyRan <- newIORef False
@@ -933,7 +2941,7 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       pure $
                         case livePlanStepName step of
@@ -941,6 +2949,7 @@ main =
                           "diagnostics" -> failedScopeOutcome 8 30 step
                           "release" -> failedScopeOutcome 9 40 step
                           _ -> successfulScopeOutcome 10 step
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
                   }
@@ -999,7 +3008,7 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       case livePlanStepName step of
                         "playwright-live" ->
@@ -1007,6 +3016,7 @@ main =
                         "diagnostics" ->
                           Exception.throwIO (userError "diagnostics launch exploded")
                         _ -> pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
                   }
@@ -1088,11 +3098,12 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       if livePlanStepName step == "playwright-live"
                         then Exception.throwIO Exception.ThreadKilled
                         else pure (successfulScopeOutcome 10 step)
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
                   }
@@ -1137,13 +3148,14 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       pure $
                         case livePlanStepName step of
                           "bootstrap" -> failedScopeOutcome 6 11 step
                           "release" -> failedScopeOutcome 3 13 step
                           _ -> successfulScopeOutcome 12 step
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure =
                       (== ExitFailure 3) . processFailureExitCode
@@ -1187,13 +3199,14 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       pure $
                         case livePlanStepName step of
                           "diagnostics" -> failedScopeOutcome 8 30 step
                           "release" -> failedScopeOutcome 9 40 step
                           _ -> successfulScopeOutcome 20 step
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
                   }
@@ -1239,12 +3252,13 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       pure $
                         case livePlanStepName step of
                           "release" -> failedScopeOutcome 9 40 step
                           _ -> successfulScopeOutcome 20 step
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
                   }
@@ -2218,6 +4232,206 @@ main =
                 ( "successful fixture returned failure:\n"
                     <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
                 )
+      , testCase "child-specific environment scrubs journal capabilities without rendering its challenge" $ do
+          let challenge = "product-scenario-invocation-v1\t" <> Text.replicate 64 "c"
+              journalKey = "unit-journal-signing-secret"
+              journalPath = "/tmp/unit-journal-secret-path"
+              runIdentity = "unit-parent-run-secret"
+              parentExecutablePath = "/tmp/unit-parent-jitml-secret-path"
+              parentExecutableSha = Text.replicate 64 "e"
+              environment =
+                subprocessEnvOverrideAndRemove
+                  [ ("JITML_PRODUCT_SCENARIO_INVOCATION", challenge)
+                  , ("JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE", journalKey)
+                  , ("JITML_PRODUCT_SCENARIO_JOURNAL_PATH", journalPath)
+                  , ("JITML_PRODUCT_SCENARIO_RUN_ID", runIdentity)
+                  , ("JITML_PRODUCT_SCENARIO_EXECUTABLE", parentExecutablePath)
+                  , ("JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256", parentExecutableSha)
+                  ]
+                  [ "JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE"
+                  , "JITML_PRODUCT_SCENARIO_JOURNAL_PATH"
+                  , "JITML_PRODUCT_SCENARIO_RUN_ID"
+                  , "JITML_PRODUCT_SCENARIO_EXECUTABLE"
+                  , "JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256"
+                  ]
+              command =
+                subprocess
+                  "/bin/sh"
+                  [ "-c"
+                  , Text.unwords
+                      [ "test -n \"${JITML_PRODUCT_SCENARIO_INVOCATION:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_JOURNAL_PATH:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_RUN_ID:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_EXECUTABLE:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256:-}\""
+                      , "&& printf scrubbed >&2; exit 7"
+                      ]
+                  ]
+          outcome <- runStreaming environment command
+          case outcome of
+            ProcessSucceeded transcript ->
+              assertFailure
+                ("scrub fixture unexpectedly succeeded: " <> show transcript)
+            ProcessFailed failure -> do
+              processFailureStderr failure @?= "scrubbed"
+              let rendered = renderProcessOutcome outcome
+              assertBool
+                "rendered process failure leaked the invocation challenge"
+                (not (challenge `Text.isInfixOf` rendered))
+              assertBool
+                "rendered process failure leaked the journal key"
+                (not (journalKey `Text.isInfixOf` rendered))
+              assertBool
+                "rendered process failure leaked the journal path"
+                (not (journalPath `Text.isInfixOf` rendered))
+              assertBool
+                "rendered process failure leaked the parent run identity"
+                (not (runIdentity `Text.isInfixOf` rendered))
+              assertBool
+                "rendered process failure leaked the parent executable path"
+                (not (parentExecutablePath `Text.isInfixOf` rendered))
+              assertBool
+                "rendered process failure leaked the parent executable SHA"
+                (not (parentExecutableSha `Text.isInfixOf` rendered))
+      , testCase "live planned environment is delivered without rendering journal capabilities" $ do
+          let keyPath = "/tmp/jitml-unit-secret/journal-key"
+              journalPath = "/tmp/jitml-unit-secret/journal.cbor"
+              runIdentity = "unit-secret-run-identity"
+              executablePath = "/tmp/jitml-unit-secret/jitml"
+              executableSha256 = Text.replicate 64 "e"
+              environment =
+                subprocessEnvOverrideAndRemove
+                  [ ("JITML_SUBSTRATE", "linux-cpu")
+                  , ("JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE", keyPath)
+                  , ("JITML_PRODUCT_SCENARIO_JOURNAL_PATH", journalPath)
+                  , ("JITML_PRODUCT_SCENARIO_RUN_ID", runIdentity)
+                  , ("JITML_PRODUCT_SCENARIO_EXECUTABLE", executablePath)
+                  , ("JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256", executableSha256)
+                  ]
+                  ["JITML_PRODUCT_SCENARIO_INVOCATION"]
+              command =
+                subprocess
+                  "/bin/sh"
+                  [ "-c"
+                  , Text.unwords
+                      [ "test -n \"${JITML_SUBSTRATE:-}\""
+                      , "&& test -n \"${JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE:-}\""
+                      , "&& test -n \"${JITML_PRODUCT_SCENARIO_JOURNAL_PATH:-}\""
+                      , "&& test -n \"${JITML_PRODUCT_SCENARIO_RUN_ID:-}\""
+                      , "&& test -n \"${JITML_PRODUCT_SCENARIO_EXECUTABLE:-}\""
+                      , "&& test -n \"${JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_INVOCATION:-}\""
+                      , "&& printf capabilities-received"
+                      ]
+                  ]
+              scrubbedCommand =
+                subprocess
+                  "/bin/sh"
+                  [ "-c"
+                  , Text.unwords
+                      [ "test -z \"${JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_JOURNAL_PATH:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_RUN_ID:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_EXECUTABLE:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256:-}\""
+                      , "&& test -z \"${JITML_PRODUCT_SCENARIO_INVOCATION:-}\""
+                      , "&& printf stale-capabilities-scrubbed"
+                      ]
+                  ]
+              staleEnvironment =
+                subprocessEnvOverrideAndRemove
+                  [ ("JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE", keyPath)
+                  , ("JITML_PRODUCT_SCENARIO_JOURNAL_PATH", journalPath)
+                  , ("JITML_PRODUCT_SCENARIO_RUN_ID", runIdentity)
+                  , ("JITML_PRODUCT_SCENARIO_EXECUTABLE", executablePath)
+                  , ("JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256", executableSha256)
+                  , ("JITML_PRODUCT_SCENARIO_INVOCATION", "stale-invocation")
+                  ]
+                  [ "JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE"
+                  , "JITML_PRODUCT_SCENARIO_JOURNAL_PATH"
+                  , "JITML_PRODUCT_SCENARIO_RUN_ID"
+                  , "JITML_PRODUCT_SCENARIO_EXECUTABLE"
+                  , "JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256"
+                  , "JITML_PRODUCT_SCENARIO_INVOCATION"
+                  ]
+              planned =
+                LiveE2EScope.PlannedTestInvocation
+                  { LiveE2EScope.plannedTestStanza = "jitml-integration"
+                  , LiveE2EScope.plannedTestCommand = command
+                  , LiveE2EScope.plannedTestEnvironment = environment
+                  }
+              unrelated =
+                LiveE2EScope.PlannedTestInvocation
+                  { LiveE2EScope.plannedTestStanza = "jitml-unit"
+                  , LiveE2EScope.plannedTestCommand = scrubbedCommand
+                  , LiveE2EScope.plannedTestEnvironment = staleEnvironment
+                  }
+              plan =
+                ScopedLivePlan
+                  { scopedLivePlanOwnership = OwnedEphemeralCluster
+                  , scopedLivePlanAcquire =
+                      [ LivePlanStep
+                          { livePlanStepName = "acquire-scrub"
+                          , livePlanStepCommand = scrubbedCommand
+                          }
+                      ]
+                  , scopedLivePlanBody = []
+                  , scopedLivePlanRelease = []
+                  }
+              backend =
+                LiveE2EScope.LiveE2EScopeBackend
+                  { LiveE2EScope.liveE2ERunStep =
+                      \childEnvironment step ->
+                        runStreaming childEnvironment (livePlanStepCommand step)
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = staleEnvironment
+                  , LiveE2EScope.liveE2EDiagnosticSteps = []
+                  , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
+                  }
+          result <-
+            LiveE2EScope.runLiveE2EScope
+              backend
+              plan
+              [planned, unrelated]
+              (pure (Right ()))
+          LiveE2EScope.liveE2EScopeFailure result @?= Nothing
+          let invocationJournal = LiveE2EScope.liveE2EInvocationJournal result
+          case Report.invocationJournalEntries invocationJournal of
+            [integrationRecord, unrelatedRecord] ->
+              case ( Report.invocationResult integrationRecord
+                   , Report.invocationResult unrelatedRecord
+                   ) of
+                (Report.Passed integrationTranscript, Report.Passed unrelatedTranscript) -> do
+                  processTranscriptStdout integrationTranscript @?= "capabilities-received"
+                  processTranscriptStdout unrelatedTranscript @?= "stale-capabilities-scrubbed"
+                  Report.invocationCommand integrationRecord @?= renderSubprocess command
+                  Report.invocationCommand unrelatedRecord @?= renderSubprocess scrubbedCommand
+                  processTranscriptCommand integrationTranscript @?= renderSubprocess command
+                  processTranscriptCommand unrelatedTranscript @?= renderSubprocess scrubbedCommand
+                  let showCapableEvidence =
+                        Text.unlines
+                          [ renderSubprocess command
+                          , renderSubprocess scrubbedCommand
+                          , Report.invocationCommand integrationRecord
+                          , Report.invocationCommand unrelatedRecord
+                          , processTranscriptCommand integrationTranscript
+                          , processTranscriptCommand unrelatedTranscript
+                          , Text.pack (show invocationJournal)
+                          , Text.pack (show (LiveE2EScope.liveE2EScenarioJournal result))
+                          ]
+                  for_
+                    [keyPath, journalPath, runIdentity, executablePath, executableSha256]
+                    ( \capability ->
+                        assertBool
+                          "rendered command/transcript leaked a ProductScenario capability"
+                          (not (capability `Text.isInfixOf` showCapableEvidence))
+                    )
+                observed ->
+                  assertFailure
+                    ("environment propagation fixtures did not pass: " <> show observed)
+            observed ->
+              assertFailure
+                ("unexpected environment propagation journal: " <> show observed)
       , testCase "structured subprocess failure preserves both streams and metadata" $ do
           let command =
                 (subprocess "/bin/sh" ["-c", "printf failure-out; printf failure-err >&2; exit 7"])
@@ -3598,6 +5812,71 @@ main =
                 ]
           fmap RLFramework.renderRLRunPhase RLFramework.rlRunPlan
             @?= ["collect", "compute-advantages", "optimise", "evaluate", "checkpoint"]
+      , testCase "Phase 252 learning curves are non-empty, finite, and strictly ordered" $ do
+          first <-
+            either (assertFailure . Text.unpack) pure $
+              RLFramework.mkIterationSummary 0 "training_reward" 1.0
+          second <-
+            either (assertFailure . Text.unpack) pure $
+              RLFramework.mkIterationSummary 1 "training_reward" 2.0
+          otherMetric <-
+            either (assertFailure . Text.unpack) pure $
+              RLFramework.mkIterationSummary 2 "training_loss" 0.5
+          assertBool "empty learning curve accepted" (isLeftResult (RLFramework.mkLearningCurve []))
+          assertBool
+            "unordered learning curve accepted"
+            (isLeftResult (RLFramework.mkLearningCurve [second, first]))
+          assertBool
+            "non-finite iteration summary accepted"
+            (isLeftResult (RLFramework.mkIterationSummary 2 "training_reward" (0 / 0)))
+          assertBool
+            "mixed-metric learning curve accepted"
+            (isLeftResult (RLFramework.mkLearningCurve [first, second, otherMetric]))
+          fmap
+            (fmap RLFramework.iterationSummaryMetricValue . RLFramework.learningCurveSummaries)
+            (RLFramework.mkLearningCurve [first, second])
+            @?= Right [1.0, 2.0]
+      , testCase "Phase 252 exact evaluation set uses the complete finite keyed cohort" $ do
+          let ordered =
+                [ (0, 100.0, 3, True)
+                , (1, 100.0, 4, True)
+                , (2, 0.0, 5, False)
+                , (3, 0.0, 6, False)
+                ]
+              shuffled =
+                [ (2, 0.0, 5, False)
+                , (0, 100.0, 3, True)
+                , (3, 0.0, 6, False)
+                , (1, 100.0, 4, True)
+                ]
+          exact <-
+            either (assertFailure . Text.unpack) pure (RLFramework.mkEvaluationSet 4 ordered)
+          reordered <-
+            either (assertFailure . Text.unpack) pure (RLFramework.mkEvaluationSet 4 shuffled)
+          counters <-
+            either (assertFailure . Text.unpack) pure $
+              AlgorithmCommon.mkMeasuredTrainerCounters 10 2
+          metrics <-
+            either (assertFailure . Text.unpack) pure $
+              ProductCompletion.rlCompletionMetrics "ppo" counters reordered
+          RLFramework.evaluationSetMedianReward exact @?= 50.0
+          RLFramework.evaluationSetMedianReward reordered @?= 50.0
+          RLFramework.evaluationSetOutcomes reordered @?= RLFramework.evaluationSetOutcomes exact
+          lookup "median_final_reward" metrics @?= Just 50.0
+          lookup "env_steps" metrics @?= Just 10.0
+          assertBool
+            "duplicate evaluation key accepted"
+            (isLeftResult (RLFramework.mkEvaluationSet 4 (take 3 ordered <> [ordered !! 2])))
+          assertBool
+            "gapped evaluation key accepted"
+            (isLeftResult (RLFramework.mkEvaluationSet 4 (take 3 ordered <> [(4, 0.0, 1, False)])))
+          assertBool "empty evaluation set accepted" (isLeftResult (RLFramework.mkEvaluationSet 0 []))
+          assertBool
+            "non-finite evaluation reward accepted"
+            (isLeftResult (RLFramework.mkEvaluationSet 1 [(0, 1 / 0, 1, True)]))
+          assertBool
+            "zero-step evaluation outcome accepted"
+            (isLeftResult (RLFramework.mkEvaluationSet 1 [(0, 1.0, 0, True)]))
       , testCase "RL trainer dispatch rejects unsupported environment fallbacks (Sprint 25.1)" $ do
           rlTrainerEnvironmentCompatibilityError "ppo" "cartpole" @?= Nothing
           rlTrainerEnvironmentCompatibilityError "ppo" "mountain-car" @?= Nothing
@@ -4046,6 +6325,2240 @@ main =
             @?= Checkpoint.PointerWritten "sha-m"
           Checkpoint.applyPointerWrite (Just "etag-b") write
             @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp-a")
+      , testCase
+          "checkpoint snapshot preparation isolates every physical class deterministically (Phase 262)"
+          $ do
+            let experimentHash = "exp-snapshot-prepare"
+                tensorPayload = Checkpoint.encodeJmw1 [1.0]
+                optimizerPayload = "optimizer-state"
+                rngPayload = "12345678"
+                replayPayload = "replay-payload"
+                transcriptPayload = "transcript-payload"
+                substratePayload = "substrate-payload"
+                contentKey payload =
+                  Checkpoint.blobKey
+                    experimentHash
+                    (WeightCodec.jmw1ContentSha payload)
+                tensorKey = Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha tensorPayload)
+                optimizerKey = contentKey optimizerPayload
+                rngKey = contentKey rngPayload
+                replayKey = contentKey replayPayload
+                transcriptKey = contentKey transcriptPayload
+                substrateKey = contentKey substratePayload
+                manifest =
+                  ( Checkpoint.emptyManifest
+                      "snapshot-logical"
+                      experimentHash
+                      [Checkpoint.TensorBlob "weights" [1] tensorKey]
+                  )
+                    { Checkpoint.manifestOptimizer =
+                        [ Checkpoint.OptimizerBlob
+                            "adam"
+                            optimizerKey
+                            (fromIntegral (ByteString.length optimizerPayload))
+                        ]
+                    , Checkpoint.manifestRng =
+                        [Checkpoint.RngBlob "training" rngKey 1]
+                    , Checkpoint.manifestReplayPointers =
+                        [ Checkpoint.ArtifactPointer
+                            "replay"
+                            replayKey
+                            (Just (WeightCodec.jmw1ContentSha replayPayload))
+                        ]
+                    , Checkpoint.manifestTranscriptPointers =
+                        [ Checkpoint.ArtifactPointer
+                            "transcript"
+                            transcriptKey
+                            (Just (WeightCodec.jmw1ContentSha transcriptPayload))
+                        ]
+                    , Checkpoint.manifestSubstrateArtifacts =
+                        [ Checkpoint.SubstrateArtifact
+                            "linux-cpu"
+                            "kernel"
+                            (WeightCodec.jmw1ContentSha substratePayload)
+                            (Just substrateKey)
+                        ]
+                    , Checkpoint.manifestMetrics = [("z", 2), ("a", 1)]
+                    }
+                payloads =
+                  [ (tensorKey, tensorPayload)
+                  , (optimizerKey, optimizerPayload)
+                  , (rngKey, rngPayload)
+                  , (replayKey, replayPayload)
+                  , (transcriptKey, transcriptPayload)
+                  , (substrateKey, substratePayload)
+                  ]
+                prepare =
+                  CheckpointStore.prepareCheckpointSnapshot
+                    CheckpointStore.WriterCandidateSnapshot
+                    CheckpointStore.WriterNoPointerIntent
+            prepared <-
+              case prepare manifest payloads of
+                Left err -> assertFailure ("snapshot preparation failed: " <> Text.unpack err)
+                Right value -> pure value
+            reordered <-
+              case prepare
+                manifest {Checkpoint.manifestMetrics = reverse (Checkpoint.manifestMetrics manifest)}
+                (reverse payloads) of
+                Left err -> assertFailure ("reordered snapshot preparation failed: " <> Text.unpack err)
+                Right value -> pure value
+            CheckpointStore.preparedSnapshotId reordered
+              @?= CheckpointStore.preparedSnapshotId prepared
+            CheckpointStore.preparedSnapshotManifestSha reordered
+              @?= CheckpointStore.preparedSnapshotManifestSha prepared
+            let snapshotPrefix =
+                  "jitml-checkpoints/"
+                    <> experimentHash
+                    <> "/snapshots/"
+                    <> CheckpointStore.preparedSnapshotId prepared
+                    <> "/objects/"
+                physicalKeys = fmap fst (CheckpointStore.preparedSnapshotPayloads prepared)
+            length physicalKeys @?= 6
+            assertBool
+              "every physical class is rebased into the one snapshot namespace"
+              (all (snapshotPrefix `Text.isPrefixOf`) physicalKeys)
+            CheckpointStore.checkpointStorageSnapshotId
+              (CheckpointStore.preparedSnapshotManifest prepared)
+              @?= Right (Just (CheckpointStore.preparedSnapshotId prepared))
+            reservation <-
+              case CheckpointStore.instantiateWriterReservation
+                (Text.replicate 64 "1")
+                (CheckpointStore.preparedSnapshotReservationTemplate prepared) of
+                Left err -> assertFailure ("reservation instantiation failed: " <> Text.unpack err)
+                Right value -> pure value
+            let commit = CheckpointStore.preparedSnapshotCommit prepared
+            CheckpointStore.decodeWriterReservation
+              (CheckpointStore.encodeWriterReservation reservation)
+              @?= Right reservation
+            CheckpointStore.decodeWriterCommit
+              (CheckpointStore.encodeWriterCommit commit)
+              @?= Right commit
+            assertBool
+              "reservation validation rejects a snapshot id that does not bind its physical paths"
+              ( case CheckpointStore.validateWriterReservation
+                  reservation {CheckpointStore.writerReservationSnapshotId = Text.replicate 64 "a"} of
+                  Left _ -> True
+                  Right _ -> False
+              )
+            assertBool
+              "commit validation rejects a noncanonical payload hash"
+              ( case CheckpointStore.writerCommitPhysicalObjects commit of
+                  firstPhysical : remaining ->
+                    case CheckpointStore.validateWriterCommit
+                      commit
+                        { CheckpointStore.writerCommitPhysicalObjects =
+                            firstPhysical {CheckpointStore.writerPhysicalObjectSha = "bad"}
+                              : remaining
+                        } of
+                      Left _ -> True
+                      Right _ -> False
+                  [] -> False
+              )
+            assertBool
+              "commit validation rejects an original-key substitution that preserves scoped key and payload SHA"
+              ( case CheckpointStore.writerCommitPhysicalObjects commit of
+                  firstPhysical : remaining ->
+                    case CheckpointStore.validateWriterCommit
+                      commit
+                        { CheckpointStore.writerCommitPhysicalObjects =
+                            firstPhysical
+                              { CheckpointStore.writerPhysicalObjectOriginalKey =
+                                  Checkpoint.blobKey
+                                    experimentHash
+                                    (Text.replicate 64 "d")
+                              }
+                              : remaining
+                        } of
+                      Left _ -> True
+                      Right _ -> False
+                  [] -> False
+              )
+            changedMetadata <-
+              case prepare manifest {Checkpoint.manifestStep = 1} payloads of
+                Left err -> assertFailure ("metadata-changed preparation failed: " <> Text.unpack err)
+                Right value -> pure value
+            assertBool
+              "logical metadata changes storage snapshot identity"
+              (CheckpointStore.preparedSnapshotId changedMetadata /= CheckpointStore.preparedSnapshotId prepared)
+            assertBool
+              "different snapshots never share physical object addresses"
+              ( null
+                  ( physicalKeys
+                      `List.intersect` fmap
+                        fst
+                        (CheckpointStore.preparedSnapshotPayloads changedMetadata)
+                  )
+              )
+            case CheckpointStore.gcReapEvents
+              ( CheckpointStore.buildGcPlan
+                  experimentHash
+                  (CheckpointStore.LastN 0)
+                  [CheckpointStore.preparedSnapshotManifest prepared]
+                  []
+              ) of
+              [event] ->
+                CheckpointStore.gcReapedObjectKeys event
+                  @?= List.sort
+                    ( physicalKeys
+                        <> [CheckpointStore.writerCommitObjectKey commit]
+                    )
+              events ->
+                assertFailure ("expected one snapshot GC event, got " <> show events)
+            emptyPrepared <-
+              case prepare
+                (Checkpoint.emptyManifest "empty-snapshot" experimentHash [])
+                [] of
+                Left err -> assertFailure ("empty snapshot preparation failed: " <> Text.unpack err)
+                Right value -> pure value
+            CheckpointStore.checkpointStorageSnapshotId
+              (CheckpointStore.preparedSnapshotManifest emptyPrepared)
+              @?= Right Nothing
+            case CheckpointStore.gcReapEvents
+              ( CheckpointStore.buildGcPlan
+                  experimentHash
+                  (CheckpointStore.LastN 0)
+                  [CheckpointStore.preparedSnapshotManifest emptyPrepared]
+                  []
+              ) of
+              [event] ->
+                CheckpointStore.gcReapedObjectKeys event
+                  @?= [ CheckpointStore.writerCommitObjectKey
+                          (CheckpointStore.preparedSnapshotCommit emptyPrepared)
+                      ]
+              events ->
+                assertFailure ("expected one zero-object snapshot GC event, got " <> show events)
+      , testCase "admission rejects a coherently forged original-to-scoped descriptor (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-forged-descriptor" $ \root -> do
+            let experimentHash = "exp-forged-snapshot-descriptor"
+                payload = Checkpoint.encodeJmw1 [8]
+                originalKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "forged-descriptor"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] originalKey]
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(originalKey, payload)]
+                    )
+                forgedOriginalKey =
+                  Checkpoint.blobKey experimentHash (Text.replicate 64 "d")
+                forgedScopedKey =
+                  "jitml-checkpoints/"
+                    <> experimentHash
+                    <> "/snapshots/"
+                    <> CheckpointStore.preparedSnapshotId prepared
+                    <> "/objects/"
+                    <> WeightCodec.jmw1ContentSha
+                      ( ByteString.fromStrict
+                          (Text.Encoding.encodeUtf8 forgedOriginalKey)
+                      )
+                forgedManifest =
+                  (CheckpointStore.preparedSnapshotManifest prepared)
+                    { Checkpoint.manifestTensors =
+                        [Checkpoint.TensorBlob "weights" [1] forgedScopedKey]
+                    }
+                forgedManifestSha = Checkpoint.manifestContentSha forgedManifest
+            forgedCommit <-
+              case CheckpointStore.writerCommitPhysicalObjects
+                (CheckpointStore.preparedSnapshotCommit prepared) of
+                [physicalObject] ->
+                  pure
+                    ( (CheckpointStore.preparedSnapshotCommit prepared)
+                        { CheckpointStore.writerCommitManifestSha = forgedManifestSha
+                        , CheckpointStore.writerCommitPhysicalObjects =
+                            [ physicalObject
+                                { CheckpointStore.writerPhysicalObjectOriginalKey =
+                                    forgedOriginalKey
+                                , CheckpointStore.writerPhysicalObjectKey =
+                                    forgedScopedKey
+                                }
+                            ]
+                        }
+                    )
+                physicalObjects ->
+                  assertFailure
+                    ( "expected one descriptor binding, got "
+                        <> show physicalObjects
+                    )
+                    >> error "unreachable"
+            CheckpointStore.validateWriterCommit forgedCommit
+              @?= Right forgedCommit
+            let seededObjects =
+                  [ (forgedScopedKey, payload)
+                  ,
+                    ( Checkpoint.manifestKey experimentHash forgedManifestSha
+                    , Checkpoint.encodeManifestCbor forgedManifest
+                    )
+                  ,
+                    ( CheckpointStore.writerCommitObjectKey forgedCommit
+                    , ByteString.fromStrict
+                        (CheckpointStore.encodeWriterCommit forgedCommit)
+                    )
+                  ]
+            for_ seededObjects $ \(objectKey, objectBytes) -> do
+              seeded <-
+                CheckpointStore.writeObjectIfAbsent root objectKey objectBytes
+              case seeded of
+                Left err -> assertFailure ("could not seed forged descriptor: " <> show err)
+                Right _ -> pure ()
+            admitted <-
+              CheckpointStore.admitLocalCheckpointAt
+                root
+                experimentHash
+                forgedManifestSha
+            case admitted of
+              Left (CheckpointStore.AdmissionSnapshotCommitInvalid reason) ->
+                assertBool
+                  ("forged descriptor produced the wrong rejection: " <> Text.unpack reason)
+                  ("snapshot id does not bind" `Text.isInfixOf` reason)
+              Left err -> assertFailure ("wrong forged-descriptor error: " <> show err)
+              Right _ -> assertFailure "coherently forged snapshot descriptor was admitted"
+      , testCase "writer kind is bound to manifest completion before preparation and admission (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-writer-kind" $ \root -> do
+            let experimentHash = "exp-writer-kind"
+                payload = Checkpoint.encodeJmw1 [4]
+                payloadSha = WeightCodec.jmw1ContentSha payload
+                logicalObjectKey = Checkpoint.blobKey experimentHash payloadSha
+                metrics = [("validation_accuracy", 0.95)]
+                evidence =
+                  journalExpectEitherRight
+                    ( ProductEvidence.mkTrainingEvidence
+                        (Text.replicate 64 "0")
+                        payloadSha
+                        1
+                        "writer-kind-dataset"
+                    )
+                observations =
+                  journalExpectEitherRight (convergenceObservationsFixture metrics)
+                completed =
+                  journalExpectEitherRight
+                    ( TrainingBudget.completedTraining
+                        unitFixturePlanId
+                        (unitBudget TrainingBudget.TuningTrialBudget 1)
+                        1
+                        evidence
+                        observations
+                        TrainingBudget.TensorBoardRunMetadata
+                          { TrainingBudget.tbrRunId = "writer-kind"
+                          , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/writer-kind"
+                          , TrainingBudget.tbrScalarTags = fmap fst metrics
+                          }
+                    )
+                completedManifest =
+                  Checkpoint.attachCompletedTraining
+                    completed
+                    ( ( Checkpoint.emptyManifest
+                          "writer-kind-completed"
+                          experimentHash
+                          [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                      )
+                        { Checkpoint.manifestStep = 1
+                        , Checkpoint.manifestMetrics = metrics
+                        }
+                    )
+                candidateManifest =
+                  Checkpoint.emptyManifest
+                    "writer-kind-candidate"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                latestIntent =
+                  CheckpointStore.WriterLatestPointerIntent
+                    (Checkpoint.latestPointerKey experimentHash)
+            CheckpointStore.prepareCheckpointSnapshot
+              CheckpointStore.WriterCandidateSnapshot
+              CheckpointStore.WriterNoPointerIntent
+              completedManifest
+              [(logicalObjectKey, payload)]
+              @?= Left "candidate writer transaction cannot carry completed training"
+            CheckpointStore.prepareCheckpointSnapshot
+              CheckpointStore.WriterCompletedSnapshot
+              latestIntent
+              candidateManifest
+              [(logicalObjectKey, payload)]
+              @?= Left "completed writer transaction requires completed training"
+            prepared <-
+              journalExpectRight
+                ( CheckpointStore.prepareCheckpointSnapshot
+                    CheckpointStore.WriterCompletedSnapshot
+                    latestIntent
+                    completedManifest
+                    [(logicalObjectKey, payload)]
+                )
+            let completedCommit = CheckpointStore.preparedSnapshotCommit prepared
+                candidateTemplate =
+                  (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    { CheckpointStore.writerReservationTemplateKind =
+                        CheckpointStore.WriterCandidateSnapshot
+                    , CheckpointStore.writerReservationTemplatePointerIntent =
+                        CheckpointStore.WriterNoPointerIntent
+                    }
+            candidateReservation <-
+              journalExpectRight
+                ( CheckpointStore.instantiateWriterReservation
+                    (Text.replicate 64 "c")
+                    candidateTemplate
+                )
+            let forgedCandidateCommit =
+                  completedCommit
+                    { CheckpointStore.writerCommitReservationId =
+                        CheckpointStore.writerReservationId candidateReservation
+                    , CheckpointStore.writerCommitKind =
+                        CheckpointStore.WriterCandidateSnapshot
+                    }
+                seededObjects =
+                  CheckpointStore.preparedSnapshotPayloads prepared
+                    <> [
+                         ( Checkpoint.manifestKey
+                             experimentHash
+                             (CheckpointStore.preparedSnapshotManifestSha prepared)
+                         , CheckpointStore.preparedSnapshotManifestBytes prepared
+                         )
+                       ,
+                         ( CheckpointStore.writerCommitObjectKey forgedCandidateCommit
+                         , ByteString.fromStrict
+                             (CheckpointStore.encodeWriterCommit forgedCandidateCommit)
+                         )
+                       ]
+            CheckpointStore.validateWriterCommit forgedCandidateCommit
+              @?= Right forgedCandidateCommit
+            for_ seededObjects $ \(objectKey, objectBytes) -> do
+              seeded <- CheckpointStore.writeObjectIfAbsent root objectKey objectBytes
+              case seeded of
+                Left err -> assertFailure ("could not seed forged writer kind: " <> show err)
+                Right _ -> pure ()
+            admitted <-
+              CheckpointStore.admitLocalCheckpointAt
+                root
+                experimentHash
+                (CheckpointStore.preparedSnapshotManifestSha prepared)
+            case admitted of
+              Left (CheckpointStore.AdmissionSnapshotCommitInvalid reason) ->
+                assertBool
+                  ("wrong writer-kind rejection: " <> Text.unpack reason)
+                  ("candidate writer transaction cannot carry completed training" `Text.isInfixOf` reason)
+              Left err -> assertFailure ("wrong writer-kind admission error: " <> show err)
+              Right _ -> assertFailure "candidate commit admitted a completed manifest"
+      , testCase "GC keeps a rooted scoped snapshot and reaps only the discarded exact graph (Phase 262)" $ do
+          let experimentHash = "exp-gc-scoped-roots"
+              rootedPrepared = phase262PreparedTensorSnapshot experimentHash "rooted" 1
+              discardedPrepared = phase262PreparedTensorSnapshot experimentHash "discarded" 2
+              rooted = CheckpointStore.preparedSnapshotManifest rootedPrepared
+              discarded = CheckpointStore.preparedSnapshotManifest discardedPrepared
+              rootedPlan =
+                CheckpointStore.buildGcPlan
+                  experimentHash
+                  (CheckpointStore.LastN 0)
+                  [rooted, discarded]
+                  [rooted]
+              fullyReapedPlan =
+                CheckpointStore.buildGcPlan
+                  experimentHash
+                  (CheckpointStore.LastN 0)
+                  [rooted, discarded]
+                  []
+          CheckpointStore.gcPlanValidationFailures rootedPlan @?= []
+          CheckpointStore.gcKeptManifestShas rootedPlan
+            @?= [Checkpoint.manifestContentSha rooted]
+          case CheckpointStore.gcReapEvents rootedPlan of
+            [event] -> do
+              CheckpointStore.gcReapedManifestSha event
+                @?= Checkpoint.manifestContentSha discarded
+              CheckpointStore.gcReapedObjectKeys event
+                @?= phase262PreparedGcObjectKeys discardedPrepared
+              assertBool
+                "rooted snapshot object leaked into discarded event"
+                ( null
+                    ( phase262PreparedGcObjectKeys rootedPrepared
+                        `List.intersect` CheckpointStore.gcReapedObjectKeys event
+                    )
+                )
+            events -> assertFailure ("expected one scoped GC event, got " <> show events)
+          length (CheckpointStore.gcReapEvents fullyReapedPlan) @?= 2
+          List.sort
+            (concatMap CheckpointStore.gcReapedObjectKeys (CheckpointStore.gcReapEvents fullyReapedPlan))
+            @?= List.sort
+              ( phase262PreparedGcObjectKeys rootedPrepared
+                  <> phase262PreparedGcObjectKeys discardedPrepared
+              )
+      , testCase
+          "GC rejects legacy unscoped and malformed physical graphs before intent creation (Phase 262)"
+          $ do
+            let experimentHash = "exp-gc-invalid-graphs"
+                validPrepared = phase262PreparedTensorSnapshot experimentHash "valid" 1
+                valid = CheckpointStore.preparedSnapshotManifest validPrepared
+                legacy =
+                  Checkpoint.emptyManifest
+                    "legacy"
+                    experimentHash
+                    [ Checkpoint.TensorBlob
+                        "legacy.weights"
+                        [1]
+                        (Checkpoint.blobKey experimentHash (Text.replicate 64 "a"))
+                    ]
+                legacyPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [legacy]
+                    []
+                invalidKeys =
+                  [ ("empty segment", experimentHash <> "//blobs/shared")
+                  , ("dot segment", experimentHash <> "/./blobs/shared")
+                  , ("dot-dot segment", experimentHash <> "/artifacts/../blobs/shared")
+                  , ("control character", experimentHash <> "/blobs/bad\NUL\&key")
+                  , ("cross-experiment", "another-experiment/blobs/shared")
+                  ]
+            assertBool
+              "legacy unscoped candidate was GC eligible"
+              (not (null (CheckpointStore.gcPlanValidationFailures legacyPlan)))
+            CheckpointStore.gcReapEvents legacyPlan @?= []
+            CheckpointStore.gcPlanIntents legacyPlan @?= []
+            for_ invalidKeys $ \(label, malformedAlias) -> do
+              let malformedRoot =
+                    Checkpoint.emptyManifest
+                      ("malformed-" <> label)
+                      experimentHash
+                      [Checkpoint.TensorBlob "root.weights" [1] malformedAlias]
+                  plan =
+                    CheckpointStore.buildGcPlan
+                      experimentHash
+                      (CheckpointStore.LastN 0)
+                      [valid]
+                      [malformedRoot]
+              assertBool
+                (Text.unpack label <> " malformed root did not poison the complete plan")
+                (not (null (CheckpointStore.gcPlanValidationFailures plan)))
+              CheckpointStore.gcReapEvents plan @?= []
+              CheckpointStore.gcPlanIntents plan @?= []
+              CheckpointStore.gcNoOp plan @?= False
+            let invalidExperimentPlan =
+                  CheckpointStore.buildGcPlan
+                    "invalid/experiment"
+                    CheckpointStore.KeepAll
+                    []
+                    []
+            assertBool
+              "an experiment hash must be exactly one safe path segment"
+              (not (null (CheckpointStore.gcPlanValidationFailures invalidExperimentPlan)))
+      , testCase "GC planning is invariant under equal-step scoped-manifest permutations (Phase 262)" $ do
+          let experimentHash = "exp-gc-order"
+              manifests =
+                [ CheckpointStore.preparedSnapshotManifest
+                    (phase262PreparedTensorSnapshot experimentHash tag 7)
+                | tag <- ["a", "b", "c"]
+                ]
+              plans =
+                [ CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 1)
+                    permutation
+                    []
+                | permutation <- List.permutations manifests
+                ]
+              expectedKept = take 1 (List.sort (fmap Checkpoint.manifestContentSha manifests))
+          case plans of
+            [] -> assertFailure "manifest permutations unexpectedly produced no plans"
+            referencePlan : remainingPlans -> do
+              CheckpointStore.gcPlanValidationFailures referencePlan @?= []
+              assertBool
+                "all equal-step permutations produce one identical plan"
+                (all (== referencePlan) remainingPlans)
+              CheckpointStore.gcKeptManifestShas referencePlan @?= expectedKept
+              fmap CheckpointStore.gcIntentEventId (CheckpointStore.gcPlanIntents referencePlan)
+                @?= fmap CheckpointStore.gcEventId (CheckpointStore.gcReapEvents referencePlan)
+      , testCase "completed canonical ProductRow manifests are intrinsic GC roots (Phase 262)" $ do
+          case find
+            ((== ProductMatrix.ReinforcementLearning) . ProductMatrix.family)
+            ProductMatrix.allProductRows of
+            Nothing -> assertFailure "ProductMatrix unexpectedly has no canonical RL row"
+            Just row -> do
+              let experimentHash = ProductMatrix.productRowExperimentHash row
+                  budget = ProductMatrix.trainingBudget row
+                  observedUnits = TrainingBudget.trainingBudgetTargetUnits budget
+                  convergenceBar = ProductMatrix.convergenceBar row
+                  metrics =
+                    [
+                      ( ProductConvergence.convergenceMetricName convergenceBar
+                      , ProductConvergence.convergenceThreshold convergenceBar
+                      )
+                    ]
+                  completed =
+                    either
+                      (error . Text.unpack)
+                      id
+                      ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
+                          unitFixturePlanId
+                          budget
+                          row
+                          "unit-product-dataset"
+                          experimentHash
+                          observedUnits
+                          1
+                          metrics
+                          (Text.replicate 64 "a")
+                          (Text.replicate 64 "b")
+                      )
+                  manifest =
+                    Checkpoint.attachCompletedTraining
+                      completed
+                      ( (Checkpoint.emptyManifest "product-gc-root" experimentHash [])
+                          { Checkpoint.manifestStep = observedUnits
+                          , Checkpoint.manifestMetrics = metrics
+                          }
+                      )
+                  plan =
+                    CheckpointStore.buildGcPlan
+                      experimentHash
+                      (CheckpointStore.LastN 0)
+                      [manifest]
+                      []
+              CheckpointStore.gcKeptManifestShas plan
+                @?= [Checkpoint.manifestContentSha manifest]
+              CheckpointStore.gcReapEvents plan @?= []
+      , testCase
+          "identical writers allocate unique attempt markers and a leaked marker fences a committed snapshot (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-writer-reservations"
+          $ \root -> do
+            let experimentHash = "exp-writer-reservation-race"
+                payload = Checkpoint.encodeJmw1 [1]
+                logicalObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "identical-writer"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalObjectKey, payload)]
+                    )
+                attempt0 = Text.replicate 64 "0"
+                attempt1 = Text.replicate 63 "0" <> "1"
+                reservation0 =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        attempt0
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+                reservation1 =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        attempt1
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+            assertBool
+              "two exact writer attempts resolved to the same marker"
+              ( CheckpointStore.writerReservationObjectKey reservation0
+                  /= CheckpointStore.writerReservationObjectKey reservation1
+              )
+            seeded <-
+              CheckpointStore.writeObjectIfAbsent
+                root
+                (CheckpointStore.writerReservationObjectKey reservation0)
+                ( ByteString.fromStrict
+                    (CheckpointStore.encodeWriterReservation reservation0)
+                )
+            seeded
+              @?= Right
+                ( CheckpointStore.ObjectCreated
+                    (CheckpointStore.writerReservationObjectKey reservation0)
+                )
+            written <-
+              CheckpointStore.writeCandidateCheckpointSnapshot
+                root
+                logicalManifest
+                [(logicalObjectKey, payload)]
+            case written of
+              Left err ->
+                assertFailure
+                  ( "exact retry did not advance past the occupied attempt marker: "
+                      <> Text.unpack (CheckpointStore.renderCheckpointWriteError err)
+                  )
+              Right _ -> pure ()
+            leaked <-
+              CheckpointStore.readObject
+                root
+                (CheckpointStore.writerReservationObjectKey reservation0)
+            leaked
+              @?= Right
+                ( ByteString.fromStrict
+                    (CheckpointStore.encodeWriterReservation reservation0)
+                )
+            attempt1Path <-
+              case CheckpointStore.objectPathForKey
+                root
+                (CheckpointStore.writerReservationObjectKey reservation1) of
+                Left err -> assertFailure (Text.unpack err) >> error "unreachable"
+                Right path -> pure path
+            attempt1Exists <- doesFileExist attempt1Path
+            attempt1Exists @?= False
+            committed <-
+              CheckpointStore.readObject
+                root
+                ( CheckpointStore.writerCommitObjectKey
+                    (CheckpointStore.preparedSnapshotCommit prepared)
+                )
+            committed
+              @?= Right
+                ( ByteString.fromStrict
+                    ( CheckpointStore.encodeWriterCommit
+                        (CheckpointStore.preparedSnapshotCommit prepared)
+                    )
+                )
+            listed <- CheckpointStore.listCheckpointManifests root experimentHash
+            listed @?= Right [CheckpointStore.preparedSnapshotManifest prepared]
+            let plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [CheckpointStore.preparedSnapshotManifest prepared]
+                    []
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            case CheckpointStore.gcPlanIntents plan of
+              [intent] ->
+                CheckpointStore.revalidateGcIntents
+                  epoch
+                  epoch
+                  plan
+                  [CheckpointStore.preparedSnapshotManifest prepared]
+                  []
+                  [reservation0]
+                  []
+                  [intent]
+                  @?= Right ([], [intent])
+              intents ->
+                assertFailure ("expected one fenced intent, got " <> show intents)
+      , testCase
+          "writer-before-plan cancellation prevents deletion until a fresh generation is authorized (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-writer-final-fence"
+          $ \root -> do
+            let experimentHash = "exp-writer-final-fence"
+                payload = Checkpoint.encodeJmw1 [5]
+                logicalObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "writer-final-fence"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalObjectKey, payload)]
+                    )
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [CheckpointStore.preparedSnapshotManifest prepared]
+                    []
+                reservation =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values ->
+                  assertFailure ("expected one writer-race GC intent, got " <> show values)
+                    >> error "unreachable"
+            firstIntentList <- newEmptyMVar
+            releaseFirstIntentList <- newEmptyMVar
+            intentListCount <- newIORef 0
+            writerResult <- newEmptyMVar
+            let environment =
+                  Phase262FenceRaceEnv
+                    { phase262FenceRaceRoot = root
+                    , phase262FenceRaceFirstIntentList = firstIntentList
+                    , phase262FenceRaceReleaseFirstIntentList = releaseFirstIntentList
+                    , phase262FenceRaceIntentListCount = intentListCount
+                    }
+            _ <-
+              forkIO $ do
+                outcome <-
+                  runPhase262FenceRaceMinIO environment $
+                    CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                      logicalManifest
+                      [(logicalObjectKey, payload)]
+                putMVar writerResult outcome
+            -- The writer has already registered in the experiment fence and
+            -- listed an empty outbox. Install the intent before it resumes.
+            takeMVar firstIntentList
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            putMVar releaseFirstIntentList ()
+            outcome <- takeMVar writerResult
+            case outcome of
+              Left err ->
+                assertFailure ("writer did not cancel the late intent: " <> show err)
+              Right _ -> pure ()
+            runFilesystemMinIO
+              root
+              ( minioReadBytes
+                  ( CheckpointStore.checkpointObjectRef
+                      (CheckpointStore.writerReservationObjectKey reservation)
+                  )
+              )
+              >>= \case
+                Left _ -> pure ()
+                Right _ -> assertFailure "writer did not release its separate marker"
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadActiveWriterReservations experimentHash)
+              >>= (@?= Right [])
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcCancelledIntents experimentHash)
+              >>= (@?= Right [intent])
+            let manifest = CheckpointStore.preparedSnapshotManifest prepared
+                event = CheckpointStore.gcIntentEvent intent
+                manifestRef =
+                  CheckpointStore.checkpointObjectRef
+                    ( Checkpoint.manifestKey
+                        experimentHash
+                        (CheckpointStore.gcReapedManifestSha event)
+                    )
+            runFilesystemMinIO root (minioReadBytes manifestRef) >>= \case
+              Left err ->
+                assertFailure ("writer graph was deleted before fresh authorization: " <> show err)
+              Right _ -> pure ()
+            for_ (CheckpointStore.gcReapedObjectKeys event) $ \key ->
+              runFilesystemMinIO
+                root
+                (minioReadBytes (CheckpointStore.checkpointObjectRef key))
+                >>= \case
+                  Left err ->
+                    assertFailure
+                      ("writer physical object was deleted before fresh authorization: " <> show err)
+                  Right _ -> pure ()
+            -- A completed cancellation is not a permanent veto. Re-persisting
+            -- the same intent and obtaining a new fresh witness creates the
+            -- next generation; only that opaque authorization can delete.
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            let witness = phase262SingleRevalidatedIntent epoch plan [manifest] [] [] [] intent
+            authorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents [witness])
+            CheckpointStore.gcAuthorizationCancelledIntents authorization @?= []
+            CheckpointStore.gcAuthorizationFailures authorization @?= []
+            authorized <-
+              case CheckpointStore.gcAuthorizedIntents authorization of
+                [value] -> pure value
+                values ->
+                  assertFailure ("expected one re-armed authorization, got " <> show values)
+                    >> error "unreachable"
+            executingFence <- phase262LoadExperimentFence root experimentHash
+            fmap
+              ( \decision ->
+                  ( CheckpointStore.gcFenceDecisionGeneration decision
+                  , CheckpointStore.gcFenceDecisionPhase decision
+                  )
+              )
+              (CheckpointStore.experimentGcFenceDecisions executingFence)
+              @?= [ (0, CheckpointStore.GcFenceCancelled)
+                  , (1, CheckpointStore.GcFenceExecuting)
+                  ]
+            executed <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.executeAuthorizedGcIntents [authorized])
+            length (CheckpointStore.gcCompletedExecutions executed) @?= 1
+            CheckpointStore.gcExecutionFailures executed @?= []
+            runFilesystemMinIO root (minioReadBytes manifestRef) >>= \case
+              Left _ -> pure ()
+              Right _ -> assertFailure "re-armed authorization did not delete the manifest"
+      , testCase "a delayed duplicate cancellation helper is inert after generation re-arm (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-delayed-cancellation" $ \root -> do
+            let experimentHash = "exp-delayed-cancellation"
+                prepared = phase262PreparedTensorSnapshot experimentHash "delayed" 3
+                manifest = CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [manifest]
+                    []
+            phase262SeedPreparedSnapshotMinIO root prepared
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values ->
+                  assertFailure ("expected one delayed-cancellation intent, got " <> show values)
+                    >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            cancellationReached <- newEmptyMVar
+            releaseCancellation <- newEmptyMVar
+            cancellationResult <- newEmptyMVar
+            let cancellationEnvironment =
+                  Phase262CancellationDelayEnv
+                    { phase262CancellationDelayRoot = root
+                    , phase262CancellationDelayReached = cancellationReached
+                    , phase262CancellationDelayRelease = releaseCancellation
+                    }
+            _ <-
+              forkIO $ do
+                outcome <-
+                  runPhase262CancellationDelayMinIO
+                    cancellationEnvironment
+                    (CheckpointStore.cancelGcIntents [intent])
+                putMVar cancellationResult outcome
+            -- The first canceller owns generation zero and is paused before
+            -- writing its stable tombstone.
+            takeMVar cancellationReached
+            helperReached <- newEmptyMVar
+            releaseHelper <- newEmptyMVar
+            helperResult <- newEmptyMVar
+            let helperEnvironment =
+                  Phase262CancellationDelayEnv
+                    { phase262CancellationDelayRoot = root
+                    , phase262CancellationDelayReached = helperReached
+                    , phase262CancellationDelayRelease = releaseHelper
+                    }
+            _ <-
+              forkIO $ do
+                outcome <-
+                  runPhase262CancellationDelayMinIO
+                    helperEnvironment
+                    (CheckpointStore.helpGcCancellations [intent])
+                putMVar helperResult outcome
+            -- The helper has classified and retained the exact generation-zero
+            -- Cancelling decision, then paused before its idempotent PUT.
+            takeMVar helperReached
+            putMVar releaseCancellation ()
+            takeMVar cancellationResult >>= (@?= Right [intent])
+            let fenceRef =
+                  CheckpointStore.checkpointObjectRef
+                    (CheckpointStore.experimentGcFenceObjectKey experimentHash)
+            loadedFence <-
+              runFilesystemMinIO root (minioReadBytesWithETag fenceRef)
+            (cancelledFence, cancelledEtag) <-
+              case loadedFence of
+                Left err ->
+                  assertFailure ("could not load cancelled helper fence: " <> show err)
+                    >> error "unreachable"
+                Right (bytes, etag) ->
+                  case Text.Encoding.decodeUtf8' bytes of
+                    Left err ->
+                      assertFailure ("helper fence was not UTF-8: " <> show err)
+                        >> error "unreachable"
+                    Right encoded ->
+                      case CheckpointStore.decodeExperimentGcFence encoded of
+                        Left err ->
+                          assertFailure ("could not decode helper fence: " <> show err)
+                            >> error "unreachable"
+                        Right fence -> pure (fence, etag)
+            let generation = 1
+                plannedDecision =
+                  CheckpointStore.GcFenceDecision
+                    { CheckpointStore.gcFenceDecisionGeneration = generation
+                    , CheckpointStore.gcFenceDecisionIntent = intent
+                    , CheckpointStore.gcFenceDecisionOperationId =
+                        CheckpointStore.gcFenceOperationId generation intent
+                    , CheckpointStore.gcFenceDecisionPhase =
+                        CheckpointStore.GcFencePlanned
+                    }
+                plannedFence =
+                  cancelledFence
+                    { CheckpointStore.experimentGcFenceRevision =
+                        CheckpointStore.experimentGcFenceRevision cancelledFence + 1
+                    , CheckpointStore.experimentGcFenceDecisions =
+                        CheckpointStore.experimentGcFenceDecisions cancelledFence
+                          <> [plannedDecision]
+                    }
+            runFilesystemMinIO
+              root
+              ( casPointer
+                  fenceRef
+                  (Just cancelledEtag)
+                  (CheckpointStore.encodeExperimentGcFence plannedFence)
+              )
+              >>= \case
+                Left err ->
+                  assertFailure ("could not seed helper-race re-arm: " <> show err)
+                Right _ -> pure ()
+            putMVar releaseHelper ()
+            takeMVar helperResult >>= (@?= Right [intent])
+            finalFence <- phase262LoadExperimentFence root experimentHash
+            fmap
+              ( \decision ->
+                  ( CheckpointStore.gcFenceDecisionGeneration decision
+                  , CheckpointStore.gcFenceDecisionPhase decision
+                  )
+              )
+              (CheckpointStore.experimentGcFenceDecisions finalFence)
+              @?= [ (0, CheckpointStore.GcFenceCancelled)
+                  , (1, CheckpointStore.GcFencePlanned)
+                  ]
+            runFilesystemMinIO root (CheckpointStore.loadGcCancelledIntents experimentHash)
+              >>= (@?= Right [])
+            runFilesystemMinIO root (CheckpointStore.loadGcIntents experimentHash)
+              >>= (@?= Right [intent])
+      , testCase
+          "writer waits for a re-armed generation cancellation despite its stable old tombstone (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-rearmed-writer-cancellation"
+          $ \root -> do
+            let experimentHash = "exp-rearmed-writer-cancellation"
+                targetPrepared = phase262PreparedTensorSnapshot experimentHash "target" 3
+                target = CheckpointStore.preparedSnapshotManifest targetPrepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [target]
+                    []
+                childPayload = Checkpoint.encodeJmw1 [12]
+                childObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha childPayload)
+                childManifest =
+                  ( Checkpoint.emptyManifest
+                      "child"
+                      experimentHash
+                      [Checkpoint.TensorBlob "child.weights" [1] childObjectKey]
+                  )
+                    { Checkpoint.manifestStep = 4
+                    , Checkpoint.manifestParentManifestSha =
+                        Just (Checkpoint.manifestContentSha target)
+                    }
+                childPrepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        childManifest
+                        [(childObjectKey, childPayload)]
+                    )
+                childReservation =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate childPrepared)
+                    )
+            phase262SeedPreparedSnapshotMinIO root targetPrepared
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values -> assertFailure ("expected one re-armed intent, got " <> show values) >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            runFilesystemMinIO root (CheckpointStore.cancelGcIntents [intent])
+              >>= (@?= Right [intent])
+            let fenceRef =
+                  CheckpointStore.checkpointObjectRef
+                    (CheckpointStore.experimentGcFenceObjectKey experimentHash)
+            loadedFence <-
+              runFilesystemMinIO root (minioReadBytesWithETag fenceRef)
+            (cancelledFence, cancelledEtag) <-
+              case loadedFence of
+                Left err -> assertFailure ("could not load cancelled fence: " <> show err) >> error "unreachable"
+                Right (bytes, etag) ->
+                  case Text.Encoding.decodeUtf8' bytes of
+                    Left err -> assertFailure ("cancelled fence was not UTF-8: " <> show err) >> error "unreachable"
+                    Right encoded ->
+                      case CheckpointStore.decodeExperimentGcFence encoded of
+                        Left err -> assertFailure ("could not decode cancelled fence: " <> show err) >> error "unreachable"
+                        Right fence -> pure (fence, etag)
+            let generation = 1
+                plannedDecision =
+                  CheckpointStore.GcFenceDecision
+                    { CheckpointStore.gcFenceDecisionGeneration = generation
+                    , CheckpointStore.gcFenceDecisionIntent = intent
+                    , CheckpointStore.gcFenceDecisionOperationId =
+                        CheckpointStore.gcFenceOperationId generation intent
+                    , CheckpointStore.gcFenceDecisionPhase =
+                        CheckpointStore.GcFencePlanned
+                    }
+                plannedFence =
+                  cancelledFence
+                    { CheckpointStore.experimentGcFenceRevision =
+                        CheckpointStore.experimentGcFenceRevision cancelledFence + 1
+                    , CheckpointStore.experimentGcFenceDecisions =
+                        CheckpointStore.experimentGcFenceDecisions cancelledFence
+                          <> [plannedDecision]
+                    }
+            runFilesystemMinIO
+              root
+              ( casPointer
+                  fenceRef
+                  (Just cancelledEtag)
+                  (CheckpointStore.encodeExperimentGcFence plannedFence)
+              )
+              >>= \case
+                Left err -> assertFailure ("could not seed re-armed Planned generation: " <> show err)
+                Right _ -> pure ()
+            completionReached <- newEmptyMVar
+            completionRelease <- newEmptyMVar
+            completionDidDelay <- newIORef False
+            writerResult <- newEmptyMVar
+            let environment =
+                  Phase262CancellationCompletionDelayEnv
+                    { phase262CancellationCompletionRoot = root
+                    , phase262CancellationCompletionReached = completionReached
+                    , phase262CancellationCompletionRelease = completionRelease
+                    , phase262CancellationCompletionDidDelay = completionDidDelay
+                    }
+            _ <-
+              forkIO $ do
+                outcome <-
+                  runPhase262CancellationCompletionDelayMinIO environment $
+                    CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                      childManifest
+                      [(childObjectKey, childPayload)]
+                putMVar writerResult outcome
+            takeMVar completionReached
+            let childMarkerRef =
+                  CheckpointStore.checkpointObjectRef
+                    (CheckpointStore.writerReservationObjectKey childReservation)
+                childPayloadRef =
+                  case CheckpointStore.preparedSnapshotPayloads childPrepared of
+                    [(key, _)] -> CheckpointStore.checkpointObjectRef key
+                    values -> error ("unexpected child payload fixture: " <> show values)
+            for_ [childMarkerRef, childPayloadRef] $ \ref ->
+              runFilesystemMinIO root (minioReadBytes ref) >>= \case
+                Left _ -> pure ()
+                Right _ ->
+                  assertFailure
+                    "writer created its marker/payload before generation-one cancellation completed"
+            cancellingFence <- phase262LoadExperimentFence root experimentHash
+            case reverse (CheckpointStore.experimentGcFenceDecisions cancellingFence) of
+              latest : _ ->
+                CheckpointStore.gcFenceDecisionPhase latest
+                  @?= CheckpointStore.GcFenceCancelling
+              [] -> assertFailure "re-armed cancellation lost its fence decision"
+            putMVar completionRelease ()
+            takeMVar writerResult >>= \case
+              Left err -> assertFailure ("writer did not resume after cancellation completion: " <> show err)
+              Right _ -> pure ()
+            completedFence <- phase262LoadExperimentFence root experimentHash
+            case reverse (CheckpointStore.experimentGcFenceDecisions completedFence) of
+              latest : _ ->
+                CheckpointStore.gcFenceDecisionPhase latest
+                  @?= CheckpointStore.GcFenceCancelled
+              [] -> assertFailure "completed re-armed cancellation lost its fence decision"
+      , testCase "a fully completed cross-snapshot parent writer invalidates a stale GC witness (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-short-parent-writer" $ \root -> do
+            let experimentHash = "exp-short-parent-writer"
+                targetPrepared = phase262PreparedTensorSnapshot experimentHash "parent" 4
+                target = CheckpointStore.preparedSnapshotManifest targetPrepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [target]
+                    []
+                childPayload = Checkpoint.encodeJmw1 [9]
+                childObjectKey =
+                  Checkpoint.blobKey
+                    experimentHash
+                    (WeightCodec.jmw1ContentSha childPayload)
+                childManifest =
+                  ( Checkpoint.emptyManifest
+                      "child"
+                      experimentHash
+                      [Checkpoint.TensorBlob "child.weights" [1] childObjectKey]
+                  )
+                    { Checkpoint.manifestStep = 5
+                    , Checkpoint.manifestParentManifestSha =
+                        Just (Checkpoint.manifestContentSha target)
+                    }
+            phase262SeedPreparedSnapshotMinIO root targetPrepared
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values -> assertFailure ("expected one parent intent, got " <> show values) >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            staleEpoch <- phase262LoadGcFenceEpoch root experimentHash
+            let staleWitness =
+                  phase262SingleRevalidatedIntent
+                    staleEpoch
+                    plan
+                    [target]
+                    []
+                    []
+                    []
+                    intent
+            childWrite <-
+              runFilesystemMinIO root $
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                  childManifest
+                  [(childObjectKey, childPayload)]
+            case childWrite of
+              Left err -> assertFailure ("cross-snapshot child writer failed: " <> show err)
+              Right _ -> pure ()
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadActiveWriterReservations experimentHash)
+              >>= (@?= Right [])
+            authorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents [staleWitness])
+            CheckpointStore.gcAuthorizedIntents authorization @?= []
+            CheckpointStore.gcAuthorizationCancelledIntents authorization @?= []
+            assertBool
+              "short parent writer did not invalidate the old writer/root epoch"
+              (not (null (CheckpointStore.gcAuthorizationFailures authorization)))
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcCancelledIntents experimentHash)
+              >>= (@?= Right [intent])
+            let targetManifestRef =
+                  CheckpointStore.checkpointObjectRef
+                    ( Checkpoint.manifestKey
+                        experimentHash
+                        (Checkpoint.manifestContentSha target)
+                    )
+            runFilesystemMinIO root (minioReadBytes targetManifestRef) >>= \case
+              Left err -> assertFailure ("stale witness deleted the new parent's target: " <> show err)
+              Right _ -> pure ()
+      , testCase "authorizer discovers a marker-only reservation omitted by revalidation (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-marker-omission" $ \root -> do
+            let experimentHash = "exp-marker-omission"
+                prepared = phase262PreparedTensorSnapshot experimentHash "marker" 2
+                manifest = CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [manifest]
+                    []
+                reservation =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+            phase262SeedPreparedSnapshotMinIO root prepared
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values -> assertFailure ("expected one marker intent, got " <> show values) >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            runFilesystemMinIO
+              root
+              ( putBlobBytesIfAbsent
+                  ( CheckpointStore.checkpointObjectRef
+                      (CheckpointStore.writerReservationObjectKey reservation)
+                  )
+                  (CheckpointStore.encodeWriterReservation reservation)
+              )
+              >>= \case
+                Left err -> assertFailure ("could not seed marker-only reservation: " <> show err)
+                Right _ -> pure ()
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            let witness =
+                  phase262SingleRevalidatedIntent
+                    epoch
+                    plan
+                    [manifest]
+                    []
+                    []
+                    []
+                    intent
+            authorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents [witness])
+            CheckpointStore.gcAuthorizedIntents authorization @?= []
+            CheckpointStore.gcAuthorizationCancelledIntents authorization @?= [intent]
+            CheckpointStore.gcAuthorizationFailures authorization @?= []
+            runFilesystemMinIO
+              root
+              (CheckpointStore.cancelGcIntents [intent])
+              >>= (@?= Right [intent])
+            let manifestRef =
+                  CheckpointStore.checkpointObjectRef
+                    (Checkpoint.manifestKey experimentHash (Checkpoint.manifestContentSha manifest))
+            runFilesystemMinIO root (minioReadBytes manifestRef) >>= \case
+              Left err -> assertFailure ("marker-omission target was deleted: " <> show err)
+              Right _ -> pure ()
+      , testCase "a marker conflict retains its experiment-fence registration permanently (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-marker-conflict" $ \root -> do
+            let experimentHash = "exp-marker-conflict"
+                payload = Checkpoint.encodeJmw1 [6]
+                logicalObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "marker-conflict"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalObjectKey, payload)]
+                    )
+                reservation0 =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+            runFilesystemMinIO
+              root
+              ( putBlobBytesIfAbsent
+                  ( CheckpointStore.checkpointObjectRef
+                      (CheckpointStore.writerReservationObjectKey reservation0)
+                  )
+                  (CheckpointStore.encodeWriterReservation reservation0)
+              )
+              >>= \case
+                Left err -> assertFailure ("could not seed occupied marker: " <> show err)
+                Right _ -> pure ()
+            written <-
+              runFilesystemMinIO root $
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                  logicalManifest
+                  [(logicalObjectKey, payload)]
+            case written of
+              Left err -> assertFailure ("writer did not advance after marker conflict: " <> show err)
+              Right _ -> pure ()
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadActiveWriterReservations experimentHash)
+              >>= (@?= Right [reservation0])
+            fence <- phase262LoadExperimentFence root experimentHash
+            CheckpointStore.experimentGcFenceReservations fence @?= [reservation0]
+            let manifest = CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [manifest]
+                    []
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values ->
+                  assertFailure ("expected one marker-conflict intent, got " <> show values) >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            for_ [1 :: Int, 2] $ \_ -> do
+              epoch <- phase262LoadGcFenceEpoch root experimentHash
+              CheckpointStore.revalidateGcIntents
+                epoch
+                epoch
+                plan
+                [manifest]
+                []
+                []
+                []
+                [intent]
+                @?= Right ([], [intent])
+              runFilesystemMinIO root (CheckpointStore.cancelGcIntents [intent])
+                >>= \case
+                  Left failures -> assertFailure ("marker-conflict cancellation failed: " <> show failures)
+                  Right _ -> pure ()
+      , testCase "absent-manifest intents cannot mint fresh destructive authority (Phase 262)" $
+          withSystemTempDirectory "jitml-phase262-absent-intent" $ \root -> do
+            let experimentHash = "exp-absent-intent"
+                prepared = phase262PreparedTensorSnapshot experimentHash "first" 1
+                firstManifest = CheckpointStore.preparedSnapshotManifest prepared
+                firstPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [firstManifest]
+                    []
+                emptyPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    []
+                    []
+            firstIntent <-
+              case CheckpointStore.gcPlanIntents firstPlan of
+                [value] -> pure value
+                values -> assertFailure ("expected one first planner intent, got " <> show values) >> error "unreachable"
+            let secondEvent =
+                  (CheckpointStore.gcIntentEvent firstIntent)
+                    { CheckpointStore.gcReapedManifestSha = Text.replicate 64 "b"
+                    , CheckpointStore.gcStepAtReap = 2
+                    }
+                secondIntent =
+                  CheckpointStore.GcIntent
+                    { CheckpointStore.gcIntentEvent = secondEvent
+                    , CheckpointStore.gcIntentEventId =
+                        CheckpointStore.gcEventId secondEvent
+                    }
+            runFilesystemMinIO
+              root
+              (CheckpointStore.persistGcIntents [firstIntent, secondIntent])
+              >>= (@?= Right (List.sort [firstIntent, secondIntent]))
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            CheckpointStore.revalidateGcIntents
+              epoch
+              epoch
+              emptyPlan
+              []
+              []
+              []
+              []
+              [firstIntent, secondIntent]
+              @?= Right ([], List.sort [firstIntent, secondIntent])
+            fence <- phase262LoadExperimentFence root experimentHash
+            CheckpointStore.experimentGcFenceDecisions fence @?= []
+      , testCase
+          "local GC listing distinguishes committed, reserved, orphaned, legacy, and empty snapshots (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-gc-listing"
+          $ \root -> do
+            let experimentHash = "exp-gc-listing-states"
+                payload = Checkpoint.encodeJmw1 [3]
+                logicalObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "listing-state"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalObjectKey, payload)]
+                    )
+                reservation =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+                seedPreparedManifest targetRoot = do
+                  outcome <-
+                    CheckpointStore.writeObjectIfAbsent
+                      targetRoot
+                      ( Checkpoint.manifestKey
+                          experimentHash
+                          (CheckpointStore.preparedSnapshotManifestSha prepared)
+                      )
+                      (CheckpointStore.preparedSnapshotManifestBytes prepared)
+                  case outcome of
+                    Left err ->
+                      assertFailure
+                        ("could not seed prepared manifest: " <> show err)
+                    Right _ -> pure ()
+                committedRoot = root </> "committed"
+                reservedRoot = root </> "reserved"
+                orphanedRoot = root </> "orphaned"
+                legacyRoot = root </> "legacy"
+                emptyRoot = root </> "empty"
+            committedWrite <-
+              CheckpointStore.writeCandidateCheckpointSnapshot
+                committedRoot
+                logicalManifest
+                [(logicalObjectKey, payload)]
+            case committedWrite of
+              Left err -> assertFailure (show err)
+              Right _ -> pure ()
+            CheckpointStore.listCheckpointManifests committedRoot experimentHash
+              >>= (@?= Right [CheckpointStore.preparedSnapshotManifest prepared])
+            seedPreparedManifest reservedRoot
+            reservedWrite <-
+              CheckpointStore.writeObjectIfAbsent
+                reservedRoot
+                (CheckpointStore.writerReservationObjectKey reservation)
+                ( ByteString.fromStrict
+                    (CheckpointStore.encodeWriterReservation reservation)
+                )
+            case reservedWrite of
+              Left err -> assertFailure (show err)
+              Right _ -> pure ()
+            CheckpointStore.listCheckpointManifests reservedRoot experimentHash
+              >>= (@?= Right [])
+            seedPreparedManifest orphanedRoot
+            orphaned <- CheckpointStore.listCheckpointManifests orphanedRoot experimentHash
+            case orphaned of
+              Left err ->
+                assertBool
+                  ("orphaned snapshot produced the wrong error: " <> Text.unpack err)
+                  ("neither a commit nor an active reservation" `Text.isInfixOf` err)
+              Right manifests ->
+                assertFailure ("orphaned snapshot was GC eligible: " <> show manifests)
+            let legacyManifest =
+                  Checkpoint.emptyManifest
+                    "legacy-listing"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                legacySha = Checkpoint.manifestContentSha legacyManifest
+            legacyWrite <-
+              CheckpointStore.writeObjectIfAbsent
+                legacyRoot
+                (Checkpoint.manifestKey experimentHash legacySha)
+                (Checkpoint.encodeManifestCbor legacyManifest)
+            case legacyWrite of
+              Left err -> assertFailure (show err)
+              Right _ -> pure ()
+            CheckpointStore.listCheckpointManifests legacyRoot experimentHash
+              >>= (@?= Right [])
+            let emptyManifest = Checkpoint.emptyManifest "empty-uncommitted" experimentHash []
+                emptySha = Checkpoint.manifestContentSha emptyManifest
+            emptyWrite <-
+              CheckpointStore.writeObjectIfAbsent
+                emptyRoot
+                (Checkpoint.manifestKey experimentHash emptySha)
+                (Checkpoint.encodeManifestCbor emptyManifest)
+            case emptyWrite of
+              Left err -> assertFailure (show err)
+              Right _ -> pure ()
+            CheckpointStore.listCheckpointManifests emptyRoot experimentHash
+              >>= (@?= Right [])
+      , testCase
+          "zero-object snapshots require their exact commit before model admission and own only that commit in GC (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-zero-object"
+          $ \root -> do
+            let experimentHash = "exp-zero-object"
+                logicalManifest =
+                  Checkpoint.emptyManifest "zero-object" experimentHash []
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        []
+                    )
+                committedRoot = root </> "committed"
+                commitlessRoot = root </> "commitless"
+            storedResult <-
+              CheckpointStore.writeCandidateCheckpointSnapshot
+                committedRoot
+                logicalManifest
+                []
+            stored <-
+              case storedResult of
+                Left err -> assertFailure (show err) >> error "unreachable"
+                Right candidate ->
+                  pure (CheckpointStore.candidateStoredCheckpoint candidate)
+            admitted <-
+              CheckpointStore.admitLocalCheckpointAt
+                committedRoot
+                experimentHash
+                (CheckpointStore.storedManifestSha stored)
+            case admitted of
+              Left err ->
+                assertFailure
+                  ( "committed zero-object snapshot was rejected: "
+                      <> Text.unpack (CheckpointStore.renderCheckpointAdmissionError err)
+                  )
+              Right checkpoint -> do
+                CheckpointStore.admittedCheckpointManifestSha checkpoint
+                  @?= CheckpointStore.storedManifestSha stored
+                length (CheckpointStore.admittedCheckpointWeights checkpoint) @?= 0
+            CheckpointStore.listCheckpointManifests committedRoot experimentHash
+              >>= (@?= Right [CheckpointStore.preparedSnapshotManifest prepared])
+            case CheckpointStore.gcReapEvents
+              ( CheckpointStore.buildGcPlan
+                  experimentHash
+                  (CheckpointStore.LastN 0)
+                  [CheckpointStore.preparedSnapshotManifest prepared]
+                  []
+              ) of
+              [event] ->
+                CheckpointStore.gcReapedObjectKeys event
+                  @?= [ CheckpointStore.writerCommitObjectKey
+                          (CheckpointStore.preparedSnapshotCommit prepared)
+                      ]
+              events ->
+                assertFailure ("expected one zero-object GC event, got " <> show events)
+            commitlessWrite <-
+              CheckpointStore.writeObjectIfAbsent
+                commitlessRoot
+                (Checkpoint.manifestKey experimentHash (Checkpoint.manifestContentSha logicalManifest))
+                (Checkpoint.encodeManifestCbor logicalManifest)
+            case commitlessWrite of
+              Left err -> assertFailure (show err)
+              Right _ -> pure ()
+            inspected <-
+              CheckpointStore.readCheckpointManifest
+                commitlessRoot
+                experimentHash
+                (Checkpoint.manifestContentSha logicalManifest)
+            inspected @?= Right logicalManifest
+            rejected <-
+              CheckpointStore.admitLocalCheckpointAt
+                commitlessRoot
+                experimentHash
+                (Checkpoint.manifestContentSha logicalManifest)
+            case rejected of
+              Left (CheckpointStore.AdmissionSnapshotCommitInvalid _) -> pure ()
+              Left err -> assertFailure ("wrong commitless admission error: " <> show err)
+              Right _ -> assertFailure "commitless empty manifest was admitted"
+            CheckpointStore.listCheckpointManifests commitlessRoot experimentHash
+              >>= (@?= Right [])
+      , testCase
+          "fresh-plan discovery persists a writer completion and restarts before GC no-op (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-fresh-plan-restart"
+          $ \root -> do
+            let experimentHash = "exp-fresh-plan-restart"
+                oldPrepared =
+                  phase262PreparedTensorSnapshot experimentHash "old" 1
+                newPrepared =
+                  phase262PreparedTensorSnapshot experimentHash "new" 2
+                retention = CheckpointStore.LastN 1
+            phase262SeedPreparedSnapshotMinIO root oldPrepared
+            initialManifests <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+                >>= \case
+                  Left err ->
+                    assertFailure ("initial manifest view failed: " <> show err)
+                      >> error "unreachable"
+                  Right values -> pure values
+            let initialPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    retention
+                    initialManifests
+                    []
+            CheckpointStore.gcNoOp initialPlan @?= True
+            gcFreshPlanIntentsToPersist initialPlan [] @?= Right []
+            -- A writer completes after the initial no-op view but before the
+            -- epoch-bracketed fresh view. LastN 1 now discovers the old exact
+            -- graph as new work.
+            phase262SeedPreparedSnapshotMinIO root newPrepared
+            freshManifests <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+                >>= \case
+                  Left err ->
+                    assertFailure ("fresh manifest view failed: " <> show err)
+                      >> error "unreachable"
+                  Right values -> pure values
+            let freshPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    retention
+                    freshManifests
+                    []
+            CheckpointStore.gcNoOp freshPlan @?= False
+            missing <-
+              case gcFreshPlanIntentsToPersist freshPlan [] of
+                Right [intent] -> pure [intent]
+                outcome ->
+                  assertFailure ("fresh plan did not discover one exact intent: " <> show outcome)
+                    >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents missing)
+              >>= (@?= Right missing)
+            nextPending <-
+              runFilesystemMinIO root (CheckpointStore.loadGcIntents experimentHash)
+                >>= \case
+                  Left err ->
+                    assertFailure ("restarted pending scan failed: " <> show err)
+                      >> error "unreachable"
+                  Right values -> pure values
+            gcFreshPlanIntentsToPersist freshPlan nextPending @?= Right []
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            witnesses <-
+              case CheckpointStore.revalidateGcIntents
+                epoch
+                epoch
+                freshPlan
+                freshManifests
+                []
+                []
+                []
+                nextPending of
+                Right (values, []) -> pure values
+                outcome ->
+                  assertFailure ("restarted fresh view did not handle the intent: " <> show outcome)
+                    >> error "unreachable"
+            authorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents witnesses)
+            CheckpointStore.gcAuthorizationFailures authorization @?= []
+            CheckpointStore.gcAuthorizationCancelledIntents authorization @?= []
+            executed <-
+              runFilesystemMinIO
+                root
+                ( CheckpointStore.executeAuthorizedGcIntents
+                    (CheckpointStore.gcAuthorizedIntents authorization)
+                )
+            length (CheckpointStore.gcCompletedExecutions executed) @?= 1
+            CheckpointStore.gcExecutionFailures executed @?= []
+      , testCase
+          "fresh revalidation executes or cancels each exact intent without subset trimming (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-fresh-revalidation"
+          $ \root -> do
+            let experimentHash = "exp-gc-fresh-revalidation"
+                prepared = phase262PreparedTensorSnapshot experimentHash "target" 4
+                target = CheckpointStore.preparedSnapshotManifest prepared
+                initialPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [target]
+                    []
+                rootedPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [target]
+                    [target]
+                gonePlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    []
+                    []
+            case CheckpointStore.gcPlanIntents initialPlan of
+              [intent] -> do
+                epoch <- phase262LoadGcFenceEpoch root experimentHash
+                let exactKeys =
+                      CheckpointStore.gcReapedObjectKeys
+                        (CheckpointStore.gcIntentEvent intent)
+                length exactKeys @?= 2
+                CheckpointStore.revalidateGcIntents
+                  epoch
+                  epoch
+                  rootedPlan
+                  [target]
+                  [target]
+                  []
+                  []
+                  [intent]
+                  @?= Right ([], [intent])
+                CheckpointStore.revalidateGcIntents
+                  epoch
+                  epoch
+                  gonePlan
+                  []
+                  []
+                  []
+                  []
+                  [intent]
+                  @?= Right ([], [intent])
+                CheckpointStore.revalidateGcIntents
+                  epoch
+                  epoch
+                  initialPlan
+                  [target]
+                  []
+                  []
+                  [CheckpointStore.gcIntentEvent intent]
+                  [intent]
+                  @?= Right ([], [intent])
+                CheckpointStore.gcReapedObjectKeys
+                  (CheckpointStore.gcIntentEvent intent)
+                  @?= exactKeys
+                let ready =
+                      CheckpointStore.GcReadyEvent
+                        { CheckpointStore.gcReadyEvent =
+                            CheckpointStore.gcIntentEvent intent
+                        , CheckpointStore.gcReadyEventId =
+                            CheckpointStore.gcIntentEventId intent
+                        , CheckpointStore.gcReadySubstrate = "linux-cpu"
+                        , CheckpointStore.gcReadyTimestampNs = 1
+                        }
+                assertBool
+                  "one event was accepted as both cancelled and publish-ready"
+                  ( case CheckpointStore.validateGcTerminalRelations
+                      [intent]
+                      [intent]
+                      [ready]
+                      [] of
+                      Left (ServiceRetry.SEConflict _) -> True
+                      _ -> False
+                  )
+                assertBool
+                  "one event was accepted as both cancelled and published"
+                  ( case CheckpointStore.validateGcTerminalRelations
+                      [intent]
+                      [intent]
+                      []
+                      [ready] of
+                      Left (ServiceRetry.SEConflict _) -> True
+                      _ -> False
+                  )
+              intents -> assertFailure ("expected one exact initial intent, got " <> show intents)
+      , testCase
+          "Executing crash recovery deletes exact remnants, records Reaped, and replays idempotently (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-gc-executing-recovery"
+          $ \root -> do
+            let experimentHash = "exp-gc-executing-recovery"
+                prepared = phase262PreparedTensorSnapshot experimentHash "recovery" 3
+                manifest = CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [manifest]
+                    []
+                absentPlan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    []
+                    []
+            phase262SeedPreparedSnapshotMinIO root prepared
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values -> assertFailure ("expected one recovery intent, got " <> show values) >> error "unreachable"
+            persisted <-
+              runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+            persisted @?= Right [intent]
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            let witness = phase262SingleRevalidatedIntent epoch plan [manifest] [] [] [] intent
+            authorization <-
+              runFilesystemMinIO root (CheckpointStore.authorizeRevalidatedGcIntents [witness])
+            CheckpointStore.gcAuthorizationCancelledIntents authorization @?= []
+            CheckpointStore.gcAuthorizationFailures authorization @?= []
+            authorized <-
+              case CheckpointStore.gcAuthorizedIntents authorization of
+                [value] -> pure value
+                values -> assertFailure ("expected one authorization, got " <> show values) >> error "unreachable"
+            let event = CheckpointStore.gcIntentEvent intent
+                candidateReady =
+                  CheckpointStore.GcReadyEvent
+                    { CheckpointStore.gcReadyEvent = event
+                    , CheckpointStore.gcReadyEventId =
+                        CheckpointStore.gcIntentEventId intent
+                    , CheckpointStore.gcReadySubstrate = "linux-cpu"
+                    , CheckpointStore.gcReadyTimestampNs = 1
+                    }
+                manifestRef =
+                  CheckpointStore.checkpointObjectRef
+                    (Checkpoint.manifestKey experimentHash (CheckpointStore.gcReapedManifestSha event))
+            runFilesystemMinIO
+              root
+              (CheckpointStore.acknowledgeGcReadyEvent candidateReady)
+              >>= \case
+                Left _ -> pure ()
+                Right () -> assertFailure "Executing operation published an unpersisted ready value"
+            firstPhysicalRef <-
+              case CheckpointStore.gcReapedObjectKeys event of
+                firstKey : _ ->
+                  pure (CheckpointStore.checkpointObjectRef firstKey)
+                [] ->
+                  assertFailure "recovery fixture unexpectedly has no physical objects"
+                    >> error "unreachable"
+            runFilesystemMinIO root (deleteObject manifestRef) >>= (@?= Right ())
+            runFilesystemMinIO root (deleteObject firstPhysicalRef) >>= (@?= Right ())
+            recoveryEpoch <- phase262LoadGcFenceEpoch root experimentHash
+            let recoveryWitness =
+                  phase262SingleRevalidatedIntent
+                    recoveryEpoch
+                    absentPlan
+                    []
+                    []
+                    []
+                    []
+                    intent
+            recoveryAuthorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents [recoveryWitness])
+            CheckpointStore.gcAuthorizationFailures recoveryAuthorization @?= []
+            CheckpointStore.gcAuthorizationCancelledIntents recoveryAuthorization @?= []
+            recoveredAuthorized <-
+              case CheckpointStore.gcAuthorizedIntents recoveryAuthorization of
+                [value] -> pure value
+                values ->
+                  assertFailure ("Executing recovery lost exact authority: " <> show values)
+                    >> error "unreachable"
+            recoveredAuthorized @?= authorized
+            executed <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.executeAuthorizedGcIntents [recoveredAuthorized])
+            fmap
+              (CheckpointStore.gcIntentEventId . CheckpointStore.gcExecutionIntent)
+              (CheckpointStore.gcCompletedExecutions executed)
+              @?= [CheckpointStore.gcIntentEventId intent]
+            CheckpointStore.gcExecutionFailures executed @?= []
+            fence <- phase262LoadExperimentFence root experimentHash
+            case reverse (CheckpointStore.experimentGcFenceDecisions fence) of
+              decision : _ -> do
+                CheckpointStore.gcFenceDecisionIntent decision @?= intent
+                CheckpointStore.gcFenceDecisionPhase decision @?= CheckpointStore.GcFenceReaped
+              [] -> assertFailure "Reaped execution left no durable decision"
+            reapedEpoch <- phase262LoadGcFenceEpoch root experimentHash
+            let reapedWitness =
+                  phase262SingleRevalidatedIntent
+                    reapedEpoch
+                    absentPlan
+                    []
+                    []
+                    []
+                    []
+                    intent
+            reapedAuthorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents [reapedWitness])
+            reapedAuthorized <-
+              case CheckpointStore.gcAuthorizedIntents reapedAuthorization of
+                [value] -> pure value
+                values ->
+                  assertFailure ("Reaped recovery lost exact authority: " <> show values)
+                    >> error "unreachable"
+            CheckpointStore.gcAuthorizationFailures reapedAuthorization @?= []
+            CheckpointStore.gcAuthorizationCancelledIntents reapedAuthorization @?= []
+            reapedAuthorized @?= authorized
+            replayed <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.executeAuthorizedGcIntents [reapedAuthorized])
+            length (CheckpointStore.gcCompletedExecutions replayed) @?= 1
+            CheckpointStore.gcExecutionFailures replayed @?= []
+            runFilesystemMinIO
+              root
+              (CheckpointStore.acknowledgeGcReadyEvent candidateReady)
+              >>= \case
+                Left _ -> pure ()
+                Right () -> assertFailure "Reaped operation published an absent ready value"
+            promoted <-
+              runFilesystemMinIO root (CheckpointStore.promoteGcIntents "linux-cpu" 1 [intent])
+            CheckpointStore.gcPromotionFailures promoted @?= []
+            ready <-
+              case CheckpointStore.gcPromotedReadyEvents promoted of
+                [value] -> pure value
+                values -> assertFailure ("expected one durable ready value, got " <> show values) >> error "unreachable"
+            ready @?= candidateReady
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcReadyEvents experimentHash)
+              >>= (@?= Right [ready])
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcIntents experimentHash)
+              >>= (@?= Right [intent])
+            gcFreshTerminalRecoveryWork [intent] [ready] []
+              @?= ([], [ready])
+            let forgedReady =
+                  ready {CheckpointStore.gcReadyTimestampNs = 2}
+            runFilesystemMinIO
+              root
+              (CheckpointStore.acknowledgeGcReadyEvent forgedReady)
+              >>= \case
+                Left _ -> pure ()
+                Right () -> assertFailure "forged ready bytes minted a published tombstone"
+            runFilesystemMinIO
+              root
+              (CheckpointStore.acknowledgeGcReadyEvent ready)
+              >>= (@?= Right ())
+            runFilesystemMinIO
+              root
+              (CheckpointStore.acknowledgeGcReadyEvent ready)
+              >>= (@?= Right ())
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcPublishedEvents experimentHash)
+              >>= (@?= Right [ready])
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcReadyEvents experimentHash)
+              >>= (@?= Right [])
+            -- A published tombstone which appears after the initial scan is
+            -- permanent, but a late transient intent still requires exact
+            -- acknowledgement cleanup and a full fresh-view restart.
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            gcFreshTerminalRecoveryWork [intent] [] [ready]
+              @?= ([ready], [])
+            runFilesystemMinIO
+              root
+              (CheckpointStore.acknowledgeGcReadyEvent ready)
+              >>= (@?= Right ())
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadGcIntents experimentHash)
+              >>= (@?= Right [])
+      , testCase
+          "an already-Reaped event remains promotable when a sibling manifest delete fails (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-reaped-sibling-failure"
+          $ \root -> do
+            let experimentHash = "exp-reaped-sibling-failure"
+                prepared =
+                  [ phase262PreparedTensorSnapshot experimentHash tag step
+                  | (tag, step) <- [("first", 1), ("second", 2)]
+                  ]
+                manifests = fmap CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    manifests
+                    []
+            traverse_ (phase262SeedPreparedSnapshotMinIO root) prepared
+            intents <-
+              case CheckpointStore.gcPlanIntents plan of
+                [first, second] -> pure [first, second]
+                values ->
+                  assertFailure ("expected two mixed-batch intents, got " <> show values)
+                    >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents intents)
+              >>= (@?= Right intents)
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            witnesses <-
+              case CheckpointStore.revalidateGcIntents
+                epoch
+                epoch
+                plan
+                manifests
+                []
+                []
+                []
+                intents of
+                Right (values, []) -> pure values
+                outcome ->
+                  assertFailure ("mixed-batch revalidation failed: " <> show outcome)
+                    >> error "unreachable"
+            authorization <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.authorizeRevalidatedGcIntents witnesses)
+            CheckpointStore.gcAuthorizationCancelledIntents authorization @?= []
+            CheckpointStore.gcAuthorizationFailures authorization @?= []
+            (reapedAuthorization, siblingAuthorization) <-
+              case CheckpointStore.gcAuthorizedIntents authorization of
+                [first, second] -> pure (first, second)
+                values ->
+                  assertFailure ("expected two mixed-batch authorizations, got " <> show values)
+                    >> error "unreachable"
+            firstExecution <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.executeAuthorizedGcIntents [reapedAuthorization])
+            reapedIntent <-
+              case CheckpointStore.gcCompletedExecutions firstExecution of
+                [execution] -> pure (CheckpointStore.gcExecutionIntent execution)
+                values ->
+                  assertFailure ("could not establish Reaped fixture: " <> show values)
+                    >> error "unreachable"
+            siblingIntent <-
+              case filter (/= reapedIntent) intents of
+                [value] -> pure value
+                values ->
+                  assertFailure ("could not identify mixed-batch sibling: " <> show values)
+                    >> error "unreachable"
+            let siblingEvent = CheckpointStore.gcIntentEvent siblingIntent
+                failingManifestRef =
+                  CheckpointStore.checkpointObjectRef
+                    ( Checkpoint.manifestKey
+                        experimentHash
+                        (CheckpointStore.gcReapedManifestSha siblingEvent)
+                    )
+            deleteCalls <- newIORef []
+            let environment =
+                  Phase262DeleteFailureEnv
+                    { phase262DeleteFailureRoot = root
+                    , phase262DeleteFailureRef = failingManifestRef
+                    , phase262DeleteFailureCalls = deleteCalls
+                    }
+            mixedExecution <-
+              runPhase262DeleteFailureMinIO environment $
+                CheckpointStore.executeAuthorizedGcIntents
+                  [reapedAuthorization, siblingAuthorization]
+            fmap
+              CheckpointStore.gcExecutionIntent
+              (CheckpointStore.gcCompletedExecutions mixedExecution)
+              @?= [reapedIntent]
+            calls <- readIORef deleteCalls
+            calls @?= [failingManifestRef]
+            case filter
+              ((== siblingIntent) . CheckpointStore.gcExecutionIntent)
+              (CheckpointStore.gcEventExecutions mixedExecution) of
+              [execution] -> do
+                assertBool
+                  "sibling manifest failure was not reported"
+                  ( case CheckpointStore.gcManifestDeleteOutcome execution of
+                      CheckpointStore.GcDeleteFailed _ -> True
+                      _ -> False
+                  )
+                assertBool
+                  "the failed sibling crossed the physical-object barrier"
+                  ( all
+                      ((== CheckpointStore.GcDeleteDeferred) . snd)
+                      (CheckpointStore.gcObjectDeleteOutcomes execution)
+                  )
+              values ->
+                assertFailure ("missing sibling execution outcome: " <> show values)
+            for_ (CheckpointStore.gcReapedObjectKeys siblingEvent) $ \key ->
+              runFilesystemMinIO
+                root
+                (minioReadBytes (CheckpointStore.checkpointObjectRef key))
+                >>= \case
+                  Left err ->
+                    assertFailure ("sibling object was touched behind the barrier: " <> show err)
+                  Right _ -> pure ()
+            promoted <-
+              runFilesystemMinIO
+                root
+                (CheckpointStore.promoteGcIntents "linux-cpu" 1 [reapedIntent])
+            CheckpointStore.gcPromotionFailures promoted @?= []
+            fmap
+              CheckpointStore.gcReadyEvent
+              (CheckpointStore.gcPromotedReadyEvents promoted)
+              @?= [CheckpointStore.gcIntentEvent reapedIntent]
+      , testCase
+          "Executing wins before a later writer can create a marker or repair a deleted payload (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-gc-wins-writer"
+          $ \root -> do
+            let experimentHash = "exp-gc-wins-writer"
+                tag = "gc-wins"
+                step = 4
+                payload = Checkpoint.encodeJmw1 [fromIntegral step + 1]
+                logicalObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  ( Checkpoint.emptyManifest
+                      tag
+                      experimentHash
+                      [Checkpoint.TensorBlob (tag <> ".weights") [1] logicalObjectKey]
+                  )
+                    { Checkpoint.manifestStep = step
+                    }
+                prepared = phase262PreparedTensorSnapshot experimentHash tag step
+                manifest = CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [manifest]
+                    []
+            phase262SeedPreparedSnapshotMinIO root prepared
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values -> assertFailure ("expected one GC-wins intent, got " <> show values) >> error "unreachable"
+            runFilesystemMinIO root (CheckpointStore.persistGcIntents [intent])
+              >>= (@?= Right [intent])
+            epoch <- phase262LoadGcFenceEpoch root experimentHash
+            let witness = phase262SingleRevalidatedIntent epoch plan [manifest] [] [] [] intent
+            authorization <-
+              runFilesystemMinIO root (CheckpointStore.authorizeRevalidatedGcIntents [witness])
+            length (CheckpointStore.gcAuthorizedIntents authorization) @?= 1
+            CheckpointStore.gcAuthorizationFailures authorization @?= []
+            let payloadKey =
+                  case CheckpointStore.preparedSnapshotPayloads prepared of
+                    [(key, _)] -> key
+                    values -> error ("unexpected payload fixture: " <> show values)
+                payloadRef = CheckpointStore.checkpointObjectRef payloadKey
+                reservation =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+                markerRef =
+                  CheckpointStore.checkpointObjectRef
+                    (CheckpointStore.writerReservationObjectKey reservation)
+            runFilesystemMinIO root (deleteObject payloadRef) >>= (@?= Right ())
+            writer <-
+              runFilesystemMinIO root $
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                  logicalManifest
+                  [(logicalObjectKey, payload)]
+            case writer of
+              Left (ServiceRetry.SEConflict reason) ->
+                assertBool
+                  ("writer lost with the wrong reason: " <> Text.unpack reason)
+                  ("executing or reaped" `Text.isInfixOf` reason)
+              Left err -> assertFailure ("writer lost with the wrong error: " <> show err)
+              Right _ -> assertFailure "writer mutated after GC execution authorization"
+            runFilesystemMinIO root (minioReadBytes payloadRef) >>= \case
+              Left _ -> pure ()
+              Right _ -> assertFailure "losing writer repaired the deleted payload"
+            runFilesystemMinIO root (minioReadBytes markerRef) >>= \case
+              Left _ -> pure ()
+              Right _ -> assertFailure "losing writer created a separate marker"
+            runFilesystemMinIO
+              root
+              (CheckpointStore.loadActiveWriterReservations experimentHash)
+              >>= (@?= Right [])
+      , testCase
+          "experiment fence codec rejects version, generation, and operation-id forgeries (Phase 262)"
+          $ do
+            let experimentHash = "exp-gc-fence-codec"
+                prepared = phase262PreparedTensorSnapshot experimentHash "codec" 2
+                manifest = CheckpointStore.preparedSnapshotManifest prepared
+                plan =
+                  CheckpointStore.buildGcPlan
+                    experimentHash
+                    (CheckpointStore.LastN 0)
+                    [manifest]
+                    []
+            intent <-
+              case CheckpointStore.gcPlanIntents plan of
+                [value] -> pure value
+                values -> assertFailure ("expected one codec intent, got " <> show values) >> error "unreachable"
+            let decision generation phase =
+                  CheckpointStore.GcFenceDecision
+                    { CheckpointStore.gcFenceDecisionGeneration = generation
+                    , CheckpointStore.gcFenceDecisionIntent = intent
+                    , CheckpointStore.gcFenceDecisionOperationId =
+                        CheckpointStore.gcFenceOperationId generation intent
+                    , CheckpointStore.gcFenceDecisionPhase = phase
+                    }
+                valid =
+                  CheckpointStore.ExperimentGcFence
+                    { CheckpointStore.experimentGcFenceVersion = 1
+                    , CheckpointStore.experimentGcFenceRevision = 1
+                    , CheckpointStore.experimentGcFenceWriterEpoch = 0
+                    , CheckpointStore.experimentGcFenceExperimentHash = experimentHash
+                    , CheckpointStore.experimentGcFenceReservations = []
+                    , CheckpointStore.experimentGcFenceDecisions =
+                        [decision 0 CheckpointStore.GcFencePlanned]
+                    }
+                rejects forged =
+                  assertBool
+                    "forged experiment fence decoded"
+                    ( case CheckpointStore.decodeExperimentGcFence
+                        (CheckpointStore.encodeExperimentGcFence forged) of
+                        Left _ -> True
+                        Right _ -> False
+                    )
+            CheckpointStore.decodeExperimentGcFence
+              (CheckpointStore.encodeExperimentGcFence valid)
+              @?= Right valid
+            rejects valid {CheckpointStore.experimentGcFenceVersion = 2}
+            rejects valid {CheckpointStore.experimentGcFenceWriterEpoch = 2}
+            rejects
+              valid
+                { CheckpointStore.experimentGcFenceDecisions =
+                    [decision 2 CheckpointStore.GcFencePlanned]
+                }
+            rejects
+              valid
+                { CheckpointStore.experimentGcFenceDecisions =
+                    [ (decision 0 CheckpointStore.GcFencePlanned)
+                        { CheckpointStore.gcFenceDecisionOperationId = Text.replicate 64 "f"
+                        }
+                    ]
+                }
+            CheckpointStore.experimentGcFenceObjectKey experimentHash
+              @?= "jitml-checkpoints/"
+              <> experimentHash
+              <> "/gc/coordination-fence.txt"
       , testCase "jmw1 encoder emits magic, CBOR header length, and little-endian doubles" $ do
           let payload = Checkpoint.encodeJmw1 [1.0]
           ByteString.take 4 payload @?= "JMW1"
@@ -4288,6 +8801,12 @@ main =
                     "m1"
                     "exp1"
                     [Checkpoint.TensorBlob "dense.weight" [2, 2] blobKey]
+                prepared =
+                  CheckpointStore.prepareCheckpointSnapshot
+                    CheckpointStore.WriterCandidateSnapshot
+                    CheckpointStore.WriterNoPointerIntent
+                    manifest
+                    [(blobKey, payload)]
             firstWriteResult <-
               CheckpointStore.writeCandidateCheckpointSnapshot dir manifest [(blobKey, payload)]
             case firstWriteResult of
@@ -4298,6 +8817,18 @@ main =
                   )
               Right candidate -> do
                 let firstWrite = CheckpointStore.candidateStoredCheckpoint candidate
+                expectedPrepared <-
+                  case prepared of
+                    Left err -> assertFailure ("candidate preparation failed: " <> Text.unpack err)
+                    Right value -> pure value
+                storedBlobKey <-
+                  case CheckpointStore.preparedSnapshotPayloads expectedPrepared of
+                    [(objectKey, _)] -> pure objectKey
+                    payloads ->
+                      assertFailure
+                        ( "expected one prepared candidate payload, got "
+                            <> show (length payloads)
+                        )
                 CheckpointStore.storedPointerResult firstWrite
                   @?= Checkpoint.PointerNotWritten (Checkpoint.latestPointerKey "exp1")
                 decoded <-
@@ -4305,12 +8836,12 @@ main =
                     dir
                     "exp1"
                     (CheckpointStore.storedManifestSha firstWrite)
-                decoded @?= Right manifest
+                decoded @?= Right (CheckpointStore.preparedSnapshotManifest expectedPrepared)
                 listed <- CheckpointStore.listCheckpointManifests dir "exp1"
-                listed @?= Right [manifest]
+                listed @?= Right [CheckpointStore.preparedSnapshotManifest expectedPrepared]
                 latest <- CheckpointStore.readCheckpointPointer dir (Checkpoint.latestPointerKey "exp1")
                 latest @?= Right Nothing
-                blob <- CheckpointStore.readObject dir blobKey
+                blob <- CheckpointStore.readObject dir storedBlobKey
                 blob @?= Right payload
                 idempotentResult <-
                   CheckpointStore.writeCandidateCheckpointSnapshot dir manifest [(blobKey, payload)]
@@ -4322,14 +8853,14 @@ main =
                       )
                   Right _ -> pure ()
                 conflictResult <-
-                  CheckpointStore.writeObjectIfAbsent dir blobKey "different bytes"
+                  CheckpointStore.writeObjectIfAbsent dir storedBlobKey "different bytes"
                 conflictResult
                   @?= Left
                     ( CheckpointStore.CheckpointWriteObjectConflict
-                        blobKey
+                        storedBlobKey
                         "existing bytes differ"
                     )
-                preserved <- CheckpointStore.readObject dir blobKey
+                preserved <- CheckpointStore.readObject dir storedBlobKey
                 preserved @?= Right payload
       , testCase "checkpoint store rejects unsafe local object keys as typed failures (Sprint 10.11)" $
           withSystemTempDirectory "jitml-checkpoint-safe-path" $ \dir -> do
@@ -4807,6 +9338,63 @@ main =
                     case RunConfig.rlPlanFromRunConfig config {RunConfig.rlcPlanId = "deadbeef"} of
                       Left _ -> pure ()
                       Right _ -> assertFailure "a tampered planId must be rejected"
+          , testCase "Phase 252 — mounted RL plans reject semantic CLI overrides" $ do
+              RunConfig.validateMountedRlSemanticOverrides Overrides.emptyExperimentOverrides
+                @?= Right ()
+              let substrateOverride =
+                    Overrides.emptyExperimentOverrides
+                      { Overrides.eoSubstrate = Just Substrate.LinuxCPU
+                      }
+                  seedOverride =
+                    Overrides.emptyExperimentOverrides
+                      { Overrides.eoSeed = Just 8
+                      }
+                  algorithmOverride =
+                    Overrides.emptyExperimentOverrides
+                      { Overrides.eoAlgorithm = Just "DQN"
+                      }
+              RunConfig.validateMountedRlSemanticOverrides substrateOverride
+                @?= Right ()
+              case RunConfig.validateMountedRlSemanticOverrides seedOverride of
+                Left err ->
+                  assertBool
+                    "mounted seed rejection names the authoritative plan"
+                    ("mounted RlRunConfig is authoritative" `Text.isInfixOf` err)
+                Right () -> assertFailure "mounted --seed override was accepted"
+              case RunConfig.validateMountedRlSemanticOverrides algorithmOverride of
+                Left err ->
+                  assertBool
+                    "mounted algorithm rejection names the authoritative plan"
+                    ("mounted RlRunConfig is authoritative" `Text.isInfixOf` err)
+                Right () -> assertFailure "mounted --algorithm override was accepted"
+          , testCase "Phase 252 — daemon and Apple RL starts share one environment-independent plan" $ do
+              let start =
+                    ProtoRl.StartRLRun
+                      { ProtoRl.srlExperimentHash = "phase-252-plan"
+                      , ProtoRl.srlAlgorithm = "PPO"
+                      , ProtoRl.srlEnvironment = "cartpole"
+                      , ProtoRl.srlSubstrate = Substrate.AppleSilicon
+                      , ProtoRl.srlSeed = 7
+                      , ProtoRl.srlMaxSteps = 128
+                      , ProtoRl.srlEvalEpisodes = 4
+                      }
+              case (Workload.rlPlanForStart start, Workload.rlRunConfigFor start) of
+                (Right plan, Right config) -> do
+                  ProductBudget.compiledRlPlanId plan
+                    @?= RunConfig.rlcPlanId config
+                  ProductBudget.renderCompiledRlPlanTransport plan
+                    @?= RunConfig.rlcResolvedPlan config
+                  ProductBudget.trainingPlanVectorEnvironments
+                    (ProductBudget.compiledRlTraining plan)
+                    @?= Nothing
+                  RunConfig.rlPlanFromRunConfig config @?= Right plan
+                (planResult, configResult) ->
+                  assertFailure
+                    ( "expected the shared RL start compiler to succeed: "
+                        <> show planResult
+                        <> "; "
+                        <> show configResult
+                    )
           , testCase "HER and every AlphaZero game have fixed-budget convergence metrics" $ do
               let her = ConvergenceThresholds.herGoalMetric
                   games =
@@ -5130,17 +9718,17 @@ main =
                     ,
                       ( "PPO/cartpole"
                       , Substrate.AppleSilicon
-                      , "1f3c551501d1d027225f9de22486028c9d40b3dad8288a6039ce4b837a000572"
+                      , "bb0c9e378027e3884f5ba4f22d9ee5232147e28eccb8721789739e81486efb52"
                       )
                     ,
                       ( "PPO/cartpole"
                       , Substrate.LinuxCPU
-                      , "dcc540a638e89b65c30807f8cb008b45f929a79be7c43b4b6de9a4f612d09cc2"
+                      , "56ea69e1cdd088d5fb53c2da6dd144d32c83c0f7d4b5383c6d9af2cadf8cc193"
                       )
                     ,
                       ( "PPO/cartpole"
                       , Substrate.LinuxCUDA
-                      , "9fee217964b1d90ba18d69c3063074c0fd43b6844bd592579380e0618499babc"
+                      , "9237c8850b754aadc4603e2067303f4fc0daec21f0916e4deb03c7102d5cdb2e"
                       )
                     ,
                       ( "connect4"
@@ -5188,7 +9776,6 @@ main =
                         , ("vector-environments", 16)
                         , ("episode-steps", 500)
                         , ("evaluation-episodes", 20)
-                        , ("optimizer-updates", 150)
                         ]
                       "connect4" ->
                         [ ("generations", 64)
@@ -5265,7 +9852,6 @@ main =
                                     16
                                     500
                                     20
-                                    150
                               HyperparameterTuningWitness -> do
                                 rowIdentity @?= "hyperparameter-tuning"
                                 ProductMatrix.productProjectionDescriptor projection
@@ -5353,6 +9939,46 @@ main =
                           RunPlan.quantityValue (ResolvedWorkload.supervisedPlanBatchExamples plan) @?= 128
                           RunPlan.quantityValue (ResolvedWorkload.supervisedPlanOptimizerUpdates plan) @?= 640
                     _ -> assertFailure "cifar10-vit projected to a non-supervised run kind"
+          , testCase "tiny-imagenet-resnet50 ProductRow pins its complete resolved budget" $ do
+              row <-
+                maybe
+                  (assertFailure "missing canonical tiny-imagenet-resnet50 ProductRow")
+                  pure
+                  (find ((== "tiny-imagenet-resnet50") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+              ProductMatrix.trainingBudget row
+                @?= either
+                  (error . Text.unpack)
+                  id
+                  ( TrainingBudget.mkTrainingBudget
+                      TrainingBudget.SupervisedEpochBudget
+                      15
+                      (Just 1010)
+                  )
+              case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+                RunPlan.Failure errors -> assertFailure (show errors)
+                RunPlan.Success (ProductMatrix.SomeProductProjection witness projection) ->
+                  case witness of
+                    SupervisedTrainingWitness -> do
+                      ProductMatrix.productProjectionDescriptor projection
+                        @?= ProductMatrix.SupervisedProductDescriptor 8000 1000 128 1.0e-3
+                      RunPlan.runPlanBudgetSummary
+                        (ProductMatrix.productProjectionRunPlan projection)
+                        @?= [ ("epochs", 15)
+                            , ("training-examples", 8000)
+                            , ("evaluation-examples", 1000)
+                            , ("batch-examples", 128)
+                            , ("optimizer-updates", 945)
+                            ]
+                      ProductMatrix.productProjectionCommand projection
+                        @?= [ "internal"
+                            , "train-and-publish-product-rows"
+                            , "--linux-cpu"
+                            , "--row"
+                            , "tiny-imagenet-resnet50"
+                            ]
+                    _ ->
+                      assertFailure
+                        "tiny-imagenet-resnet50 projected to a non-supervised run kind"
           , testCase "supervised recipe fields are refined and participate in ProductRow PlanId" $ do
               row <-
                 maybe
@@ -5571,7 +10197,7 @@ main =
                 Just row ->
                   case ProductMatrix.productCapability row of
                     ProductMatrix.ExecutableProduct
-                      (ProductMatrix.RlProductDescriptor algorithm _ rollout vectors episode evaluation updates)
+                      (ProductMatrix.RlProductDescriptor algorithm _ rollout vectors episode evaluation)
                       ProductMatrix.RlProductEvidence -> do
                         let unsupported =
                               row
@@ -5585,7 +10211,6 @@ main =
                                           vectors
                                           episode
                                           evaluation
-                                          updates
                                       )
                                       ProductMatrix.RlProductEvidence
                                 }
@@ -5876,7 +10501,16 @@ main =
                 Right failures -> failures @?= []
           , testCase "Generated PureScript model matrix constants match ProductRow registry rows" $ do
               generated <- Text.IO.readFile "web/src/Generated/Contracts.purs"
-              generatedModelMatrixPairs generated @?= registryModelMatrixPairs
+              let lanePairs substrate =
+                    generatedModelMatrixPairsForSubstrate
+                      (Substrate.renderSubstrate substrate)
+                      generated
+              traverse_
+                (\substrate -> lanePairs substrate @?= registryModelMatrixPairs)
+                Substrate.allSubstrates
+              length (generatedModelMatrixPairs generated)
+                @?= length Substrate.allSubstrates
+                * length registryModelMatrixPairs
           , testCase "ProductRow browser artifacts never use seeded demo weights" $ do
               generated <- Text.IO.readFile "web/src/Generated/Contracts.purs"
               let productHashes = fmap ProductMatrix.productRowExperimentHash ProductMatrix.allProductRows
@@ -6327,70 +10961,95 @@ main =
                 @?= Right "persistent://public/default/gc.event.linux-cpu"
               fmap Topology.topicName (Topology.topicFor Topology.GcEventRoute Substrate.AppleSilicon)
                 @?= Right "persistent://public/default/gc.event.apple-silicon"
-          , testCase "GcReapedEvent round-trips through proto3-compatible bytes" $ do
-              let envelope =
+          , testCase "GcReapedEvent protobuf encoding canonicalizes keys and event identity" $ do
+              let snapshotId = Text.replicate 64 "a"
+                  scopedPrefix =
+                    "jitml-checkpoints/exp-13.7/snapshots/" <> snapshotId
+                  commitKey = scopedPrefix <> "/committed.cbor"
+                  keyA = scopedPrefix <> "/objects/" <> Text.replicate 64 "b"
+                  keyB = scopedPrefix <> "/objects/" <> Text.replicate 64 "c"
+                  suppliedEnvelope =
                     ProtoGc.GcReapedEvent
-                      { ProtoGc.gcEventExperimentHash = "exp-13.7"
-                      , ProtoGc.gcEventManifestSha = "sha256:reaped"
-                      , ProtoGc.gcEventReapedBlobShas = ["blob-a", "blob-b"]
+                      { ProtoGc.gcEventId = "caller-supplied-id-is-not-trusted"
+                      , ProtoGc.gcEventExperimentHash = "exp-13.7"
+                      , ProtoGc.gcEventManifestSha = Text.replicate 64 "1"
+                      , ProtoGc.gcEventReapedObjectKeys = [keyB, commitKey, keyA, keyB]
                       , ProtoGc.gcEventStepAtReap = 42
                       , ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
                       , ProtoGc.gcEventTimestampNs = 1_700_000_000_000_000_000
                       }
+                  expectedEnvelope =
+                    withGcSemanticId
+                      suppliedEnvelope
+                        { ProtoGc.gcEventReapedObjectKeys = [commitKey, keyA, keyB]
+                        }
+              ProtoGc.decodeGcReapedEventProto
+                (ProtoGc.encodeGcReapedEventProto suppliedEnvelope)
+                @?= Right expectedEnvelope
+          , testCase "GcReapedEvent length-safe topic text preserves exact scoped object keys" $ do
+              let objectKeys =
+                    phase262ScopedGcObjectKeys
+                      "exp-text"
+                      (Text.replicate 64 "d")
+                      [Text.replicate 64 "e", Text.replicate 64 "f"]
+                  envelope =
+                    withGcSemanticId
+                      ProtoGc.GcReapedEvent
+                        { ProtoGc.gcEventId = ""
+                        , ProtoGc.gcEventExperimentHash = "exp-text"
+                        , ProtoGc.gcEventManifestSha = Text.replicate 64 "2"
+                        , ProtoGc.gcEventReapedObjectKeys = objectKeys
+                        , ProtoGc.gcEventStepAtReap = 7
+                        , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                        , ProtoGc.gcEventTimestampNs = 1
+                        }
+                  rendered = ProtoGc.renderGcReapedEvent envelope
+              assertBool "topic payload is one line" (not ("\n" `Text.isInfixOf` rendered))
+              ProtoGc.parseGcReapedEvent rendered @?= Right envelope
+          , testCase "GcReapedEvent commit-only zero-object snapshot round-trips" $ do
+              let envelope =
+                    withGcSemanticId
+                      ProtoGc.GcReapedEvent
+                        { ProtoGc.gcEventId = ""
+                        , ProtoGc.gcEventExperimentHash = "exp-no-blobs"
+                        , ProtoGc.gcEventManifestSha = Text.replicate 64 "3"
+                        , ProtoGc.gcEventReapedObjectKeys =
+                            phase262ScopedGcObjectKeys
+                              "exp-no-blobs"
+                              (Text.replicate 64 "3")
+                              []
+                        , ProtoGc.gcEventStepAtReap = 0
+                        , ProtoGc.gcEventSubstrate = Substrate.AppleSilicon
+                        , ProtoGc.gcEventTimestampNs = 0
+                        }
               ProtoGc.decodeGcReapedEventProto (ProtoGc.encodeGcReapedEventProto envelope)
                 @?= Right envelope
-          , testCase "GcReapedEvent round-trips through render/parse" $ do
-              let envelope =
-                    ProtoGc.GcReapedEvent
-                      { ProtoGc.gcEventExperimentHash = "exp-text"
-                      , ProtoGc.gcEventManifestSha = "sha256:text"
-                      , ProtoGc.gcEventReapedBlobShas = ["blob-x"]
-                      , ProtoGc.gcEventStepAtReap = 7
-                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
-                      , ProtoGc.gcEventTimestampNs = 1
-                      }
               ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
                 @?= Right envelope
-          , testCase "GcReapedEvent with no reaped blobs round-trips" $ do
+          , testCase "GcReapedEvent text decoder rejects envelope and hex defects" $ do
               let envelope =
-                    ProtoGc.GcReapedEvent
-                      { ProtoGc.gcEventExperimentHash = "exp-no-blobs"
-                      , ProtoGc.gcEventManifestSha = "sha256:lonely"
-                      , ProtoGc.gcEventReapedBlobShas = []
-                      , ProtoGc.gcEventStepAtReap = 0
-                      , ProtoGc.gcEventSubstrate = Substrate.AppleSilicon
-                      , ProtoGc.gcEventTimestampNs = 0
-                      }
-              ProtoGc.decodeGcReapedEventProto (ProtoGc.encodeGcReapedEventProto envelope)
-                @?= Right envelope
-              ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
-                @?= Right envelope
-          , testCase "GcReapedEvent text decoder rejects structural and scalar defects" $ do
-              let envelope =
-                    ProtoGc.GcReapedEvent
-                      { ProtoGc.gcEventExperimentHash = "exp-strict"
-                      , ProtoGc.gcEventManifestSha = "sha256:strict"
-                      , ProtoGc.gcEventReapedBlobShas = ["blob-a", "blob-b"]
-                      , ProtoGc.gcEventStepAtReap = 9
-                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
-                      , ProtoGc.gcEventTimestampNs = 10
-                      }
+                    withGcSemanticId
+                      ProtoGc.GcReapedEvent
+                        { ProtoGc.gcEventId = ""
+                        , ProtoGc.gcEventExperimentHash = "exp-strict"
+                        , ProtoGc.gcEventManifestSha = Text.replicate 64 "4"
+                        , ProtoGc.gcEventReapedObjectKeys =
+                            phase262ScopedGcObjectKeys
+                              "exp-strict"
+                              (Text.replicate 64 "4")
+                              [Text.replicate 64 "5", Text.replicate 64 "6"]
+                        , ProtoGc.gcEventStepAtReap = 9
+                        , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                        , ProtoGc.gcEventTimestampNs = 10
+                        }
                   validPayload = ProtoGc.renderGcReapedEvent envelope
-                  withoutManifest =
-                    Text.unlines
-                      ( filter
-                          (not . Text.isPrefixOf "manifest-sha:")
-                          (Text.lines validPayload)
-                      )
                   rejectedPayloads =
-                    [ ("unknown field", validPayload <> "unexpected: value\n")
-                    , ("duplicate field", validPayload <> "manifest-sha: sha256:duplicate\n")
-                    , ("malformed line", Text.replace "step-at-reap: 9" "step-at-reap 9" validPayload)
-                    , ("missing field", withoutManifest)
-                    , ("empty field", Text.replace "experiment-hash: exp-strict" "experiment-hash: " validPayload)
-                    , ("malformed number", Text.replace "step-at-reap: 9" "step-at-reap: nine" validPayload)
-                    , ("noncanonical substrate", Text.replace "substrate: linux-cpu" "substrate: cpu" validPayload)
-                    , ("empty blob member", Text.replace "blob-a,blob-b" "blob-a,,blob-b" validPayload)
+                    [ ("missing envelope prefix", Text.drop 1 validPayload)
+                    , ("empty protobuf bytes", "jitml-gc-reaped-event-protobuf-hex-v1:")
+                    , ("odd hex length", validPayload <> "0")
+                    , ("non-hex suffix", validPayload <> "gg")
+                    , ("uppercase noncanonical text", Text.toUpper validPayload)
+                    , ("trailing bytes", validPayload <> "00")
                     ]
               traverse_
                 ( \(label, rejectedPayload) ->
@@ -6402,40 +11061,147 @@ main =
                 )
                 rejectedPayloads
           , testCase
-              "GcReapedEvent protobuf decoder rejects unknown, duplicate, malformed, missing, and empty fields"
+              "GcReapedEvent protobuf decoder rejects structural, key, and identity defects"
               $ do
-                let envelope =
-                      ProtoGc.GcReapedEvent
-                        { ProtoGc.gcEventExperimentHash = "exp-proto-strict"
-                        , ProtoGc.gcEventManifestSha = "sha256:proto-strict"
-                        , ProtoGc.gcEventReapedBlobShas = ["blob-a"]
-                        , ProtoGc.gcEventStepAtReap = 11
-                        , ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
-                        , ProtoGc.gcEventTimestampNs = 12
-                        }
+                let snapshotId = Text.replicate 64 "5"
+                    validObjectKeys =
+                      phase262ScopedGcObjectKeys
+                        "exp-proto-strict"
+                        snapshotId
+                        [Text.replicate 64 "6", Text.replicate 64 "7"]
+                    envelope =
+                      withGcSemanticId
+                        ProtoGc.GcReapedEvent
+                          { ProtoGc.gcEventId = ""
+                          , ProtoGc.gcEventExperimentHash = "exp-proto-strict"
+                          , ProtoGc.gcEventManifestSha = Text.replicate 64 "5"
+                          , ProtoGc.gcEventReapedObjectKeys = validObjectKeys
+                          , ProtoGc.gcEventStepAtReap = 11
+                          , ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
+                          , ProtoGc.gcEventTimestampNs = 12
+                          }
                     validBytes = ProtoGc.encodeGcReapedEventProto envelope
-                    requiredFields substrateField =
-                      [ ProtoWire.stringField 1 "exp-proto-strict"
-                      , ProtoWire.stringField 2 "sha256:proto-strict"
-                      , ProtoWire.stringField 3 "blob-a"
-                      , ProtoWire.uint64Field 4 11
-                      , ProtoWire.stringField 5 substrateField
-                      , ProtoWire.uint64Field 6 12
+                    eventFields experimentHash manifestSha objectKeys substrateField eventId =
+                      [ ProtoWire.stringField 1 experimentHash
+                      , ProtoWire.stringField 2 manifestSha
                       ]
+                        <> fmap (ProtoWire.stringField 3) objectKeys
+                        <> [ ProtoWire.uint64Field 4 11
+                           , ProtoWire.stringField 5 substrateField
+                           , ProtoWire.uint64Field 6 12
+                           , ProtoWire.stringField 7 eventId
+                           ]
+                    requiredFields =
+                      eventFields
+                        (ProtoGc.gcEventExperimentHash envelope)
+                        (ProtoGc.gcEventManifestSha envelope)
+                        (ProtoGc.gcEventReapedObjectKeys envelope)
+                        "linux-cuda"
+                        (ProtoGc.gcEventId envelope)
+                    replaceFieldNumber fieldNumber replacement =
+                      replacement
+                        : filter ((/= fieldNumber) . ProtoWire.protoFieldNumber) requiredFields
+                    scopedPrefix =
+                      "jitml-checkpoints/exp-proto-strict/snapshots/" <> snapshotId
+                    commitKey = scopedPrefix <> "/committed.cbor"
+                    keyA = scopedPrefix <> "/objects/" <> Text.replicate 64 "6"
+                    otherSnapshotKey =
+                      "jitml-checkpoints/exp-proto-strict/snapshots/"
+                        <> Text.replicate 64 "8"
+                        <> "/objects/"
+                        <> Text.replicate 64 "9"
+                    reservationKey =
+                      "jitml-checkpoints/exp-proto-strict/snapshots/"
+                        <> snapshotId
+                        <> "/reservations/"
+                        <> Text.replicate 64 "0"
+                        <> ".cbor"
                     rejectedBytes =
-                      [ validBytes <> ProtoWire.encodeMessage [ProtoWire.stringField 7 "unknown"]
+                      [ validBytes <> ProtoWire.encodeMessage [ProtoWire.stringField 8 "unknown"]
                       , validBytes <> ProtoWire.encodeMessage [ProtoWire.stringField 1 "duplicate"]
                       , ProtoWire.encodeMessage
-                          ( ProtoWire.stringField 4 "eleven"
-                              : filter ((/= 4) . ProtoWire.protoFieldNumber) (requiredFields "linux-cuda")
+                          (replaceFieldNumber 4 (ProtoWire.stringField 4 "eleven"))
+                      , ProtoWire.encodeMessage
+                          (filter ((/= 2) . ProtoWire.protoFieldNumber) requiredFields)
+                      , ProtoWire.encodeMessage
+                          (replaceFieldNumber 2 (ProtoWire.stringField 2 "not-a-manifest-sha"))
+                      , ProtoWire.encodeMessage
+                          (replaceFieldNumber 2 (ProtoWire.stringField 2 (Text.replicate 63 "a")))
+                      , ProtoWire.encodeMessage
+                          (replaceFieldNumber 2 (ProtoWire.stringField 2 (Text.replicate 64 "A")))
+                      , ProtoWire.encodeMessage
+                          (replaceFieldNumber 1 (ProtoWire.stringField 1 ""))
+                      , ProtoWire.encodeMessage
+                          (replaceFieldNumber 5 (ProtoWire.stringField 5 "cuda"))
+                      , ProtoWire.encodeMessage
+                          (replaceFieldNumber 7 (ProtoWire.stringField 7 (Text.replicate 64 "f")))
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              (reverse validObjectKeys)
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
                           )
                       , ProtoWire.encodeMessage
-                          (filter ((/= 2) . ProtoWire.protoFieldNumber) (requiredFields "linux-cuda"))
-                      , ProtoWire.encodeMessage
-                          ( ProtoWire.stringField 1 ""
-                              : filter ((/= 1) . ProtoWire.protoFieldNumber) (requiredFields "linux-cuda")
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              [commitKey, ""]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
                           )
-                      , ProtoWire.encodeMessage (requiredFields "cuda")
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              [commitKey, keyA, keyA]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
+                          )
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              [ "jitml-checkpoints/another-experiment/snapshots/"
+                                  <> snapshotId
+                                  <> "/committed.cbor"
+                              ]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
+                          )
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              ["jitml-checkpoints/exp-proto-strict/manifests/forbidden.cbor"]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
+                          )
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              [keyA]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
+                          )
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              [commitKey, keyA, otherSnapshotKey]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
+                          )
+                      , ProtoWire.encodeMessage
+                          ( eventFields
+                              "exp-proto-strict"
+                              (Text.replicate 64 "5")
+                              [commitKey, reservationKey]
+                              "linux-cuda"
+                              (ProtoGc.gcEventId envelope)
+                          )
                       ]
                 traverse_
                   ( \rejectedPayload ->
@@ -6446,16 +11212,186 @@ main =
                             ("invalid protobuf unexpectedly decoded as " <> show decoded)
                   )
                   rejectedBytes
+          , testCase
+              "GcReapedEvent protobuf decoder rejects noncanonical and unsafe physical keys"
+              $ do
+                let baseEnvelope =
+                      ProtoGc.GcReapedEvent
+                        { ProtoGc.gcEventId = "ignored-by-encoder"
+                        , ProtoGc.gcEventExperimentHash = "exp-key-safety"
+                        , ProtoGc.gcEventManifestSha = Text.replicate 64 "8"
+                        , ProtoGc.gcEventReapedObjectKeys = []
+                        , ProtoGc.gcEventStepAtReap = 13
+                        , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                        , ProtoGc.gcEventTimestampNs = 14
+                        }
+                    rejectedKeys =
+                      [
+                        ( "relative bucket alias"
+                        , "exp-key-safety/snapshots/"
+                            <> Text.replicate 64 "a"
+                            <> "/committed.cbor"
+                        , "not the canonical full bucket key"
+                        )
+                      ,
+                        ( "missing physical object path"
+                        , "jitml-checkpoints/exp-key-safety"
+                        , "has no object path"
+                        )
+                      ,
+                        ( "empty physical path segment"
+                        , "jitml-checkpoints/exp-key-safety/snapshots//committed.cbor"
+                        , "contains an empty path segment"
+                        )
+                      ,
+                        ( "dot physical path segment"
+                        , "jitml-checkpoints/exp-key-safety/snapshots/./committed.cbor"
+                        , "contains a dot path segment"
+                        )
+                      ,
+                        ( "dot-dot physical path segment"
+                        , "jitml-checkpoints/exp-key-safety/snapshots/../committed.cbor"
+                        , "contains a dot-dot path segment"
+                        )
+                      ,
+                        ( "backslash physical path separator"
+                        , "jitml-checkpoints/exp-key-safety/snapshots/a\\b/committed.cbor"
+                        , "contains a path separator"
+                        )
+                      ,
+                        ( "control character in physical path"
+                        , "jitml-checkpoints/exp-key-safety/snapshots/a\nb/committed.cbor"
+                        , "contains a control character"
+                        )
+                      ,
+                        ( "cross-experiment physical key"
+                        , "jitml-checkpoints/another-experiment/snapshots/"
+                            <> Text.replicate 64 "a"
+                            <> "/committed.cbor"
+                        , "outside its experiment"
+                        )
+                      ,
+                        ( "manifest control namespace"
+                        , "jitml-checkpoints/exp-key-safety/manifests"
+                        , "reserved control prefix"
+                        )
+                      ,
+                        ( "pointer control namespace"
+                        , "jitml-checkpoints/exp-key-safety/pointers"
+                        , "reserved control prefix"
+                        )
+                      ,
+                        ( "GC control namespace"
+                        , "jitml-checkpoints/exp-key-safety/gc"
+                        , "reserved control prefix"
+                        )
+                      ]
+                traverse_
+                  ( \(label, rejectedKey, expectedError) ->
+                      case ProtoGc.decodeGcReapedEventProto
+                        ( ProtoGc.encodeGcReapedEventProto
+                            baseEnvelope
+                              { ProtoGc.gcEventReapedObjectKeys = [rejectedKey]
+                              }
+                        ) of
+                        Left err ->
+                          assertBool
+                            ( label
+                                <> " produced the wrong rejection: "
+                                <> Text.unpack err
+                            )
+                            (expectedError `Text.isInfixOf` err)
+                        Right decoded ->
+                          assertFailure
+                            (label <> " unexpectedly decoded as " <> show decoded)
+                  )
+                  rejectedKeys
+          , testCase "GcReapedEvent protobuf decoder rejects unsafe experiment hashes" $ do
+              let baseEnvelope =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventId = "ignored-by-encoder"
+                      , ProtoGc.gcEventExperimentHash = "exp-hash-safety"
+                      , ProtoGc.gcEventManifestSha = Text.replicate 64 "9"
+                      , ProtoGc.gcEventReapedObjectKeys = []
+                      , ProtoGc.gcEventStepAtReap = 15
+                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                      , ProtoGc.gcEventTimestampNs = 16
+                      }
+                  rejectedHashes =
+                    [ ("empty experiment hash", "", "empty protobuf field")
+                    , ("dot experiment hash", ".", "contains a dot path segment")
+                    , ("dot-dot experiment hash", "..", "contains a dot-dot path segment")
+                    , ("slash in experiment hash", "exp/bad", "contains a path separator")
+                    , ("backslash in experiment hash", "exp\\bad", "contains a path separator")
+                    ,
+                      ( "control character in experiment hash"
+                      , "exp\nbad"
+                      , "contains a control character"
+                      )
+                    ]
+              traverse_
+                ( \(label, rejectedHash, expectedError) ->
+                    case ProtoGc.decodeGcReapedEventProto
+                      ( ProtoGc.encodeGcReapedEventProto
+                          baseEnvelope
+                            { ProtoGc.gcEventExperimentHash = rejectedHash
+                            }
+                      ) of
+                      Left err ->
+                        assertBool
+                          ( label
+                              <> " produced the wrong rejection: "
+                              <> Text.unpack err
+                          )
+                          (expectedError `Text.isInfixOf` err)
+                      Right decoded ->
+                        assertFailure
+                          (label <> " unexpectedly decoded as " <> show decoded)
+                )
+                rejectedHashes
+          , testCase "broker semantic id exactly matches the durable Store identity" $ do
+              let experimentHash = "exp-identity"
+                  manifestSha = Text.replicate 64 "6"
+                  objectKeys =
+                    phase262ScopedGcObjectKeys
+                      experimentHash
+                      (Text.replicate 64 "6")
+                      [Text.replicate 64 "a", Text.replicate 64 "b"]
+                  storeEvent =
+                    CheckpointStore.GcEvent
+                      { CheckpointStore.gcReapedManifestSha = manifestSha
+                      , CheckpointStore.gcReapedObjectKeys = objectKeys
+                      , CheckpointStore.gcExperimentHash = experimentHash
+                      , CheckpointStore.gcStepAtReap = 17
+                      }
+                  brokerEvent =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventId = "ignored"
+                      , ProtoGc.gcEventExperimentHash = experimentHash
+                      , ProtoGc.gcEventManifestSha = manifestSha
+                      , ProtoGc.gcEventReapedObjectKeys = objectKeys
+                      , ProtoGc.gcEventStepAtReap = 17
+                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                      , ProtoGc.gcEventTimestampNs = 999
+                      }
+              ProtoGc.gcReapedEventSemanticId brokerEvent
+                @?= CheckpointStore.gcEventId storeEvent
           , testCase "GcEventRoute rejects an envelope from another substrate lane" $ do
               let linuxEnvelope =
-                    ProtoGc.GcReapedEvent
-                      { ProtoGc.gcEventExperimentHash = "exp-route"
-                      , ProtoGc.gcEventManifestSha = "sha256:route"
-                      , ProtoGc.gcEventReapedBlobShas = []
-                      , ProtoGc.gcEventStepAtReap = 1
-                      , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
-                      , ProtoGc.gcEventTimestampNs = 2
-                      }
+                    withGcSemanticId
+                      ProtoGc.GcReapedEvent
+                        { ProtoGc.gcEventId = ""
+                        , ProtoGc.gcEventExperimentHash = "exp-route"
+                        , ProtoGc.gcEventManifestSha = Text.replicate 64 "7"
+                        , ProtoGc.gcEventReapedObjectKeys =
+                            phase262ScopedGcObjectKeys
+                              "exp-route"
+                              (Text.replicate 64 "7")
+                              []
+                        , ProtoGc.gcEventStepAtReap = 1
+                        , ProtoGc.gcEventSubstrate = Substrate.LinuxCPU
+                        , ProtoGc.gcEventTimestampNs = 2
+                        }
                   cudaEnvelope =
                     linuxEnvelope
                       { ProtoGc.gcEventSubstrate = Substrate.LinuxCUDA
@@ -7082,7 +12018,12 @@ main =
                   PpoTrainer.VariantPPO
                   config
               result <- either (assertFailure . Text.unpack) pure resultE
-              PpoTrainer.resultOptimizerSteps result @?= 12
+              AlgorithmCommon.measuredOptimizerUpdateCount
+                (PpoTrainer.resultMeasuredCounters result)
+                @?= 12
+              AlgorithmCommon.measuredEnvironmentTransitionCount
+                (PpoTrainer.resultMeasuredCounters result)
+                @?= 8
           , testCase "device TRPO reports accepted actor plus value-head optimizer steps" $ do
               let config =
                     PpoTrainer.defaultPpoTrainConfig
@@ -7104,11 +12045,17 @@ main =
                   PpoTrainer.VariantTRPO
                   config
               result <- either (assertFailure . Text.unpack) pure resultE
-              let actorApplications =
+              let actorApplications :: Int
+                  actorApplications =
                     if trpoActorSlicesChangedForTest config initial (PpoTrainer.resultFinalParams result)
                       then 1
                       else 0
-              PpoTrainer.resultOptimizerSteps result @?= 2 + actorApplications
+              AlgorithmCommon.measuredOptimizerUpdateCount
+                (PpoTrainer.resultMeasuredCounters result)
+                @?= fromIntegral (2 + actorApplications)
+              AlgorithmCommon.measuredEnvironmentTransitionCount
+                (PpoTrainer.resultMeasuredCounters result)
+                @?= 4
           , testCase "TRPO defaults match the catalog trust-region target" $ do
               PpoTrainer.ppoKlTarget PpoTrainer.defaultPpoTrainConfig @?= 0.01
               PpoTrainer.ppoTrpoCriticUpdates PpoTrainer.defaultPpoTrainConfig @?= 10
@@ -7637,14 +12584,14 @@ main =
                       }
                   config =
                     fastDqnDeviceConfig
-                      { DqnTrainer.dqnNumSteps = 1
+                      { DqnTrainer.dqnNumSteps = 2
                       , DqnTrainer.dqnTrainStart = 2
                       , DqnTrainer.dqnEpsilonStart = 0.0
                       , DqnTrainer.dqnEpsilonEnd = 0.0
                       }
               result <- DqnTrainer.trainDqnOnDevice countingDevice config
               _ <- either (assertFailure . Text.unpack) pure result
-              readIORef forwardCalls >>= (@?= 1)
+              readIORef forwardCalls >>= (@?= 2)
           , testCase "DQN greedy behavior policy fails closed on device-forward failure" $
               assertLeftContains
                 "dqn device forward kernel failed mid-run (behavior policy)"
@@ -7774,7 +12721,12 @@ main =
                       }
               resultE <- DqnTrainer.trainDqnOnDevice pureReferenceMlpDevice config
               result <- either (assertFailure . Text.unpack) pure resultE
-              DqnTrainer.dqnResultOptimizerSteps result @?= 2
+              AlgorithmCommon.measuredOptimizerUpdateCount
+                (DqnTrainer.dqnResultMeasuredCounters result)
+                @?= 2
+              AlgorithmCommon.measuredEnvironmentTransitionCount
+                (DqnTrainer.dqnResultMeasuredCounters result)
+                @?= 5
           ]
       , testGroup
           "Continuous actor-critic trainer (Sprint 13.8 DDPG/TD3/SAC/CrossQ/TQC)"
@@ -7821,7 +12773,12 @@ main =
                          pureReferenceMlpDevice
                          config
                      result <- either (assertFailure . Text.unpack) pure resultE
-                     ContinuousTrainer.contResultActorOptimizerSteps result @?= 2
+                     AlgorithmCommon.measuredOptimizerUpdateCount
+                       (ContinuousTrainer.contResultMeasuredCounters result)
+                       @?= 2
+                     AlgorithmCommon.measuredEnvironmentTransitionCount
+                       (ContinuousTrainer.contResultMeasuredCounters result)
+                       @?= 5
                  , testCase "continuous device trainer returns Left on input-gradient failure" $
                      assertLeftContains
                        "continuous device input-gradient kernel"
@@ -7880,7 +12837,12 @@ main =
                       }
               resultE <- QrDqnTrainer.trainQrDqnOnDevice pureReferenceMlpDevice config
               result <- either (assertFailure . Text.unpack) pure resultE
-              QrDqnTrainer.qrResultOptimizerSteps result @?= 2
+              AlgorithmCommon.measuredOptimizerUpdateCount
+                (QrDqnTrainer.qrResultMeasuredCounters result)
+                @?= 2
+              AlgorithmCommon.measuredEnvironmentTransitionCount
+                (QrDqnTrainer.qrResultMeasuredCounters result)
+                @?= 7
           ]
       , testGroup
           "ARS trainer (Sprint 13.8 gradient-free)"
@@ -7900,6 +12862,17 @@ main =
                 (not (null (ArsTrainer.arsResultStats resultA)))
               fmap ArsTrainer.arsIterBestReturn (ArsTrainer.arsResultStats resultA)
                 @?= fmap ArsTrainer.arsIterBestReturn (ArsTrainer.arsResultStats resultB)
+              AlgorithmCommon.measuredOptimizerUpdateCount
+                (ArsTrainer.arsResultMeasuredCounters resultA)
+                @?= fromIntegral (ArsTrainer.arsIterations cfg)
+              AlgorithmCommon.measuredEnvironmentTransitionCount
+                (ArsTrainer.arsResultMeasuredCounters resultA)
+                @?= fromIntegral
+                  ( 2
+                      * ArsTrainer.arsIterations cfg
+                      * ArsTrainer.arsNumDirections cfg
+                      * ArsTrainer.arsMaxEpisodeSteps cfg
+                  )
           , testCase "ARS improves the mean episode return over the run" $ do
               let cfg =
                     ArsTrainer.defaultArsTrainConfig
@@ -7937,6 +12910,15 @@ main =
                 (not (null (HerTrainer.herResultStats resultA)))
               fmap HerTrainer.herIterSuccessRate (HerTrainer.herResultStats resultA)
                 @?= fmap HerTrainer.herIterSuccessRate (HerTrainer.herResultStats resultB)
+          , testCase "HER always emits a final learning summary" $ do
+              let cfg =
+                    fastHerDeviceConfig
+                      { HerTrainer.herEpisodes = 5
+                      , HerTrainer.herStatInterval = 25
+                      }
+              result <- HerTrainer.trainHerOnBitFlip cfg
+              fmap HerTrainer.herIterEpisode (HerTrainer.herResultStats result)
+                @?= [5]
           , testCase "hindsight relabeling beats no-hindsight on bit-flip success rate" $ do
               let base =
                     HerTrainer.defaultHerTrainConfig
@@ -7983,7 +12965,13 @@ main =
               result <- either (assertFailure . Text.unpack) pure resultE
               calls <- readIORef callsRef
               assertBool "HER counting test executed no optimizer step" (calls > 0)
-              HerTrainer.herResultOptimizerSteps result @?= calls
+              AlgorithmCommon.measuredOptimizerUpdateCount
+                (HerTrainer.herResultMeasuredCounters result)
+                @?= fromIntegral calls
+              AlgorithmCommon.measuredEnvironmentTransitionCount
+                (HerTrainer.herResultMeasuredCounters result)
+                @?= fromIntegral
+                  (HerTrainer.herEpisodes config * HerTrainer.herNumBits config)
           , testCase "HER rejects zero updates instead of repairing the schedule" $ do
               result <-
                 HerTrainer.trainHerOnDevice
@@ -8200,6 +13188,17 @@ generatedModelKind row =
 generatedModelMatrixPairs :: Text -> [(Text, Text, Text, Text, Text)]
 generatedModelMatrixPairs generated =
   mapMaybe generatedModelMatrixPair (Text.lines generated)
+
+generatedModelMatrixPairsForSubstrate
+  :: Text
+  -> Text
+  -> [(Text, Text, Text, Text, Text)]
+generatedModelMatrixPairsForSubstrate substrate generated =
+  [ pair
+  | line <- Text.lines generated
+  , quotedField "substrate" line == Just substrate
+  , Just pair <- [generatedModelMatrixPair line]
+  ]
 
 generatedModelMatrixPair :: Text -> Maybe (Text, Text, Text, Text, Text)
 generatedModelMatrixPair line = do
@@ -9728,6 +14727,7 @@ plannedScopeTest stanza commandLabel =
   LiveE2EScope.PlannedTestInvocation
     { LiveE2EScope.plannedTestStanza = stanza
     , LiveE2EScope.plannedTestCommand = subprocess "scope-fixture" [commandLabel]
+    , LiveE2EScope.plannedTestEnvironment = defaultSubprocessEnv
     }
 
 successfulScopeOutcome :: Word64 -> LivePlanStep -> ProcessOutcome

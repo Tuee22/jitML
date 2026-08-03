@@ -16,8 +16,10 @@ discrete/continuous/goal-conditioned pair cannot be constructed, drives trainer
 dispatch, and retires the redundant `algorithm`/`trainerKind` duality (the stored
 `rlcTrainerKind` field and its Dhall schema entry are removed; the exact trainer
 strings are rendered from the cohort so content-addressed checkpoint identity is
-unchanged). Phase `251` is the next executable phase; the apple-silicon wall at
-Phase `272` is the hard stop on non-Apple hosts.
+unchanged). Phase `251` subsequently closed. Current successor state and
+host-boundary ownership live in
+[README.md → Closure Status](README.md#closure-status), not in this historical
+phase snapshot.
 
 ## Sprint 250.1: Typed RL Cohort and Action-Domain Compatibility [✅ Done]
 

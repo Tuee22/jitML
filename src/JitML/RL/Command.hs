@@ -26,9 +26,11 @@ import JitML.Env.Env (App)
 import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Experiment.Product qualified as ProductExperiment
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
+import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.RL.Algorithms qualified as RL
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Command.AlphaZero qualified as AlphaZeroCommand
 import JitML.RL.Command.Options
   ( envWithDefault
@@ -42,12 +44,10 @@ import JitML.RL.Command.Types
   , RlWorkerServices (..)
   )
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
+import JitML.RL.Framework qualified as Framework
 import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.TrainerExecution
   ( trainerRunEpisodes
-  , trainerRunEvidence
-  , trainerRunObservedUnits
-  , trainerRunWeights
   )
 import JitML.RL.TrainerExecution qualified as TrainerExecution
 import JitML.Service.RunConfig qualified as RunConfig
@@ -125,16 +125,18 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
   -- Phase 251 — the worker consumes a validated 'ProductBudget.CompiledRlPlan'.
   -- In the cluster path it re-parses the daemon-compiled transport; a
   -- developer-side invocation with no mount compiles a plan from the experiment
-  -- Dhall + env defaults. CLI @--seed@/@--algorithm@ overrides are applied to
-  -- the plan inputs and the plan is recompiled, so the schedule stays a pure
-  -- function of the (overridden) training inputs.
+  -- Dhall + env defaults. CLI @--seed@/@--algorithm@ overrides are accepted
+  -- only on that explicit no-mount path. A mounted plan is authoritative and
+  -- cannot be changed after its transport and identity have been validated.
   (plan, atariRomPath) <- case runConfigLoad of
     RunConfig.RunConfigLoaded rc -> do
-      basePlan <-
+      plan <-
         either (exitWithError . InvalidConfig) pure (RunConfig.rlPlanFromRunConfig rc)
-      overriddenPlan <-
-        either (exitWithError . InvalidConfig) pure (applyOverridesToRlPlan overrides basePlan)
-      pure (overriddenPlan, RunConfig.rlcAtariRomPath rc)
+      either
+        (exitWithError . InvalidConfig)
+        pure
+        (RunConfig.validateMountedRlSemanticOverrides overrides)
+      pure (plan, RunConfig.rlcAtariRomPath rc)
     RunConfig.RunConfigMissing -> do
       loaded <- liftIO (ProductExperiment.loadRlExperimentByPath rlExperimentPath)
       experiment <-
@@ -168,17 +170,17 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
       pure (plan, Nothing)
     RunConfig.RunConfigDecodeFailed err ->
       exitWithError (mountedRunConfigDecodeError runConfigPath "RlRunConfig" err)
-  -- Phase 251 — the seed/algorithm overrides are already baked into the
-  -- compiled plan above; read the resolved training identity back from it.
+  -- Phase 251 — local seed/algorithm overrides, when present, are already
+  -- baked into the no-mount plan above; mounted plans are consumed unchanged.
   let trainerKind = ProductBudget.compiledRlTrainerKind plan
       envName = ProductBudget.compiledRlEnvironment plan
       resolvedSeed = ProductBudget.compiledRlSeed plan
   -- Sprint 20.1 — route catalog trainers through the real dispatch path.
   -- Sprint 8.8 routes atari-subset through the runtime-loaded ALE adapter
   -- and an explicit uncommitted ROM path; all other recognized trainer
-  -- selectors produce convergence statistics through the network seam, then
-  -- project the per-iteration summary into the @EpisodeDone@ envelope shape
-  -- so the dispatch chain stays observable end-to-end.
+  -- selectors produce convergence statistics through the network seam. The
+  -- resulting ordered learning curve and exact final-evaluation cohort publish
+  -- as distinct @IterationSummary@ and @EvaluationOutcome@ streams.
   -- Sprint 8.11 — resolve the substrate and route every MLP-backed trainer
   -- through its JIT-compiled device. An unknown trainer or an unavailable
   -- substrate device fails closed with a typed `InvalidConfig`; nothing is
@@ -205,35 +207,65 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
           (renderSubstrate substrate <> ":" <> trainerKind <> ":" <> envName)
       experimentHash = fromMaybe derivedExperimentHash liveExperimentHash
       tensorName = "rl-" <> trainerKind <> "-weights"
-  completionMetrics <-
-    case ProductCompletion.rlCompletionMetrics trainerKind (trainerRunObservedUnits trainerRun) episodes of
-      Left err -> exitWithError (InvalidConfig err)
-      Right values -> pure values
-  checkpointStep <-
-    case TrainerExecution.rlObservedBudgetUnits episodes of
-      Left err -> exitWithError (InvalidConfig err)
+      compiledPlanId = ProductBudget.compiledRlPlanId plan
+  completionPlanId <-
+    case Plan.refinePlanIdText compiledPlanId of
+      Left err ->
+        exitWithError
+          ( InvalidConfig
+              ( "compiled RL completion plan-id refinement failed: "
+                  <> err
+              )
+          )
       Right value -> pure value
-  completedTraining <-
-    case trainerRunEvidence trainerRun of
-      Nothing -> pure Nothing
-      Just evidence ->
-        case ProductCompletion.rlCompletedTraining
-          CheckpointWriter.checkpointTrainingBudgetForTensor
-          trainerKind
-          envName
-          experimentHash
-          tensorName
-          checkpointStep
-          completionMetrics
-          evidence of
-          Left err -> exitWithError (InvalidConfig err)
-          Right value -> pure value
+  (completionMetrics, checkpointStep, trainedState) <-
+    case trainerRun of
+      TrainerExecution.EvaluationOnly evaluationSet ->
+        pure
+          (
+            [ ("avg_reward", Framework.evaluationSetMeanReward evaluationSet)
+            , ("median_final_reward", Framework.evaluationSetMedianReward evaluationSet)
+            ,
+              ( "episode_count"
+              , fromIntegral (length (Framework.evaluationSetOutcomes evaluationSet))
+              )
+            ]
+          , 0
+          , Nothing
+          )
+      TrainerExecution.Trained artifact -> do
+        let counters = TrainerExecution.trainedArtifactCounters artifact
+            evaluationSet = TrainerExecution.trainedArtifactEvaluationSet artifact
+            observedTransitions =
+              AlgorithmCommon.measuredEnvironmentTransitionCount counters
+        metrics <-
+          case ProductCompletion.rlCompletionMetrics trainerKind counters evaluationSet of
+            Left err -> exitWithError (InvalidConfig err)
+            Right values -> pure values
+        completed <-
+          case ProductCompletion.rlCompletedTraining
+            completionPlanId
+            CheckpointWriter.checkpointTrainingBudgetForTensor
+            trainerKind
+            envName
+            experimentHash
+            tensorName
+            observedTransitions
+            metrics
+            (TrainerExecution.trainedArtifactEvidence artifact) of
+            Left err -> exitWithError (InvalidConfig err)
+            Right value -> pure value
+        pure
+          ( metrics
+          , observedTransitions
+          , Just (TrainerExecution.trainedArtifactWeights artifact, completed)
+          )
   let
     averageReward = metricValueOrZero "avg_reward" completionMetrics
   checkpointMaybe <-
-    case trainerRunWeights trainerRun of
+    case trainedState of
       Nothing -> pure Nothing
-      Just weights ->
+      Just (weights, completedTraining) ->
         case completedTraining of
           Nothing -> do
             stored <-
@@ -243,8 +275,7 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
                 checkpointStep
                 completionMetrics
                 weights
-            pure
-              (Just (PersistedRlCandidateCheckpoint stored))
+            pure (Just (PersistedRlCandidateCheckpoint stored))
           Just completed -> do
             stored <-
               CheckpointWriter.writeLocalCompletedWeightCheckpoint
@@ -255,7 +286,12 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
                 completionMetrics
                 weights
             pure
-              (Just (PersistedRlCompletedCheckpoint completed stored))
+              ( Just
+                  ( PersistedRlCompletedCheckpoint
+                      completed
+                      stored
+                  )
+              )
   replayArtifact <-
     CheckpointWriter.writeTextArtifact
       experimentHash
@@ -280,8 +316,24 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
             checkpointMaybe
           <> replayArtifactLines
       )
-  traverse_ (publishWorkerRlEpisode runtime envName) episodes
-  publishWorkerRlCompletion runtime tensorName checkpointStep completionMetrics checkpointMaybe
+  case trainerRun of
+    TrainerExecution.EvaluationOnly _ -> pure ()
+    TrainerExecution.Trained artifact ->
+      traverse_
+        (publishWorkerRlIteration runtime compiledPlanId)
+        ( Framework.learningCurveSummaries
+            (TrainerExecution.trainedArtifactLearningCurve artifact)
+        )
+  traverse_
+    (publishWorkerRlEvaluationOutcome runtime envName compiledPlanId)
+    episodes
+  publishWorkerRlCompletion
+    runtime
+    compiledPlanId
+    tensorName
+    checkpointStep
+    completionMetrics
+    checkpointMaybe
 
 -- Sprint 9.9 — `jitml rl eval` loads the named checkpoint and runs the real
 -- substrate device forward (shared with `jitml eval`); a missing checkpoint →
@@ -327,35 +379,6 @@ runRl _ _ path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 {-# NOINLINE runRl #-}
 
-overrideTrainerKind :: Overrides.ExperimentOverrides -> Text -> Text
-overrideTrainerKind overrides base =
-  maybe base Workload.rlTrainerForAlgorithm (Overrides.eoAlgorithm overrides)
-
--- | Phase 251 — apply the CLI @--seed@/@--algorithm@ overrides to a validated
--- plan's training inputs and recompile. With no overrides the recompiled plan
--- is identical to the input (the compiler is pure), so the cluster path is a
--- no-op; a developer-side override re-derives the schedule from the overridden
--- training inputs.
-applyOverridesToRlPlan
-  :: Overrides.ExperimentOverrides
-  -> ProductBudget.CompiledRlPlan
-  -> Either Text ProductBudget.CompiledRlPlan
-applyOverridesToRlPlan overrides plan =
-  ProductBudget.compileRlPlan overriddenTraining (ProductBudget.compiledRlEvaluation plan)
- where
-  training = ProductBudget.compiledRlTraining plan
-  overriddenTraining =
-    training
-      { ProductBudget.trainingPlanSeed =
-          fromIntegral
-            ( Overrides.overrideSeed
-                overrides
-                (fromIntegral (ProductBudget.trainingPlanSeed training))
-            )
-      , ProductBudget.trainingPlanTrainerKind =
-          overrideTrainerKind overrides (ProductBudget.trainingPlanTrainerKind training)
-      }
-
 metricValueOrZero :: Text -> [(Text, Double)] -> Double
 metricValueOrZero metricName =
   fromMaybe 0.0 . lookup metricName
@@ -363,11 +386,12 @@ metricValueOrZero metricName =
 publishWorkerRlCompletion
   :: RlCommandRuntime
   -> Text
+  -> Text
   -> Word64
   -> [(Text, Double)]
   -> Maybe PersistedRlCheckpoint
   -> App ()
-publishWorkerRlCompletion runtime _tensorName checkpointStep metrics checkpointMaybe = do
+publishWorkerRlCompletion runtime planId _tensorName checkpointStep metrics checkpointMaybe = do
   target <- rlCommandWorkerBrokerTarget runtime
   experimentHashMaybe <- rlCommandWorkerExperimentHash runtime
   case (target, experimentHashMaybe) of
@@ -376,7 +400,8 @@ publishWorkerRlCompletion runtime _tensorName checkpointStep metrics checkpointM
       let metricEvents =
             [ ProtoRl.RlMetric
                 ProtoRl.MetricUpdate
-                  { ProtoRl.muExperimentHash = experimentHash
+                  { ProtoRl.muPlanId = planId
+                  , ProtoRl.muExperimentHash = experimentHash
                   , ProtoRl.muName = name
                   , ProtoRl.muValue = value
                   , ProtoRl.muTimestampNs = timestampNs
@@ -433,30 +458,32 @@ persistedRlStoredCheckpoint persisted =
     PersistedRlCompletedCheckpoint _ stored ->
       CheckpointStore.completedStoredCheckpoint stored
 
--- | Publish one @EpisodeDone@ envelope per trainer-produced episode. Gated on
--- @JITML_EXPERIMENT_HASH@ + live cluster publication so the worker can still
--- run offline without a broker.
-publishWorkerRlEpisode
+-- | Publish one keyed final-evaluation outcome. The compiled plan identity is
+-- carried in the event; broker arrival order is not evidence identity.
+publishWorkerRlEvaluationOutcome
   :: RlCommandRuntime
+  -> Text
   -> Text
   -> EpisodeEnvelope.SimulatedEpisode
   -> App ()
-publishWorkerRlEpisode runtime environment episode = do
+publishWorkerRlEvaluationOutcome runtime environment planId episode = do
   target <- rlCommandWorkerBrokerTarget runtime
   experimentHashMaybe <- rlCommandWorkerExperimentHash runtime
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
       timestampNs <- liftIO (rlCommandTimestampNs runtime)
       let envelope =
-            ProtoRl.RlEpisode
-              ( ProtoRl.EpisodeDone
-                  { ProtoRl.edExperimentHash = experimentHash
-                  , ProtoRl.edEpisode =
+            ProtoRl.RlEvaluation
+              ( ProtoRl.EvaluationOutcome
+                  { ProtoRl.eoPlanId = planId
+                  , ProtoRl.eoExperimentHash = experimentHash
+                  , ProtoRl.eoEpisodeId =
                       fromIntegral (EpisodeEnvelope.simEpisodeIndex episode)
-                  , ProtoRl.edReward = EpisodeEnvelope.simEpisodeReward episode
-                  , ProtoRl.edSteps =
+                  , ProtoRl.eoReward = EpisodeEnvelope.simEpisodeReward episode
+                  , ProtoRl.eoSteps =
                       fromIntegral (EpisodeEnvelope.simEpisodeSteps episode)
-                  , ProtoRl.edTimestampNs = timestampNs
+                  , ProtoRl.eoDone = EpisodeEnvelope.simEpisodeDone episode
+                  , ProtoRl.eoTimestampNs = timestampNs
                   }
               )
           animationEnvelopes =
@@ -480,6 +507,45 @@ publishWorkerRlEpisode runtime environment episode = do
                   <> Text.pack (show err)
                   <> "\n"
               )
+    _ -> pure ()
+
+publishWorkerRlIteration
+  :: RlCommandRuntime
+  -> Text
+  -> Framework.IterationSummary
+  -> App ()
+publishWorkerRlIteration runtime planId summary = do
+  target <- rlCommandWorkerBrokerTarget runtime
+  experimentHashMaybe <- rlCommandWorkerExperimentHash runtime
+  case (target, experimentHashMaybe) of
+    (Just (substrate, pulsarSettings), Just experimentHash) -> do
+      timestampNs <- liftIO (rlCommandTimestampNs runtime)
+      let event =
+            ProtoRl.RlIteration
+              ProtoRl.IterationSummary
+                { ProtoRl.isPlanId = planId
+                , ProtoRl.isExperimentHash = experimentHash
+                , ProtoRl.isIteration = Framework.iterationSummaryIndex summary
+                , ProtoRl.isMetricName = Framework.iterationSummaryMetricName summary
+                , ProtoRl.isMetricValue = Framework.iterationSummaryMetricValue summary
+                , ProtoRl.isTimestampNs = timestampNs
+                }
+      result <-
+        liftIO
+          ( rlCommandPublishEvent
+              runtime
+              pulsarSettings
+              substrate
+              event
+          )
+      case result of
+        Left err ->
+          writeText
+            ( "rl train: rl.iteration publication failed: "
+                <> Text.pack (show err)
+                <> "\n"
+            )
+        Right () -> pure ()
     _ -> pure ()
 
 rlAnimationEnvelope

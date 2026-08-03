@@ -28,10 +28,10 @@ import JitML.Numerics.MlpDevice (pureReferenceMlpDevice)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as Product
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
-import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -280,30 +280,23 @@ productExperimentExactnessTests =
           @?= Left "training evidence requires a positive update count"
         ProductEvidence.mkTrainingEvidence "initial" "final" 1 ""
           @?= Left "training evidence requires a dataset SHA observed at read"
-    , testCase "RL completion proof rejects zero updates and observed units" $ do
-        App.validateTrainerEvidenceCounters 0 1
-          @?= Left "RL training evidence requires a positive update count"
-        App.validateTrainerEvidenceCounters 1 0
-          @?= Left "RL training evidence requires positive observed budget units"
-        App.validateTrainerEvidenceCounters 0 0
-          @?= Left "RL training evidence requires a positive update count"
-        App.validateTrainerEvidenceCounters 1 1 @?= Right ()
-    , testCase "RL completion inputs reject zero rather than repairing evidence" $ do
-        let episode index steps =
-              EpisodeEnvelope.SimulatedEpisode
-                { EpisodeEnvelope.simEpisodeIndex = index
-                , EpisodeEnvelope.simEpisodeSteps = steps
-                , EpisodeEnvelope.simEpisodeReward = 0
-                , EpisodeEnvelope.simEpisodeDone = True
-                , EpisodeEnvelope.simEpisodeFrames = []
-                }
-        App.rlObservedBudgetUnits []
-          @?= Left "RL observed environment-step count must be positive"
-        App.rlObservedBudgetUnits [episode 7 0]
-          @?= Left "RL episode 7 must report positive observed steps"
-        App.rlObservedBudgetUnits [episode 8 (-1)]
-          @?= Left "RL episode 8 must report positive observed steps"
-        App.rlObservedBudgetUnits [episode 0 2, episode 1 3] @?= Right 5
+    , testCase "RL completion proof rejects zero measured updates and transitions" $ do
+        AlgorithmCommon.mkMeasuredTrainerCounters 0 1
+          @?= Left "RL measured environment-transition count must be positive"
+        AlgorithmCommon.mkMeasuredTrainerCounters 1 0
+          @?= Left "RL measured optimizer-update count must be positive"
+        counters <-
+          either (assertFailure . Text.unpack) pure $
+            AlgorithmCommon.mkMeasuredTrainerCounters 1 1
+        excessCounters <-
+          either (assertFailure . Text.unpack) pure $
+            AlgorithmCommon.mkMeasuredTrainerCounters 2 1
+        App.validateTrainerEvidenceCounters 2 counters
+          @?= Left "RL measured environment-transition count mismatch: expected 2, observed 1"
+        App.validateTrainerEvidenceCounters 1 excessCounters
+          @?= Left "RL measured environment-transition count mismatch: expected 1, observed 2"
+        App.validateTrainerEvidenceCounters 1 counters @?= Right ()
+    , testCase "RL completion budgets reject zero rather than repairing evidence" $ do
         App.checkpointTrainingBudgetForTensor "rl-ppo-weights" 0
           @?= Left "training budget must have a positive target"
         case App.checkpointTrainingBudgetForTensor "rl-ppo-weights" 5 of

@@ -68,6 +68,7 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
+import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
@@ -147,8 +148,9 @@ data DqnIterationStat = DqnIterationStat
 data DqnTrainResult = DqnTrainResult
   { dqnResultStats :: ![DqnIterationStat]
   , dqnResultFinalParams :: !MlpParams
-  , dqnResultOptimizerSteps :: !Int
-  -- ^ Adam applications executed against the final online-Q tensor.
+  , dqnResultMeasuredCounters :: !Common.MeasuredTrainerCounters
+  -- ^ Actual environment transitions plus Adam applications executed against
+  -- the final online-Q tensor.
   , dqnResultConfig :: !DqnTrainConfig
   }
   deriving stock (Eq, Show)
@@ -233,15 +235,18 @@ loopEither
   -> IO (Either Text DqnTrainResult)
 loopEither device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= dqnNumSteps config =
-      pure
-        ( Right
-            DqnTrainResult
-              { dqnResultStats = reverse stats
-              , dqnResultFinalParams = online
-              , dqnResultOptimizerSteps = adamStep_ adam
-              , dqnResultConfig = config
-              }
-        )
+      pure $ do
+        counters <-
+          Common.mkMeasuredTrainerCounters
+            (toInteger step)
+            (toInteger (adamStep_ adam))
+        pure
+          DqnTrainResult
+            { dqnResultStats = reverse stats
+            , dqnResultFinalParams = online
+            , dqnResultMeasuredCounters = counters
+            , dqnResultConfig = config
+            }
   | otherwise = do
       let epsilon = currentEpsilon config step
           obs = obsVector environment state
@@ -595,7 +600,7 @@ evaluateDqnPolicyWithEnvironment
   -> DqnTrainConfig
   -> MlpParams
   -> Int
-  -> IO (Either Text [(Double, Int)])
+  -> IO (Either Text [Common.EvaluationEpisodeResult])
 evaluateDqnPolicyWithEnvironment device (SomeSimulatedEnvironment environment) config params episodeCount =
   collect (max 1 episodeCount) []
  where
@@ -612,11 +617,12 @@ evaluateEpisode
   -> SimulatedEnvironment state
   -> DqnTrainConfig
   -> MlpParams
-  -> IO (Either Text (Double, Int))
+  -> IO (Either Text Common.EvaluationEpisodeResult)
 evaluateEpisode device environment config params = go (envInitial environment) 0 0.0
  where
   go state episodeLen episodeReturn
-    | episodeLen >= dqnMaxEpisodeSteps config = pure (Right (episodeReturn, episodeLen))
+    | episodeLen >= dqnMaxEpisodeSteps config =
+        pure (Right (Common.EvaluationEpisodeResult episodeReturn episodeLen False))
     | otherwise = do
         let obs = obsVector environment state
         forwardResult <- mlpdForward device params obs
@@ -630,7 +636,7 @@ evaluateEpisode device environment config params = go (envInitial environment) 0
                 nextReturn = episodeReturn + simStepReward stepResult
                 nextLen = episodeLen + 1
             if simStepDone stepResult
-              then pure (Right (nextReturn, nextLen))
+              then pure (Right (Common.EvaluationEpisodeResult nextReturn nextLen True))
               else go (simStepState stepResult) nextLen nextReturn
 
 -- | Minibatch DQN gradient update through batched device primitives:

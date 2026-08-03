@@ -152,9 +152,11 @@ validated here, the worker-side event publication is the next phase.
   command's deterministic summary, when the worker is running in
   cluster context (live publication present + `JITML_EXPERIMENT_HASH`
   exported by the daemon-rendered Job env).
-- `JitML.App.publishWorkerRlEvent` publishes one
-  `RlEpisode (EpisodeDone ...)` envelope to `rl.event.<substrate>`
-  after `jitml rl train` under the same gate.
+- At this historical landing, `JitML.App.publishWorkerRlEvent` published one
+  episode envelope to `rl.event.<substrate>` after `jitml rl train`. The
+  current Phase `252` surface instead publishes plan-bound keyed
+  `RlEvaluation (EvaluationOutcome)` evidence separately from ordered
+  `RlIteration (IterationSummary)` learning telemetry.
 - `JitML.App.publishWorkerTuneEvent` iterates the configured trial
   budget (from `JITML_TRIAL_BUDGET` / `JITML_SWEEP_SEED` env vars),
   persists a `TrialTranscript` to MinIO per seed via
@@ -205,9 +207,9 @@ live-validated end-to-end:
   turn (`tryLoadRlRunConfig` → `tryLoadTrainingRunConfig` →
   `tryLoadTuneRunConfig` against `/etc/jitml/run/RunConfig.dhall`) before
   falling back to the legacy `JITML_EXPERIMENT_HASH` env. The three worker
-  publishers (`publishWorkerTrainingEvent`, `publishWorkerTuneEvent`,
-  `publishWorkerRlEpisode`) now use this helper, closing the last gap that
-  Sprint `5.7` left behind for cluster-dispatched runs.
+  publishers used this helper, closing the last gap that Sprint `5.7` left
+  behind for cluster-dispatched runs. The RL publisher names and envelope shape
+  were later replaced by Phase `252`'s separate iteration/evaluation events.
 - **Test pass.** All 17 Live cases passed in `18.36s` (vs. the prior 152.57s
   RL failure that surfaced this gap):
   ```

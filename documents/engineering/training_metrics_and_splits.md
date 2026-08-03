@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [README.md](../../README.md), [documents/engineering/README.md](README.md), [training_workloads.md](training_workloads.md), [numerical_core.md](numerical_core.md), [checkpoint_format.md](checkpoint_format.md), [purescript_frontend.md](purescript_frontend.md), [run_contract.md](run_contract.md), [DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md), [DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md), [DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md), [DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md), [DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+**Referenced by**: [root README](../../README.md), [engineering index](README.md), [training workloads](training_workloads.md), [numerical core](numerical_core.md), [checkpoint format](checkpoint_format.md), [PureScript frontend](purescript_frontend.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
 **Generated sections**: none
 
 > **Purpose**: The single source of truth for jitML's supervised-learning
@@ -23,7 +23,7 @@
   *metrics* are measured from real training runs, never literature-target
   placeholders. The *bar* each metric is graded against is the opposite: a **frozen
   external literature constant** held in `JitML.Product.ExternalBars`
-  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)) and
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)) and
   never derived from, or set equal to, the measured value. A row passes only when its
   measured metric clears that independent external bar; keeping the two structurally
   distinct is what forbids a self-referential `threshold = measured` gate.
@@ -45,7 +45,7 @@
   owns `tmOptimizerUpdatesExecuted` and records it only after every requested
   epoch and mini-batch update has completed. Writer and Product Publisher must
   carry that observed count unchanged and reject any mismatch with the
-  `SupervisedPlan`, `CompletedTraining`, or V2 manifest. Callers may not recreate
+  `SupervisedPlan`, `CompletedTraining`, or supervised-graph manifest. Callers may not recreate
   a successful count from epochs, dataset size, or batch size after training.
 - **Deterministic classification training order is split-local.** After the
   authoritative partitions are materialized, canonical classification training
@@ -60,8 +60,8 @@
 - **Inference requires persisted completion admission.** Inference cannot accept
   a raw manifest, decoded completion payload, random initialization, or partially
   trained checkpoint. The only value that may flow into an inference runner is
-  Store's opaque `AdmittedCompletedCheckpoint`, minted after exact persisted V2
-  manifest/blob admission and completion revalidation.
+  Store's opaque `AdmittedCompletedCheckpoint`, minted after exact persisted
+  envelope, manifest, and blob admission plus completion revalidation.
 
 ## Metric Projection into Completed Runs
 
@@ -82,7 +82,7 @@ physical-blob evidence before any weight-only inference load.
 | `CompletedRunEvidence kind` | The opaque result of terminal workload success plus the workload's complete pure evidence contract. | Failed, cancelled, partial, skipped, equal-weight, zero-update, smoke-only, missing-event, or hardcoded-pass runs cannot construct it. |
 | `RawCompletedTraining` | The versioned, deliberately forgeable completion DTO: plan identity, raw budget, repeated observed kind/count/unit, training evidence, raw typed criteria/measurements, and TensorBoard metadata. | It is never proof; decode must re-refine it, and the wire carries no authoritative pass boolean. |
 | `CompletedTraining` | The checkpoint-facing training projection of completed run evidence: originating `PlanId`, exact observed primary budget, moved learned state, a non-empty set of finite bar-evaluated measurements, and TensorBoard metadata. | Its constructor is hidden. Refinement rejects kind/unit mismatch, underrun, overrun, invalid evidence, zero criteria, and any failed criterion. |
-| `AdmittedCheckpoint` | Store's opaque exact persisted V2 graph: addressed outer/body manifest plus independently fetched, address-checked physical blobs and graph-derived slices. | Known-address admission performs no pointer read. Latest admission reads `P1`, verifies the exact addressed manifest, requires exact `P1 == P2`, and only then fetches/binds blobs. A decoded or caller-built manifest cannot construct it. |
+| `AdmittedCheckpoint` | Store's opaque exact persisted checkpoint: addressed canonical outer envelope and typed payload plus independently fetched, address-checked physical blobs and any graph-derived flat layout. | Known-address admission performs no pointer read. Latest admission reads `P1`, verifies the exact addressed manifest, requires exact `P1 == P2`, and only then fetches/binds blobs. A decoded or caller-built manifest cannot construct it. |
 | `AdmittedCompletedCheckpoint` | The only value accepted by the shared checkpoint inference loader before `eval`, `inference run`, demo routes, RL rollout/eval, or AlphaZero game endpoints consume weights. | `requireAdmittedCompletedCheckpoint` revalidates mandatory completion only on an `AdmittedCheckpoint`; its constructor is hidden and Product Pipeline consumes this Store value. |
 
 The type boundary is the product requirement: an untrained initialization,
@@ -108,7 +108,7 @@ finite literature target/slack bar, and a finite positive gradient norm. It
 also rejects smoke-threshold evidence and deliberately underpowered two-step
 evidence whose held-out metric fails the row's literature/slack bar.
 
-Dataset-read provenance is not an upload-time promise. Product and generic V2
+Dataset-read provenance is not an upload-time promise. Product and generic supervised-graph
 training obtain artifact bytes through the verified read boundary, record the
 observed image/label/archive digest for the row, and only then enter gunzip,
 IDX, tar, Zip64/JPEG, or regression parsing. Refinement independently derives
@@ -132,7 +132,7 @@ The completed checkpoint records:
 - TensorBoard run key and scalar tag prefix;
 - readiness witness for the checkpoint store and inference loader.
 
-For supervised V2 publication, “positive update count” above means the exact
+For supervised-graph publication, “positive update count” above means the exact
 successful trainer observation, not the mathematically projected budget. The
 projection and observation are independent values that must be equal. A failed
 or interrupted training call returns no successful `TrainingMetrics` value and
@@ -183,36 +183,36 @@ and test retain their fixed decoder order and membership. Consequently no
 split-size, budget, throughput, or observed-update evidence changes merely
 because canonical classification training is shuffled.
 
-The current `cifar10-vit` ProductRow keeps **2,000** training examples, five
-epochs, batch size 128, **10,000** processed examples, and **80** observed
+The current `cifar10-vit` ProductRow keeps **2,000** training examples, forty
+epochs, batch size 128, **80,000** processed examples, and **640** observed
 successful mini-batch updates in its final typed recipe. Earlier
 executable-topology diagnostics used their then-current plans and remain dated
 evidence in Sprint `10.6`.
 Validation and test values do not influence its RGB fit; all three model-input
-partitions receive the transform fitted from training only, while the V2 parity
+partitions receive the transform fitted from training only, while the supervised-graph reload-parity
 probe remains in raw `[0,1]` units. Fresh validation uses the descriptor-bound
 finite-positive rate (`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for
 `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight
 rows), whose value participates in `PlanId` and passes unchanged into
 classification or California regression.
-Measured diagnostic chronology and closure evidence live in Sprint `10.6`;
-those Mixer measurements cannot satisfy Blocked Phase `24`'s requirement to
-remeasure the eventual literal small-ViT graph.
+Measured diagnostic chronology for the superseded Mixer lives in Sprint
+`10.6`; the literal small-ViT graph, its current budget, and its measured
+closure evidence subsequently closed through Phases `240`–`246`.
 
 ## SL metrics (R3)
 
 - **Convergence** — a cohort converges when the median held-out **test** accuracy
   over the fixed seed cohort clears its `literatureTarget − slack` bar. That bar is a
   **frozen external literature constant** — owned by `JitML.Product.ExternalBars`
-  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)) and
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)) and
   mirrored in the in-code `JitML.SL.ConvergenceThresholds` — and is **never derived
   from, or set equal to, the measured accuracy**. Regression rows use the declared
   regression metric rather than accuracy. Cross-entropy / MSE training loss and
-  held-out validation loss are reported per run. Each row's convergence is measured
-  end-to-end from a real random init by its per-model
-  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
-  `jitml-model-convergence` case, not asserted from a declared constant or an
-  artifact read.
+  held-out validation loss are reported per run. The ProductScenario integration
+  journal measures each row end-to-end from a real random initialization. The
+  current `jitml-model-convergence` stanza is only the lightweight case-registry
+  guard; [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+  owns making each of its cases consume that opaque completed-run evidence.
 - **Performance** — a **non-wall-clock** throughput metric (examples/sec). Wall-clock latency
   is excluded from the determinism contract (see [determinism_contract.md](determinism_contract.md)),
   so the performance metric is a distinct, deterministic, non-timing measure.
@@ -221,12 +221,13 @@ remeasure the eventual literal small-ViT graph.
   positive and reproducible for the same fixed budget and split. The throughput
   **floor** the metric is graded against is a committed constant in
   `JitML.Product.ExternalBars`
-  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)),
-  never derived from the measured throughput; every row's non-wall-clock inference
-  performance is measured on the trained artifact — and reproduced bit-identically on
-  a same-seed re-run — by its per-model
-  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
-  `jitml-model-convergence` case.
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)),
+  never derived from the measured throughput. Binding every row's non-wall-clock
+  inference measurement and same-seed reproducibility check to its exact trained
+  artifact remains the contract-driven
+  [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+  obligation; the current lightweight stanza validates only its declared case
+  metadata.
 
 | Canonical SL model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
@@ -247,18 +248,40 @@ remeasure the eventual literal small-ViT graph.
 - **Convergence** — a cohort converges when the **real measured-median** episode
   return over `k` seeds clears its per-cohort return threshold. That threshold is a
   **frozen external literature constant** (`JitML.Product.ExternalBars`,
-  [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md);
+  [Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md);
   mirrored by `JitML.RL.ConvergenceThresholds`), never derived from the measured
   return. The measured return is a **trained-policy rollout** — the learned policy
-  acting in the environment — not a scripted expert controller;
-  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
-  removes the expert-controller probe and evaluates the trained policy in the
-  per-model `jitml-model-convergence` case.
+  acting in the environment — not a scripted expert controller. Current
+  ProductScenario execution records the trained-policy result; Phase `284`
+  migrates the per-model `jitml-model-convergence` cases from metadata checks to
+  that completed-run evidence.
+- **Trainer-owned counters** — every successful traditional trainer returns
+  opaque positive `MeasuredEnvironmentTransitions` and
+  `MeasuredOptimizerUpdates` values from the loop that executed the work.
+  Callers do not reconstruct either value from iteration counts, rollout widths,
+  episode horizons, fixed-step limits, or replay settings. The measured physical
+  transition count must equal the compiled plan's exact transition target and is
+  used unchanged as the checkpoint step and `CompletedTraining` observed budget.
+  Traditional RL has no planned optimizer-update quantity: the removed field
+  mixed iterations, transitions, and episodes across trainer families. The
+  measured update count instead flows unchanged through `TrainingEvidence`,
+  completion, and the persisted manifest.
+- **Learning versus final evaluation** — `LearningCurve` is a non-empty,
+  strictly iteration-ordered sequence of finite trainer-produced
+  `IterationSummary` values. `EvaluationSet` is a complete map containing each
+  planned zero-based evaluation episode id exactly once, with a finite reward
+  and positive actual step count. Each `EpisodeOutcome` also preserves the
+  environment's terminal bit: natural termination is `True`, while exhaustion
+  of the evaluation episode-step horizon is a truncation and remains `False`.
+  Evaluator adapters may not replace that distinction with the fact that their
+  own loop finished. Final reward medians consume the full `EvaluationSet`; a
+  partial set, tail subset, or broker arrival order is neither a final metric nor
+  a learning curve.
 - **Row evidence** — neural and learned-policy RL rows record deterministic
-  initial/final policy-or-Q hashes, a positive update count, the fixed-budget
-  observation count, and `linux-cpu` device evidence before a
-  `CompletedTraining` witness can enter the checkpoint manifest. The update
-  count is measured by the trainer against the exact flattened tensor whose
+  initial/final policy-or-Q hashes, the trainer-owned positive measured counters,
+  and `linux-cpu` device evidence before a `CompletedTraining` witness can enter
+  the checkpoint manifest. The update count is measured by the trainer against
+  the exact flattened tensor whose
   initial/final hashes are recorded: DQN, QR-DQN, and HER report online-Q Adam
   applications; PPO-family rows report combined policy/value minibatch Adam
   applications; TRPO also reports every accepted actor natural-gradient
@@ -273,19 +296,19 @@ remeasure the eventual literal small-ViT graph.
 - **Performance** — a non-wall-clock RL performance metric (sample efficiency, i.e.
   env-steps-to-threshold), graded against a committed **ceiling** in
   `JitML.Product.ExternalBars`
-  ([Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)) that
-  is never derived from the measured value and is exercised — and reproduced
-  bit-identically on a same-seed re-run — by the same per-model
-  [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
-  `jitml-model-convergence` case.
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)) that
+  is never derived from the measured value. The Phase `284` contract-driven
+  per-model case owns exercising that measurement from the exact completed
+  artifact and proving same-seed reproducibility; the current stanza checks only
+  the registered metric and positive floor.
 
 | RL / self-play model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
 | PPO, A2C, TRPO, MaskablePPO, RecurrentPPO | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return per algorithm/environment cohort |
 | DQN, QR-DQN | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return on discrete-action cohorts |
 | DDPG, TD3, SAC, CrossQ, TQC | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return on continuous-control cohorts |
-| ARS | training: candidate evaluations; evaluation: keyed episodes with an episode-step horizon | median evaluation return and accepted-direction improvement over the seed cohort |
-| HER | training: goal-conditioned environment transitions; evaluation: keyed episodes with an episode-step horizon | goal success rate and median achieved-goal distance |
+| ARS | training: physical perturbation-rollout environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return and accepted-direction improvement over the seed cohort |
+| HER | training: goal-conditioned environment transitions; evaluation: keyed episodes with an episode-step horizon | goal success rate and mean achieved-goal distance |
 | AlphaZero Connect 4, Othello, Hex, Gomoku | self-play generations, MCTS simulations per move, and arena games | arena win-rate against the baseline/prior checkpoint plus legal-move rate |
 | Hyperparameter tuning | fixed trial count or fixed scheduler-rung budget | best validation objective at the completed budget plus replayable sampler state |
 

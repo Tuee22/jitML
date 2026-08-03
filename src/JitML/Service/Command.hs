@@ -102,6 +102,8 @@ import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.RL.Command qualified as RlCommand
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
+import JitML.RL.Framework qualified as Framework
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.TrainerExecution (trainerRunEpisodes)
 import JitML.RL.TrainerExecution qualified as TrainerExecution
 import JitML.SL.Canonicals qualified as SL
@@ -1949,11 +1951,6 @@ word64ToIntService label value
       Left (SETransient (label <> " exceeds the platform Int range"))
   | otherwise = Right (fromIntegral value)
 
-positiveWord64ToIntService :: Text -> Word64 -> Either ServiceError Int
-positiveWord64ToIntService label value
-  | value == 0 = Left (SETransient (label <> " must be positive"))
-  | otherwise = word64ToIntService label value
-
 runHostAppleRl
   :: Env
   -> ProtoRl.StartRLRun
@@ -1962,38 +1959,34 @@ runHostAppleRl env start
   | ProtoRl.srlSubstrate start /= AppleSilicon =
       pure (Left (SETransient "host Apple RL received a non-apple-silicon command"))
   | otherwise =
-      case ( positiveWord64ToIntService
-               "host Apple RL evaluation episodes"
-               (fromIntegral (ProtoRl.srlEvalEpisodes start))
-           , positiveWord64ToIntService
-               "host Apple RL maximum episode steps"
-               (fromIntegral (ProtoRl.srlMaxSteps start))
-           ) of
-        (Left err, _) -> pure (Left err)
-        (_, Left err) -> pure (Left err)
-        (Right evaluationEpisodes, Right maximumEpisodeSteps) -> do
-          let trainerKind = Workload.rlTrainerForAlgorithm (ProtoRl.srlAlgorithm start)
-              device = rlDeviceForSubstrate AppleSilicon env
-          planE <-
-            liftIO
-              ( TrainerExecution.compileTraditionalRlPlan
-                  trainerKind
-                  (ProtoRl.srlEnvironment start)
-                  (fromIntegral (ProtoRl.srlSeed start))
-                  evaluationEpisodes
-                  maximumEpisodeSteps
-                  Nothing
-              )
-          case planE of
-            Left err -> pure (Left (SETransient ("host Apple RL plan invalid: " <> err)))
-            Right plan -> do
-              episodesE <-
-                liftIO (TrainerExecution.runTrainerEpisodesForPlan AppleSilicon device Nothing plan)
-              case episodesE of
-                Left err -> pure (Left (SETransient ("host Apple RL failed: " <> err)))
-                Right trainerRun -> do
-                  results <- traverse (publishHostRlEpisode start) (trainerRunEpisodes trainerRun)
-                  pure $ maybe (Right ()) Left (firstLeft results)
+      case Workload.rlPlanForStart start of
+        Left err -> pure (Left (SETransient ("host Apple RL plan invalid: " <> err)))
+        Right plan -> do
+          let device = rlDeviceForSubstrate AppleSilicon env
+          episodesE <-
+            liftIO (TrainerExecution.runTrainerEpisodesForPlan AppleSilicon device Nothing plan)
+          case episodesE of
+            Left err -> pure (Left (SETransient ("host Apple RL failed: " <> err)))
+            Right trainerRun -> do
+              let planId = ProductBudget.compiledRlPlanId plan
+              iterationResults <-
+                case trainerRun of
+                  TrainerExecution.EvaluationOnly _ -> pure []
+                  TrainerExecution.Trained artifact ->
+                    traverse
+                      (publishHostRlIteration start planId)
+                      ( Framework.learningCurveSummaries
+                          (TrainerExecution.trainedArtifactLearningCurve artifact)
+                      )
+              evaluationResults <-
+                traverse
+                  (publishHostRlEvaluationOutcome start planId)
+                  (trainerRunEpisodes trainerRun)
+              pure $
+                maybe
+                  (Right ())
+                  Left
+                  (firstLeft (iterationResults <> evaluationResults))
 
 runHostAppleAlphaZero
   :: Env
@@ -2229,20 +2222,23 @@ trainHostAlphaZeroGenerations experimentHash planId initialState device = go 0
                             seed
                         pure (fmap (second (generationSamples <>)) later)
 
-publishHostRlEpisode
+publishHostRlEvaluationOutcome
   :: ProtoRl.StartRLRun
+  -> Text
   -> EpisodeEnvelope.SimulatedEpisode
   -> ServiceClients.EngineServiceClient (Either ServiceError ())
-publishHostRlEpisode start episode = do
+publishHostRlEvaluationOutcome start planId episode = do
   timestampNs <- liftIO currentTimestampNs
   let envelope =
-        ProtoRl.RlEpisode
-          ( ProtoRl.EpisodeDone
-              { ProtoRl.edExperimentHash = ProtoRl.srlExperimentHash start
-              , ProtoRl.edEpisode = fromIntegral (EpisodeEnvelope.simEpisodeIndex episode)
-              , ProtoRl.edReward = EpisodeEnvelope.simEpisodeReward episode
-              , ProtoRl.edSteps = fromIntegral (EpisodeEnvelope.simEpisodeSteps episode)
-              , ProtoRl.edTimestampNs = timestampNs
+        ProtoRl.RlEvaluation
+          ( ProtoRl.EvaluationOutcome
+              { ProtoRl.eoPlanId = planId
+              , ProtoRl.eoExperimentHash = ProtoRl.srlExperimentHash start
+              , ProtoRl.eoEpisodeId = fromIntegral (EpisodeEnvelope.simEpisodeIndex episode)
+              , ProtoRl.eoReward = EpisodeEnvelope.simEpisodeReward episode
+              , ProtoRl.eoSteps = fromIntegral (EpisodeEnvelope.simEpisodeSteps episode)
+              , ProtoRl.eoDone = EpisodeEnvelope.simEpisodeDone episode
+              , ProtoRl.eoTimestampNs = timestampNs
               }
           )
       animationEnvelopes =
@@ -2259,6 +2255,27 @@ publishHostRlEpisode start episode = do
       (publishProtocolEvent Topology.RlEventRoute AppleSilicon)
       animationEnvelopes
   pure $ maybe (Right ()) Left (firstLeft (episodeResult : frameResults))
+
+publishHostRlIteration
+  :: ProtoRl.StartRLRun
+  -> Text
+  -> Framework.IterationSummary
+  -> ServiceClients.EngineServiceClient (Either ServiceError ())
+publishHostRlIteration start planId summary = do
+  timestampNs <- liftIO currentTimestampNs
+  publishProtocolEvent
+    Topology.RlEventRoute
+    AppleSilicon
+    ( ProtoRl.RlIteration
+        ProtoRl.IterationSummary
+          { ProtoRl.isPlanId = planId
+          , ProtoRl.isExperimentHash = ProtoRl.srlExperimentHash start
+          , ProtoRl.isIteration = Framework.iterationSummaryIndex summary
+          , ProtoRl.isMetricName = Framework.iterationSummaryMetricName summary
+          , ProtoRl.isMetricValue = Framework.iterationSummaryMetricValue summary
+          , ProtoRl.isTimestampNs = timestampNs
+          }
+    )
 
 publishProtocolEvent
   :: (Capabilities.HasPulsar m)

@@ -58,6 +58,7 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
+import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.QrDqnLoss (quantileMidpoints)
 import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
@@ -142,8 +143,9 @@ data QrDqnIterationStat = QrDqnIterationStat
 data QrDqnTrainResult = QrDqnTrainResult
   { qrResultStats :: ![QrDqnIterationStat]
   , qrResultFinalParams :: !MlpParams
-  , qrResultOptimizerSteps :: !Int
-  -- ^ Adam applications executed against the final online quantile-Q tensor.
+  , qrResultMeasuredCounters :: !Common.MeasuredTrainerCounters
+  -- ^ Actual environment transitions plus Adam applications executed against
+  -- the final online quantile-Q tensor.
   , qrResultConfig :: !QrDqnTrainConfig
   }
   deriving stock (Eq, Show)
@@ -221,15 +223,18 @@ loopEither
   -> IO (Either Text QrDqnTrainResult)
 loopEither environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= qrNumSteps config =
-      pure
-        ( Right
-            QrDqnTrainResult
-              { qrResultStats = reverse stats
-              , qrResultFinalParams = online
-              , qrResultOptimizerSteps = adamStep_ adam
-              , qrResultConfig = config
-              }
-        )
+      pure $ do
+        counters <-
+          Common.mkMeasuredTrainerCounters
+            (toInteger step)
+            (toInteger (adamStep_ adam))
+        pure
+          QrDqnTrainResult
+            { qrResultStats = reverse stats
+            , qrResultFinalParams = online
+            , qrResultMeasuredCounters = counters
+            , qrResultConfig = config
+            }
   | otherwise = do
       let epsilon = currentEpsilon config step
           obs = obsVector environment state
@@ -487,7 +492,7 @@ evaluateQrDqnPolicyWithEnvironment
   -> QrDqnTrainConfig
   -> MlpParams
   -> Int
-  -> [(Double, Int)]
+  -> [Common.EvaluationEpisodeResult]
 evaluateQrDqnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
   replicate (max 1 episodeCount) (evaluateEpisode environment config params)
 
@@ -495,11 +500,12 @@ evaluateEpisode
   :: SimulatedEnvironment state
   -> QrDqnTrainConfig
   -> MlpParams
-  -> (Double, Int)
+  -> Common.EvaluationEpisodeResult
 evaluateEpisode environment config params = go (envInitial environment) 0 0.0
  where
   go state episodeLen episodeReturn
-    | episodeLen >= qrMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | episodeLen >= qrMaxEpisodeSteps config =
+        Common.EvaluationEpisodeResult episodeReturn episodeLen False
     | otherwise =
         let obs = obsVector environment state
             output = forwardOutput (mlpForward params obs)
@@ -509,7 +515,7 @@ evaluateEpisode environment config params = go (envInitial environment) 0 0.0
             nextReturn = episodeReturn + simStepReward stepResult
             nextLen = episodeLen + 1
          in if simStepDone stepResult
-              then (nextReturn, nextLen)
+              then Common.EvaluationEpisodeResult nextReturn nextLen True
               else go (simStepState stepResult) nextLen nextReturn
 
 -- | Minibatch QR-DQN gradient update through the batched device primitives:

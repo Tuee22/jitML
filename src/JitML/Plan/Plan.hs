@@ -204,7 +204,6 @@ data RawRunBudget (kind :: RunKind) where
        , rawRlVectorEnvironments :: Integer
        , rawRlEpisodeSteps :: Integer
        , rawRlEvaluationEpisodes :: Integer
-       , rawRlOptimizerUpdates :: Integer
        }
     -> RawRunBudget 'ReinforcementLearning
   RawTuningBudget
@@ -257,7 +256,6 @@ data RunBudget (kind :: RunKind) where
     -> Quantity 'VectorEnvironment
     -> Quantity 'EpisodeStep
     -> Quantity 'EvaluationEpisode
-    -> Quantity 'OptimizerUpdate
     -> RunBudget 'ReinforcementLearning
   TuningBudget
     :: Quantity 'Trial
@@ -407,15 +405,13 @@ validateBudget rawBudget =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         RlBudget
           <$> mkQuantity "environment-transitions" transitions
           <*> mkQuantity "rollout-ticks-per-environment" rolloutTicks
           <*> mkQuantity "vector-environments" vectorEnvironments
           <*> mkQuantity "episode-steps" episodeSteps
           <*> mkQuantity "evaluation-episodes" evaluationEpisodes
-          <*> mkQuantity "optimizer-updates" optimizerUpdates
     RawTuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       TuningBudget
         <$> mkQuantity "trials" trials
@@ -525,14 +521,12 @@ runPlanBudgetSummary plan =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         [ ("environment-transitions", quantityValue transitions)
         , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
         , ("vector-environments", quantityValue vectorEnvironments)
         , ("episode-steps", quantityValue episodeSteps)
         , ("evaluation-episodes", quantityValue evaluationEpisodes)
-        , ("optimizer-updates", quantityValue optimizerUpdates)
         ]
     TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       [ ("trials", quantityValue trials)
@@ -568,7 +562,6 @@ runPlanRlBudget
      , Quantity 'VectorEnvironment
      , Quantity 'EpisodeStep
      , Quantity 'EvaluationEpisode
-     , Quantity 'OptimizerUpdate
      )
 runPlanRlBudget plan =
   case resolvedPlanBudget plan of
@@ -577,14 +570,12 @@ runPlanRlBudget plan =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         ( transitions
         , rolloutTicks
         , vectorEnvironments
         , episodeSteps
         , evaluationEpisodes
-        , optimizerUpdates
         )
 
 runPlanSupervisedBudget
@@ -709,14 +700,12 @@ budgetSummary budget =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         [ ("environment-transitions", quantityValue transitions)
         , ("rollout-ticks-per-environment", quantityValue rolloutTicks)
         , ("vector-environments", quantityValue vectorEnvironments)
         , ("episode-steps", quantityValue episodeSteps)
         , ("evaluation-episodes", quantityValue evaluationEpisodes)
-        , ("optimizer-updates", quantityValue optimizerUpdates)
         ]
     TuningBudget trials parallelTrials promotions perTrialOptimizerUpdates ->
       [ ("trials", quantityValue trials)

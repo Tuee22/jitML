@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
@@ -36,7 +36,7 @@ evidence projected into browser contracts come from
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, adversarial selectors, ProductRow artifact hashes, checkpoint-required fail-closed rendering, and one generated trained-artifact/convergence-statistics proof for every product row. | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec instantiates exactly 55 positive ProductRow tests from the command-owned browser catalogue, drives the real checkpoint API/UI path, and binds every rendered row to its exact row id, PlanId, experiment, manifest, and measured result. Separate route-mocked cases prove malformed or non-passing frames fail closed. A custom reporter publishes the authenticated browser-result journal. | `playwright/jitml-demo.spec.ts`, `playwright/jitml-browser-evidence-reporter.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Webapp role | HTTP/WebSocket server selected by typed `BootConfig.activeRole = Webapp` | `src/JitML/App.hs`, `chart/local/jitml-demo` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -85,7 +85,9 @@ web/
     └── Main.purs
 
 playwright/
-└── jitml-demo.spec.ts
+├── jitml-browser-evidence-reporter.ts
+├── jitml-demo.spec.ts
+└── playwright.config.ts
 ```
 
 Build output under `web/dist/` is generated, not checked in. The Docker image
@@ -118,11 +120,12 @@ payloads generated from Haskell-owned contracts; renders model-appropriate
 interactions; animates RL trajectories from real event frames; renders canonical
 adversarial games with legal move handling, MCTS/value/policy details, and
 interactive replay; exposes tuning sweep controls/frontiers tied to real trial
-state; and shows the completed-budget/convergence-statistics payload attached
-to each selected checkpoint. Playwright proves those behaviors through the
-explicit live `jitml-e2e` orchestration path and the same completed-evidence
-journal consumed by Haskell integration assertions. The development plan owns
-current lane validation status.
+state; and shows the completed-budget/measured-result payload attached to each
+selected checkpoint. Playwright proves those behaviors through the explicit
+live `jitml-e2e` orchestration path. It consumes a read-only catalogue derived
+from the already-authenticated integration journal, then returns a separately
+keyed browser-result journal; it cannot read or sign the integration journal
+itself. The development plan owns current lane validation status.
 
 ## Browser-Contract ADTs
 
@@ -131,34 +134,40 @@ crossed by the REST / WebSocket surface. The current local renderer produces
 `web/src/Generated/Contracts.purs`, identifies itself as
 `local-purescript-bridge-compatible-renderer`, and the generated contract path
 is an active `trackingGeneratedPaths` entry; hand edits fail
-`jitml docs check`. `CheckpointList` now carries `rowSelectors`, one
-`ProductRowSelector` per product-row artifact namespace, with `rowId`,
-`experimentHash`, `family`, `selectorState`, `checkpointCount`, and `demoPanel`.
-`selectorState` is one of `eligible`, `training-required`, `unsupported`, or
-`error`. `CheckpointSummary` carries only Engine-listed inference-eligible
-artifacts and includes the row id, manifest SHA, step, model family, tensor
-count, eligibility string, completed-budget rendering, convergence-metric
-rendering, and TensorBoard prefix. The browser contract therefore receives a
-projection of the same refined completed evidence that the Haskell loader
-enforces, instead of inferring readiness from seeded or smoke manifests. Browser
-records are wire/view DTOs, not proof-bearing domain values: `eligible` and
-`done` are rendered only from opaque backend witnesses, and decoding those text
-states cannot manufacture completion. See
+`jitml docs check`. `CheckpointList` is one strict, all-or-nothing 55-row frame.
+Its scalar header binds `run-id`, substrate, catalogue SHA, source-journal SHA,
+count, and selector state. Every ordered `ProductRowSelector` carries ordinal,
+row id, PlanId, experiment hash, exact manifest SHA, family, explicit
+`Passed`/`Failed`/`NotRun` status and reason, and panel. Every ordered
+`CheckpointSummary` repeats ordinal, row id, PlanId, experiment, and manifest,
+then supplies step, model family, tensor count, eligibility, completed budget,
+measured result, and TensorBoard prefix. The generated parser rejects missing,
+duplicated, orphaned, reordered, malformed, non-canonical-substrate, or
+selector/summary-mismatched rows. Canonical text fields are trimmed, non-empty,
+free of all Unicode `Cc` controls, and bounded to 4096 Unicode code points,
+matching the Haskell and reporter boundaries. The backend publishes the frame only when all
+55 source rows are `Passed`; Failed or NotRun source evidence returns a service
+error and produces no partial catalogue. Browser records remain wire/view DTOs,
+not proof-bearing domain values: decoding text cannot manufacture completion.
+See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
-`ModelMatrixRow` carries the generated `experimentHash` and `demoPanel` for each
-ProductRow, and the default panel requests use the stable `product-row-*`
-artifact namespaces rather than legacy seeded demo hashes. The checkpoint panel
-uses `rowSelectors` plus matching `CheckpointSummary.rowId` values to render one
-artifact card per ProductRow with family-specific supervised, RL, AlphaZero, or
-tuning metadata.
+`ModelMatrixRow` carries the generated PlanId, substrate, experiment hash, and
+panel for each ProductRow on every substrate. Static rows are declaration-only
+and render `NotRun` without displaying a substrate-specific PlanId; they never
+look like live proof. The checkpoint panel
+accepts only the direct REST response, renders explicit status/reason cells, and
+joins selector to summary by the complete `(ordinal, row id, PlanId, experiment,
+manifest)` identity before rendering family-specific supervised, RL, AlphaZero,
+or tuning metadata.
 Product REST routes validate the submitted artifact namespace against the
 ProductRow registry before publishing work or calling the runtime; non-product
 hashes and `*-demo-weights` names return `503 checkpoint-required` with
 `selector-state: fail-closed:no-inference-eligible-artifact`, and panels render
 that text through their existing error state.
-The non-live integration selector test constructs one completed and one partial
-manifest and asserts that only the completed manifest appears in the browser
-summary list.
+Local parser and browser-negative coverage rejects partial selector or summary
+coverage, duplicate/unknown/reordered fields, identity mismatch, and non-passing
+source evidence. The service and panel never render a permissively filtered
+prefix as a partial `CheckpointList`.
 
 The current endpoint metadata covers:
 
@@ -296,7 +305,7 @@ Pulsar event topics by `liveDemoWebSocketRoutes`.
 | Connect 4 move | POST | `/api/connect4/move` | `Connect4Move` |
 | Workflow command | POST | `/api/runs/<run-id>/command` | `WorkflowCommandAck` |
 | Live event WS | GET | `/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune` | typed event envelopes |
-| Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | inference-eligible checkpoint summary list (cross-link to TB sidecars) |
+| Checkpoint browse | POST | `/api/checkpoints` | complete publication-bound 55-row `CheckpointList` (cross-link to TB sidecars) |
 
 ## Webapp HTTP Server
 
@@ -318,15 +327,20 @@ runtime/budget envelope, but CUDA execution belongs to the Engine role.
 
 ## Playwright E2E
 
-`playwright/jitml-demo.spec.ts` is the current live-only TypeScript Playwright
-suite. `JitML.Test.LivePlan` records the typed
-`docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=<substrate> mcr.microsoft.com/playwright:v1.49.1-noble ... playwright test --config playwright/playwright.config.ts`
-step after the Helm dependency build and the `jitml bootstrap` live-cluster
-rollout. The default `jitml-e2e` Cabal body validates that typed Playwright
-command shape without starting the live stack; `jitml test jitml-e2e --live
---linux-cpu` selects or bootstraps the live cluster and runs it. The checked-in spec is live-only: it reads
-`.build/runtime/cluster-publication.json`, navigates to the published edge
-route, and fails fast when no live publication exists. The historical matrix
+`playwright/jitml-demo.spec.ts` is the live-only TypeScript suite.
+`JitML.Test.LivePlan` gives the browser container a read-only repository mount,
+an individual read-only catalogue file, an individual read-only cluster
+publication, and one isolated read-write browser-evidence directory. It does
+not mount the Phase 261 journal, ProductScenario signing capability, executable
+challenge, or checkpoint root. Its only key is the independent browser-result
+key created after the parent-only fallback is durable. The exact publication
+must contain `live-readiness` and the
+complete substrate-specific ready-component set. The exact catalogue must be a
+strict version-1 55-row envelope whose run, substrate, catalogue SHA, source
+journal SHA, row identity, PlanId, manifest, and measured result are canonical.
+The default `jitml-e2e` Cabal body validates that typed mount/environment shape
+without starting the live stack; the explicit live driver selects or boots the
+cluster and runs it. The historical matrix
 covers the smoke shell plus the original eight-panel cohort:
 
 - Portals home: load the empty-hash root and assert both the panels
@@ -343,13 +357,28 @@ covers the smoke shell plus the original eight-panel cohort:
 - Training / Tune: load the streaming metric panels through the live edge
   route.
 
-The product matrix covers every documented model family with Store-admitted
-completed checkpoint artifacts, visible completion/convergence
-projections, negative infer-before-complete checks, RL animations from trained
-policies, adversarial-game boards from trained policy/value checkpoints,
-transcript replay, tuning controls, and TensorBoard/checkpoint links. Current
-lane validation evidence belongs in the development plan, not this architecture
-document.
+The 55 positive ProductRow cases are created from `JITML_BROWSER_CATALOGUE_PATH`,
+not regexes over `Generated.Contracts` and not broad body substrings. Each case
+has the exact catalogue title. A serial `beforeAll` performs one authenticated
+real panel load through `/api/checkpoints`; the 55 cases then assert their exact
+catalogue-bound row id, PlanId, experiment, manifest, measured result, status,
+and family renderer against that same refined DOM. Route mocks exist only in a
+separate negative suite, use the full frozen 55-row wire, and prove mismatched
+manifests plus explicit Failed/NotRun source rows render no Passed fallback.
+
+`jitml-browser-evidence-reporter.ts` keeps the final retry for each exact
+catalogue test id and atomically publishes a strict version-1 result containing
+55 ordered `Passed`, `Failed`, or `NotRun` rows. It consumes and unlinks a fresh
+0600 file containing exactly 64 lowercase hexadecimal characters (32 key
+bytes), constructs byte-length-delimited UTF-8 receipt material, signs it with
+HMAC-SHA256, zeroes the in-memory key, and refuses to replace a stale result.
+Failure details remove every Unicode `Cc` control and retain at most 4096 code
+points; receipt lengths are UTF-8 byte lengths, with a multibyte golden shared
+with the Haskell verifier.
+`playwright.config.ts` retains the list reporter and enables this reporter only
+when all four browser-evidence environment variables are present; a partial
+configuration fails immediately. Current lane validation evidence belongs in
+the development plan, not this architecture document.
 
 Playwright execution runs through a structured process result on the explicit
 live orchestration path and attaches its transcript to the scenario journal; it
@@ -369,6 +398,6 @@ default Cabal matrix.
 - [cluster_topology.md → Routes Published at the Edge](cluster_topology.md#routes-published-at-the-edge) (the canonical regenerated table)
 - [daemon_architecture.md](daemon_architecture.md)
 - [run_contract.md](run_contract.md)
-- [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
-- [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
-- [../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md)
+- [Legacy Phase 11: PureScript Frontend and Demo](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [Legacy Phase 12: Test Stanzas and Cross-Cluster Validation](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [Legacy Phase 14: Interactive Demo and Playwright Closure](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)

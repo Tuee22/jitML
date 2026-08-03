@@ -168,6 +168,8 @@ instance HasMinIO EngineServiceClient where
     runEngineMinIOAction (minioReadObject ref)
   minioReadBytes ref =
     runEngineMinIOAction (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    runEngineMinIOAction (minioReadBytesWithETag ref)
   putBlobIfAbsent ref payload =
     runEngineMinIOAction (putBlobIfAbsent ref payload)
   putBlobBytesIfAbsent ref payload =
@@ -334,6 +336,8 @@ instance HasMinIO DaemonServiceClient where
     runDaemonMinIOAction (minioReadObject ref)
   minioReadBytes ref =
     runDaemonMinIOAction (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    runDaemonMinIOAction (minioReadBytesWithETag ref)
   putBlobIfAbsent ref payload =
     runDaemonMinIOAction (putBlobIfAbsent ref payload)
   putBlobBytesIfAbsent ref payload =

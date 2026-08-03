@@ -25,6 +25,8 @@ module JitML.Test.LiveWorkflow
   , LiveCompletionMode (..)
   , LiveDiagnostic (..)
   , LiveDisposition (..)
+  , LiveEventSource
+  , LiveEventSourceError (..)
   , LiveJournalEvent (..)
   , LiveJournalRecord (..)
   , LivePrimaryFailure (..)
@@ -54,10 +56,16 @@ module JitML.Test.LiveWorkflow
   , jobHandlePlanId
   , joinedCompletion
   , liveCommandCanonicalText
+  , liveEventSourceAddress
+  , liveEventSourceName
+  , liveEventSourceRender
+  , liveEventSourceSubscription
+  , localEventSource
   , mkHostRunHandle
   , mkJobHandle
   , mkRequestHandle
   , placementPlanId
+  , pulsarEventSource
   , requestHandleKey
   , requestHandlePlanId
   , runLiveWorkflow
@@ -334,15 +342,84 @@ data LiveCommand command where
   -- cannot supply a second raw label/payload that can drift from execution.
   ExecutableCommand :: Subprocess -> LiveCommand Subprocess
 
-data LiveTransport command event = LiveTransport
-  { livePublishCommand :: LiveCommand command -> IO (Either ServiceError Text)
-  , liveConsumeEvents
-      :: forall result
-       . Subscription event
-      -> (ConsumerSessionEvent -> IO ())
-      -> (Delivery event -> IO (ConsumerDecision result))
-      -> IO (Either ConsumerFailure result)
-  }
+data LiveTransport command event where
+  LiveTransport
+    :: { livePublishCommand :: LiveCommand command -> IO (Either ServiceError Text)
+       , liveConsumeEvents
+           :: forall result
+            . LiveEventSource command event
+           -> (ConsumerSessionEvent -> IO ())
+           -> (Delivery event -> IO (ConsumerDecision result))
+           -> IO (Either ConsumerFailure result)
+       }
+    -> LiveTransport command event
+  -- | A host executable transport has no broker delivery surface.  Its
+  -- negative-control observer runs before command publication, while its
+  -- resolver runs only after the exact subprocess succeeds and returns the
+  -- one typed evidence value ingested by the local event source.
+  LocalExecutableTransport
+    :: { liveObserveLocalPrecondition :: Subprocess -> IO (Either ServiceError Text)
+       , liveExecuteLocalCommand :: Subprocess -> IO (Either ServiceError Text)
+       , liveResolveLocalEvidence :: Subprocess -> IO (Either ServiceError event)
+       }
+    -> LiveTransport Subprocess event
+
+-- | The typed evidence channel consumed by one workflow.  Broker-backed
+-- protocol workflows retain their exact 'Subscription'.  Host executable
+-- workflows can instead use a local typed channel whose renderer is fixed at
+-- construction time; this lets an executable publish a Store-admitted result
+-- without pretending that the result came from an unrelated Pulsar topic or
+-- parsing process stdout as evidence.
+data LiveEventSource command event where
+  PulsarEventSource :: !(Subscription event) -> LiveEventSource command event
+  LocalEventSource :: !Text -> !Text -> !(event -> Text) -> LiveEventSource Subprocess event
+
+pulsarEventSource :: Subscription event -> LiveEventSource command event
+pulsarEventSource = PulsarEventSource
+
+data LiveEventSourceError
+  = EmptyLocalEventSourceName
+  | EmptyLocalEventSourceAddress
+  deriving stock (Eq, Show)
+
+localEventSource
+  :: Text
+  -> Text
+  -> (event -> Text)
+  -> Either LiveEventSourceError (LiveEventSource Subprocess event)
+localEventSource rawName rawAddress renderEvent = do
+  name <- nonEmpty EmptyLocalEventSourceName rawName
+  address <- nonEmpty EmptyLocalEventSourceAddress rawAddress
+  pure (LocalEventSource name address renderEvent)
+ where
+  nonEmpty failure value =
+    let normalized = Text.strip value
+     in if Text.null normalized then Left failure else Right normalized
+
+liveEventSourceSubscription :: LiveEventSource command event -> Maybe (Subscription event)
+liveEventSourceSubscription source =
+  case source of
+    PulsarEventSource subscription -> Just subscription
+    LocalEventSource {} -> Nothing
+
+liveEventSourceName :: LiveEventSource command event -> Text
+liveEventSourceName source =
+  case source of
+    PulsarEventSource subscription -> subscriptionName subscription
+    LocalEventSource name _address _renderEvent -> name
+
+liveEventSourceAddress :: LiveEventSource command event -> Text
+liveEventSourceAddress source =
+  case source of
+    PulsarEventSource subscription -> topicName (subscriptionTopic subscription)
+    LocalEventSource _name address _renderEvent -> address
+
+liveEventSourceRender :: LiveEventSource command event -> event -> Text
+liveEventSourceRender source event =
+  case source of
+    PulsarEventSource subscription ->
+      encodeTopicPayload (subscriptionTopic subscription) event
+    LocalEventSource _name _address renderEvent -> renderEvent event
 
 -- | Pure protocol/evidence surface for one already-refined plan.  Protocol
 -- topic witnesses render bytes, while executable commands use the canonical
@@ -350,7 +427,7 @@ data LiveTransport command event = LiveTransport
 data LiveWorkflow command event progress evidence violation missing = LiveWorkflow
   { liveWorkflowPlanId :: PlanId
   , liveWorkflowCommand :: LiveCommand command
-  , liveWorkflowEventSubscription :: Subscription event
+  , liveWorkflowEventSource :: LiveEventSource command event
   , liveWorkflowInitialProgress :: progress
   , liveWorkflowIngest :: progress -> event -> Either violation progress
   , liveWorkflowFinish :: progress -> Validation missing evidence
@@ -392,6 +469,9 @@ data LiveJournalEvent terminal violation missing
   | ConsumerSessionObserved ConsumerSessionEvent
   | SubscriptionReady Text Text
   | SubscriptionReleased Text
+  | LocalEvidenceSourceReady Text Text
+  | LocalPreconditionObserved Text
+  | LocalPreconditionObservationFailed ServiceError
   | CommandPublicationStarted Text Text
   | CommandPublished Text Text Text
   | CommandPublicationFailed ServiceError
@@ -401,6 +481,9 @@ data LiveJournalEvent terminal violation missing
   | ProtocolEvidenceIncomplete missing
   | ProtocolEvidenceRejected violation
   | ProtocolEvidenceCompleted
+  | LocalEvidenceResolutionStarted Text
+  | LocalEvidenceResolutionFailed ServiceError
+  | LocalEvidenceObserved Text Text
   | WorkloadStateObserved (WorkloadObservation terminal)
   | DiagnosticsGathered [LiveDiagnostic]
   | PlacementReleased Placement
@@ -424,6 +507,9 @@ data LivePrimaryFailure terminal violation missing
   | LivePublishFailed ServiceError
   | LiveConsumerFailed ConsumerFailure
   | LiveReducerRejected violation
+  | LiveLocalPreconditionFailed ServiceError
+  | LiveLocalEvidenceFailed ServiceError
+  | LiveLocalEvidenceIncomplete missing
   | LiveCompletionBoundaryMismatch Text
   | LiveWorkloadFailed WorkloadFailure
   | LiveProbeFailed ProbeFailure
@@ -786,7 +872,66 @@ runPlaced
   -> IO ()
   -> Placement
   -> IO (PlacedRunResult terminal evidence violation missing)
-runPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeRelease placement = do
+runPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeRelease placement =
+  case (liveWorkflowEventSource workflow, transport) of
+    (PulsarEventSource _subscription, brokerTransport@LiveTransport {}) ->
+      runSubscribedPlaced
+        workflow
+        brokerTransport
+        backend
+        record
+        subscriptionCleanupRef
+        gatherBeforeRelease
+        placement
+    ( LocalEventSource _name _address _renderEvent
+      , LocalExecutableTransport observePrecondition execute resolve
+      ) ->
+        case validateCompletionBoundary
+          (liveWorkflowCommand workflow)
+          (liveCompletionMode backend)
+          placement of
+          Left detail -> do
+            gatherBeforeRelease
+            pure
+              PlacedRunResult
+                { placedRunPrimary = Just (LiveCompletionBoundaryMismatch detail)
+                , placedRunCompletion = Nothing
+                }
+          Right () ->
+            runLocalExecutablePlaced
+              workflow
+              observePrecondition
+              execute
+              resolve
+              backend
+              record
+              gatherBeforeRelease
+    (PulsarEventSource {}, LocalExecutableTransport {}) ->
+      incompatibleTransport
+        "Pulsar evidence source cannot use a local executable transport"
+    (LocalEventSource {}, LiveTransport {}) ->
+      incompatibleTransport
+        "local evidence source cannot use a broker transport"
+ where
+  incompatibleTransport detail = do
+    gatherBeforeRelease
+    pure
+      PlacedRunResult
+        { placedRunPrimary = Just (LiveCompletionBoundaryMismatch detail)
+        , placedRunCompletion = Nothing
+        }
+
+runSubscribedPlaced
+  :: (Eq terminal, Eq evidence)
+  => LiveWorkflow command event progress evidence violation missing
+  -> LiveTransport command event
+  -> LiveBackend terminal
+  -> (LiveJournalEvent terminal violation missing -> IO ())
+  -> IORef [CleanupIssue]
+  -> IO ()
+  -> Placement
+  -> IO (PlacedRunResult terminal evidence violation missing)
+runSubscribedPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeRelease placement = do
   case validateCompletionBoundary
     (liveWorkflowCommand workflow)
     (liveCompletionMode backend)
@@ -929,6 +1074,122 @@ runPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeR
                         , placedRunCompletion = Just completion
                         }
 
+-- | Observe the local negative-control precondition, execute a host command,
+-- and resolve exactly one typed local evidence value from the successful
+-- command.  The command is never started when the precondition observation
+-- fails.  Local evidence does not acquire a broker subscription and therefore
+-- never fabricates a delivery receipt or settlement disposition.  The command
+-- terminal and the resolved evidence are joined in the same interpreter-owned
+-- result as broker workflows.
+runLocalExecutablePlaced
+  :: LiveWorkflow Subprocess event progress evidence violation missing
+  -> (Subprocess -> IO (Either ServiceError Text))
+  -> (Subprocess -> IO (Either ServiceError Text))
+  -> (Subprocess -> IO (Either ServiceError event))
+  -> LiveBackend terminal
+  -> (LiveJournalEvent terminal violation missing -> IO ())
+  -> IO ()
+  -> IO (PlacedRunResult terminal evidence violation missing)
+runLocalExecutablePlaced workflow observePrecondition executeCommand resolveEvidence backend record _gatherBeforeRelease = do
+  timed <-
+    Timeout.timeout
+      (max 1 (liveWorkflowTimeoutMicros backend))
+      localAction
+  pure $ case timed of
+    Nothing ->
+      PlacedRunResult
+        { placedRunPrimary =
+            Just
+              ( LiveTimedOut
+                  ( case liveWorkflowFinish workflow (liveWorkflowInitialProgress workflow) of
+                      Failure missing -> Just missing
+                      Success _ -> Nothing
+                  )
+                  Nothing
+              )
+        , placedRunCompletion = Nothing
+        }
+    Just (Left primary) ->
+      PlacedRunResult
+        { placedRunPrimary = Just primary
+        , placedRunCompletion = Nothing
+        }
+    Just (Right completion) ->
+      PlacedRunResult
+        { placedRunPrimary = Nothing
+        , placedRunCompletion = Just completion
+        }
+ where
+  source = liveWorkflowEventSource workflow
+
+  localAction =
+    case liveWorkflowCommand workflow of
+      ProtocolCommand _topic _payload ->
+        pure
+          ( Left
+              ( LiveCompletionBoundaryMismatch
+                  "local evidence source requires a typed executable command"
+              )
+          )
+      ExecutableCommand command -> do
+        let (commandAddress, commandPayload) =
+              renderLiveCommand (liveWorkflowCommand workflow)
+        record
+          ( LocalEvidenceSourceReady
+              (liveEventSourceName source)
+              (liveEventSourceAddress source)
+          )
+        precondition <- observePrecondition command
+        case precondition of
+          Left failure -> do
+            record (LocalPreconditionObservationFailed failure)
+            pure (Left (LiveLocalPreconditionFailed failure))
+          Right observation -> do
+            record (LocalPreconditionObserved observation)
+            record (CommandPublicationStarted commandAddress commandPayload)
+            publication <- executeCommand command
+            case publication of
+              Left failure -> do
+                record (CommandPublicationFailed failure)
+                pure (Left (LivePublishFailed failure))
+              Right acknowledgement -> do
+                record
+                  ( CommandPublished
+                      commandAddress
+                      commandPayload
+                      acknowledgement
+                  )
+                record (LocalEvidenceResolutionStarted commandPayload)
+                resolved <- resolveEvidence command
+                case resolved of
+                  Left failure -> do
+                    record (LocalEvidenceResolutionFailed failure)
+                    pure (Left (LiveLocalEvidenceFailed failure))
+                  Right event -> do
+                    record
+                      ( LocalEvidenceObserved
+                          (liveEventSourceAddress source)
+                          (liveEventSourceRender source event)
+                      )
+                    case liveWorkflowIngest workflow (liveWorkflowInitialProgress workflow) event of
+                      Left violation -> do
+                        record (ProtocolEvidenceRejected violation)
+                        pure (Left (LiveReducerRejected violation))
+                      Right progress -> do
+                        record ProtocolEvidenceAccepted
+                        case liveWorkflowFinish workflow progress of
+                          Failure missing -> do
+                            record (ProtocolEvidenceIncomplete missing)
+                            pure (Left (LiveLocalEvidenceIncomplete missing))
+                          Success evidence -> do
+                            record ProtocolEvidenceCompleted
+                            pure
+                              ( Right
+                                  ( ExecutableCommandSucceeded acknowledgement
+                                  , evidence
+                                  )
+                              )
+
 validateCompletionBoundary
   :: LiveCommand command
   -> LiveCompletionMode
@@ -1051,7 +1312,7 @@ consumeEvidence workflow transport record connected published evidenceReady evid
   result <-
     liveConsumeEvents
       transport
-      (liveWorkflowEventSubscription workflow)
+      source
       observeSession
       handleDelivery
   pure (consumerResultToPrimary result)
@@ -1064,10 +1325,8 @@ consumeEvidence workflow transport record connected published evidenceReady evid
         when firstConnection $
           record
             ( SubscriptionReady
-                (subscriptionName (liveWorkflowEventSubscription workflow))
-                ( topicName
-                    (subscriptionTopic (liveWorkflowEventSubscription workflow))
-                )
+                (liveEventSourceName source)
+                (liveEventSourceAddress source)
             )
       _ -> pure ()
 
@@ -1079,15 +1338,10 @@ consumeEvidence workflow transport record connected published evidenceReady evid
           deliveryReceiptFingerprint (deliveryReceipt delivery)
     record
       ( DeliveryObserved
-          ( topicName
-              (subscriptionTopic (liveWorkflowEventSubscription workflow))
-          )
+          (liveEventSourceAddress source)
           receiptFingerprint
           (deliveryRedeliveryCount delivery)
-          ( encodeTopicPayload
-              (subscriptionTopic (liveWorkflowEventSubscription workflow))
-              event
-          )
+          (liveEventSourceRender source event)
       )
     progress <- readIORef progressRef
     case liveWorkflowIngest workflow progress event of
@@ -1114,6 +1368,7 @@ consumeEvidence workflow transport record connected published evidenceReady evid
             record ProtocolEvidenceCompleted
             _ <- tryPutMVar evidenceReady ()
             pure (continue ack)
+  source = liveWorkflowEventSource workflow
 
 -- | Cancel the scoped event consumer and inspect its durable transport result.
 -- 'consumePersistent' rethrows cancellation only after successful cleanup; an
@@ -1154,13 +1409,13 @@ shutdownEvidenceConsumer workflow record cleanupRef consumer = do
           pure (Just (LiveConsumerFailed consumerPrimary))
         _ -> released >> pure (Just primary)
  where
-  subscription = liveWorkflowEventSubscription workflow
+  source = liveWorkflowEventSource workflow
   subscriptionLabel =
-    subscriptionName subscription
+    liveEventSourceName source
       <> " on "
-      <> topicName (subscriptionTopic subscription)
+      <> liveEventSourceAddress source
 
-  released = record (SubscriptionReleased (subscriptionName subscription))
+  released = record (SubscriptionReleased (liveEventSourceName source))
 
   cleanupIssue cleanupError =
     CleanupIssue

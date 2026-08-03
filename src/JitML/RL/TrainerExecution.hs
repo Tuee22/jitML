@@ -1,24 +1,29 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.RL.TrainerExecution
-  ( TrainerRun
+  ( TrainerRun (..)
+  , TrainedArtifact
   , compileTraditionalRlPlan
-  , rlObservedBudgetUnits
+  , evaluationSetEpisodes
+  , evaluationSetFromEvaluations
   , rlTrainerEnvironmentCompatibilityError
   , runDeviceRollout
   , runTrainerEpisodesForPlan
+  , trainedArtifactCounters
+  , trainedArtifactEvaluationSet
+  , trainedArtifactEvidence
+  , trainedArtifactLearningCurve
+  , trainedArtifactWeights
   , trainerRunEpisodes
-  , trainerRunEvidence
-  , trainerRunObservedUnits
-  , trainerRunWeights
+  , trainerRunEvaluationSet
   , validateTrainerEvidenceCounters
   )
 where
 
+import Control.Monad (when)
 import Crypto.Hash.SHA256 qualified
 import Data.ByteString qualified
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -33,25 +38,58 @@ import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
 import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
 import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
+import JitML.RL.Framework qualified as Framework
 import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.Simulator qualified as RLSim
 import JitML.Substrate (Substrate (..), renderSubstrate)
 
--- | Worker-side RL result: per-iteration summaries plus optional flattened
--- trained weights for checkpoint persistence.
-data TrainerRun = TrainerRun
-  { trainerRunEpisodes :: [EpisodeEnvelope.SimulatedEpisode]
-  , trainerRunObservedUnits :: Word64
-  , trainerRunWeights :: Maybe [Double]
-  , trainerRunEvidence :: Maybe ProductEvidence.TrainingEvidence
+-- | A trained result carries all proof-bearing resources together. Independent
+-- optional weights/evidence pairs are deliberately unrepresentable.
+data TrainedArtifact = TrainedArtifact
+  { trainedArtifactLearningCurve :: !Framework.LearningCurve
+  , trainedArtifactEvaluationSet :: !Framework.EvaluationSet
+  , trainedArtifactCounters :: !AlgorithmCommon.MeasuredTrainerCounters
+  , trainedArtifactWeights :: ![Double]
+  , trainedArtifactEvidence :: !ProductEvidence.TrainingEvidence
   }
   deriving stock (Eq, Show)
+
+-- | ALE can currently supply final evaluation only. Every learned neural or
+-- ARS policy must use the proof-bearing 'Trained' branch.
+data TrainerRun
+  = EvaluationOnly !Framework.EvaluationSet
+  | Trained !TrainedArtifact
+  deriving stock (Eq, Show)
+
+trainerRunEvaluationSet :: TrainerRun -> Framework.EvaluationSet
+trainerRunEvaluationSet run =
+  case run of
+    EvaluationOnly evaluationSet -> evaluationSet
+    Trained artifact -> trainedArtifactEvaluationSet artifact
+
+trainerRunEpisodes :: TrainerRun -> [EpisodeEnvelope.SimulatedEpisode]
+trainerRunEpisodes = evaluationSetEpisodes . trainerRunEvaluationSet
+
+evaluationSetEpisodes :: Framework.EvaluationSet -> [EpisodeEnvelope.SimulatedEpisode]
+evaluationSetEpisodes evaluationSet =
+  [ EpisodeEnvelope.SimulatedEpisode
+      { EpisodeEnvelope.simEpisodeIndex =
+          fromIntegral (Framework.evaluationEpisodeIdValue episodeId)
+      , EpisodeEnvelope.simEpisodeSteps =
+          fromIntegral (Framework.episodeOutcomeSteps outcome)
+      , EpisodeEnvelope.simEpisodeReward = Framework.episodeOutcomeReward outcome
+      , EpisodeEnvelope.simEpisodeDone = Framework.episodeOutcomeDone outcome
+      , EpisodeEnvelope.simEpisodeFrames = []
+      }
+  | (episodeId, outcome) <- Framework.evaluationSetOutcomes evaluationSet
+  ]
 
 runDeviceRollout :: MlpDevice -> Int -> IO (Either Text [EpisodeEnvelope.SimulatedEpisode])
 runDeviceRollout device seed = do
@@ -87,32 +125,68 @@ trainerRunWithEvidence
   -> Text
   -> Int
   -> Word64
+  -> AlgorithmCommon.MeasuredTrainerCounters
+  -> Framework.LearningCurve
+  -> Framework.EvaluationSet
   -> [Double]
   -> [Double]
-  -> Word64
-  -> [EpisodeEnvelope.SimulatedEpisode]
   -> Either Text TrainerRun
-trainerRunWithEvidence substrate trainerKind envName seed updateCount initialWeights finalWeights observedUnits episodes = do
-  validateTrainerEvidenceCounters updateCount observedUnits
+trainerRunWithEvidence substrate trainerKind envName seed expectedTransitions counters learningCurve evaluationSet initialWeights finalWeights = do
+  validateTrainerEvidenceCounters expectedTransitions counters
+  validateTrainerWeights initialWeights finalWeights
   evidence <-
     ProductEvidence.mkTrainingEvidence
       (hashWeightList initialWeights)
       (hashWeightList finalWeights)
-      updateCount
+      (AlgorithmCommon.measuredOptimizerUpdateCount counters)
       (rlEvidenceReadHash substrate trainerKind envName seed)
+  when
+    ( ProductEvidence.evidenceUpdateCount evidence
+        /= AlgorithmCommon.measuredOptimizerUpdateCount counters
+    )
+    (Left "RL measured optimizer-update count does not match training evidence")
   pure
-    TrainerRun
-      { trainerRunEpisodes = episodes
-      , trainerRunObservedUnits = observedUnits
-      , trainerRunWeights = Just finalWeights
-      , trainerRunEvidence = Just evidence
-      }
+    ( Trained
+        TrainedArtifact
+          { trainedArtifactLearningCurve = learningCurve
+          , trainedArtifactEvaluationSet = evaluationSet
+          , trainedArtifactCounters = counters
+          , trainedArtifactWeights = finalWeights
+          , trainedArtifactEvidence = evidence
+          }
+    )
 
-validateTrainerEvidenceCounters :: Word64 -> Word64 -> Either Text ()
-validateTrainerEvidenceCounters updateCount observedUnits
-  | updateCount == 0 = Left "RL training evidence requires a positive update count"
-  | observedUnits == 0 = Left "RL training evidence requires positive observed budget units"
+validateTrainerEvidenceCounters
+  :: Word64
+  -> AlgorithmCommon.MeasuredTrainerCounters
+  -> Either Text ()
+validateTrainerEvidenceCounters expectedTransitions counters
+  | AlgorithmCommon.measuredEnvironmentTransitionCount counters /= expectedTransitions =
+      Left
+        ( "RL measured environment-transition count mismatch: expected "
+            <> Text.pack (show expectedTransitions)
+            <> ", observed "
+            <> Text.pack
+              (show (AlgorithmCommon.measuredEnvironmentTransitionCount counters))
+        )
   | otherwise = Right ()
+
+validateTrainerWeights :: [Double] -> [Double] -> Either Text ()
+validateTrainerWeights initialWeights finalWeights
+  | null initialWeights = Left "RL training evidence requires non-empty initial weights"
+  | null finalWeights = Left "RL training evidence requires non-empty final weights"
+  | length initialWeights /= length finalWeights =
+      Left
+        ( "RL initial/final weight cardinality mismatch: initial "
+            <> Text.pack (show (length initialWeights))
+            <> ", final "
+            <> Text.pack (show (length finalWeights))
+        )
+  | any nonFinite initialWeights = Left "RL initial weights must be finite"
+  | any nonFinite finalWeights = Left "RL final weights must be finite"
+  | otherwise = Right ()
+ where
+  nonFinite value = isNaN value || isInfinite value
 
 hashWeightList :: [Double] -> Text
 hashWeightList =
@@ -139,6 +213,56 @@ positiveWordFromInteger label value
   | value > toInteger (maxBound :: Word64) =
       Left (label <> " exceeds the Word64 range")
   | otherwise = Right (fromIntegral value)
+
+evaluationSetFromEpisodes
+  :: Int
+  -> [EpisodeEnvelope.SimulatedEpisode]
+  -> Either Text Framework.EvaluationSet
+evaluationSetFromEpisodes expectedEpisodes episodes = do
+  expected <- positiveWordFromInt "RL planned evaluation-episode count" expectedEpisodes
+  raw <- traverse toRawOutcome episodes
+  Framework.mkEvaluationSet expected raw
+ where
+  toRawOutcome episode
+    | EpisodeEnvelope.simEpisodeIndex episode < 0 =
+        Left "RL evaluation episode id must be non-negative"
+    | otherwise =
+        Right
+          ( fromIntegral (EpisodeEnvelope.simEpisodeIndex episode)
+          , EpisodeEnvelope.simEpisodeReward episode
+          , EpisodeEnvelope.simEpisodeSteps episode
+          , EpisodeEnvelope.simEpisodeDone episode
+          )
+
+-- | Key zero-based evaluator results into the exact planned final-policy
+-- cohort.  The evaluator's environment-terminal bit is carried unchanged;
+-- horizon exhaustion is not promoted to terminal success.
+evaluationSetFromEvaluations
+  :: Int
+  -> [AlgorithmCommon.EvaluationEpisodeResult]
+  -> Either Text Framework.EvaluationSet
+evaluationSetFromEvaluations expectedEpisodes evaluations = do
+  expected <- positiveWordFromInt "RL planned evaluation-episode count" expectedEpisodes
+  Framework.mkEvaluationSet expected (fmap toRawOutcome (zip [0 ..] evaluations))
+ where
+  toRawOutcome (episodeId, evaluation) =
+    ( episodeId
+    , AlgorithmCommon.evaluationEpisodeReward evaluation
+    , AlgorithmCommon.evaluationEpisodeSteps evaluation
+    , AlgorithmCommon.evaluationEpisodeTerminated evaluation
+    )
+
+learningCurveFromStats
+  :: Text
+  -> [(Int, Double)]
+  -> Either Text Framework.LearningCurve
+learningCurveFromStats metricName stats = do
+  summaries <- traverse toSummary stats
+  Framework.mkLearningCurve summaries
+ where
+  toSummary (index, value)
+    | index < 0 = Left "RL learning-curve iteration index must be non-negative"
+    | otherwise = Framework.mkIterationSummary (fromIntegral index) metricName value
 
 -- | Phase 251 — compile a traditional (non-product) RL run into a validated
 -- 'ProductBudget.CompiledRlPlan'. This is the sole reader of the
@@ -186,9 +310,10 @@ resolveCompatibilityVectorOverride = do
             | otherwise -> Right (Just value)
 
 -- | Dispatch the worker-side RL run to the selected real trainer using a
--- validated 'ProductBudget.CompiledRlPlan', projecting trainer summaries into
--- the 'EpisodeEnvelope.SimulatedEpisode' publication envelope consumed by the
--- trajectory artifact and @EpisodeDone@ path. Every training dimension is read
+-- validated 'ProductBudget.CompiledRlPlan'. Learning summaries remain an
+-- ordered 'Framework.LearningCurve'; final-policy outcomes become an exact
+-- keyed 'Framework.EvaluationSet', with 'EpisodeEnvelope.SimulatedEpisode' kept
+-- only as a trajectory/animation projection. Every training dimension is read
 -- from the pre-compiled schedule; the evaluation episode count feeds only the
 -- @evaluate*@ scoring calls. Every trainer is bit-deterministic on the same
 -- substrate / same seed per
@@ -211,14 +336,8 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
         ( do
             episodes <- result
             let observedEpisodes = fmap fromAleEpisode episodes
-            observedUnits <- rlObservedBudgetUnits observedEpisodes
-            Right
-              TrainerRun
-                { trainerRunEpisodes = observedEpisodes
-                , trainerRunObservedUnits = observedUnits
-                , trainerRunWeights = Nothing
-                , trainerRunEvidence = Nothing
-                }
+            evaluationSet <- evaluationSetFromEpisodes evalEpisodes observedEpisodes
+            Right (EvaluationOnly evaluationSet)
         )
   | trainerKind == "ars" =
       -- ARS is the lone no-MLP exception (Sprint 8.11): a finite-difference
@@ -303,19 +422,6 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
       , EpisodeEnvelope.simEpisodeDone = ALE.aleEpisodeDone episode
       , EpisodeEnvelope.simEpisodeFrames = []
       }
-  asEpisodeWithSteps index (reward, steps) =
-    EpisodeEnvelope.SimulatedEpisode
-      { EpisodeEnvelope.simEpisodeIndex = index
-      , EpisodeEnvelope.simEpisodeSteps = steps
-      , EpisodeEnvelope.simEpisodeReward = reward
-      , EpisodeEnvelope.simEpisodeDone = True
-      , EpisodeEnvelope.simEpisodeFrames = []
-      }
-  evaluatedEpisodes :: [(Double, Int)] -> [EpisodeEnvelope.SimulatedEpisode]
-  evaluatedEpisodes = goEvaluated 0
-   where
-    goEvaluated _ [] = []
-    goEvaluated i (episode : rest) = asEpisodeWithSteps i episode : goEvaluated (i + 1) rest
   -- Sprint 8.11 — every MLP-backed trainer routes through its `*OnDevice`
   -- variant against the resolved substrate device, with iteration budgets
   -- raised from the old `max 1 evalEpisodes` floor so training actually
@@ -356,30 +462,36 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
             pure $
               resultE
                 >>= \result ->
-                  let episodes =
-                        evaluatedEpisodes $
-                          PpoTrainer.evaluateOnPolicyWithEnvironment
-                            simEnv
-                            config
-                            (PpoTrainer.resultFinalParams result)
-                            evalEpisodes
+                  let evaluations =
+                        PpoTrainer.evaluateOnPolicyWithEnvironment
+                          simEnv
+                          config
+                          (PpoTrainer.resultFinalParams result)
+                          evalEpisodes
                       initialWeights = mlpParamsToFlat (PpoTrainer.initialPpoParams config)
                       finalWeights = mlpParamsToFlat (PpoTrainer.resultFinalParams result)
                    in do
-                        updateCount <-
-                          positiveWordFromInt
-                            "RL on-policy update count"
-                            (PpoTrainer.resultOptimizerSteps result)
+                        evaluationSet <- evaluationSetFromEvaluations evalEpisodes evaluations
+                        learningCurve <-
+                          learningCurveFromStats
+                            "training_median_reward"
+                            [ ( PpoTrainer.iterIndex stat
+                              , PpoTrainer.iterMedianReward stat
+                              )
+                            | stat <- PpoTrainer.resultIterations result
+                            , PpoTrainer.iterEpisodes stat > 0
+                            ]
                         trainerRunWithEvidence
                           substrate
                           trainerKind
                           envName
                           seed
-                          updateCount
+                          (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                          (PpoTrainer.resultMeasuredCounters result)
+                          learningCurve
+                          evaluationSet
                           initialWeights
                           finalWeights
-                          (ProductBudget.scheduleObservedEnvironmentSteps schedule)
-                          episodes
           _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   -- One on-policy tuning across substrates: the cuBLAS (linux-cuda) and oneDNN
   -- (linux-cpu) GEMM paths are numerically close, so the same (epochs, lr) that
@@ -440,24 +552,30 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                     evalEpisodes
                 pure $
                   evaluationE >>= \evaluation ->
-                    let episodes = evaluatedEpisodes evaluation
-                        initialWeights = mlpParamsToFlat (DqnTrainer.initialDqnParams config)
+                    let initialWeights = mlpParamsToFlat (DqnTrainer.initialDqnParams config)
                         finalWeights = mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result)
                      in do
-                          updateCount <-
-                            positiveWordFromInt
-                              "DQN update count"
-                              (DqnTrainer.dqnResultOptimizerSteps result)
+                          evaluationSet <- evaluationSetFromEvaluations evalEpisodes evaluation
+                          learningCurve <-
+                            learningCurveFromStats
+                              "training_mean_reward"
+                              [ ( DqnTrainer.dqnIterStep stat
+                                , DqnTrainer.dqnIterMeanReward stat
+                                )
+                              | stat <- DqnTrainer.dqnResultStats result
+                              , DqnTrainer.dqnIterEpisodes stat > 0
+                              ]
                           trainerRunWithEvidence
                             substrate
                             trainerKind
                             envName
                             seed
-                            updateCount
+                            (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                            (DqnTrainer.dqnResultMeasuredCounters result)
+                            learningCurve
+                            evaluationSet
                             initialWeights
                             finalWeights
-                            (ProductBudget.scheduleObservedEnvironmentSteps schedule)
-                            episodes
           _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   qrDqnEpisodes = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
@@ -487,30 +605,36 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
             pure $
               resultE
                 >>= \result ->
-                  let episodes =
-                        evaluatedEpisodes $
-                          QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
-                            simEnv
-                            config
-                            (QrDqnTrainer.qrResultFinalParams result)
-                            evalEpisodes
+                  let evaluations =
+                        QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
+                          simEnv
+                          config
+                          (QrDqnTrainer.qrResultFinalParams result)
+                          evalEpisodes
                       initialWeights = mlpParamsToFlat (QrDqnTrainer.initialQrDqnParams config)
                       finalWeights = mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result)
                    in do
-                        updateCount <-
-                          positiveWordFromInt
-                            "QR-DQN update count"
-                            (QrDqnTrainer.qrResultOptimizerSteps result)
+                        evaluationSet <- evaluationSetFromEvaluations evalEpisodes evaluations
+                        learningCurve <-
+                          learningCurveFromStats
+                            "training_mean_reward"
+                            [ ( QrDqnTrainer.qrIterStep stat
+                              , QrDqnTrainer.qrIterMeanReward stat
+                              )
+                            | stat <- QrDqnTrainer.qrResultStats result
+                            , QrDqnTrainer.qrIterEpisodes stat > 0
+                            ]
                         trainerRunWithEvidence
                           substrate
                           trainerKind
                           envName
                           seed
-                          updateCount
+                          (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                          (QrDqnTrainer.qrResultMeasuredCounters result)
+                          learningCurve
+                          evaluationSet
                           initialWeights
                           finalWeights
-                          (ProductBudget.scheduleObservedEnvironmentSteps schedule)
-                          episodes
           _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   continuousEpisodes variant = do
     case RLSim.lookupContinuousEnvironmentByName envName of
@@ -542,30 +666,36 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
             pure $
               resultE
                 >>= \result ->
-                  let episodes =
-                        evaluatedEpisodes $
-                          ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
-                            contEnv
-                            config
-                            (ContinuousTrainer.contResultFinalActor result)
-                            evalEpisodes
+                  let evaluations =
+                        ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
+                          contEnv
+                          config
+                          (ContinuousTrainer.contResultFinalActor result)
+                          evalEpisodes
                       initialWeights = mlpParamsToFlat (ContinuousTrainer.initialContinuousActor config)
                       finalWeights = mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result)
                    in do
-                        updateCount <-
-                          positiveWordFromInt
-                            "continuous-RL actor update count"
-                            (ContinuousTrainer.contResultActorOptimizerSteps result)
+                        evaluationSet <- evaluationSetFromEvaluations evalEpisodes evaluations
+                        learningCurve <-
+                          learningCurveFromStats
+                            "training_mean_reward"
+                            [ ( ContinuousTrainer.contIterStep stat
+                              , ContinuousTrainer.contIterMeanReward stat
+                              )
+                            | stat <- ContinuousTrainer.contResultStats result
+                            , ContinuousTrainer.contIterEpisodes stat > 0
+                            ]
                         trainerRunWithEvidence
                           substrate
                           trainerKind
                           envName
                           seed
-                          updateCount
+                          (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                          (ContinuousTrainer.contResultMeasuredCounters result)
+                          learningCurve
+                          evaluationSet
                           initialWeights
                           finalWeights
-                          (ProductBudget.scheduleObservedEnvironmentSteps schedule)
-                          episodes
           _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   arsEpisodes = do
     case RLSim.lookupSimulatedEnvironmentByName envName of
@@ -583,27 +713,35 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                     , ArsTrainer.arsObsSize = RLSim.envObservationSize environment
                     }
             result <- ArsTrainer.trainArsOnEnvironment simEnv config
-            let episodes =
-                  evaluatedEpisodes $
-                    ArsTrainer.evaluateArsPolicyWithEnvironment
-                      simEnv
-                      config
-                      (ArsTrainer.arsResultFinalParams result)
-                      evalEpisodes
+            let evaluations =
+                  ArsTrainer.evaluateArsPolicyWithEnvironment
+                    simEnv
+                    config
+                    (ArsTrainer.arsResultFinalParams result)
+                    evalEpisodes
                 initialWeights = VU.toList (ArsTrainer.initialArsParams config)
                 finalWeights = VU.toList (ArsTrainer.arsResultFinalParams result)
             pure $ do
-              updateCount <- positiveWordFromInt "ARS update count" (ArsTrainer.arsIterations config)
+              evaluationSet <- evaluationSetFromEvaluations evalEpisodes evaluations
+              learningCurve <-
+                learningCurveFromStats
+                  "training_mean_reward"
+                  [ ( ArsTrainer.arsIterIndex stat
+                    , ArsTrainer.arsIterMeanReturn stat
+                    )
+                  | stat <- ArsTrainer.arsResultStats result
+                  ]
               trainerRunWithEvidence
                 substrate
                 trainerKind
                 envName
                 seed
-                updateCount
+                (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                (ArsTrainer.arsResultMeasuredCounters result)
+                learningCurve
+                evaluationSet
                 initialWeights
                 finalWeights
-                (ProductBudget.scheduleObservedEnvironmentSteps schedule)
-                episodes
           _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
   herEpisodes = do
     case scheduleMaybe of
@@ -613,7 +751,6 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                 { HerTrainer.herSeed = seed
                 , HerTrainer.herHiddenUnits = HerTrainer.productHerHiddenUnits
                 , HerTrainer.herEpisodes = ProductBudget.scheduleHerEpisodes schedule
-                , HerTrainer.herStatInterval = max 25 evalEpisodes
                 }
         resultE <- HerTrainer.trainHerOnDevice device config
         pure $
@@ -630,54 +767,42 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                   episodes =
                     [ EpisodeEnvelope.SimulatedEpisode
                         { EpisodeEnvelope.simEpisodeIndex = i
-                        , EpisodeEnvelope.simEpisodeSteps = HerTrainer.herNumBits config
+                        , EpisodeEnvelope.simEpisodeSteps = steps
                         , EpisodeEnvelope.simEpisodeReward = 1.0 - normDist
                         , EpisodeEnvelope.simEpisodeDone = reached
                         , EpisodeEnvelope.simEpisodeFrames = []
                         }
-                    | (i, (reached, normDist)) <- zip [0 ..] evals
+                    | (i, (reached, normDist, steps)) <- zip [0 ..] evals
                     ]
                   initialWeights = mlpParamsToFlat (HerTrainer.initialHerParams config)
                   finalWeights = mlpParamsToFlat (HerTrainer.herResultFinalParams result)
                in do
-                    updateCount <-
-                      positiveWordFromInt
-                        "HER update count"
-                        (HerTrainer.herResultOptimizerSteps result)
+                    evaluationSet <- evaluationSetFromEpisodes evalEpisodes episodes
+                    learningCurve <-
+                      learningCurveFromStats
+                        "training_success_rate"
+                        [ ( HerTrainer.herIterEpisode stat
+                          , HerTrainer.herIterSuccessRate stat
+                          )
+                        | stat <- HerTrainer.herResultStats result
+                        ]
                     trainerRunWithEvidence
                       substrate
                       trainerKind
                       envName
                       seed
-                      updateCount
+                      (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+                      (HerTrainer.herResultMeasuredCounters result)
+                      learningCurve
+                      evaluationSet
                       initialWeights
                       finalWeights
-                      (ProductBudget.scheduleObservedEnvironmentSteps schedule)
-                      episodes
       _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
 {-# NOINLINE runTrainerEpisodesForPlan #-}
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
 rlTrainerEnvironmentCompatibilityError =
   ProductBudget.rlTrainerEnvironmentCompatibilityError
-
-rlObservedBudgetUnits
-  :: [EpisodeEnvelope.SimulatedEpisode]
-  -> Either Text Word64
-rlObservedBudgetUnits episodes = do
-  traverse_ validateEpisodeSteps episodes
-  positiveWordFromInteger
-    "RL observed environment-step count"
-    (sum (fmap (toInteger . EpisodeEnvelope.simEpisodeSteps) episodes))
- where
-  validateEpisodeSteps episode
-    | EpisodeEnvelope.simEpisodeSteps episode <= 0 =
-        Left
-          ( "RL episode "
-              <> Text.pack (show (EpisodeEnvelope.simEpisodeIndex episode))
-              <> " must report positive observed steps"
-          )
-    | otherwise = Right ()
 
 sha256Text :: Text -> Text
 sha256Text =

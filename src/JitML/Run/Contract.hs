@@ -43,6 +43,7 @@ module JitML.Run.Contract
   , learningCurveObservation
   , mapContract
   , productContract
+  , refineContract
   , selectContract
   , trainingProgress
   , trainingProgressEventId
@@ -104,6 +105,27 @@ mapContract transform contract =
     { contractInitial = contractInitial contract
     , contractIngest = contractIngest contract
     , contractFinish = fmap transform . contractFinish contract
+    }
+
+-- | Validate or refine completed evidence without weakening the underlying
+-- ingest contract.  A refinement failure remains typed completion evidence:
+-- the workflow cannot report success merely because every cardinality
+-- requirement was present when those values disagree semantically.
+refineContract
+  :: (leftEvidence -> Either Text rightEvidence)
+  -> Contract event progress leftEvidence
+  -> Contract event progress rightEvidence
+refineContract refine contract =
+  Contract
+    { contractInitial = contractInitial contract
+    , contractIngest = contractIngest contract
+    , contractFinish = \progress ->
+        case contractFinish contract progress of
+          Failure missing -> Failure missing
+          Success evidence ->
+            case refine evidence of
+              Left reason -> Failure (InvalidEvidence reason :| [])
+              Right refined -> Success refined
     }
 
 -- | Lift a contract into a larger event sum.  An unrelated event is a total
@@ -201,6 +223,7 @@ data MissingEvidence
   = MissingExactlyOne Text
   | MissingAtLeastOne Text
   | MissingKeys Text (NonEmpty Text)
+  | InvalidEvidence Text
   deriving stock (Eq, Show)
 
 -- | The two indexes make the duplicate rules explicit: a semantic event id may

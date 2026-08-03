@@ -430,7 +430,7 @@ validateRlProjection
   -> Either Text RlExperiment
 validateRlProjection projection experiment =
   case Product.productProjectionDescriptor projection of
-    Product.RlProductDescriptor expectedAlgorithm expectedEnvironment _ _ _ _ _ -> do
+    Product.RlProductDescriptor expectedAlgorithm expectedEnvironment _ _ _ _ -> do
       requireExactText
         "RL experiment name"
         (Product.productProjectionRowId projection)

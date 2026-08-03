@@ -7,6 +7,7 @@ import Crypto.Hash.SHA256 qualified as SHA256
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (intToDigit)
+import Data.Either (isLeft)
 import Data.List qualified as List
 import Data.Maybe (isNothing, listToMaybe)
 import Data.Text (Text)
@@ -18,13 +19,15 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase, (@?=))
 
+import Data.ProtoLens qualified as ProtoLens
+import Data.ProtoLens.Field qualified as Field
 import Data.Vector.Unboxed qualified
 import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Mlp (AdamState, forwardOutput, mlpForward, mlpParamsToFlat)
-import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice, pureReferenceMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Convergence qualified as ProductConvergence
@@ -33,9 +36,9 @@ import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl
   ( ArenaCompleted (..)
   , CheckpointDoneRL (..)
-  , EpisodeDone (..)
-  , EvalDone (..)
+  , EvaluationOutcome (..)
   , GenerationCompleted (..)
+  , IterationSummary (..)
   , MetricUpdate (..)
   , RlAnimationFrame (..)
   , RlCommand (..)
@@ -59,6 +62,7 @@ import JitML.RL.Algorithms (algorithmCatalog, algorithmName)
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
 import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
@@ -121,11 +125,13 @@ import JitML.RL.Environments
   , environmentRewardFunction
   , environmentTermination
   )
+import JitML.RL.Framework qualified as Framework
 import JitML.RL.Policy (defaultPolicy)
 import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator (cartPoleInitial)
 import JitML.RL.Simulator qualified as Sim
+import JitML.RL.TrainerExecution qualified as TrainerExecution
 import JitML.RL.VecEnv qualified as VecEnv
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
@@ -139,6 +145,9 @@ import JitML.Test.RowAssertions
   , assertRlRowEvidence
   )
 import JitML.Training.Budget qualified as TrainingBudget
+import Lens.Family2 qualified as Lens
+import Proto.Jitml.Rl qualified as ProtoRl
+import Proto.Jitml.Rl_Fields ()
 import Support.Loop
   ( RLConfig (..)
   , RLLoop (..)
@@ -437,6 +446,9 @@ main =
           "Phase 251 — compiled RL plan reproduces each canonical row's exact executed counts"
           assertCanonicalRlPlanReproducesExactCounts
       , testCase
+          "Phase 252 — evaluation evidence distinguishes environment termination from horizon truncation"
+          assertEvaluationTerminationSemantics
+      , testCase
           "AlphaZero arena win-rate convergence against the baseline opponent (Sprint 9.13)"
           assertAlphaZeroArenaConvergence
       , testCase
@@ -542,22 +554,36 @@ main =
           decodeRlCommandProto (encodeRlCommandProto alphaZero) @?= Right alphaZero
       , testCase "RL event envelopes round-trip through proto3-compatible bytes" $ do
           let episode =
-                RlEpisode
-                  EpisodeDone
-                    { edExperimentHash = "sha256:cartpole"
-                    , edEpisode = 7
-                    , edReward = 1.5
-                    , edSteps = 32
-                    , edTimestampNs = 123456789
+                RlEvaluation
+                  EvaluationOutcome
+                    { eoPlanId = "sha256:plan"
+                    , eoExperimentHash = "sha256:cartpole"
+                    , eoEpisodeId = 7
+                    , eoReward = 1.5
+                    , eoSteps = 32
+                    , eoDone = True
+                    , eoTimestampNs = 123456789
                     }
               eval =
-                RlEval
-                  EvalDone
-                    { evExperimentHash = "sha256:cartpole"
-                    , evEpoch = 3
-                    , evAvgReward = 0.75
-                    , evStdReward = 0.125
-                    , evTimestampNs = 223456789
+                RlIteration
+                  IterationSummary
+                    { isPlanId = "sha256:plan"
+                    , isExperimentHash = "sha256:cartpole"
+                    , isIteration = 3
+                    , isMetricName = "training_mean_reward"
+                    , isMetricValue = 0.75
+                    , isTimestampNs = 223456789
+                    }
+              zeroStepEvaluation =
+                RlEvaluation
+                  EvaluationOutcome
+                    { eoPlanId = "sha256:plan"
+                    , eoExperimentHash = "sha256:cartpole"
+                    , eoEpisodeId = 8
+                    , eoReward = 0.0
+                    , eoSteps = 0
+                    , eoDone = False
+                    , eoTimestampNs = 123456790
                     }
               checkpointDone =
                 CheckpointDoneRL
@@ -585,7 +611,8 @@ main =
               metric =
                 RlMetric
                   MetricUpdate
-                    { muExperimentHash = "sha256:cartpole"
+                    { muPlanId = "sha256:plan"
+                    , muExperimentHash = "sha256:cartpole"
                     , muName = "entropy"
                     , muValue = 0.0625
                     , muTimestampNs = 323456789
@@ -650,13 +677,149 @@ main =
           decodeRlEventProto (encodeRlEventProto replay) @?= Right replay
           decodeRlEventProto (encodeRlEventProto generation) @?= Right generation
           decodeRlEventProto (encodeRlEventProto arena) @?= Right arena
+          assertBool
+            "protobuf evaluation outcome accepted zero physical steps"
+            (isLeft (decodeRlEventProto (encodeRlEventProto zeroStepEvaluation)))
+          parseRlEvent (renderRlEvent episode) @?= Just episode
+          parseRlEvent (renderRlEvent eval) @?= Just eval
+          parseRlEvent (renderRlEvent zeroStepEvaluation) @?= Nothing
           parseRlEvent (renderRlEvent animation) @?= Just animation
           parseRlEvent (renderRlEvent replay) @?= Just replay
           parseRlEvent (renderRlEvent checkpoint) @?= Just checkpoint
           parseRlEvent (renderRlEvent completedCheckpoint) @?= Just completedCheckpoint
+          parseRlEvent (renderRlEvent metric) @?= Just metric
           parseRlEvent (renderRlEvent generation) @?= Just generation
           parseRlEvent (renderRlEvent arena) @?= Just arena
+      , testCase "generated RL bindings match typed evidence envelopes" $ do
+          let evaluation =
+                RlEvaluation
+                  EvaluationOutcome
+                    { eoPlanId = "sha256:evaluation-plan"
+                    , eoExperimentHash = "sha256:evaluation-experiment"
+                    , eoEpisodeId = 0
+                    , eoReward = 0.0
+                    , eoSteps = 17
+                    , eoDone = False
+                    , eoTimestampNs = 1234
+                    }
+              iteration =
+                RlIteration
+                  IterationSummary
+                    { isPlanId = "sha256:iteration-plan"
+                    , isExperimentHash = "sha256:iteration-experiment"
+                    , isIteration = 0
+                    , isMetricName = "training_mean_reward"
+                    , isMetricValue = 0.0
+                    , isTimestampNs = 5678
+                    }
+              metric =
+                RlMetric
+                  MetricUpdate
+                    { muPlanId = "sha256:metric-plan"
+                    , muExperimentHash = "sha256:metric-experiment"
+                    , muName = "median_final_reward"
+                    , muValue = 0.0
+                    , muTimestampNs = 6789
+                    }
+          decodedEvaluation <-
+            decodeGeneratedRlEvent "evaluation" (encodeRlEventProto evaluation)
+          case Lens.view (Field.field @"maybe'evaluation") decodedEvaluation of
+            Nothing -> assertFailure "generated schema omitted evaluation oneof"
+            Just outcome -> do
+              Lens.view (Field.field @"planId") outcome @?= "sha256:evaluation-plan"
+              Lens.view (Field.field @"experimentHash") outcome
+                @?= "sha256:evaluation-experiment"
+              Lens.view (Field.field @"episodeId") outcome @?= 0
+              Lens.view (Field.field @"reward") outcome @?= 0.0
+              Lens.view (Field.field @"steps") outcome @?= 17
+              Lens.view (Field.field @"done") outcome @?= False
+              Lens.view (Field.field @"timestampNs") outcome @?= 1234
+          decodeRlEventProto (ProtoLens.encodeMessage decodedEvaluation)
+            @?= Right evaluation
+          decodedIteration <-
+            decodeGeneratedRlEvent "iteration" (encodeRlEventProto iteration)
+          case Lens.view (Field.field @"maybe'iteration") decodedIteration of
+            Nothing -> assertFailure "generated schema omitted iteration oneof"
+            Just summary -> do
+              Lens.view (Field.field @"planId") summary @?= "sha256:iteration-plan"
+              Lens.view (Field.field @"experimentHash") summary
+                @?= "sha256:iteration-experiment"
+              Lens.view (Field.field @"iteration") summary @?= 0
+              Lens.view (Field.field @"metricName") summary
+                @?= "training_mean_reward"
+              Lens.view (Field.field @"metricValue") summary @?= 0.0
+              Lens.view (Field.field @"timestampNs") summary @?= 5678
+          decodeRlEventProto (ProtoLens.encodeMessage decodedIteration)
+            @?= Right iteration
+          decodedMetric <-
+            decodeGeneratedRlEvent "metric" (encodeRlEventProto metric)
+          case Lens.view (Field.field @"maybe'metric") decodedMetric of
+            Nothing -> assertFailure "generated schema omitted metric oneof"
+            Just update -> do
+              Lens.view (Field.field @"planId") update @?= "sha256:metric-plan"
+              Lens.view (Field.field @"experimentHash") update
+                @?= "sha256:metric-experiment"
+              Lens.view (Field.field @"name") update @?= "median_final_reward"
+              Lens.view (Field.field @"value") update @?= 0.0
+              Lens.view (Field.field @"timestampNs") update @?= 6789
+          decodeRlEventProto (ProtoLens.encodeMessage decodedMetric)
+            @?= Right metric
+      , testCase "RL evidence publication preserves values above the uint32 range" $ do
+          let firstUint64Only = 4_294_967_296 :: Word64
+              evaluation =
+                RlEvaluation
+                  EvaluationOutcome
+                    { eoPlanId = "sha256:wide-evaluation-plan"
+                    , eoExperimentHash = "sha256:wide-evaluation-experiment"
+                    , eoEpisodeId = firstUint64Only
+                    , eoReward = 0.25
+                    , eoSteps = firstUint64Only + 1
+                    , eoDone = True
+                    , eoTimestampNs = 0
+                    }
+              iteration =
+                RlIteration
+                  IterationSummary
+                    { isPlanId = "sha256:wide-iteration-plan"
+                    , isExperimentHash = "sha256:wide-iteration-experiment"
+                    , isIteration = firstUint64Only + 2
+                    , isMetricName = "training_mean_reward"
+                    , isMetricValue = 0.5
+                    , isTimestampNs = 0
+                    }
+          decodeRlEventProto (encodeRlEventProto evaluation) @?= Right evaluation
+          decodeRlEventProto (encodeRlEventProto iteration) @?= Right iteration
+          parseRlEvent (renderRlEvent evaluation) @?= Just evaluation
+          parseRlEvent (renderRlEvent iteration) @?= Just iteration
+          decodedEvaluation <-
+            decodeGeneratedRlEvent "wide evaluation" (encodeRlEventProto evaluation)
+          case Lens.view (Field.field @"maybe'evaluation") decodedEvaluation of
+            Nothing -> assertFailure "generated schema omitted wide evaluation oneof"
+            Just outcome -> do
+              Lens.view (Field.field @"episodeId") outcome @?= firstUint64Only
+              Lens.view (Field.field @"steps") outcome @?= firstUint64Only + 1
+          decodeRlEventProto (ProtoLens.encodeMessage decodedEvaluation)
+            @?= Right evaluation
+          decodedIteration <-
+            decodeGeneratedRlEvent "wide iteration" (encodeRlEventProto iteration)
+          case Lens.view (Field.field @"maybe'iteration") decodedIteration of
+            Nothing -> assertFailure "generated schema omitted wide iteration oneof"
+            Just summary ->
+              Lens.view (Field.field @"iteration") summary
+                @?= firstUint64Only
+                + 2
+          decodeRlEventProto (ProtoLens.encodeMessage decodedIteration)
+            @?= Right iteration
       ]
+
+decodeGeneratedRlEvent :: String -> ByteString.ByteString -> IO ProtoRl.RlEvent
+decodeGeneratedRlEvent label bytes =
+  case ProtoLens.decodeMessage bytes of
+    Left err ->
+      assertFailure
+        ("generated schema could not decode " <> label <> " envelope: " <> err)
+        >> pure ProtoLens.defMessage
+    Right event -> pure event
 
 assertContains :: Text -> [Text] -> IO ()
 assertContains value values =
@@ -691,6 +854,121 @@ assertProductRlHiddenWidths = do
   QrDqnTrainer.productQrDqnHiddenUnits @?= 256
   ContinuousTrainer.productContinuousHiddenUnits @?= 256
   HerTrainer.productHerHiddenUnits @?= 256
+
+assertEvaluationTerminationSemantics :: IO ()
+assertEvaluationTerminationSemantics = do
+  let pendulumConfig =
+        (ContinuousTrainer.defaultContinuousTrainConfig ContinuousTrainer.VariantDDPG)
+          { ContinuousTrainer.ctMaxEpisodeSteps = 3
+          }
+      pendulumEvaluations =
+        ContinuousTrainer.evaluateContinuousPolicyWithEnvironment
+          (Sim.SomeContinuousEnvironment Sim.pendulumEnvironment)
+          pendulumConfig
+          (ContinuousTrainer.initialContinuousActor pendulumConfig)
+          1
+  assertEvaluationOutcome "Pendulum horizon" 3 False pendulumEvaluations
+
+  let terminalEnvironment =
+        Sim.SomeSimulatedEnvironment
+          Sim.SimulatedEnvironment
+            { Sim.envName = "one-step-terminal"
+            , Sim.envInitial = False
+            , Sim.envStep = \_state _action -> Sim.SimStep True 1.0 True
+            , Sim.envRenderFrame =
+                \state -> Sim.RenderFrame [if state then 1.0 else 0.0] "one-step-terminal"
+            , Sim.envActionCount = 2
+            , Sim.envObservationSize = 1
+            , Sim.envMaxEpisodeSteps = 5
+            , Sim.envActionMask = Nothing
+            , Sim.envTrainingStart = Nothing
+            }
+      ppoConfig =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoMaxEpisodeSteps = 5
+          , PpoTrainer.ppoActionCount = 2
+          , PpoTrainer.ppoObsSize = 1
+          }
+      dqnConfig =
+        DqnTrainer.defaultDqnTrainConfig
+          { DqnTrainer.dqnMaxEpisodeSteps = 5
+          , DqnTrainer.dqnActionCount = 2
+          , DqnTrainer.dqnObsSize = 1
+          }
+      qrConfig =
+        QrDqnTrainer.defaultQrDqnTrainConfig
+          { QrDqnTrainer.qrMaxEpisodeSteps = 5
+          , QrDqnTrainer.qrActionCount = 2
+          , QrDqnTrainer.qrObsSize = 1
+          }
+      arsConfig =
+        ArsTrainer.defaultArsTrainConfig
+          { ArsTrainer.arsMaxEpisodeSteps = 5
+          , ArsTrainer.arsActionCount = 2
+          , ArsTrainer.arsObsSize = 1
+          }
+      ppoEvaluations =
+        PpoTrainer.evaluateOnPolicyWithEnvironment
+          terminalEnvironment
+          ppoConfig
+          (PpoTrainer.initialPpoParams ppoConfig)
+          1
+      qrEvaluations =
+        QrDqnTrainer.evaluateQrDqnPolicyWithEnvironment
+          terminalEnvironment
+          qrConfig
+          (QrDqnTrainer.initialQrDqnParams qrConfig)
+          1
+      arsEvaluations =
+        ArsTrainer.evaluateArsPolicyWithEnvironment
+          terminalEnvironment
+          arsConfig
+          (ArsTrainer.initialArsParams arsConfig)
+          1
+  dqnEvaluationsE <-
+    DqnTrainer.evaluateDqnPolicyWithEnvironment
+      pureReferenceMlpDevice
+      terminalEnvironment
+      dqnConfig
+      (DqnTrainer.initialDqnParams dqnConfig)
+      1
+  dqnEvaluations <- either (assertFailure . Text.unpack) pure dqnEvaluationsE
+  mapM_
+    (\(label, evaluations) -> assertEvaluationOutcome label 1 True evaluations)
+    [ ("PPO natural terminal", ppoEvaluations)
+    , ("DQN natural terminal", dqnEvaluations)
+    , ("QR-DQN natural terminal", qrEvaluations)
+    , ("ARS natural terminal", arsEvaluations)
+    ]
+
+assertEvaluationOutcome
+  :: String
+  -> Int
+  -> Bool
+  -> [AlgorithmCommon.EvaluationEpisodeResult]
+  -> IO ()
+assertEvaluationOutcome label expectedSteps expectedTerminated evaluations =
+  case evaluations of
+    [evaluation] -> do
+      AlgorithmCommon.evaluationEpisodeSteps evaluation @?= expectedSteps
+      AlgorithmCommon.evaluationEpisodeTerminated evaluation @?= expectedTerminated
+      evaluationSet <-
+        either
+          (assertFailure . Text.unpack)
+          pure
+          (TrainerExecution.evaluationSetFromEvaluations 1 evaluations)
+      case Framework.evaluationSetOutcomes evaluationSet of
+        [(episodeId, outcome)] -> do
+          Framework.evaluationEpisodeIdValue episodeId @?= 0
+          Framework.episodeOutcomeReward outcome
+            @?= AlgorithmCommon.evaluationEpisodeReward evaluation
+          Framework.episodeOutcomeSteps outcome @?= fromIntegral expectedSteps
+          Framework.episodeOutcomeDone outcome @?= expectedTerminated
+        outcomes ->
+          assertFailure
+            (label <> " expected one exact EvaluationSet outcome, got " <> show outcomes)
+    outcomes ->
+      assertFailure (label <> " expected one evaluator result, got " <> show outcomes)
 
 assertMaskableKeyDoorGridCountExploration :: IO ()
 assertMaskableKeyDoorGridCountExploration = do
@@ -2060,13 +2338,24 @@ assertAlphaZeroArenaEvidenceAndCheckpoints =
               <> Text.unpack (CheckpointStore.renderCheckpointWriteError err)
           )
       Right value -> pure (CheckpointStore.completedStoredCheckpoint value)
-    let manifestSha = Checkpoint.manifestContentSha (azRunManifest first)
+    prepared <-
+      case CheckpointStore.prepareCheckpointSnapshot
+        CheckpointStore.WriterCompletedSnapshot
+        ( CheckpointStore.WriterLatestPointerIntent
+            (Checkpoint.latestPointerKey (azExperimentHash game seed))
+        )
+        (azRunManifest first)
+        (azRunPayloads first) of
+        Left err -> assertFailure ("checkpoint preparation failed: " <> Text.unpack err)
+        Right value -> pure value
+    let manifestSha = CheckpointStore.preparedSnapshotManifestSha prepared
+        preparedManifest = CheckpointStore.preparedSnapshotManifest prepared
     CheckpointStore.storedManifestSha stored @?= manifestSha
     CheckpointStore.storedPointerResult stored
       @?= Checkpoint.PointerWritten manifestSha
     loadedManifest <-
       CheckpointStore.readCheckpointManifest root (azExperimentHash game seed) manifestSha
-    loadedManifest @?= Right (azRunManifest first)
+    loadedManifest @?= Right preparedManifest
     pointer <-
       CheckpointStore.readCheckpointPointer
         root

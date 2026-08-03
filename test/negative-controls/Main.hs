@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Phase 32 (Sprint 32.1) — the @jitml-negative-controls@ stanza.
+-- | Phase 276 — the retained pure gate-soundness stanza.
 --
 -- The gate-soundness controls pass today (the pure gates reject their
 -- known-fakes). The production-path controls listed in 'pendingProductionControls'

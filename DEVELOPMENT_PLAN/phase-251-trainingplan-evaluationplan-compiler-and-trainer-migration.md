@@ -19,8 +19,9 @@ trainer is fed the validated `CompiledRlPlan` through `runTrainerEpisodesForPlan
 `RlRunConfig` now carries the serialized `CompiledRlPlan` + `PlanId` (like the
 supervised/tune/AlphaZero configs), so the worker's only semantic input is one
 validated plan. All 39 canonical RL budget targets are preserved byte-for-byte.
-Phase `252` is the next executable phase; the apple-silicon wall at Phase `272`
-is the hard stop on non-Apple hosts.
+Phase `252` subsequently closed. Current successor state and host-boundary
+ownership live in [README.md → Closure Status](README.md#closure-status), not in
+this historical phase snapshot.
 
 ## Sprint 251.1: TrainingPlan/EvaluationPlan Compiler and Trainer Migration [✅ Done]
 

@@ -5,10 +5,15 @@
 -- The `jitml internal gc` reconciler emits one `GcReapedEvent` per
 -- reaped manifest after the corresponding MinIO `deleteObject` calls
 -- complete. The envelope names the substrate that ran the reap, the
--- experiment hash, the reaped manifest's content sha and its addressed
--- blob keys, the monotonic step the reaped manifest carried, and the
--- wall-clock timestamp the reap completed at. Consumers subscribe to
+-- experiment hash, the reaped manifest's content sha and its exact addressed
+-- physical-object keys, the monotonic step the reaped manifest carried, the
+-- wall-clock timestamp the reap completed at, and a stable semantic event id.
+-- Consumers subscribe to
 -- `gc.event.<substrate>` to follow the reconciler's deletion stream.
+--
+-- The broker-facing 'Text' codec is a lowercase hexadecimal rendering of the
+-- canonical protobuf bytes. This keeps delimiter-rich S3 key text length-delimited
+-- instead of placing it in an ambiguous delimiter-separated text field.
 --
 -- This is Phase 13 Sprint `13.7`'s `gc_reaped` Pulsar event surface; the
 -- topic is registered in `JitML.Cluster.PulsarBootstrap.pulsarTopics`
@@ -18,18 +23,25 @@ module JitML.Proto.Gc
   ( GcReapedEvent (..)
   , decodeGcReapedEventProto
   , encodeGcReapedEventProto
+  , gcReapedEventSemanticId
   , parseGcReapedEvent
   , renderGcReapedEvent
   )
 where
 
+import Codec.Serialise (serialise)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as ByteString
+import Data.Char (digitToInt, intToDigit, isControl)
+import Data.Foldable (traverse_)
+import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64)
-import Text.Read (readMaybe)
 
+import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Proto.Wire
   ( ProtoField (..)
   , ProtoValue (..)
@@ -42,80 +54,80 @@ import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 -- | One reaped manifest's wire envelope.
 data GcReapedEvent = GcReapedEvent
-  { gcEventExperimentHash :: Text
+  { gcEventId :: Text
+  , gcEventExperimentHash :: Text
   , gcEventManifestSha :: Text
-  , gcEventReapedBlobShas :: [Text]
+  , gcEventReapedObjectKeys :: [Text]
   , gcEventStepAtReap :: Word64
   , gcEventSubstrate :: Substrate
   , gcEventTimestampNs :: Word64
   }
   deriving stock (Eq, Show)
 
+-- | Render one canonical, length-safe topic payload. Encoding canonicalizes
+-- the physical-key set and recomputes the semantic event id rather than
+-- trusting either caller-supplied representation.
 renderGcReapedEvent :: GcReapedEvent -> Text
 renderGcReapedEvent event =
-  Text.unlines
-    [ "envelope: GcReapedEvent"
-    , "experiment-hash: " <> gcEventExperimentHash event
-    , "manifest-sha: " <> gcEventManifestSha event
-    , "reaped-blob-shas: " <> Text.intercalate "," (gcEventReapedBlobShas event)
-    , "step-at-reap: " <> Text.pack (show (gcEventStepAtReap event))
-    , "substrate: " <> renderSubstrate (gcEventSubstrate event)
-    , "timestamp-ns: " <> Text.pack (show (gcEventTimestampNs event))
-    ]
+  gcEventTextPrefix <> hexEncodeBytes (encodeGcReapedEventProto event)
 
--- | Decode exactly the text shape emitted by 'renderGcReapedEvent'. Unknown,
--- duplicate, malformed, missing, and empty scalar fields are rejected. The
--- reaped-blob list is the one deliberately empty-capable field because a
--- manifest can be reaped while all of its blobs remain live through another
--- manifest.
+-- | Decode exactly the canonical topic representation emitted by
+-- 'renderGcReapedEvent'. Non-hex, noncanonical protobuf, invalid physical
+-- keys, noncanonical key sets, and forged event identities are rejected.
 parseGcReapedEvent :: Text -> Either Text GcReapedEvent
 parseGcReapedEvent payload = do
-  fields <- traverse parseLineField (Text.lines payload)
-  requireOnlyFields gcEventFieldNames fields
-  envelope <- requiredField "envelope" fields
-  if envelope == "GcReapedEvent"
-    then Right ()
-    else Left "invalid field: envelope"
-  experimentHash <- requiredField "experiment-hash" fields
-  manifestSha <- requiredField "manifest-sha" fields
-  blobShas <- requiredBlobShaList fields
-  stepAtReap <- requiredReadField "step-at-reap" fields
-  substrateText <- requiredField "substrate" fields
-  substrate <-
+  encoded <-
     maybe
-      (Left "invalid field: substrate")
+      (Left "invalid GC event text envelope")
       Right
-      (parseSubstrate substrateText)
-  timestampNs <- requiredReadField "timestamp-ns" fields
-  Right
-    GcReapedEvent
-      { gcEventExperimentHash = experimentHash
-      , gcEventManifestSha = manifestSha
-      , gcEventReapedBlobShas = blobShas
-      , gcEventStepAtReap = stepAtReap
-      , gcEventSubstrate = substrate
-      , gcEventTimestampNs = timestampNs
-      }
+      (Text.stripPrefix gcEventTextPrefix payload)
+  bytes <- hexDecodeBytes encoded
+  event <- decodeGcReapedEventProto bytes
+  if encodeGcReapedEventProto event == bytes
+    then Right event
+    else Left "GC event text envelope does not contain canonical protobuf bytes"
 
+-- | Stable semantic identity for one exact GC deletion set. This deliberately
+-- mirrors `JitML.Checkpoint.Store.gcEventId` without importing Store (which
+-- would couple the broker codec to persistence): canonical CBOR supplies the
+-- length boundaries and substrate/completion time do not participate.
+gcReapedEventSemanticId :: GcReapedEvent -> Text
+gcReapedEventSemanticId event =
+  WeightCodec.jmw1ContentSha
+    ( serialise
+        ( "jitml-gc-reaped-event-id-v1" :: Text
+        , gcEventExperimentHash event
+        , gcEventManifestSha event
+        , gcEventStepAtReap event
+        , canonicalObjectKeys event
+        )
+    )
+
+-- | Encode canonical proto3-compatible bytes. The caller-provided id and key
+-- ordering are not serialized: keys are sorted/deduplicated first and the id
+-- is recomputed from that exact canonical deletion set.
 encodeGcReapedEventProto :: GcReapedEvent -> ByteString
-encodeGcReapedEventProto event =
-  encodeMessage $
-    [ stringField 1 (gcEventExperimentHash event)
-    , stringField 2 (gcEventManifestSha event)
-    ]
-      <> fmap (stringField 3) (gcEventReapedBlobShas event)
-      <> [ uint64Field 4 (gcEventStepAtReap event)
-         , stringField 5 (renderSubstrate (gcEventSubstrate event))
-         , uint64Field 6 (gcEventTimestampNs event)
-         ]
+encodeGcReapedEventProto suppliedEvent =
+  let event = canonicalGcReapedEvent suppliedEvent
+   in encodeMessage $
+        [ stringField 1 (gcEventExperimentHash event)
+        , stringField 2 (gcEventManifestSha event)
+        ]
+          <> fmap (stringField 3) (gcEventReapedObjectKeys event)
+          <> [ uint64Field 4 (gcEventStepAtReap event)
+             , stringField 5 (renderSubstrate (gcEventSubstrate event))
+             , uint64Field 6 (gcEventTimestampNs event)
+             , stringField 7 (gcEventId event)
+             ]
 
 decodeGcReapedEventProto :: ByteString -> Either Text GcReapedEvent
 decodeGcReapedEventProto bytes = do
   fields <- decodeMessage bytes
   requireOnlyProtoFields fields
+  eventId <- requiredProtoString "event_id" 7 fields
   experimentHash <- requiredProtoString "experiment_hash" 1 fields
   manifestSha <- requiredProtoString "manifest_sha" 2 fields
-  blobShas <- repeatedProtoStrings "reaped_blob_shas" 3 fields
+  objectKeys <- repeatedProtoStrings "reaped_object_keys" 3 fields
   stepAtReap <- requiredProtoWord64 "step_at_reap" 4 fields
   substrateText <- requiredProtoString "substrate" 5 fields
   substrate <-
@@ -124,82 +136,173 @@ decodeGcReapedEventProto bytes = do
       Right
       (parseSubstrate substrateText)
   timestampNs <- requiredProtoWord64 "timestamp_ns" 6 fields
-  Right
-    GcReapedEvent
-      { gcEventExperimentHash = experimentHash
-      , gcEventManifestSha = manifestSha
-      , gcEventReapedBlobShas = blobShas
-      , gcEventStepAtReap = stepAtReap
-      , gcEventSubstrate = substrate
-      , gcEventTimestampNs = timestampNs
-      }
+  event <-
+    validateGcReapedEvent
+      GcReapedEvent
+        { gcEventId = eventId
+        , gcEventExperimentHash = experimentHash
+        , gcEventManifestSha = manifestSha
+        , gcEventReapedObjectKeys = objectKeys
+        , gcEventStepAtReap = stepAtReap
+        , gcEventSubstrate = substrate
+        , gcEventTimestampNs = timestampNs
+        }
+  if encodeGcReapedEventProto event == bytes
+    then Right event
+    else Left "GC event protobuf bytes are not canonical"
 
-gcEventFieldNames :: [Text]
-gcEventFieldNames =
-  [ "envelope"
-  , "experiment-hash"
-  , "manifest-sha"
-  , "reaped-blob-shas"
-  , "step-at-reap"
-  , "substrate"
-  , "timestamp-ns"
-  ]
+gcEventTextPrefix :: Text
+gcEventTextPrefix = "jitml-gc-reaped-event-protobuf-hex-v1:"
 
-parseBlobShaList :: Text -> Either Text [Text]
-parseBlobShaList raw
-  | Text.null raw = Right []
-  | otherwise = traverse requireBlobSha (Text.splitOn "," raw)
+canonicalGcReapedEvent :: GcReapedEvent -> GcReapedEvent
+canonicalGcReapedEvent event =
+  let withCanonicalKeys =
+        event
+          { gcEventReapedObjectKeys = canonicalObjectKeys event
+          }
+   in withCanonicalKeys
+        { gcEventId = gcReapedEventSemanticId withCanonicalKeys
+        }
+
+canonicalObjectKeys :: GcReapedEvent -> [Text]
+canonicalObjectKeys =
+  Set.toAscList . Set.fromList . gcEventReapedObjectKeys
+
+validateGcReapedEvent :: GcReapedEvent -> Either Text GcReapedEvent
+validateGcReapedEvent event = do
+  validateGcExperimentHash (gcEventExperimentHash event)
+  validateCanonicalManifestSha (gcEventManifestSha event)
+  if gcEventReapedObjectKeys event == canonicalObjectKeys event
+    then Right ()
+    else Left "protobuf field reaped_object_keys is not sorted and unique"
+  traverse_
+    (validateGcObjectKey (gcEventExperimentHash event))
+    (gcEventReapedObjectKeys event)
+  validateGcSnapshotKeySet
+    (gcEventExperimentHash event)
+    (gcEventReapedObjectKeys event)
+  if gcEventId event == gcReapedEventSemanticId event
+    then Right event
+    else Left "protobuf field event_id does not bind the canonical GC event"
+
+validateCanonicalManifestSha :: Text -> Either Text ()
+validateCanonicalManifestSha manifestSha
+  | Text.length manifestSha /= 64 =
+      Left "invalid protobuf field: manifest_sha must be 64 lowercase hexadecimal characters"
+  | Text.all isLowerHex manifestSha = Right ()
+  | otherwise =
+      Left "invalid protobuf field: manifest_sha must be 64 lowercase hexadecimal characters"
+
+validateGcObjectKey :: Text -> Text -> Either Text ()
+validateGcObjectKey experimentHash fullKey = do
+  canonical <- canonicalGcPhysicalObjectKey experimentHash fullKey
+  if fullKey == canonical
+    then Right ()
+    else
+      Left
+        ( "GC physical object key is not the canonical full bucket key: "
+            <> fullKey
+            <> "; expected "
+            <> canonical
+        )
+
+-- Keep decoder-side key validation exactly aligned with the durable Store
+-- contract. Store accepts the relative spelling only while constructing its
+-- physical graph, then persists the canonical bucket-qualified spelling. A
+-- broker event therefore must already carry that full spelling; accepting an
+-- alias here would give one physical object more than one wire identity.
+canonicalGcPhysicalObjectKey :: Text -> Text -> Either Text Text
+canonicalGcPhysicalObjectKey experimentHash rawKey = do
+  validateGcExperimentHash experimentHash
+  let bucketPrefix = "jitml-checkpoints/"
+      relativeKey = fromMaybe rawKey (Text.stripPrefix bucketPrefix rawKey)
+      segments = Text.splitOn "/" relativeKey
+  traverse_ (validateGcPathSegment "physical object key") segments
+  case segments of
+    keyExperiment : firstObjectSegment : remainingObjectSegments
+      | keyExperiment /= experimentHash ->
+          Left
+            ( "GC physical object is outside its experiment: "
+                <> rawKey
+            )
+      | firstObjectSegment `elem` ["manifests", "pointers", "gc"] ->
+          Left
+            ( "GC physical object occupies a reserved control prefix: "
+                <> rawKey
+            )
+      | firstObjectSegment == "snapshots" -> do
+          case remainingObjectSegments of
+            [snapshotId, "objects", originalKeySha] -> do
+              validateCanonicalSha256 "storage snapshot id" snapshotId
+              validateCanonicalSha256
+                "snapshot original-key SHA-256"
+                originalKeySha
+            [snapshotId, "committed.cbor"] ->
+              validateCanonicalSha256 "storage snapshot id" snapshotId
+            _ ->
+              Left
+                ( "GC physical object occupies an invalid snapshot path: "
+                    <> rawKey
+                )
+          Right
+            ( bucketPrefix
+                <> Text.intercalate
+                  "/"
+                  (keyExperiment : firstObjectSegment : remainingObjectSegments)
+            )
+      | otherwise ->
+          Left
+            ( "GC physical object is not owned by a committed storage snapshot: "
+                <> rawKey
+            )
+    [_] -> Left ("GC physical object has no object path: " <> rawKey)
+    [] -> Left "GC physical object key is empty"
+
+validateGcExperimentHash :: Text -> Either Text ()
+validateGcExperimentHash = validateGcPathSegment "experiment hash"
+
+validateGcSnapshotKeySet :: Text -> [Text] -> Either Text ()
+validateGcSnapshotKeySet experimentHash objectKeys = do
+  snapshotIds <- traverse snapshotIdForKey objectKeys
+  case Set.toAscList (Set.fromList snapshotIds) of
+    [] -> Left "GC event has no committed storage-snapshot object set"
+    [_snapshotId] -> Right ()
+    _ -> Left "GC event mixes physical objects from multiple storage snapshots"
+  case filter ("/committed.cbor" `Text.isSuffixOf`) objectKeys of
+    [_commitKey] -> Right ()
+    [] -> Left "GC event must contain its exact storage-snapshot commit object"
+    _ -> Left "GC event contains more than one storage-snapshot commit object"
  where
-  requireBlobSha encoded =
-    let blobSha = Text.strip encoded
-     in if Text.null blobSha
-          then Left "empty reaped blob sha"
-          else Right blobSha
+  snapshotPrefix = "jitml-checkpoints/" <> experimentHash <> "/snapshots/"
 
-fieldValues :: Text -> [(Text, Text)] -> [Text]
-fieldValues key fields =
-  [value | (candidate, value) <- fields, candidate == key]
+  snapshotIdForKey objectKey = do
+    remainder <-
+      maybe
+        (Left "GC event contains a non-snapshot physical object")
+        Right
+        (Text.stripPrefix snapshotPrefix objectKey)
+    case Text.splitOn "/" remainder of
+      snapshotId : _ -> Right snapshotId
+      [] -> Left "GC event contains an empty storage snapshot path"
 
-requiredField :: Text -> [(Text, Text)] -> Either Text Text
-requiredField key fields =
-  case fieldValues key fields of
-    [] -> Left ("missing field: " <> key)
-    [value]
-      | Text.null value -> Left ("empty field: " <> key)
-      | otherwise -> Right value
-    _ -> Left ("duplicate field: " <> key)
+validateCanonicalSha256 :: Text -> Text -> Either Text ()
+validateCanonicalSha256 label value
+  | Text.length value == 64 && Text.all isLowerHex value = Right ()
+  | otherwise = Left (label <> " is not 64 lowercase hexadecimal characters")
 
-requiredBlobShaList :: [(Text, Text)] -> Either Text [Text]
-requiredBlobShaList fields =
-  case fieldValues "reaped-blob-shas" fields of
-    [] -> Left "missing field: reaped-blob-shas"
-    [value] -> parseBlobShaList value
-    _ -> Left "duplicate field: reaped-blob-shas"
-
-requiredReadField :: (Read value) => Text -> [(Text, Text)] -> Either Text value
-requiredReadField key fields = do
-  encoded <- requiredField key fields
-  maybe (Left ("malformed field: " <> key)) Right (readMaybe (Text.unpack encoded))
-
-requireOnlyFields :: [Text] -> [(Text, Text)] -> Either Text ()
-requireOnlyFields allowed fields =
-  case [key | (key, _value) <- fields, key `notElem` allowed] of
-    [] -> Right ()
-    unknown : _ -> Left ("unknown field: " <> unknown)
-
-parseLineField :: Text -> Either Text (Text, Text)
-parseLineField line =
-  case Text.breakOn ":" line of
-    (_, "") -> Left ("malformed field line: " <> line)
-    (rawKey, rest) ->
-      let key = Text.strip rawKey
-       in if Text.null key
-            then Left "empty field name"
-            else Right (key, Text.strip (Text.drop 1 rest))
+validateGcPathSegment :: Text -> Text -> Either Text ()
+validateGcPathSegment label segment
+  | Text.null segment = Left (label <> " contains an empty path segment")
+  | segment == "." = Left (label <> " contains a dot path segment")
+  | segment == ".." = Left (label <> " contains a dot-dot path segment")
+  | Text.any (\character -> character == '/' || character == '\\') segment =
+      Left (label <> " contains a path separator")
+  | Text.any isControl segment = Left (label <> " contains a control character")
+  | otherwise = Right ()
 
 requireOnlyProtoFields :: [ProtoField] -> Either Text ()
 requireOnlyProtoFields fields =
-  case [number | ProtoField number _value <- fields, number `notElem` [1 .. 6]] of
+  case [number | ProtoField number _value <- fields, number `notElem` [1 .. 7]] of
     [] -> Right ()
     unknown : _ -> Left ("unknown protobuf field: " <> Text.pack (show unknown))
 
@@ -239,3 +342,30 @@ repeatedProtoStrings label fieldNumber fields =
 protoValues :: Word64 -> [ProtoField] -> [ProtoValue]
 protoValues fieldNumber fields =
   [value | ProtoField number value <- fields, number == fieldNumber]
+
+hexEncodeBytes :: ByteString -> Text
+hexEncodeBytes =
+  Text.pack . concatMap byteToHex . ByteString.unpack
+ where
+  byteToHex byte =
+    [ intToDigit (fromIntegral byte `div` 16)
+    , intToDigit (fromIntegral byte `mod` 16)
+    ]
+
+hexDecodeBytes :: Text -> Either Text ByteString
+hexDecodeBytes encoded
+  | Text.null encoded = Left "empty GC event protobuf hex payload"
+  | odd (Text.length encoded) = Left "GC event protobuf hex payload has odd length"
+  | otherwise = ByteString.pack <$> go (Text.unpack encoded)
+ where
+  go [] = Right []
+  go (high : low : remaining)
+    | isLowerHex high && isLowerHex low = do
+        decoded <- go remaining
+        Right (fromIntegral (digitToInt high * 16 + digitToInt low) : decoded)
+    | otherwise = Left "GC event protobuf payload is not canonical lowercase hexadecimal"
+  go [_] = Left "GC event protobuf hex payload has odd length"
+
+isLowerHex :: Char -> Bool
+isLowerHex character =
+  character `elem` ("0123456789abcdef" :: String)

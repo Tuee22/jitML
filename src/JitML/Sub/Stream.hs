@@ -1,10 +1,11 @@
 module JitML.Sub.Stream
-  ( SubprocessEnv (..)
+  ( SubprocessEnv
   , capture
   , defaultSubprocessEnv
   , observeProcessAction
   , runStreaming
   , runStreamingObserved
+  , subprocessEnvOverrideAndRemove
   , startDetached
   )
 where
@@ -19,6 +20,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.Encoding.Error (lenientDecode)
 import GHC.Clock (getMonotonicTimeNSec)
+import System.Environment (getEnvironment)
 import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hFlush, withBinaryFile)
 import System.IO.Temp (withSystemTempDirectory)
@@ -38,10 +40,31 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess (..))
 
 data SubprocessEnv = SubprocessEnv
-  deriving stock (Eq, Show)
+  { subprocessEnvOverrides :: ![(Text, Text)]
+  , subprocessEnvRemovals :: ![Text]
+  }
+  deriving stock (Eq)
 
 defaultSubprocessEnv :: SubprocessEnv
-defaultSubprocessEnv = SubprocessEnv
+defaultSubprocessEnv =
+  SubprocessEnv
+    { subprocessEnvOverrides = []
+    , subprocessEnvRemovals = []
+    }
+
+-- | Inherit the ambient environment, install the explicit overrides, and
+-- remove every named capability last.  Removals deliberately win when a name
+-- appears in both lists.  This is intentionally one value so a caller cannot
+-- accidentally launch between separate mutation steps.
+subprocessEnvOverrideAndRemove
+  :: [(Text, Text)]
+  -> [Text]
+  -> SubprocessEnv
+subprocessEnvOverrideAndRemove overrides removals =
+  SubprocessEnv
+    { subprocessEnvOverrides = overrides
+    , subprocessEnvRemovals = removals
+    }
 
 runStreaming :: SubprocessEnv -> Subprocess -> IO ProcessOutcome
 runStreaming = capture
@@ -95,22 +118,23 @@ runStreamingObserved env subprocessValue =
 -- deadlock the parent's stream reader, which never sees EOF while the detached
 -- process holds the inherited pipe.
 startDetached :: SubprocessEnv -> Subprocess -> IO ()
-startDetached _env subprocessValue =
+startDetached env subprocessValue = do
+  processConfig <- processConfigWithEnvironment env subprocessValue
   void
     ( Typed.startProcess
         ( Typed.setStdin Typed.nullStream $
             Typed.setStdout Typed.nullStream $
-              Typed.setStderr Typed.nullStream $
-                baseProcessConfig subprocessValue
+              Typed.setStderr Typed.nullStream processConfig
         )
     )
 
 capture :: SubprocessEnv -> Subprocess -> IO ProcessOutcome
-capture _env subprocessValue =
+capture env subprocessValue =
   withSystemTempDirectory "jitml-subprocess" $ \dir -> do
     let stdoutPath = dir </> "stdout"
         stderrPath = dir </> "stderr"
     startedAt <- getMonotonicTimeNSec
+    processConfig <- processConfigWithEnvironment env subprocessValue
     exitCode <-
       withBinaryFile stdoutPath WriteMode $ \stdoutHandle ->
         withBinaryFile stderrPath WriteMode $ \stderrHandle -> do
@@ -118,7 +142,7 @@ capture _env subprocessValue =
             Typed.runProcess
               ( Typed.setStdout (Typed.useHandleOpen stdoutHandle) $
                   Typed.setStderr (Typed.useHandleOpen stderrHandle) $
-                    applyStdin (baseProcessConfig subprocessValue)
+                    applyStdin processConfig
               )
           hFlush stdoutHandle
           hFlush stderrHandle
@@ -159,6 +183,32 @@ baseProcessConfig subprocessValue =
  where
   applyWorkingDirectory config =
     maybe config (`Typed.setWorkingDir` config) (subprocessWorkingDirectory subprocessValue)
+
+processConfigWithEnvironment
+  :: SubprocessEnv
+  -> Subprocess
+  -> IO (Typed.ProcessConfig () () ())
+processConfigWithEnvironment env subprocessValue
+  | null (subprocessEnvOverrides env) && null (subprocessEnvRemovals env) =
+      pure (baseProcessConfig subprocessValue)
+  | otherwise = do
+      inherited <- getEnvironment
+      let removals = fmap Text.unpack (subprocessEnvRemovals env)
+          overrides =
+            [ textPair override
+            | override@(name, _value) <- subprocessEnvOverrides env
+            , Text.unpack name `notElem` removals
+            ]
+          overriddenNames = fmap fst overrides
+          retained =
+            [ entry
+            | entry@(name, _value) <- inherited
+            , name `notElem` removals
+            , name `notElem` overriddenNames
+            ]
+      pure (Typed.setEnv (overrides <> retained) (baseProcessConfig subprocessValue))
+ where
+  textPair (name, value) = (Text.unpack name, Text.unpack value)
 
 showText :: Text -> String
 showText = showStringValue

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, haskell_code_guide.md, daemon_architecture.md, training_workloads.md, training_metrics_and_splits.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, unit_testing_policy.md, purescript_frontend.md, pulsar_ml_workflow.md, cluster_topology.md, determinism_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md
+**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, haskell_code_guide.md, daemon_architecture.md, training_workloads.md, training_metrics_and_splits.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, unit_testing_policy.md, purescript_frontend.md, pulsar_ml_workflow.md, cluster_topology.md, determinism_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md, ../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
 **Generated sections**: none
 
 > **Purpose**: Define jitML's typed run-planning, workflow-protocol, evidence,
@@ -11,15 +11,14 @@
 
 ## Current Status
 
-**Implemented today.** Supervised rows require Product-origin exact V2; RL,
-AlphaZero, and tuning rows retain canonical Product V1, and provenance is bound to
-those version-specific served bytes.
-
-**Target (Phases `235`, `239`, `245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-Provenance is bound to **one self-describing envelope** distinguished by payload
-variant — weight-only (RL/AlphaZero/tuning) versus supervised-graph — rather than
-by wire version. Until those phases close, the V1-vs-V2 provenance described below
-is the implemented reality and the payload-variant form is a target contract.
+**Implemented today.** Provenance is bound to one self-describing checkpoint
+envelope distinguished by payload variant: weight-only for RL, AlphaZero, and
+tuning, or supervised-graph for the exact trained `LayerGraph`. Store admission
+binds the persisted envelope payload, exact snapshot commit/descriptor and
+scoped payload objects, closed execution origin, plan, measured completion, and
+manifest before inference or report eligibility. The former Product V1/V2
+served-byte split is historical and has no current parallel wire. Current phase
+status and validation evidence live in the development plan.
 
 ## Scope and Ownership
 
@@ -119,6 +118,13 @@ transition budget. One pure plan compiler owns dimensional arithmetic such as
 vector-environment multiplication and ceiling division for rollout iterations.
 Callers never reconstruct completed work from configuration values.
 
+The traditional-RL `RunBudget` contains environment transitions, rollout ticks
+per environment, vector environments, episode steps, and evaluation episodes.
+It deliberately has no optimizer-update quantity. The removed field denoted
+different outer-loop concepts for different trainers and therefore could not be
+compared dimensionally with actual optimizer applications. Optimizer work is an
+opaque trainer measurement described below, not a declared RL plan axis.
+
 Closed sums and GADTs model mutually exclusive choices such as cluster, host,
 or direct in-process plan placement and discrete versus continuous action
 domains. Opaque smart
@@ -127,7 +133,7 @@ cohorts and exact keyed event coverage. Arbitrary text and runtime facts are not
 promoted to the type level merely for novelty; the goal is a small, reviewable
 set of types that prevents meaningful illegal states.
 
-### Resolved Supervised, Tuning, and AlphaZero Transports
+### Resolved Worker Plan Transports
 
 `JitML.Plan.Workload` supplies hidden `SupervisedPlan`, `TuningPlan`, and
 `AlphaZeroPlan` values. A supervised plan carries positive epoch,
@@ -140,6 +146,15 @@ and per-trial-update quantities. The AlphaZero plan combines its common
 `RunPlan` with a closed canonical game and positive generation, self-play-game,
 simulation-per-move, maximum-ply, optimizer-update, and arena-game quantities.
 
+`JitML.RL.ProductBudget.compileRlPlan` separately refines a traditional-RL
+`TrainingPlan` and `EvaluationPlan` into one content-addressed
+`CompiledRlPlan`. Only the training half reaches schedule arithmetic; the
+evaluation episode count cannot determine rollout iterations, transition
+budgets, or any other training dimension. The compiled training schedule binds
+the exact physical environment-transition target, rollout ticks, vector width,
+and episode horizon, while the evaluation plan binds the exact final-policy
+episode count.
+
 `JitML.Plan.Command` is the only adapter between raw `StartTraining`,
 `StartSweep`, and `StartAlphaZeroRun` records and those plans. A producer
 refines the raw command, then attaches the canonical version-`1` plan encoding
@@ -150,14 +165,22 @@ identity equality, and only then returns the hidden plan.
 `TrainingRunConfig`, `TuneRunConfig`, and `AlphaZeroRunConfig` contain only the
 canonical plan transport, its `PlanId`, and the operational Pulsar WebSocket
 endpoint. They contain no second set of primitive execution axes or budgets.
-The worker parses and re-refines the mounted transport before dataset reads,
+`RlRunConfig` likewise carries the canonical compiled RL transport and its
+content-derived id; its experiment, optional ROM path, and Pulsar endpoint are
+operational fields, not alternate budget inputs. The worker parses and
+re-refines the mounted transport before dataset reads,
 training, trial/game execution, checkpointing, Job/host effects, or event
 publication. A missing, malformed, non-canonical, version-incompatible, or
 identity-mismatched plan is a typed failure; workers do not clamp quantities or
 recover semantic defaults from environment variables. The same transport
-drives local execution, Linux Jobs, and Apple host commands.
+drives local execution and Linux Jobs. A mounted RL worker rejects semantic CLI
+`--seed`/`--algorithm` overrides rather than recompiling a second plan after
+validation; those flags remain available only to explicit no-mount developer
+runs. Apple host RL execution and daemon RunConfig construction share the same
+pure raw-start adapter with an explicit absent vector override, so host process
+environment cannot move the schedule or content-derived plan identity.
 
-Supervised V2 persists that identity through a closed origin sum. ProductRow
+The supervised-graph payload persists that identity through a closed origin sum. ProductRow
 publication uses `RawProductRowProjectionOrigin` and binds the addressed payload
 row plus `PlanId` to one exact supported-substrate projection. A generic
 public/daemon supervised command instead uses
@@ -204,6 +227,8 @@ Reusable contract combinators include:
 - `atLeastOne` for explicitly non-exact telemetry streams;
 - `exactKeyedRange` for episode, iteration, trial, generation, and shard
   coverage; and
+- `refineContract` for semantic agreement between already-complete evidence
+  requirements; and
 - product composition so independent requirements accumulate missing-evidence
   diagnostics rather than failing at the first absent field.
 
@@ -219,7 +244,12 @@ Completion and checkpoint bytes cross a second explicit raw boundary.
 `RawCompletedTraining` are forgeable persistence/wire DTOs; the completion DTO
 is versioned and carries the `PlanId`, budget kind and target, observed kind,
 observed count, canonical unit label, training evidence, measurements, and
-TensorBoard metadata. Decoding always re-runs refinement. `TrainingBudget`,
+TensorBoard metadata. The current encoder emits V2 with an optional exact
+ProductScenario invocation. The exact V1 tuple decodes and re-refines as a
+completion with no invocation, preserving checkpoint inspection and nested
+protocol compatibility; it cannot close a Phase `261` scenario because that
+boundary requires the admitted completion to carry the exact current
+invocation. Decoding always re-runs refinement. `TrainingBudget`,
 `MetricCriterion`, `FiniteMeasurement`, `PassedMeasurement`, and
 `CompletedTraining` hide their constructors. Criterion rules are typed as
 at-least, at-most, or at-least-with-an-excluded-value; every threshold,
@@ -232,7 +262,17 @@ weight-delta and dataset-read evidence, the originating `PlanId`, and a
 failed criterion, a unit/kind mismatch, an underrun, or an overrun therefore
 cannot construct completion. Generic CBOR decoding cannot bypass those checks.
 
-For supervised V2, persisted metadata must re-bind that witness rather than
+For traditional RL, every successful trainer result owns opaque positive
+`MeasuredEnvironmentTransitions` and `MeasuredOptimizerUpdates` counters. The
+trainer increments them at the actual environment-step and learned-tensor update
+sites; adapters and publishers cannot reconstruct success from a schedule or
+configuration. The trained-artifact constructor exact-checks measured
+transitions against the compiled plan and measured updates against
+`TrainingEvidence`. The measured training-transition count is then used
+unchanged as the checkpoint step and `CompletedTraining` observed units.
+Evaluation episode steps never participate in that comparison.
+
+For the supervised-graph payload, persisted metadata must re-bind that witness rather than
 merely repeat its `PlanId`. Every completed convergence observation has one
 unique equal-valued manifest metric row. TensorBoard run id equals the manifest
 experiment, its log prefix is `jitml-tensorboard/<experiment>`, and its ordered
@@ -269,48 +309,81 @@ For a generic supervised command, exact finite completion of the plan and
 passing the canonical row's convergence criterion are separate outcomes.
 Structural or identity mismatches are hard failures. A finite below-bar result
 is successful training but returns a typed completion miss, writes no eligible
-V2 checkpoint, and emits no completed-checkpoint event. Consequently a public
+supervised-graph checkpoint, and emits no completed-checkpoint event. Consequently a public
 process-outcome check may pass while a live contract that explicitly requires
 proof-bearing checkpoint evidence remains incomplete. A passing generic result
-may write a generic-origin V2, but it is not relabelled as ProductRow evidence.
+may write a generic-origin supervised-graph checkpoint, but it is not relabelled as ProductRow evidence.
 Absent legacy initial/final weight-list projections do not gate that miss; exact
 initial/final JMW1 bytes remain the required evidence, and any supplied legacy
 projection must equal them.
 
-A completed V2 event is publication after commit, not a promise to commit. The
-writer first reads the current latest-pointer expectation (the current MinIO
-ETag when live), performs the CAS, and requires `PointerWritten` for the exact
-stored manifest address. A conflict or wrong-manifest acknowledgement is a
-typed failure, and the completed-checkpoint event is not published. Candidate
+A completed supervised-checkpoint event is publication after commit, not a
+promise to commit. Before payload mutation the writer CAS-registers its full
+reservation in the experiment-scoped `ExperimentGcFence` at
+`gc/coordination-fence.txt` and advances its monotonic writer/root-activity
+epoch. Registration moves overlapping `Planned` events to `Cancelling`; the
+writer helps persist the byte-identical immutable cancellation artifact and
+complete `Cancelled`, without deleting the semantic intent, before creating its
+separate attempt marker or mutating a payload. The stable artifacts may span
+generations and only the latest exact fence phase is logically active. It then reads the current latest-pointer expectation (the
+current MinIO ETag when live), performs the pointer CAS, installs the exact
+attempt-independent `committed.cbor`, deletes its owned marker, CAS-unregisters
+its owned reservation entry (advancing the epoch again), and requires Store's exact completed result before
+event publication. An overlapping executing/reaped GC event rejects the writer
+before marker creation. A marker conflict leaves that attempt's fence entry as
+conservative protection because marker ownership cannot be proved and advances
+through a freshly registered attempt. A pointer conflict or
+wrong-manifest acknowledgement is a typed failure, and the completed-checkpoint
+event is not published. Candidate
 and completed persistence are separate Store operations: candidates return
 opaque `StoredCandidateCheckpoint` without writing `latest`; completed writers
 take mandatory `CompletedTraining` and return opaque
-`StoredCompletedCheckpoint` only after exact CAS adoption.
+`StoredCompletedCheckpoint` only after exact CAS adoption and commit.
 
 Persistence proof is stronger than structural completion refinement. Latest
-admission reads exact pointer body `P1`, fetches the exact addressed manifest,
-verifies either canonical V1 bytes or the V2 outer and embedded body identities,
-reads exact pointer body `P2`, and requires `P1 == P2` before any referenced
-blob is fetched. It then independently verifies every blob's object key, exact
-bytes, content address,
-JMW1 encoding/shape, and graph-derived slice binding. A known manifest address
-performs the same manifest/blob admission without pointer reads. Only after
-that process may `requireAdmittedCompletedCheckpoint` produce Store's opaque
+admission reads exact pointer body `P1`, fetches the exact addressed canonical
+outer envelope, verifies the embedded-body identity for a supervised-graph
+payload, reads exact pointer body `P2`, and requires `P1 == P2`. Store then
+derives the required snapshot id, validates the exact commit's sorted canonical-
+original → exact-scoped → payload-SHA descriptor, reconstructs the logical
+manifest, and re-derives the same snapshot id before fetching scoped payload
+objects. It independently verifies every scoped key, exact bytes, payload SHA, JMW1
+encoding/shape, and graph-derived slice binding. A known manifest address
+performs the same commit/descriptor/payload-object admission without pointer reads. Only
+after that process may `requireAdmittedCompletedCheckpoint` produce Store's opaque
 `AdmittedCompletedCheckpoint`; `JitML.Product.Pipeline` consumes that value and
 Store does not import Pipeline. Immutable create conflicts are idempotent only
 after an exact read proves byte equality, while pointer changes/CAS conflicts
 remain typed rejection outcomes. Local persistence's `CheckpointWriteError`
 separates invalid input, immutable-object conflict, pointer-CAS conflict, and
-filesystem failure; MinIO conflicts remain typed `ServiceError`. Sprint `10.12`
-is Done after its full validation and governed-document gates passed.
-Supervised completion still requires V2. The completed V1 refinement is
-restricted to canonical non-supervised ProductRows and additionally binds each
-manifest transcript pointer to its exact fetched bytes; generic/non-product V1
-and supervised V1 cannot cross that Product completion boundary.
+filesystem failure; MinIO conflicts remain typed `ServiceError`. A pure
+structural completion precheck may reject an impossible addressed manifest
+before payload-object I/O, but it cannot construct an admitted value.
+Generic `JitML.Service.Workload` object effects reject the Store-owned
+`manifests/`, `pointers/`, `snapshots/`, and `gc/` checkpoint prefixes before
+`HasMinIO`; decoded workload input cannot manufacture this proof outside Store.
+Supervised completion requires the supervised-graph payload. Completed
+weight-only refinement is restricted to canonical non-supervised ProductRows
+and additionally binds each companion pointer to its exact fetched bytes;
+generic/non-product and supervised weight-only payloads cannot cross that
+Product completion boundary.
 
-RL has distinct evidence types for ordered training-iteration summaries and the
-keyed final-policy evaluation cohort. Event arrival order, or the tail of final
-evaluation episodes, can never be interpreted as a learning curve.
+RL has distinct evidence types for training and final quality. `LearningCurve`
+is a non-empty sequence of finite trainer-produced `IterationSummary` values
+whose iteration ids are strictly increasing in trainer order. `EvaluationSet`
+is an exact map containing every planned zero-based evaluation episode id once,
+with a finite reward and positive actual step count. Plan-bound
+`IterationSummary` and `EvaluationOutcome` protocol events preserve that
+distinction across Linux and Apple publication. Strict summary order is a local
+`LearningCurve` construction invariant: the current live reducer treats
+`IterationSummary` as telemetry and reduces the exact keyed
+`EvaluationOutcome` cohort with metric/checkpoint evidence. Event arrival order,
+a partial set, or the tail of final evaluation episodes can never be interpreted
+as a learning curve; the final median consumes the complete finite
+`EvaluationSet`. Contract refinement rejects a separately reported median that
+does not equal that derived cohort median; that terminal metric event and the
+completed checkpoint witness must both carry the same plan identity derived
+from the compiled RL plan.
 
 ## Lifecycle State Machine
 
@@ -517,6 +590,7 @@ data InvocationResult
   = Passed ProcessTranscript
   | Failed ObservedProcessFailure
   | NotRun BlockedBy
+  | NotRunAfterRefinement RefinementBlocker
 ```
 
 `ProcessTranscript` retains the rendered command, stdout, stderr, working
@@ -534,15 +608,86 @@ exit-code field, so a launch or capture exception cannot be rewritten as a fake
 non-zero exit. Asynchronous exceptions are not converted to data: they retain
 their identity and reach the enclosing resource bracket.
 
+`NotRunAfterRefinement` is the honest result for a planned invocation whose
+preceding process may have exited successfully but whose output did not refine
+into the proof that invocation requires. Its `RefinementBlocker` retains the
+source stanza, refinement name, and rejection detail. Because refinement is not
+a process, this state must not be rendered as either `Failed` process evidence
+or a synthetic `Passed` transcript.
+
+Process-launch environment is a separate opaque `SubprocessEnv` value with no
+`Show` instance. It is applied through the process API and is never folded into
+argv, command rendering, `ProcessTranscript`, or failure diagnostics. For a
+ProductScenario acquisition, the parent command creates the journal path,
+current run id, exclusive `0600` HMAC key-file path, canonical executable path,
+and executable SHA-256. Only the `jitml-integration` Cabal child receives those
+values, as `JITML_PRODUCT_SCENARIO_JOURNAL_PATH`,
+`JITML_PRODUCT_SCENARIO_RUN_ID`, `JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE`,
+`JITML_PRODUCT_SCENARIO_EXECUTABLE`, and
+`JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256`, through that opaque environment.
+Playwright, unrelated Cabal stanzas, lifecycle commands, and nested scenario
+children scrub every ProductScenario capability instead of inheriting it.
+
+The integration boundary requires the executable path to be canonical and the
+expected SHA-256 to be canonical lowercase hexadecimal, independently rehashes
+the executable, and rejects either mismatch before workspace creation or row
+execution. Each ProductScenario runner then rechecks and pins that same
+path-and-SHA identity while issuing its fresh invocation challenge. For a
+complete command-owned startup bundle, the child parses the key once, validates
+the remaining run, journal, and executable identities, rehashes the executable,
+then bracket cleanup unlinks the key file and clears every ProductScenario
+environment variable before Tasty constructs or runs the test tree. The parent
+retains only its in-memory key for authenticated journal verification and
+attempts failure-safe cleanup after the integration outcome.
+
+After its precondition succeeds, each ProductScenario has a finite four-hour
+wall-clock safety envelope covering exact command execution, terminal evidence,
+and Store-backed resolution. This is operational scheduling policy, not a `TrainingBudget` or
+`PlanId` input: it changes no epochs, examples, batch size, derived optimizer
+updates, seed, or completion equality. Expiry remains fail-closed, contributes
+no completed row, and cannot authorize reuse or resumption of a partial
+command-owned scope.
+
 Suite counts, status, duration, and per-stanza rows are derived from an append-only
 invocation journal; fail-fast work is `NotRun`, never rendered as a pass. Every
 selected stanza has one planned Cabal invocation, so an outcome cannot be
 attributed to a different target. The complete journal is rendered before the
 first retained failure is propagated.
 
-The live browser/Cabal runner keeps owned cluster acquisition, the selected
-Playwright invocation, every selected Cabal stanza, report measurements,
-diagnostics, and authoritative release in one `generalBracket` scope.
+The Phase `262` browser lane is a staged producer/consumer refinement inside one
+command-owned scope:
+
+1. Exactly one fresh `jitml-integration` producer receives the Phase `261`
+   ProductScenario capability. A zero exit is necessary but insufficient.
+2. The parent authenticates the completed 55-row journal, independently
+   re-admits every immutable checkpoint through Store, and publishes an exact
+   browser catalogue. Failure at this non-process boundary records Playwright
+   and every later Cabal invocation as `NotRunAfterRefinement`.
+3. In a parent-only temporary directory, the parent first writes and signs an
+   all-`NotRun` fallback result. The browser result path remains absent. Only
+   after the fallback succeeds does the parent create the distinct browser-only
+   `0600` key file in the browser's writable scope.
+4. Playwright receives only the repository, exact catalogue, and exact cluster
+   publication as read-only mounts plus its isolated browser-evidence directory
+   as the sole read-write mount. It consumes and unlinks its key, runs one
+   catalogue-named test per row with retries, and atomically publishes an exact
+   result without replacing an existing path.
+5. The final parent refinement removes any surviving browser key before reading
+   untrusted output. It chooses the exact browser result when present and the
+   inaccessible parent fallback otherwise, verifies the HMAC, and exact-joins
+   all 55 ordered rows against the published expectation.
+6. An unauthenticatable or structurally invalid result is
+   `LiveE2ERefinementRejected`. An authenticated result containing `Failed` or
+   `NotRun`, or a later measurement-collection issue, is
+   `LiveE2ERefinedWithIssue`: its exact row measurements remain renderable, but
+   every post-refinement invocation is `NotRunAfterRefinement`. Only an
+   all-`Passed` result is `LiveE2ERefined` and permits the Haskell e2e stanza and,
+   for `jitml test all`, the remaining Cabal stanzas to run.
+
+The live browser/Cabal runner keeps owned cluster acquisition, the producer,
+selected Playwright invocation, every later selected Cabal stanza, report
+measurements, diagnostics, and authoritative release in one `generalBracket`
+scope.
 Synchronous diagnostic runner exceptions become secondary scenario failures,
 so later diagnostics and release still run. A body failure remains primary;
 diagnostic and cleanup failures are retained without replacing it. The release
@@ -596,8 +741,9 @@ For every family, a successful write is only a receipt. The publisher
 known-address re-admits that exact stored manifest through Store and marks the
 row eligible only after the stored/admitted address, projected `rowId`,
 `PlanId`, full `CompletedTraining`, canonical row lookup, and family-specific
-runtime provenance agree. Supervised rows require Product-origin V2. RL,
-AlphaZero, and tuning retain canonical Product V1; their exact trajectory,
+runtime provenance agree. Supervised rows require a Product-origin
+supervised-graph payload. RL, AlphaZero, and tuning retain canonical Product
+weight-only payloads; their exact trajectory,
 self-play transcript, or tuning-v2 transcript is written first, and its
 content-addressed pointer is supplied to the checkpoint writer so Store
 admission physically binds it. The opaque publisher batch audit requires the
@@ -612,13 +758,13 @@ Reporting is a second nominal boundary, not a text-table join. A private
 must exactly match the projection's experiment, canonical ProductRow `rowId`,
 `PlanId`, complete budget, budget/evidence kind, criterion, every dimensionally
 defined update-count relation, and family-specific runtime provenance.
-Traditional RL retains the measured positive trainer update count from the
-admitted completion; it deliberately does not compare that value with the
-current descriptor field that mixes iterations, transitions, and optimizer
-epochs. Sprint `25.4` replaces that field with typed measured counters and owns
-the exact RL comparison. Supervised rows require a matching
-Product-origin V2 payload; non-supervised rows reject an unexpected supervised
-payload. A reportable row can then be minted only from a successful opaque
+Traditional RL has no planned optimizer-update descriptor field. Its positive
+measured optimizer count is exact-checked against `TrainingEvidence` before
+completion, while its measured physical transition count is exact-checked
+against the plan and carried as both checkpoint step and completed observed
+budget. Supervised rows require a matching Product-origin supervised-graph
+payload; non-supervised rows reject an unexpected supervised payload. A
+reportable row can then be minted only from a successful opaque
 `CompletedRunEvidence` carrying that same kind-indexed completion, and it
 retains the admitted manifest SHA. Joining those values against the common
 `ProductProjectionBatch` yields an opaque `CompletedProductScenarioReport` and
@@ -628,10 +774,55 @@ lane table cannot populate `ReportMeasurements`.
 `measuredProductRowEvidence = Nothing` means product evidence was not requested;
 when the selected live targets request product evidence and no opaque
 cross-process completed-scenario journal is available, collection fails closed
-before launching measurement effects. Sprint `28.4` supplies that journal
-reader.
+before launching measurement effects. Phase `261` supplies the authenticated
+current-run journal writer, reader, executable-identity checks, and report
+re-admission boundary.
 
-A passing generic-origin supervised V2 remains outside this admission boundary.
+The version-`3` journal writer accepts only the opaque, projection-ordered
+`CompletedProductScenarioReport`, covers the complete aggregate and every
+ordered row field with one current-run HMAC-SHA-256 receipt, and publishes by a
+same-directory temporary file plus atomic rename. The parent authenticates that
+receipt with its in-memory key before trusting any row semantics, requires the
+exact current run, substrate, projection batch, canonical checkpoint scope,
+executable identity, command, invocation, contract, inference receipt, and
+successful chronology, and re-admits every recorded immutable manifest address
+through Store. A valid HMAC or green integration exit alone cannot mint report
+evidence.
+
+The browser-safe catalogue derived from that opaque report has one frozen
+version-`1` transport schema. Its top level is exactly `format`, `version`,
+`run_id`, `substrate`, `catalogue_sha256`, `source_journal_sha256`, and `rows`.
+It contains exactly 55 projection-ordered rows, each with exactly `ordinal`,
+`row_id`, `plan_id`, `experiment_hash`, `manifest_sha256`, `contract_sha256`,
+`journal_sha256`, `measured_sha256`, `e2e_test`, `demo_panel`,
+`measured_result`, and `status`. Every source status is `Passed`; duplicate,
+missing, orphaned, reordered, wrong-substrate, wrong-plan, wrong-address, or
+non-canonical input is rejected before Playwright starts.
+
+Publication orders effects as live re-admission, immutable catalogue write,
+append-only per-row GC-root writes, then selector CAS. Every authenticated and
+live-admitted attempt is archival: its roots intentionally override `LastN` and
+survive both later selector changes and a failed CAS attempt. Inline root moves
+or deletion are forbidden because they can expose a selected catalogue without
+roots or race concurrent publishers. A future bounded-retention mechanism must
+be an independently synchronized external lifecycle policy; the selector owns
+only the current UI view.
+
+The independent browser result journal is also frozen at version `1`. Its top
+level is exactly `format`, `version`, `run_id`, `substrate`,
+`catalogue_sha256`, `source_journal_sha256`,
+`run_receipt_hmac_sha256`, and `rows`. Each of its 55 ordered rows is exactly
+`ordinal`, `row_id`, `plan_id`, `experiment_hash`, `manifest_sha256`,
+`e2e_test`, `status`, and `detail`. `Passed` requires an empty detail;
+`Failed` and `NotRun` require a non-empty, trimmed, control-free detail of at
+most 4096 Unicode code points. The HMAC material begins with the domain
+`jitml-browser-result-journal-hmac-v1` and length-delimits every top-level and
+row value as `<label>=<UTF-8-byte-length>:<value>\n` in schema order. The key is
+exactly 32 bytes encoded as 64 lowercase hexadecimal characters. Browser and
+parent implementations share cross-language ASCII and multibyte golden vectors;
+neither JSON serialization nor platform newline conventions define the receipt.
+
+A passing generic-origin supervised-graph payload remains outside this admission boundary.
 Its embedded exact plan may make it inference eligible, but its non-product
 experiment identity and generic origin cannot be substituted for the projected
 row's ProductRow-origin artifact or completed scenario journal. Matching a

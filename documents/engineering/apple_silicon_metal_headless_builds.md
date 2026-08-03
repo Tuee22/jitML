@@ -29,10 +29,12 @@ Haskell renders MSL + launch metadata
   -> bridge dispatches on the host GPU
 ```
 
-This is the supported core Apple training/inference path. The bridge runs only in
-the macOS host process. Cluster pods may orchestrate and persist Apple work, but
-they may not execute Apple Metal kernels. The retired Tart/SwiftPM path remains
-only as dated plan evidence and rationale for this doctrine.
+This is the supported Apple path whenever training or inference requests a
+generated Metal kernel. Supervised checkpoint serving itself uses the shared
+pure typed-graph boundary described below. The bridge runs only in the macOS host
+process. Cluster pods may orchestrate and persist Apple work, but they may not
+execute Apple Metal kernels. The retired Tart/SwiftPM path remains only as dated
+plan evidence and rationale for this doctrine.
 
 ## Requirements
 
@@ -188,31 +190,22 @@ determinism options. This mirrors the existing doctrine that generated compiler
 inputs are content-addressed, but changes the Apple compiler input from Swift
 package source to MSL source.
 
-### Supervised V2 Structural Runtime
+### Supervised Typed-Graph Boundary
 
-`JitML.Codegen.RuntimeOperationsMetal` renders the complete supervised V2
-structural-operation program as generated MSL inside an exact
-`kernel.metal.json` artifact. Its envelope records logical runtime ABI version
-`1`, capability mask `0xff`, fixed bridge ABI, all nine function names, safe
-math, single-stream ordering, source SHA-256, and the embedded source. The
-functions implement input and output transforms, residual add, LayerNorm,
-token-mix pack and merge, patch extraction, scaled attention, and mean pooling.
+Supervised training and serving use the typed `LayerGraph`; there is no separate
+Metal structural-operation program or `RuntimeOperations*` ABI. Training updates
+the graph through the selected device-backed path, while the fixed bridge remains
+the Apple boundary for generated MSL kernels selected by that path.
 
-`JitML.Engines.RuntimeOperationsMetal` refuses cached metadata whose bytes do
-not exactly equal that generated envelope. Before dispatch it validates
-dimensions, finite buffers, ranges, positive scales, index bounds, and every
-integer encoded through the bridge's float argument buffer as exactly
-representable in fp32. It then uses `jitml_metal_bridge_run` through the same
-fixed bridge and performs explicit host `Double` to device fp32 conversion and
-fp32 readback. MLP projections remain the selected fixed-bridge Metal MLP
-implementation; `MetalLocal` installs no `RuntimeOperations.host*` structural
-callbacks and cannot use the pure/reference oracle for recognized V2.
-
-This fp32 transport is explicit in the cache fingerprint and in the V2
-same-substrate training-versus-loaded gate, whose initial maximum absolute
-difference is `1e-5`. Sprint `10.6` owns the renderer and fail-closed contract;
-the Apple single-accelerator lane owns real-device reattestation and any
-evidence-driven tolerance adjustment.
+The supervised V2 checkpoint name remains a valid wire-format name. Its payload
+records the exact input/output transforms and trained graph metadata, and its one
+physical `supervised.weights` tensor follows graph parameter order. Serving
+reconstructs that graph, injects the admitted weights, refines the reloaded
+structure, applies the input transform, calls the shared pure
+`LayerGraph.runLayerGraph`, and applies the output transform. The transforms
+remain outside the graph. Apple Silicon and Linux CUDA supervised serving both
+delegate to this substrate-independent path; a deleted Metal structural ABI is
+not a serving fallback.
 
 ### In-Process Pipeline Cache
 
@@ -399,11 +392,10 @@ shape for a JIT.
    separate non-core Swift JIT modules.
 8. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
    are removed from the supported runtime JIT path.
-9. `JitML.Codegen.RuntimeOperationsMetal` and
-   `JitML.Engines.RuntimeOperationsMetal` add the exact generated MSL structural
-   executor used by supervised V2, with ABI/capability/symbol metadata,
-   exact-cache verification, explicit fp32 transport, and typed bridge
-   load/symbol/compile/dispatch failures.
+9. Supervised training persists the trained typed `LayerGraph`; serving
+   reconstructs and refines that graph and executes it through the shared pure
+   graph runner with transforms outside. The former generated Metal structural
+   executor and its `RuntimeOperations*` ABI are retired.
 
 ## Validation Evidence
 

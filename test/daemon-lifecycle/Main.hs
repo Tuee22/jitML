@@ -186,6 +186,7 @@ import JitML.Service.Workload
   , renderTuneJob
   , renderWorkloadEffectPayload
   , runWorkloadEffects
+  , runWorkloadEffectsWithWeightedInference
   , workloadOutcomeError
   )
 import JitML.Substrate (Substrate (..), renderSubstrate)
@@ -951,6 +952,237 @@ main =
                 , "kubectl:status:job/jitml-train"
                 , "kubectl:delete:job/jitml-train"
                 ]
+      , testCase "generic workload effects reject Store-owned checkpoint control paths" $ do
+          rejectedClientLogRef <- newIORef []
+          let checkpointBucket = BucketName "jitml-checkpoints"
+              controlRef prefix suffix =
+                ObjectRef
+                  checkpointBucket
+                  (ObjectKey ("exp-control/" <> prefix <> "/" <> suffix))
+              rejectedFor prefix =
+                [ SomeWorkloadEffect
+                    ( WriteCheckpointBlob
+                        (controlRef prefix "candidate")
+                        (ByteString.pack "forbidden")
+                    )
+                , SomeWorkloadEffect
+                    ( UpdateCheckpointPointer
+                        (controlRef prefix "latest")
+                        Nothing
+                        "forbidden"
+                    )
+                ]
+              rejectedEffects =
+                SomeWorkloadEffect
+                  ( WriteCheckpointBlob
+                      (controlRef "manifests" "candidate")
+                      (ByteString.pack "forbidden")
+                  )
+                  :| ( SomeWorkloadEffect
+                         ( UpdateCheckpointPointer
+                             (controlRef "manifests" "latest")
+                             Nothing
+                             "forbidden"
+                         )
+                         : concatMap rejectedFor ["pointers", "snapshots", "gc"]
+                     )
+          rejectedOutcomes <-
+            evalStateT
+              (runWorkloadEffects rejectedEffects)
+              (SyntheticClientState rejectedClientLogRef)
+          traverse_
+            ( \outcome ->
+                case workloadOutcomeError outcome of
+                  Just (SEUnauthorized message) ->
+                    assertBool
+                      "rejection identifies the Store-owned control boundary"
+                      ("Store-owned" `Text.isInfixOf` message)
+                  unexpected ->
+                    assertFailure
+                      ( "expected non-retryable Store control rejection, got "
+                          <> show unexpected
+                      )
+            )
+            rejectedOutcomes
+          rejectedClientLog <- readIORef rejectedClientLogRef
+          rejectedClientLog @?= []
+
+          allowedClientLogRef <- newIORef []
+          let otherBucket = BucketName "jitml-artifacts"
+              allowedEffects =
+                SomeWorkloadEffect
+                  ( WriteCheckpointBlob
+                      (ObjectRef checkpointBucket (ObjectKey "exp-control/blobs/blob-a"))
+                      (ByteString.pack "checkpoint-bytes")
+                  )
+                  :| [ SomeWorkloadEffect
+                         ( UpdateCheckpointPointer
+                             (ObjectRef checkpointBucket (ObjectKey "exp-control/heads/latest"))
+                             Nothing
+                             "head-a"
+                         )
+                     , SomeWorkloadEffect
+                         ( WriteCheckpointBlob
+                             (ObjectRef otherBucket (ObjectKey "exp-control/manifests/object-a"))
+                             (ByteString.pack "artifact-bytes")
+                         )
+                     , SomeWorkloadEffect
+                         ( UpdateCheckpointPointer
+                             (ObjectRef otherBucket (ObjectKey "exp-control/pointers/latest"))
+                             Nothing
+                             "pointer-a"
+                         )
+                     ]
+          allowedOutcomes <-
+            evalStateT
+              (runWorkloadEffects allowedEffects)
+              (SyntheticClientState allowedClientLogRef)
+          traverse_ (\outcome -> workloadOutcomeError outcome @?= Nothing) allowedOutcomes
+          allowedClientLog <- readIORef allowedClientLogRef
+          allowedClientLog
+            @?= [ "minio:put-blob-bytes-if-absent"
+                , "minio:cas-pointer"
+                , "minio:put-blob-bytes-if-absent"
+                , "minio:cas-pointer"
+                ]
+      , testCase
+          "generic workload mutations reject path aliases before unweighted or weighted MinIO"
+          $ do
+            let checkpointBucket = BucketName "jitml-checkpoints"
+                refFor key = ObjectRef checkpointBucket (ObjectKey key)
+                mutationEffectsFor ref =
+                  SomeWorkloadEffect
+                    ( WriteCheckpointBlob
+                        ref
+                        (ByteString.pack "forbidden")
+                    )
+                    :| [ SomeWorkloadEffect
+                           ( UpdateCheckpointPointer
+                               ref
+                               Nothing
+                               "forbidden"
+                           )
+                       ]
+                firstUnsafeRef = refFor "./exp-control/manifests/forged.cbor"
+                remainingUnsafeRefs =
+                  [ refFor ""
+                  , refFor "exp-control//manifests/forged.cbor"
+                  , refFor "exp-control/x/../gc/intents/forged.cbor"
+                  , refFor "/jitml-checkpoints/exp-control/manifests/forged.cbor"
+                  , refFor "C:/jitml-checkpoints/exp-control/manifests/forged.cbor"
+                  , refFor "exp-control\\manifests\\forged.cbor"
+                  , ObjectRef
+                      (BucketName "./jitml-checkpoints")
+                      (ObjectKey "exp-control/manifests/forged.cbor")
+                  , ObjectRef
+                      (BucketName "jitml-checkpoints/")
+                      (ObjectKey "exp-control/manifests/forged.cbor")
+                  , ObjectRef
+                      (BucketName "x/../jitml-checkpoints")
+                      (ObjectKey "exp-control/gc/intents/forged.cbor")
+                  , ObjectRef
+                      (BucketName "")
+                      (ObjectKey "exp-control/manifests/forged.cbor")
+                  , ObjectRef
+                      (BucketName ".")
+                      (ObjectKey "exp-control/manifests/forged.cbor")
+                  , ObjectRef
+                      (BucketName "..")
+                      (ObjectKey "exp-control/gc/intents/forged.cbor")
+                  , ObjectRef
+                      (BucketName "/jitml-checkpoints")
+                      (ObjectKey "exp-control/manifests/forged.cbor")
+                  , ObjectRef
+                      (BucketName "x\\..\\jitml-checkpoints")
+                      (ObjectKey "exp-control/gc/intents/forged.cbor")
+                  ]
+                unsafeEffects =
+                  foldl
+                    (<>)
+                    (mutationEffectsFor firstUnsafeRef)
+                    (fmap mutationEffectsFor remainingUnsafeRefs)
+                assertUnsafeOutcomes lane outcomes = do
+                  length outcomes @?= 2 * (1 + length remainingUnsafeRefs)
+                  traverse_
+                    ( \outcome ->
+                        case workloadOutcomeError outcome of
+                          Just (SEUnauthorized message) ->
+                            assertBool
+                              ( Text.unpack lane
+                                  <> " rejection identifies the unsafe object-reference boundary"
+                              )
+                              ("unsafe object reference" `Text.isInfixOf` message)
+                          unexpected ->
+                            assertFailure
+                              ( Text.unpack lane
+                                  <> " expected a non-retryable unsafe-reference rejection, got "
+                                  <> show unexpected
+                              )
+                    )
+                    outcomes
+                safeEffects =
+                  SomeWorkloadEffect
+                    ( WriteCheckpointBlob
+                        (refFor "exp-control/blobs/blob-a")
+                        (ByteString.pack "checkpoint-bytes")
+                    )
+                    :| [ SomeWorkloadEffect
+                           ( UpdateCheckpointPointer
+                               (refFor "exp-control/heads/latest")
+                               Nothing
+                               "head-a"
+                           )
+                       ]
+                weightedInferenceShouldNotRun _ _ _ _ =
+                  pure (Left "weighted inference unexpectedly ran for a mutation effect")
+
+            unweightedRejectedLogRef <- newIORef []
+            unweightedRejected <-
+              evalStateT
+                (runWorkloadEffects unsafeEffects)
+                (SyntheticClientState unweightedRejectedLogRef)
+            assertUnsafeOutcomes "unweighted" unweightedRejected
+            readIORef unweightedRejectedLogRef >>= (@?= [])
+
+            weightedRejectedLogRef <- newIORef []
+            weightedRejected <-
+              evalStateT
+                ( runWorkloadEffectsWithWeightedInference
+                    weightedInferenceShouldNotRun
+                    unsafeEffects
+                )
+                (SyntheticClientState weightedRejectedLogRef)
+            assertUnsafeOutcomes "weighted" weightedRejected
+            readIORef weightedRejectedLogRef >>= (@?= [])
+
+            unweightedAllowedLogRef <- newIORef []
+            unweightedAllowed <-
+              evalStateT
+                (runWorkloadEffects safeEffects)
+                (SyntheticClientState unweightedAllowedLogRef)
+            traverse_ (\outcome -> workloadOutcomeError outcome @?= Nothing) unweightedAllowed
+            readIORef unweightedAllowedLogRef
+              >>= ( @?=
+                      [ "minio:put-blob-bytes-if-absent"
+                      , "minio:cas-pointer"
+                      ]
+                  )
+
+            weightedAllowedLogRef <- newIORef []
+            weightedAllowed <-
+              evalStateT
+                ( runWorkloadEffectsWithWeightedInference
+                    weightedInferenceShouldNotRun
+                    safeEffects
+                )
+                (SyntheticClientState weightedAllowedLogRef)
+            traverse_ (\outcome -> workloadOutcomeError outcome @?= Nothing) weightedAllowed
+            readIORef weightedAllowedLogRef
+              >>= ( @?=
+                      [ "minio:put-blob-bytes-if-absent"
+                      , "minio:cas-pointer"
+                      ]
+                  )
       , testCase "daemon workload dispatcher routes parsed payloads before ack (Sprint 5.4)" $ do
           clientLogRef <- newIORef []
           let checkpointBlob =
@@ -1016,11 +1248,13 @@ main =
           result @?= Right ()
           clientLog <- readIORef clientLogRef
           -- Completed admission reads the latest pointer (P1), the addressed
-          -- manifest, the pointer again (P2), then binds the weight blob and the
-          -- companion transcript before the reloaded graph is served.
+          -- manifest, the pointer again (P2), proves the exact snapshot commit,
+          -- then binds the weight blob and companion transcript before serving.
           clientLog
             @?= [ "minio:read-bytes"
                 , "minio:read-bytes"
+                , "minio:read-bytes"
+                , "minio:list:jitml-checkpoints:product-row-DQN.cartpole/snapshots/"
                 , "minio:read-bytes"
                 , "minio:read-bytes"
                 , "minio:read-bytes"
@@ -1151,10 +1385,12 @@ main =
                 , "kubectl:delete:job/jitml-tune-tune-exp"
                 , "kubectl:delete:configmap/runconfig-jitml-tune-tune-exp"
                 , -- Completed admission (pointer P1, addressed manifest, pointer P2,
-                  -- weight blob, companion transcript) runs before the default
-                  -- runner reports that a weighted runner is required.
+                  -- exact commit, weight blob, companion transcript) runs before
+                  -- the default runner reports that a weighted runner is required.
                   "minio:read-bytes"
                 , "minio:read-bytes"
+                , "minio:read-bytes"
+                , "minio:list:jitml-checkpoints:product-row-DQN.cartpole/snapshots/"
                 , "minio:read-bytes"
                 , "minio:read-bytes"
                 , "minio:read-bytes"
@@ -1960,7 +2196,13 @@ instance HasMinIO (StateT SyntheticClientState IO) where
     pure (Right (ETag "synthetic-etag"))
   listObjects (BucketName bucket) prefix = do
     recordClientCall ("minio:list:" <> bucket <> ":" <> prefix)
-    pure (Right [])
+    pure
+      ( Right
+          [ ObjectRef (BucketName bucket) (ObjectKey key)
+          | (key, _) <- sifObjects syntheticInferenceFixture
+          , prefix `Text.isPrefixOf` key
+          ]
+      )
   deleteObject _ref = do
     recordClientCall "minio:delete-object"
     pure (Right ())
@@ -2113,17 +2355,40 @@ buildSyntheticInferenceFixture = do
             , Checkpoint.manifestMetrics = convergenceMetrics
             , Checkpoint.manifestTranscriptPointers = [transcriptPointer]
             }
-      manifestBytes = LazyByteString.toStrict (Checkpoint.encodeManifestCbor manifest)
-      manifestSha = Checkpoint.manifestContentSha manifest
+  prepared <-
+    CheckpointStore.prepareCheckpointSnapshot
+      CheckpointStore.WriterCompletedSnapshot
+      ( CheckpointStore.WriterLatestPointerIntent
+          (Checkpoint.latestPointerKey experiment)
+      )
+      manifest
+      [ (weightKey, finalBytes)
+      , (companionKey, companionPayload)
+      ]
+  let manifestSha = CheckpointStore.preparedSnapshotManifestSha prepared
       objects =
         [
           ( CheckpointStore.checkpointObjectKey (Checkpoint.latestPointerKey experiment)
           , TextEncoding.encodeUtf8 manifestSha
           )
-        , (CheckpointStore.checkpointObjectKey (Checkpoint.manifestKey experiment manifestSha), manifestBytes)
-        , (CheckpointStore.checkpointObjectKey weightKey, LazyByteString.toStrict finalBytes)
-        , (CheckpointStore.checkpointObjectKey companionKey, LazyByteString.toStrict companionPayload)
+        ,
+          ( CheckpointStore.checkpointObjectKey
+              (Checkpoint.manifestKey experiment manifestSha)
+          , LazyByteString.toStrict
+              (CheckpointStore.preparedSnapshotManifestBytes prepared)
+          )
+        ,
+          ( CheckpointStore.checkpointObjectKey
+              ( CheckpointStore.writerCommitObjectKey
+                  (CheckpointStore.preparedSnapshotCommit prepared)
+              )
+          , CheckpointStore.encodeWriterCommit
+              (CheckpointStore.preparedSnapshotCommit prepared)
+          )
         ]
+          <> [ (CheckpointStore.checkpointObjectKey objectKey, LazyByteString.toStrict payload)
+             | (objectKey, payload) <- CheckpointStore.preparedSnapshotPayloads prepared
+             ]
   pure
     SyntheticInferenceFixture
       { sifExperimentHash = experiment

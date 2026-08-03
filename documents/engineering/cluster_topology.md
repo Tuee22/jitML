@@ -442,8 +442,14 @@ subscription path.
 ## Envoy Gateway: A Single Localhost Socket
 
 There is **one user-facing socket**: `127.0.0.1:<edge-port>`. Selected by
-`jitml bootstrap --<substrate>` starting at `9090` and incremented until
-available. Recorded as the `edge_port` field of
+`jitml bootstrap --<substrate>` from the finite candidate set `9090`, `9091`,
+and `9092`. With no matching persisted publication, fresh `apple-silicon`,
+`linux-cpu`, and `linux-cuda` clusters prefer `9090`, `9091`, and `9092`,
+respectively, then probe the remaining candidates. A valid same-substrate
+publication is tried first for a fresh cluster, while a retained cluster must
+recover that publication's exact coordinate without probing. Bootstrap does not
+scan beyond `9092`; an exhausted candidate set fails closed during the Kind
+host-port bind. The selected coordinate is recorded as the `edge_port` field of
 `./.build/runtime/cluster-publication.json` alongside `pulsar_url`,
 `minio_url`, and component health. `jitml cluster status` reads this file, and
 the Apple host `BootConfig` turns those publication fields into

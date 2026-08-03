@@ -79,11 +79,11 @@ found that the supervised publisher's apparently eligible artifacts were
 generic V1 snapshots with no executable supervised runtime payload. Its frozen
 immutable-image diagnostic remains historical evidence: **54** rows were
 eligible, **0** unsupported, and **1** errored, but those results do not prove
-strict persisted-artifact reload. The frozen V1 encoding is 134 bytes with
-SHA-256
+strict persisted-artifact reload. At that historical audit boundary, the
+frozen V1 encoding was 134 bytes with SHA-256
 `30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
 
-The current strict forward chain is `252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `235`
+The current strict forward chain is `262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `235`
 (One Self-Describing Checkpoint Envelope) closed `Done` on 2026-07-27 (jitml-unit
 771/771, check-code ok, docs check ok), and Phase `236` (Checkpoint Admission
 Single-Path — one classify-on-payload-variant admission path, dormant
@@ -91,9 +91,7 @@ Single-Path — one classify-on-payload-variant admission path, dormant
 Phases `237` (supervised serving on the IR) and `238` (supervised training on
 the IR) closed `Done` on 2026-07-28; Phase `239` (checkpoint construction from the
 trained graph) closed `Done` on 2026-07-28; Phases `240`–`246` (the coupled
-literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phase `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) closed `Done` on 2026-07-31; Phase `252` (Typed Measured Counters and Evidence Separation) is the next executable phase (`Planned`). Every later phase is Blocked by
-its immediate predecessor, and the apple-silicon wall at Phase `272` remains the
-hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
+literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `252` passed RL canonicals **47 / 47**, unit **757 / 757**, model convergence **111 / 111**, integration-target build/link, docs check, and check-code. Phase `261` closed `Done` on 2026-08-01 against immutable image `jitml:local@sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`: integration passed **161 / 161**, including the Phase `261` subtree **60 / 60**; unit passed **772 / 772**; the parent authenticated the ordered version-`3` **55-row** aggregate and exactly Store-re-admitted every row; all **9** live components were Ready and the exact **12** dataset objects were present; and docs check plus check-code passed. The Phase `19`–`34` table records **57 Done / 1 Active / 0 Planned / 11 Blocked**. Phase `262` is Active. Every later phase in the current open suffix is Blocked by its immediate predecessor, and the apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
 Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 
 The binding architecture is
@@ -101,17 +99,20 @@ The binding architecture is
 to a validated plan, pure total reducers collect exact evidence, an opaque
 receipt accompanies each broker delivery, one scoped interpreter joins terminal
 workload state with complete evidence, and reports project actual execution
-journals. Completed Sprint `10.6` restored an exact executable supervised V2
-runtime artifact with one physical JMW1 weight blob and a finite-positive,
-descriptor/`PlanId`-bound learning rate passed unchanged to the selected
-classification or California regression trainer. The canonical rates are
+journals. At its historical 2026-07-19 boundary, completed Sprint `10.6`
+restored an exact executable supervised V2 runtime artifact with one physical
+JMW1 weight blob and a finite-positive, descriptor/`PlanId`-bound learning rate
+passed unchanged to the selected classification or California regression
+trainer. That V2 name records the pre-Phase-`235` checkpoint design; it is not
+a current parallel envelope. The canonical rates are
 `3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3`
 for `cifar10-vit`, and `1e-3` for the other eight rows. The current ViT plan
 fixes **2,000** training examples, forty epochs, batch size 128, **80,000**
-processed examples, and **640** successful optimizer updates. Generic V2
-execution has a composite origin comprising its canonical row identity and
-exact canonical `SupervisedPlan` transport, while Product publication retains
-the authoritative `ProductRow` origin. Admission re-refines the origin and
+processed examples, and **640** successful optimizer updates. In the current
+single-envelope design, generic supervised execution's supervised-graph body
+has a composite origin comprising its canonical row identity and exact
+canonical `SupervisedPlan` transport, while Product publication retains the
+authoritative `ProductRow` origin. Admission re-refines the origin and
 binds the exact executed seed, canonical dataset-at-read digest, runtime bytes,
 exact completion metric rows, and exact TensorBoard run, prefix, and tags;
 Product completion additionally binds its canonical four-row metric vector. A
@@ -123,19 +124,22 @@ equality checks.
 
 Sprint `10.6` closed on immutable descriptor
 `sha256:0147b37fafd53c01669705a5723ce91482d0fd545da4b9da523df8dacc3e9ba8`.
-Its **156-step** live reconcile, **11 / 11** exact-V2 publications, focused
+At that historical boundary, its **156-step** live reconcile, **11 / 11**
+exact-V2 publications, focused
 latest-pointer proof **1 / 1**, unit **711 / 711**, SL **36 / 36**, integration
 **155 / 155**, negative controls **3 / 3**, model convergence **111 / 111**,
 docs, code-quality, whitespace, and Rule-M gates all passed. The Sprint `10.12`
-implementation now reads pointer body `P1`, verifies the exact addressed V2
-manifest outer/body, requires exact pointer-body equality at `P2`, and only then
-fetches and independently binds every referenced blob. Known-address admission
-performs the same manifest/blob verification without pointer reads and returns
-Store's opaque `AdmittedCompletedCheckpoint` only after completion revalidation.
-ETags remain write-CAS tokens and are not snapshot identity. Sprint `10.12`
+implementation at its closure read pointer body `P1`, verified the exact
+addressed then-V2 manifest outer/body, required exact pointer-body equality at
+`P2`, and only then fetched and independently bound every referenced blob. The
+current single-envelope path retains that ordering: it verifies the exact
+addressed envelope and selected body, and known-address admission performs the
+same manifest/blob verification without pointer reads before Store returns its
+opaque `AdmittedCompletedCheckpoint` after completion revalidation. ETags
+remain write-CAS tokens and are not snapshot identity. Sprint `10.12`
 is Done after unit **719 / 719**, SL **36 / 36**, RL **40 / 40**,
 hyperparameter **26 / 26**, docs, code-quality, whitespace, and Rule-M gates
-passed. Active Sprint `19.4` adds total
+passed. Sprint `19.4` subsequently closed the total
 single-row projection and total batch projection through opaque
 `projectProductRows`, whose ordered identities define the ProductRow denominator
 and execution order. Each projected cell binds the exact internal
@@ -214,35 +218,74 @@ fixture into the local tuning ADT before rendering its deterministic plan.
 proto3-compatible byte round-trips; generated proto-lens Haskell bindings live
 under `gen/Proto/Jitml/` and are exposed by the cabal library.
 
-The retained checkpoint surface provides a versioned raw-to-refined manifest
-boundary, object-key renderers, the binary `.jmw1` encoder/decoder, a
-filesystem-backed store, and MinIO conditional-write/CAS operations. The
-reopened contract freezes the 134-byte V1 encoding above and adds a V2 addressed
-envelope whose outer identity covers the exact final bytes and whose inner
-identity covers the exact canonical body. Every supervised V2 artifact contains
-exactly one physical `supervised.weights` JMW1 blob and the executable graph,
+The retained checkpoint surface provides one self-describing
+`RawCheckpointEnvelope`, a typed `RawCheckpointBody` payload choice between
+weight-only and supervised-graph bodies, object-key renderers, the binary
+`.jmw1` encoder/decoder, a filesystem-backed store, and MinIO
+conditional-write/CAS operations. One decoder verifies the exact final outer
+bytes and exact canonical body without version fall-through. Phase `235`
+retired the frozen V1 and parallel V2/V3 checkpoint wires; current checkpoints
+are regenerated deterministically from source rather than admitted through a
+compatibility cascade. Every supervised-graph body contains exactly one
+physical `supervised.weights` JMW1 blob and the executable graph,
 graph-ordered virtual parameter slices, preprocessing transforms, output
 decoder, row and `PlanId`, dataset provenance, and exact initial/final weight
 identities actually used by training. California Housing splits raw examples
 before fitting feature and target statistics from the training partition only.
-Supervised V1 remains inspectable but cannot become inference eligible.
-The current `cifar10-vit` V2 executable records patch size/stride `4/4` over
-`32×32×3` and token-mixing count `64`; this is exact persistence of the
-current Mixer program, not completion of Sprint `23.1`'s single typed served
-graph (Sprint `23.1` is Done — its correct autodiff node library is
-finite-difference-validated; the served-path wiring is Sprint `23.2`) or Blocked
-Sprint `24.1`'s literal small-ViT architecture.
+The frozen pre-graph `cifar10-vit` V2 executable records patch size/stride `4/4`
+over `32×32×3` and token-mixing count `64`; this is exact persistence of that
+historical Mixer program, not evidence for the later single typed served graph
+or literal small-ViT architecture. Those obligations subsequently closed with
+the graph/checkpoint/literal-architecture chain through Phase `246`.
 
 Admission reads stable pointer body `P1`, verifies the exact addressed manifest
-outer/body, requires exact `P1 == P2`, and only then fetches and binds each
-physical blob; it does not require equal ETags. Known-address admission skips
-only the pointer reads. Candidate and completed writers/results are distinct,
-completed persistence requires `CompletedTraining` directly, immutable create
-conflicts adopt only exact byte identity, local `CheckpointWriteError` keeps
-object/pointer conflicts distinct, and Product Pipeline consumes Store's opaque
-`AdmittedCompletedCheckpoint`. ETags are used only for write CAS. Sprint
-`10.6` and `10.12` are Done on `linux-cpu`; Sprint `19.4` is Active and every
-downstream owner remains Blocked. The
+outer/body, and requires exact `P1 == P2`; it does not require equal ETags.
+Store then requires the exact commit, validates the sorted canonical-original →
+exact-scoped → payload-SHA descriptor, reconstructs the logical manifest,
+re-derives the snapshot id, and binds each scoped payload object before final
+completion refinement. Known-address admission skips only the pointer reads. A
+zero-payload-object manifest is admitted only by the exact commit at the id
+derived from its logical manifest plus `[]`. Candidate and completed
+writers/results are distinct, completed persistence requires
+`CompletedTraining` directly, immutable create conflicts adopt only exact byte
+identity, local `CheckpointWriteError` keeps object/pointer conflicts distinct,
+and Product Pipeline consumes Store's opaque `AdmittedCompletedCheckpoint`.
+Writer/GC exclusion uses the canonical versioned `ExperimentGcFence` at
+`gc/coordination-fence.txt`, binding the experiment, monotonic CAS revision, a
+separate monotonic writer/root-activity epoch, full active reservations, and
+contiguous per-event `GcFenceDecision` histories. Every reservation register or
+unregister increments that epoch; GC brackets its complete fresh root view with
+matching epoch observations, and `Open`/`Cancelled` becomes `Planned` only at
+that exact epoch. GC-only sibling revisions do not invalidate the witness. Live
+GC converges the complete view in a bounded loop: epoch churn restarts it, while
+an epoch-stable plan that discovers an absent exact durable intent persists it
+and restarts the entire view. Late ready publication or published-transient
+cleanup also counts as work and restarts the complete view. Only the converged
+plan supplies `kept` and no-op, and exact initial/fresh intent creation counts
+as work.
+Writer registration atomically moves overlapping planned events to helpable
+`Cancelling`, persists the stable immutable cancellation artifact, and completes
+`Cancelled` before mutation without deleting the semantic intent. The artifacts
+may span generations; the latest exact fence phase determines logical activity,
+and delayed helpers repeat only byte-identical PUTs. Registration rejects
+executing/reaped overlap before the separate marker; GC executes only from exact freshly re-read executing state
+with no overlap, and permanent reaped state prevents stale reuse. Prior
+generations must be complete cancelled and only the latest may be nonterminal
+or destructive. Experiment scope retains cross-snapshot parent-manifest
+protection; a local lock or repeated scan is not the proof.
+Authorization never retires the cancellation artifact, and semantic-intent
+cleanup occurs only after `Reaped` during ready/published terminal handling.
+Store's sole destructive execution API is `executeAuthorizedGcIntents`; no
+plan/raw-intent compatibility execution export remains. An absent target is
+recoverable only under the latest byte-identical `Executing`/`Reaped` fence
+decision. Generic Workload mutations first reject noncanonical bucket/key
+references and then reject Store-owned `manifests/`, `pointers/`, `snapshots/`,
+and `gc/` prefixes before `HasMinIO`. Each GC event names exactly one snapshot and
+one `committed.cbor` plus its payload-object keys, so a zero-payload-object reap
+reports `reaped-objects=1`. ETags are used only for write CAS. Sprint
+`10.6`, `10.12`, and `19.4` are Done on `linux-cpu`; Phases `252` and `261` are
+Done, Phase `262` is Active, and every later phase in the current open suffix
+remains Blocked. The
 live HTTP MinIO capability path remains implemented by
 `JitML.Service.MinIOSubprocess` and exercises write-once conflicts, pointer CAS,
 read, list, and delete. The frontend surface provides a
@@ -300,7 +343,7 @@ style tools.
 The dependency-ordered execution roadmap lives in
 [README.md → Execution Roadmap](README.md#execution-roadmap). Each item there
 links to the owning sprint's `### Remaining Work` block, where the validation
-gate lives. The roadmap closes when every Active or Blocked phase moves to Done
+gate lives. The roadmap closes when every Planned, Active, or Blocked phase moves to Done
 and the deletion ledger has no pending rows.
 
 ## Architecture Overview
@@ -310,7 +353,7 @@ and the deletion ledger has no pending rows.
   source of truth. The same registry feeds the parser, the command tree (`jitml
   commands --tree`), the JSON command schema (`jitml commands --json`), the markdown
   command reference, the manpages, and the shell completion scripts. Sprint
-  `19.4` adds the exact ProductRow publisher/executor
+  `19.4` added the exact ProductRow publisher/executor
   `jitml internal train-and-publish-product-rows --<substrate> [--row <rowId>]`.
   Owned by [phase-1-haskell-cli-surface.md](README.md#legacy-to-new-phase-map).
 - **Typed run contract.** Raw workflow requests refine into kind-indexed plans;
@@ -554,8 +597,9 @@ and the deletion ledger has no pending rows.
   event oneofs plus Inference request/result envelopes also round-trip through
   proto3-compatible bytes. Live MinIO dataset fetch, daemon-backed training
   loops, and live Pulsar training/event flow are implemented and validated on
-  the closed Phase `8` surface; algorithm-specific compiled RL-plan adoption
-  remains owned by Sprint `25.4`. Phase:
+  the closed Phase `8` surface. Algorithm-specific compiled RL-plan adoption
+  closed in Phase `251`; typed measured counters and separated learning/final-
+  evaluation evidence closed in Phase `252`. Phase:
   [phase-8-supervised-and-rl-framework.md](README.md#legacy-to-new-phase-map).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Catalog
   covers PPO through AlphaZero as metadata rows with a Dhall
@@ -573,11 +617,13 @@ and the deletion ledger has no pending rows.
   `experiments/mnist-tune.dhall` renders the canonical `Some
   Tuning::{ … }` worked example from README. Real network forward/back through
   the JIT engine, live trial transcript persistence, and on-hardware reward
-  thresholds are implemented on the closed Phase `9` surface; distinct
-  traditional-RL plan/evaluation evidence remains Sprint `25.4`. Phase:
+  thresholds are implemented on the closed Phase `9` surface; Phase `252`
+  closed typed measured counters and distinct ordered-learning versus exact
+  final-evaluation evidence. Phase:
   [phase-9-rl-catalog-alphazero-and-tuning.md](README.md#legacy-to-new-phase-map).
-- **Checkpointing and inference-only read path.** The retained V1/legacy surface
-  includes a typed manifest with
+- **Checkpointing and inference-only read path.** The retained surface uses one
+  self-describing `RawCheckpointEnvelope`; its typed `RawCheckpointBody`
+  selects a weight-only or supervised-graph payload. The manifest includes
   the full split-blob shape (`TensorBlob`, `OptimizerBlob`, `RngBlob`,
   monotonic step, per-metric values, parent-manifest lineage SHA,
   architecture metadata, preprocessing metadata, output decoders,
@@ -612,9 +658,13 @@ and the deletion ledger has no pending rows.
   `loadInferenceCheckpointWithWeights` when `jitml-demo` has a live
   publication and fails closed with `503 checkpoint-required` otherwise.
   Those mechanisms and the earlier all-lane results remain historical evidence.
-  Sprint `10.6` is Done after the exact V2 supervised runtime artifact and
-  strict Store-loaded parity closed on `linux-cpu`; CUDA and Apple retest their
-  real hardware paths in Sprints `29.5` and `30.4`. Sprint `10.12` is Done.
+  Sprint `10.6`'s exact-V2 supervised runtime artifact and strict Store-loaded
+  parity are historical closure evidence from the pre-Phase-`235` wire design;
+  Sprint `10.12`'s addressed-manifest admission result is historical closure
+  evidence from the same lineage. Phase `235` subsequently replaced the
+  multi-version wire and admission cascade with the one envelope and typed body
+  variants. CUDA and Apple retest their real hardware paths in Sprints `29.5`
+  and `30.4`. Sprints `10.6` and `10.12` remain Done.
   Phase:
   [phase-10-checkpointing-and-inference.md](README.md#legacy-to-new-phase-map).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
@@ -664,8 +714,12 @@ and the deletion ledger has no pending rows.
   build chart` → `jitml bootstrap` → pinned Playwright browser-image run →
   `jitml cluster down`. Real-binary integration, live SL convergence, live RL
   trajectories, live hyperparameter reproducibility, and live Playwright are
-  implemented and validated through the closed Phase `12` surface. Contract-
-  driven per-ProductRow integration/e2e evidence remains Sprint `28.4`.
+  implemented and validated through the closed Phase `12` surface. Closed Phase
+  `261` supplies the command-owned authenticated cross-process integration
+  journal: startup consumes and clears the private key-file
+  capability before Tasty, all projected ProductRows must yield exact completed
+  evidence, and the parent authenticates the aggregate before Store re-admission.
+  Browser/Playwright consumption is the Active Phase `262` successor.
   Within-substrate apple-silicon reproducibility is validated host-native by
   Sprint `16.6`; no cross-substrate parity path remains. The seven doctrine
   test categories (Pure Logic, Parser, Property, Snapshot (pure-renderer
@@ -1275,65 +1329,74 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 231 | [Per-Row Runnable Dhall](phase-231-per-row-runnable-dhall.md) | ✅ Done | 22.2 |
 | 232 | [Read-Time Dataset SHA](phase-232-read-time-dataset-sha.md) | ✅ Done | 22.3 |
 | 233 | [Typed Layer IR + Reverse-Mode Autodiff](phase-233-typed-layer-ir-reverse-mode-autodiff.md) | ✅ Done | 23.1 |
-| 234 | [oneDNN Layer Kernels for Training](phase-234-onednn-layer-kernels-for-training.md) | 📋 Planned | 23.2 |
-| 235 | [Served-Path Tier-2 Wiring + Checkpoint Format Bump](phase-235-one-self-describing-checkpoint-envelope.md) | ⏸️ Blocked | 23.3 |
-| 236 | [Layer-Graph Checkpoints + Inference](phase-240-layer-graph-checkpoints-inference.md) | ⏸️ Blocked | 23.4 |
-| 237 | [Literal Architectures - Dense, MLP, LeNet](phase-242-literal-architectures-dense-mlp-lenet.md) | ⏸️ Blocked | 24.1 |
-| 238 | [Literal Architectures - ResNet Family](phase-243-literal-architectures-resnet-family.md) | ⏸️ Blocked | 24.2 |
-| 239 | [Literal Architectures - Vision Transformer](phase-244-literal-architectures-vision-transformer.md) | ⏸️ Blocked | 24.3 |
-| 240 | [Convergence and Evidence](phase-245-convergence-and-evidence.md) | ⏸️ Blocked | 24.4 |
-| 241 | [CompletedTraining SL Manifests](phase-246-completedtraining-sl-manifests.md) | ⏸️ Blocked | 24.5 |
-| 242 | [Real Environments](phase-247-real-environments.md) | ✅ Done | 25.1 |
-| 243 | [Distinct Algorithms](phase-248-distinct-algorithms.md) | ✅ Done | 25.2 |
-| 244 | [Per-Row Convergence and Evidence](phase-249-per-row-convergence-and-evidence.md) | ✅ Done | 25.3 |
-| 245 | [Typed RL Cohort and Action-Domain Compatibility](phase-250-typed-rl-cohort-and-action-domain-compatibility.md) | ⏸️ Blocked | 25.4 |
-| 246 | [TrainingPlan/EvaluationPlan Compiler and Trainer Migration](phase-251-trainingplan-evaluationplan-compiler-and-trainer-migration.md) | ⏸️ Blocked | 25.5 |
-| 247 | [Typed Measured Counters and Evidence Separation](phase-252-typed-measured-counters-and-evidence-separation.md) | ⏸️ Blocked | 25.6 |
-| 248 | [Per-Game Self-Play](phase-253-per-game-self-play.md) | ✅ Done | 26.1 |
-| 249 | [Arena Convergence + Evidence](phase-254-arena-convergence-evidence.md) | ✅ Done | 26.2 |
-| 250 | [Train-and-Publish + Artifact Selectors](phase-255-train-and-publish-artifact-selectors.md) | ✅ Done | 27.1 |
-| 251 | [Row-Specific Renderers](phase-256-row-specific-renderers.md) | ✅ Done | 27.2 |
-| 252 | [Browser Fail-Closed](phase-257-browser-fail-closed.md) | ✅ Done | 27.3 |
-| 253 | [Row-Keyed Integration Matrix](phase-258-row-keyed-integration-matrix.md) | ✅ Done | 28.1 |
-| 254 | [Row-Complete Playwright](phase-259-row-complete-playwright.md) | ✅ Done | 28.2 |
-| 255 | [linux-cpu Report Card](phase-260-linux-cpu-report-card.md) | ✅ Done | 28.3 |
-| 256 | [Contract-Driven Live Execution - Integration Journal](phase-261-contract-driven-live-execution-integration-journal.md) | ⏸️ Blocked | 28.4 |
-| 257 | [Contract-Driven Live Execution - Browser and Playwright](phase-262-contract-driven-live-execution-browser-and-playwright.md) | ⏸️ Blocked | 28.5 |
-| 258 | [Contract-Driven Live Execution - Fragment Issuance](phase-263-contract-driven-live-execution-fragment-issuance.md) | ⏸️ Blocked | 28.6 |
-| 259 | [Real cuDNN/cuBLAS Kernels](phase-264-real-cudnn-cublas-kernels.md) | ✅ Done | 29.1 |
-| 260 | [CUDA Row Device Evidence](phase-265-cuda-row-device-evidence.md) | ✅ Done | 29.2 |
-| 261 | [CUDA Integration, E2E, and Attestation](phase-266-cuda-integration-e2e-and-attestation.md) | ✅ Done | 29.3 |
-| 262 | [GPU Performance and Persistent Device Buffers](phase-267-gpu-performance-and-persistent-device-buffers.md) | ✅ Done | 29.4 |
-| 263 | [Contract-Driven CUDA Lane Revalidation](phase-268-contract-driven-cuda-lane-revalidation.md) | ⏸️ Blocked | 29.5 |
-| 264 | [Real Metal Kernels](phase-269-real-metal-kernels.md) | ✅ Done | 30.1 |
-| 265 | [Metal Row Device Evidence](phase-270-metal-row-device-evidence.md) | ✅ Done | 30.2 |
-| 266 | [Apple Integration, E2E, and Attestation](phase-271-apple-integration-e2e-and-attestation.md) | ✅ Done | 30.3 |
-| 267 | [Contract-Driven Apple Lane Revalidation](phase-272-contract-driven-apple-lane-revalidation.md) | ⏸️ Blocked | 30.4 |
-| 268 | [Attestation Join](phase-273-attestation-join.md) | ✅ Done | 31.1 |
-| 269 | [No-Caveat Closure Guard](phase-274-no-caveat-closure-guard.md) | ✅ Done | 31.2 |
-| 270 | [Journal-Derived Product Aggregation](phase-275-journal-derived-product-aggregation.md) | ⏸️ Blocked | 31.3 |
-| 271 | [Negative-Control Suite](phase-276-negative-control-suite.md) | ✅ Done | 32.1 |
-| 272 | [External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance](phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md) | ⏸️ Blocked | 32.2 |
-| 273 | [Measured/Declared Type Split & Behavioral Scaffold Lint](phase-278-measured-declared-type-split-behavioral-scaffold-lint.md) | ✅ Done | 32.3 |
-| 274 | [RunContract Negative Controls - Request and Event Fixtures](phase-279-runcontract-negative-controls-request-and-event-fixtures.md) | ⏸️ Blocked | 32.4 |
-| 275 | [RunContract Negative Controls - Journal Fixtures and Reducer Properties](phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) | ⏸️ Blocked | 32.5 |
-| 276 | [RunContract Negative Controls - Lifecycle and Per-Row Registration](phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md) | ⏸️ Blocked | 32.6 |
-| 277 | [Per-Model Measured Convergence](phase-282-per-model-measured-convergence.md) | ✅ Done | 33.1 |
-| 278 | [Inference-Performance & Determinism](phase-283-inference-performance-determinism.md) | ✅ Done | 33.2 |
-| 279 | [Contract-Driven Per-Model Evidence](phase-284-contract-driven-per-model-evidence.md) | ⏸️ Blocked | 33.3 |
-| 280 | [Evidence-Derived Closure Guard](phase-285-evidence-derived-closure-guard.md) | ✅ Done | 34.1 |
-| 281 | [Standing Adversarial Audit & Thin Plan](phase-286-standing-adversarial-audit-thin-plan.md) | ✅ Done | 34.2 |
-| 282 | [Journal-Derived Status Registry](phase-287-journal-derived-status-registry.md) | ⏸️ Blocked | 34.3 |
-| 283 | [Evidence-Typed Report Measurements](phase-288-evidence-typed-report-measurements.md) | ⏸️ Blocked | 34.4 |
+| 234 | [oneDNN Layer Kernels for Training](phase-234-onednn-layer-kernels-for-training.md) | ✅ Done | 23.2 |
+| 235 | [One Self-Describing Checkpoint Envelope](phase-235-one-self-describing-checkpoint-envelope.md) | ✅ Done | 23.3 |
+| 236 | [Checkpoint Admission Single-Path](phase-236-checkpoint-admission-single-path.md) | ✅ Done | — |
+| 237 | [Supervised Serving on the Layer-Graph IR](phase-237-supervised-serving-on-the-layer-graph-ir.md) | ✅ Done | — |
+| 238 | [Supervised Training on the Layer-Graph IR](phase-238-supervised-training-on-the-layer-graph-ir.md) | ✅ Done | — |
+| 239 | [Checkpoint Construction from the Trained Graph](phase-239-checkpoint-construction-from-the-trained-graph.md) | ✅ Done | — |
+| 240 | [Layer-Graph Checkpoints + Inference](phase-240-layer-graph-checkpoints-inference.md) | ✅ Done | 23.4 |
+| 241 | [oneDNN Device Training Kernels for Correct Operators](phase-241-onednn-device-training-kernels-for-correct-operators.md) | ✅ Done | new 2026-07-28 |
+| 242 | [Literal Architectures - Dense, MLP, LeNet](phase-242-literal-architectures-dense-mlp-lenet.md) | ✅ Done | 24.1 |
+| 243 | [Literal Architectures - ResNet Family](phase-243-literal-architectures-resnet-family.md) | ✅ Done | 24.2 |
+| 244 | [Literal Architectures - Vision Transformer](phase-244-literal-architectures-vision-transformer.md) | ✅ Done | 24.3 |
+| 245 | [Convergence and Evidence](phase-245-convergence-and-evidence.md) | ✅ Done | 24.4 |
+| 246 | [CompletedTraining SL Manifests](phase-246-completedtraining-sl-manifests.md) | ✅ Done | 24.5 |
+| 247 | [Real Environments](phase-247-real-environments.md) | ✅ Done | 25.1 |
+| 248 | [Distinct Algorithms](phase-248-distinct-algorithms.md) | ✅ Done | 25.2 |
+| 249 | [Per-Row Convergence and Evidence](phase-249-per-row-convergence-and-evidence.md) | ✅ Done | 25.3 |
+| 250 | [Typed RL Cohort and Action-Domain Compatibility](phase-250-typed-rl-cohort-and-action-domain-compatibility.md) | ✅ Done | 25.4 |
+| 251 | [TrainingPlan/EvaluationPlan Compiler and Trainer Migration](phase-251-trainingplan-evaluationplan-compiler-and-trainer-migration.md) | ✅ Done | 25.5 |
+| 252 | [Typed Measured Counters and Evidence Separation](phase-252-typed-measured-counters-and-evidence-separation.md) | ✅ Done | 25.6 |
+| 253 | [Per-Game Self-Play](phase-253-per-game-self-play.md) | ✅ Done | 26.1 |
+| 254 | [Arena Convergence + Evidence](phase-254-arena-convergence-evidence.md) | ✅ Done | 26.2 |
+| 255 | [Train-and-Publish + Artifact Selectors](phase-255-train-and-publish-artifact-selectors.md) | ✅ Done | 27.1 |
+| 256 | [Row-Specific Renderers](phase-256-row-specific-renderers.md) | ✅ Done | 27.2 |
+| 257 | [Browser Fail-Closed](phase-257-browser-fail-closed.md) | ✅ Done | 27.3 |
+| 258 | [Row-Keyed Integration Matrix](phase-258-row-keyed-integration-matrix.md) | ✅ Done | 28.1 |
+| 259 | [Row-Complete Playwright](phase-259-row-complete-playwright.md) | ✅ Done | 28.2 |
+| 260 | [linux-cpu Report Card](phase-260-linux-cpu-report-card.md) | ✅ Done | 28.3 |
+| 261 | [Contract-Driven Live Execution - Integration Journal](phase-261-contract-driven-live-execution-integration-journal.md) | ✅ Done | 28.4 |
+| 262 | [Contract-Driven Live Execution - Browser and Playwright](phase-262-contract-driven-live-execution-browser-and-playwright.md) | 🔄 Active | 28.5 |
+| 263 | [Contract-Driven Live Execution - Fragment Issuance](phase-263-contract-driven-live-execution-fragment-issuance.md) | ⏸️ Blocked | 28.6 |
+| 264 | [Real cuDNN/cuBLAS Kernels](phase-264-real-cudnn-cublas-kernels.md) | ✅ Done | 29.1 |
+| 265 | [CUDA Row Device Evidence](phase-265-cuda-row-device-evidence.md) | ✅ Done | 29.2 |
+| 266 | [CUDA Integration, E2E, and Attestation](phase-266-cuda-integration-e2e-and-attestation.md) | ✅ Done | 29.3 |
+| 267 | [GPU Performance and Persistent Device Buffers](phase-267-gpu-performance-and-persistent-device-buffers.md) | ✅ Done | 29.4 |
+| 268 | [Contract-Driven CUDA Lane Revalidation](phase-268-contract-driven-cuda-lane-revalidation.md) | ⏸️ Blocked | 29.5 |
+| 269 | [Real Metal Kernels](phase-269-real-metal-kernels.md) | ✅ Done | 30.1 |
+| 270 | [Metal Row Device Evidence](phase-270-metal-row-device-evidence.md) | ✅ Done | 30.2 |
+| 271 | [Apple Integration, E2E, and Attestation](phase-271-apple-integration-e2e-and-attestation.md) | ✅ Done | 30.3 |
+| 272 | [Contract-Driven Apple Lane Revalidation](phase-272-contract-driven-apple-lane-revalidation.md) | ⏸️ Blocked | 30.4 |
+| 273 | [Attestation Join](phase-273-attestation-join.md) | ✅ Done | 31.1 |
+| 274 | [No-Caveat Closure Guard](phase-274-no-caveat-closure-guard.md) | ✅ Done | 31.2 |
+| 275 | [Journal-Derived Product Aggregation](phase-275-journal-derived-product-aggregation.md) | ⏸️ Blocked | 31.3 |
+| 276 | [Negative-Control Suite](phase-276-negative-control-suite.md) | ✅ Done | 32.1 |
+| 277 | [External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance](phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md) | ⏸️ Blocked | 32.2 |
+| 278 | [Measured/Declared Type Split & Behavioral Scaffold Lint](phase-278-measured-declared-type-split-behavioral-scaffold-lint.md) | ✅ Done | 32.3 |
+| 279 | [RunContract Negative Controls - Request and Event Fixtures](phase-279-runcontract-negative-controls-request-and-event-fixtures.md) | ⏸️ Blocked | 32.4 |
+| 280 | [RunContract Negative Controls - Journal Fixtures and Reducer Properties](phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) | ⏸️ Blocked | 32.5 |
+| 281 | [RunContract Negative Controls - Lifecycle and Per-Row Registration](phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md) | ⏸️ Blocked | 32.6 |
+| 282 | [Per-Model Measured Convergence](phase-282-per-model-measured-convergence.md) | ✅ Done | 33.1 |
+| 283 | [Inference-Performance & Determinism](phase-283-inference-performance-determinism.md) | ✅ Done | 33.2 |
+| 284 | [Contract-Driven Per-Model Evidence](phase-284-contract-driven-per-model-evidence.md) | ⏸️ Blocked | 33.3 |
+| 285 | [Evidence-Derived Closure Guard](phase-285-evidence-derived-closure-guard.md) | ✅ Done | 34.1 |
+| 286 | [Standing Adversarial Audit & Thin Plan](phase-286-standing-adversarial-audit-thin-plan.md) | ✅ Done | 34.2 |
+| 287 | [Journal-Derived Status Registry](phase-287-journal-derived-status-registry.md) | ⏸️ Blocked | 34.3 |
+| 288 | [Evidence-Typed Report Measurements](phase-288-evidence-typed-report-measurements.md) | ⏸️ Blocked | 34.4 |
 
 The 2026-07-18 checkpoint/runtime audit adds sprint-level dependencies without
 renumbering phases. After Sprints `10.6` and `10.12` closed, the current open
 suffix is:
-`252 → 261 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
+`262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 This is an ownership-chain overlay on the phase DAG: later phases that are not
 named remain Done on their retained surfaces. Sprints `1.18`, `2.9`, `3.7`,
-`5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Phase
-`250` (Typed RL Cohort) is the next executable phase (`Planned`; Phases `235`–`246` closed `Done`, `240`–`246` on 2026-07-30); every later phase in the chain is Blocked by its immediate predecessor, and the apple-silicon wall at Phase `272` is the hard stop on non-Apple hosts (the 2026-07-26 IR-single-owner `+4` renumber inserted Phases `236`–`239` and shifted the tail to `240`–`287`). Prior Sprint
+`5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Phases
+`235`–`246`, `250`, `251`, `252`, and `261` are closed `Done`; Phase `262` is
+Active. The Phase `19`–`34` product-sprint status checkpoint is
+**57 Done / 1 Active / 0 Planned / 11 Blocked**. Every later phase in the chain
+is Blocked by its immediate predecessor, and the
+apple-silicon wall at Phase `272` is the hard stop on non-Apple hosts. Prior Sprint
 `10.12` validation and pre-V2 publisher results remain historical evidence only.
 
 ## Status Vocabulary
@@ -1656,7 +1719,7 @@ sequence lives in
 | Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza. Sprint `1.15` removed the VM command surface, Sprints `2.12` / `5.10` removed Tart prerequisite/bootstrap and daemon acquire/config residue, and Sprint `7.11` removed the generated Swift/Tart cache-miss code path. | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | The Cabal package declares one supported executable, `jitml`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the `jitml-demo` image/tag/workload is a retagged Webapp role of that binary. The typed JIT cache key/layout/manifest layer is implemented; Apple uses `.metal.json` source metadata plus a fixed host bridge under `./.build/host/apple-silicon/`; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-backends` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement through generated FFI output digests, and Apple fixed-bridge Metal execution in the Apple lane; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` binary, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
 | CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, local JIT cache inspection/eviction, and the exact ProductRow publisher/executor `jitml internal train-and-publish-product-rows --<substrate> [--row <rowId>]`. Sprint `5.11` replaced Apple Metal-backed Job placement with host-resident workload commands while preserving Linux Job placement. Sprint `1.15` removed the `jitml internal vm` group from the implemented command surface, and Sprint `1.16` removed placeholder top-level `verify`, `inspect`, `bench`, and user-facing `kubectl` groups. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete `jitml` command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `internal train-and-publish-product-rows --<substrate> [--row <rowId>]`, `commands`, and `help`; the `jitml-demo` HTTP surface is the Webapp role run by `jitml service` |
-| Test stanzas | Ten Cabal stanzas are declared with dedicated bodies; the original eight cover unit, integration, canonical SL/RL, tuning, substrate backends, daemon lifecycle, and e2e surfaces, while `jitml-negative-controls` and `jitml-model-convergence` provide the standing realness gates. The reopened target routes their live cases through validated plans, exact evidence reducers, and scenario journals; the current negative-control and convergence stand-ins remain tracked for replacement under Sprints `32.4` and `33.3`. | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-negative-controls`, `jitml-model-convergence` |
+| Test stanzas | Ten Cabal stanzas are declared with dedicated bodies; the original eight cover unit, integration, canonical SL/RL, tuning, substrate backends, daemon lifecycle, and e2e surfaces, while `jitml-negative-controls` and `jitml-model-convergence` provide the standing realness gates. Phase `276` is Done for the retained pure negative-control gate-soundness scope. Its production request/event, journal/reducer, lifecycle, and mandatory per-row expansion remains tracked under blocked Phases `279`–`281` (legacy Sprints `32.4`–`32.6`); the convergence stand-in remains tracked under Phase `284` (legacy Sprint `33.3`). | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-negative-controls`, `jitml-model-convergence` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. LLVM and oneDNN currently come from host/container packages; CUDA/NVCC/cuDNN are Docker package-family pins; Node, Playwright, ALE, Metal runtime/bridge ABI, and Kind node image are pinned or probed at their owning surfaces. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM supplied by the host or Ubuntu package set rather than `cabal.project`, CUDA package family `12-8` plus cuDNN 9 in `docker/Dockerfile`, optional ALE library/runtime pinned in `docker/Dockerfile`, host OS Metal runtime + fixed bridge for core Apple execution, optional `swiftc`/macOS SDK only for non-core Swift JIT modules, oneDNN from Ubuntu `libdnnl-dev`, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, and per-substrate run-to-run bit-identity (within-substrate reproducibility) are covered by dedicated Cabal stanzas. Cross-substrate equivalence is out of contract and not asserted | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-backends` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, Halogen panel modules under `web/src/Panels/`, and a `spec-node` `purescript-spec` smoke suite under `web/test/`; Sprint `11.9` adds current-panel generated payload parsers and request renderers, generated training/RL/tune command-envelope controls, request-aware command publication when a live cluster publication is present, checkpoint-runtime-backed MNIST/generic/CIFAR/checkpoint-compare/Connect 4 REST route injection, training metadata, RL replay scrub summaries, multi-game adversarial boards, and non-placeholder summary charts; `src/JitML/Web/Server.hs` serves the demo/API/WebSocket surface; the live-only Playwright scaffold drives the published edge route | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |

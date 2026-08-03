@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific bit-determinism contract for jitML — the per-
@@ -13,8 +13,11 @@
 
 **Implemented today.** Supervised served determinism runs through the reloaded
 typed `LayerGraph` executed directly by `LayerGraph.runLayerGraph` (Phases
-`237`–`239`); the exact V2 structural-operation ABI has been removed. Content
-addressing spans the frozen V1 and the supervised-graph envelopes.
+`237`–`239`); the historical exact-V2 structural-operation ABI has been
+removed. Checkpoint content addressing now covers the exact outer bytes of one
+self-describing `RawCheckpointEnvelope`; its typed body is either weight-only
+or supervised-graph. The frozen V1 and parallel V2/V3 checkpoint wires are
+retired.
 
 ## The Contract
 
@@ -75,14 +78,159 @@ process duration, and cleanup timestamps. Those remain observable journal data
 but are not inputs to numerical results, plan identity, checkpoint hashes, or
 same-substrate equality assertions.
 
+## Checkpoint GC Determinism
+
+Checkpoint retention is independent of object-discovery order. Candidate
+manifests are content-addressed and deduplicated by manifest SHA; `LastN` ranks
+them by `(step descending, manifest SHA ascending)`, roots and kept identities
+are sorted, and each payload object belongs to exactly one deterministic
+snapshot namespace. The `snapshot-id` is
+`sha256(canonical-CBOR("jitml-snapshot-v1", exact logical manifest,
+sorted(original-key,payload-sha)))`; every tensor, optimizer, RNG,
+replay/transcript companion, and substrate-artifact body is stored at
+`snapshots/<snapshot-id>/objects/<sha256(original-full-key)>`. Each unique
+`reservations/<attempt-id>.cbor` marker and the attempt-independent commit bind
+that identity, the addressed manifest, and the sorted canonical-original →
+exact-scoped → payload-SHA descriptor. Validation reverses the mapping to
+reconstruct the logical manifest and re-derives `snapshot-id`; the common scoped
+prefix is not trusted as identity. The
+attempt id affects only marker ownership; it does not enter snapshot or commit
+identity. No discovery order, wall clock, or process-local identifier
+participates in the snapshot namespace.
+
+The immutable writer order is coordinated by the durable `ExperimentGcFence`
+at `jitml-checkpoints/<experiment-hash>/gc/coordination-fence.txt`. Its
+canonical value carries a format version, bound experiment hash, monotonic
+CAS revision, a separate monotonic writer/root-activity epoch, canonical full
+active `WriterReservation` set, and canonical `GcFenceDecision` history. Every
+reservation register/unregister increments the writer/root-activity epoch;
+GC-only decision changes increment the revision but not that epoch. Absence for an event is `Open`; recorded phases are
+`Planned(g,event)`, `Cancelling(g,event)`, `Cancelled(g,event)`,
+`Executing(g,event)`, and permanent `Reaped`. Generations are contiguous from
+zero through the latest, all prior generations are complete `Cancelled`, and
+every generation binds the same byte-identical semantic intent. Only the latest
+generation may be nonterminal or destructive. Experiment scope is required
+because a child writer can protect a GC target in another snapshot through
+`parentManifestSha`; independent per-snapshot locks cannot make that
+cross-snapshot overlap atomic.
+The CAS value is exactly `jitml-experiment-gc-fence-v1:` followed by lowercase
+hexadecimal canonical CBOR; noncanonical text or CBOR is invalid state.
+GC brackets every complete fresh root view with matching writer/root-activity
+epoch observations and may move `Open` or complete `Cancelled` to `Planned`
+only at that exact epoch. A GC-only revision for a sibling event therefore does
+not invalidate the witness. The live reconciler converges the complete view in
+a bounded loop: epoch churn restarts it, and an epoch-stable plan that discovers
+an exact event absent from durable intent state persists the canonical intent
+and restarts the entire view before authorization. Terminal ready/published
+work first observed in the fresh view is completed and also restarts the view;
+permanent published-only state is already current.
+
+A writer selects a fixed-width lowercase-hex attempt id and CAS-registers its
+full reservation before creating the separate absent-only per-attempt marker.
+The registration transition inserts the reservation and atomically changes
+every overlapping `Planned` event to `Cancelling`; an overlapping `Executing`
+or `Reaped` event rejects the writer before marker creation. Before marker
+creation or payload mutation, the writer helps every overlapping `Cancelling`
+event by durably writing its byte-identical immutable cancellation artifact and
+CASing it to complete `Cancelled`, without removing its semantic intent. The
+intent and cancellation artifact may remain physically present across
+generations; the latest exact fence phase determines logical activity, and a
+delayed old helper can only repeat the same idempotent PUT. Marker conflicts still advance
+the counter, so attempts never share a marker and need neither RNG nor a lease. A conflicted
+attempt does not unregister its reservation: ownership of the already-present
+marker cannot be proved, so the entry remains a conservative permanent root.
+A resumed attempt likewise leaves an already-registered exact reservation key
+in place and advances to a freshly registered attempt rather than replacing or
+removing it. Only after fence registration, cancellation settlement, and marker
+creation may snapshot-owned
+payload objects and the manifest be written. A candidate writes the
+attempt-independent commit next. A completed writer performs mutable pointer CAS
+before that commit; a pointer that temporarily names an uncommitted snapshot is
+ineligible and fails admission closed. Successful cleanup deletes only the
+attempt's own marker and then CAS-unregisters its fence entry, in that order. A
+crash can therefore leak a marker, an entry, or both; every leak remains a GC
+root even after another attempt completes the matching commit. Commit never
+overrides leaked protection, and a retry cannot remove state it does not own.
+
+For a zero-payload-object logical manifest, the binding list is empty and the
+same function deterministically yields
+`sha256(canonical-CBOR("jitml-snapshot-v1", exact logical manifest, []))`.
+Store derives the expected commit address from that identity rather than a
+payload-object-key prefix. An exact matching `committed.cbor` enables admission,
+retention, and GC and is the snapshot's sole GC-owned key. Without that commit,
+a legacy empty manifest remains protected, ineligible, and available only for
+decode/inspection; emptiness alone is never an admission proof.
+
+Every durable GC intent carries a stable `event_id` derived from the
+experiment, manifest SHA, step, and sorted unique exact snapshot-owned deletion
+keys. Those keys belong to one snapshot namespace and contain exactly one
+`committed.cbor` plus its payload-object keys; a zero-payload-object snapshot
+therefore has one deletion key and reports `reaped-objects=1`. Discovery
+order, substrate, completion time, broker receipt, and retry count do not enter
+that identity. Coordination-record revision, execution generation, and helper
+operation identity also do not change the semantic event or its broker payload.
+Before an intent can execute, the reconciler brackets its recomputation of the
+complete committed snapshot and live-root view from manifests, mutable pointer
+bodies, browser-catalogue and intrinsic roots, writer reservations, the
+experiment CAS fence, and durable intent/cancelled/ready/published state with
+matching observations of the fence's monotonic writer/root-activity epoch. If
+the epoch changes, or if an epoch-stable plan discovers and persists an exact
+missing durable intent, the bounded convergence loop restarts that whole view.
+Only the converged plan supplies the kept set and no-op decision. It
+CAS-transitions an exact freshly revalidated event from `Open` or complete
+`Cancelled` to `Planned(g,event)` only at that exact epoch; GC-only sibling
+revisions do not invalidate the witness. It may move it to `Executing(g,event)` only while no active
+reservation overlaps it. A writer racing a planned event wins by atomically
+inserting its full reservation and changing that event to
+`Cancelling(g,event)`. A coordinator, writer, or helper settles cancellation by
+durably writing the byte-identical immutable
+`gc/cancelled/<event-id>.cbor` and only then CASing `Cancelling(g,event)` to
+complete `Cancelled(g,event)`, without deleting the semantic
+`gc/intents/<event-id>.cbor`. Re-arm is forbidden until cancellation is
+complete; that cancelled generation can become `Planned(g+1,event)` only after
+its roots and markers are gone and a new exact epoch is witnessed. The stable
+intent and cancellation artifact can span generations; the latest exact fence
+phase is authoritative, so a late old-generation helper has no
+generation-sensitive side effect. Helpers must re-read the exact `Executing` state before
+obtaining the opaque authorization consumed by deletion. Store exposes
+`executeAuthorizedGcIntents` as the only destructive execution API; no plan or
+raw-intent compatibility execution remains. An absent target manifest is
+recoverable only when the latest fence decision binds the byte-identical intent
+in `Executing` or permanent `Reaped`; absence alone never authorizes deletion. After complete
+execution they CAS it to permanent `Reaped`. Durable cancellation records are
+not physically retired by authorization, and semantic-intent cleanup occurs
+only after `Reaped` during ready/published terminal handling. The event's unique
+snapshot namespace still scopes every authorized deletion key, but the
+experiment CAS transition — not a process-local lock or a pair of listings — is
+the stale-executor exclusion proof.
+
+Substrate and completion timestamp are fixed in the first publish-ready record,
+so recovery deterministically reconstructs the same broker payload and routes
+it through the substrate stored in that record, not whichever cluster happens
+to run the retry. The broker text form is
+`jitml-gc-reaped-event-protobuf-hex-v1:` followed by lowercase hexadecimal of
+the canonical protobuf bytes. Decode rejects noncanonical protobuf, forged
+event/manifest identities, a key set without exactly one snapshot and one
+commit, noncanonical or unsafe keys, aliases, traversal,
+control characters, reserved control namespaces, and cross-experiment keys.
+
+A permanent published tombstone is checked before and after ready promotion.
+After Pulsar acknowledges publication, the tombstone is persisted before the
+ready record is removed. A crash before broker acknowledgement may cause the
+same stored payload to be retried at least once; a crash after tombstone
+persistence cannot manufacture a second timestamp or republish that event.
+See
+[Checkpoint Format → Retention and GC](checkpoint_format.md#retention-and-gc).
+
 For supervised training, the canonical plan deterministically derives the
 required mini-batch update budget, but that projection is not treated as an
 observation. The successful trainer return owns
 `tmOptimizerUpdatesExecuted`, records it only after all requested epoch/batch
 loops complete, and carries it unchanged through Writer, Product Publisher,
-`CompletedTraining`, and the V2 manifest. Every boundary requires exact equality
-with the plan-derived count. An interrupted or failed run cannot manufacture a
-successful counter by recalculating the plan after the fact.
+`CompletedTraining`, and the supervised-graph body in the single checkpoint
+envelope. Every boundary requires exact equality with the plan-derived count.
+An interrupted or failed run cannot manufacture a successful counter by
+recalculating the plan after the fact.
 
 The supervised-graph payload's composite origin is itself deterministic
 identity. Product publication binds the payload row and
@@ -110,10 +258,11 @@ canonical row/dataset/model, substrate, seed, epoch/training/evaluation/batch
 budgets, and consequently the derived update budget. Changing any one changes
 the experiment and semantic `PlanId`.
 
-Dataset identity is equally closed. V2 decode derives the canonical digest of
-the row's exact pinned training/evaluation reads and requires the runtime,
-manifest, and `CompletedTraining` fields to equal it. Replacing all persisted
-copies with the same forged digest is deterministic forgery, not admission.
+Dataset identity is equally closed. Single-envelope supervised-graph decode
+derives the canonical digest of the row's exact pinned training/evaluation
+reads and requires the runtime, manifest, and `CompletedTraining` fields to
+equal it. Replacing all persisted copies with the same forged digest is
+deterministic forgery, not admission.
 
 Completed-checkpoint event order is deterministic with respect to Store
 adoption: a live writer reads the current pointer ETag (the local writer reads
@@ -240,7 +389,10 @@ label or switches origins during replay.
 
 Admission anchors the one physical `supervised.weights` blob's length to the
 trained graph's parameter count (`layerGraphMetadataParameterCount`) and binds
-the final-weight SHA-256 to the completed-training witness. Because serving is a
+the final-weight SHA-256 to the completed-training witness. Its snapshot-scoped
+physical key is accepted only when it is the exact derivation of the canonical
+logical `blobKey(experiment, final-jmw1-sha)`; an arbitrary key under the same
+snapshot prefix is not equivalent. Because serving is a
 pure deterministic function of the reloaded graph and input, the training path
 and the Store-loaded serving path are the same reference executor over the same
 frozen parameters; there is no separate structural-ABI reimplementation and thus
@@ -455,38 +607,50 @@ executes.
 
 Bit-determinism proves a computation is *reproducible*, not that it is *real*: a
 fabricated kernel that returns a fixed buffer is perfectly bit-deterministic.
-Introduced by the 2026-07-05 realness audit, reproducibility is therefore paired
-with a metamorphic/differential discipline that a stub cannot satisfy, owned by
-the `jitml-negative-controls` stanza in
-[../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
-(validated on `linux-cpu`) and specified in
-[unit_testing_policy.md](unit_testing_policy.md). The discipline is not a second
-determinism check; it is the guard that a determinism proof is a proof of a real
-computation rather than a reproducible fake:
+Reproducibility is therefore paired with a metamorphic/differential discipline
+that a stub cannot satisfy. The pure gate-soundness slice owned by
+[Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md) makes
+`jitml-negative-controls` reject hand-built known fakes and requires
+`pendingProductionControls` to remain non-empty. It does not by itself exercise
+production requests, events, journals, reducers, lifecycle failures, or every
+ProductRow. The production-path owners are
+[Phase 279](../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md),
+[Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
+and [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md),
+as specified further in [unit_testing_policy.md](unit_testing_policy.md). Their
+current status and validation evidence live only in the development plan.
 
-- **Differential (conv ≠ dense).** On a structured input where a convolution and
-  a dense layer must disagree, the convolution engine's output must differ from
-  the dense engine's output. A dense layer mislabelled as a convolution — which
-  is bit-deterministic and passes shape checks — is *rejected* by this assertion,
-  not accepted.
-- **Metamorphic provenance (trained greedy == served).** A trained policy's
-  greedy rollout must equal the rollout produced from the *served checkpoint* of
-  that same policy. The reported RL number is recomputed from the served artifact
-  rather than read from a stored scalar, so served weights that do not reproduce
-  the trained rollout fail provenance binding.
-- **Metamorphic ordering (trained > random).** That same trained-policy greedy
-  rollout must out-score a random-policy rollout on the same seeded environment.
-  A policy whose rollout does not beat random has not learned, however
-  reproducibly it replays.
-- **Ablation sensitivity (delete the expert).** Deleting the expert controller
-  must *change* the reported RL number. If removing the controller leaves the
-  metric unchanged, the number was being produced by a scripted stand-in rather
-  than the learned policy, and the negative control fails.
+The standing discipline includes these invariants; the pure gate covers the
+known-fake boundary where applicable, while the production owners cover the
+production-bound comparisons:
 
-These are behavioral invariants, not stored fixtures: each compares two fresh
-computations (conv vs dense, trained-greedy vs served, trained vs random,
-with-expert vs without) in-run, consistent with the snapshot policy in
+- **Differential (conv ≠ dense; retained pure gate).** On a structured input
+  where a convolution and a dense layer must disagree, the convolution engine's
+  output must differ from the dense engine's output. A dense layer mislabelled
+  as a convolution — which is bit-deterministic and passes shape checks — is
+  *rejected* by this assertion, not accepted.
+- **Metamorphic provenance (trained greedy == served; production-bound).** A
+  trained policy's greedy rollout must equal the rollout produced from the
+  *served checkpoint* of that same policy. The reported RL number is recomputed
+  from the served artifact rather than read from a stored scalar, so served
+  weights that do not reproduce the trained rollout fail provenance binding.
+- **Metamorphic ordering (trained > random; production-bound).** That same
+  trained-policy greedy rollout must out-score a random-policy rollout on the
+  same seeded environment. A policy whose rollout does not beat random has not
+  learned, however reproducibly it replays.
+- **Ablation sensitivity (delete the expert; production-bound).** Deleting the
+  expert controller must *change* the reported RL number. If removing the
+  controller leaves the metric unchanged, the number was being produced by a
+  scripted stand-in rather than the learned policy, and the negative control
+  fails.
+
+The production form of these behavioral invariants compares fresh computations
+(conv vs dense, trained-greedy vs served, trained vs random, with-expert vs
+without) in-run rather than stored fixtures, consistent with the snapshot
+policy in
 [unit_testing_policy.md → Snapshot Tests and the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+This durable list defines the required distinctions; dated closure evidence and
+current phase status remain in the owning development-plan files.
 
 ## Cross-References
 
@@ -495,6 +659,9 @@ with-expert vs without) in-run, consistent with the snapshot policy in
 - [jit_codegen_architecture.md](jit_codegen_architecture.md)
 - [checkpoint_format.md](checkpoint_format.md)
 - [run_contract.md](run_contract.md)
-- [../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md](../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md)
-- [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
-- [../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md) — `jitml-negative-controls` gate and the metamorphic/differential discipline
+- [Legacy Phase 7: JIT Codegen and Per-Substrate Execution](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [Legacy Phase 12: Test Stanzas, Lint Matrix, Live Workflow Matrix](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md) — retained pure `jitml-negative-controls` gate-soundness scope
+- [../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md](../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md) — blocked production request/event controls
+- [../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) — blocked journal/reducer controls
+- [../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md) — blocked lifecycle and per-row controls

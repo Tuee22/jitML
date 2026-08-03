@@ -63,6 +63,7 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
+import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.DqnLoss (dqnBellmanTarget)
 import JitML.RL.Algorithms.HerLoss
   ( HerStrategy (..)
@@ -133,10 +134,10 @@ data HerIterationStat = HerIterationStat
 data HerTrainResult = HerTrainResult
   { herResultStats :: ![HerIterationStat]
   , herResultFinalParams :: !MlpParams
-  , herResultOptimizerSteps :: !Int
-  -- ^ Adam applications executed against the final online goal-conditioned Q
-  -- tensor. This is measured from the optimizer state rather than inferred
-  -- from the episode budget because replay readiness can delay updates.
+  , herResultMeasuredCounters :: !Common.MeasuredTrainerCounters
+  -- ^ Exact physical bit-flip transitions and Adam applications executed
+  -- against the final online goal-conditioned Q tensor. Replay readiness can
+  -- delay updates, so neither count is inferred from the episode budget.
   , herResultConfig :: !HerTrainConfig
   }
   deriving stock (Eq, Show)
@@ -159,6 +160,7 @@ trainHerOnBitFlip config = do
     (Random.mkStdGen (herSeed config + 1))
     []
     0
+    0
     []
     []
 
@@ -171,10 +173,11 @@ episodeLoop
   -> Random.StdGen
   -> [Transition]
   -> Int
+  -> Integer
   -> [Bool] -- recent episode successes
   -> [HerIterationStat]
   -> IO HerTrainResult
-episodeLoop config update online target adam gen buffer episode successes stats = do
+episodeLoop config update online target adam gen buffer episode observedTransitions successes stats = do
   result <-
     episodeLoopEither
       config
@@ -185,6 +188,7 @@ episodeLoop config update online target adam gen buffer episode successes stats 
       gen
       buffer
       episode
+      observedTransitions
       successes
       stats
   either (fail . Text.unpack) pure result
@@ -198,27 +202,31 @@ episodeLoopEither
   -> Random.StdGen
   -> [Transition]
   -> Int
+  -> Integer
   -> [Bool] -- recent episode successes
   -> [HerIterationStat]
   -> IO (Either Text HerTrainResult)
-episodeLoopEither config update online target adam gen buffer episode successes stats
+episodeLoopEither config update online target adam gen buffer episode observedTransitions successes stats
   | herUpdatesPerEpisode config <= 0 =
       pure (Left "HER updates per episode must be positive")
   | episode >= herEpisodes config =
-      pure
-        ( Right
-            HerTrainResult
-              { herResultStats = reverse stats
-              , herResultFinalParams = online
-              , herResultOptimizerSteps = adamStep_ adam
-              , herResultConfig = config
-              }
-        )
+      pure $ do
+        measuredCounters <-
+          Common.mkMeasuredTrainerCounters
+            observedTransitions
+            (toInteger (adamStep_ adam))
+        Right
+          HerTrainResult
+            { herResultStats = reverse stats
+            , herResultFinalParams = online
+            , herResultMeasuredCounters = measuredCounters
+            , herResultConfig = config
+            }
   | otherwise = do
       let n = herNumBits config
-          (goal, gen1) = randomBits n gen
+          (goal, gen1) = randomNonInitialGoal n gen
           (episodeTransitions, reached, gen2) =
-            rolloutEpisode config online goal gen1
+            rolloutTrainingTransitions config online goal gen1
           relabeled =
             if herUseHindsight config
               then hindsightTransitions config episodeTransitions
@@ -248,6 +256,7 @@ episodeLoopEither config update online target adam gen buffer episode successes 
               newSuccesses = take 50 (reached : successes)
               statsNext =
                 if (episode + 1) `mod` herStatInterval config == 0
+                  || episode + 1 == herEpisodes config
                   then
                     let rate =
                           fromIntegral (length (filter id newSuccesses))
@@ -263,8 +272,47 @@ episodeLoopEither config update online target adam gen buffer episode successes 
             gen3
             newBuffer
             (episode + 1)
+            (observedTransitions + toInteger (length episodeTransitions))
             newSuccesses
             statsNext
+
+-- | Collect exactly one configured outer episode's transition allocation.
+-- Reaching the goal closes the current sub-episode; collection resets to the
+-- canonical initial state and continues, so every scheduled slot corresponds
+-- to a real bit-flip transition. 'hindsightTransitions' respects the terminal
+-- boundaries when it relabels the concatenated fragments.
+rolloutTrainingTransitions
+  :: HerTrainConfig
+  -> MlpParams
+  -> Vector Double
+  -> Random.StdGen
+  -> ([Transition], Bool, Random.StdGen)
+rolloutTrainingTransitions config online goal gen0 =
+  step start 0 gen0 [] False
+ where
+  n = herNumBits config
+  start = VU.replicate n 0.0
+  step !state !len !gen !acc !reached
+    | len >= n = (reverse acc, reached, gen)
+    | otherwise =
+        let inputV = state VU.++ goal
+            (u, g1) = Random.uniformR (0.0 :: Double, 1.0) gen
+            (au, g2) = Random.uniformR (0 :: Int, n - 1) g1
+            greedy = argmax (VU.toList (forwardOutput (mlpForward online inputV)))
+            action = if u < herEpsilon config then au else greedy
+            nextState = flipBit action state
+            reward = sparseGoalReward bitDistance 0.0 nextState goal
+            done = nextState == goal
+            trans =
+              Transition
+                { transInput = inputV
+                , transAction = action
+                , transReward = reward
+                , transNextInput = nextState VU.++ goal
+                , transDone = done
+                }
+            continuationState = if done then start else nextState
+         in step continuationState (len + 1) g2 (trans : acc) (reached || done)
 
 -- | Roll out one bit-flip episode (epsilon-greedy). Returns the raw
 -- transitions, whether the goal was reached, and the advanced RNG.
@@ -302,10 +350,11 @@ rolloutEpisode config online goal gen0 =
 
 -- | Greedy (epsilon = 0) evaluation of the trained policy. Runs @numEpisodes@
 -- episodes with fresh random goals and no exploration, returning per-episode
--- @(reachedGoal, normalizedHammingDistance)@. The training success stats are
--- measured under the 0.2 exploration epsilon and understate the converged
--- policy, so the convergence metric must read this greedy pass instead.
-evaluateHerGreedy :: HerTrainConfig -> MlpParams -> Int -> Int -> [(Bool, Double)]
+-- @(reachedGoal, normalizedHammingDistance, physicalTransitions)@. The
+-- training success stats are measured under the 0.2 exploration epsilon and
+-- understate the converged policy, so the convergence metric must read this
+-- greedy pass instead.
+evaluateHerGreedy :: HerTrainConfig -> MlpParams -> Int -> Int -> [(Bool, Double, Int)]
 evaluateHerGreedy config params numEpisodes evalSeed =
   go (max 0 numEpisodes) (Random.mkStdGen evalSeed)
  where
@@ -314,19 +363,23 @@ evaluateHerGreedy config params numEpisodes evalSeed =
   start = VU.replicate n 0.0
   go 0 _ = []
   go k gen =
-    let (goal, gen1) = randomBits n gen
+    let (goal, gen1) = randomNonInitialGoal n gen
         (transitions, reached, gen2) = rolloutEpisode greedyConfig params goal gen1
         finalState = case reverse transitions of
           (t : _) -> stateOfInput n (transNextInput t)
           [] -> start
         normDist = bitDistance finalState goal / fromIntegral (max 1 n)
-     in (reached, normDist) : go (k - 1) gen2
+     in (reached, normDist, length transitions) : go (k - 1) gen2
 
 -- | HER @future@ relabeling: for each transition at index @i@, relabel
 -- the goal to the next-state of a later transition in the same episode
 -- and recompute the reward via 'herRelabel'.
 hindsightTransitions :: HerTrainConfig -> [Transition] -> [Transition]
 hindsightTransitions config transitions =
+  concatMap (hindsightEpisodeTransitions config) (transitionEpisodes transitions)
+
+hindsightEpisodeTransitions :: HerTrainConfig -> [Transition] -> [Transition]
+hindsightEpisodeTransitions config transitions =
   let n = herNumBits config
       indexed = zip [0 :: Int ..] transitions
       total = length transitions
@@ -356,6 +409,15 @@ hindsightTransitions config transitions =
       ]
  where
   relabeledDone s' g = bitDistance s' g <= 0.0
+
+transitionEpisodes :: [Transition] -> [[Transition]]
+transitionEpisodes = go []
+ where
+  go [] [] = []
+  go acc [] = [reverse acc]
+  go acc (transition : rest)
+    | transDone transition = reverse (transition : acc) : go [] rest
+    | otherwise = go (transition : acc) rest
 
 -- | Recover the @n@-bit state from a goal-augmented @2n@ input.
 stateOfInput :: Int -> Vector Double -> Vector Double
@@ -412,6 +474,18 @@ randomBits n gen0 = goBits n gen0 []
     let (b, g') = Random.uniformR (0 :: Int, 1) g
      in goBits (k - 1) g' (fromIntegral b : acc)
 
+-- Reject the already-satisfied all-zero goal so training resets and final
+-- evaluation both begin from a valid nonterminal state and therefore report
+-- at least one real environment transition.
+randomNonInitialGoal :: Int -> Random.StdGen -> (Vector Double, Random.StdGen)
+randomNonInitialGoal n gen
+  | n <= 0 = randomBits n gen
+  | otherwise =
+      let (goal, nextGen) = randomBits n gen
+       in if VU.all (== 0.0) goal
+            then randomNonInitialGoal n nextGen
+            else (goal, nextGen)
+
 sampleBatch :: Int -> [Transition] -> Random.StdGen -> ([Transition], Random.StdGen)
 sampleBatch n buffer gen =
   -- O(1) replay indexing via a boxed-Vector snapshot (see DqnTrainer.sampleBatch).
@@ -457,6 +531,7 @@ trainHerOnDevice device config = do
     (adamInit shape)
     (Random.mkStdGen (herSeed config + 1))
     []
+    0
     0
     []
     []

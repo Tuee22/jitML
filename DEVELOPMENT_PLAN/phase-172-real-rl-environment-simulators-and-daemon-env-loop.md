@@ -46,8 +46,10 @@ under the daemon's dispatch chain.
   typed boundary, including render-frame access for the demo.
 - The daemon-backed environment loop drives the simulator-loop
   through the worker `jitml rl train` under
-  `daemonWorkloadDispatcher`, publishing one
-  `RlEpisode (EpisodeDone)` envelope per simulated episode.
+  `daemonWorkloadDispatcher`. That historical episode envelope was superseded:
+  the current Phase `252` worker publishes plan-bound keyed
+  `RlEvaluation (EvaluationOutcome)` evidence separately from ordered
+  `RlIteration (IterationSummary)` learning telemetry.
 
 ### Validation
 
@@ -60,6 +62,11 @@ under the daemon's dispatch chain.
    simulator inside the cluster daemon.
 
 ### Code Surface Landed (2026-05-27, simulator loop wiring)
+
+This subsection records the historical landing. `SimulatorLoop` and the
+`publishWorkerRlEpisode` envelope were later removed; real per-algorithm
+trainers now return measured counters, ordered learning curves, and exact
+evaluation sets through `JitML.RL.TrainerExecution`.
 
 - `src/JitML/RL/SimulatorLoop.hs` adds an existential
   `SimulatedEnvByName` wrapper around the four simulator entries that were

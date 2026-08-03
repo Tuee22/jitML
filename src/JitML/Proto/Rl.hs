@@ -7,9 +7,9 @@ module JitML.Proto.Rl
   , ccdrlCheckpoint
   , ccdrlCompletedTraining
   , completeCheckpointDoneRL
-  , EpisodeDone (..)
-  , EvalDone (..)
+  , EvaluationOutcome (..)
   , GenerationCompleted (..)
+  , IterationSummary (..)
   , MetricUpdate (..)
   , RlAnimationFrame (..)
   , RlCommand (..)
@@ -102,21 +102,24 @@ data StopRLRun = StopRLRun
   }
   deriving stock (Eq, Show)
 
-data EpisodeDone = EpisodeDone
-  { edExperimentHash :: Text
-  , edEpisode :: Word32
-  , edReward :: Double
-  , edSteps :: Word32
-  , edTimestampNs :: Word64
+data EvaluationOutcome = EvaluationOutcome
+  { eoPlanId :: Text
+  , eoExperimentHash :: Text
+  , eoEpisodeId :: Word64
+  , eoReward :: Double
+  , eoSteps :: Word64
+  , eoDone :: Bool
+  , eoTimestampNs :: Word64
   }
   deriving stock (Eq, Show)
 
-data EvalDone = EvalDone
-  { evExperimentHash :: Text
-  , evEpoch :: Word32
-  , evAvgReward :: Double
-  , evStdReward :: Double
-  , evTimestampNs :: Word64
+data IterationSummary = IterationSummary
+  { isPlanId :: Text
+  , isExperimentHash :: Text
+  , isIteration :: Word64
+  , isMetricName :: Text
+  , isMetricValue :: Double
+  , isTimestampNs :: Word64
   }
   deriving stock (Eq, Show)
 
@@ -152,7 +155,8 @@ completeCheckpointDoneRL checkpoint completed = do
           }
 
 data MetricUpdate = MetricUpdate
-  { muExperimentHash :: Text
+  { muPlanId :: Text
+  , muExperimentHash :: Text
   , muName :: Text
   , muValue :: Double
   , muTimestampNs :: Word64
@@ -216,8 +220,8 @@ data RlCommand
   deriving stock (Eq, Show)
 
 data RlEvent
-  = RlEpisode EpisodeDone
-  | RlEval EvalDone
+  = RlEvaluation EvaluationOutcome
+  | RlIteration IterationSummary
   | RlCheckpoint CheckpointDoneRL
   | RlCompletedCheckpoint CompletedCheckpointDoneRL
   | RlMetric MetricUpdate
@@ -360,10 +364,10 @@ decodeRlCommandProto bytes = do
 encodeRlEventProto :: RlEvent -> ByteString
 encodeRlEventProto event =
   case event of
-    RlEpisode episode ->
-      encodeMessage [messageField 1 (encodeEpisodeDoneProto episode)]
-    RlEval eval ->
-      encodeMessage [messageField 2 (encodeEvalDoneProto eval)]
+    RlEvaluation outcome ->
+      encodeMessage [messageField 1 (encodeEvaluationOutcomeProto outcome)]
+    RlIteration summary ->
+      encodeMessage [messageField 2 (encodeIterationSummaryProto summary)]
     RlCheckpoint checkpoint ->
       encodeMessage [messageField 3 (encodeCheckpointDoneRLProto checkpoint)]
     RlCompletedCheckpoint completed ->
@@ -383,10 +387,10 @@ decodeRlEventProto :: ByteString -> Either Text RlEvent
 decodeRlEventProto bytes = do
   fields <- decodeMessage bytes
   case fields of
-    [ProtoField 1 (LengthDelimited episodeBytes)] ->
-      RlEpisode <$> decodeEpisodeDoneProto episodeBytes
-    [ProtoField 2 (LengthDelimited evalBytes)] ->
-      RlEval <$> decodeEvalDoneProto evalBytes
+    [ProtoField 1 (LengthDelimited outcomeBytes)] ->
+      RlEvaluation <$> decodeEvaluationOutcomeProto outcomeBytes
+    [ProtoField 2 (LengthDelimited summaryBytes)] ->
+      RlIteration <$> decodeIterationSummaryProto summaryBytes
     [ProtoField 3 (LengthDelimited checkpointBytes)] ->
       RlCheckpoint <$> decodeCheckpointDoneRLProto checkpointBytes
     [ProtoField 4 (LengthDelimited metricBytes)] ->
@@ -409,23 +413,26 @@ decodeRlEventProto bytes = do
 renderRlEvent :: RlEvent -> Text
 renderRlEvent envelope =
   case envelope of
-    RlEpisode e ->
+    RlEvaluation e ->
       Text.unlines
-        [ "kind: EpisodeDone"
-        , "experiment-hash: " <> edExperimentHash e
-        , "episode: " <> Text.pack (show (edEpisode e))
-        , "reward: " <> Text.pack (show (edReward e))
-        , "steps: " <> Text.pack (show (edSteps e))
-        , "timestamp-ns: " <> Text.pack (show (edTimestampNs e))
+        [ "kind: EvaluationOutcome"
+        , "plan-id: " <> eoPlanId e
+        , "experiment-hash: " <> eoExperimentHash e
+        , "episode-id: " <> Text.pack (show (eoEpisodeId e))
+        , "reward: " <> Text.pack (show (eoReward e))
+        , "steps: " <> Text.pack (show (eoSteps e))
+        , "done: " <> Text.pack (show (eoDone e))
+        , "timestamp-ns: " <> Text.pack (show (eoTimestampNs e))
         ]
-    RlEval e ->
+    RlIteration e ->
       Text.unlines
-        [ "kind: EvalDone"
-        , "experiment-hash: " <> evExperimentHash e
-        , "epoch: " <> Text.pack (show (evEpoch e))
-        , "avg-reward: " <> Text.pack (show (evAvgReward e))
-        , "std-reward: " <> Text.pack (show (evStdReward e))
-        , "timestamp-ns: " <> Text.pack (show (evTimestampNs e))
+        [ "kind: IterationSummary"
+        , "plan-id: " <> isPlanId e
+        , "experiment-hash: " <> isExperimentHash e
+        , "iteration: " <> Text.pack (show (isIteration e))
+        , "metric-name: " <> isMetricName e
+        , "metric-value: " <> Text.pack (show (isMetricValue e))
+        , "timestamp-ns: " <> Text.pack (show (isTimestampNs e))
         ]
     RlCheckpoint c ->
       renderCheckpointDoneRL "CheckpointCandidateRL" c []
@@ -439,6 +446,7 @@ renderRlEvent envelope =
     RlMetric m ->
       Text.unlines
         [ "kind: MetricUpdate"
+        , "plan-id: " <> muPlanId m
         , "experiment-hash: " <> muExperimentHash m
         , "name: " <> muName m
         , "value: " <> Text.pack (show (muValue m))
@@ -500,40 +508,46 @@ parseRlEvent payload = do
   fields <- traverse parseField (Text.lines payload)
   kind <- requiredField "kind" fields
   case kind of
-    "EpisodeDone" -> do
+    "EvaluationOutcome" -> do
       requireOnlyFields
         [ "kind"
+        , "plan-id"
         , "experiment-hash"
-        , "episode"
+        , "episode-id"
         , "reward"
         , "steps"
+        , "done"
         , "timestamp-ns"
         ]
         fields
-      RlEpisode
-        <$> ( EpisodeDone
-                <$> requiredField "experiment-hash" fields
-                <*> requiredReadField "episode" fields
+      RlEvaluation
+        <$> ( EvaluationOutcome
+                <$> requiredField "plan-id" fields
+                <*> requiredField "experiment-hash" fields
+                <*> requiredReadField "episode-id" fields
                 <*> requiredFiniteField "reward" fields
-                <*> requiredReadField "steps" fields
+                <*> requiredPositiveWord64Field "steps" fields
+                <*> requiredReadField "done" fields
                 <*> requiredReadField "timestamp-ns" fields
             )
-    "EvalDone" -> do
+    "IterationSummary" -> do
       requireOnlyFields
         [ "kind"
+        , "plan-id"
         , "experiment-hash"
-        , "epoch"
-        , "avg-reward"
-        , "std-reward"
+        , "iteration"
+        , "metric-name"
+        , "metric-value"
         , "timestamp-ns"
         ]
         fields
-      RlEval
-        <$> ( EvalDone
-                <$> requiredField "experiment-hash" fields
-                <*> requiredReadField "epoch" fields
-                <*> requiredFiniteField "avg-reward" fields
-                <*> requiredFiniteField "std-reward" fields
+      RlIteration
+        <$> ( IterationSummary
+                <$> requiredField "plan-id" fields
+                <*> requiredField "experiment-hash" fields
+                <*> requiredReadField "iteration" fields
+                <*> requiredField "metric-name" fields
+                <*> requiredFiniteField "metric-value" fields
                 <*> requiredReadField "timestamp-ns" fields
             )
     "CheckpointCandidateRL" -> do
@@ -579,6 +593,7 @@ parseRlEvent payload = do
     "MetricUpdate" -> do
       requireOnlyFields
         [ "kind"
+        , "plan-id"
         , "experiment-hash"
         , "name"
         , "value"
@@ -587,7 +602,8 @@ parseRlEvent payload = do
         fields
       RlMetric
         <$> ( MetricUpdate
-                <$> requiredField "experiment-hash" fields
+                <$> requiredField "plan-id" fields
+                <*> requiredField "experiment-hash" fields
                 <*> requiredField "name" fields
                 <*> requiredFiniteField "value" fields
                 <*> requiredReadField "timestamp-ns" fields
@@ -746,6 +762,11 @@ requiredReadField :: (Read value) => Text -> [(Text, Text)] -> Maybe value
 requiredReadField key fields =
   requiredField key fields >>= readText
 
+requiredPositiveWord64Field :: Text -> [(Text, Text)] -> Maybe Word64
+requiredPositiveWord64Field key fields = do
+  value <- requiredReadField key fields
+  if value == 0 then Nothing else Just value
+
 requiredFiniteField :: Text -> [(Text, Text)] -> Maybe Double
 requiredFiniteField key fields =
   requiredField key fields >>= readFiniteDouble
@@ -852,47 +873,84 @@ decodeStopRLRunProto bytes = do
     <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
     <*> require "drain" (fieldBool 2 fields)
 
-encodeEpisodeDoneProto :: EpisodeDone -> ByteString
-encodeEpisodeDoneProto episode =
+encodeEvaluationOutcomeProto :: EvaluationOutcome -> ByteString
+encodeEvaluationOutcomeProto outcome =
   encodeMessage
-    [ stringField 1 (edExperimentHash episode)
-    , uint32Field 2 (edEpisode episode)
-    , doubleField 3 (edReward episode)
-    , uint32Field 4 (edSteps episode)
-    , uint64Field 5 (edTimestampNs episode)
+    [ stringField 1 (eoPlanId outcome)
+    , stringField 2 (eoExperimentHash outcome)
+    , uint64Field 3 (eoEpisodeId outcome)
+    , doubleField 4 (eoReward outcome)
+    , uint64Field 5 (eoSteps outcome)
+    , boolField 6 (eoDone outcome)
+    , uint64Field 7 (eoTimestampNs outcome)
     ]
 
-decodeEpisodeDoneProto :: ByteString -> Either Text EpisodeDone
-decodeEpisodeDoneProto bytes = do
+decodeEvaluationOutcomeProto :: ByteString -> Either Text EvaluationOutcome
+decodeEvaluationOutcomeProto bytes = do
   fields <- decodeMessage bytes
-  requireExactProtoFields "EpisodeDone" [1 .. 5] fields
-  EpisodeDone
-    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
-    <*> require "episode" (fieldWord32 2 fields)
-    <*> requireFiniteProtoDouble "reward" (fieldDouble 3 fields)
-    <*> require "steps" (fieldWord32 4 fields)
-    <*> require "timestamp_ns" (fieldWord64 5 fields)
+  requireKnownUniqueProtoFields "EvaluationOutcome" [1 .. 7] fields
+  planId <- requireNonEmptyProtoString "plan_id" (fieldString 1 fields)
+  experimentHash <-
+    requireNonEmptyProtoString "experiment_hash" (fieldString 2 fields)
+  episodeId <-
+    proto3ScalarField "episode_id" 3 0 (fieldWord64 3 fields) fields
+  rewardValue <-
+    proto3ScalarField "reward" 4 0.0 (fieldDouble 4 fields) fields
+      >>= requireFiniteProtoDouble "reward" . Just
+  stepsValue <-
+    proto3ScalarField "steps" 5 0 (fieldWord64 5 fields) fields
+      >>= requirePositiveProtoWord64 "steps" . Just
+  doneValue <-
+    proto3ScalarField "done" 6 False (fieldBool 6 fields) fields
+  timestampNs <-
+    proto3ScalarField "timestamp_ns" 7 0 (fieldWord64 7 fields) fields
+  pure
+    EvaluationOutcome
+      { eoPlanId = planId
+      , eoExperimentHash = experimentHash
+      , eoEpisodeId = episodeId
+      , eoReward = rewardValue
+      , eoSteps = stepsValue
+      , eoDone = doneValue
+      , eoTimestampNs = timestampNs
+      }
 
-encodeEvalDoneProto :: EvalDone -> ByteString
-encodeEvalDoneProto eval =
+encodeIterationSummaryProto :: IterationSummary -> ByteString
+encodeIterationSummaryProto summary =
   encodeMessage
-    [ stringField 1 (evExperimentHash eval)
-    , uint32Field 2 (evEpoch eval)
-    , doubleField 3 (evAvgReward eval)
-    , doubleField 4 (evStdReward eval)
-    , uint64Field 5 (evTimestampNs eval)
+    [ stringField 1 (isPlanId summary)
+    , stringField 2 (isExperimentHash summary)
+    , uint64Field 3 (isIteration summary)
+    , stringField 4 (isMetricName summary)
+    , doubleField 5 (isMetricValue summary)
+    , uint64Field 6 (isTimestampNs summary)
     ]
 
-decodeEvalDoneProto :: ByteString -> Either Text EvalDone
-decodeEvalDoneProto bytes = do
+decodeIterationSummaryProto :: ByteString -> Either Text IterationSummary
+decodeIterationSummaryProto bytes = do
   fields <- decodeMessage bytes
-  requireExactProtoFields "EvalDone" [1 .. 5] fields
-  EvalDone
-    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
-    <*> require "epoch" (fieldWord32 2 fields)
-    <*> requireFiniteProtoDouble "avg_reward" (fieldDouble 3 fields)
-    <*> requireFiniteProtoDouble "std_reward" (fieldDouble 4 fields)
-    <*> require "timestamp_ns" (fieldWord64 5 fields)
+  requireKnownUniqueProtoFields "IterationSummary" [1 .. 6] fields
+  planId <- requireNonEmptyProtoString "plan_id" (fieldString 1 fields)
+  experimentHash <-
+    requireNonEmptyProtoString "experiment_hash" (fieldString 2 fields)
+  iterationValue <-
+    proto3ScalarField "iteration" 3 0 (fieldWord64 3 fields) fields
+  metricName <-
+    requireNonEmptyProtoString "metric_name" (fieldString 4 fields)
+  metricValue <-
+    proto3ScalarField "metric_value" 5 0.0 (fieldDouble 5 fields) fields
+      >>= requireFiniteProtoDouble "metric_value" . Just
+  timestampNs <-
+    proto3ScalarField "timestamp_ns" 6 0 (fieldWord64 6 fields) fields
+  pure
+    IterationSummary
+      { isPlanId = planId
+      , isExperimentHash = experimentHash
+      , isIteration = iterationValue
+      , isMetricName = metricName
+      , isMetricValue = metricValue
+      , isTimestampNs = timestampNs
+      }
 
 encodeCheckpointDoneRLProto :: CheckpointDoneRL -> ByteString
 encodeCheckpointDoneRLProto checkpoint =
@@ -948,17 +1006,30 @@ encodeMetricUpdateProto metric =
     , stringField 2 (muName metric)
     , doubleField 3 (muValue metric)
     , uint64Field 4 (muTimestampNs metric)
+    , stringField 5 (muPlanId metric)
     ]
 
 decodeMetricUpdateProto :: ByteString -> Either Text MetricUpdate
 decodeMetricUpdateProto bytes = do
   fields <- decodeMessage bytes
-  requireExactProtoFields "MetricUpdate" [1 .. 4] fields
-  MetricUpdate
-    <$> requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
-    <*> requireNonEmptyProtoString "name" (fieldString 2 fields)
-    <*> requireFiniteProtoDouble "value" (fieldDouble 3 fields)
-    <*> require "timestamp_ns" (fieldWord64 4 fields)
+  requireKnownUniqueProtoFields "MetricUpdate" [1 .. 5] fields
+  planId <- requireNonEmptyProtoString "plan_id" (fieldString 5 fields)
+  experimentHash <-
+    requireNonEmptyProtoString "experiment_hash" (fieldString 1 fields)
+  name <- requireNonEmptyProtoString "name" (fieldString 2 fields)
+  metricValue <-
+    proto3ScalarField "value" 3 0.0 (fieldDouble 3 fields) fields
+      >>= requireFiniteProtoDouble "value" . Just
+  timestampNs <-
+    proto3ScalarField "timestamp_ns" 4 0 (fieldWord64 4 fields) fields
+  pure
+    MetricUpdate
+      { muPlanId = planId
+      , muExperimentHash = experimentHash
+      , muName = name
+      , muValue = metricValue
+      , muTimestampNs = timestampNs
+      }
 
 encodeGenerationCompletedProto :: GenerationCompleted -> ByteString
 encodeGenerationCompletedProto generation =
@@ -1099,9 +1170,48 @@ requireExactProtoFields messageName expected fields
   missing = filter (`notElem` actual) expected
   renderFieldNumbers = Text.intercalate "," . fmap (Text.pack . show)
 
+-- | Proto3 encoders omit scalar fields whose values equal their wire defaults.
+-- Evidence messages still reject unknown and duplicate tags, while admitting
+-- omitted default-valued scalars such as evaluation episode zero, iteration
+-- zero, a zero reward/metric, or @done = false@.
+requireKnownUniqueProtoFields :: Text -> [Word64] -> [ProtoField] -> Either Text ()
+requireKnownUniqueProtoFields messageName expected fields
+  | not (null unknown) =
+      Left
+        ( messageName
+            <> " contains unknown protobuf fields: "
+            <> renderFieldNumbers unknown
+        )
+  | length actual /= length (List.nub actual) =
+      Left (messageName <> " contains duplicate protobuf fields")
+  | otherwise = Right ()
+ where
+  actual = fmap protoFieldNumber fields
+  unknown = filter (`notElem` expected) actual
+  renderFieldNumbers = Text.intercalate "," . fmap (Text.pack . show)
+
+proto3ScalarField
+  :: Text
+  -> Word64
+  -> value
+  -> Maybe value
+  -> [ProtoField]
+  -> Either Text value
+proto3ScalarField fieldName fieldNumber defaultValue decoded fields
+  | fieldNumber `elem` fmap protoFieldNumber fields =
+      maybe (Left ("invalid protobuf field: " <> fieldName)) Right decoded
+  | otherwise = Right defaultValue
+
 require :: Text -> Maybe a -> Either Text a
 require fieldName =
   maybe (Left ("missing protobuf field: " <> fieldName)) Right
+
+requirePositiveProtoWord64 :: Text -> Maybe Word64 -> Either Text Word64
+requirePositiveProtoWord64 fieldName encoded = do
+  value <- require fieldName encoded
+  if value == 0
+    then Left ("invalid protobuf field: " <> fieldName <> " must be positive")
+    else Right value
 
 requireNonEmptyProtoString :: Text -> Maybe Text -> Either Text Text
 requireNonEmptyProtoString fieldName encoded = do

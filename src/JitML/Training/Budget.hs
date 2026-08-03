@@ -19,7 +19,9 @@ module JitML.Training.Budget
   , RawCompletedTraining (..)
   , RawConvergenceObservation (..)
   , RawCriterionRule (..)
+  , RawProductScenarioInvocation (..)
   , RawTrainingBudget (..)
+  , ProductScenarioInvocation
   , TensorBoardRunMetadata (..)
   , TrainingBudget
   , coMetricGoal
@@ -35,6 +37,7 @@ module JitML.Training.Budget
   , completedTrainingMetrics
   , completedTrainingObservedUnits
   , completedTrainingPlanId
+  , completedTrainingProductScenarioInvocation
   , completedTrainingTensorBoard
   , completedTrainingToRaw
   , completedTrainingUpdateCount
@@ -44,10 +47,22 @@ module JitML.Training.Budget
   , decodeCompletedTraining
   , encodeCompletedTraining
   , encodeRawCompletedTraining
+  , bindCompletedTrainingToProductScenarioInvocation
   , measureCriterion
   , measureCriterionExcluding
   , mkTrainingBudget
+  , mkProductScenarioInvocation
   , parseCompletedTraining
+  , parseProductScenarioInvocation
+  , productScenarioInvocationChallenge
+  , productScenarioInvocationCheckpointScopeDigest
+  , productScenarioInvocationDigest
+  , productScenarioInvocationExecutableSha256
+  , productScenarioInvocationPlanId
+  , productScenarioInvocationRowId
+  , productScenarioInvocationRunId
+  , productScenarioInvocationSubstrate
+  , renderProductScenarioInvocation
   , refineCompletedTraining
   , refineConvergenceObservation
   , remeasureCriterion
@@ -69,15 +84,21 @@ module JitML.Training.Budget
 where
 
 import Codec.Serialise (Serialise (..), deserialiseOrFail, serialise)
+import Codec.Serialise.Decoding (Decoder, decodeListLen, decodeWord)
+import Codec.Serialise.Encoding (Encoding, encodeListLen, encodeWord)
 import Control.Monad (when)
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Char (digitToInt, intToDigit, isHexDigit)
+import Data.Char (digitToInt, intToDigit, isControl, isHexDigit, ord)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 
@@ -94,6 +115,7 @@ import JitML.Product.Evidence
   , evidenceUpdateCount
   , mkTrainingEvidence
   )
+import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 data BudgetKind
   = SupervisedEpochBudget
@@ -182,6 +204,56 @@ data TensorBoardRunMetadata = TensorBoardRunMetadata
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
+-- | One command-owned ProductScenario invocation.  The constructor is hidden:
+-- callers must provide the exact row, plan, substrate, physical checkpoint
+-- scope, executable identity, and a fresh 32-byte challenge in canonical
+-- form.  Its single canonical rendering is safe to pass atomically across the
+-- process environment and its digest is the journal's public correlation
+-- identity.  The raw challenge is retained only in the content-addressed
+-- completion, so a prior checkpoint cannot satisfy a later invocation.
+data ProductScenarioInvocation = ProductScenarioInvocation
+  { invocationRunIdProof :: !Text
+  , invocationRowIdProof :: !Text
+  , invocationPlanIdProof :: !PlanId
+  , invocationSubstrateProof :: !Substrate
+  , invocationCheckpointScopeDigestProof :: !Text
+  , invocationExecutableSha256Proof :: !Text
+  , invocationChallengeProof :: !Text
+  }
+  deriving stock (Eq)
+
+instance Show ProductScenarioInvocation where
+  show invocation =
+    "ProductScenarioInvocation {runId = "
+      <> show (productScenarioInvocationRunId invocation)
+      <> ", rowId = "
+      <> show (productScenarioInvocationRowId invocation)
+      <> ", planId = "
+      <> show (productScenarioInvocationPlanId invocation)
+      <> ", substrate = "
+      <> show (productScenarioInvocationSubstrate invocation)
+      <> ", checkpointScopeDigest = "
+      <> show (productScenarioInvocationCheckpointScopeDigest invocation)
+      <> ", executableSha256 = "
+      <> show (productScenarioInvocationExecutableSha256 invocation)
+      <> ", invocationDigest = "
+      <> show (productScenarioInvocationDigest invocation)
+      <> "}"
+
+-- | Forgeable wire counterpart.  Refinement validates every canonical field
+-- before it can enter a 'CompletedTraining'.
+data RawProductScenarioInvocation = RawProductScenarioInvocation
+  { rawProductScenarioInvocationRunId :: !Text
+  , rawProductScenarioInvocationRowId :: !Text
+  , rawProductScenarioInvocationPlanId :: !Text
+  , rawProductScenarioInvocationSubstrate :: !Text
+  , rawProductScenarioInvocationCheckpointScopeDigest :: !Text
+  , rawProductScenarioInvocationExecutableSha256 :: !Text
+  , rawProductScenarioInvocationChallenge :: !Text
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
 data CompletedTraining = CompletedTraining
   { completedPlanIdProof :: !PlanId
   , completedBudgetProof :: !TrainingBudget
@@ -189,6 +261,7 @@ data CompletedTraining = CompletedTraining
   , completedEvidenceProof :: !TrainingEvidence
   , completedMeasurementsProof :: !(NonEmpty PassedMeasurement)
   , completedTensorBoardProof :: !TensorBoardRunMetadata
+  , completedProductScenarioInvocationProof :: !(Maybe ProductScenarioInvocation)
   }
   deriving stock (Eq, Show)
 
@@ -223,12 +296,265 @@ data RawCompletedTraining = RawCompletedTraining
   , rawCompletedTrainingEvidence :: !TrainingEvidence
   , rawCompletedTrainingMeasurements :: ![RawConvergenceObservation]
   , rawCompletedTrainingTensorBoard :: !TensorBoardRunMetadata
+  , rawCompletedTrainingProductScenarioInvocation :: !(Maybe RawProductScenarioInvocation)
   }
   deriving stock (Eq, Generic, Show)
-  deriving anyclass (Serialise)
+
+-- Keep the pre-Phase-261 nine-field V1 tuple readable without making it
+-- eligible for a fresh ProductScenario invocation.  Generic @Serialise@
+-- encodes a one-constructor product as @[constructor-tag, fields...]@, so the
+-- historical value has list length 10 and V2 has list length 11.  Encoding a
+-- decoded V1 raw value reproduces its exact old shape; newly refined domain
+-- values are always projected as V2 by 'completedTrainingToRaw'.
+instance Serialise RawCompletedTraining where
+  encode raw =
+    case (rawCompletedTrainingVersion raw, rawCompletedTrainingProductScenarioInvocation raw) of
+      (1, Nothing) -> encodeRawCompletedTrainingFields 10 raw mempty
+      _ ->
+        encodeRawCompletedTrainingFields
+          11
+          raw
+          (encode (rawCompletedTrainingProductScenarioInvocation raw))
+
+  decode = do
+    encodedLength <- decodeListLen
+    constructorTag <- decodeWord
+    when (constructorTag /= 0) $
+      fail "unexpected RawCompletedTraining constructor tag"
+    case encodedLength of
+      10 -> do
+        raw <- decodeRawCompletedTrainingFields (pure Nothing)
+        when (rawCompletedTrainingVersion raw /= 1) $
+          fail "legacy RawCompletedTraining tuple must carry wire version 1"
+        pure raw
+      11 -> do
+        raw <- decodeRawCompletedTrainingFields decode
+        when (rawCompletedTrainingVersion raw /= completedTrainingWireVersion) $
+          fail "current RawCompletedTraining tuple must carry the current wire version"
+        pure raw
+      _ ->
+        fail
+          ( "wrong RawCompletedTraining field count: expected 10 or 11, got "
+              <> show encodedLength
+          )
+
+encodeRawCompletedTrainingFields
+  :: Word
+  -> RawCompletedTraining
+  -> Encoding
+  -> Encoding
+encodeRawCompletedTrainingFields encodedLength raw encodedInvocation =
+  encodeListLen encodedLength
+    <> encodeWord 0
+    <> encode (rawCompletedTrainingVersion raw)
+    <> encode (rawCompletedTrainingPlanId raw)
+    <> encode (rawCompletedTrainingBudget raw)
+    <> encode (rawCompletedTrainingObservedKind raw)
+    <> encode (rawCompletedTrainingObservedUnits raw)
+    <> encode (rawCompletedTrainingObservedUnitLabel raw)
+    <> encode (rawCompletedTrainingEvidence raw)
+    <> encode (rawCompletedTrainingMeasurements raw)
+    <> encode (rawCompletedTrainingTensorBoard raw)
+    <> encodedInvocation
+
+decodeRawCompletedTrainingFields
+  :: Decoder s (Maybe RawProductScenarioInvocation)
+  -> Decoder s RawCompletedTraining
+decodeRawCompletedTrainingFields decodeInvocation =
+  RawCompletedTraining
+    <$> decode
+    <*> decode
+    <*> decode
+    <*> decode
+    <*> decode
+    <*> decode
+    <*> decode
+    <*> decode
+    <*> decode
+    <*> decodeInvocation
 
 completedTrainingWireVersion :: Word64
-completedTrainingWireVersion = 1
+completedTrainingWireVersion = 2
+
+productScenarioInvocationRunId :: ProductScenarioInvocation -> Text
+productScenarioInvocationRunId = invocationRunIdProof
+
+productScenarioInvocationRowId :: ProductScenarioInvocation -> Text
+productScenarioInvocationRowId = invocationRowIdProof
+
+productScenarioInvocationPlanId :: ProductScenarioInvocation -> PlanId
+productScenarioInvocationPlanId = invocationPlanIdProof
+
+productScenarioInvocationSubstrate :: ProductScenarioInvocation -> Substrate
+productScenarioInvocationSubstrate = invocationSubstrateProof
+
+productScenarioInvocationCheckpointScopeDigest
+  :: ProductScenarioInvocation
+  -> Text
+productScenarioInvocationCheckpointScopeDigest = invocationCheckpointScopeDigestProof
+
+productScenarioInvocationExecutableSha256
+  :: ProductScenarioInvocation
+  -> Text
+productScenarioInvocationExecutableSha256 = invocationExecutableSha256Proof
+
+productScenarioInvocationChallenge :: ProductScenarioInvocation -> Text
+productScenarioInvocationChallenge = invocationChallengeProof
+
+-- | The canonical public identity for journal correlation.  Length-delimited
+-- ambiguity is avoided because every free-text component is refined to a
+-- non-empty, control-free token and the rendering has a fixed eight-field
+-- shape.
+productScenarioInvocationDigest :: ProductScenarioInvocation -> Text
+productScenarioInvocationDigest =
+  hexBytes . SHA256.hash . Text.Encoding.encodeUtf8 . renderProductScenarioInvocation
+
+renderProductScenarioInvocation :: ProductScenarioInvocation -> Text
+renderProductScenarioInvocation invocation =
+  Text.intercalate
+    "\t"
+    [ productScenarioInvocationWireTag
+    , productScenarioInvocationRunId invocation
+    , productScenarioInvocationRowId invocation
+    , planIdText (productScenarioInvocationPlanId invocation)
+    , renderSubstrate (productScenarioInvocationSubstrate invocation)
+    , productScenarioInvocationCheckpointScopeDigest invocation
+    , productScenarioInvocationExecutableSha256 invocation
+    , productScenarioInvocationChallenge invocation
+    ]
+
+parseProductScenarioInvocation :: Text -> Either Text ProductScenarioInvocation
+parseProductScenarioInvocation encoded =
+  case Text.splitOn "\t" encoded of
+    [ tag
+      , runId
+      , rowId
+      , rawPlanId
+      , rawSubstrate
+      , checkpointScopeDigest
+      , executableSha256
+      , challenge
+      ]
+        | tag == productScenarioInvocationWireTag -> do
+            planId <-
+              firstText
+                "invalid ProductScenario invocation PlanId: "
+                (refinePlanIdText rawPlanId)
+            substrate <-
+              maybe
+                (Left "invalid ProductScenario invocation substrate")
+                Right
+                (parseSubstrate rawSubstrate)
+            mkProductScenarioInvocation
+              runId
+              rowId
+              planId
+              substrate
+              checkpointScopeDigest
+              executableSha256
+              challenge
+    _ -> Left "ProductScenario invocation must use the exact v1 eight-field encoding"
+
+mkProductScenarioInvocation
+  :: Text
+  -> Text
+  -> PlanId
+  -> Substrate
+  -> Text
+  -> Text
+  -> Text
+  -> Either Text ProductScenarioInvocation
+mkProductScenarioInvocation runId rowId planId substrate checkpointScopeDigest executableSha256 challenge = do
+  validateInvocationToken "run identity" runId
+  validateInvocationToken "row identity" rowId
+  validateCanonicalSha256 "checkpoint-scope digest" checkpointScopeDigest
+  validateCanonicalSha256 "executable SHA-256" executableSha256
+  validateCanonicalSha256 "32-byte challenge" challenge
+  Right
+    ProductScenarioInvocation
+      { invocationRunIdProof = runId
+      , invocationRowIdProof = rowId
+      , invocationPlanIdProof = planId
+      , invocationSubstrateProof = substrate
+      , invocationCheckpointScopeDigestProof = checkpointScopeDigest
+      , invocationExecutableSha256Proof = executableSha256
+      , invocationChallengeProof = challenge
+      }
+
+productScenarioInvocationToRaw
+  :: ProductScenarioInvocation
+  -> RawProductScenarioInvocation
+productScenarioInvocationToRaw invocation =
+  RawProductScenarioInvocation
+    { rawProductScenarioInvocationRunId = productScenarioInvocationRunId invocation
+    , rawProductScenarioInvocationRowId = productScenarioInvocationRowId invocation
+    , rawProductScenarioInvocationPlanId =
+        planIdText (productScenarioInvocationPlanId invocation)
+    , rawProductScenarioInvocationSubstrate =
+        renderSubstrate (productScenarioInvocationSubstrate invocation)
+    , rawProductScenarioInvocationCheckpointScopeDigest =
+        productScenarioInvocationCheckpointScopeDigest invocation
+    , rawProductScenarioInvocationExecutableSha256 =
+        productScenarioInvocationExecutableSha256 invocation
+    , rawProductScenarioInvocationChallenge =
+        productScenarioInvocationChallenge invocation
+    }
+
+refineProductScenarioInvocation
+  :: RawProductScenarioInvocation
+  -> Either Text ProductScenarioInvocation
+refineProductScenarioInvocation raw = do
+  planId <-
+    firstText
+      "invalid ProductScenario invocation PlanId: "
+      (refinePlanIdText (rawProductScenarioInvocationPlanId raw))
+  substrate <-
+    maybe
+      (Left "invalid ProductScenario invocation substrate")
+      Right
+      (parseSubstrate (rawProductScenarioInvocationSubstrate raw))
+  mkProductScenarioInvocation
+    (rawProductScenarioInvocationRunId raw)
+    (rawProductScenarioInvocationRowId raw)
+    planId
+    substrate
+    (rawProductScenarioInvocationCheckpointScopeDigest raw)
+    (rawProductScenarioInvocationExecutableSha256 raw)
+    (rawProductScenarioInvocationChallenge raw)
+
+validateInvocationToken :: Text -> Text -> Either Text ()
+validateInvocationToken label value
+  | Text.null value = Left ("ProductScenario " <> label <> " must be non-empty")
+  | Text.length value > 256 = Left ("ProductScenario " <> label <> " exceeds 256 characters")
+  | Text.strip value /= value =
+      Left ("ProductScenario " <> label <> " must not have surrounding whitespace")
+  | Text.any isControl value =
+      Left ("ProductScenario " <> label <> " must not contain control characters")
+  | otherwise = Right ()
+
+validateCanonicalSha256 :: Text -> Text -> Either Text ()
+validateCanonicalSha256 label value
+  | Text.length value /= 64 =
+      Left ("ProductScenario " <> label <> " must contain exactly 64 characters")
+  | not (Text.all isLowerHex value) =
+      Left ("ProductScenario " <> label <> " must be lowercase hexadecimal")
+  | otherwise = Right ()
+
+isLowerHex :: Char -> Bool
+isLowerHex character =
+  isAsciiDecimalDigit character
+    || ('a' <= character && character <= 'f')
+
+isAsciiDecimalDigit :: Char -> Bool
+isAsciiDecimalDigit character =
+  let codepoint = ord character
+   in codepoint >= ord '0' && codepoint <= ord '9'
+
+firstText :: Text -> Either Text value -> Either Text value
+firstText prefix = first (prefix <>)
+
+productScenarioInvocationWireTag :: Text
+productScenarioInvocationWireTag = "product-scenario-invocation-v1"
 
 -- The only serialisation instance for the proof type goes through the raw DTO
 -- and invokes the same refinement used by explicit protocol decoders.
@@ -438,6 +764,11 @@ completedTrainingMetrics =
 completedTrainingTensorBoard :: CompletedTraining -> TensorBoardRunMetadata
 completedTrainingTensorBoard = completedTensorBoardProof
 
+completedTrainingProductScenarioInvocation
+  :: CompletedTraining
+  -> Maybe ProductScenarioInvocation
+completedTrainingProductScenarioInvocation = completedProductScenarioInvocationProof
+
 completedTrainingInitialWeightHash :: CompletedTraining -> Text
 completedTrainingInitialWeightHash =
   evidenceInitialWeightHash . completedTrainingEvidence
@@ -479,7 +810,28 @@ completedTraining planId budget observedUnits evidence observations tensorBoard 
       , completedEvidenceProof = validatedEvidence
       , completedMeasurementsProof = nonEmptyPassed
       , completedTensorBoardProof = tensorBoard
+      , completedProductScenarioInvocationProof = Nothing
       }
+
+-- | Attach the command-owned invocation to an otherwise complete proof.  A
+-- completion cannot be rebound, and its PlanId must already agree with the
+-- invocation before the addressed checkpoint is written.
+bindCompletedTrainingToProductScenarioInvocation
+  :: ProductScenarioInvocation
+  -> CompletedTraining
+  -> Either Text CompletedTraining
+bindCompletedTrainingToProductScenarioInvocation invocation completed
+  | productScenarioInvocationPlanId invocation /= completedTrainingPlanId completed =
+      Left "ProductScenario invocation PlanId differs from completed training"
+  | Just observed <- completedTrainingProductScenarioInvocation completed =
+      if observed == invocation
+        then Right completed
+        else Left "completed training is already bound to a different ProductScenario invocation"
+  | otherwise =
+      Right
+        completed
+          { completedProductScenarioInvocationProof = Just invocation
+          }
 
 completedTrainingToRaw :: CompletedTraining -> RawCompletedTraining
 completedTrainingToRaw completed =
@@ -495,15 +847,24 @@ completedTrainingToRaw completed =
         , rawCompletedTrainingMeasurements =
             fmap convergenceObservationToRaw (completedTrainingMetrics completed)
         , rawCompletedTrainingTensorBoard = completedTrainingTensorBoard completed
+        , rawCompletedTrainingProductScenarioInvocation =
+            productScenarioInvocationToRaw
+              <$> completedTrainingProductScenarioInvocation completed
         }
 
 refineCompletedTraining :: RawCompletedTraining -> Either Text CompletedTraining
 refineCompletedTraining raw = do
-  when (rawCompletedTrainingVersion raw /= completedTrainingWireVersion) $
-    Left
-      ( "unsupported completed-training version: "
-          <> Text.pack (show (rawCompletedTrainingVersion raw))
-      )
+  case rawCompletedTrainingVersion raw of
+    1 ->
+      when
+        (isJust (rawCompletedTrainingProductScenarioInvocation raw))
+        (Left "completed-training V1 cannot carry a ProductScenario invocation")
+    version ->
+      when (version /= completedTrainingWireVersion) $
+        Left
+          ( "unsupported completed-training version: "
+              <> Text.pack (show version)
+          )
   planId <- refineRawPlanId (rawCompletedTrainingPlanId raw)
   budget <- refineTrainingBudget (rawCompletedTrainingBudget raw)
   validateBudget
@@ -513,13 +874,19 @@ refineCompletedTraining raw = do
     (rawCompletedTrainingObservedUnitLabel raw)
   observations <-
     traverse refineConvergenceObservation (rawCompletedTrainingMeasurements raw)
-  completedTraining
-    planId
-    budget
-    (rawCompletedTrainingObservedUnits raw)
-    (rawCompletedTrainingEvidence raw)
-    observations
-    (rawCompletedTrainingTensorBoard raw)
+  completed <-
+    completedTraining
+      planId
+      budget
+      (rawCompletedTrainingObservedUnits raw)
+      (rawCompletedTrainingEvidence raw)
+      observations
+      (rawCompletedTrainingTensorBoard raw)
+  case rawCompletedTrainingProductScenarioInvocation raw of
+    Nothing -> Right completed
+    Just rawInvocation -> do
+      invocation <- refineProductScenarioInvocation rawInvocation
+      bindCompletedTrainingToProductScenarioInvocation invocation completed
 
 refineRawPlanId :: Text -> Either Text PlanId
 refineRawPlanId raw =

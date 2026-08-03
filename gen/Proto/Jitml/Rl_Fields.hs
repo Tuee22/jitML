@@ -63,12 +63,6 @@ arenaGames ::
    Data.ProtoLens.Field.HasField s "arenaGames" a) =>
   Lens.Family2.LensLike' f s a
 arenaGames = Data.ProtoLens.Field.field @"arenaGames"
-avgReward ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "avgReward" a) =>
-  Lens.Family2.LensLike' f s a
-avgReward = Data.ProtoLens.Field.field @"avgReward"
 checkpoint ::
   forall f s a.
   (Prelude.Functor f,
@@ -109,22 +103,24 @@ episode ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "episode" a) =>
   Lens.Family2.LensLike' f s a
 episode = Data.ProtoLens.Field.field @"episode"
-epoch ::
+episodeId ::
   forall f s a.
-  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "epoch" a) =>
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "episodeId" a) =>
   Lens.Family2.LensLike' f s a
-epoch = Data.ProtoLens.Field.field @"epoch"
-eval ::
-  forall f s a.
-  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "eval" a) =>
-  Lens.Family2.LensLike' f s a
-eval = Data.ProtoLens.Field.field @"eval"
+episodeId = Data.ProtoLens.Field.field @"episodeId"
 evalEpisodes ::
   forall f s a.
   (Prelude.Functor f,
    Data.ProtoLens.Field.HasField s "evalEpisodes" a) =>
   Lens.Family2.LensLike' f s a
 evalEpisodes = Data.ProtoLens.Field.field @"evalEpisodes"
+evaluation ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "evaluation" a) =>
+  Lens.Family2.LensLike' f s a
+evaluation = Data.ProtoLens.Field.field @"evaluation"
 experimentHash ::
   forall f s a.
   (Prelude.Functor f,
@@ -155,6 +151,12 @@ generations ::
    Data.ProtoLens.Field.HasField s "generations" a) =>
   Lens.Family2.LensLike' f s a
 generations = Data.ProtoLens.Field.field @"generations"
+iteration ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "iteration" a) =>
+  Lens.Family2.LensLike' f s a
+iteration = Data.ProtoLens.Field.field @"iteration"
 manifestSha ::
   forall f s a.
   (Prelude.Functor f,
@@ -205,18 +207,12 @@ maybe'completedCheckpoint ::
   Lens.Family2.LensLike' f s a
 maybe'completedCheckpoint
   = Data.ProtoLens.Field.field @"maybe'completedCheckpoint"
-maybe'episode ::
+maybe'evaluation ::
   forall f s a.
   (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "maybe'episode" a) =>
+   Data.ProtoLens.Field.HasField s "maybe'evaluation" a) =>
   Lens.Family2.LensLike' f s a
-maybe'episode = Data.ProtoLens.Field.field @"maybe'episode"
-maybe'eval ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "maybe'eval" a) =>
-  Lens.Family2.LensLike' f s a
-maybe'eval = Data.ProtoLens.Field.field @"maybe'eval"
+maybe'evaluation = Data.ProtoLens.Field.field @"maybe'evaluation"
 maybe'generationCompleted ::
   forall f s a.
   (Prelude.Functor f,
@@ -224,6 +220,12 @@ maybe'generationCompleted ::
   Lens.Family2.LensLike' f s a
 maybe'generationCompleted
   = Data.ProtoLens.Field.field @"maybe'generationCompleted"
+maybe'iteration ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "maybe'iteration" a) =>
+  Lens.Family2.LensLike' f s a
+maybe'iteration = Data.ProtoLens.Field.field @"maybe'iteration"
 maybe'metric ::
   forall f s a.
   (Prelude.Functor f,
@@ -267,6 +269,18 @@ metric ::
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "metric" a) =>
   Lens.Family2.LensLike' f s a
 metric = Data.ProtoLens.Field.field @"metric"
+metricName ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "metricName" a) =>
+  Lens.Family2.LensLike' f s a
+metricName = Data.ProtoLens.Field.field @"metricName"
+metricValue ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "metricValue" a) =>
+  Lens.Family2.LensLike' f s a
+metricValue = Data.ProtoLens.Field.field @"metricValue"
 name ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "name" a) =>
@@ -374,12 +388,6 @@ startAlphaZero ::
    Data.ProtoLens.Field.HasField s "startAlphaZero" a) =>
   Lens.Family2.LensLike' f s a
 startAlphaZero = Data.ProtoLens.Field.field @"startAlphaZero"
-stdReward ::
-  forall f s a.
-  (Prelude.Functor f,
-   Data.ProtoLens.Field.HasField s "stdReward" a) =>
-  Lens.Family2.LensLike' f s a
-stdReward = Data.ProtoLens.Field.field @"stdReward"
 step ::
   forall f s a.
   (Prelude.Functor f, Data.ProtoLens.Field.HasField s "step" a) =>

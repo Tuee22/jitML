@@ -200,21 +200,22 @@ graph.
 
 ## Product Scaffold Boundary
 
-Sprint `20.1` removes the legacy fake-RL helpers from `src/`: the deleted
+Sprint `20.1` removed the legacy fake-RL helpers from `src/`: the deleted
 `JitML.RL.VecEnv` was a dead, zero-caller fake with no product reach, so it was
-removed rather than the vectorized-env capability as such. A real,
-product-reachable, learning `JitML.RL.VecEnv` is being reintroduced (Phase `25`)
-to batch ~16 parallel environment instances through the network in a single
-device call per step; this module is exercised on the trainer device seam and is
-categorically distinct from the removed fossil. The scaffold-lint now
+removed rather than the vectorized-env capability as such. The current
+product-reachable, learning `JitML.RL.VecEnv` batches ~16 parallel environment
+instances through the network in a single device call per step; this module is
+exercised on the trainer device seam and is categorically distinct from the
+removed fossil. The scaffold-lint now
 distinguishes the real vectorized-env module (a genuine caller-backed
 device-batched env) from that dead zero-caller fake, so reintroducing the real
 `VecEnv` does not re-trip the fake-scaffold gate. `runRLLoop` / `runOneEpisode`
 and the deterministic step helper live only under `test/rl-canonicals/Support/`,
 and the old simulator-loop runners are test-support only. Product RL dispatch reaches
-real trainers through `JitML.App.runTrainerEpisodes`; those trainers project
-their summaries into `JitML.RL.EpisodeEnvelope` for trajectory artifacts,
-animation frames, and `EpisodeDone` publications. No product cache-miss path,
+real trainers through `JitML.RL.TrainerExecution`; `EpisodeEnvelope` remains a
+trajectory/animation projection, while broker publication uses distinct
+plan-bound `IterationSummary` learning telemetry and keyed
+`EvaluationOutcome` final-policy evidence. No product cache-miss path,
 JIT source renderer, engine loader, or trainer device seam imports the relocated
 scaffolding modules.
 
@@ -399,8 +400,8 @@ scaffolding modules.
   2026-07-10 by the fresh **55 / 55** publisher, integration/e2e/live gates, and
   **55 / 55** CUDA-faster-than-CPU table that retain closure for Sprints
   `29.1`–`29.4`. Phase `29` as a whole is now **Blocked**, not Active: reopened
-  Sprint `29.5` waits on Sprint `28.4` before it can produce the new
-  contract-journal-bound CUDA lane attestation.
+  Sprint `29.5` waits on Phase `263` / legacy Sprint `28.6` before it can
+  produce the new contract-journal-bound CUDA lane attestation.
 - **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`

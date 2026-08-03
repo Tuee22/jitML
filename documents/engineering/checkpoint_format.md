@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md, numerical_core.md, product_completion_contract.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md, numerical_core.md, product_completion_contract.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
@@ -12,12 +12,18 @@
 > checkpoint target for every model family, including the trained-artifact
 > witness required before inference.
 
-**Durable-state retention (Sprint 10.8):** the checkpoint GC retention is a typed
+**Durable-state retention:** checkpoint GC retention is a typed
 `RetentionPolicy` sourced from the durable-state registry's `checkpoints` store
 (`JitML.Project.Config.lookupStoreRetention`), replacing the former hardcoded
 `LastN 5` literal. See [durable_state_dsl.md](durable_state_dsl.md).
 
-**Typed local object-key validation (Sprint 10.11):** local filesystem
+**Snapshot concurrency:** the snapshot-scoped writer plus experiment-scoped
+writer/GC CAS protocol below is the binding contract. Phase status,
+implementation sequencing, and
+validation evidence remain in the
+[development plan](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md).
+
+**Typed local object-key validation:** local filesystem
 object-key validation returns data, not bottoms. `objectPathForKey` /
 `safeRelativePath` reject empty, absolute, and parent-traversing keys as
 `Left Text` before path construction. Read/list helpers retain that validation
@@ -26,13 +32,14 @@ immutable-object and pointer collisions use distinct typed conflict
 constructors. User-facing commands such as local `jitml internal gc
 --experiment-hash ...` report a typed error instead of terminating.
 
-**Structural completion and persisted admission are distinct.** The V1 body
-contains a forgeable `RawCheckpointManifest` and, when present, a versioned
+**Structural completion and persisted admission are distinct.** Each payload
+variant inside the single envelope contains a forgeable
+`RawCheckpointManifest` and, when present, a versioned
 `RawCompletedTraining`. Decoding re-refines those raw fields before a domain
 manifest exists. `ValidatedCheckpointCompletion` is deliberately named and
 documented as a structural result only: it makes no persistence claim. Store
 alone constructs `AdmittedCheckpoint` / `AdmittedCompletedCheckpoint` after an
-exact stable-address read and physical-payload binding. Pipeline consumes that
+exact stable-address read and commit/descriptor/payload-object binding. Pipeline consumes that
 opaque Store result and cannot promote a caller-built or merely decoded
 manifest.
 
@@ -47,27 +54,27 @@ evidence. See
 
 ## Current Status
 
-**Implemented today (Phase `235` closed 2026-07-27).** The checkpoint wire is
+**Implemented today.** The checkpoint wire is
 **one self-describing envelope**: a payload-variant version, the raw 32-byte
 SHA-256 of the exact canonical body bytes, and those body bytes. The body is the
 typed `RawCheckpointBody` payload sum with two variants — **weight-only** (the
-bare canonical manifest, for the RL, AlphaZero, tuning, and generic rows) and
-**supervised-graph** (the manifest plus the exact supervised runtime program, for
-the eleven supervised rows). A single `encodeManifestCbor` arm, a single
+bare canonical manifest, for RL, AlphaZero, tuning, and non-supervised generic
+rows) and **supervised-graph** (the manifest plus exact runtime task/transforms
+and trained-graph metadata, for supervised rows). A single `encodeManifestCbor` arm, a single
 `decodeAddressedManifestCbor` that dispatches on the payload sum (no version
 cascade or fall-through), and one `canonicalManifest` serve every row. The
 byte-frozen V1 golden fixture, the dead V3 `LayerGraph` encoder, the retained
 pre-Sprint-`10.12` legacy decoder, and the parallel `canonicalManifestV2` were
 all retired; checkpoints are regenerated deterministically from current source,
-so no persisted bytes are reinterpreted. Store admission is likewise **one path**
-(Phase `236` closed 2026-07-27): a decode with no per-version allow-list, then a
+so no persisted bytes are reinterpreted. Store admission is likewise **one
+path**: a decode with no per-version allow-list, then a
 single classify-on-payload-variant — a supervised-graph checkpoint is admissible
 only with no companion pointer, a weight-only checkpoint routes through the
-authoritative non-supervised ProductRow companion rules. The dormant
-`LayerGraph`-from-checkpoint reconstruction helpers were deleted.
+authoritative non-supervised ProductRow companion rules. The dormant legacy-V3
+graph reconstruction helpers were deleted; the current supervised reader
+reconstructs the trained graph from the one envelope as described below.
 
-**Supervised-graph payload is the trained `LayerGraph` (Phases `237`–`239`,
-closed).** The supervised-graph payload's served representation is the trained
+**The supervised-graph payload is the trained `LayerGraph`.** Its served representation is the trained
 typed `LayerGraph` (persisted as `architectureLayerGraph` metadata). Phase `239`
 deleted the embedded V2 `SupervisedRuntime` served layer-operation program and
 its per-substrate `RuntimeBackendExecutor` structural ABI. The runtime payload
@@ -110,12 +117,9 @@ canonical body bytes, semantic refinement, and cross-field bindings. A structura
 decode is permanent: once the payload sum selects a variant, a semantic failure
 never falls through to another decoder.
 
-The supervised-graph payload and its closed origin contract (immediately below)
-are the artifact formerly serialized as the "supervised V2" body; where the prose
-that follows says "supervised V2" it means this supervised-graph payload. Phase
-`239` replaced the embedded served layer-operation program with the trained
-`LayerGraph` metadata; the runtime payload now carries only the task, the exact
-input/output transforms, and that graph metadata.
+Phase `239` replaced the embedded served layer-operation program with the
+trained `LayerGraph` metadata; the supervised-graph runtime payload now carries
+only the task, the exact input/output transforms, and that graph metadata.
 
 The supervised-graph body carries the trained model returned by training: the
 task, the exact input/output transforms, the trained typed `LayerGraph` metadata
@@ -136,9 +140,9 @@ one member of the closed runtime-origin sum:
   A generic plan whose experiment is any authoritative ProductRow experiment
   hash is rejected.
 
-There is no unspecified/default origin and no origin coercion. The addressed V2
-body's composite origin—canonical row identity plus either the authoritative
-projection or exact generic execution transport—binds the canonical row
+There is no unspecified/default origin and no origin coercion. The addressed
+supervised-graph body's composite origin—canonical row identity plus either the
+authoritative projection or exact generic execution transport—binds the canonical row
 semantics; `PlanId` alone never does. The canonical row owns the runtime family,
 task, production dimensions, topology, transforms, decoder, convergence
 criterion, and canonical dataset-read digest. The origin owns which exact plan,
@@ -162,31 +166,36 @@ per-layer `W1`/`b1`/`W2`/`b2` virtual-slice decomposition: the graph metadata is
 the parameter layout, so new supervised writes emit neither name-derived generic
 manifests nor per-node physical weight objects.
 
-The origin field is a required V2 body field, not a compatibility default.
-Adding it changes the exact canonical body, outer envelope, and object address,
-while frozen V1 bytes and their decoder remain unchanged. Every supervised V2
-manifest and pointer produced before this closed-origin contract must therefore
-be republished from current source; a loader must not guess an origin for old V2
-bytes or retain a pointer to them as an eligible artifact.
+The origin field is mandatory in the supervised-graph body and participates in
+the exact canonical body, outer envelope, and object address. Decode never
+guesses a missing origin or reinterprets pre-origin or retired multi-version
+bytes. Checkpoints from before this closed-origin contract must be republished
+from current source rather than retained as eligible artifacts.
 
 Both origins also close dataset provenance against the canonical pinned read
 contract. `canonicalDatasetReadShaForProblem` derives the deterministic digest
 of the exact pinned training and evaluation artifacts for the canonical row;
 the runtime payload, manifest `datasetShaAtRead`, and `CompletedTraining` must
 all equal that digest. Synchronously substituting the same forged digest into
-all three fields is therefore rejected for both Product and generic V2.
+all three fields is therefore rejected for both Product and generic
+supervised-graph payloads.
 
 ## Inference Eligibility
 
 A checkpoint manifest can be loaded for inspection at any step, but only a
 Store-minted `AdmittedCompletedCheckpoint` may flow to `jitml eval`, `jitml
 inference run`, demo inference routes, RL evaluation/rollout, or AlphaZero game
-endpoints. Admission first establishes one exact persisted snapshot; structural
-completion validation then requires all of the following:
+endpoints. Store establishes the exact persisted snapshot before final
+completion refinement: it validates the required immutable commit and its
+descriptor, reconstructs and re-derives snapshot identity, and binds every
+scoped payload object before `requireAdmittedCompletedCheckpoint` may construct
+the completed admitted value. A pure structural completion precheck may reject
+an impossible manifest before payload-object I/O, but it is not persisted admission.
+Final completion refinement requires all of the following:
 
 - the raw completion payload refines into opaque `CompletedTraining`, including
   its exact unit-indexed budget and originating `PlanId`;
-- the manifest carries that same `PlanId`, and a supervised V2 payload
+- the manifest carries that same `PlanId`, and a supervised-graph payload
   identifies an authoritative canonical supervised row plus a valid closed
   origin: either one exact ProductRow substrate projection or the canonically
   reparsed generic `SupervisedPlan` transport;
@@ -197,11 +206,11 @@ completion validation then requires all of the following:
   and the manifest step equals that observed count exactly;
 - every `CompletedTraining` convergence observation has one unique, exactly
   equal manifest metric row, with no duplicate manifest metric names;
-- a supervised manifest contains the exact refined V2 runtime, one physical
-  `supervised.weights` tensor, and the graph-derived `FlatWeightLayout`; any
-  supervised V1, including a historical `GenericModelFamily` ProductRow
-  snapshot, fails as inspection-only;
-- a completed V1 manifest resolves to one canonical non-supervised ProductRow,
+- a supervised manifest contains the exact refined supervised runtime payload,
+  trained graph, one physical `supervised.weights` tensor, and the graph-derived
+  `FlatWeightLayout`; every supervised weight-only payload remains
+  inspection-only;
+- a completed weight-only payload resolves to one canonical non-supervised ProductRow,
   contains no supervised runtime payload, and binds each required RL
   trajectory, AlphaZero transcript, or tuning-v2 transcript through an
   exact-SHA artifact pointer whose fetched bytes Store verifies; and
@@ -218,8 +227,10 @@ metadata, and mirrored fields, but generic deserialization never constructs a
 persisted-admission proof. `admitLatestCheckpoint` reads the exact pointer body
 `P1`, fetches and verifies the addressed manifest envelope and embedded body,
 reads the exact pointer body `P2`, and continues only when `P1 == P2`. Blob I/O
-starts after that stability interval. Store then verifies every declared
-physical object key, exact fetched bytes, byte length and content SHA, canonical
+starts after that stability interval. Store then requires the exact commit,
+validates its original/scoped/payload-SHA descriptor, reconstructs the logical
+manifest, and re-derives the snapshot id before it verifies every declared
+payload-object key, exact fetched bytes, byte length and content SHA, canonical
 JMW1 encoding, flat element count, virtual-slice reconstruction, plan identity,
 and final-weight identity. `admitCheckpointAt` performs the same immutable-graph
 binding for a known manifest address without pointer reads.
@@ -233,22 +244,18 @@ resume, and GC.
 Generic supervised completion is an explicit attempt, not a relabelling as a
 ProductRow projection. A structurally exact finite run that misses the canonical
 row's unchanged convergence bar returns a typed successful-training miss: no
-eligible V2 checkpoint is written and no completed-checkpoint event is emitted.
-When the same exact generic plan passes that bar, its V2 may become inference
-eligible after the ordinary checks above, but its generic origin and non-product
-experiment identity remain intact and cannot satisfy ProductRow report
-admission. See [Product Completion Contract](product_completion_contract.md#type-state-dsl-contract).
+eligible supervised-graph checkpoint is written and no completed-checkpoint
+event is emitted. When the same exact generic plan passes that bar, its
+generic-origin supervised-graph payload may become inference eligible after the
+ordinary checks above, but its generic origin and non-product experiment
+identity remain intact and cannot satisfy ProductRow report admission. See
+[Product Completion Contract](product_completion_contract.md#type-state-dsl-contract).
 
-Decoder-only support for older V1/legacy manifests preserves inspection/resume
-behavior.
-The legacy stored verdict is recomputed from a typed finite criterion and
-checked for contradiction, then discarded. Because the legacy wire has no
-canonical `PlanId`, its completion payload is stripped from the returned domain
-manifest; it cannot become inference eligible. Supervised V1 with a later
-`PlanId` or completion witness is also rejected because it lacks the exact V2
-runtime payload. The only V1 completion exception is the canonical
-non-supervised ProductRow scope above; admission still requires its exact
-persisted manifest, completion, final JMW1 bytes, and companion artifact bytes.
+There is no decoder-only legacy checkpoint fallback. Every current checkpoint
+must decode canonically through the single outer envelope and typed body sum.
+At completed admission, the weight-only case is restricted to a canonical
+non-supervised ProductRow with its exact persisted completion, JMW1 bytes, and
+companion artifact bytes.
 
 The browser checkpoint-list selector uses the same Store admission boundary:
 it admits each known manifest address and requires an admitted completion before
@@ -261,16 +268,16 @@ substituting a seeded or synthetic artifact.
 
 ## No-Caveat Checkpoint Target
 
-Strict V2 currently owns the runtime families of the eleven authoritative
-canonical supervised rows: Dense, DeepDense, Conv2D/LeNet, residual,
-wide-residual, ResNet-50, VisionTransformer, and California regression. Both
-authoritative ProductRow publication and exact generic supervised commands use
-that V2 format through their distinct closed origins. RL policies, AlphaZero
-policy/value nets, tuning trial checkpoints, and other non-supervised generic
-artifacts retain their V1 compatibility writers and separately owned runtime
-contracts; the Product writer persists the companion evidence first and binds
-its exact content-addressed pointer into the completed V1 manifest. They cannot
-be mislabeled as supervised V2. Across those families,
+The supervised-graph payload owns the runtime families of the eleven
+authoritative canonical supervised rows: Dense, DeepDense, Conv2D/LeNet,
+residual, wide-residual, ResNet-50, VisionTransformer, and California
+regression. Both authoritative ProductRow publication and exact generic
+supervised commands use that payload through their distinct closed origins. The
+weight-only payload owns RL policies, AlphaZero policy/value nets, tuning trial
+checkpoints, and applicable non-supervised generic artifacts; the Product
+writer persists companion evidence first and binds its exact content-addressed
+pointer into the completed manifest. The two variants cannot be mislabeled.
+Across those families,
 the broader manifest still carries architecture, preprocessing, decoding,
 replay/transcript, substrate-artifact, completion, convergence, and TensorBoard
 metadata so user-facing readers reject missing, partial, smoke, or incompatible
@@ -285,38 +292,98 @@ values rather than stringly-typed call sites:
 ```
 jitml-checkpoints/
   <experiment-hash>/                      -- sha256(resolved-dhall || substrate-fingerprint)
-    blobs/<sha256>                        -- write-once, content-addressed, opaque bytes
-    artifacts/<kind>/<sha256>.txt         -- write-once Product companion evidence
-    manifests/<sha256>                    -- write-once, content-addressed, CBOR manifest objects
+    snapshots/<snapshot-id>/
+      reservations/<attempt-id>.cbor      -- immutable marker owned by one write attempt
+      committed.cbor                      -- immutable admission/GC eligibility marker
+      objects/<sha256(original-full-key)> -- snapshot-owned payload-object bytes
+    manifests/<sha256>.cbor               -- write-once, content-addressed, CBOR manifest objects
+    gc/
+      coordination-fence.txt              -- mutable experiment-scoped writer/GC CAS record
+      intents/<event-id>.cbor             -- immutable deletion set; cleanup only after Reaped
+      cancelled/<event-id>.cbor           -- stable immutable whole-intent cancellation artifact
+      ready/<event-id>.cbor               -- byte-stable Pulsar publication outbox
+      published/<event-id>.cbor           -- permanent exact-event tombstone
     pointers/
       latest                              -- mutable, ETag-CAS; body = 64-byte lowercase SHA-256 text
       best/<metric>                       -- mutable, ETag-CAS; body = 64-byte lowercase SHA-256 text
       trial/<trial-hash>/latest           -- per-HPO-trial latest pointer
       trial/<trial-hash>/best/<metric>    -- per-HPO-trial best pointer
+      browser-catalogues/<catalogue-sha>  -- immutable archival manifest root
 ```
 
-`experiment-hash = sha256(resolved-dhall || substrate-fingerprint)`.
-For V1, `manifest-sha = sha256(exact V1 envelope bytes)`. For V2,
-`manifest-sha = sha256(exact V2 outer-envelope bytes)` and the outer envelope
-independently carries `sha256(exact canonical body bytes)`. Neither identity is
-defined as decode-and-re-encode equivalence.
+Store also maintains one canonical experiment-scoped writer/GC coordination
+record outside every snapshot deletion set. It is a mutable CAS object, not an
+immutable snapshot payload or a GC event key. Experiment scope is essential: a
+child snapshot reservation can protect another snapshot's reap target through
+its `parentManifestSha`, so independent per-snapshot locks would miss a
+cross-snapshot overlap.
 
-Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
+`experiment-hash = sha256(resolved-dhall || substrate-fingerprint)`.
+For new writes,
+`snapshot-id = sha256(canonical-CBOR("jitml-snapshot-v1", exact logical manifest,
+sorted(original-key,payload-sha)))`. Each reservation and commit descriptor
+contains the sorted canonical-original → exact-scoped → payload-SHA table.
+For every row, the original key must be canonical and outside `snapshots/`; the
+scoped key must equal
+`jitml-checkpoints/<experiment>/snapshots/<snapshot-id>/objects/<sha256(original-full-key)>`;
+and persisted admission requires the payload SHA to equal the exact stored
+bytes. Admission and GC reverse that mapping to restore every original key in the persisted manifest, reconstruct
+the exact logical manifest, and re-derive `snapshot-id` from the logical manifest
+and sorted original-key/payload-SHA pairs. A shared path prefix alone is not a
+snapshot-identity proof. Legacy unscoped manifests remain readable, but every
+new write is scoped and only exact committed snapshots are eligible for
+admission, retention, or GC.
+
+Scoping does not relax the logical address contract. The stored address must be
+the exact snapshot derivation of the canonical original address, not merely any
+key below the same snapshot prefix. In particular, the supervised-graph body retains
+`blobKey(experiment, final-jmw1-sha)` as the logical `supervised.weights`
+address, and Product weight-only companion evidence retains its family-specific
+content address; admission rejects a coherently substituted original/scoped
+pair that does not preserve those semantics.
+
+For a zero-payload-object logical manifest, the sorted binding list is exactly
+empty, so Store derives
+`snapshot-id = sha256(canonical-CBOR("jitml-snapshot-v1",
+exact logical manifest, []))` without relying on a payload-object-key prefix. The
+exact derived `snapshots/<snapshot-id>/committed.cbor` is the sole GC-owned key.
+When that commit exactly binds the manifest and empty ownership map, the
+manifest is admissible as an exact persisted snapshot (with zero loaded
+weights) and eligible for retention/GC; this does not refine it into a
+completed or inference-eligible weighted model. A legacy empty manifest
+without the exact commit remains decode/inspection-only, protected, and
+ineligible; neither admission nor GC infers eligibility from emptiness alone.
+
+For every payload variant, `manifest-sha` is SHA-256 of the exact canonical
+outer-envelope bytes; the envelope independently carries SHA-256 of its exact
+canonical body bytes. Neither identity is defined as decode-and-re-encode
+equivalence.
+
+`src/JitML/Checkpoint/Format.hs` owns the envelope/manifest codec and logical
+object-key semantics alongside `deriveExperimentHash`, `blobKey`, `manifestKey`,
 `latestPointerKey`, `bestPointerKey`, `trialPointerKey`, deterministic
 `encodeManifestCbor` / `decodeManifestCbor` / `manifestContentSha`, typed
 `AdvancePredicate`, pure `applyPointerWrite` CAS decisions,
 and the explicitly structural `validateCheckpointCompletion` refinement.
-`JitML.Checkpoint.Store` provides the local filesystem-backed interpreter for
-write-once object writes, manifest writes/reads, latest-pointer CAS, retention
-planning, local manifest discovery for `jitml internal gc`, GC execution
-through `HasMinIO`, separate candidate/completed checkpoint transactions, and
-the exact persisted-admission inference loaders. The Product V1 writer resolves
+`src/JitML/Checkpoint/Store.hs` owns deterministic snapshot preparation,
+canonical descriptor validation and snapshot-id re-derivation, the
+experiment-scoped writer/GC CAS state machine, per-attempt marker allocation,
+scoped object rendering, commit records, the local
+filesystem-backed interpreter, latest-pointer CAS, retention planning, durable
+GC storage state, separate candidate/completed checkpoint transactions, and the
+exact persisted-admission loaders. `src/JitML/App.hs` owns live GC recovery,
+fresh revalidation, deletion orchestration, promotion, publication, and summary
+rendering; `src/JitML/Service/MinIOSubprocess.hs` owns complete S3 listing and
+idempotent DELETE; `src/JitML/Proto/Gc.hs` and `proto/jitml/gc.proto` own the
+event codec. The Product weight-only writer
+resolves
 each supplied companion pointer from this same object store before writing the
 manifest, and known-address re-admission checks that the returned stored
 manifest key/SHA and admitted SHA are identical. A `StoredCheckpoint` exposes the
-exact outer SHA and `storedManifestBodySha :: Maybe Text`: V2 writes return the
-embedded-body identity and V1/legacy writes return `Nothing`. This write result
-is useful identity evidence but is not persisted admission. Only
+exact outer SHA and `storedManifestBodySha :: Maybe Text`: supervised-graph
+writes return the embedded-body identity and weight-only writes return
+`Nothing`. This write result is useful identity evidence but is not persisted
+admission. Only
 `AdmittedCheckpoint` / `AdmittedCompletedCheckpoint` carry that claim. Store-level
 `checkpointObjectRef` adapts the bucket-prefixed key renderers to live
 `HasMinIO` calls by carrying bucket `jitml-checkpoints` separately and using
@@ -328,19 +395,21 @@ object and pointer reads plus manifest listing propagate its `Left` result,
 while write transactions preserve it as `CheckpointWriteInvalid` until the app
 boundary renders the typed failure.
 `JitML.Service.MinIOSubprocess` provides the live HTTP MinIO
-`HasMinIO` interpreter; 2026-05-19 live Linux CPU validation confirms
-`If-None-Match: *` duplicate writes and stale `If-Match` pointer CAS surface as
-`SEConflict` through the routed `/minio/s3` edge. Both local and MinIO object
-writers follow a collision with an exact byte comparison: identical bytes are
-idempotent; different or unreadable bytes are a typed conflict.
+`HasMinIO` interpreter. `If-None-Match: *` duplicate writes and stale
+`If-Match` pointer CAS surface as `SEConflict` through the routed `/minio/s3`
+edge. For immutable objects other
+than per-attempt reservation allocation, both local and MinIO writers follow a
+collision with an exact byte comparison: identical bytes are idempotent;
+different or unreadable bytes are a typed conflict. Reservation allocation
+instead advances its counter on every conflict, including identical bytes.
 
 The checkpoint write/read paths cross the `HasMinIO` capability boundary
 through the distinct candidate/completed writers and Store admission. The
 supervised path uses
 `writeLocalCompletedSupervisedCheckpoint` /
 `writeMinIOCompletedSupervisedCheckpoint`; both require non-optional completion
-plus a refined `TrainingRuntimeArtifact`. Generic V1 writers remain for
-non-supervised compatibility and fail closed for authoritative supervised
+plus a refined `TrainingRuntimeArtifact`. Generic weight-only writers remain for
+non-supervised artifacts and fail closed for authoritative supervised
 requests. A daemon-dispatched worker with mounted `BootConfig` resolves the
 in-cluster MinIO service and invokes the MinIO completed-supervised writer
 directly before publishing its completed-checkpoint event; it does not write a
@@ -349,45 +418,142 @@ Host-side commands without the mounted service context retain their separately
 resolved local/edge path. Later workload layers do not invent parallel
 supervised persistence paths around this boundary.
 
+Generic decoded effects in `JitML.Service.Workload` may mutate ordinary
+checkpoint-bucket data keys, but both weighted and unweighted dispatch reject
+any noncanonical bucket/key `ObjectRef` and the Store-owned control prefixes
+`manifests/`, `pointers/`, `snapshots/`, and `gc/` before invoking `HasMinIO`.
+Dot, dot-dot, empty-segment, absolute, backslash, control-character, and bucket
+path aliases therefore cannot normalize onto Store state. Reservation, commit,
+manifest, selector, and GC state can be mutated only through Store's validated
+transaction protocol.
+
 Completed publication has a stricter commit prerequisite than candidate
 persistence. The local writer reads the current latest-pointer expectation;
 mounted and Apple-host MinIO writers read the current pointer ETag and pass that
 exact expectation into the CAS. The completed Store writer returns
-`StoredCompletedCheckpoint` only for `PointerWritten manifestSha` where
-`manifestSha` is the exact stored manifest address. `PointerConflict`, or
-acknowledgement of another manifest, is a typed failure. Only after that exact
-completed result may the worker or host publisher construct and publish the
-completed-checkpoint event.
+`StoredCompletedCheckpoint` only after the exact pointer names the final
+manifest and the immutable snapshot commit record has been installed. A pointer
+already naming that exact final manifest is idempotent retry success; another
+manifest is a typed conflict. The transient pointer-to-uncommitted state fails
+reader admission closed. Only after the committed result may the worker or host
+publisher construct and publish the completed-checkpoint event.
 
-## Four Object Classes, Two Write Protocols
+## Snapshot-Scoped Immutable Objects and Mutable Selection
 
-### `blobs/<sha256>` — Write-Once Content-Addressed Payloads
+### Experiment-Scoped Writer/GC CAS Fence
 
-Each blob's key *is* `sha256(its bytes)`. PUTs use `If-None-Match: *` or the
-atomic local-filesystem equivalent. A collision is followed by an exact byte
-comparison in both interpreters. Only absent or byte-identical content
-succeeds; unreadable, address-mismatched, or different existing content is a
-typed hard conflict. A `412` or pre-existing pathname alone is never proof of
-equality.
+The Store-owned `ExperimentGcFence` lives at
+`jitml-checkpoints/<experiment-hash>/gc/coordination-fence.txt`. Its canonical
+value carries a format version, the bound experiment hash, a monotonically
+increasing CAS revision, a separate monotonically increasing
+writer/root-activity epoch, every full active `WriterReservation`, and the
+canonical `GcFenceDecision` history. Every reservation registration and
+unregister increments the writer/root-activity epoch; GC-only decisions advance
+the revision but not that epoch. Absence for an event means `Open`; recorded phases
+are `Planned(g,event)`, `Cancelling(g,event)`, `Cancelled(g,event)`,
+`Executing(g,event)`, and permanent `Reaped`. An event's generations are
+contiguous from zero through the latest, every earlier generation is complete
+`Cancelled`, every generation binds the same byte-identical semantic intent,
+and only the latest generation may be nonterminal or destructive.
+The object bytes are the exact text prefix `jitml-experiment-gc-fence-v1:` plus
+lowercase hexadecimal canonical CBOR; noncanonical text or CBOR is rejected.
+MinIO reads the record's exact bytes and ETag from one response and updates it
+with compare-and-swap; the filesystem interpreter provides the equivalent
+atomic byte/version transition. A process-local lock or a pre/post listing is
+not distributed exclusion proof.
+GC brackets its complete fresh root view with matching writer/root-activity
+epoch observations. Only that exact witnessed epoch may move `Open` or complete
+`Cancelled` to `Planned`; GC-only revisions for sibling events therefore do not
+invalidate the witness. The live reconciler repeats that complete view in a
+bounded convergence loop. Epoch churn restarts it; if an epoch-stable plan
+discovers an exact event whose canonical intent is absent from durable state, GC
+persists that intent and restarts the entire view before authorization.
 
-One checkpoint produces one blob per checkpoint part: weights, optimizer
-state, RNG state, and, for RL workloads, replay buffer and exploration
-cache. Part-level content addressing makes unchanged state deduplicate
-automatically across consecutive checkpoints.
+Before creating its separate marker, a writer CAS-registers the full reservation
+in this experiment record. The same atomic transition changes every overlapping
+`Planned` event to `Cancelling` while inserting the reservation. The writer
+helps settle every resulting or pre-existing overlapping `Cancelling` event to
+complete `Cancelled` by durably writing the byte-identical immutable
+cancellation artifact, without deleting the semantic intent, before marker
+creation or payload mutation. Intent and artifact may remain physical across
+generations; the latest exact fence phase determines logical activity and a
+delayed helper has only the same idempotent PUT to repeat. Any overlap with
+`Executing` or `Reaped` rejects the writer before marker creation. Full
+reservations are required because overlap includes manifest, parent-manifest,
+commit, and payload-object identity; an attempt id or snapshot id alone loses
+the cross-snapshot parent relationship.
 
-### `artifacts/<kind>/<sha256>.txt` — Write-Once Companion Evidence
+GC first persists the exact initial-plan intent, then converges a complete fresh
+root view in a bounded loop with matching epoch observations. Epoch churn
+restarts the whole view. An epoch-stable fresh plan that discovers an exact
+event absent from durable intent state persists the canonical intent and also
+restarts the whole view. Only after convergence may GC CAS-transition an event
+from `Open` or complete `Cancelled` to `Planned(g,event)` at that exact epoch. It may transition `Planned` to
+`Executing` only when no active reservation overlaps the event. Cancellation
+first CASes `Planned` to `Cancelling(g,event)`. Coordinators, writers, or helpers
+that encounter that subphase durably write the byte-identical immutable
+`cancelled/<event-id>.cbor` and only then CAS `Cancelling` to complete
+`Cancelled`, without deleting the semantic `intents/<event-id>.cbor`. Re-arm as
+`Planned(g+1,event)` is forbidden until that completion, every protecting root
+and marker is gone, and a new exact writer/root-activity epoch is witnessed.
+The stable physical objects may span generations and only the latest exact
+fence phase is logically active, so a late old-generation helper can only repeat
+the same PUT. Helpers re-read the exact `Executing` value and can execute only the
+opaque authorization Store derives from it. Store's sole destructive execution
+API is `executeAuthorizedGcIntents`; no plan or raw-`GcIntent` compatibility
+execution export remains. Complete deletion advances the
+entry to permanent `Reaped`. Authorization never physically retires the
+cancellation artifact or deletes the semantic intent. Intent cleanup occurs
+only after `Reaped` during ready/published terminal handling.
 
-The Product publisher writes the exact RL trajectory, AlphaZero self-play
-transcript, or tuning-v2 trial transcript before it writes the corresponding
-non-supervised V1 checkpoint. The receipt fixes the artifact kind, canonical
-`jitml-checkpoints/<experiment>/artifacts/<kind>/<sha>.txt` key, and SHA.
-The checkpoint manifest carries that receipt as an `ArtifactPointer`, and
-Store fetches the named object and verifies its exact bytes against the pointer
-SHA before completed admission succeeds. Publisher batch validation separately
-requires the canonical key form and exactly one family-appropriate pointer for
-every non-supervised ProductRow.
+### `snapshots/<snapshot-id>/reservations/<attempt-id>.cbor` — Write-Ahead Ownership
 
-The `tune-trials-v2` text payload additionally binds the projected `row-id`,
+Each writer chooses a fixed-width lowercase-hex attempt id, CAS-registers its
+full reservation in the experiment fence, and then creates the marker
+absent-only, advancing on every marker conflict even if the existing bytes are
+identical. Attempts never share a marker and allocation uses neither RNG nor a
+lease. The marker's canonical bytes embed the attempt id and full snapshot
+descriptor and bind the attempt,
+snapshot id and experiment, candidate/completed transaction kind, final
+manifest SHA and exact bytes hash, parent, sorted mapping of original full
+logical keys to scoped keys and payload hashes, and the intended pointer
+operation. An exact retry uses a fresh marker; it neither reuses nor acquires
+ownership of an earlier attempt's marker. Every create conflict advances the
+counter without treating even byte-identical existing content as success. The
+conflicted attempt's reservation entry is not unregistered: ownership of the
+existing marker cannot be proved, so that entry remains conservative permanent
+protection. A resumed attempt that encounters an already-registered exact
+reservation key also leaves it intact and advances through a fresh registration
+attempt before trying the next marker.
+
+The fence entry protects the interval before marker creation; the separate
+marker makes partial snapshot writes explicit and still precedes every payload
+write. A crash before fence registration leaves nothing. A crash afterward can
+leak the entry, the marker, or both, and each leak remains active protection
+forever whether or not that attempt or a later one reaches commit. There is no
+time-based cleanup and commit overrides neither form of protection. A successful
+attempt deletes only its own marker and then CAS-unregisters only its own full
+fence entry, in that order. An exact retry uses a fresh marker to repair
+immutable state but cannot delete a marker or entry leaked by another attempt.
+
+### `snapshots/<snapshot-id>/objects/*` — Snapshot-Owned Payload Objects
+
+Every persisted payload object is written at the scoped address derived from
+`sha256(original-full-key)`, and its exact payload SHA must equal the
+attempt marker's map, the attempt-independent commit, and the bytes read at
+admission. The scoped path must
+also rederive from the canonical logical address required by the payload
+variant; sharing the right snapshot prefix is insufficient. This includes weights, optimizer state, RNG state, replay or
+exploration state, RL trajectory evidence, AlphaZero self-play transcripts,
+tuning transcripts, and substrate artifacts. PUTs use `If-None-Match: *` or the
+atomic local-filesystem equivalent; only absent or byte-identical content
+succeeds. Cross-snapshot deduplication is intentionally traded for exclusive
+ownership, which prevents a snapshot-owned key from being reused by a different
+snapshot. The experiment CAS authorization, rather than namespace ownership
+alone, excludes a paused or stale GC executor while a writer holds overlapping
+state.
+
+The `tune-trials-v2` companion payload still binds the projected `row-id`,
 semantic `plan-id`, experiment hash, dataset-at-read SHA, best trial's final
 JMW1 SHA, and the exact ordered contiguous trial executions. Construction
 requires one and only one promoted execution equal to the selected best trial,
@@ -395,12 +561,34 @@ finite hyperparameters/objectives/observations/weights, completed trial and
 update counts equal to the observed execution, and exactly one
 `best_objective` completion measurement equal to that best trial.
 
-### `manifests/<sha256>` — Write-Once Content-Addressed CBOR Manifests
+### `snapshots/<snapshot-id>/committed.cbor` — Immutable Eligibility
 
-Each manifest names the blob SHAs that constitute one logical checkpoint plus
-the metadata needed to interpret them. V2 additionally embeds the exact
-supervised runtime body and independently identifies it. Manifest objects use
-the same absent-or-byte-identical write-once protocol.
+The commit identity and canonical bytes are independent of every attempt id.
+After all owned objects and the final manifest exist, a candidate writes the
+exact absent-or-identical commit record, deletes only its own marker, and then
+CAS-unregisters its full experiment-fence entry. A completed writer instead
+performs latest-pointer CAS, writes the same attempt-independent commit, and
+uses that same marker-first/fence-entry-second cleanup. A crash after
+pointer CAS is repaired by a fresh attempt recognizing the already-final
+pointer and completing the commit. A crash after commit but before marker
+deletion leaves an eligible snapshot and a permanent protective root: commit
+does not take precedence over, cancel, or weaken a leaked marker or fence entry. Admission,
+retention, and GC consider only snapshots whose manifest, canonical original-
+to-scoped ownership map, payload hashes, re-derived identity, and exact commit
+agree; GC additionally protects every extant attempt marker.
+For a zero-payload-object snapshot, that ownership map is empty, the snapshot
+id is derived from the exact logical manifest and empty binding list, and the
+commit is the sole GC-owned key. A commitless legacy empty manifest stays
+protected and decode/inspection-only rather than becoming admissible by
+vacuous ownership.
+
+### `manifests/<sha256>.cbor` — Write-Once Content-Addressed CBOR Manifests
+
+Each manifest names the scoped object addresses and hashes that constitute one
+logical checkpoint plus the metadata needed to interpret them. The supervised-
+graph variant additionally embeds and independently identifies the exact
+supervised runtime body. Manifest objects use the same absent-or-byte-identical
+write-once protocol.
 
 The manifest's SHA is the canonical *checkpoint id* used by candidate and
 completed checkpoint events, RPC envelopes, and `--resume <checkpoint-id>`.
@@ -408,16 +596,12 @@ completed checkpoint events, RPC envelopes, and `--resume <checkpoint-id>`.
 ### `pointers/*` — The Only Mutable Objects
 
 Each pointer's body is a manifest SHA. Updates use S3 conditional PUT with
-`If-Match: <etag>` compare-and-swap. The
-`pointers/latest` update is the **single atomic commit point** for a
-checkpoint: part-level blob writes can happen in any order and may even
-leave orphans on failure, but the manifest is only adopted as HEAD when its
-pointer update succeeds. ETags are writer-CAS tokens, not reader snapshot
-identity. Candidate writers do not update `latest` and return only
-`StoredCandidateCheckpoint`. Completed writers require non-optional
-`CompletedTraining`, perform exact CAS, and return `StoredCompletedCheckpoint`
-only when the pointer adopts that exact manifest address; a stale expectation
-is a typed conflict and cannot be relabelled as completed persistence.
+`If-Match: <etag>` compare-and-swap. It is the mutable selection point, not the
+immutable eligibility proof: exact `committed.cbor` supplies the latter. ETags
+are writer-CAS tokens, not reader snapshot identity. Candidate writers do not
+update `latest` and return only `StoredCandidateCheckpoint`. Completed writers
+require non-optional `CompletedTraining`; a stale expectation naming another
+manifest is a typed conflict and cannot be relabelled as completed persistence.
 
 ## `.jmw1` Dense Weight Blob Format
 
@@ -438,9 +622,9 @@ decoder requires exactly that many IEEE-754 doubles, rejects truncation,
 trailing bytes, unsupported dtype, and non-finite values, and never pads or
 trims. `jmw1ContentSha` hashes the exact observed bytes without decode/re-encode.
 
-For supervised V2, this one flat vector is the complete physical parameter
-payload. Tensor names, shapes, layer association, and derived offsets live in
-the V2 runtime/manifest binding; they are not duplicated inside JMW1. The
+For the supervised-graph payload, this one flat vector is the complete physical
+parameter payload. Tensor names, shapes, layer association, and derived offsets
+live in the runtime/manifest binding; they are not duplicated inside JMW1. The
 runtime's graph-order prefix sums must consume the decoded vector exactly. The
 initial and final hashes in completion evidence are SHA-256 of the exact JMW1
 bytes consumed at initialization and returned at training completion.
@@ -501,10 +685,11 @@ representation, semantic refinement constructs the domain manifest, and
 checkpoint's `FlatWeightLayout` is one graph-ordered `supervised.weights` spec of
 the trained graph's parameter count.
 Persisted admission requires every replay/transcript `ArtifactPointer` to carry
-an exact SHA and rejects duplicate physical keys. For Product publication,
-supervised V2 has no companion pointer; each RL V1 row has one
-`rl-trajectory`, each AlphaZero V1 row one `alphazero-transcript`, and the
-tuning V1 row one `tune-trials` pointer.
+an exact SHA and rejects duplicate payload-object keys. For Product publication, the
+supervised-graph payload has no companion pointer; each RL weight-only row has
+one `rl-trajectory`, each AlphaZero weight-only row one
+`alphazero-transcript`, and the tuning weight-only row one `tune-trials`
+pointer.
 
 Completed manifests are populated only from opaque completion evidence; the
 checkpoint projection writes the completion `PlanId` into the manifest and
@@ -517,6 +702,21 @@ count must agree with that single origin-bound plan.
 `RawCompletedTraining` itself is versioned and re-refines its budget kind,
 target, observed kind/count/unit, typed finite criteria, non-empty passing
 measurements, and training evidence while retaining the TensorBoard metadata.
+The current encoder emits V2, whose optional ProductScenario invocation binds
+one exact command-owned run, row, plan, substrate, canonical checkpoint scope,
+executable digest, and fresh challenge. The exact V1 nine-field tuple remains
+decodable as a completion with no ProductScenario invocation; it stays
+inspectable through the checkpoint and nested protocol boundaries but cannot
+satisfy the Phase `261` execution-evidence boundary, which requires equality
+with the current invocation.
+That persisted invocation is necessary but not independently sufficient for a
+cross-process ProductScenario report. Journal version `3` HMAC-authenticates the
+exact current-run aggregate and its projection-ordered row fields; the parent
+authenticates the journal before requiring invocation equality and re-admitting
+each recorded manifest address through Store. Thus neither a copied checkpoint
+carrying a V2 `RawCompletedTraining` DTO, an authenticated journal row naming a
+different address, nor a
+successful child exit can substitute for the joined persisted identities.
 The persisted form contains no authoritative pass boolean; structural
 completion validation requires TensorBoard scalar tags and rejects a manifest
 that lacks mirrored evidence, carries invalid/non-finite evidence, names
@@ -527,7 +727,7 @@ Each completed convergence observation must also appear exactly once with the
 same value in the manifest metrics. TensorBoard run id, log prefix, and ordered
 scalar tags are re-bound to the manifest experiment and completed convergence
 metric names rather than trusted as independent display metadata.
-For supervised V2 rows, `manifestDatasetShaAtRead` is the observed digest
+For supervised-graph rows, `manifestDatasetShaAtRead` is the observed digest
 from the verified dataset read boundary. Image/label or archive bytes are
 fetched through `JitML.SL.Dataset.fetchVerifiedDatasetArtifactBytes`, checked
 against their canonical pins before decode, and combined through
@@ -552,7 +752,7 @@ The legacy `tmInitialCheckpointWeights` and `tmCheckpointWeights` lists are
 optional projections only. If present they must equal the decoded exact JMW1
 vectors, but absence never blocks a generic finite below-bar completion miss.
 The required exact initial/final JMW1 bytes and their hashes remain mandatory
-for both miss assessment and passing V2 construction.
+for both miss assessment and passing supervised-graph construction.
 
 `TrainingMetrics` additionally carries one mandatory
 `tmParityProbeInput`/`tmParityProbeOutput` pair produced immediately by the
@@ -560,24 +760,28 @@ training-returned model. Classifier rows use an exact held-out example and its
 semantic numerical model output; California Housing uses an exact raw held-out
 feature row and the prediction after the persisted target inverse-transform.
 The pair is finite and dimension-checked against the refined runtime. It lets
-the production parity gate compare the Store-loaded V2 program with the model
+the production parity gate compare the Store-loaded supervised graph with the model
 that actually trained, without reconstructing a model, inventing an input, or
 using a codec-only round trip as execution evidence.
 
 ## Concurrency Model
 
 Trainer/reader races are removed at the object protocol layer. MinIO uses
-conditional object operations; the local interpreter uses atomic hard-link
-publication for immutable objects and a POSIX advisory lock across each exact
-pointer read/compare/atomic-rename interval. No lease or separate lock service
-is required.
+conditional object operations and an atomic byte-plus-ETag read followed by CAS
+for the experiment coordination record. The local interpreter uses atomic
+hard-link publication for immutable objects and locked atomic compare/replace
+for mutable records. That local lock is an implementation of CAS semantics; it
+is not the writer/GC proof. The durable experiment-fence transition is the proof,
+and no lease or separate lock service is required.
 
 | Hazard | Boundary |
 |--------|----------|
-| Write/write on `blobs/*` and `manifests/*` | Keys are content-addressed; MinIO PUT uses `If-None-Match: *`; local publication is atomic. Every interpreter accepts a pre-existing object only after exact byte comparison. |
-| Write/read on `blobs/*` and `manifests/*` | Object publication is atomic, and exact address/length/content checks reject a torn or substituted object. Store binds every physical declaration before admission succeeds. |
-| Write/write on `pointers/*` | MinIO `If-Match: <etag>` and the locked local compare/rename interval are exact writer CAS operations. A losing completed writer receives a typed conflict and no completed result. |
-| Write/read on `pointers/*` | Store reads exact body `P1`, verifies the addressed manifest, reads exact body `P2`, and starts blob binding only when the bodies match. ETag equality is deliberately irrelevant to reader stability. |
+| Writer/GC across snapshots in one experiment | A writer atomically CAS-registers its full reservation, advances the writer/root-activity epoch, cancels every overlapping `Planned` event in the same transition, and rejects overlap with `Executing`/`Reaped`; unregister advances the epoch again. GC brackets the complete fresh root view with matching epoch observations and reaches `Executing` only through an exact-epoch freshly revalidated `Planned` generation with no overlapping entry. Sibling GC-only revisions do not invalidate the witness. Full reservations retain `parentManifestSha`, so a child writer and another snapshot's reap target contend on the same record. |
+| Write/write on per-attempt reservation markers | After fence registration and cancellation settlement, allocation uses absent-only create and increments the fixed-width lowercase-hex counter on every conflict, including byte-identical content; attempts never share a marker. Because a conflict cannot prove ownership of the existing marker, its registered entry remains conservative protection while a freshly registered attempt advances. Successful cleanup deletes the owned marker before CAS-unregistering the matching fence entry. |
+| Write/write on snapshot objects, the attempt-independent commit, and manifests | Deterministic scoped keys use `If-None-Match: *`; every interpreter accepts a pre-existing object only after exact byte comparison. |
+| Write/read on immutable snapshot state | Atomic object publication plus exact commit, address, length, content, and complete ownership checks reject torn, partial, or substituted snapshots before admission. Every extant marker or active experiment-fence entry remains separate GC protection. |
+| Write/write on `pointers/*` | MinIO `If-Match: <etag>` and the locked local compare/rename interval are exact writer CAS operations. Another final manifest is a typed conflict; the exact already-final manifest is retry success completed by commit. |
+| Write/read on `pointers/*` | Store reads exact body `P1`, verifies the addressed committed manifest, reads exact body `P2`, and starts scoped-object binding only when the bodies match. ETag equality is deliberately irrelevant to reader stability. |
 
 ## Typed Advance Predicates
 
@@ -596,60 +800,194 @@ hash, so flipping a metric's direction defines a *different experiment*.
 The current worktree has `AdvanceLatest`, `AdvanceBestMaximised`, and
 `AdvanceBestMinimised` constructors, pure `applyAdvancePredicate`, a pure
 `PointerWrite` / `applyPointerWrite` decision surface, and local/MinIO Store
-interpreters. The separate candidate/completed transactions apply
-`HasMinIO.putBlobBytesIfAbsent` and `HasMinIO.casPointer` through the live HTTP
+interpreters. The separate candidate/completed transactions apply the
+experiment-fence registration → unique attempt marker → scoped objects →
+manifest → candidate-commit or completed-pointer-CAS → completed-commit → delete
+only that attempt's marker → CAS-unregister only that fence entry protocol
+through the live HTTP
 implementation in `JitML.Service.MinIOSubprocess` or the exact filesystem
 equivalent.
 
 ## Retention and GC
 
-Target retention (`retain = Checkpoint.Retention.LastN k` in the experiment
-Dhall) is enforced by a reconciler — `jitml internal gc <experiment-hash>` —
-invoked by the trainer at training-end. Per doctrine `Reconcilers`,
-re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
+For a live publication, the durable-state registry's typed `checkpoints`
+retention is enforced by the explicit
+`jitml internal gc <experiment-hash>` reconciler. Trainers do not invoke the
+command; an operator or external scheduler owns its cadence. Re-running live
+`gc` after deletion and durable-outbox recovery reach steady state is a no-op
+(exit code `3`). Without a live publication, the command scans the local
+checkpoint tree and reports the deterministic plan but does not delete local
+objects.
 
-- **Live set.** The reconciler reads `pointers/latest`, every
-  `pointers/best/<metric>` for the metrics declared in the experiment Dhall,
-  every `pointers/trial/<trial-hash>/*` reachable from the experiment, and
-  follows `cmParentManifest` along the lineage chain from those tips. The
-  transitive closure is the live set.
-- **`LastN k` semantics.** `LastN k` keeps the `k` most-recent manifests on
-  the `latest` chain (by `cmStep`). `pointers/best/<m>` target manifests are
-  always live regardless of `LastN`.
-- **Blob GC.** A blob is reapable iff no live manifest references it.
-  A supervised-graph manifest roots its one physical `supervised.weights` object;
-  the graph-ordered flat weight layout is derived metadata, neither an object nor
-  an independent GC root.
-- **Audit trail.** GC emits a structured `gc_reaped` event per doctrine
-  `At-Least-Once Event Processing`, naming every reaped manifest and blob
-  SHA so the audit trail survives the deletion.
+- **Complete fail-closed listing.** MinIO discovery follows every
+  ListObjectsV2 continuation page for manifests, commits/reservation markers, catalogue
+  roots, intents, cancelled records, ready records, and published tombstones.
+  Page one must omit `ContinuationToken`; every later response must echo exactly
+  the token requested. A malformed response, missing/empty/repeated/mismatched
+  continuation token, duplicate or non-globally-strictly-ascending key,
+  bucket/prefix/key mismatch, or transport failure on any page rejects the
+  complete listing; GC never plans from a partial page prefix.
+- **Root set.** In every `buildGcPlan`, a structurally completed manifest whose
+  experiment hash belongs to a canonical ProductRow is an intrinsic always-live
+  root. This closes the race in which a ProductRow completes after a GC snapshot
+  but before catalogue publication. On the live branch, every immutable
+  browser-catalogue root is also append-only and resolves against the exact
+  listed manifest set; malformed, unreadable, or unresolved roots fail closed.
+  `walkLiveSet` retains each root or selected manifest plus its immediate
+  `cmParentManifest` reference.
+- **`LastN k` semantics.** `LastN k` keeps the `k` highest-step candidate
+  manifests in canonical `(step descending, manifest SHA ascending)` rank.
+  Intrinsic ProductRow and append-only browser-catalogue roots override
+  `LastN`.
+- **Committed snapshot ownership.** A manifest is retention/GC eligible only
+  when its exact `snapshots/<snapshot-id>/committed.cbor` binds the manifest and
+  the sorted canonical-original → exact-scoped → payload-SHA descriptor.
+  Store reverses that mapping to reconstruct the exact logical manifest and
+  re-derives `snapshot-id`; it also requires each payload SHA to bind the exact
+  payload-object bytes. The non-empty scoped keys must share exactly one snapshot
+  namespace. For the zero-object case, Store derives the
+  snapshot id from canonical CBOR over `jitml-snapshot-v1`, the exact logical
+  manifest, and the empty binding list; `committed.cbor` is the sole GC-owned
+  key. Without that commit, a legacy empty manifest is protected and ineligible.
+  Every extant per-attempt reservation marker and every active full reservation
+  in the experiment coordination record is a root, even when the matching commit
+  exists, so crashed writer state is never collected by age and commit never
+  overrides leaked protection. The owned set covers every tensor, optimizer, RNG, replay pointer,
+  transcript pointer, and present substrate-artifact payload object. A supervised-graph
+  manifest owns one physical `supervised.weights` object; graph-ordered flat
+  slices remain derived metadata. Snapshot-exclusive addresses scope the exact
+  deletion keys; the experiment CAS fence provides stale-executor exclusion.
+- **Durable intent, fresh proof, and cancellation.** `buildGcPlan` is
+  independent of listing order and produces one event per reap target with
+  sorted, unique snapshot-owned deletion keys: every payload object plus exactly
+  one `committed.cbor` from one snapshot namespace. Before mutation the complete plan is canonical
+  CBOR at `jitml-checkpoints/<experiment>/gc/intents/<event-id>.cbor`. The
+  executor then takes a fresh complete view of manifests, mutable pointer
+  bodies, browser-catalogue and intrinsic roots, marker reservations, the full
+  reservations and per-event generations in the experiment coordination record,
+  ready records, and published tombstones, bracketed by matching observations of
+  the fence's monotonic writer/root-activity epoch. The complete view is a
+  bounded convergence loop: epoch churn restarts it, and an epoch-stable fresh
+  plan that discovers an exact event absent from durable intent state first
+  persists the canonical intent and then restarts the entire view. Late
+  unpublished ready events are published and acknowledged, while a published
+  event is acknowledged again only when its transient ready/intent state
+  remains; either case counts as work and restarts the complete view. If the target or any exact owned key
+  is now live or the commit/ownership proof differs, it persists
+  `gc/cancelled/<event-id>.cbor` and performs none of that intent's deletes.
+  Cancellation is whole-intent rather than key filtering, so the semantic event
+  id can never describe a set different from the one executed.
+- **CAS authorization and helpable execution.** Freshly revalidated work moves
+  `Open` or complete `Cancelled` to `Planned(g,event)` in the experiment record
+  only at the exact witnessed writer/root-activity epoch; sibling GC-only
+  revisions do not invalidate the witness. A writer insertion that
+  overlaps a planned event atomically records the full reservation and changes
+  the event to `Cancelling(g,event)`; overlap with `Executing` or permanent
+  `Reaped` rejects the writer before marker creation. Writers and coordinators
+  help `Cancelling` by durably writing the byte-identical immutable cancellation
+  artifact and CASing to complete `Cancelled`, without removing the semantic
+  intent, before writer mutation or re-arm. GC moves `Planned` → `Executing`
+  only with no overlapping active entry. `Cancelled(g,event)` can re-arm at
+  generation `g+1` only after its roots and markers disappear and a new exact
+  epoch is witnessed. The stable intent/artifact may span generations; the
+  latest exact fence phase determines logical activity and delayed helpers only
+  repeat the same PUT.
+  Executors and helpers re-read exact `Executing` state and delete only through
+  Store's opaque authorization. `executeAuthorizedGcIntents` is the only
+  destructive execution API; raw-plan and raw-intent compatibility exports do
+  not exist. If an earlier partial execution already removed the manifest,
+  revalidation requires the latest fence decision to bind the byte-identical
+  intent in `Executing` or permanent `Reaped`; absence without that history is
+  cancelled and cannot create a witness. Successful completion CASes to permanent
+  `Reaped`. Authorization never physically retires cancellation artifacts or
+  deletes semantic intents; semantic-intent cleanup occurs only after `Reaped`
+  during ready/published terminal handling.
+- **Global manifest barrier and retry.** After CAS authorization, execution first
+  requests deletion of every reap-target manifest. Only when every manifest
+  deletion is acknowledged does it touch any snapshot-owned deletion key; one
+  manifest failure defers all snapshot-owned deletes in that pass. DELETE of an already-absent
+  object is success, so the exact retained intent is safely retryable. An event
+  completes only when its manifest and every assigned snapshot-owned object
+  have acknowledged deletion and its experiment-fence event becomes permanent
+  `Reaped`. Exact successes are promoted even when an unrelated event fails.
+- **Durable publish outbox and permanent tombstone.** Promotion checks
+  `gc/published/<event-id>.cbor` before writing ready and again after the ready
+  PUT, only after the fence decision is permanent `Reaped`. If published already
+  exists, recovery cleans transient intent/ready state from that terminal flow
+  without republishing. Otherwise the first ready record fixes the stable
+  `event_id`, substrate, completion timestamp, and sorted exact
+  `reaped_object_keys`. Publication uses the stored substrate's
+  `gc.event.<substrate>` topic through the current edge. After broker success,
+  acknowledgement re-reads the matching permanent `Reaped` fence decision, the
+  exact durable ready bytes, and any existing published tombstone. It may create
+  `gc/published/<event-id>.cbor` only while that exact ready record still exists;
+  when ready is absent, only an already-existing byte-identical published
+  tombstone makes retry acknowledgement succeed. Any other missing or mismatched
+  state fails closed. The exact `GcReadyEvent` is persisted absent-or-identical
+  under `gc/published/` before ready and intent are deleted from the
+  already-`Reaped` terminal flow. A crash before the tombstone may retry the
+  identical broker payload at least once; after it exists, no retry can
+  manufacture a new timestamp or payload.
+- **Canonical broker codec and strict keys.** `renderGcReapedEvent` emits
+  `jitml-gc-reaped-event-protobuf-hex-v1:` plus lowercase hexadecimal of the
+  canonical protobuf bytes. Parse decodes and re-encodes for exact canonical
+  equality. It rejects malformed/unknown fields, forged event or manifest
+  identity, a key set that does not contain exactly one snapshot and exactly one
+  `committed.cbor`, unsorted/duplicate deletion keys, non-full aliases, dot/dot-dot or
+  control segments, reserved control prefixes, and cross-experiment keys.
 
 The current store exposes `RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
 `applyRetentionPolicy`, `buildGcPlan`, `listCheckpointManifests`,
-`listCheckpointManifestsMinIO`, and `executeGcPlan` over the typed
-`HasMinIO` boundary. The current `jitml internal gc <experiment-hash>`
-detects the live cluster publication
-(`./.build/runtime/cluster-publication.json`) and routes the live half
-through `listCheckpointManifestsMinIO + buildGcPlan + executeGcPlan` via
-`JitML.Service.MinIOSubprocess`; the offline half scans
-`<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/`.
+`listCheckpointManifestsMinIO`, durable experiment-fence and
+intent/cancelled/ready/published operations,
+`executeAuthorizedGcIntents` as its sole destructive execution API, and
+exact per-event outcomes over the typed
+`HasMinIO` boundary. `jitml internal gc <experiment-hash>` detects the live
+cluster publication
+(`./.build/runtime/cluster-publication.json`) and routes the live half through
+the durable coordination and intent/cancelled/ready/published state,
+`listCheckpointManifestsMinIO`, committed-snapshot admission and writer
+marker/entry protection, `buildGcPlan`, intent persistence, fresh
+recovered-plus-new intent revalidation through bounded complete-view
+convergence, CAS authorization, exact execution,
+ready promotion, and broker-success tombstoning
+via `JitML.Service.MinIOSubprocess`; the live interpreter treats a missing
+DELETE target as idempotent success. The
+offline branch only plans from
+`<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/` and
+does not execute deletions.
+`JitML.Product.BrowserCatalogue` writes the per-row immutable archival roots
+before selector CAS, so selector changes and selector-CAS losers remain rooted.
+The live GC calls `loadProductBrowserCatalogueGcRoots` before `buildGcPlan` and
+aborts rather than reaping when root listing, shape, payload, or exact manifest
+resolution fails. Offline GC has no browser-catalogue object-store roots.
 Unsafe offline experiment-hash-derived prefixes fail as typed validation before
 filesystem path construction and render through `InvalidConfig`.
 The stdout reports
-`gc: <experiment-hash> kept=<n> reaped=<n> reaped-blobs=<n>` (live) or
+`gc: <experiment-hash> kept=<n> reaped=<n> reaped-objects=<n>` (live) or
 `gc: <experiment-hash> kept=<n> reaped=<n>` (offline) and exits `3`
-when the plan is a no-op.
+only when the converged fresh plan is a no-op and there was no reconciliation or
+recovered-outbox work. Persisting an exact intent discovered by either the
+initial plan or a fresh plan counts as work; only the converged plan supplies
+the live `kept` count and no-op decision. Late ready publication or
+published-transient cleanup also counts as work and forces a fresh pass.
 
-After the live reaper completes, `JitML.App.publishGcReapedEvents`
-publishes a `GcReapedEvent` envelope on
-`persistent://public/default/gc.event.<substrate>` for each successfully
-reaped manifest. The envelope carries `experiment_hash`, `manifest_sha`,
-the addressed `reaped_blob_shas`, the reaped manifest's `step_at_reap`,
-the live `substrate`, and the reap `timestamp_ns`; text + proto3 codecs
-live in `JitML.Proto.Gc`. Publication failures surface a stderr line
-but do not roll back the MinIO delete and do not short-circuit the
-reconciler — at-least-once handles the missed event on a subsequent
-run.
+`JitML.App.publishGcReadyEvents` publishes one `GcReapedEvent` per durable,
+not-yet-published ready record, selecting the topic from that record's stored
+substrate rather than the current publication substrate. Its post-broker
+acknowledgement path re-reads that exact durable ready record and the matching
+permanent `Reaped` fence decision before writing the exact published tombstone
+and cleaning ready/intent state; if ready is already absent, only an exact
+existing published tombstone permits idempotent acknowledgement. The envelope
+carries `event_id`, `experiment_hash`,
+`manifest_sha`, repeated exact `reaped_object_keys`, `step_at_reap`, the ready
+record's stored `substrate`, and `timestamp_ns`; strict text and proto3 codecs live in
+`JitML.Proto.Gc`. `reaped` counts exact fully completed manifest events, while
+`reaped-objects` counts all assigned snapshot-owned delete acknowledgements:
+the payload-object keys plus the exact `committed.cbor`, including idempotent
+already-absent acknowledgements. A zero-payload-object snapshot therefore
+contributes `reaped-objects=1`. The manifest is represented by `manifest_sha`,
+not duplicated in `reaped_object_keys`.
 
 ## Inference-Only Read Path
 
@@ -659,7 +997,7 @@ bound weight payloads. `loadInferenceCheckpointDecodedWithWeights` applies the
 manifest-bound decoder after that runner. A caller which already holds a known
 address uses `admitCheckpointAt` followed by
 `requireAdmittedCompletedCheckpoint`; this performs the same exact immutable
-manifest/blob binding without a pointer lookup.
+manifest/scoped-object/commit binding without a pointer lookup.
 
 For a supervised-graph checkpoint, `loadSupervisedRuntimeFromCheckpoint` accepts
 only one `supervised.weights` object and verifies its flat shape and exact bytes
@@ -675,8 +1013,8 @@ served layer-operation program: there is no fall back to a legacy layer graph,
 Dense/MLP shortcut, demo topology, caller-supplied model, or another substrate.
 The loader resolves the closed origin first, reconstructs its exact bound plan,
 and validates that plan's substrate rather than assuming every supervised
-checkpoint is a ProductRow publication. Historical V1 remains on the isolated
-compatibility path and supervised V1 fails before execution.
+checkpoint is a ProductRow publication. Weight-only payloads remain on their
+isolated non-supervised engine paths and cannot enter supervised execution.
 
 The exact per-row served topology (`cifar10-vit` and the other token families) is
 the trained typed `LayerGraph`; its end-to-end coherence is validated on the
@@ -693,7 +1031,8 @@ no separate structural-ABI reimplementation and thus no trained-versus-Store
 cross-implementation parity band to maintain.
 
 The pointer-selected loader reads `P1`, verifies the exact addressed manifest,
-reads `P2`, and only then fetches and binds physical payloads. A changed exact
+reads `P2`, requires the exact commit and descriptor, and only then fetches and
+binds scoped payload-object bytes. A changed exact
 pointer body returns `AdmissionPointerChanged` without blob I/O. The completed
 inference boundary consumes only the resulting opaque Store-admitted artifact.
 
@@ -743,9 +1082,8 @@ The current local sidecar surface includes
 `JitML.Observability.TbSidecar.{writeCheckpointSidecar,dispatchCheckpointDone,dispatchCheckpointPayload}`
 over `HasMinIO`, with filesystem-backed integration coverage.
 `JitML.Service.Runtime.daemonTensorBoardDispatcher` wires rendered
-`CheckpointDone` payloads into that sidecar writer before ack. Live Linux CPU
-validation on 2026-05-19 also writes a marker through
-`JitML.Service.MinIOSubprocess` and confirms MinIO stores the CBOR object.
+`CheckpointDone` payloads into that sidecar writer before ack, and
+`JitML.Service.MinIOSubprocess` persists the CBOR object in MinIO.
 
 ## Bit-Determinism
 
@@ -754,9 +1092,9 @@ byte-identical `.jmw1` payload and a byte-identical manifest SHA. Cross-substrat
 bit-equality is **not** guaranteed and not asserted (RNG draws + float reduction
 order differ across substrates) per
 [determinism_contract.md → The Contract](determinism_contract.md#the-contract).
-The V2 numerical bounds above compare a training-returned model output with its
-Store-loaded execution; they do not relax byte identity for the persisted
-weights or manifest.
+The supervised-graph reload-parity assertions compare a training-returned model
+output with its Store-loaded execution; they do not relax byte identity for the
+persisted weights or manifest.
 
 ## Cross-References
 
@@ -765,6 +1103,7 @@ weights or manifest.
 - [determinism_contract.md](determinism_contract.md)
 - [training_workloads.md](training_workloads.md)
 - [run_contract.md](run_contract.md)
-- [../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md)
-- [../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
-- [../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md](../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md)
+- [Phase 262: Contract-Driven Live Execution — Browser and Playwright](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md)
+- [Legacy Phase 10: Checkpointing and Inference](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [Legacy Phase 13: No-Caveat Model Runtime](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [Legacy Phase 18: No-Caveat Product Handoff](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)

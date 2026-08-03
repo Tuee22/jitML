@@ -174,17 +174,16 @@ runPlanTests =
               , ("vector-environments", 8)
               , ("episode-steps", 500)
               , ("evaluation-episodes", 20)
-              , ("optimizer-updates", 32)
               ]
     , testCase "RL vector-environment width is positive and participates in PlanId" $ do
         baseline <- expectResolved validRl
         widened <-
           expectResolved
-            (validRl {rawRunBudget = RawRlBudget 4096 128 9 500 20 32})
+            (validRl {rawRunBudget = RawRlBudget 4096 128 9 500 20})
         assertBool
           "vector-environment width changes semantic identity"
           (runPlanId widened /= runPlanId baseline)
-        case resolveRun (validRl {rawRunBudget = RawRlBudget 4096 128 0 500 20 32}) of
+        case resolveRun (validRl {rawRunBudget = RawRlBudget 4096 128 0 500 20}) of
           Failure (NonPositiveQuantity "vector-environments" NonEmpty.:| []) -> pure ()
           other -> assertFailure ("unexpected vector-environment refinement: " <> show other)
     , testCase "tuning trials and self-play generations have distinct positive units" $ do
@@ -242,7 +241,7 @@ validRl =
     , rawRunSubstrate = LinuxCPU
     , rawRunPlacement = ClusterRun
     , rawRunSeeds = [11, 13]
-    , rawRunBudget = RawRlBudget 4096 128 8 500 20 32
+    , rawRunBudget = RawRlBudget 4096 128 8 500 20
     }
 
 expectResolved

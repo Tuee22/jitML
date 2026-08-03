@@ -13,6 +13,8 @@ where
 import Control.Concurrent.Async (AsyncCancelled (..), async, cancel, waitCatch)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Exception (fromException, throwIO, try)
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, permutations)
@@ -21,6 +23,17 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
+import Numeric (showHex)
+import System.Directory
+  ( copyFile
+  , createDirectoryIfMissing
+  , createDirectoryLink
+  , doesDirectoryExist
+  , listDirectory
+  , removeDirectoryLink
+  , renameFile
+  )
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -72,10 +85,12 @@ import JitML.Service.Capabilities
 import JitML.Service.Pulsar.Internal qualified as PulsarInternal
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Subprocess (subprocess)
-import JitML.Substrate (Substrate (..))
+import JitML.Sub.Subprocess (Subprocess (..), subprocess)
+import JitML.Substrate (Substrate (..), renderSubstrate)
 import JitML.Test.LiveEvidence qualified as LiveEvidence
 import JitML.Test.LiveWorkflow qualified as LiveWorkflow
+import JitML.Test.ProductScenarioAuthorization qualified as ProductScenarioAuthorization
+import JitML.Test.ProductScenarioInterpreter.Internal qualified as ProductScenarioInterpreter
 import JitML.Test.Report qualified as Report
 import JitML.Training.Budget qualified as TrainingBudget
 
@@ -284,28 +299,54 @@ runContractTests =
                 assertFailure ("request used a non-request placement: " <> show placement)
     , testCase "live RL evidence rejects gaps, out-of-range keys, and non-finite rewards" $ do
         contract <- expectRight (LiveEvidence.rlLiveContract planA 2)
-        let outOfRange =
-              Rl.RlEpisode
-                Rl.EpisodeDone
-                  { Rl.edExperimentHash = "rl-live"
-                  , Rl.edEpisode = 2
-                  , Rl.edReward = 1.0
-                  , Rl.edSteps = 4
-                  , Rl.edTimestampNs = 1
+        let rlPlanId = planIdText planA
+            outOfRange =
+              Rl.RlEvaluation
+                Rl.EvaluationOutcome
+                  { Rl.eoPlanId = rlPlanId
+                  , Rl.eoExperimentHash = "rl-live"
+                  , Rl.eoEpisodeId = 2
+                  , Rl.eoReward = 1.0
+                  , Rl.eoSteps = 4
+                  , Rl.eoDone = True
+                  , Rl.eoTimestampNs = 1
                   }
             notFinite =
-              Rl.RlEpisode
-                Rl.EpisodeDone
-                  { Rl.edExperimentHash = "rl-live"
-                  , Rl.edEpisode = 0
-                  , Rl.edReward = 0 / 0
-                  , Rl.edSteps = 4
-                  , Rl.edTimestampNs = 1
+              Rl.RlEvaluation
+                Rl.EvaluationOutcome
+                  { Rl.eoPlanId = rlPlanId
+                  , Rl.eoExperimentHash = "rl-live"
+                  , Rl.eoEpisodeId = 0
+                  , Rl.eoReward = 0 / 0
+                  , Rl.eoSteps = 4
+                  , Rl.eoDone = True
+                  , Rl.eoTimestampNs = 1
+                  }
+            wrongPlan =
+              Rl.RlEvaluation
+                Rl.EvaluationOutcome
+                  { Rl.eoPlanId = planIdText planB
+                  , Rl.eoExperimentHash = "rl-live"
+                  , Rl.eoEpisodeId = 0
+                  , Rl.eoReward = 1.0
+                  , Rl.eoSteps = 4
+                  , Rl.eoDone = True
+                  , Rl.eoTimestampNs = 1
+                  }
+            zeroSteps =
+              Rl.RlEvaluation
+                Rl.EvaluationOutcome
+                  { Rl.eoPlanId = rlPlanId
+                  , Rl.eoExperimentHash = "rl-live"
+                  , Rl.eoEpisodeId = 0
+                  , Rl.eoReward = 1.0
+                  , Rl.eoSteps = 0
+                  , Rl.eoDone = False
+                  , Rl.eoTimestampNs = 1
                   }
             ingest =
               LiveEvidence.ingestRlLiveEvent
                 planA
-                Nothing
                 "rl-live"
                 contract
                 (initialProgress contract)
@@ -320,6 +361,55 @@ runContractTests =
         case ingest notFinite of
           Left (LiveEvidence.LiveEvidenceMalformed _) -> pure ()
           result -> assertFailure ("expected non-finite reward rejection, got " <> show result)
+        ingest wrongPlan
+          @?= Left
+            (LiveEvidence.LiveEvidenceRlPlanMismatch rlPlanId (planIdText planB))
+        ingest zeroSteps
+          @?= Left (LiveEvidence.LiveEvidenceZeroSteps 0)
+    , testCase "live RL evidence binds cohort median and completed checkpoint to the exact plan" $ do
+        contract <- expectRight (LiveEvidence.rlLiveContract planA 2)
+        let ingest =
+              LiveEvidence.ingestRlLiveEvent
+                planA
+                "rl-live-exact"
+                contract
+            outcome episodeId reward =
+              Rl.RlEvaluation
+                Rl.EvaluationOutcome
+                  { Rl.eoPlanId = planIdText planA
+                  , Rl.eoExperimentHash = "rl-live-exact"
+                  , Rl.eoEpisodeId = episodeId
+                  , Rl.eoReward = reward
+                  , Rl.eoSteps = 4
+                  , Rl.eoDone = True
+                  , Rl.eoTimestampNs = episodeId + 1
+                  }
+            reportedMedian planId value =
+              Rl.RlMetric
+                Rl.MetricUpdate
+                  { Rl.muPlanId = planIdText planId
+                  , Rl.muExperimentHash = "rl-live-exact"
+                  , Rl.muName = "median_final_reward"
+                  , Rl.muValue = value
+                  , Rl.muTimestampNs = 3
+                  }
+        afterFirst <- expectRight (ingest (initialProgress contract) (outcome 0 1.0))
+        afterSecond <- expectRight (ingest afterFirst (outcome 1 3.0))
+        ingest afterSecond (reportedMedian planB 2.0)
+          @?= Left
+            (LiveEvidence.LiveEvidenceRlPlanMismatch (planIdText planA) (planIdText planB))
+        afterMetric <- expectRight (ingest afterSecond (reportedMedian planA 99.0))
+        ingest afterMetric (rlCompletedCheckpointEvent planB 4 "rl-live-exact")
+          @?= Left (LiveEvidence.LiveEvidencePlanMismatch planA planB)
+        completed <-
+          expectRight
+            (ingest afterMetric (rlCompletedCheckpointEvent planA 4 "rl-live-exact"))
+        finishContract contract completed
+          @?= Failure
+            ( InvalidEvidence
+                "RL median_final_reward does not match the exact evaluation cohort: reported 99.0, derived 2.0"
+                :| []
+            )
     , testCase "supervised live evidence is one terminal snapshot plus completed checkpoint" $ do
         contract <- expectRight (LiveEvidence.supervisedLiveContract planA 3)
         let initial = initialProgress contract
@@ -768,6 +858,16 @@ runContractTests =
           Right _ -> assertFailure "owned cleanup replaced cancellation with a result"
           Left _sameAsyncType -> pure ()
         readIORef observedCleanup >>= (@?= [cleanupIssue])
+    , testCase "ProductScenario journal HMAC-SHA256 matches a known-answer vector" $ do
+        key <-
+          expectRight
+            ( ProductScenarioAuthorization.parseProductScenarioJournalKey
+                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+            )
+        ProductScenarioAuthorization.signProductScenarioJournal
+          key
+          "jitml-phase-261-hmac-vector"
+          @?= "aae1b3ac61483de4191f4ece06c445865004e4cf4247c24db29316decc5d913b"
     , productScenarioReportTests
     ]
 
@@ -776,10 +876,20 @@ productScenarioReportTests =
   testGroup
     "ProductScenarioReport"
     [ testCase "Store-admitted completion and live completion mint an opaque report" $
-        withAdmittedProductProjection $ \row projection admitted -> do
+        withAdmittedProductProjection $ \root row projection precondition addressed admitted -> do
+          let expectedManifestSha =
+                CheckpointStore.admittedCheckpointManifestSha
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
           scenarioCompletion <-
-            expectRight (Report.productScenarioCompletion projection admitted)
-          liveResult <- runProductScenarioWorkflow projection scenarioCompletion
+            expectRight
+              (Report.executedProductScenarioCompletion precondition projection addressed)
+          liveResult <-
+            runProductScenarioWorkflow
+              root
+              expectedManifestSha
+              projection
+              precondition
+              scenarioCompletion
           evidence <-
             expectRight
               (Report.completedProductScenarioEvidence projection liveResult)
@@ -791,21 +901,243 @@ productScenarioReportTests =
               (Report.projectCompletedProductScenarioReport batch [evidence])
           Report.completedProductScenarioRowId evidence
             @?= ProductMatrix.productProjectionRowId projection
+          Report.completedProductScenarioRunId evidence
+            @?= productScenarioFixtureRunId
           Report.completedProductScenarioPlanId evidence
             @?= ProductMatrix.productProjectionPlanId projection
           Report.completedProductScenarioLane evidence @?= LinuxCPU
-          let expectedManifestSha =
-                CheckpointStore.admittedCheckpointManifestSha
-                  (CheckpointStore.admittedCompletedCheckpoint admitted)
           Report.completedProductScenarioManifestSha evidence
             @?= expectedManifestSha
+          Report.completedProductScenarioExecutablePath evidence
+            @?= Report.productScenarioPreconditionExecutablePath precondition
+          Report.completedProductScenarioExecutableSha256 evidence
+            @?= Report.productScenarioPreconditionExecutableSha256 precondition
+          Report.completedProductScenarioInvocationDigest evidence
+            @?= TrainingBudget.productScenarioInvocationDigest
+              (Report.productScenarioPreconditionInvocation precondition)
           assertBool
             "validated product report omitted persisted artifact identity"
             ( expectedManifestSha
                 `Text.isInfixOf` Report.renderCompletedProductScenarioEvidence report
             )
+    , testCase "physical checkpoint roots distinguish a retargeted symlink" $
+        withSystemTempDirectory "jitml-report-physical-scope" $ \root ->
+          withFirstProductProjection $ \_row projection -> do
+            let firstTarget = root </> "first"
+                secondTarget = root </> "second"
+                linkedRoot = root </> "checkpoint-link"
+            createDirectoryIfMissing True firstTarget
+            createDirectoryIfMissing True secondTarget
+            createDirectoryLink firstTarget linkedRoot
+            firstPrecondition <-
+              productScenarioFixtureExecutableSha256 >>= \executableSha256 ->
+                Report.observeProductScenarioPrecondition
+                  productScenarioFixtureRunId
+                  productScenarioFixtureExecutablePath
+                  executableSha256
+                  linkedRoot
+                  projection
+                  >>= expectRight
+            removeDirectoryLink linkedRoot
+            createDirectoryLink secondTarget linkedRoot
+            secondPrecondition <-
+              productScenarioFixtureExecutableSha256 >>= \executableSha256 ->
+                Report.observeProductScenarioPrecondition
+                  productScenarioFixtureRunId
+                  productScenarioFixtureExecutablePath
+                  executableSha256
+                  linkedRoot
+                  projection
+                  >>= expectRight
+            assertBool
+              "retargeted checkpoint symlink retained the previous physical scope"
+              ( Report.renderProductScenarioPrecondition firstPrecondition
+                  /= Report.renderProductScenarioPrecondition secondPrecondition
+              )
+    , testCase "precondition rejects an empty run identity" $
+        withSystemTempDirectory "jitml-report-run-id" $ \root ->
+          withFirstProductProjection $ \_row projection -> do
+            observed <-
+              Report.observeProductScenarioPrecondition
+                ""
+                productScenarioFixtureExecutablePath
+                (Text.replicate 64 "0")
+                root
+                projection
+            observed @?= Left (Report.ProductScenarioRunIdInvalid "")
+    , testCase "precondition rejects caller/executable SHA drift before execution" $
+        withSystemTempDirectory "jitml-report-executable-drift" $ \root ->
+          withFirstProductProjection $ \_row projection -> do
+            observed <-
+              Report.observeProductScenarioPrecondition
+                productScenarioFixtureRunId
+                productScenarioFixtureExecutablePath
+                (Text.replicate 64 "0")
+                root
+                projection
+            case observed of
+              Left (Report.ProductScenarioExecutableDigestMismatch _ expected observedSha) -> do
+                expected @?= Text.replicate 64 "0"
+                assertBool "observed executable digest was not canonical" (observedSha /= expected)
+              other ->
+                assertFailure
+                  ("caller/executable SHA drift was not rejected: " <> show other)
+    , testCase "precondition retains an exact content-pinned copy after configured-path replacement" $
+        withSystemTempDirectory "jitml-report-executable-pin" $ \root ->
+          withFirstProductProjection $ \_row projection -> do
+            let configuredExecutable = root </> "configured-jitml"
+                checkpointRoot = root </> "checkpoints"
+            copyFile productScenarioFixtureExecutablePath configuredExecutable
+            expectedSha256 <- fileSha256 configuredExecutable
+            precondition <-
+              Report.observeProductScenarioPrecondition
+                productScenarioFixtureRunId
+                configuredExecutable
+                expectedSha256
+                checkpointRoot
+                projection
+                >>= expectRight
+            copyFile "/bin/false" configuredExecutable
+            replacementSha256 <- fileSha256 configuredExecutable
+            assertBool
+              "configured executable replacement unexpectedly retained the authorized digest"
+              (replacementSha256 /= expectedSha256)
+            assertBool
+              "precondition retained the mutable configured pathname as its execution target"
+              ( Report.productScenarioPreconditionPinnedExecutablePath precondition
+                  /= Report.productScenarioPreconditionExecutablePath precondition
+              )
+            Report.revalidateProductScenarioPinnedExecutable precondition
+              >>= (@?= Right ())
+    , testCase "precondition detects replacement of its private content-pinned executable" $
+        withSystemTempDirectory "jitml-report-executable-pin-tamper" $ \root ->
+          withFirstProductProjection $ \_row projection -> do
+            let checkpointRoot = root </> "checkpoints"
+            expectedSha256 <- productScenarioFixtureExecutableSha256
+            precondition <-
+              Report.observeProductScenarioPrecondition
+                productScenarioFixtureRunId
+                productScenarioFixtureExecutablePath
+                expectedSha256
+                checkpointRoot
+                projection
+                >>= expectRight
+            let pinnedPath =
+                  Report.productScenarioPreconditionPinnedExecutablePath
+                    precondition
+                replacementPath = pinnedPath <> ".replacement"
+            copyFile "/bin/false" replacementPath
+            renameFile replacementPath pinnedPath
+            observed <-
+              Report.revalidateProductScenarioPinnedExecutable precondition
+            case observed of
+              Left (Report.ProductScenarioExecutableDigestMismatch _ expected observedSha) -> do
+                expected @?= expectedSha256
+                assertBool
+                  "replacement of the pinned executable retained the authorized digest"
+                  (observedSha /= expected)
+              other ->
+                assertFailure
+                  ("pinned executable replacement was not rejected: " <> show other)
+    , testCase "fresh invocation rejects a checkpoint copied from a prior invocation" $
+        withSystemTempDirectory "jitml-report-stale-copy" $ \parent ->
+          withSupervisedProductFixture $ \row problem projection -> do
+            let staleRoot = parent </> "stale-checkpoints"
+                currentRoot = parent </> "current-checkpoints"
+                experimentHash =
+                  ProductMatrix.productProjectionExperimentHash projection
+            createDirectoryIfMissing True staleRoot
+            createDirectoryIfMissing True currentRoot
+            executableSha256 <- productScenarioFixtureExecutableSha256
+            stalePrecondition <-
+              Report.observeProductScenarioPrecondition
+                "phase-261-prior-run"
+                productScenarioFixtureExecutablePath
+                executableSha256
+                staleRoot
+                projection
+                >>= expectRight
+            _staleAdmission <-
+              persistAndAdmitProductCompletion
+                staleRoot
+                row
+                problem
+                projection
+                (Report.productScenarioPreconditionInvocation stalePrecondition)
+            currentPrecondition <-
+              Report.observeProductScenarioPrecondition
+                "phase-261-current-run"
+                productScenarioFixtureExecutablePath
+                executableSha256
+                currentRoot
+                projection
+                >>= expectRight
+            -- The fake command does nothing except copy a previously green
+            -- checkpoint into the fresh root after the negative precondition.
+            copyDirectoryContents staleRoot currentRoot
+            copiedManifestSha <-
+              CheckpointStore.readCheckpointPointer
+                currentRoot
+                (Checkpoint.latestPointerKey experimentHash)
+                >>= expectRight
+                >>= maybe
+                  (assertFailure "fake copier did not publish a latest pointer")
+                  pure
+            addressed <-
+              Report.admitAddressedProductScenarioCompletion
+                currentRoot
+                projection
+                copiedManifestSha
+                >>= expectRight
+            case Report.executedProductScenarioCompletion
+              currentPrecondition
+              projection
+              addressed of
+              Left errors ->
+                assertBool
+                  "copied prior checkpoint did not fail the typed invocation comparison"
+                  (any isCompletionInvocationMismatch errors)
+              Right _ ->
+                assertFailure
+                  "copied prior checkpoint minted current-invocation completion evidence"
+    , testCase "completion missing invocation cannot satisfy an exact invocation" $
+        withSystemTempDirectory "jitml-report-unbound-completion" $ \root ->
+          withSupervisedProductFixture $ \row problem projection -> do
+            -- Literal V1 wire decoding to this missing-invocation state is
+            -- covered by ProtocolCodec and SupervisedCheckpointV2 fixtures.
+            executableSha256 <- productScenarioFixtureExecutableSha256
+            precondition <-
+              Report.observeProductScenarioPrecondition
+                productScenarioFixtureRunId
+                productScenarioFixtureExecutablePath
+                executableSha256
+                root
+                projection
+                >>= expectRight
+            admitted <-
+              persistAndAdmitUnboundProductCompletion root row problem projection
+            let manifestSha =
+                  CheckpointStore.admittedCheckpointManifestSha
+                    (CheckpointStore.admittedCompletedCheckpoint admitted)
+            addressed <-
+              Report.admitAddressedProductScenarioCompletion
+                root
+                projection
+                manifestSha
+                >>= expectRight
+            case Report.executedProductScenarioCompletion
+              precondition
+              projection
+              addressed of
+              Left errors ->
+                assertBool
+                  "completion missing invocation did not fail exact invocation admission"
+                  (any isCompletionInvocationMismatch errors)
+              Right _ ->
+                assertFailure
+                  "completion missing invocation minted exact current-invocation evidence"
     , testCase "typed completion rejects another experiment or substrate plan" $
-        withAdmittedProductProjection $ \row projection admitted -> do
+        withAdmittedProductProjection $ \_root row projection _precondition _addressed admitted -> do
           _ <- expectRight (Report.productScenarioCompletion projection admitted)
           withProjectedRow LinuxCUDA row $ \cudaProjection -> do
             assertProductCompletionError
@@ -819,7 +1151,7 @@ productScenarioReportTests =
             assertProductCompletionError isCompletionExperimentMismatch rejected
             assertProductCompletionError isCompletionCanonicalRowMismatch rejected
     , testCase "AlphaZero update-count multiplication fails closed on Word64 overflow" $
-        withAdmittedProductProjection $ \_admittedRow _admittedProjection admitted ->
+        withAdmittedProductProjection $ \_root _admittedRow _admittedProjection _precondition _addressed admitted ->
           case [ row
                | row <- ProductMatrix.allProductRows
                , case ProductMatrix.rowClass row of
@@ -861,25 +1193,28 @@ productScenarioReportTests =
                 other ->
                   assertFailure
                     ("unexpected AlphaZero ProductCapability: " <> show other)
-    , testCase "declaration or non-completed run cannot mint scenario evidence" $
-        withFirstProductProjection $ \_row projection ->
-          incompleteProductScenarioEvidence projection
-            @?= Left
-              ( Report.ProductScenarioDidNotComplete
-                  (ProductMatrix.productProjectionRowId projection)
-              )
     , testCase "scenario evidence independently rejects the live plan and projection" $ do
-        withAdmittedProductProjection $ \_row projection admitted -> do
-          let completion =
+        withAdmittedProductProjection $ \root _row projection precondition addressed admitted -> do
+          let manifestSha =
+                CheckpointStore.admittedCheckpointManifestSha
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
+              completion =
                 expectEitherRight
-                  ( Report.productScenarioCompletion
+                  ( Report.executedProductScenarioCompletion
+                      precondition
                       projection
-                      admitted
+                      addressed
                   )
               expectedPlanId = ProductMatrix.productProjectionPlanId projection
               wrongPlanId = if expectedPlanId == planA then planB else planA
           liveResult <-
-            runProductScenarioWorkflowAtPlan wrongPlanId projection completion
+            runProductScenarioWorkflowAtPlan
+              wrongPlanId
+              root
+              manifestSha
+              projection
+              precondition
+              completion
           Report.completedProductScenarioEvidence projection liveResult
             @?= Left
               ( Report.ProductScenarioPlanMismatch
@@ -890,14 +1225,18 @@ productScenarioReportTests =
           withDifferentSupervisedProductProjection projection $ \secondProjection -> do
             let secondProjectionCompletion =
                   expectEitherRight
-                    ( Report.productScenarioCompletion
+                    ( Report.executedProductScenarioCompletion
+                        precondition
                         projection
-                        admitted
+                        addressed
                     )
             secondProjectionLiveResult <-
               runProductScenarioWorkflowAtPlan
                 (ProductMatrix.productProjectionPlanId secondProjection)
+                root
+                manifestSha
                 projection
+                precondition
                 secondProjectionCompletion
             Report.completedProductScenarioEvidence
               secondProjection
@@ -922,15 +1261,28 @@ productScenarioReportTests =
               (\case ProductMatrix.UnprojectableProductRow _ -> True; _ -> False)
               (ProductMatrix.projectProductRows LinuxCPU [unsupported])
     , testCase "validated report rejects missing, duplicate, orphan, wrong-plan, and wrong-lane evidence" $
-        withAdmittedProductProjection $ \firstRow firstProjection admitted -> do
+        withAdmittedProductProjection $ \root firstRow firstProjection precondition addressed admitted -> do
           secondRow <-
             case filter ((/= ProductMatrix.rowId firstRow) . ProductMatrix.rowId) ProductMatrix.allProductRows of
               [] -> assertFailure "ProductRow registry needs at least two rows"
               row : _ -> pure row
-          let completion =
+          let manifestSha =
+                CheckpointStore.admittedCheckpointManifestSha
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
+              completion =
                 expectEitherRight
-                  (Report.productScenarioCompletion firstProjection admitted)
-          liveResult <- runProductScenarioWorkflow firstProjection completion
+                  ( Report.executedProductScenarioCompletion
+                      precondition
+                      firstProjection
+                      addressed
+                  )
+          liveResult <-
+            runProductScenarioWorkflow
+              root
+              manifestSha
+              firstProjection
+              precondition
+              completion
           evidence <-
             expectRight
               (Report.completedProductScenarioEvidence firstProjection liveResult)
@@ -959,14 +1311,24 @@ productScenarioReportTests =
             (\case Report.WrongLaneCompletedProductScenario {} -> True; _ -> False)
             (Report.projectCompletedProductScenarioReport cudaBatch [evidence])
     , testCase "validated report rejects evidence minted under a stale report contract" $
-        withAdmittedProductProjection $ \row projection admitted -> do
-          let completion =
+        withAdmittedProductProjection $ \root row projection precondition addressed admitted -> do
+          let manifestSha =
+                CheckpointStore.admittedCheckpointManifestSha
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
+              completion =
                 expectEitherRight
-                  ( Report.productScenarioCompletion
+                  ( Report.executedProductScenarioCompletion
+                      precondition
                       projection
-                      admitted
+                      addressed
                   )
-          liveResult <- runProductScenarioWorkflow projection completion
+          liveResult <-
+            runProductScenarioWorkflow
+              root
+              manifestSha
+              projection
+              precondition
+              completion
           evidence <-
             expectRight
               (Report.completedProductScenarioEvidence projection liveResult)
@@ -1029,50 +1391,149 @@ productScenarioReportTests =
 -- The report boundary deliberately accepts no caller-built completion.  Unit
 -- tests therefore persist and re-admit one exact ProductRow V2 graph instead
 -- of using a privileged constructor or a decoded-manifest shortcut.
+productScenarioFixtureRunId :: Text
+productScenarioFixtureRunId = "phase-261-run-contract"
+
+productScenarioFixtureExecutablePath :: FilePath
+productScenarioFixtureExecutablePath = "/bin/true"
+
+productScenarioFixtureExecutableSha256 :: IO Text
+productScenarioFixtureExecutableSha256 =
+  fileSha256 productScenarioFixtureExecutablePath
+
+fileSha256 :: FilePath -> IO Text
+fileSha256 path =
+  hexBytes . SHA256.hash <$> ByteString.readFile path
+ where
+  hexBytes = Text.pack . concatMap byteHex . ByteString.unpack
+  byteHex byte =
+    case showHex byte "" of
+      [low] -> ['0', low]
+      pair -> pair
+
+copyDirectoryContents :: FilePath -> FilePath -> IO ()
+copyDirectoryContents source target = do
+  createDirectoryIfMissing True target
+  entries <- listDirectory source
+  traverse_
+    ( \entry -> do
+        let sourcePath = source </> entry
+            targetPath = target </> entry
+        isDirectory <- doesDirectoryExist sourcePath
+        if isDirectory
+          then copyDirectoryContents sourcePath targetPath
+          else copyFile sourcePath targetPath
+    )
+    entries
+
 withAdmittedProductProjection
-  :: ( ProductMatrix.ProductRow 'ProductMatrix.Declared
+  :: ( FilePath
+       -> ProductMatrix.ProductRow 'ProductMatrix.Declared
        -> ProductMatrix.ProductProjection 'SupervisedTraining
+       -> Report.ProductScenarioPrecondition 'SupervisedTraining
+       -> Report.AddressedProductScenarioCompletion 'SupervisedTraining
        -> CheckpointStore.AdmittedCompletedCheckpoint
        -> IO result
      )
   -> IO result
 withAdmittedProductProjection action =
-  withSystemTempDirectory "jitml-report-admission" $ \root -> do
-    row <-
-      maybe
-        (assertFailure "missing authoritative mnist-shallow-mlp ProductRow")
-        pure
-        ( find
-            ((== "mnist-shallow-mlp") . ProductMatrix.rowId)
-            ProductMatrix.allProductRows
-        )
-    problem <-
-      maybe
-        (assertFailure "missing canonical mnist-shallow-mlp problem")
-        pure
-        (find ((== "mnist-shallow-mlp") . SL.problemName) SL.canonicalProblems)
-    projection <-
-      case ProductMatrix.projectProductRow LinuxCPU row of
-        Failure errors ->
-          assertFailure ("ProductRow projection failed: " <> show errors)
-        Success
-          ( ProductMatrix.SomeProductProjection
-              SupervisedTrainingWitness
-              exactProjection
-            ) -> pure exactProjection
-        Success _ ->
-          assertFailure "mnist-shallow-mlp projection is not supervised"
-    admitted <-
-      persistAndAdmitProductCompletion root row problem projection
-    action row projection admitted
+  withSystemTempDirectory "jitml-report-admission" $ \root ->
+    withSupervisedProductFixture $ \row problem projection -> do
+      precondition <-
+        productScenarioFixtureExecutableSha256 >>= \executableSha256 ->
+          Report.observeProductScenarioPrecondition
+            productScenarioFixtureRunId
+            productScenarioFixtureExecutablePath
+            executableSha256
+            root
+            projection
+            >>= expectRight
+      admitted <-
+        persistAndAdmitProductCompletion
+          root
+          row
+          problem
+          projection
+          (Report.productScenarioPreconditionInvocation precondition)
+      let manifestSha =
+            CheckpointStore.admittedCheckpointManifestSha
+              (CheckpointStore.admittedCompletedCheckpoint admitted)
+      addressed <-
+        Report.admitAddressedProductScenarioCompletion root projection manifestSha
+          >>= expectRight
+      action root row projection precondition addressed admitted
+
+withSupervisedProductFixture
+  :: ( ProductMatrix.ProductRow 'ProductMatrix.Declared
+       -> SL.CanonicalProblem
+       -> ProductMatrix.ProductProjection 'SupervisedTraining
+       -> IO result
+     )
+  -> IO result
+withSupervisedProductFixture action = do
+  row <-
+    maybe
+      (assertFailure "missing authoritative mnist-shallow-mlp ProductRow")
+      pure
+      ( find
+          ((== "mnist-shallow-mlp") . ProductMatrix.rowId)
+          ProductMatrix.allProductRows
+      )
+  problem <-
+    maybe
+      (assertFailure "missing canonical mnist-shallow-mlp problem")
+      pure
+      (find ((== "mnist-shallow-mlp") . SL.problemName) SL.canonicalProblems)
+  projection <-
+    case ProductMatrix.projectProductRow LinuxCPU row of
+      Failure errors ->
+        assertFailure ("ProductRow projection failed: " <> show errors)
+      Success
+        ( ProductMatrix.SomeProductProjection
+            SupervisedTrainingWitness
+            exactProjection
+          ) -> pure exactProjection
+      Success _ ->
+        assertFailure "mnist-shallow-mlp projection is not supervised"
+  action row problem projection
 
 persistAndAdmitProductCompletion
   :: FilePath
   -> ProductMatrix.ProductRow 'ProductMatrix.Declared
   -> SL.CanonicalProblem
   -> ProductMatrix.ProductProjection 'SupervisedTraining
+  -> TrainingBudget.ProductScenarioInvocation
   -> IO CheckpointStore.AdmittedCompletedCheckpoint
-persistAndAdmitProductCompletion root row problem projection = do
+persistAndAdmitProductCompletion root row problem projection invocation =
+  persistAndAdmitProductCompletionWithInvocation
+    root
+    row
+    problem
+    projection
+    (Just invocation)
+
+persistAndAdmitUnboundProductCompletion
+  :: FilePath
+  -> ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> SL.CanonicalProblem
+  -> ProductMatrix.ProductProjection 'SupervisedTraining
+  -> IO CheckpointStore.AdmittedCompletedCheckpoint
+persistAndAdmitUnboundProductCompletion root row problem projection =
+  persistAndAdmitProductCompletionWithInvocation
+    root
+    row
+    problem
+    projection
+    Nothing
+
+persistAndAdmitProductCompletionWithInvocation
+  :: FilePath
+  -> ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> SL.CanonicalProblem
+  -> ProductMatrix.ProductProjection 'SupervisedTraining
+  -> Maybe TrainingBudget.ProductScenarioInvocation
+  -> IO CheckpointStore.AdmittedCompletedCheckpoint
+persistAndAdmitProductCompletionWithInvocation root row problem projection invocation = do
   datasetSha <- expectRight (Dataset.canonicalDatasetReadShaForProblem problem)
   let plan =
         case ProductMatrix.productProjectionResolvedPlan projection of
@@ -1128,7 +1589,7 @@ persistAndAdmitProductCompletion root row problem projection = do
       )
   metadata <-
     expectRight (Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload)
-  completed <-
+  unboundCompleted <-
     expectRight
       ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
           planId
@@ -1142,6 +1603,14 @@ persistAndAdmitProductCompletion root row problem projection = do
           initialSha
           finalSha
       )
+  completed <- case invocation of
+    Nothing -> pure unboundCompleted
+    Just invoked ->
+      expectRight
+        ( TrainingBudget.bindCompletedTrainingToProductScenarioInvocation
+            invoked
+            unboundCompleted
+        )
   let tensor =
         Checkpoint.TensorBlob
           "supervised.weights"
@@ -1262,24 +1731,6 @@ expectEitherRight result =
     Left err -> error ("expected Right, got Left " <> show err)
     Right value -> value
 
-incompleteProductScenarioEvidence
-  :: forall kind
-   . ProductMatrix.ProductProjection kind
-  -> Either Report.ProductScenarioEvidenceError Report.CompletedProductScenarioEvidence
-incompleteProductScenarioEvidence projection =
-  Report.completedProductScenarioEvidence
-    projection
-    ( Left ()
-        :: Either
-             ()
-             ( LiveWorkflow.CompletedRunEvidence
-                 Text
-                 (Report.ProductScenarioCompletion kind)
-                 Text
-                 Text
-             )
-    )
-
 assertProductCompletionError
   :: (Report.ProductScenarioCompletionError -> Bool)
   -> Either
@@ -1327,145 +1778,183 @@ isCompletionManifestPlanMismatch :: Report.ProductScenarioCompletionError -> Boo
 isCompletionManifestPlanMismatch Report.ProductCompletionManifestPlanMismatch {} = True
 isCompletionManifestPlanMismatch _ = False
 
+isCompletionInvocationMismatch :: Report.ProductScenarioCompletionError -> Bool
+isCompletionInvocationMismatch Report.ProductCompletionInvocationMismatch {} = True
+isCompletionInvocationMismatch _ = False
+
 isCompletionUpdateCountOverflow :: Report.ProductScenarioCompletionError -> Bool
 isCompletionUpdateCountOverflow Report.ProductCompletionUpdateCountOverflow {} = True
 isCompletionUpdateCountOverflow _ = False
 
 runProductScenarioWorkflow
-  :: ProductMatrix.ProductProjection kind
-  -> Report.ProductScenarioCompletion kind
+  :: FilePath
+  -> Text
+  -> ProductMatrix.ProductProjection kind
+  -> Report.ProductScenarioPrecondition kind
+  -> Report.ExecutedProductScenarioCompletion kind
   -> IO
-       ( Either
-           ( LiveWorkflow.LiveRunFailure
-               Text
-               (Report.ProductScenarioCompletion kind)
-               Text
-               Text
-           )
-           ( LiveWorkflow.CompletedRunEvidence
-               Text
-               (Report.ProductScenarioCompletion kind)
-               Text
-               Text
-           )
+       ( ProductScenarioInterpreter.ProductScenarioInterpreterRun
+           Text
+           (Report.ExecutedProductScenarioCompletion kind)
+           Text
+           Text
        )
-runProductScenarioWorkflow projection =
+runProductScenarioWorkflow checkpointRoot manifestSha projection =
   runProductScenarioWorkflowAtPlan
     (ProductMatrix.productProjectionPlanId projection)
+    checkpointRoot
+    manifestSha
     projection
 
 runProductScenarioWorkflowAtPlan
   :: PlanId
+  -> FilePath
+  -> Text
   -> ProductMatrix.ProductProjection kind
-  -> Report.ProductScenarioCompletion kind
+  -> Report.ProductScenarioPrecondition kind
+  -> Report.ExecutedProductScenarioCompletion kind
   -> IO
-       ( Either
-           ( LiveWorkflow.LiveRunFailure
-               Text
-               (Report.ProductScenarioCompletion kind)
-               Text
-               Text
-           )
-           ( LiveWorkflow.CompletedRunEvidence
-               Text
-               (Report.ProductScenarioCompletion kind)
-               Text
-               Text
-           )
+       ( ProductScenarioInterpreter.ProductScenarioInterpreterRun
+           Text
+           (Report.ExecutedProductScenarioCompletion kind)
+           Text
+           Text
        )
-runProductScenarioWorkflowAtPlan livePlanId projection scenarioCompletion = do
-  commandTopic <- expectRight (topicFor TrainingCommandRoute LinuxCPU)
-  eventTopic <- expectRight (topicFor TrainingEventRoute LinuxCPU)
-  subscription <-
-    expectRight
-      (mkSubscription eventTopic "product-scenario-unit" FromLatest Borrowed)
-  handle <-
-    expectRight
-      ( LiveWorkflow.mkJobHandle
-          livePlanId
-          "jitml-product-scenario-unit"
-      )
-  consumerBlock <- newEmptyMVar :: IO (MVar ())
-  let command =
-        Training.TrainingStop
-          Training.StopTraining
-            { Training.stopExperimentHash =
-                ProductMatrix.productProjectionExperimentHash projection
-            , Training.stopDrain = True
+runProductScenarioWorkflowAtPlan
+  livePlanId
+  _checkpointRoot
+  manifestSha
+  projection
+  precondition
+  scenarioCompletion = do
+    source <-
+      expectRight
+        ( LiveWorkflow.localEventSource
+            sourceName
+            sourceAddress
+            ( \observed ->
+                if observed == scenarioCompletion
+                  then evidencePayload
+                  else "product-scenario-unit-evidence-drift"
+            )
+        )
+    handle <-
+      expectRight
+        ( LiveWorkflow.mkHostRunHandle
+            livePlanId
+            ("product-row-" <> rowId)
+        )
+    let command =
+          subprocess
+            "jitml"
+            (ProductMatrix.productProjectionCommand projection)
+        workdir =
+          takeDirectory
+            ( takeDirectory
+                (Report.productScenarioPreconditionCheckpointRoot precondition)
+            )
+        executedCommand =
+          command
+            { subprocessPath =
+                Report.productScenarioPreconditionPinnedExecutablePath precondition
+            , subprocessWorkingDirectory = Just workdir
             }
-      event =
-        Training.TrainingEpoch
-          Training.EpochCompleted
-            { Training.ecExperimentHash =
-                ProductMatrix.productProjectionExperimentHash projection
-            , Training.ecEpoch = 1
-            , Training.ecLoss = 0.25
-            , Training.ecValidationLoss = 0.2
-            , Training.ecTimestampNs = 1
+        transport =
+          LiveWorkflow.LocalExecutableTransport
+            { LiveWorkflow.liveObserveLocalPrecondition =
+                const
+                  ( pure
+                      (Right (Report.renderProductScenarioPrecondition precondition))
+                  )
+            , LiveWorkflow.liveExecuteLocalCommand =
+                const
+                  ( pure
+                      ( Right
+                          ( Report.renderProductScenarioExecutionAcknowledgement
+                              precondition
+                              (renderSubprocess executedCommand)
+                          )
+                      )
+                  )
+            , LiveWorkflow.liveResolveLocalEvidence =
+                const (pure (Right scenarioCompletion))
             }
-      delivery =
-        PulsarInternal.Delivery
-          { PulsarInternal.deliveryEventInternal = event
-          , PulsarInternal.deliveryReceiptInternal =
-              PulsarInternal.DeliveryReceipt
-                { PulsarInternal.receiptSessionInternal = "product-scenario-session"
-                , PulsarInternal.receiptGenerationInternal = 1
-                , PulsarInternal.receiptDeliveryIdInternal = "product-scenario-delivery"
-                }
-          , PulsarInternal.deliveryRedeliveryCountInternal = 0
-          }
-      transport =
-        LiveWorkflow.LiveTransport
-          { LiveWorkflow.livePublishCommand = const (pure (Right "product-scenario-ack"))
-          , LiveWorkflow.liveConsumeEvents = \_ observe handleDelivery -> do
-              observe (ConsumerSessionConnected 1)
-              decision <- handleDelivery delivery
-              case decision of
-                PulsarInternal.DoneInternal _ result -> pure (Right result)
-                PulsarInternal.ContinueInternal _ -> do
-                  interrupted <-
-                    try (readMVar consumerBlock)
-                      :: IO (Either AsyncCancelled ())
-                  case interrupted of
-                    Left cancelled -> throwIO cancelled
-                    Right () ->
-                      pure
-                        ( Left
-                            ( PulsarInternal.ConsumerProtocolFailure
-                                "product scenario consumer block released unexpectedly"
-                            )
-                        )
-          }
-      workflow =
-        LiveWorkflow.LiveWorkflow
-          { LiveWorkflow.liveWorkflowPlanId =
-              livePlanId
-          , LiveWorkflow.liveWorkflowCommand =
-              LiveWorkflow.ProtocolCommand commandTopic command
-          , LiveWorkflow.liveWorkflowEventSubscription = subscription
-          , LiveWorkflow.liveWorkflowInitialProgress = False
-          , LiveWorkflow.liveWorkflowIngest = \_progress _event -> Right True
-          , LiveWorkflow.liveWorkflowFinish = \complete ->
-              if complete
-                then Success scenarioCompletion
-                else Failure "product scenario evidence missing"
-          , LiveWorkflow.liveWorkflowRenderViolation = id
-          }
-      backend =
-        LiveWorkflow.LiveBackend
-          { LiveWorkflow.liveAcquirePlacement =
-              pure (Right (LiveWorkflow.ClusterJob handle))
-          , LiveWorkflow.liveCompletionMode =
-              LiveWorkflow.ObserveIndependentWorkload
-          , LiveWorkflow.liveObserveWorkload =
-              const (pure (LiveWorkflow.Succeeded "product-scenario-complete"))
-          , LiveWorkflow.liveGatherDiagnostics = const (pure (Right []))
-          , LiveWorkflow.liveReleasePlacement = const (pure [])
-          , LiveWorkflow.liveObservationAttempts = 1
-          , LiveWorkflow.liveObservationDelayMicros = 0
-          , LiveWorkflow.liveWorkflowTimeoutMicros = 1_000_000
-          }
-  LiveWorkflow.runLiveWorkflow workflow transport backend
+        workflow =
+          LiveWorkflow.LiveWorkflow
+            { LiveWorkflow.liveWorkflowPlanId =
+                livePlanId
+            , LiveWorkflow.liveWorkflowCommand =
+                LiveWorkflow.ExecutableCommand command
+            , LiveWorkflow.liveWorkflowEventSource = source
+            , LiveWorkflow.liveWorkflowInitialProgress = Nothing
+            , LiveWorkflow.liveWorkflowIngest = \_progress event ->
+                if event == scenarioCompletion
+                  then Right (Just event)
+                  else Left "product scenario evidence changed in transit"
+            , LiveWorkflow.liveWorkflowFinish = \case
+                Just completed -> Success completed
+                Nothing -> Failure "product scenario evidence missing"
+            , LiveWorkflow.liveWorkflowRenderViolation = id
+            }
+        backend =
+          LiveWorkflow.LiveBackend
+            { LiveWorkflow.liveAcquirePlacement =
+                pure (Right (LiveWorkflow.HostRun handle))
+            , LiveWorkflow.liveCompletionMode =
+                LiveWorkflow.ObserveIndependentWorkload
+            , LiveWorkflow.liveObserveWorkload =
+                const
+                  ( pure
+                      ( LiveWorkflow.ProbeFailed
+                          (LiveWorkflow.ProbeFailure "local executable must not poll workload state")
+                      )
+                  )
+            , LiveWorkflow.liveGatherDiagnostics =
+                const
+                  ( pure
+                      ( Right
+                          [ LiveWorkflow.LiveDiagnostic
+                              ( "product scenario working directory: "
+                                  <> Text.pack workdir
+                              )
+                          ]
+                      )
+                  )
+            , LiveWorkflow.liveReleasePlacement = const (pure [])
+            , LiveWorkflow.liveObservationAttempts = 1
+            , LiveWorkflow.liveObservationDelayMicros = 0
+            , LiveWorkflow.liveWorkflowTimeoutMicros = 1_000_000
+            }
+    completed <-
+      LiveWorkflow.runLiveWorkflow workflow transport backend >>= expectRight
+    pure (ProductScenarioInterpreter.productScenarioInterpreterRun completed)
+   where
+    rowId = ProductMatrix.productProjectionRowId projection
+    invocation = Report.productScenarioPreconditionInvocation precondition
+    runId = TrainingBudget.productScenarioInvocationRunId invocation
+    invocationDigest = TrainingBudget.productScenarioInvocationDigest invocation
+    sourceName = "product-row-" <> rowId <> "-completion"
+    sourceAddress =
+      Text.intercalate
+        ":"
+        [ "local-product-row"
+        , runId
+        , rowId
+        , planIdText (ProductMatrix.productProjectionPlanId projection)
+        , renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+        , invocationDigest
+        ]
+    evidencePayload =
+      Text.intercalate
+        ":"
+        [ "product-row-completed"
+        , runId
+        , rowId
+        , planIdText (ProductMatrix.productProjectionPlanId projection)
+        , renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+        , invocationDigest
+        , manifestSha
+        ]
 
 type ExactlyTextContract =
   Contract
@@ -1624,7 +2113,8 @@ runFakeLiveWorkflowWithLifecycle observeLifecycle acquiredPlanId terminalObserva
           { LiveWorkflow.liveWorkflowPlanId = planA
           , LiveWorkflow.liveWorkflowCommand =
               LiveWorkflow.ProtocolCommand commandTopic command
-          , LiveWorkflow.liveWorkflowEventSubscription = subscription
+          , LiveWorkflow.liveWorkflowEventSource =
+              LiveWorkflow.pulsarEventSource subscription
           , LiveWorkflow.liveWorkflowInitialProgress = initialProgress contract
           , LiveWorkflow.liveWorkflowIngest = \progress _ ->
               ingestEvent
@@ -1708,7 +2198,8 @@ runFakeRequestWorkflow = do
           { LiveWorkflow.liveWorkflowPlanId = planA
           , LiveWorkflow.liveWorkflowCommand =
               LiveWorkflow.ProtocolCommand commandTopic command
-          , LiveWorkflow.liveWorkflowEventSubscription = subscription
+          , LiveWorkflow.liveWorkflowEventSource =
+              LiveWorkflow.pulsarEventSource subscription
           , LiveWorkflow.liveWorkflowInitialProgress = initialProgress contract
           , LiveWorkflow.liveWorkflowIngest = \progress _ ->
               ingestEvent
@@ -1794,7 +2285,8 @@ assertLateEvidenceRejected completeEvent lateEvent initial ingest finish isExpec
           { LiveWorkflow.liveWorkflowPlanId = planA
           , LiveWorkflow.liveWorkflowCommand =
               LiveWorkflow.ProtocolCommand commandTopic command
-          , LiveWorkflow.liveWorkflowEventSubscription = subscription
+          , LiveWorkflow.liveWorkflowEventSource =
+              LiveWorkflow.pulsarEventSource subscription
           , LiveWorkflow.liveWorkflowInitialProgress = initial
           , LiveWorkflow.liveWorkflowIngest = ingest
           , LiveWorkflow.liveWorkflowFinish = finish
@@ -1891,6 +2383,53 @@ supervisedCompletedCheckpointEvent completionPlanId epoch experimentHash =
               }
         Training.completeCheckpointDone
           (trainingCheckpointEvent epoch experimentHash)
+          completed
+    )
+
+rlCompletedCheckpointEvent
+  :: PlanId
+  -> Word64
+  -> Text
+  -> Rl.RlEvent
+rlCompletedCheckpointEvent completionPlanId step experimentHash =
+  Rl.RlCompletedCheckpoint
+    ( expectTextRight "completed RL checkpoint" $ do
+        budget <-
+          TrainingBudget.mkTrainingBudget
+            TrainingBudget.RlEnvironmentStepBudget
+            step
+            (Just 7)
+        evidence <-
+          ProductEvidence.mkTrainingEvidence
+            "rl-live-initial-weights"
+            "rl-live-final-weights"
+            1
+            "rl-live-dataset-at-read"
+        measurement <-
+          TrainingBudget.measureCriterion
+            "median_final_reward"
+            TrainingBudget.MetricMaximise
+            0.0
+            2.0
+        completed <-
+          TrainingBudget.completedTraining
+            completionPlanId
+            budget
+            step
+            evidence
+            [measurement]
+            TrainingBudget.TensorBoardRunMetadata
+              { TrainingBudget.tbrRunId = "rl-live-run"
+              , TrainingBudget.tbrLogPrefix = "tensorboard/rl-live-run"
+              , TrainingBudget.tbrScalarTags = ["median_final_reward"]
+              }
+        Rl.completeCheckpointDoneRL
+          Rl.CheckpointDoneRL
+            { Rl.cdrlExperimentHash = experimentHash
+            , Rl.cdrlManifestSha = "rl-live-manifest"
+            , Rl.cdrlStep = step
+            , Rl.cdrlPointerKey = "checkpoints/rl-live/latest"
+            }
           completed
     )
 

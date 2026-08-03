@@ -58,7 +58,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `261.1` closes the contract-driven `linux-cpu` row matrix.
+- Blocked until Sprint `263.1` closes the contract-driven fragment-issuance path.
 - Execute the real CUDA lifecycle and regenerate the lane journal/attestation.
 - Reconfirm the existing strict per-row GPU-performance criterion before
   returning this phase to Done.

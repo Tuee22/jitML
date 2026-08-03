@@ -7,12 +7,14 @@ module CheckpointV1Admission
   )
 where
 
+import Control.Monad (void)
 import Control.Monad.Reader (runReaderT)
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -90,9 +92,21 @@ checkpointV1AdmissionTests =
               storedSnapshot = CheckpointStore.completedStoredCheckpoint stored
           CheckpointStore.admittedCheckpointManifestSha checkpoint
             @?= CheckpointStore.storedManifestSha storedSnapshot
-          Checkpoint.manifestTranscriptPointers
-            (CheckpointStore.admittedCheckpointManifest checkpoint)
-            @?= [transcriptPointer]
+          case Checkpoint.manifestTranscriptPointers
+            (CheckpointStore.admittedCheckpointManifest checkpoint) of
+            [storedTranscript] -> do
+              Checkpoint.artifactPointerKind storedTranscript
+                @?= Checkpoint.artifactPointerKind transcriptPointer
+              Checkpoint.artifactPointerSha storedTranscript
+                @?= Checkpoint.artifactPointerSha transcriptPointer
+              assertBool
+                "admitted transcript is isolated in the checkpoint snapshot"
+                ( "/snapshots/"
+                    `Text.isInfixOf` Checkpoint.artifactPointerObjectKey storedTranscript
+                )
+            pointers ->
+              assertFailure
+                ("expected one admitted transcript pointer, got " <> show (length pointers))
           CheckpointStore.admittedCompletedTraining admitted
             @?= v1Completed fixture
           exactProjection <- expectRight (rlProjectionForRowId "DQN/cartpole")
@@ -267,7 +281,7 @@ checkpointV1AdmissionTests =
           assertCompanionAdmissionFailureContaining
             "expected exactly one rl-trajectory transcript pointer"
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
-    , testCase "duplicate Product V1 companion pointers fail physical admission" $
+    , testCase "duplicate Product V1 companion pointers fail before persistence" $
         withSystemTempDirectory "jitml-product-v1-duplicate-companion" $ \root -> do
           fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
           let (pointer, artifactPayload) =
@@ -276,16 +290,21 @@ checkpointV1AdmissionTests =
                 (v1Manifest fixture)
                   { Checkpoint.manifestTranscriptPointers = [pointer, pointer]
                   }
-          manifestSha <-
-            stageAddressedV1Graph root fixture manifest [artifactPayload]
           outcome <-
-            CheckpointStore.admitLocalCheckpointAt
+            CheckpointStore.writeCompletedCheckpointSnapshot
               root
-              (v1Experiment fixture)
-              manifestSha
-          assertAdmissionBlobFailureContaining
-            "duplicate physical object key declarations"
-            outcome
+              (v1Completed fixture)
+              manifest
+              [(v1BlobKey fixture, v1FinalBytes fixture), artifactPayload]
+              Nothing
+          case outcome of
+            Left (CheckpointStore.CheckpointWriteInvalid reason) ->
+              assertBool
+                ("unexpected duplicate-pointer diagnostic: " <> Text.unpack reason)
+                ("duplicate physical object key declarations" `Text.isInfixOf` reason)
+            other ->
+              assertFailure
+                ("duplicate companion pointers unexpectedly persisted: " <> show other)
     , testCase "Product V1 rejects replay-pointer residue in addition to its exact companion" $
         withSystemTempDirectory "jitml-product-v1-replay-pointer" $ \root -> do
           fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
@@ -313,7 +332,7 @@ checkpointV1AdmissionTests =
           assertCompanionAdmissionFailureContaining
             "expected no replay pointers"
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
-    , testCase "Product V1 companion key must be its canonical family content address" $
+    , testCase "Product V1 rejects a snapshot-scoped companion derived from a substituted original key" $
         withSystemTempDirectory "jitml-product-v1-substituted-companion-key" $ \root -> do
           fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
           let payload = "substituted trajectory address"
@@ -346,7 +365,7 @@ checkpointV1AdmissionTests =
                 (v1Experiment fixture)
                 manifestSha
           assertCompanionAdmissionFailureContaining
-            "is not its canonical content address"
+            "is not the exact snapshot-scoped canonical content address"
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "historical supervised ProductRow V1 is exact-inspectable but completion-rejected" $
         withSystemTempDirectory "jitml-supervised-v1-inspection" $ \root -> do
@@ -368,7 +387,43 @@ checkpointV1AdmissionTests =
                 ("expected supervised V1 completion rejection, got " <> show other)
             Right _ ->
               assertFailure "supervised V1 unexpectedly refined to completed evidence"
-    , testCase "tampered transcript bytes invalidate Product V1 re-admission" $
+    , testCase "legacy unscoped V1 remains readable for inspection but is not admission evidence" $
+        withSystemTempDirectory "jitml-v1-legacy-unscoped-inspection" $ \root -> do
+          fixture <-
+            expectRight
+              (makeV1Fixture "DQN/cartpole" (Just "legacy-unscoped-v1-experiment"))
+          let manifest = v1Manifest fixture
+              manifestSha = Checkpoint.manifestContentSha manifest
+              manifestKey =
+                Checkpoint.manifestKey (v1Experiment fixture) manifestSha
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                (v1BlobKey fixture)
+                (v1FinalBytes fixture)
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                manifestKey
+                (Checkpoint.encodeManifestCbor manifest)
+          inspected <-
+            expectRight
+              =<< CheckpointStore.readCheckpointManifest
+                root
+                (v1Experiment fixture)
+                manifestSha
+          inspected @?= manifest
+          admission <-
+            CheckpointStore.admitLocalCheckpointAt
+              root
+              (v1Experiment fixture)
+              manifestSha
+          assertSnapshotCommitFailureContaining
+            "legacy unscoped manifests are readable but cannot be admitted"
+            admission
+    , testCase "tampered transcript bytes violate commit-bound Product V1 re-admission" $
         withSystemTempDirectory "jitml-product-v1-transcript-tamper" $ \cacheRoot -> do
           fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
           env <-
@@ -404,12 +459,30 @@ checkpointV1AdmissionTests =
                   [transcriptPointer]
               )
               env
+          let storedSnapshot = CheckpointStore.completedStoredCheckpoint stored
+              checkpointRoot = cacheRoot </> "checkpoints"
+          storedManifest <-
+            expectRight
+              =<< CheckpointStore.readCheckpointManifest
+                checkpointRoot
+                (v1Experiment fixture)
+                (CheckpointStore.storedManifestSha storedSnapshot)
+          storedArtifactKey <-
+            case Checkpoint.manifestTranscriptPointers storedManifest of
+              [storedPointer] ->
+                pure (Checkpoint.artifactPointerObjectKey storedPointer)
+              pointers ->
+                assertFailure
+                  ( "expected one snapshot-scoped transcript pointer, got "
+                      <> show (length pointers)
+                  )
+                  >> error "unreachable"
+          assertBool
+            "tamper target must be the committed snapshot copy"
+            ("/snapshots/" `Text.isInfixOf` storedArtifactKey)
           artifactPath <-
             expectRight
-              ( CheckpointStore.objectPathForKey
-                  (cacheRoot </> "checkpoints")
-                  artifactKey
-              )
+              (CheckpointStore.objectPathForKey checkpointRoot storedArtifactKey)
           LazyByteString.writeFile artifactPath "tampered transcript"
           outcome <-
             runReaderT
@@ -419,7 +492,7 @@ checkpointV1AdmissionTests =
               )
               env
           assertAdmissionBlobFailureContaining
-            "artifact rl-trajectory SHA-256 mismatch"
+            "writer-commit SHA-256 mismatch"
             outcome
     ]
 
@@ -559,33 +632,44 @@ stageAddressedV1Graph
   -> [(Text, LazyByteString.ByteString)]
   -> IO Text
 stageAddressedV1Graph root fixture manifest extraPayloads = do
-  let
-    manifestBytes = Checkpoint.encodeManifestCbor manifest
-    manifestSha = Checkpoint.manifestContentSha manifest
-    manifestKey = Checkpoint.manifestKey (v1Experiment fixture) manifestSha
-  _ <-
+  let experiment = v1Experiment fixture
+      pointerKey = Checkpoint.latestPointerKey experiment
+  prepared <-
     expectRight
-      =<< CheckpointStore.writeObjectIfAbsent
-        root
-        (v1BlobKey fixture)
-        (v1FinalBytes fixture)
-  _ <-
-    expectRight
-      =<< CheckpointStore.writeObjectIfAbsent
-        root
-        manifestKey
-        manifestBytes
+      ( CheckpointStore.prepareCheckpointSnapshot
+          CheckpointStore.WriterCompletedSnapshot
+          (CheckpointStore.WriterLatestPointerIntent pointerKey)
+          manifest
+          ((v1BlobKey fixture, v1FinalBytes fixture) : extraPayloads)
+      )
   mapM_
-    ( \(objectKey, payload) -> do
-        _ <-
-          expectRight
-            =<< CheckpointStore.writeObjectIfAbsent
-              root
-              objectKey
-              payload
-        pure ()
+    ( \(objectKey, payload) ->
+        void (expectRight =<< CheckpointStore.writeObjectIfAbsent root objectKey payload)
     )
-    extraPayloads
+    (CheckpointStore.preparedSnapshotPayloads prepared)
+  let manifestSha = CheckpointStore.preparedSnapshotManifestSha prepared
+      commit = CheckpointStore.preparedSnapshotCommit prepared
+  void
+    ( expectRight
+        =<< CheckpointStore.writeObjectIfAbsent
+          root
+          (Checkpoint.manifestKey experiment manifestSha)
+          (CheckpointStore.preparedSnapshotManifestBytes prepared)
+    )
+  void
+    ( expectRight
+        =<< CheckpointStore.writeObjectIfAbsent
+          root
+          (CheckpointStore.writerCommitObjectKey commit)
+          (LazyByteString.fromStrict (CheckpointStore.encodeWriterCommit commit))
+    )
+  void
+    ( expectRight
+        =<< CheckpointStore.writeObjectIfAbsent
+          root
+          pointerKey
+          (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 manifestSha))
+    )
   pure manifestSha
 
 v1Artifact
@@ -650,6 +734,26 @@ assertAdmissionBlobFailureContaining expected outcome =
         ("expected AdmissionBlobInvalid, got " <> show other)
     Right _ ->
       assertFailure "tampered transcript unexpectedly passed exact admission"
+
+assertSnapshotCommitFailureContaining
+  :: Text
+  -> Either CheckpointStore.CheckpointAdmissionError value
+  -> Assertion
+assertSnapshotCommitFailureContaining expected outcome =
+  case outcome of
+    Left (CheckpointStore.AdmissionSnapshotCommitInvalid reason) ->
+      assertBool
+        ( "expected snapshot-commit diagnostic containing "
+            <> Text.unpack expected
+            <> ", got "
+            <> Text.unpack reason
+        )
+        (expected `Text.isInfixOf` reason)
+    Left other ->
+      assertFailure
+        ("expected AdmissionSnapshotCommitInvalid, got " <> show other)
+    Right _ ->
+      assertFailure "legacy unscoped checkpoint unexpectedly passed admission"
 
 assertLeft :: Either err value -> Assertion
 assertLeft outcome =

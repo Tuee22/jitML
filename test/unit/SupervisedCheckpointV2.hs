@@ -65,7 +65,8 @@ import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.RuntimeArtifact qualified as Runtime
 import JitML.SL.TrainingExecution qualified as TrainingExecution
 import JitML.Service.Capabilities
-  ( HasMinIO (..)
+  ( BucketName (..)
+  , HasMinIO (..)
   , ObjectRef
   )
 import JitML.Service.Retry (ServiceError (..))
@@ -107,6 +108,36 @@ supervisedCheckpointV2Tests =
           @?= fixtureManifest fixture
         Just (Checkpoint.validatedCheckpointCompletedTraining completion)
           @?= Checkpoint.manifestCompletedTraining (fixtureManifest fixture)
+    , testCase "CompletedTraining V1 remains readable inside an exact supervised-graph checkpoint" $ do
+        fixture <- expectRight makeFixture
+        let body = fixtureBody fixture
+            rawManifest = Checkpoint.rawCheckpointV2Manifest body
+        currentCompletion <-
+          maybe
+            (assertFailure "fixture supervised manifest has no raw completion")
+            pure
+            (Checkpoint.rawManifestCompletedTraining rawManifest)
+        let legacyCompletion =
+              currentCompletion
+                { TrainingBudget.rawCompletedTrainingVersion = 1
+                , TrainingBudget.rawCompletedTrainingProductScenarioInvocation = Nothing
+                }
+            legacyBytes =
+              wrapBody
+                body
+                  { Checkpoint.rawCheckpointV2Manifest =
+                      rawManifest
+                        { Checkpoint.rawManifestCompletedTraining =
+                            Just legacyCompletion
+                        }
+                  }
+        addressed <-
+          expectRight (Checkpoint.decodeAddressedManifestCbor legacyBytes)
+        Checkpoint.addressedManifest addressed @?= fixtureManifest fixture
+        TrainingBudget.completedTrainingProductScenarioInvocation
+          <$> Checkpoint.manifestCompletedTraining
+            (Checkpoint.addressedManifest addressed)
+            @?= Just Nothing
     , checkpointStoreAdmissionTests
     , testCase "canonical training/evaluation dataset digest is admitted for Product and generic V2" $ do
         problem <-
@@ -1340,33 +1371,32 @@ checkpointStoreAdmissionTests =
         withSystemTempDirectory "jitml-v2-local-admission" $ \root -> do
           fixture <- expectRight makeFixture
           graph <- expectRight (fixtureAdmissionObjectGraph fixture)
-          _ <-
+          written <-
             expectRight
-              =<< CheckpointStore.writeObjectIfAbsent
+              =<< CheckpointStore.writeCompletedCheckpointSnapshot
                 root
-                (admissionManifestKey graph)
-                (LazyByteString.fromStrict (admissionManifestBytes graph))
-          _ <-
-            expectRight
-              =<< CheckpointStore.writeObjectIfAbsent
-                root
-                (admissionBlobKey graph)
-                (LazyByteString.fromStrict (admissionBlobBytes graph))
-          _ <-
-            expectRight
-              =<< CheckpointStore.writeObjectIfAbsent
-                root
-                (admissionPointerKey graph)
-                (LazyByteString.fromStrict (admissionPointerBody graph))
+                (admissionCompletedTraining graph)
+                (fixtureManifest fixture)
+                [
+                  ( admissionLogicalBlobKey graph
+                  , LazyByteString.fromStrict (admissionBlobBytes graph)
+                  )
+                ]
+                Nothing
+          let stored = CheckpointStore.completedStoredCheckpoint written
+          CheckpointStore.storedManifestSha stored @?= admissionManifestSha graph
           storedPointer <- CheckpointStore.readObject root (admissionPointerKey graph)
           storedManifest <- CheckpointStore.readObject root (admissionManifestKey graph)
           storedBlob <- CheckpointStore.readObject root (admissionBlobKey graph)
+          storedCommit <- CheckpointStore.readObject root (admissionCommitKey graph)
           storedPointer
             @?= Right (LazyByteString.fromStrict (admissionPointerBody graph))
           storedManifest
             @?= Right (LazyByteString.fromStrict (admissionManifestBytes graph))
           storedBlob
             @?= Right (LazyByteString.fromStrict (admissionBlobBytes graph))
+          storedCommit
+            @?= Right (LazyByteString.fromStrict (admissionCommitBytes graph))
           admittedCheckpoint <-
             expectRight
               =<< CheckpointStore.admitLocalLatestCheckpoint
@@ -1384,6 +1414,41 @@ checkpointStoreAdmissionTests =
             CheckpointStore.loadedWeightJmw1Bytes
             (CheckpointStore.admittedCheckpointWeights checkpoint)
             @?= [admissionBlobBytes graph]
+    , testCase "legacy unscoped V2 is readable for inspection but cannot satisfy admission" $
+        withSystemTempDirectory "jitml-v2-legacy-unscoped" $ \root -> do
+          fixture <- expectRight makeFixture
+          let manifest = fixtureManifest fixture
+              experiment = Checkpoint.manifestExperiment manifest
+              manifestSha = Checkpoint.manifestContentSha manifest
+              manifestKey = Checkpoint.manifestKey experiment manifestSha
+          tensor <-
+            case Checkpoint.manifestTensors manifest of
+              [value] -> pure value
+              tensors ->
+                assertFailure
+                  ("expected one legacy fixture tensor, got " <> show (length tensors))
+                  >> error "unreachable"
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                (Checkpoint.tensorBlobKey tensor)
+                (fixtureFinalBytes fixture)
+          _ <-
+            expectRight
+              =<< CheckpointStore.writeObjectIfAbsent
+                root
+                manifestKey
+                (fixtureBytes fixture)
+          inspected <-
+            expectRight
+              =<< CheckpointStore.readCheckpointManifest root experiment manifestSha
+          inspected @?= manifest
+          admission <-
+            CheckpointStore.admitLocalCheckpointAt root experiment manifestSha
+          assertSnapshotCommitFailureContaining
+            "legacy unscoped manifests are readable but cannot be admitted"
+            admission
     , testCase
         "supervised-graph checkpoint carrying a companion pointer is admission-rejected (Sprint 236.1)"
         $ withSystemTempDirectory "jitml-supervised-companion-reject"
@@ -1408,35 +1473,25 @@ checkpointStoreAdmissionTests =
                 (fixtureManifest fixture)
                   { Checkpoint.manifestTranscriptPointers = [companionPointer]
                   }
-              manifestBytes = Checkpoint.encodeManifestCbor manifest
-              manifestSha = Checkpoint.manifestContentSha manifest
           tensor <-
             case Checkpoint.manifestTensors manifest of
               [t] -> pure t
               other ->
                 assertFailure
                   ("expected one supervised tensor, got " <> show (length other))
-          _ <-
+          prepared <-
             expectRight
-              =<< CheckpointStore.writeObjectIfAbsent
-                root
-                (Checkpoint.tensorBlobKey tensor)
-                (fixtureFinalBytes fixture)
-          _ <-
-            expectRight
-              =<< CheckpointStore.writeObjectIfAbsent
-                root
-                (Checkpoint.manifestKey experiment manifestSha)
-                manifestBytes
-          _ <-
-            expectRight
-              =<< CheckpointStore.writeObjectIfAbsent root companionKey companionPayload
-          _ <-
-            expectRight
-              =<< CheckpointStore.writeObjectIfAbsent
-                root
-                (Checkpoint.latestPointerKey experiment)
-                (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 manifestSha))
+              ( CheckpointStore.prepareCheckpointSnapshot
+                  CheckpointStore.WriterCompletedSnapshot
+                  ( CheckpointStore.WriterLatestPointerIntent
+                      (Checkpoint.latestPointerKey experiment)
+                  )
+                  manifest
+                  [ (Checkpoint.tensorBlobKey tensor, fixtureFinalBytes fixture)
+                  , (companionKey, companionPayload)
+                  ]
+              )
+          stagePreparedCommittedSnapshotLocal root prepared
           admittedCheckpoint <-
             expectRight
               =<< CheckpointStore.admitLocalLatestCheckpoint root experiment
@@ -1451,16 +1506,20 @@ checkpointStoreAdmissionTests =
                     <> " admission path, got "
                     <> show other
                 )
-    , testCase "stable exact P1 -> manifest -> P2 -> blob admits completed checkpoint" $ do
+    , testCase "stable exact P1 -> manifest -> P2 -> commit -> blob admits completed checkpoint" $ do
         fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
-        (outcome, readLog) <-
+        (outcome, operationLog) <-
           runScriptedMinIO
+            (admissionCommitListings graph)
             (stableAdmissionReads graph (admissionBlobBytes graph))
             (CheckpointStore.admitLatestCompletedCheckpoint (admissionExperiment graph))
         admitted <- expectRight outcome
         addressed <-
-          expectRight (Checkpoint.decodeAddressedManifestCbor (fixtureBytes fixture))
+          expectRight
+            ( Checkpoint.decodeAddressedManifestCbor
+                (LazyByteString.fromStrict (admissionManifestBytes graph))
+            )
         let checkpoint = CheckpointStore.admittedCompletedCheckpoint admitted
         CheckpointStore.admittedCheckpointManifestSha checkpoint
           @?= admissionManifestSha graph
@@ -1472,12 +1531,7 @@ checkpointStoreAdmissionTests =
           CheckpointStore.loadedWeightJmw1Bytes
           (CheckpointStore.admittedCheckpointWeights checkpoint)
           @?= [admissionBlobBytes graph]
-        readLog
-          @?= [ admissionPointerRef graph
-              , admissionManifestRef graph
-              , admissionPointerRef graph
-              , admissionBlobRef graph
-              ]
+        operationLog @?= stableAdmissionOperationLog graph
     , testCase "exact P1/P2 body change is retryable and performs no blob read" $ do
         fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
@@ -1489,8 +1543,9 @@ checkpointStoreAdmissionTests =
               , (admissionManifestRef graph, [admissionManifestBytes graph])
               , (admissionBlobRef graph, [admissionBlobBytes graph])
               ]
-        (outcome, readLog) <-
+        (outcome, operationLog) <-
           runScriptedMinIO
+            (admissionCommitListings graph)
             readsScript
             (CheckpointStore.admitLatestCompletedCheckpoint (admissionExperiment graph))
         outcome
@@ -1499,20 +1554,22 @@ checkpointStoreAdmissionTests =
                 (exactSha p1)
                 (exactSha p2)
             )
-        readLog
-          @?= [ admissionPointerRef graph
-              , admissionManifestRef graph
-              , admissionPointerRef graph
+        operationLog
+          @?= [ ScriptedRead (admissionPointerRef graph)
+              , ScriptedRead (admissionManifestRef graph)
+              , ScriptedRead (admissionPointerRef graph)
               ]
     , testCase "known-address admission performs no pointer reads" $ do
         fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let readsScript =
               [ (admissionManifestRef graph, [admissionManifestBytes graph])
+              , (admissionCommitRef graph, [admissionCommitBytes graph])
               , (admissionBlobRef graph, [admissionBlobBytes graph])
               ]
-        (outcome, readLog) <-
+        (outcome, operationLog) <-
           runScriptedMinIO
+            (admissionCommitListings graph)
             readsScript
             ( CheckpointStore.admitCheckpointAt
                 (admissionExperiment graph)
@@ -1520,13 +1577,19 @@ checkpointStoreAdmissionTests =
             )
         admitted <- expectRight outcome
         _ <- expectRight (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
-        readLog @?= [admissionManifestRef graph, admissionBlobRef graph]
+        operationLog
+          @?= [ ScriptedRead (admissionManifestRef graph)
+              , admissionCommitListOperation graph
+              , ScriptedRead (admissionCommitRef graph)
+              , ScriptedRead (admissionBlobRef graph)
+              ]
     , testCase "non-canonical known address is rejected before any object read" $ do
         fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let malformedAddress = Text.replicate 64 "A"
-        (outcome, readLog) <-
+        (outcome, operationLog) <-
           runScriptedMinIO
+            []
             []
             ( CheckpointStore.admitCheckpointAt
                 (admissionExperiment graph)
@@ -1537,7 +1600,7 @@ checkpointStoreAdmissionTests =
             ( CheckpointStore.AdmissionManifestAddressMalformed
                 "address contains whitespace, uppercase, or non-hexadecimal bytes"
             )
-        readLog @?= []
+        operationLog @?= []
     , testCase "two concurrent local completed CAS writers have exactly one winner" $
         withSystemTempDirectory "jitml-v2-local-cas-race" $ \root -> do
           firstFixture <- expectRight makeFixture
@@ -1559,7 +1622,7 @@ checkpointStoreAdmissionTests =
                   (admissionCompletedTraining graph)
                   (fixtureManifest fixture)
                   [
-                    ( admissionBlobKey graph
+                    ( admissionLogicalBlobKey graph
                     , LazyByteString.fromStrict (admissionBlobBytes graph)
                     )
                   ]
@@ -1608,20 +1671,17 @@ checkpointStoreAdmissionTests =
           pointer <- CheckpointStore.readCheckpointPointer root pointerKey
           pointer
             @?= Right (Just (CheckpointStore.storedManifestSha winningStored))
-    , testCase "addressed malformed JMW1 fails blob admission before completion" $ do
-        fixture <- expectRight (makeFixtureWithFinalBytes (const "not-jmw1"))
+    , testCase "commit-bound malformed replacement fails exact blob identity before JMW1 decode" $ do
+        fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
-        (outcome, readLog) <-
+        let malformed = "not-jmw1"
+        (outcome, operationLog) <-
           runScriptedMinIO
-            (stableAdmissionReads graph (admissionBlobBytes graph))
+            (admissionCommitListings graph)
+            (stableAdmissionReads graph malformed)
             (CheckpointStore.admitLatestCompletedCheckpoint (admissionExperiment graph))
-        assertAdmissionBlobFailureContaining "unsupported .jmw1 magic" outcome
-        readLog
-          @?= [ admissionPointerRef graph
-              , admissionManifestRef graph
-              , admissionPointerRef graph
-              , admissionBlobRef graph
-              ]
+        assertAdmissionBlobFailureContaining "writer-commit SHA-256 mismatch" outcome
+        operationLog @?= stableAdmissionOperationLog graph
     , testCase "substituted valid JMW1 bytes fail blob identity before completion" $ do
         fixture <- expectRight makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
@@ -1630,17 +1690,13 @@ checkpointStoreAdmissionTests =
                 ( WeightCodec.encodeJmw1
                     (0.5 : replicate (fixtureParameterCount fixture - 1) 0.0)
                 )
-        (outcome, readLog) <-
+        (outcome, operationLog) <-
           runScriptedMinIO
+            (admissionCommitListings graph)
             (stableAdmissionReads graph substituted)
             (CheckpointStore.admitLatestCompletedCheckpoint (admissionExperiment graph))
-        assertAdmissionBlobFailureContaining "weight blob identity mismatch" outcome
-        readLog
-          @?= [ admissionPointerRef graph
-              , admissionManifestRef graph
-              , admissionPointerRef graph
-              , admissionBlobRef graph
-              ]
+        assertAdmissionBlobFailureContaining "writer-commit SHA-256 mismatch" outcome
+        operationLog @?= stableAdmissionOperationLog graph
     ]
 
 data AdmissionObjectGraph = AdmissionObjectGraph
@@ -1648,39 +1704,67 @@ data AdmissionObjectGraph = AdmissionObjectGraph
   , admissionManifestSha :: Text
   , admissionPointerKey :: Text
   , admissionManifestKey :: Text
+  , admissionLogicalBlobKey :: Text
   , admissionBlobKey :: Text
+  , admissionCommitKey :: Text
   , admissionPointerBody :: StrictByteString.ByteString
   , admissionManifestBytes :: StrictByteString.ByteString
   , admissionBlobBytes :: StrictByteString.ByteString
+  , admissionCommitBytes :: StrictByteString.ByteString
   , admissionPointerRef :: ObjectRef
   , admissionManifestRef :: ObjectRef
   , admissionBlobRef :: ObjectRef
+  , admissionCommitRef :: ObjectRef
   , admissionCompletedTraining :: TrainingBudget.CompletedTraining
   }
 
 fixtureAdmissionObjectGraph :: Fixture -> Either Text AdmissionObjectGraph
-fixtureAdmissionObjectGraph fixture =
+fixtureAdmissionObjectGraph fixture = do
   case ( Checkpoint.manifestTensors manifest
        , Checkpoint.manifestCompletedTraining manifest
        ) of
-    ([tensor], Just completed) ->
+    ([logicalTensor], Just completed) -> do
+      prepared <-
+        CheckpointStore.prepareCheckpointSnapshot
+          CheckpointStore.WriterCompletedSnapshot
+          ( CheckpointStore.WriterLatestPointerIntent
+              (Checkpoint.latestPointerKey experiment)
+          )
+          manifest
+          [(Checkpoint.tensorBlobKey logicalTensor, fixtureFinalBytes fixture)]
+      preparedTensor <-
+        case Checkpoint.manifestTensors (CheckpointStore.preparedSnapshotManifest prepared) of
+          [tensor] -> Right tensor
+          tensors ->
+            Left
+              ( "prepared Store admission fixture requires one tensor, got "
+                  <> Text.pack (show (length tensors))
+              )
+      let manifestSha = CheckpointStore.preparedSnapshotManifestSha prepared
+          manifestKey = Checkpoint.manifestKey experiment manifestSha
+          commit = CheckpointStore.preparedSnapshotCommit prepared
+          commitKey = CheckpointStore.writerCommitObjectKey commit
       Right
         AdmissionObjectGraph
           { admissionExperiment = experiment
           , admissionManifestSha = manifestSha
           , admissionPointerKey = Checkpoint.latestPointerKey experiment
-          , admissionManifestKey = Checkpoint.manifestKey experiment manifestSha
-          , admissionBlobKey = Checkpoint.tensorBlobKey tensor
+          , admissionManifestKey = manifestKey
+          , admissionLogicalBlobKey = Checkpoint.tensorBlobKey logicalTensor
+          , admissionBlobKey = Checkpoint.tensorBlobKey preparedTensor
+          , admissionCommitKey = commitKey
           , admissionPointerBody = Text.Encoding.encodeUtf8 manifestSha
-          , admissionManifestBytes = LazyByteString.toStrict (fixtureBytes fixture)
+          , admissionManifestBytes =
+              LazyByteString.toStrict
+                (CheckpointStore.preparedSnapshotManifestBytes prepared)
           , admissionBlobBytes = LazyByteString.toStrict (fixtureFinalBytes fixture)
+          , admissionCommitBytes = CheckpointStore.encodeWriterCommit commit
           , admissionPointerRef =
               CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experiment)
-          , admissionManifestRef =
-              CheckpointStore.checkpointObjectRef
-                (Checkpoint.manifestKey experiment manifestSha)
+          , admissionManifestRef = CheckpointStore.checkpointObjectRef manifestKey
           , admissionBlobRef =
-              CheckpointStore.checkpointObjectRef (Checkpoint.tensorBlobKey tensor)
+              CheckpointStore.checkpointObjectRef (Checkpoint.tensorBlobKey preparedTensor)
+          , admissionCommitRef = CheckpointStore.checkpointObjectRef commitKey
           , admissionCompletedTraining = completed
           }
     (tensors, completion) ->
@@ -1691,7 +1775,42 @@ fixtureAdmissionObjectGraph fixture =
  where
   manifest = fixtureManifest fixture
   experiment = Checkpoint.manifestExperiment manifest
-  manifestSha = Checkpoint.manifestContentSha manifest
+
+stagePreparedCommittedSnapshotLocal
+  :: FilePath
+  -> CheckpointStore.PreparedCheckpointSnapshot
+  -> IO ()
+stagePreparedCommittedSnapshotLocal root prepared = do
+  mapM_
+    ( \(objectKey, payload) ->
+        void (expectRight =<< CheckpointStore.writeObjectIfAbsent root objectKey payload)
+    )
+    (CheckpointStore.preparedSnapshotPayloads prepared)
+  let manifest = CheckpointStore.preparedSnapshotManifest prepared
+      experiment = Checkpoint.manifestExperiment manifest
+      manifestSha = CheckpointStore.preparedSnapshotManifestSha prepared
+      commit = CheckpointStore.preparedSnapshotCommit prepared
+  void
+    ( expectRight
+        =<< CheckpointStore.writeObjectIfAbsent
+          root
+          (Checkpoint.manifestKey experiment manifestSha)
+          (CheckpointStore.preparedSnapshotManifestBytes prepared)
+    )
+  void
+    ( expectRight
+        =<< CheckpointStore.writeObjectIfAbsent
+          root
+          (CheckpointStore.writerCommitObjectKey commit)
+          (LazyByteString.fromStrict (CheckpointStore.encodeWriterCommit commit))
+    )
+  void
+    ( expectRight
+        =<< CheckpointStore.writeObjectIfAbsent
+          root
+          (Checkpoint.latestPointerKey experiment)
+          (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 manifestSha))
+    )
 
 stableAdmissionReads
   :: AdmissionObjectGraph
@@ -1703,7 +1822,36 @@ stableAdmissionReads graph blobBytes =
     , [admissionPointerBody graph, admissionPointerBody graph]
     )
   , (admissionManifestRef graph, [admissionManifestBytes graph])
+  , (admissionCommitRef graph, [admissionCommitBytes graph])
   , (admissionBlobRef graph, [blobBytes])
+  ]
+
+admissionCommitListings
+  :: AdmissionObjectGraph
+  -> [((BucketName, Text), [ObjectRef])]
+admissionCommitListings graph =
+  [
+    ( (BucketName "jitml-checkpoints", admissionExperiment graph <> "/snapshots/")
+    , [admissionCommitRef graph]
+    )
+  ]
+
+admissionCommitListOperation :: AdmissionObjectGraph -> ScriptedMinIOOperation
+admissionCommitListOperation graph =
+  ScriptedList
+    (BucketName "jitml-checkpoints")
+    (admissionExperiment graph <> "/snapshots/")
+
+stableAdmissionOperationLog
+  :: AdmissionObjectGraph
+  -> [ScriptedMinIOOperation]
+stableAdmissionOperationLog graph =
+  [ ScriptedRead (admissionPointerRef graph)
+  , ScriptedRead (admissionManifestRef graph)
+  , ScriptedRead (admissionPointerRef graph)
+  , admissionCommitListOperation graph
+  , ScriptedRead (admissionCommitRef graph)
+  , ScriptedRead (admissionBlobRef graph)
   ]
 
 alternateManifestSha :: Text -> Text
@@ -1741,9 +1889,45 @@ assertAdmissionBlobFailureContaining expected outcome =
             <> show value
         )
 
+assertSnapshotCommitFailureContaining
+  :: (Show value)
+  => Text
+  -> Either CheckpointStore.CheckpointAdmissionError value
+  -> Assertion
+assertSnapshotCommitFailureContaining expected outcome =
+  case outcome of
+    Left (CheckpointStore.AdmissionSnapshotCommitInvalid detail) ->
+      assertBool
+        ( "expected snapshot-commit error containing "
+            <> show expected
+            <> ", got "
+            <> show detail
+        )
+        (expected `Text.isInfixOf` detail)
+    Left other ->
+      assertFailure
+        ( "expected AdmissionSnapshotCommitInvalid containing "
+            <> show expected
+            <> ", got "
+            <> show other
+        )
+    Right value ->
+      assertFailure
+        ( "expected AdmissionSnapshotCommitInvalid containing "
+            <> show expected
+            <> ", got Right "
+            <> show value
+        )
+
+data ScriptedMinIOOperation
+  = ScriptedRead ObjectRef
+  | ScriptedList BucketName Text
+  deriving stock (Eq, Show)
+
 data ScriptedMinIOState = ScriptedMinIOState
-  { scriptedReadQueues :: [(ObjectRef, [StrictByteString.ByteString])]
-  , scriptedReadLogReversed :: [ObjectRef]
+  { scriptedListResults :: [((BucketName, Text), [ObjectRef])]
+  , scriptedReadQueues :: [(ObjectRef, [StrictByteString.ByteString])]
+  , scriptedOperationLogReversed :: [ScriptedMinIOOperation]
   }
 
 newtype ScriptedMinIO value = ScriptedMinIO
@@ -1752,14 +1936,15 @@ newtype ScriptedMinIO value = ScriptedMinIO
   deriving newtype (Functor, Applicative, Monad)
 
 runScriptedMinIO
-  :: [(ObjectRef, [StrictByteString.ByteString])]
+  :: [((BucketName, Text), [ObjectRef])]
+  -> [(ObjectRef, [StrictByteString.ByteString])]
   -> ScriptedMinIO value
-  -> IO (value, [ObjectRef])
-runScriptedMinIO queues action = do
-  stateRef <- newIORef (ScriptedMinIOState queues [])
+  -> IO (value, [ScriptedMinIOOperation])
+runScriptedMinIO listings queues action = do
+  stateRef <- newIORef (ScriptedMinIOState listings queues [])
   value <- runReaderT (unScriptedMinIO action) stateRef
   finalState <- readIORef stateRef
-  pure (value, reverse (scriptedReadLogReversed finalState))
+  pure (value, reverse (scriptedOperationLogReversed finalState))
 
 instance HasMinIO ScriptedMinIO where
   minioPutIfAbsent _ _ = scriptedUnexpected "minioPutIfAbsent"
@@ -1774,15 +1959,39 @@ instance HasMinIO ScriptedMinIO where
                 nextState =
                   state
                     { scriptedReadQueues = remainingQueues
-                    , scriptedReadLogReversed =
-                        objectRef : scriptedReadLogReversed state
+                    , scriptedOperationLogReversed =
+                        ScriptedRead objectRef : scriptedOperationLogReversed state
                     }
              in (nextState, response)
         )
   putBlobIfAbsent _ _ = scriptedUnexpected "putBlobIfAbsent"
   putBlobBytesIfAbsent _ _ = scriptedUnexpected "putBlobBytesIfAbsent"
   casPointer _ _ _ = scriptedUnexpected "casPointer"
-  listObjects _ _ = scriptedUnexpected "listObjects"
+  listObjects bucket prefix =
+    ScriptedMinIO $ do
+      stateRef <- ask
+      liftIO
+        ( atomicModifyIORef' stateRef $ \state ->
+            let request = (bucket, prefix)
+                response =
+                  maybe
+                    ( Left
+                        ( SETransient
+                            ( "scripted HasMinIO has no list result for "
+                                <> Text.pack (show request)
+                            )
+                        )
+                    )
+                    Right
+                    (lookup request (scriptedListResults state))
+                nextState =
+                  state
+                    { scriptedOperationLogReversed =
+                        ScriptedList bucket prefix
+                          : scriptedOperationLogReversed state
+                    }
+             in (nextState, response)
+        )
   deleteObject _ = scriptedUnexpected "deleteObject"
 
 scriptedUnexpected :: Text -> ScriptedMinIO (Either ServiceError value)

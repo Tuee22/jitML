@@ -1,26 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Phase 32 (Sprint 32.1) — the external-truth negative-control suite.
+-- | Phase 276 — the retained pure gate-soundness negative-control suite.
 --
 -- The audit's root-cause finding was that "Done" was graded by self-authored,
 -- self-referential gates. A negative control inverts that: it commits a
 -- KNOWN-FAKE artifact and asserts the gate __rejects__ it. A gate that cannot
 -- reject its known-fake is not a gate — the build fails.
--- See [Exit Definition item 25](../../../DEVELOPMENT_PLAN/README.md#exit-definition)
--- and [phase-32-external-truth-realness-harness.md](../../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md).
---
--- __Validation status:__ this module is UNVALIDATED — it was authored without a
--- compiler in-session and must be built in the container
--- (@docker compose build jitml@ / @jitml test jitml-negative-controls --linux-cpu@).
+-- See the current external-truth obligations in the development-plan Exit
+-- Definition and Phase 276.
 --
 -- The controls below are __gate-soundness__ controls: they exercise the pure
 -- gate logic (`RowAssertions`, `ExternalBars`) against hand-built known-fakes and
 -- assert rejection. They pass today because those pure gates are sound in
 -- isolation. The gates that are __broken in the production path__ (RL reward
 -- provenance, the all-zeros initial-weight hash, the residual-MLP-as-CNN
--- topology) require production hooks that do not exist yet; those are enumerated
--- in 'pendingProductionControls' and become live controls as the reopened
--- Phases 19/21/23/24/25 wire them.
+-- topology) require production-path fixtures and lifecycle coverage; those are
+-- enumerated in 'pendingProductionControls' and owned by Phases 279–281.
 module JitML.Test.NegativeControls
   ( ControlOutcome (..)
   , NegativeControl (..)
@@ -220,7 +215,9 @@ untrainedSl =
 -- for a green negative-control surface.
 pendingProductionControls :: [Text]
 pendingProductionControls =
-  [ "linux-cuda-real-device-validation: Phase 29 remains blocked until docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda runs on a host whose Docker daemon exposes an NVIDIA GPU runtime."
+  [ "Phase 279: invalid raw request and event-stream fixtures"
+  , "Phase 280: invalid admitted-evidence journals and reducer properties"
+  , "Phase 281: settlement, timeout, cleanup, terminal-order, and mandatory per-row controls"
   ]
 
 conv2dNotDenseFailures :: [Text]

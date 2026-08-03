@@ -54,11 +54,13 @@ import JitML.Sub.Subprocess (subprocess, subprocessArguments)
 import JitML.Substrate (Substrate (..), allSubstrates)
 import JitML.Test.LiveE2EScope qualified as LiveE2EScope
 import JitML.Test.LivePlan
-  ( LivePlanStep (..)
+  ( BrowserEvidencePlanPaths (..)
+  , LivePlanStep (..)
   , LiveResourceOwnership (..)
   , ScopedLivePlan (..)
   , liveE2EPlan
   , liveE2EPlanFor
+  , liveE2EPlanForBrowserEvidence
   , renderLivePlan
   )
 import JitML.Test.Report
@@ -279,7 +281,6 @@ main =
                 emptyReportMeasurements
                   { measuredSlFinalLoss = Just (MeasurementAvailable "mnist-shallow-mlp=0.125")
                   , measuredDaemonHealthz = Just MeasurementUnavailable
-                  , measuredBrowserProductMatrix = Just MeasurementUnavailable
                   }
               rendered = renderReportCard (passedReportCard measurements)
           assertBool "measurements block" ("measurements:" `isInfixOf` Text.unpack rendered)
@@ -289,9 +290,6 @@ main =
           assertBool
             "unavailable measurement"
             ("daemon_healthz: unavailable" `isInfixOf` Text.unpack rendered)
-          assertBool
-            "no-caveat browser product matrix row"
-            ("browser_product_matrix: unavailable" `isInfixOf` Text.unpack rendered)
       , testCase "linux-cpu report card renders per-row evidence and rejects missing cells (Sprint 28.3)" $ do
           let rows = ProductMatrix.allProductRows
               nonProducts = ProductMatrix.nonProductRows
@@ -402,14 +400,83 @@ main =
           assertBool "live plan invokes helm dependency build" $
             "helm dependency build chart" `Text.isInfixOf` livePlanText
           assertBool "live plan includes pinned Playwright image" $
-            "playwright: docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=linux-cpu -e PLAYWRIGHT_TEST_RESULTS_DIR=/tmp/jitml-playwright-test-results mcr.microsoft.com/playwright:v1.49.1-noble"
+            "mcr.microsoft.com/playwright:v1.49.1-noble"
               `Text.isInfixOf` livePlanText
+          assertBool "repository mount is read-only" $
+            "-v .:/work:ro" `Text.isInfixOf` livePlanText
+          assertBool "exact browser catalogue is mounted read-only" $
+            "-v ./.build/runtime/browser-catalogue-input.json:/jitml-browser-input/catalogue.json:ro"
+              `Text.isInfixOf` livePlanText
+          assertBool "exact cluster publication is mounted read-only" $
+            "-v ./.build/runtime/cluster-publication.json:/jitml-browser-input/cluster-publication.json:ro"
+              `Text.isInfixOf` livePlanText
+          assertBool "isolated browser evidence scope is the only writable mount" $
+            "-v ./.build/runtime/browser-evidence:/jitml-browser-scope:rw"
+              `Text.isInfixOf` livePlanText
+          traverse_
+            (\name -> assertBool (Text.unpack name) (name `Text.isInfixOf` livePlanText))
+            [ "JITML_BROWSER_CATALOGUE_PATH=/jitml-browser-input/catalogue.json"
+            , "JITML_BROWSER_PUBLICATION_PATH=/jitml-browser-input/cluster-publication.json"
+            , "JITML_BROWSER_RESULT_PATH=/jitml-browser-scope/result.json"
+            , "JITML_BROWSER_RESULT_KEY_FILE=/jitml-browser-scope/result.key"
+            ]
+          assertBool "browser subprocess receives no Phase 261 signing capability" $
+            not ("JITML_PRODUCT_SCENARIO" `Text.isInfixOf` livePlanText)
           assertBool "live plan installs the pinned test package in the browser container" $
             "@playwright/test@1.49.1" `Text.isInfixOf` livePlanText
+          assertBool "npm install transcript survives the ephemeral container" $
+            ">/jitml-browser-scope/npm-install.log" `Text.isInfixOf` livePlanText
           assertBool "live plan points at the repo Playwright config" $
             "playwright/playwright.config.ts" `Text.isInfixOf` livePlanText
           assertBool "live plan is substrate parametrized" $
             "jitml bootstrap --linux-cuda" `Text.isInfixOf` renderLivePlan (liveE2EPlanFor LinuxCUDA)
+          let customPaths =
+                BrowserEvidencePlanPaths
+                  { browserEvidenceCataloguePath = "/command/input/catalogue.json"
+                  , browserEvidencePublicationPath = "/command/input/publication.json"
+                  , browserEvidenceScopePath = "/command/output/browser"
+                  }
+              customPlan = renderLivePlan (liveE2EPlanForBrowserEvidence customPaths LinuxCUDA)
+          assertBool "command-owned browser paths are rendered exactly" $
+            "/command/input/catalogue.json:/jitml-browser-input/catalogue.json:ro"
+              `Text.isInfixOf` customPlan
+              && "/command/input/publication.json:/jitml-browser-input/cluster-publication.json:ro"
+                `Text.isInfixOf` customPlan
+              && "/command/output/browser:/jitml-browser-scope:rw" `Text.isInfixOf` customPlan
+      , testCase "Playwright evidence surface is catalogue-driven and signed" $ do
+          spec <- Text.IO.readFile "playwright/jitml-demo.spec.ts"
+          config <- Text.IO.readFile "playwright/playwright.config.ts"
+          reporter <- Text.IO.readFile "playwright/jitml-browser-evidence-reporter.ts"
+          assertBool "positive tests load the exact input catalogue" $
+            "const CATALOGUE: BrowserCatalogueInput = loadBrowserCatalogue()" `Text.isInfixOf` spec
+          assertBool "positive test identities come from e2e_test" $
+            "test(row.e2e_test" `Text.isInfixOf` spec
+          assertBool "Generated.Contracts is not parsed as evidence" $
+            not ("readFileSync(\"./web/src/Generated/Contracts.purs\"" `Text.isInfixOf` spec)
+          assertBool "positive helper does not install a route mock" $
+            not ("assertLiveProductRowArtifact(page, row, route" `Text.isInfixOf` spec)
+          assertBool "list and evidence reporters are configured" $
+            "[\"list\"], [\"./jitml-browser-evidence-reporter.ts\"]" `Text.isInfixOf` config
+          assertBool "partial reporter environments fail" $
+            "partial browser-evidence environment" `Text.isInfixOf` config
+          assertBool "reporter consumes the signing key" $
+            "fs.unlinkSync(keyPath)" `Text.isInfixOf` reporter
+          assertBool "signing key bytes are validated without trimming" $
+            "rendered = fs.readFileSync(keyPath, \"utf8\");" `Text.isInfixOf` reporter
+          assertBool "reporter uses canonical HMAC-SHA256" $
+            "createHmac(\"sha256\"" `Text.isInfixOf` reporter
+          assertBool "receipt lengths are measured as UTF-8 bytes" $
+            "Buffer.byteLength(value, \"utf8\")" `Text.isInfixOf` reporter
+          assertBool "catalogue identities are bounded by Unicode code point" $
+            "Array.from(value).length > 4096" `Text.isInfixOf` reporter
+          assertBool "failure detail removes every Unicode control category" $
+            "raw.replace(/\\p{Cc}+/gu, \" \")" `Text.isInfixOf` reporter
+          assertBool "failure detail is bounded by Unicode code point" $
+            "Array.from(retained).slice(0, 4096).join(\"\")" `Text.isInfixOf` reporter
+          assertBool "reporter clears the consumed in-memory key" $
+            "this.signingKey.fill(0)" `Text.isInfixOf` reporter
+          assertBool "reporter publishes atomically without overwrite" $
+            "fs.linkSync(temporary, outputPath)" `Text.isInfixOf` reporter
       , testCase "live e2e scope retains lifecycle evidence without counting it as tests" $ do
           executionOrder <- newIORef ([] :: [Text])
           let acquire = e2eScopeStep "bootstrap" 10
@@ -426,9 +493,10 @@ main =
                   }
               backend =
                 LiveE2EScope.LiveE2EScopeBackend
-                  { LiveE2EScope.liveE2ERunStep = \step -> do
+                  { LiveE2EScope.liveE2ERunStep = \_environment step -> do
                       modifyIORef' executionOrder (<> [livePlanStepName step])
                       pure (ProcessSucceeded (e2eScopeTranscript step))
+                  , LiveE2EScope.liveE2ELifecycleEnvironment = defaultSubprocessEnv
                   , LiveE2EScope.liveE2EDiagnosticSteps = [diagnostics]
                   , LiveE2EScope.liveE2EAcceptReleaseFailure = const False
                   }
@@ -804,6 +872,7 @@ e2ePlannedTest stanza duration =
     { LiveE2EScope.plannedTestStanza = stanza
     , LiveE2EScope.plannedTestCommand =
         subprocess "e2e-scope-fixture" [Text.pack (show duration)]
+    , LiveE2EScope.plannedTestEnvironment = defaultSubprocessEnv
     }
 
 e2eScopeTranscript :: LivePlanStep -> ProcessTranscript

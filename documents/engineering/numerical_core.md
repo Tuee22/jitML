@@ -18,29 +18,29 @@ counts.
 
 ## Current Status
 
-**Implemented today.** The executable `[LayerSpec]` / `[LayerState]` program
-trains and serves the supervised rows; the typed `archLayerGraph` IR is a parallel
-decorative representation (finite-difference-validated) that the served path does
-not execute. The catalog tables below are current.
-
-**Target (Phases `237`–`238`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-The typed `LayerGraph` IR becomes the **single owner** of supervised training,
-serving, and graph-ordered parameter identity; the parallel `[LayerSpec]` /
-`[LayerState]` program is retired. Until those phases close, the parallel program
-is the implemented executor and the IR-as-sole-owner statement is a target
-contract.
+**Implemented today.** The typed `LayerGraph` IR is the single owner of
+supervised training, checkpoint topology, graph-ordered parameter identity, and
+serving. `ArchitectureSpec.archLayerGraph` is the executable literal graph for
+the non-dense architecture families. The retained `[LayerSpec]` / `[LayerState]`
+types are only a Dense-family initialization adapter: their initialized dense
+parameters are lifted immediately into a `LayerGraph`, and they do not form a
+parallel training, checkpoint, or serving interpreter. The catalog tables below
+are current.
 
 ## Execution Boundary
 
-Training and evaluation select a substrate device and run the current
-`[LayerSpec]` / `[LayerState]` executable through that device. Sprint `10.6`
-persists this exact executed program; it does not substitute the parallel
-descriptive `archLayerGraph`. Active Sprint `23.1` has landed the correct
-reverse-mode autodiff node library on the typed graph (below); replacing the
-descriptive `archLayerGraph` and the executed `[LayerSpec]` / `[LayerState]`
-program with that one typed graph in the served/serialized path needs a
-checkpoint format version bump and is deferred to Sprint `23.2`, and Blocked
-Sprint `24.1` owns constructing each literal named architecture on that graph. The validated workload plan and the completed
+Training selects a substrate device and updates the typed graph through the
+device-backed classifier path. The pure `LayerGraph` forward/backward algebra is
+the correctness oracle; it is not a fallback for a failed selected-device
+operation. Checkpoint construction serializes the trained graph metadata and
+its graph-ordered parameter vector.
+
+Serving reconstructs that graph from admitted checkpoint metadata, injects the
+one physical `supervised.weights` tensor, refines the reloaded structure, applies
+the persisted input transform, calls the shared pure `LayerGraph.runLayerGraph`,
+and applies the output transform. Input/output transforms stay outside the graph,
+and Apple Silicon and Linux CUDA supervised serving delegate to this same
+substrate-independent path. The validated workload plan and the completed
 evidence required around numerical execution are owned by
 [Typed Run Contract](run_contract.md); inference eligibility is owned by
 [Checkpoint Format](checkpoint_format.md) and
@@ -71,18 +71,15 @@ optimizer hyperparameters, scheduler parameters, and loss parameters.
 
 ## Typed Layer Graph and Autodiff
 
-The target `LayerGraph` is the sole representation used by training,
-checkpointing, and graph inference. The current tree has landed the correct
-autodiff engine on that graph but has not yet unified the served path onto it:
-`archLayerGraph` describes the advertised feature topology, while the separate
-`[LayerSpec]` / `[LayerState]` program actually trains, serves, and is projected
-into supervised V2. Wiring the verified nodes into the executed/serialized path
-needs a checkpoint format version bump and is Sprint `23.2`; the `cifar10-vit`
-convergence go/no-go is the other open Sprint `23.1` obligation. Audit and
-validation details remain in
-[Phase 23](../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md).
+`LayerGraph` is the sole representation used by supervised training,
+checkpointing, and graph inference. `TrainedArchitecture` carries the trained
+graph directly; `LayerGraphMetadata` round-trips its exact topology and packed
+parameter layout through the checkpoint, and Store reload injects the admitted
+weight vector before structural refinement and serving. Phase order and
+validation evidence remain in the
+[Development Plan](../../DEVELOPMENT_PLAN/README.md).
 
-Sprint `23.1` implements the typed layer-graph surface in
+The typed layer-graph surface lives in
 `src/JitML/Numerics/LayerGraph.hs` and the public pure reverse-mode API in
 `src/JitML/Numerics/Autodiff.hs`. A `LayerNode` carries input/output tensor
 shapes, per-node training-vs-inference mode, activation, packed row-major
@@ -119,7 +116,7 @@ its `mlpBackward` / `mlpInputGradient` lower the cached MLP forward into a
 two-node dense graph tape and call `Autodiff.runBackward`, so the RL and
 AlphaZero networks differentiate through the same surface unchanged.
 
-Sprint `23.1` unit coverage asserts, for every catalog node, that central
+Unit coverage asserts, for every catalog node, that central
 finite differences of a squared-error loss match the analytic **parameter**
 gradient (`maxFiniteDifferenceError`) and the analytic **input** gradient
 (`maxInputFiniteDifferenceError`); that a full ResNet-shaped graph (conv stem →
@@ -129,24 +126,10 @@ to end; that same-seed runs produce bit-identical gradients; and that the
 explicit shape/operation failures are rejected. The `jitml-negative-controls`
 `conv2d-not-dense` gate runs a genuine 3×3 convolution.
 
-Sprint `23.2` adds the linux-cpu oneDNN training path for the current graph
-algebra. `JitML.Codegen.OneDnn.renderOneDnnLayerTrainingSource` emits a
-content-addressed shared object with `jitml_layer_forward`,
-`jitml_layer_backward_data`, and `jitml_layer_backward_weights`; dense and other
-affine graph nodes execute oneDNN matmul, while `Conv2D` and `Conv3D` execute
-oneDNN `convolution_forward` in `forward_training` mode plus
-`convolution_backward_data` and `convolution_backward_weights` over the graph's
-flat 1x1 channel projection. `JitML.Numerics.LayerGraphOneDnn` reuses the pure
-forward tape for activation/residual/parameterless semantics and replaces each
-parameterized node's update-critical gradients with backend-computed values. The
-backend test compares that device gradient against the pure oracle across the
-full `LayerGraph.allLayerKinds` catalog and records per-node primitive evidence.
-Sprint `23.3` serializes that graph topology into checkpoints and runs
-checkpoint inference through the stored graph.
-
-Phase `241` completes that device training path: the layer-graph oneDNN training
-kernel now renders a **real `dnnl` primitive per operator kind** rather than the
-earlier flat 1×1 channel projection. `ConvOp` executes spatial
+The linux-cpu graph-training path renders a content-addressed shared object with
+`jitml_layer_forward`, `jitml_layer_backward_data`, and
+`jitml_layer_backward_weights`. It executes a **real `dnnl` primitive per
+operator kind**. `ConvOp` executes spatial
 `convolution_{forward,backward_data,backward_weights}` over the true `[C_in,H,W]`
 / kernel / stride / padding geometry; `NormOp` runs batch / layer / group
 normalization; `GeGLUOp` runs the three-projection gated-GELU; `AttentionOp` runs
@@ -158,7 +141,7 @@ and each device kernel is validated against the pure `backwardLayerGraph` oracle
 within float32 tolerance in the backends lane; the pure gradient is the oracle
 only, never a runtime fallback.
 
-Phases `242`–`244` bind each supervised row to a literal graph on this surface.
+Each supervised row binds to a literal graph on this surface.
 The ResNet family (small ResNet, ResNet-20, ResNet-56, WideResNet-28-10, and the
 ResNet-50 bottleneck) is a literal mixer-ResNet layer graph — real `Conv2D` with a
 two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`, residual
@@ -166,38 +149,26 @@ BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as a compact prox
 under the bounded product budget; the 2-D convolution forward is a tight unboxed
 kernel.
 
-Blocked Sprint `24.1` must bind the canonical supervised rows to literal graph
-topology and feature metadata. `ArchitectureFeature` records the feature claims
-that product rows make (`Dense`, `BatchNorm`, `Dropout`, `Conv2D`, pooling,
-`GroupNorm`, residual, `BasicBlock`, `BottleneckBlock`, attention, patch
-embedding, `LayerNorm`, and `GeGLU`), while the current
-`architectureImplementedFeatures` derives its answer from the non-executable
-`archLayerGraph`. The existing topology-count test therefore describes the
-intended graph; it does not prove what trained. The exact current
-`cifar10-vit` executable persisted by Sprint `10.6` uses patch size/stride
-`4/4` over `32×32×3`, 64-token mixing, executed LayerNorm, a token-mixing
-MLP, single-head attention, mean pooling, and a classifier. That is a real
-current Mixer computation rather than the earlier unnormalized patch bag, but
-it is not the declared two-head MultiHeadAttention/GeGLU small ViT and cannot
-close Phase `24`. Its V2 algebra is deliberately the pre-Sprint-`23.1`
-executable: token mixing replaces its input with the mixed result, attention
-returns attended values without an outer skip, and only an explicit residual
-layer adds a skip. Sprint `23.1` owns distinguishable corrected operations; it
-cannot reinterpret these V2 bytes.
+`ArchitectureFeature` records the feature claims that product rows make
+(`Dense`, `BatchNorm`, `Dropout`, `Conv2D`, pooling, `GroupNorm`, residual,
+`BasicBlock`, `BottleneckBlock`, attention, patch embedding, `LayerNorm`, and
+`GeGLU`). For every non-dense row, `architectureImplementedFeatures` derives
+those claims from the same executable `archLayerGraph` that training consumes;
+the Dense-family adapter lifts its initialized dense state into an equivalent
+typed graph. Topology/count tests guard the literal graphs. The current
+`cifar10-vit` graph executes patch
+embedding, affine LayerNorm, two-head self-attention with `W_O` and the outer
+residual, GeGLU, and the classifier through `LayerGraph`.
 
-Within that current executable, attention backward stores Q/K/V, softmax
-weights, and output gradients in boxed vectors so indexed lookup is
-constant-time while preserving the original arithmetic and summation order.
-Inference/evaluation `forwardOnly` may transiently create the current layer's
-tape through `forwardLayer`, but projects the output immediately and does not
-accumulate tapes across the graph. The 4×4/64-token numerical path fits its RGB
-transform from the training partition only. Its measured diagnostic chronology
-and current validation state live in Sprint `10.6`; pre-algebra-correction
-artifacts cannot validate this contract. Exact V2 persistence does not repair
-the parallel descriptive `archLayerGraph` representation.
+`RawCheckpointBodyV2`, `RawSupervisedRuntimePayload`, and the other V1/V2 names
+remain valid wire/DTO names. V2 now carries the trained graph metadata, exact
+outside-the-graph transforms, and the graph-ordered physical weight binding; it
+does not name a second structural executor. The frozen Sprint-`10.6`
+pre-IR token-operation artifacts remain historical diagnostic evidence only and
+cannot validate the current typed-graph contract. The deleted
+`RuntimeOperations*` structural ABI is not part of current training or serving.
 
-Sprint `24.2` adds the supervised learning-evidence assertion layer in
-`JitML.Test.RowAssertions`. The assertion consumes measured row evidence from
+`JitML.Test.RowAssertions` consumes measured row evidence from
 the device-backed SL path: deterministic initial/final weight hashes, update
 count, train/validation/test split sizes, examples seen, non-wall-clock
 throughput, real train and validation losses, held-out test metric, gradient

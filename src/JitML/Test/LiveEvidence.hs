@@ -5,7 +5,7 @@
 -- production contracts in "JitML.Run.WorkloadContract" directly.
 module JitML.Test.LiveEvidence
   ( LiveEvidenceViolation (..)
-  , RlEpisodeEvidence (..)
+  , RlEvaluationEvidence (..)
   , RlLiveContract
   , RlLiveEvidence (..)
   , RlLiveProgress
@@ -21,9 +21,12 @@ module JitML.Test.LiveEvidence
 where
 
 import Data.Bifunctor (first)
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
 
 import JitML.Plan.Plan
@@ -31,7 +34,9 @@ import JitML.Plan.Plan
   , PlanError
   , PlanId
   , Validation (..)
+  , finiteMeasurementValue
   , mkFiniteMeasurement
+  , planIdText
   )
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
@@ -39,6 +44,8 @@ import JitML.Run.Contract
   ( Contract
   , ContractViolation
   , EvidenceEvent
+  , ExactKeyed
+  , ExactlyOne
   , RequirementState
   , evidenceEvent
   , exactKeyedRange
@@ -48,6 +55,7 @@ import JitML.Run.Contract
   , ingestEvent
   , mapContract
   , productContract
+  , refineContract
   , selectContract
   )
 import JitML.Training.Budget
@@ -58,8 +66,9 @@ data LiveEvidenceViolation
   = LiveEvidenceInvalidCardinality Text
   | LiveEvidenceExperimentMismatch Text Text
   | LiveEvidencePlanMismatch PlanId PlanId
+  | LiveEvidenceRlPlanMismatch Text Text
   | LiveEvidenceMalformed (NonEmpty PlanError)
-  | LiveEvidenceZeroSteps Word32
+  | LiveEvidenceZeroSteps Word64
   | LiveEvidenceContractViolation ContractViolation
   | LiveWorkloadReportedFailure Training.TrainingFailed
   deriving stock (Eq, Show)
@@ -170,28 +179,29 @@ ingestSupervisedLiveEvent planId experimentId contract progress protocolEvent =
  where
   ingest = first LiveEvidenceContractViolation . ingestEvent contract progress
 
-data RlEpisodeEvidence = RlEpisodeEvidence
-  { rlEpisodeReward :: FiniteMeasurement
-  , rlEpisodeSteps :: Word32
-  , rlEpisodeTimestampNs :: Word64
+data RlEvaluationEvidence = RlEvaluationEvidence
+  { rlEvaluationReward :: FiniteMeasurement
+  , rlEvaluationSteps :: Word64
+  , rlEvaluationDone :: Bool
+  , rlEvaluationTimestampNs :: Word64
   }
   deriving stock (Eq, Show)
 
 data RlLiveEvidence = RlLiveEvidence
-  { rlCompletedEpisodes :: Map Word32 RlEpisodeEvidence
+  { rlCompletedEvaluationSet :: Map Word64 RlEvaluationEvidence
   , rlCompletedMedianReward :: FiniteMeasurement
   , rlCompletedCheckpoint :: Rl.CompletedCheckpointDoneRL
   }
   deriving stock (Eq, Show)
 
 data RlLiveEvent
-  = RlEpisodeEvent (EvidenceEvent Word32 RlEpisodeEvidence)
+  = RlEvaluationEvent (EvidenceEvent Word64 RlEvaluationEvidence)
   | RlMetricEvent (EvidenceEvent () FiniteMeasurement)
   | RlCheckpointEvent (EvidenceEvent () Rl.CompletedCheckpointDoneRL)
   deriving stock (Eq, Show)
 
 type RlLiveProgress =
-  ( ( RequirementState Word32 RlEpisodeEvidence
+  ( ( RequirementState Word64 RlEvaluationEvidence
     , RequirementState () FiniteMeasurement
     )
   , RequirementState () Rl.CompletedCheckpointDoneRL
@@ -211,7 +221,7 @@ rlLiveContract planId episodes = do
   keys <- expectedZeroBasedKeys "RL evaluation episodes" episodes
   let episodeContract =
         selectContract
-          (\case RlEpisodeEvent event -> Just event; _ -> Nothing)
+          (\case RlEvaluationEvent event -> Just event; _ -> Nothing)
           (exactKeyedRange "rl-final-evaluation" planId keys)
       metricContract =
         selectContract
@@ -222,53 +232,99 @@ rlLiveContract planId episodes = do
           (\case RlCheckpointEvent event -> Just event; _ -> Nothing)
           (exactlyOne "rl-completed-checkpoint" planId)
   pure
-    ( mapContract
-        ( \((episodeEvidence, metricEvidence), checkpointEvidence) ->
-            RlLiveEvidence
-              { rlCompletedEpisodes = exactKeyedValues episodeEvidence
-              , rlCompletedMedianReward = exactlyOneValue metricEvidence
-              , rlCompletedCheckpoint = exactlyOneValue checkpointEvidence
-              }
-        )
+    ( refineContract
+        refineRlLiveEvidence
         (productContract (productContract episodeContract metricContract) checkpointContract)
     )
 
--- | Traditional RL has not yet adopted a plan-bearing command/event surface;
--- Sprint 25.4 owns that domain migration.  The caller supplies the stable
--- semantic plan used by this exact live-test contract.  Proof-bearing
--- checkpoints remain mandatory; once the protocol carries its PlanId the
--- optional expected completion id is supplied and checked here without
--- changing the cardinality reducer.
+refineRlLiveEvidence
+  :: ( (ExactKeyed Word64 RlEvaluationEvidence, ExactlyOne FiniteMeasurement)
+     , ExactlyOne Rl.CompletedCheckpointDoneRL
+     )
+  -> Either Text RlLiveEvidence
+refineRlLiveEvidence ((episodeEvidence, metricEvidence), checkpointEvidence) = do
+  let evaluationSet = exactKeyedValues episodeEvidence
+      reportedMedian = exactlyOneValue metricEvidence
+  cohortMedian <- medianReward evaluationSet
+  if finiteMeasurementValue reportedMedian /= cohortMedian
+    then
+      Left
+        ( "RL median_final_reward does not match the exact evaluation cohort: reported "
+            <> Text.pack (show (finiteMeasurementValue reportedMedian))
+            <> ", derived "
+            <> Text.pack (show cohortMedian)
+        )
+    else
+      Right
+        RlLiveEvidence
+          { rlCompletedEvaluationSet = evaluationSet
+          , rlCompletedMedianReward = reportedMedian
+          , rlCompletedCheckpoint = exactlyOneValue checkpointEvidence
+          }
+
+medianReward :: Map Word64 RlEvaluationEvidence -> Either Text Double
+medianReward evaluationSet =
+  case sort (fmap (finiteMeasurementValue . rlEvaluationReward) (Map.elems evaluationSet)) of
+    [] -> Left "RL median_final_reward requires a non-empty evaluation cohort"
+    rewards ->
+      let count = length rewards
+          middle = count `div` 2
+       in Right
+            ( if even count
+                then rewards !! (middle - 1) / 2 + rewards !! middle / 2
+                else rewards !! middle
+            )
+
+-- | Consume plan-bound keyed final-evaluation outcomes. The one refined
+-- compiled RL plan identity binds event payloads, semantic event ids, and the
+-- completed checkpoint; broker arrival order cannot substitute for an
+-- event's logical episode key.
 ingestRlLiveEvent
   :: PlanId
-  -> Maybe PlanId
   -> Text
   -> RlLiveContract
   -> RlLiveProgress
   -> Rl.RlEvent
   -> Either LiveEvidenceViolation RlLiveProgress
-ingestRlLiveEvent contractPlanId expectedCompletionPlanId experimentId contract progress protocolEvent =
+ingestRlLiveEvent contractPlanId experimentId contract progress protocolEvent =
   case protocolEvent of
-    Rl.RlEpisode episode
-      | Rl.edExperimentHash episode == experimentId -> do
-          if Rl.edSteps episode == 0
-            then Left (LiveEvidenceZeroSteps (Rl.edEpisode episode))
+    Rl.RlEvaluation outcome
+      | Rl.eoExperimentHash outcome == experimentId -> do
+          if Rl.eoPlanId outcome /= planIdText contractPlanId
+            then
+              Left
+                ( LiveEvidenceRlPlanMismatch
+                    (planIdText contractPlanId)
+                    (Rl.eoPlanId outcome)
+                )
             else Right ()
-          reward <- refineMeasurement "rl-final-reward" (Rl.edReward episode)
+          if Rl.eoSteps outcome == 0
+            then Left (LiveEvidenceZeroSteps (Rl.eoEpisodeId outcome))
+            else Right ()
+          reward <- refineMeasurement "rl-final-reward" (Rl.eoReward outcome)
           event <-
             refineEvidence
               contractPlanId
               "rl-final-evaluation"
-              (Rl.edEpisode episode)
-              RlEpisodeEvidence
-                { rlEpisodeReward = reward
-                , rlEpisodeSteps = Rl.edSteps episode
-                , rlEpisodeTimestampNs = Rl.edTimestampNs episode
+              (Rl.eoEpisodeId outcome)
+              RlEvaluationEvidence
+                { rlEvaluationReward = reward
+                , rlEvaluationSteps = Rl.eoSteps outcome
+                , rlEvaluationDone = Rl.eoDone outcome
+                , rlEvaluationTimestampNs = Rl.eoTimestampNs outcome
                 }
-          ingest (RlEpisodeEvent event)
+          ingest (RlEvaluationEvent event)
     Rl.RlMetric metric
       | Rl.muExperimentHash metric == experimentId
       , Rl.muName metric == "median_final_reward" -> do
+          if Rl.muPlanId metric /= planIdText contractPlanId
+            then
+              Left
+                ( LiveEvidenceRlPlanMismatch
+                    (planIdText contractPlanId)
+                    (Rl.muPlanId metric)
+                )
+            else Right ()
           measurement <- refineMeasurement "rl-median-final-reward" (Rl.muValue metric)
           event <-
             refineEvidence
@@ -279,14 +335,11 @@ ingestRlLiveEvent contractPlanId expectedCompletionPlanId experimentId contract 
           ingest (RlMetricEvent event)
     Rl.RlCompletedCheckpoint completed
       | Rl.cdrlExperimentHash (Rl.ccdrlCheckpoint completed) == experimentId -> do
-          case expectedCompletionPlanId of
-            Just expectedPlan ->
-              let observedPlan =
-                    completedTrainingPlanId (Rl.ccdrlCompletedTraining completed)
-               in if observedPlan /= expectedPlan
-                    then Left (LiveEvidencePlanMismatch expectedPlan observedPlan)
-                    else Right ()
-            Nothing -> Right ()
+          let observedPlan =
+                completedTrainingPlanId (Rl.ccdrlCompletedTraining completed)
+          if observedPlan /= contractPlanId
+            then Left (LiveEvidencePlanMismatch contractPlanId observedPlan)
+            else Right ()
           event <-
             refineEvidence
               contractPlanId
@@ -336,7 +389,9 @@ expectedPositiveSingleton label count
 expectedZeroBasedKeys
   :: Text
   -> Word32
-  -> Either LiveEvidenceViolation (NonEmpty Word32)
+  -> Either LiveEvidenceViolation (NonEmpty Word64)
 expectedZeroBasedKeys label count
   | count == 0 = Left (LiveEvidenceInvalidCardinality label)
-  | otherwise = Right (0 :| [1 .. count - 1])
+  | otherwise =
+      let upper = fromIntegral count - 1
+       in Right (0 :| [1 .. upper])

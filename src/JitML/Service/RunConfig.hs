@@ -38,6 +38,7 @@ module JitML.Service.RunConfig
   , tuningPlanFromRunConfig
   , alphaZeroPlanFromRunConfig
   , rlPlanFromRunConfig
+  , validateMountedRlSemanticOverrides
   , validateRlRunConfig
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
@@ -57,6 +58,7 @@ import Dhall qualified
 import Numeric.Natural (Natural)
 import System.Directory (doesFileExist)
 
+import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Plan.Plan (Validation, planIdText, validationToEither)
 import JitML.Plan.Workload
   ( AlphaZeroPlan
@@ -328,6 +330,20 @@ validateRlRunConfig config = do
   requireNonEmpty "RlRunConfig experimentHash" (rlcExperimentHash config)
   requireNonEmpty "RlRunConfig pulsarWsUrl" (rlcPulsarWsUrl config)
   pure config
+
+-- | A mounted RL run config has already resolved the seed and trainer kind
+-- into its content-addressed plan. Accepting either CLI flag here would create
+-- a second semantic source after plan validation. Substrate selection remains
+-- operational and is therefore not rejected by this boundary.
+validateMountedRlSemanticOverrides
+  :: Overrides.ExperimentOverrides
+  -> Either Text ()
+validateMountedRlSemanticOverrides overrides =
+  case (Overrides.eoSeed overrides, Overrides.eoAlgorithm overrides) of
+    (Nothing, Nothing) -> Right ()
+    _ ->
+      Left
+        "mounted RlRunConfig is authoritative; --seed and --algorithm overrides are allowed only when no run config is mounted"
 
 -- | Phase 251 — re-parse and re-validate the mounted RL plan transport,
 -- mirroring 'supervisedPlanFromRunConfig': the declared @planId@ must match the

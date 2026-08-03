@@ -5,14 +5,15 @@
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
 module Proto.Jitml.Rl (
         ArenaCompleted(), CheckpointDoneRL(), CompletedCheckpointDoneRL(),
-        EpisodeDone(), EvalDone(), GenerationCompleted(), MetricUpdate(),
-        RlAnimationFrame(), RlCommand(), RlCommand'Body(..),
-        _RlCommand'Start, _RlCommand'Stop, _RlCommand'StartAlphaZero,
-        RlEvent(), RlEvent'Body(..), _RlEvent'Episode, _RlEvent'Eval,
-        _RlEvent'Checkpoint, _RlEvent'Metric, _RlEvent'Animation,
-        _RlEvent'Replay, _RlEvent'GenerationCompleted,
-        _RlEvent'ArenaCompleted, _RlEvent'CompletedCheckpoint,
-        RlReplayFrame(), StartAlphaZeroRun(), StartRLRun(), StopRLRun()
+        EvaluationOutcome(), GenerationCompleted(), IterationSummary(),
+        MetricUpdate(), RlAnimationFrame(), RlCommand(),
+        RlCommand'Body(..), _RlCommand'Start, _RlCommand'Stop,
+        _RlCommand'StartAlphaZero, RlEvent(), RlEvent'Body(..),
+        _RlEvent'Evaluation, _RlEvent'Iteration, _RlEvent'Checkpoint,
+        _RlEvent'Metric, _RlEvent'Animation, _RlEvent'Replay,
+        _RlEvent'GenerationCompleted, _RlEvent'ArenaCompleted,
+        _RlEvent'CompletedCheckpoint, RlReplayFrame(), StartAlphaZeroRun(),
+        StartRLRun(), StopRLRun()
     ) where
 import qualified Data.ProtoLens.Runtime.Control.DeepSeq as Control.DeepSeq
 import qualified Data.ProtoLens.Runtime.Data.ProtoLens.Prism as Data.ProtoLens.Prism
@@ -807,71 +808,102 @@ instance Control.DeepSeq.NFData CompletedCheckpointDoneRL where
                       (_CompletedCheckpointDoneRL'completedTraining x__) ())))
 {- | Fields :
 
-         * 'Proto.Jitml.Rl_Fields.experimentHash' @:: Lens' EpisodeDone Data.Text.Text@
-         * 'Proto.Jitml.Rl_Fields.episode' @:: Lens' EpisodeDone Data.Word.Word32@
-         * 'Proto.Jitml.Rl_Fields.reward' @:: Lens' EpisodeDone Prelude.Double@
-         * 'Proto.Jitml.Rl_Fields.steps' @:: Lens' EpisodeDone Data.Word.Word32@
-         * 'Proto.Jitml.Rl_Fields.timestampNs' @:: Lens' EpisodeDone Data.Word.Word64@ -}
-data EpisodeDone
-  = EpisodeDone'_constructor {_EpisodeDone'experimentHash :: !Data.Text.Text,
-                              _EpisodeDone'episode :: !Data.Word.Word32,
-                              _EpisodeDone'reward :: !Prelude.Double,
-                              _EpisodeDone'steps :: !Data.Word.Word32,
-                              _EpisodeDone'timestampNs :: !Data.Word.Word64,
-                              _EpisodeDone'_unknownFields :: !Data.ProtoLens.FieldSet}
+         * 'Proto.Jitml.Rl_Fields.planId' @:: Lens' EvaluationOutcome Data.Text.Text@
+         * 'Proto.Jitml.Rl_Fields.experimentHash' @:: Lens' EvaluationOutcome Data.Text.Text@
+         * 'Proto.Jitml.Rl_Fields.episodeId' @:: Lens' EvaluationOutcome Data.Word.Word64@
+         * 'Proto.Jitml.Rl_Fields.reward' @:: Lens' EvaluationOutcome Prelude.Double@
+         * 'Proto.Jitml.Rl_Fields.steps' @:: Lens' EvaluationOutcome Data.Word.Word64@
+         * 'Proto.Jitml.Rl_Fields.done' @:: Lens' EvaluationOutcome Prelude.Bool@
+         * 'Proto.Jitml.Rl_Fields.timestampNs' @:: Lens' EvaluationOutcome Data.Word.Word64@ -}
+data EvaluationOutcome
+  = EvaluationOutcome'_constructor {_EvaluationOutcome'planId :: !Data.Text.Text,
+                                    _EvaluationOutcome'experimentHash :: !Data.Text.Text,
+                                    _EvaluationOutcome'episodeId :: !Data.Word.Word64,
+                                    _EvaluationOutcome'reward :: !Prelude.Double,
+                                    _EvaluationOutcome'steps :: !Data.Word.Word64,
+                                    _EvaluationOutcome'done :: !Prelude.Bool,
+                                    _EvaluationOutcome'timestampNs :: !Data.Word.Word64,
+                                    _EvaluationOutcome'_unknownFields :: !Data.ProtoLens.FieldSet}
   deriving stock (Prelude.Eq, Prelude.Ord)
-instance Prelude.Show EpisodeDone where
+instance Prelude.Show EvaluationOutcome where
   showsPrec _ __x __s
     = Prelude.showChar
         '{'
         (Prelude.showString
            (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
-instance Data.ProtoLens.Field.HasField EpisodeDone "experimentHash" Data.Text.Text where
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "planId" Data.Text.Text where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
-           _EpisodeDone'experimentHash
-           (\ x__ y__ -> x__ {_EpisodeDone'experimentHash = y__}))
+           _EvaluationOutcome'planId
+           (\ x__ y__ -> x__ {_EvaluationOutcome'planId = y__}))
         Prelude.id
-instance Data.ProtoLens.Field.HasField EpisodeDone "episode" Data.Word.Word32 where
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "experimentHash" Data.Text.Text where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
-           _EpisodeDone'episode
-           (\ x__ y__ -> x__ {_EpisodeDone'episode = y__}))
+           _EvaluationOutcome'experimentHash
+           (\ x__ y__ -> x__ {_EvaluationOutcome'experimentHash = y__}))
         Prelude.id
-instance Data.ProtoLens.Field.HasField EpisodeDone "reward" Prelude.Double where
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "episodeId" Data.Word.Word64 where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
-           _EpisodeDone'reward (\ x__ y__ -> x__ {_EpisodeDone'reward = y__}))
+           _EvaluationOutcome'episodeId
+           (\ x__ y__ -> x__ {_EvaluationOutcome'episodeId = y__}))
         Prelude.id
-instance Data.ProtoLens.Field.HasField EpisodeDone "steps" Data.Word.Word32 where
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "reward" Prelude.Double where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
-           _EpisodeDone'steps (\ x__ y__ -> x__ {_EpisodeDone'steps = y__}))
+           _EvaluationOutcome'reward
+           (\ x__ y__ -> x__ {_EvaluationOutcome'reward = y__}))
         Prelude.id
-instance Data.ProtoLens.Field.HasField EpisodeDone "timestampNs" Data.Word.Word64 where
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "steps" Data.Word.Word64 where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
-           _EpisodeDone'timestampNs
-           (\ x__ y__ -> x__ {_EpisodeDone'timestampNs = y__}))
+           _EvaluationOutcome'steps
+           (\ x__ y__ -> x__ {_EvaluationOutcome'steps = y__}))
         Prelude.id
-instance Data.ProtoLens.Message EpisodeDone where
-  messageName _ = Data.Text.pack "jitml.rl.EpisodeDone"
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "done" Prelude.Bool where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _EvaluationOutcome'done
+           (\ x__ y__ -> x__ {_EvaluationOutcome'done = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField EvaluationOutcome "timestampNs" Data.Word.Word64 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _EvaluationOutcome'timestampNs
+           (\ x__ y__ -> x__ {_EvaluationOutcome'timestampNs = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message EvaluationOutcome where
+  messageName _ = Data.Text.pack "jitml.rl.EvaluationOutcome"
   packedMessageDescriptor _
     = "\n\
-      \\vEpisodeDone\DC2'\n\
-      \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\CAN\n\
-      \\aepisode\CAN\STX \SOH(\rR\aepisode\DC2\SYN\n\
-      \\ACKreward\CAN\ETX \SOH(\SOHR\ACKreward\DC2\DC4\n\
-      \\ENQsteps\CAN\EOT \SOH(\rR\ENQsteps\DC2!\n\
-      \\ftimestamp_ns\CAN\ENQ \SOH(\EOTR\vtimestampNs"
+      \\DC1EvaluationOutcome\DC2\ETB\n\
+      \\aplan_id\CAN\SOH \SOH(\tR\ACKplanId\DC2'\n\
+      \\SIexperiment_hash\CAN\STX \SOH(\tR\SOexperimentHash\DC2\GS\n\
+      \\n\
+      \episode_id\CAN\ETX \SOH(\EOTR\tepisodeId\DC2\SYN\n\
+      \\ACKreward\CAN\EOT \SOH(\SOHR\ACKreward\DC2\DC4\n\
+      \\ENQsteps\CAN\ENQ \SOH(\EOTR\ENQsteps\DC2\DC2\n\
+      \\EOTdone\CAN\ACK \SOH(\bR\EOTdone\DC2!\n\
+      \\ftimestamp_ns\CAN\a \SOH(\EOTR\vtimestampNs"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
     = let
+        planId__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "plan_id"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"planId")) ::
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
         experimentHash__field_descriptor
           = Data.ProtoLens.FieldDescriptor
               "experiment_hash"
@@ -880,15 +912,16 @@ instance Data.ProtoLens.Message EpisodeDone where
               (Data.ProtoLens.PlainField
                  Data.ProtoLens.Optional
                  (Data.ProtoLens.Field.field @"experimentHash")) ::
-              Data.ProtoLens.FieldDescriptor EpisodeDone
-        episode__field_descriptor
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
+        episodeId__field_descriptor
           = Data.ProtoLens.FieldDescriptor
-              "episode"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
-                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
+              "episode_id"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt64Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word64)
               (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"episode")) ::
-              Data.ProtoLens.FieldDescriptor EpisodeDone
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"episodeId")) ::
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
         reward__field_descriptor
           = Data.ProtoLens.FieldDescriptor
               "reward"
@@ -896,15 +929,23 @@ instance Data.ProtoLens.Message EpisodeDone where
                  Data.ProtoLens.FieldTypeDescriptor Prelude.Double)
               (Data.ProtoLens.PlainField
                  Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"reward")) ::
-              Data.ProtoLens.FieldDescriptor EpisodeDone
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
         steps__field_descriptor
           = Data.ProtoLens.FieldDescriptor
               "steps"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
-                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt64Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word64)
               (Data.ProtoLens.PlainField
                  Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"steps")) ::
-              Data.ProtoLens.FieldDescriptor EpisodeDone
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
+        done__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "done"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.BoolField ::
+                 Data.ProtoLens.FieldTypeDescriptor Prelude.Bool)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"done")) ::
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
         timestampNs__field_descriptor
           = Data.ProtoLens.FieldDescriptor
               "timestamp_ns"
@@ -913,30 +954,35 @@ instance Data.ProtoLens.Message EpisodeDone where
               (Data.ProtoLens.PlainField
                  Data.ProtoLens.Optional
                  (Data.ProtoLens.Field.field @"timestampNs")) ::
-              Data.ProtoLens.FieldDescriptor EpisodeDone
+              Data.ProtoLens.FieldDescriptor EvaluationOutcome
       in
         Data.Map.fromList
-          [(Data.ProtoLens.Tag 1, experimentHash__field_descriptor),
-           (Data.ProtoLens.Tag 2, episode__field_descriptor),
-           (Data.ProtoLens.Tag 3, reward__field_descriptor),
-           (Data.ProtoLens.Tag 4, steps__field_descriptor),
-           (Data.ProtoLens.Tag 5, timestampNs__field_descriptor)]
+          [(Data.ProtoLens.Tag 1, planId__field_descriptor),
+           (Data.ProtoLens.Tag 2, experimentHash__field_descriptor),
+           (Data.ProtoLens.Tag 3, episodeId__field_descriptor),
+           (Data.ProtoLens.Tag 4, reward__field_descriptor),
+           (Data.ProtoLens.Tag 5, steps__field_descriptor),
+           (Data.ProtoLens.Tag 6, done__field_descriptor),
+           (Data.ProtoLens.Tag 7, timestampNs__field_descriptor)]
   unknownFields
     = Lens.Family2.Unchecked.lens
-        _EpisodeDone'_unknownFields
-        (\ x__ y__ -> x__ {_EpisodeDone'_unknownFields = y__})
+        _EvaluationOutcome'_unknownFields
+        (\ x__ y__ -> x__ {_EvaluationOutcome'_unknownFields = y__})
   defMessage
-    = EpisodeDone'_constructor
-        {_EpisodeDone'experimentHash = Data.ProtoLens.fieldDefault,
-         _EpisodeDone'episode = Data.ProtoLens.fieldDefault,
-         _EpisodeDone'reward = Data.ProtoLens.fieldDefault,
-         _EpisodeDone'steps = Data.ProtoLens.fieldDefault,
-         _EpisodeDone'timestampNs = Data.ProtoLens.fieldDefault,
-         _EpisodeDone'_unknownFields = []}
+    = EvaluationOutcome'_constructor
+        {_EvaluationOutcome'planId = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'experimentHash = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'episodeId = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'reward = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'steps = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'done = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'timestampNs = Data.ProtoLens.fieldDefault,
+         _EvaluationOutcome'_unknownFields = []}
   parseMessage
     = let
         loop ::
-          EpisodeDone -> Data.ProtoLens.Encoding.Bytes.Parser EpisodeDone
+          EvaluationOutcome
+          -> Data.ProtoLens.Encoding.Bytes.Parser EvaluationOutcome
         loop x
           = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
                if end then
@@ -960,32 +1006,40 @@ instance Data.ProtoLens.Message EpisodeDone where
                                        (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
                                            Data.ProtoLens.Encoding.Bytes.getText
                                              (Prelude.fromIntegral len))
+                                       "plan_id"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"planId") y x)
+                        18
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
                                        "experiment_hash"
                                 loop
                                   (Lens.Family2.set
                                      (Data.ProtoLens.Field.field @"experimentHash") y x)
-                        16
+                        24
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (Prelude.fmap
-                                          Prelude.fromIntegral
-                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
-                                       "episode"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"episode") y x)
-                        25
+                                       Data.ProtoLens.Encoding.Bytes.getVarInt "episode_id"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"episodeId") y x)
+                        33
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
                                        (Prelude.fmap
                                           Data.ProtoLens.Encoding.Bytes.wordToDouble
                                           Data.ProtoLens.Encoding.Bytes.getFixed64)
                                        "reward"
                                 loop (Lens.Family2.set (Data.ProtoLens.Field.field @"reward") y x)
-                        32
+                        40
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (Prelude.fmap
-                                          Prelude.fromIntegral
-                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
-                                       "steps"
+                                       Data.ProtoLens.Encoding.Bytes.getVarInt "steps"
                                 loop (Lens.Family2.set (Data.ProtoLens.Field.field @"steps") y x)
-                        40
+                        48
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          ((Prelude./=) 0) Data.ProtoLens.Encoding.Bytes.getVarInt)
+                                       "done"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"done") y x)
+                        56
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
                                        Data.ProtoLens.Encoding.Bytes.getVarInt "timestamp_ns"
                                 loop
@@ -998,14 +1052,12 @@ instance Data.ProtoLens.Message EpisodeDone where
                                      Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
       in
         (Data.ProtoLens.Encoding.Bytes.<?>)
-          (do loop Data.ProtoLens.defMessage) "EpisodeDone"
+          (do loop Data.ProtoLens.defMessage) "EvaluationOutcome"
   buildMessage
     = \ _x
         -> (Data.Monoid.<>)
              (let
-                _v
-                  = Lens.Family2.view
-                      (Data.ProtoLens.Field.field @"experimentHash") _x
+                _v = Lens.Family2.view (Data.ProtoLens.Field.field @"planId") _x
               in
                 if (Prelude.==) _v Data.ProtoLens.fieldDefault then
                     Data.Monoid.mempty
@@ -1021,309 +1073,35 @@ instance Data.ProtoLens.Message EpisodeDone where
                          Data.Text.Encoding.encodeUtf8 _v))
              ((Data.Monoid.<>)
                 (let
-                   _v = Lens.Family2.view (Data.ProtoLens.Field.field @"episode") _x
+                   _v
+                     = Lens.Family2.view
+                         (Data.ProtoLens.Field.field @"experimentHash") _x
                  in
                    if (Prelude.==) _v Data.ProtoLens.fieldDefault then
                        Data.Monoid.mempty
                    else
                        (Data.Monoid.<>)
-                         (Data.ProtoLens.Encoding.Bytes.putVarInt 16)
+                         (Data.ProtoLens.Encoding.Bytes.putVarInt 18)
                          ((Prelude..)
-                            Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral _v))
+                            (\ bs
+                               -> (Data.Monoid.<>)
+                                    (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                       (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                    (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                            Data.Text.Encoding.encodeUtf8 _v))
                 ((Data.Monoid.<>)
                    (let
-                      _v = Lens.Family2.view (Data.ProtoLens.Field.field @"reward") _x
+                      _v = Lens.Family2.view (Data.ProtoLens.Field.field @"episodeId") _x
                     in
                       if (Prelude.==) _v Data.ProtoLens.fieldDefault then
                           Data.Monoid.mempty
                       else
                           (Data.Monoid.<>)
-                            (Data.ProtoLens.Encoding.Bytes.putVarInt 25)
-                            ((Prelude..)
-                               Data.ProtoLens.Encoding.Bytes.putFixed64
-                               Data.ProtoLens.Encoding.Bytes.doubleToWord _v))
+                            (Data.ProtoLens.Encoding.Bytes.putVarInt 24)
+                            (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
                    ((Data.Monoid.<>)
                       (let
-                         _v = Lens.Family2.view (Data.ProtoLens.Field.field @"steps") _x
-                       in
-                         if (Prelude.==) _v Data.ProtoLens.fieldDefault then
-                             Data.Monoid.mempty
-                         else
-                             (Data.Monoid.<>)
-                               (Data.ProtoLens.Encoding.Bytes.putVarInt 32)
-                               ((Prelude..)
-                                  Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral _v))
-                      ((Data.Monoid.<>)
-                         (let
-                            _v
-                              = Lens.Family2.view (Data.ProtoLens.Field.field @"timestampNs") _x
-                          in
-                            if (Prelude.==) _v Data.ProtoLens.fieldDefault then
-                                Data.Monoid.mempty
-                            else
-                                (Data.Monoid.<>)
-                                  (Data.ProtoLens.Encoding.Bytes.putVarInt 40)
-                                  (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
-                         (Data.ProtoLens.Encoding.Wire.buildFieldSet
-                            (Lens.Family2.view Data.ProtoLens.unknownFields _x))))))
-instance Control.DeepSeq.NFData EpisodeDone where
-  rnf
-    = \ x__
-        -> Control.DeepSeq.deepseq
-             (_EpisodeDone'_unknownFields x__)
-             (Control.DeepSeq.deepseq
-                (_EpisodeDone'experimentHash x__)
-                (Control.DeepSeq.deepseq
-                   (_EpisodeDone'episode x__)
-                   (Control.DeepSeq.deepseq
-                      (_EpisodeDone'reward x__)
-                      (Control.DeepSeq.deepseq
-                         (_EpisodeDone'steps x__)
-                         (Control.DeepSeq.deepseq (_EpisodeDone'timestampNs x__) ())))))
-{- | Fields :
-
-         * 'Proto.Jitml.Rl_Fields.experimentHash' @:: Lens' EvalDone Data.Text.Text@
-         * 'Proto.Jitml.Rl_Fields.epoch' @:: Lens' EvalDone Data.Word.Word32@
-         * 'Proto.Jitml.Rl_Fields.avgReward' @:: Lens' EvalDone Prelude.Double@
-         * 'Proto.Jitml.Rl_Fields.stdReward' @:: Lens' EvalDone Prelude.Double@
-         * 'Proto.Jitml.Rl_Fields.timestampNs' @:: Lens' EvalDone Data.Word.Word64@ -}
-data EvalDone
-  = EvalDone'_constructor {_EvalDone'experimentHash :: !Data.Text.Text,
-                           _EvalDone'epoch :: !Data.Word.Word32,
-                           _EvalDone'avgReward :: !Prelude.Double,
-                           _EvalDone'stdReward :: !Prelude.Double,
-                           _EvalDone'timestampNs :: !Data.Word.Word64,
-                           _EvalDone'_unknownFields :: !Data.ProtoLens.FieldSet}
-  deriving stock (Prelude.Eq, Prelude.Ord)
-instance Prelude.Show EvalDone where
-  showsPrec _ __x __s
-    = Prelude.showChar
-        '{'
-        (Prelude.showString
-           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
-instance Data.ProtoLens.Field.HasField EvalDone "experimentHash" Data.Text.Text where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _EvalDone'experimentHash
-           (\ x__ y__ -> x__ {_EvalDone'experimentHash = y__}))
-        Prelude.id
-instance Data.ProtoLens.Field.HasField EvalDone "epoch" Data.Word.Word32 where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _EvalDone'epoch (\ x__ y__ -> x__ {_EvalDone'epoch = y__}))
-        Prelude.id
-instance Data.ProtoLens.Field.HasField EvalDone "avgReward" Prelude.Double where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _EvalDone'avgReward (\ x__ y__ -> x__ {_EvalDone'avgReward = y__}))
-        Prelude.id
-instance Data.ProtoLens.Field.HasField EvalDone "stdReward" Prelude.Double where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _EvalDone'stdReward (\ x__ y__ -> x__ {_EvalDone'stdReward = y__}))
-        Prelude.id
-instance Data.ProtoLens.Field.HasField EvalDone "timestampNs" Data.Word.Word64 where
-  fieldOf _
-    = (Prelude..)
-        (Lens.Family2.Unchecked.lens
-           _EvalDone'timestampNs
-           (\ x__ y__ -> x__ {_EvalDone'timestampNs = y__}))
-        Prelude.id
-instance Data.ProtoLens.Message EvalDone where
-  messageName _ = Data.Text.pack "jitml.rl.EvalDone"
-  packedMessageDescriptor _
-    = "\n\
-      \\bEvalDone\DC2'\n\
-      \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\DC4\n\
-      \\ENQepoch\CAN\STX \SOH(\rR\ENQepoch\DC2\GS\n\
-      \\n\
-      \avg_reward\CAN\ETX \SOH(\SOHR\tavgReward\DC2\GS\n\
-      \\n\
-      \std_reward\CAN\EOT \SOH(\SOHR\tstdReward\DC2!\n\
-      \\ftimestamp_ns\CAN\ENQ \SOH(\EOTR\vtimestampNs"
-  packedFileDescriptor _ = packedFileDescriptor
-  fieldsByTag
-    = let
-        experimentHash__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "experiment_hash"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
-                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
-              (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional
-                 (Data.ProtoLens.Field.field @"experimentHash")) ::
-              Data.ProtoLens.FieldDescriptor EvalDone
-        epoch__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "epoch"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt32Field ::
-                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word32)
-              (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"epoch")) ::
-              Data.ProtoLens.FieldDescriptor EvalDone
-        avgReward__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "avg_reward"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.DoubleField ::
-                 Data.ProtoLens.FieldTypeDescriptor Prelude.Double)
-              (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional
-                 (Data.ProtoLens.Field.field @"avgReward")) ::
-              Data.ProtoLens.FieldDescriptor EvalDone
-        stdReward__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "std_reward"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.DoubleField ::
-                 Data.ProtoLens.FieldTypeDescriptor Prelude.Double)
-              (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional
-                 (Data.ProtoLens.Field.field @"stdReward")) ::
-              Data.ProtoLens.FieldDescriptor EvalDone
-        timestampNs__field_descriptor
-          = Data.ProtoLens.FieldDescriptor
-              "timestamp_ns"
-              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt64Field ::
-                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word64)
-              (Data.ProtoLens.PlainField
-                 Data.ProtoLens.Optional
-                 (Data.ProtoLens.Field.field @"timestampNs")) ::
-              Data.ProtoLens.FieldDescriptor EvalDone
-      in
-        Data.Map.fromList
-          [(Data.ProtoLens.Tag 1, experimentHash__field_descriptor),
-           (Data.ProtoLens.Tag 2, epoch__field_descriptor),
-           (Data.ProtoLens.Tag 3, avgReward__field_descriptor),
-           (Data.ProtoLens.Tag 4, stdReward__field_descriptor),
-           (Data.ProtoLens.Tag 5, timestampNs__field_descriptor)]
-  unknownFields
-    = Lens.Family2.Unchecked.lens
-        _EvalDone'_unknownFields
-        (\ x__ y__ -> x__ {_EvalDone'_unknownFields = y__})
-  defMessage
-    = EvalDone'_constructor
-        {_EvalDone'experimentHash = Data.ProtoLens.fieldDefault,
-         _EvalDone'epoch = Data.ProtoLens.fieldDefault,
-         _EvalDone'avgReward = Data.ProtoLens.fieldDefault,
-         _EvalDone'stdReward = Data.ProtoLens.fieldDefault,
-         _EvalDone'timestampNs = Data.ProtoLens.fieldDefault,
-         _EvalDone'_unknownFields = []}
-  parseMessage
-    = let
-        loop :: EvalDone -> Data.ProtoLens.Encoding.Bytes.Parser EvalDone
-        loop x
-          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
-               if end then
-                   do (let missing = []
-                       in
-                         if Prelude.null missing then
-                             Prelude.return ()
-                         else
-                             Prelude.fail
-                               ((Prelude.++)
-                                  "Missing required fields: "
-                                  (Prelude.show (missing :: [Prelude.String]))))
-                      Prelude.return
-                        (Lens.Family2.over
-                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
-               else
-                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                      case tag of
-                        10
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                                           Data.ProtoLens.Encoding.Bytes.getText
-                                             (Prelude.fromIntegral len))
-                                       "experiment_hash"
-                                loop
-                                  (Lens.Family2.set
-                                     (Data.ProtoLens.Field.field @"experimentHash") y x)
-                        16
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (Prelude.fmap
-                                          Prelude.fromIntegral
-                                          Data.ProtoLens.Encoding.Bytes.getVarInt)
-                                       "epoch"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"epoch") y x)
-                        25
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (Prelude.fmap
-                                          Data.ProtoLens.Encoding.Bytes.wordToDouble
-                                          Data.ProtoLens.Encoding.Bytes.getFixed64)
-                                       "avg_reward"
-                                loop
-                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"avgReward") y x)
-                        33
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (Prelude.fmap
-                                          Data.ProtoLens.Encoding.Bytes.wordToDouble
-                                          Data.ProtoLens.Encoding.Bytes.getFixed64)
-                                       "std_reward"
-                                loop
-                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"stdReward") y x)
-                        40
-                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       Data.ProtoLens.Encoding.Bytes.getVarInt "timestamp_ns"
-                                loop
-                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"timestampNs") y x)
-                        wire
-                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
-                                        wire
-                                loop
-                                  (Lens.Family2.over
-                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
-      in
-        (Data.ProtoLens.Encoding.Bytes.<?>)
-          (do loop Data.ProtoLens.defMessage) "EvalDone"
-  buildMessage
-    = \ _x
-        -> (Data.Monoid.<>)
-             (let
-                _v
-                  = Lens.Family2.view
-                      (Data.ProtoLens.Field.field @"experimentHash") _x
-              in
-                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
-                    Data.Monoid.mempty
-                else
-                    (Data.Monoid.<>)
-                      (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
-                      ((Prelude..)
-                         (\ bs
-                            -> (Data.Monoid.<>)
-                                 (Data.ProtoLens.Encoding.Bytes.putVarInt
-                                    (Prelude.fromIntegral (Data.ByteString.length bs)))
-                                 (Data.ProtoLens.Encoding.Bytes.putBytes bs))
-                         Data.Text.Encoding.encodeUtf8 _v))
-             ((Data.Monoid.<>)
-                (let
-                   _v = Lens.Family2.view (Data.ProtoLens.Field.field @"epoch") _x
-                 in
-                   if (Prelude.==) _v Data.ProtoLens.fieldDefault then
-                       Data.Monoid.mempty
-                   else
-                       (Data.Monoid.<>)
-                         (Data.ProtoLens.Encoding.Bytes.putVarInt 16)
-                         ((Prelude..)
-                            Data.ProtoLens.Encoding.Bytes.putVarInt Prelude.fromIntegral _v))
-                ((Data.Monoid.<>)
-                   (let
-                      _v = Lens.Family2.view (Data.ProtoLens.Field.field @"avgReward") _x
-                    in
-                      if (Prelude.==) _v Data.ProtoLens.fieldDefault then
-                          Data.Monoid.mempty
-                      else
-                          (Data.Monoid.<>)
-                            (Data.ProtoLens.Encoding.Bytes.putVarInt 25)
-                            ((Prelude..)
-                               Data.ProtoLens.Encoding.Bytes.putFixed64
-                               Data.ProtoLens.Encoding.Bytes.doubleToWord _v))
-                   ((Data.Monoid.<>)
-                      (let
-                         _v = Lens.Family2.view (Data.ProtoLens.Field.field @"stdReward") _x
+                         _v = Lens.Family2.view (Data.ProtoLens.Field.field @"reward") _x
                        in
                          if (Prelude.==) _v Data.ProtoLens.fieldDefault then
                              Data.Monoid.mempty
@@ -1335,8 +1113,7 @@ instance Data.ProtoLens.Message EvalDone where
                                   Data.ProtoLens.Encoding.Bytes.doubleToWord _v))
                       ((Data.Monoid.<>)
                          (let
-                            _v
-                              = Lens.Family2.view (Data.ProtoLens.Field.field @"timestampNs") _x
+                            _v = Lens.Family2.view (Data.ProtoLens.Field.field @"steps") _x
                           in
                             if (Prelude.==) _v Data.ProtoLens.fieldDefault then
                                 Data.Monoid.mempty
@@ -1344,22 +1121,50 @@ instance Data.ProtoLens.Message EvalDone where
                                 (Data.Monoid.<>)
                                   (Data.ProtoLens.Encoding.Bytes.putVarInt 40)
                                   (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
-                         (Data.ProtoLens.Encoding.Wire.buildFieldSet
-                            (Lens.Family2.view Data.ProtoLens.unknownFields _x))))))
-instance Control.DeepSeq.NFData EvalDone where
+                         ((Data.Monoid.<>)
+                            (let _v = Lens.Family2.view (Data.ProtoLens.Field.field @"done") _x
+                             in
+                               if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                   Data.Monoid.mempty
+                               else
+                                   (Data.Monoid.<>)
+                                     (Data.ProtoLens.Encoding.Bytes.putVarInt 48)
+                                     ((Prelude..)
+                                        Data.ProtoLens.Encoding.Bytes.putVarInt
+                                        (\ b -> if b then 1 else 0) _v))
+                            ((Data.Monoid.<>)
+                               (let
+                                  _v
+                                    = Lens.Family2.view
+                                        (Data.ProtoLens.Field.field @"timestampNs") _x
+                                in
+                                  if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                      Data.Monoid.mempty
+                                  else
+                                      (Data.Monoid.<>)
+                                        (Data.ProtoLens.Encoding.Bytes.putVarInt 56)
+                                        (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
+                               (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                                  (Lens.Family2.view Data.ProtoLens.unknownFields _x))))))))
+instance Control.DeepSeq.NFData EvaluationOutcome where
   rnf
     = \ x__
         -> Control.DeepSeq.deepseq
-             (_EvalDone'_unknownFields x__)
+             (_EvaluationOutcome'_unknownFields x__)
              (Control.DeepSeq.deepseq
-                (_EvalDone'experimentHash x__)
+                (_EvaluationOutcome'planId x__)
                 (Control.DeepSeq.deepseq
-                   (_EvalDone'epoch x__)
+                   (_EvaluationOutcome'experimentHash x__)
                    (Control.DeepSeq.deepseq
-                      (_EvalDone'avgReward x__)
+                      (_EvaluationOutcome'episodeId x__)
                       (Control.DeepSeq.deepseq
-                         (_EvalDone'stdReward x__)
-                         (Control.DeepSeq.deepseq (_EvalDone'timestampNs x__) ())))))
+                         (_EvaluationOutcome'reward x__)
+                         (Control.DeepSeq.deepseq
+                            (_EvaluationOutcome'steps x__)
+                            (Control.DeepSeq.deepseq
+                               (_EvaluationOutcome'done x__)
+                               (Control.DeepSeq.deepseq
+                                  (_EvaluationOutcome'timestampNs x__) ())))))))
 {- | Fields :
 
          * 'Proto.Jitml.Rl_Fields.planId' @:: Lens' GenerationCompleted Data.Text.Text@
@@ -1651,15 +1456,351 @@ instance Control.DeepSeq.NFData GenerationCompleted where
                          (Control.DeepSeq.deepseq (_GenerationCompleted'samples x__) ())))))
 {- | Fields :
 
+         * 'Proto.Jitml.Rl_Fields.planId' @:: Lens' IterationSummary Data.Text.Text@
+         * 'Proto.Jitml.Rl_Fields.experimentHash' @:: Lens' IterationSummary Data.Text.Text@
+         * 'Proto.Jitml.Rl_Fields.iteration' @:: Lens' IterationSummary Data.Word.Word64@
+         * 'Proto.Jitml.Rl_Fields.metricName' @:: Lens' IterationSummary Data.Text.Text@
+         * 'Proto.Jitml.Rl_Fields.metricValue' @:: Lens' IterationSummary Prelude.Double@
+         * 'Proto.Jitml.Rl_Fields.timestampNs' @:: Lens' IterationSummary Data.Word.Word64@ -}
+data IterationSummary
+  = IterationSummary'_constructor {_IterationSummary'planId :: !Data.Text.Text,
+                                   _IterationSummary'experimentHash :: !Data.Text.Text,
+                                   _IterationSummary'iteration :: !Data.Word.Word64,
+                                   _IterationSummary'metricName :: !Data.Text.Text,
+                                   _IterationSummary'metricValue :: !Prelude.Double,
+                                   _IterationSummary'timestampNs :: !Data.Word.Word64,
+                                   _IterationSummary'_unknownFields :: !Data.ProtoLens.FieldSet}
+  deriving stock (Prelude.Eq, Prelude.Ord)
+instance Prelude.Show IterationSummary where
+  showsPrec _ __x __s
+    = Prelude.showChar
+        '{'
+        (Prelude.showString
+           (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
+instance Data.ProtoLens.Field.HasField IterationSummary "planId" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _IterationSummary'planId
+           (\ x__ y__ -> x__ {_IterationSummary'planId = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField IterationSummary "experimentHash" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _IterationSummary'experimentHash
+           (\ x__ y__ -> x__ {_IterationSummary'experimentHash = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField IterationSummary "iteration" Data.Word.Word64 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _IterationSummary'iteration
+           (\ x__ y__ -> x__ {_IterationSummary'iteration = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField IterationSummary "metricName" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _IterationSummary'metricName
+           (\ x__ y__ -> x__ {_IterationSummary'metricName = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField IterationSummary "metricValue" Prelude.Double where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _IterationSummary'metricValue
+           (\ x__ y__ -> x__ {_IterationSummary'metricValue = y__}))
+        Prelude.id
+instance Data.ProtoLens.Field.HasField IterationSummary "timestampNs" Data.Word.Word64 where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _IterationSummary'timestampNs
+           (\ x__ y__ -> x__ {_IterationSummary'timestampNs = y__}))
+        Prelude.id
+instance Data.ProtoLens.Message IterationSummary where
+  messageName _ = Data.Text.pack "jitml.rl.IterationSummary"
+  packedMessageDescriptor _
+    = "\n\
+      \\DLEIterationSummary\DC2\ETB\n\
+      \\aplan_id\CAN\SOH \SOH(\tR\ACKplanId\DC2'\n\
+      \\SIexperiment_hash\CAN\STX \SOH(\tR\SOexperimentHash\DC2\FS\n\
+      \\titeration\CAN\ETX \SOH(\EOTR\titeration\DC2\US\n\
+      \\vmetric_name\CAN\EOT \SOH(\tR\n\
+      \metricName\DC2!\n\
+      \\fmetric_value\CAN\ENQ \SOH(\SOHR\vmetricValue\DC2!\n\
+      \\ftimestamp_ns\CAN\ACK \SOH(\EOTR\vtimestampNs"
+  packedFileDescriptor _ = packedFileDescriptor
+  fieldsByTag
+    = let
+        planId__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "plan_id"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"planId")) ::
+              Data.ProtoLens.FieldDescriptor IterationSummary
+        experimentHash__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "experiment_hash"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"experimentHash")) ::
+              Data.ProtoLens.FieldDescriptor IterationSummary
+        iteration__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "iteration"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt64Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word64)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"iteration")) ::
+              Data.ProtoLens.FieldDescriptor IterationSummary
+        metricName__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "metric_name"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"metricName")) ::
+              Data.ProtoLens.FieldDescriptor IterationSummary
+        metricValue__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "metric_value"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.DoubleField ::
+                 Data.ProtoLens.FieldTypeDescriptor Prelude.Double)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"metricValue")) ::
+              Data.ProtoLens.FieldDescriptor IterationSummary
+        timestampNs__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "timestamp_ns"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.UInt64Field ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Word.Word64)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional
+                 (Data.ProtoLens.Field.field @"timestampNs")) ::
+              Data.ProtoLens.FieldDescriptor IterationSummary
+      in
+        Data.Map.fromList
+          [(Data.ProtoLens.Tag 1, planId__field_descriptor),
+           (Data.ProtoLens.Tag 2, experimentHash__field_descriptor),
+           (Data.ProtoLens.Tag 3, iteration__field_descriptor),
+           (Data.ProtoLens.Tag 4, metricName__field_descriptor),
+           (Data.ProtoLens.Tag 5, metricValue__field_descriptor),
+           (Data.ProtoLens.Tag 6, timestampNs__field_descriptor)]
+  unknownFields
+    = Lens.Family2.Unchecked.lens
+        _IterationSummary'_unknownFields
+        (\ x__ y__ -> x__ {_IterationSummary'_unknownFields = y__})
+  defMessage
+    = IterationSummary'_constructor
+        {_IterationSummary'planId = Data.ProtoLens.fieldDefault,
+         _IterationSummary'experimentHash = Data.ProtoLens.fieldDefault,
+         _IterationSummary'iteration = Data.ProtoLens.fieldDefault,
+         _IterationSummary'metricName = Data.ProtoLens.fieldDefault,
+         _IterationSummary'metricValue = Data.ProtoLens.fieldDefault,
+         _IterationSummary'timestampNs = Data.ProtoLens.fieldDefault,
+         _IterationSummary'_unknownFields = []}
+  parseMessage
+    = let
+        loop ::
+          IterationSummary
+          -> Data.ProtoLens.Encoding.Bytes.Parser IterationSummary
+        loop x
+          = do end <- Data.ProtoLens.Encoding.Bytes.atEnd
+               if end then
+                   do (let missing = []
+                       in
+                         if Prelude.null missing then
+                             Prelude.return ()
+                         else
+                             Prelude.fail
+                               ((Prelude.++)
+                                  "Missing required fields: "
+                                  (Prelude.show (missing :: [Prelude.String]))))
+                      Prelude.return
+                        (Lens.Family2.over
+                           Data.ProtoLens.unknownFields (\ !t -> Prelude.reverse t) x)
+               else
+                   do tag <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                      case tag of
+                        10
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "plan_id"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"planId") y x)
+                        18
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "experiment_hash"
+                                loop
+                                  (Lens.Family2.set
+                                     (Data.ProtoLens.Field.field @"experimentHash") y x)
+                        24
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       Data.ProtoLens.Encoding.Bytes.getVarInt "iteration"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"iteration") y x)
+                        34
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "metric_name"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"metricName") y x)
+                        41
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (Prelude.fmap
+                                          Data.ProtoLens.Encoding.Bytes.wordToDouble
+                                          Data.ProtoLens.Encoding.Bytes.getFixed64)
+                                       "metric_value"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"metricValue") y x)
+                        48
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       Data.ProtoLens.Encoding.Bytes.getVarInt "timestamp_ns"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"timestampNs") y x)
+                        wire
+                          -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
+                                        wire
+                                loop
+                                  (Lens.Family2.over
+                                     Data.ProtoLens.unknownFields (\ !t -> (:) y t) x)
+      in
+        (Data.ProtoLens.Encoding.Bytes.<?>)
+          (do loop Data.ProtoLens.defMessage) "IterationSummary"
+  buildMessage
+    = \ _x
+        -> (Data.Monoid.<>)
+             (let
+                _v = Lens.Family2.view (Data.ProtoLens.Field.field @"planId") _x
+              in
+                if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                    Data.Monoid.mempty
+                else
+                    (Data.Monoid.<>)
+                      (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
+                      ((Prelude..)
+                         (\ bs
+                            -> (Data.Monoid.<>)
+                                 (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                    (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                 (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                         Data.Text.Encoding.encodeUtf8 _v))
+             ((Data.Monoid.<>)
+                (let
+                   _v
+                     = Lens.Family2.view
+                         (Data.ProtoLens.Field.field @"experimentHash") _x
+                 in
+                   if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                       Data.Monoid.mempty
+                   else
+                       (Data.Monoid.<>)
+                         (Data.ProtoLens.Encoding.Bytes.putVarInt 18)
+                         ((Prelude..)
+                            (\ bs
+                               -> (Data.Monoid.<>)
+                                    (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                       (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                    (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                            Data.Text.Encoding.encodeUtf8 _v))
+                ((Data.Monoid.<>)
+                   (let
+                      _v = Lens.Family2.view (Data.ProtoLens.Field.field @"iteration") _x
+                    in
+                      if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                          Data.Monoid.mempty
+                      else
+                          (Data.Monoid.<>)
+                            (Data.ProtoLens.Encoding.Bytes.putVarInt 24)
+                            (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
+                   ((Data.Monoid.<>)
+                      (let
+                         _v
+                           = Lens.Family2.view (Data.ProtoLens.Field.field @"metricName") _x
+                       in
+                         if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                             Data.Monoid.mempty
+                         else
+                             (Data.Monoid.<>)
+                               (Data.ProtoLens.Encoding.Bytes.putVarInt 34)
+                               ((Prelude..)
+                                  (\ bs
+                                     -> (Data.Monoid.<>)
+                                          (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                             (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                          (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                                  Data.Text.Encoding.encodeUtf8 _v))
+                      ((Data.Monoid.<>)
+                         (let
+                            _v
+                              = Lens.Family2.view (Data.ProtoLens.Field.field @"metricValue") _x
+                          in
+                            if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                Data.Monoid.mempty
+                            else
+                                (Data.Monoid.<>)
+                                  (Data.ProtoLens.Encoding.Bytes.putVarInt 41)
+                                  ((Prelude..)
+                                     Data.ProtoLens.Encoding.Bytes.putFixed64
+                                     Data.ProtoLens.Encoding.Bytes.doubleToWord _v))
+                         ((Data.Monoid.<>)
+                            (let
+                               _v
+                                 = Lens.Family2.view (Data.ProtoLens.Field.field @"timestampNs") _x
+                             in
+                               if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                   Data.Monoid.mempty
+                               else
+                                   (Data.Monoid.<>)
+                                     (Data.ProtoLens.Encoding.Bytes.putVarInt 48)
+                                     (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
+                            (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                               (Lens.Family2.view Data.ProtoLens.unknownFields _x)))))))
+instance Control.DeepSeq.NFData IterationSummary where
+  rnf
+    = \ x__
+        -> Control.DeepSeq.deepseq
+             (_IterationSummary'_unknownFields x__)
+             (Control.DeepSeq.deepseq
+                (_IterationSummary'planId x__)
+                (Control.DeepSeq.deepseq
+                   (_IterationSummary'experimentHash x__)
+                   (Control.DeepSeq.deepseq
+                      (_IterationSummary'iteration x__)
+                      (Control.DeepSeq.deepseq
+                         (_IterationSummary'metricName x__)
+                         (Control.DeepSeq.deepseq
+                            (_IterationSummary'metricValue x__)
+                            (Control.DeepSeq.deepseq
+                               (_IterationSummary'timestampNs x__) ()))))))
+{- | Fields :
+
          * 'Proto.Jitml.Rl_Fields.experimentHash' @:: Lens' MetricUpdate Data.Text.Text@
          * 'Proto.Jitml.Rl_Fields.name' @:: Lens' MetricUpdate Data.Text.Text@
          * 'Proto.Jitml.Rl_Fields.value' @:: Lens' MetricUpdate Prelude.Double@
-         * 'Proto.Jitml.Rl_Fields.timestampNs' @:: Lens' MetricUpdate Data.Word.Word64@ -}
+         * 'Proto.Jitml.Rl_Fields.timestampNs' @:: Lens' MetricUpdate Data.Word.Word64@
+         * 'Proto.Jitml.Rl_Fields.planId' @:: Lens' MetricUpdate Data.Text.Text@ -}
 data MetricUpdate
   = MetricUpdate'_constructor {_MetricUpdate'experimentHash :: !Data.Text.Text,
                                _MetricUpdate'name :: !Data.Text.Text,
                                _MetricUpdate'value :: !Prelude.Double,
                                _MetricUpdate'timestampNs :: !Data.Word.Word64,
+                               _MetricUpdate'planId :: !Data.Text.Text,
                                _MetricUpdate'_unknownFields :: !Data.ProtoLens.FieldSet}
   deriving stock (Prelude.Eq, Prelude.Ord)
 instance Prelude.Show MetricUpdate where
@@ -1694,6 +1835,13 @@ instance Data.ProtoLens.Field.HasField MetricUpdate "timestampNs" Data.Word.Word
            _MetricUpdate'timestampNs
            (\ x__ y__ -> x__ {_MetricUpdate'timestampNs = y__}))
         Prelude.id
+instance Data.ProtoLens.Field.HasField MetricUpdate "planId" Data.Text.Text where
+  fieldOf _
+    = (Prelude..)
+        (Lens.Family2.Unchecked.lens
+           _MetricUpdate'planId
+           (\ x__ y__ -> x__ {_MetricUpdate'planId = y__}))
+        Prelude.id
 instance Data.ProtoLens.Message MetricUpdate where
   messageName _ = Data.Text.pack "jitml.rl.MetricUpdate"
   packedMessageDescriptor _
@@ -1702,7 +1850,8 @@ instance Data.ProtoLens.Message MetricUpdate where
       \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\DC2\n\
       \\EOTname\CAN\STX \SOH(\tR\EOTname\DC2\DC4\n\
       \\ENQvalue\CAN\ETX \SOH(\SOHR\ENQvalue\DC2!\n\
-      \\ftimestamp_ns\CAN\EOT \SOH(\EOTR\vtimestampNs"
+      \\ftimestamp_ns\CAN\EOT \SOH(\EOTR\vtimestampNs\DC2\ETB\n\
+      \\aplan_id\CAN\ENQ \SOH(\tR\ACKplanId"
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
     = let
@@ -1740,12 +1889,21 @@ instance Data.ProtoLens.Message MetricUpdate where
                  Data.ProtoLens.Optional
                  (Data.ProtoLens.Field.field @"timestampNs")) ::
               Data.ProtoLens.FieldDescriptor MetricUpdate
+        planId__field_descriptor
+          = Data.ProtoLens.FieldDescriptor
+              "plan_id"
+              (Data.ProtoLens.ScalarField Data.ProtoLens.StringField ::
+                 Data.ProtoLens.FieldTypeDescriptor Data.Text.Text)
+              (Data.ProtoLens.PlainField
+                 Data.ProtoLens.Optional (Data.ProtoLens.Field.field @"planId")) ::
+              Data.ProtoLens.FieldDescriptor MetricUpdate
       in
         Data.Map.fromList
           [(Data.ProtoLens.Tag 1, experimentHash__field_descriptor),
            (Data.ProtoLens.Tag 2, name__field_descriptor),
            (Data.ProtoLens.Tag 3, value__field_descriptor),
-           (Data.ProtoLens.Tag 4, timestampNs__field_descriptor)]
+           (Data.ProtoLens.Tag 4, timestampNs__field_descriptor),
+           (Data.ProtoLens.Tag 5, planId__field_descriptor)]
   unknownFields
     = Lens.Family2.Unchecked.lens
         _MetricUpdate'_unknownFields
@@ -1756,6 +1914,7 @@ instance Data.ProtoLens.Message MetricUpdate where
          _MetricUpdate'name = Data.ProtoLens.fieldDefault,
          _MetricUpdate'value = Data.ProtoLens.fieldDefault,
          _MetricUpdate'timestampNs = Data.ProtoLens.fieldDefault,
+         _MetricUpdate'planId = Data.ProtoLens.fieldDefault,
          _MetricUpdate'_unknownFields = []}
   parseMessage
     = let
@@ -1807,6 +1966,13 @@ instance Data.ProtoLens.Message MetricUpdate where
                                        Data.ProtoLens.Encoding.Bytes.getVarInt "timestamp_ns"
                                 loop
                                   (Lens.Family2.set (Data.ProtoLens.Field.field @"timestampNs") y x)
+                        42
+                          -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
+                                       "plan_id"
+                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"planId") y x)
                         wire
                           -> do !y <- Data.ProtoLens.Encoding.Wire.parseTaggedValueFromWire
                                         wire
@@ -1874,8 +2040,24 @@ instance Data.ProtoLens.Message MetricUpdate where
                              (Data.Monoid.<>)
                                (Data.ProtoLens.Encoding.Bytes.putVarInt 32)
                                (Data.ProtoLens.Encoding.Bytes.putVarInt _v))
-                      (Data.ProtoLens.Encoding.Wire.buildFieldSet
-                         (Lens.Family2.view Data.ProtoLens.unknownFields _x)))))
+                      ((Data.Monoid.<>)
+                         (let
+                            _v = Lens.Family2.view (Data.ProtoLens.Field.field @"planId") _x
+                          in
+                            if (Prelude.==) _v Data.ProtoLens.fieldDefault then
+                                Data.Monoid.mempty
+                            else
+                                (Data.Monoid.<>)
+                                  (Data.ProtoLens.Encoding.Bytes.putVarInt 42)
+                                  ((Prelude..)
+                                     (\ bs
+                                        -> (Data.Monoid.<>)
+                                             (Data.ProtoLens.Encoding.Bytes.putVarInt
+                                                (Prelude.fromIntegral (Data.ByteString.length bs)))
+                                             (Data.ProtoLens.Encoding.Bytes.putBytes bs))
+                                     Data.Text.Encoding.encodeUtf8 _v))
+                         (Data.ProtoLens.Encoding.Wire.buildFieldSet
+                            (Lens.Family2.view Data.ProtoLens.unknownFields _x))))))
 instance Control.DeepSeq.NFData MetricUpdate where
   rnf
     = \ x__
@@ -1887,7 +2069,9 @@ instance Control.DeepSeq.NFData MetricUpdate where
                    (_MetricUpdate'name x__)
                    (Control.DeepSeq.deepseq
                       (_MetricUpdate'value x__)
-                      (Control.DeepSeq.deepseq (_MetricUpdate'timestampNs x__) ()))))
+                      (Control.DeepSeq.deepseq
+                         (_MetricUpdate'timestampNs x__)
+                         (Control.DeepSeq.deepseq (_MetricUpdate'planId x__) ())))))
 {- | Fields :
 
          * 'Proto.Jitml.Rl_Fields.experimentHash' @:: Lens' RlAnimationFrame Data.Text.Text@
@@ -2882,10 +3066,10 @@ _RlCommand'StartAlphaZero
 {- | Fields :
 
          * 'Proto.Jitml.Rl_Fields.maybe'body' @:: Lens' RlEvent (Prelude.Maybe RlEvent'Body)@
-         * 'Proto.Jitml.Rl_Fields.maybe'episode' @:: Lens' RlEvent (Prelude.Maybe EpisodeDone)@
-         * 'Proto.Jitml.Rl_Fields.episode' @:: Lens' RlEvent EpisodeDone@
-         * 'Proto.Jitml.Rl_Fields.maybe'eval' @:: Lens' RlEvent (Prelude.Maybe EvalDone)@
-         * 'Proto.Jitml.Rl_Fields.eval' @:: Lens' RlEvent EvalDone@
+         * 'Proto.Jitml.Rl_Fields.maybe'evaluation' @:: Lens' RlEvent (Prelude.Maybe EvaluationOutcome)@
+         * 'Proto.Jitml.Rl_Fields.evaluation' @:: Lens' RlEvent EvaluationOutcome@
+         * 'Proto.Jitml.Rl_Fields.maybe'iteration' @:: Lens' RlEvent (Prelude.Maybe IterationSummary)@
+         * 'Proto.Jitml.Rl_Fields.iteration' @:: Lens' RlEvent IterationSummary@
          * 'Proto.Jitml.Rl_Fields.maybe'checkpoint' @:: Lens' RlEvent (Prelude.Maybe CheckpointDoneRL)@
          * 'Proto.Jitml.Rl_Fields.checkpoint' @:: Lens' RlEvent CheckpointDoneRL@
          * 'Proto.Jitml.Rl_Fields.maybe'metric' @:: Lens' RlEvent (Prelude.Maybe MetricUpdate)@
@@ -2911,8 +3095,8 @@ instance Prelude.Show RlEvent where
         (Prelude.showString
            (Data.ProtoLens.showMessageShort __x) (Prelude.showChar '}' __s))
 data RlEvent'Body
-  = RlEvent'Episode !EpisodeDone |
-    RlEvent'Eval !EvalDone |
+  = RlEvent'Evaluation !EvaluationOutcome |
+    RlEvent'Iteration !IterationSummary |
     RlEvent'Checkpoint !CheckpointDoneRL |
     RlEvent'Metric !MetricUpdate |
     RlEvent'Animation !RlAnimationFrame |
@@ -2927,7 +3111,7 @@ instance Data.ProtoLens.Field.HasField RlEvent "maybe'body" (Prelude.Maybe RlEve
         (Lens.Family2.Unchecked.lens
            _RlEvent'body (\ x__ y__ -> x__ {_RlEvent'body = y__}))
         Prelude.id
-instance Data.ProtoLens.Field.HasField RlEvent "maybe'episode" (Prelude.Maybe EpisodeDone) where
+instance Data.ProtoLens.Field.HasField RlEvent "maybe'evaluation" (Prelude.Maybe EvaluationOutcome) where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
@@ -2935,10 +3119,10 @@ instance Data.ProtoLens.Field.HasField RlEvent "maybe'episode" (Prelude.Maybe Ep
         (Lens.Family2.Unchecked.lens
            (\ x__
               -> case x__ of
-                   (Prelude.Just (RlEvent'Episode x__val)) -> Prelude.Just x__val
+                   (Prelude.Just (RlEvent'Evaluation x__val)) -> Prelude.Just x__val
                    _otherwise -> Prelude.Nothing)
-           (\ _ y__ -> Prelude.fmap RlEvent'Episode y__))
-instance Data.ProtoLens.Field.HasField RlEvent "episode" EpisodeDone where
+           (\ _ y__ -> Prelude.fmap RlEvent'Evaluation y__))
+instance Data.ProtoLens.Field.HasField RlEvent "evaluation" EvaluationOutcome where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
@@ -2947,11 +3131,11 @@ instance Data.ProtoLens.Field.HasField RlEvent "episode" EpisodeDone where
            (Lens.Family2.Unchecked.lens
               (\ x__
                  -> case x__ of
-                      (Prelude.Just (RlEvent'Episode x__val)) -> Prelude.Just x__val
+                      (Prelude.Just (RlEvent'Evaluation x__val)) -> Prelude.Just x__val
                       _otherwise -> Prelude.Nothing)
-              (\ _ y__ -> Prelude.fmap RlEvent'Episode y__))
+              (\ _ y__ -> Prelude.fmap RlEvent'Evaluation y__))
            (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage))
-instance Data.ProtoLens.Field.HasField RlEvent "maybe'eval" (Prelude.Maybe EvalDone) where
+instance Data.ProtoLens.Field.HasField RlEvent "maybe'iteration" (Prelude.Maybe IterationSummary) where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
@@ -2959,10 +3143,10 @@ instance Data.ProtoLens.Field.HasField RlEvent "maybe'eval" (Prelude.Maybe EvalD
         (Lens.Family2.Unchecked.lens
            (\ x__
               -> case x__ of
-                   (Prelude.Just (RlEvent'Eval x__val)) -> Prelude.Just x__val
+                   (Prelude.Just (RlEvent'Iteration x__val)) -> Prelude.Just x__val
                    _otherwise -> Prelude.Nothing)
-           (\ _ y__ -> Prelude.fmap RlEvent'Eval y__))
-instance Data.ProtoLens.Field.HasField RlEvent "eval" EvalDone where
+           (\ _ y__ -> Prelude.fmap RlEvent'Iteration y__))
+instance Data.ProtoLens.Field.HasField RlEvent "iteration" IterationSummary where
   fieldOf _
     = (Prelude..)
         (Lens.Family2.Unchecked.lens
@@ -2971,9 +3155,9 @@ instance Data.ProtoLens.Field.HasField RlEvent "eval" EvalDone where
            (Lens.Family2.Unchecked.lens
               (\ x__
                  -> case x__ of
-                      (Prelude.Just (RlEvent'Eval x__val)) -> Prelude.Just x__val
+                      (Prelude.Just (RlEvent'Iteration x__val)) -> Prelude.Just x__val
                       _otherwise -> Prelude.Nothing)
-              (\ _ y__ -> Prelude.fmap RlEvent'Eval y__))
+              (\ _ y__ -> Prelude.fmap RlEvent'Iteration y__))
            (Data.ProtoLens.maybeLens Data.ProtoLens.defMessage))
 instance Data.ProtoLens.Field.HasField RlEvent "maybe'checkpoint" (Prelude.Maybe CheckpointDoneRL) where
   fieldOf _
@@ -3153,9 +3337,11 @@ instance Data.ProtoLens.Message RlEvent where
   messageName _ = Data.Text.pack "jitml.rl.RlEvent"
   packedMessageDescriptor _
     = "\n\
-      \\aRlEvent\DC21\n\
-      \\aepisode\CAN\SOH \SOH(\v2\NAK.jitml.rl.EpisodeDoneH\NULR\aepisode\DC2(\n\
-      \\EOTeval\CAN\STX \SOH(\v2\DC2.jitml.rl.EvalDoneH\NULR\EOTeval\DC2<\n\
+      \\aRlEvent\DC2=\n\
+      \\n\
+      \evaluation\CAN\SOH \SOH(\v2\ESC.jitml.rl.EvaluationOutcomeH\NULR\n\
+      \evaluation\DC2:\n\
+      \\titeration\CAN\STX \SOH(\v2\SUB.jitml.rl.IterationSummaryH\NULR\titeration\DC2<\n\
       \\n\
       \checkpoint\CAN\ETX \SOH(\v2\SUB.jitml.rl.CheckpointDoneRLH\NULR\n\
       \checkpoint\DC20\n\
@@ -3169,21 +3355,21 @@ instance Data.ProtoLens.Message RlEvent where
   packedFileDescriptor _ = packedFileDescriptor
   fieldsByTag
     = let
-        episode__field_descriptor
+        evaluation__field_descriptor
           = Data.ProtoLens.FieldDescriptor
-              "episode"
+              "evaluation"
               (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
-                 Data.ProtoLens.FieldTypeDescriptor EpisodeDone)
+                 Data.ProtoLens.FieldTypeDescriptor EvaluationOutcome)
               (Data.ProtoLens.OptionalField
-                 (Data.ProtoLens.Field.field @"maybe'episode")) ::
+                 (Data.ProtoLens.Field.field @"maybe'evaluation")) ::
               Data.ProtoLens.FieldDescriptor RlEvent
-        eval__field_descriptor
+        iteration__field_descriptor
           = Data.ProtoLens.FieldDescriptor
-              "eval"
+              "iteration"
               (Data.ProtoLens.MessageField Data.ProtoLens.MessageType ::
-                 Data.ProtoLens.FieldTypeDescriptor EvalDone)
+                 Data.ProtoLens.FieldTypeDescriptor IterationSummary)
               (Data.ProtoLens.OptionalField
-                 (Data.ProtoLens.Field.field @"maybe'eval")) ::
+                 (Data.ProtoLens.Field.field @"maybe'iteration")) ::
               Data.ProtoLens.FieldDescriptor RlEvent
         checkpoint__field_descriptor
           = Data.ProtoLens.FieldDescriptor
@@ -3243,8 +3429,8 @@ instance Data.ProtoLens.Message RlEvent where
               Data.ProtoLens.FieldDescriptor RlEvent
       in
         Data.Map.fromList
-          [(Data.ProtoLens.Tag 1, episode__field_descriptor),
-           (Data.ProtoLens.Tag 2, eval__field_descriptor),
+          [(Data.ProtoLens.Tag 1, evaluation__field_descriptor),
+           (Data.ProtoLens.Tag 2, iteration__field_descriptor),
            (Data.ProtoLens.Tag 3, checkpoint__field_descriptor),
            (Data.ProtoLens.Tag 4, metric__field_descriptor),
            (Data.ProtoLens.Tag 5, animation__field_descriptor),
@@ -3285,15 +3471,17 @@ instance Data.ProtoLens.Message RlEvent where
                                        (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
                                            Data.ProtoLens.Encoding.Bytes.isolate
                                              (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
-                                       "episode"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"episode") y x)
+                                       "evaluation"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"evaluation") y x)
                         18
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
                                        (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
                                            Data.ProtoLens.Encoding.Bytes.isolate
                                              (Prelude.fromIntegral len) Data.ProtoLens.parseMessage)
-                                       "eval"
-                                loop (Lens.Family2.set (Data.ProtoLens.Field.field @"eval") y x)
+                                       "iteration"
+                                loop
+                                  (Lens.Family2.set (Data.ProtoLens.Field.field @"iteration") y x)
                         26
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
                                        (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
@@ -3367,7 +3555,7 @@ instance Data.ProtoLens.Message RlEvent where
                   Lens.Family2.view (Data.ProtoLens.Field.field @"maybe'body") _x
               of
                 Prelude.Nothing -> Data.Monoid.mempty
-                (Prelude.Just (RlEvent'Episode v))
+                (Prelude.Just (RlEvent'Evaluation v))
                   -> (Data.Monoid.<>)
                        (Data.ProtoLens.Encoding.Bytes.putVarInt 10)
                        ((Prelude..)
@@ -3377,7 +3565,7 @@ instance Data.ProtoLens.Message RlEvent where
                                      (Prelude.fromIntegral (Data.ByteString.length bs)))
                                   (Data.ProtoLens.Encoding.Bytes.putBytes bs))
                           Data.ProtoLens.encodeMessage v)
-                (Prelude.Just (RlEvent'Eval v))
+                (Prelude.Just (RlEvent'Iteration v))
                   -> (Data.Monoid.<>)
                        (Data.ProtoLens.Encoding.Bytes.putVarInt 18)
                        ((Prelude..)
@@ -3466,8 +3654,8 @@ instance Control.DeepSeq.NFData RlEvent where
              (_RlEvent'_unknownFields x__)
              (Control.DeepSeq.deepseq (_RlEvent'body x__) ())
 instance Control.DeepSeq.NFData RlEvent'Body where
-  rnf (RlEvent'Episode x__) = Control.DeepSeq.rnf x__
-  rnf (RlEvent'Eval x__) = Control.DeepSeq.rnf x__
+  rnf (RlEvent'Evaluation x__) = Control.DeepSeq.rnf x__
+  rnf (RlEvent'Iteration x__) = Control.DeepSeq.rnf x__
   rnf (RlEvent'Checkpoint x__) = Control.DeepSeq.rnf x__
   rnf (RlEvent'Metric x__) = Control.DeepSeq.rnf x__
   rnf (RlEvent'Animation x__) = Control.DeepSeq.rnf x__
@@ -3475,22 +3663,23 @@ instance Control.DeepSeq.NFData RlEvent'Body where
   rnf (RlEvent'GenerationCompleted x__) = Control.DeepSeq.rnf x__
   rnf (RlEvent'ArenaCompleted x__) = Control.DeepSeq.rnf x__
   rnf (RlEvent'CompletedCheckpoint x__) = Control.DeepSeq.rnf x__
-_RlEvent'Episode ::
-  Data.ProtoLens.Prism.Prism' RlEvent'Body EpisodeDone
-_RlEvent'Episode
+_RlEvent'Evaluation ::
+  Data.ProtoLens.Prism.Prism' RlEvent'Body EvaluationOutcome
+_RlEvent'Evaluation
   = Data.ProtoLens.Prism.prism'
-      RlEvent'Episode
+      RlEvent'Evaluation
       (\ p__
          -> case p__ of
-              (RlEvent'Episode p__val) -> Prelude.Just p__val
+              (RlEvent'Evaluation p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
-_RlEvent'Eval :: Data.ProtoLens.Prism.Prism' RlEvent'Body EvalDone
-_RlEvent'Eval
+_RlEvent'Iteration ::
+  Data.ProtoLens.Prism.Prism' RlEvent'Body IterationSummary
+_RlEvent'Iteration
   = Data.ProtoLens.Prism.prism'
-      RlEvent'Eval
+      RlEvent'Iteration
       (\ p__
          -> case p__ of
-              (RlEvent'Eval p__val) -> Prelude.Just p__val
+              (RlEvent'Iteration p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
 _RlEvent'Checkpoint ::
   Data.ProtoLens.Prism.Prism' RlEvent'Body CheckpointDoneRL
@@ -5505,21 +5694,24 @@ packedFileDescriptor
     \\EOTseed\CAN\f \SOH(\EOTR\EOTseed\"J\n\
     \\tStopRLRun\DC2'\n\
     \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\DC4\n\
-    \\ENQdrain\CAN\STX \SOH(\bR\ENQdrain\"\161\SOH\n\
-    \\vEpisodeDone\DC2'\n\
-    \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\CAN\n\
-    \\aepisode\CAN\STX \SOH(\rR\aepisode\DC2\SYN\n\
-    \\ACKreward\CAN\ETX \SOH(\SOHR\ACKreward\DC2\DC4\n\
-    \\ENQsteps\CAN\EOT \SOH(\rR\ENQsteps\DC2!\n\
-    \\ftimestamp_ns\CAN\ENQ \SOH(\EOTR\vtimestampNs\"\170\SOH\n\
-    \\bEvalDone\DC2'\n\
-    \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\DC4\n\
-    \\ENQepoch\CAN\STX \SOH(\rR\ENQepoch\DC2\GS\n\
+    \\ENQdrain\CAN\STX \SOH(\bR\ENQdrain\"\217\SOH\n\
+    \\DC1EvaluationOutcome\DC2\ETB\n\
+    \\aplan_id\CAN\SOH \SOH(\tR\ACKplanId\DC2'\n\
+    \\SIexperiment_hash\CAN\STX \SOH(\tR\SOexperimentHash\DC2\GS\n\
     \\n\
-    \avg_reward\CAN\ETX \SOH(\SOHR\tavgReward\DC2\GS\n\
-    \\n\
-    \std_reward\CAN\EOT \SOH(\SOHR\tstdReward\DC2!\n\
-    \\ftimestamp_ns\CAN\ENQ \SOH(\EOTR\vtimestampNs\"\190\SOH\n\
+    \episode_id\CAN\ETX \SOH(\EOTR\tepisodeId\DC2\SYN\n\
+    \\ACKreward\CAN\EOT \SOH(\SOHR\ACKreward\DC2\DC4\n\
+    \\ENQsteps\CAN\ENQ \SOH(\EOTR\ENQsteps\DC2\DC2\n\
+    \\EOTdone\CAN\ACK \SOH(\bR\EOTdone\DC2!\n\
+    \\ftimestamp_ns\CAN\a \SOH(\EOTR\vtimestampNs\"\217\SOH\n\
+    \\DLEIterationSummary\DC2\ETB\n\
+    \\aplan_id\CAN\SOH \SOH(\tR\ACKplanId\DC2'\n\
+    \\SIexperiment_hash\CAN\STX \SOH(\tR\SOexperimentHash\DC2\FS\n\
+    \\titeration\CAN\ETX \SOH(\EOTR\titeration\DC2\US\n\
+    \\vmetric_name\CAN\EOT \SOH(\tR\n\
+    \metricName\DC2!\n\
+    \\fmetric_value\CAN\ENQ \SOH(\SOHR\vmetricValue\DC2!\n\
+    \\ftimestamp_ns\CAN\ACK \SOH(\EOTR\vtimestampNs\"\190\SOH\n\
     \\DLECheckpointDoneRL\DC2'\n\
     \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2!\n\
     \\fmanifest_sha\CAN\STX \SOH(\tR\vmanifestSha\DC2\DC2\n\
@@ -5532,12 +5724,13 @@ packedFileDescriptor
     \\n\
     \checkpoint\CAN\STX \SOH(\v2\SUB.jitml.rl.CheckpointDoneRLR\n\
     \checkpoint\DC2-\n\
-    \\DC2completed_training\CAN\ETX \SOH(\fR\DC1completedTraining\"\132\SOH\n\
+    \\DC2completed_training\CAN\ETX \SOH(\fR\DC1completedTraining\"\157\SOH\n\
     \\fMetricUpdate\DC2'\n\
     \\SIexperiment_hash\CAN\SOH \SOH(\tR\SOexperimentHash\DC2\DC2\n\
     \\EOTname\CAN\STX \SOH(\tR\EOTname\DC2\DC4\n\
     \\ENQvalue\CAN\ETX \SOH(\SOHR\ENQvalue\DC2!\n\
-    \\ftimestamp_ns\CAN\EOT \SOH(\EOTR\vtimestampNs\"\185\SOH\n\
+    \\ftimestamp_ns\CAN\EOT \SOH(\EOTR\vtimestampNs\DC2\ETB\n\
+    \\aplan_id\CAN\ENQ \SOH(\tR\ACKplanId\"\185\SOH\n\
     \\DC3GenerationCompleted\DC2\ETB\n\
     \\aplan_id\CAN\SOH \SOH(\tR\ACKplanId\DC2'\n\
     \\SIexperiment_hash\CAN\STX \SOH(\tR\SOexperimentHash\DC2\RS\n\
@@ -5585,10 +5778,12 @@ packedFileDescriptor
     \\ENQstart\CAN\SOH \SOH(\v2\DC4.jitml.rl.StartRLRunH\NULR\ENQstart\DC2)\n\
     \\EOTstop\CAN\STX \SOH(\v2\DC3.jitml.rl.StopRLRunH\NULR\EOTstop\DC2G\n\
     \\DLEstart_alpha_zero\CAN\ETX \SOH(\v2\ESC.jitml.rl.StartAlphaZeroRunH\NULR\SOstartAlphaZeroB\ACK\n\
-    \\EOTbody\"\192\EOT\n\
-    \\aRlEvent\DC21\n\
-    \\aepisode\CAN\SOH \SOH(\v2\NAK.jitml.rl.EpisodeDoneH\NULR\aepisode\DC2(\n\
-    \\EOTeval\CAN\STX \SOH(\v2\DC2.jitml.rl.EvalDoneH\NULR\EOTeval\DC2<\n\
+    \\EOTbody\"\222\EOT\n\
+    \\aRlEvent\DC2=\n\
+    \\n\
+    \evaluation\CAN\SOH \SOH(\v2\ESC.jitml.rl.EvaluationOutcomeH\NULR\n\
+    \evaluation\DC2:\n\
+    \\titeration\CAN\STX \SOH(\v2\SUB.jitml.rl.IterationSummaryH\NULR\titeration\DC2<\n\
     \\n\
     \checkpoint\CAN\ETX \SOH(\v2\SUB.jitml.rl.CheckpointDoneRLH\NULR\n\
     \checkpoint\DC20\n\
@@ -5598,8 +5793,8 @@ packedFileDescriptor
     \\DC4generation_completed\CAN\a \SOH(\v2\GS.jitml.rl.GenerationCompletedH\NULR\DC3generationCompleted\DC2C\n\
     \\SIarena_completed\CAN\b \SOH(\v2\CAN.jitml.rl.ArenaCompletedH\NULR\SOarenaCompleted\DC2X\n\
     \\DC4completed_checkpoint\CAN\t \SOH(\v2#.jitml.rl.CompletedCheckpointDoneRLH\NULR\DC3completedCheckpointB\ACK\n\
-    \\EOTbodyJ\130/\n\
-    \\a\DC2\ENQ\NUL\NUL\146\SOH\SOH\n\
+    \\EOTbodyJ\252\&0\n\
+    \\a\DC2\ENQ\NUL\NUL\150\SOH\SOH\n\
     \\b\n\
     \\SOH\f\DC2\ETX\NUL\NUL\DC2\n\
     \\b\n\
@@ -5806,690 +6001,720 @@ packedFileDescriptor
     \\ENQ\EOT\STX\STX\SOH\ETX\DC2\ETX%\DC1\DC2\n\
     \\n\
     \\n\
-    \\STX\EOT\ETX\DC2\EOT(\NUL.\SOH\n\
+    \\STX\EOT\ETX\DC2\EOT(\NUL0\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\ETX\SOH\DC2\ETX(\b\DC3\n\
+    \\ETX\EOT\ETX\SOH\DC2\ETX(\b\EM\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\NUL\DC2\ETX)\STX\GS\n\
+    \\EOT\EOT\ETX\STX\NUL\DC2\ETX)\STX\NAK\n\
     \\f\n\
     \\ENQ\EOT\ETX\STX\NUL\ENQ\DC2\ETX)\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX)\t\CAN\n\
+    \\ENQ\EOT\ETX\STX\NUL\SOH\DC2\ETX)\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX)\ESC\FS\n\
+    \\ENQ\EOT\ETX\STX\NUL\ETX\DC2\ETX)\DC3\DC4\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\SOH\DC2\ETX*\STX\NAK\n\
+    \\EOT\EOT\ETX\STX\SOH\DC2\ETX*\STX\GS\n\
     \\f\n\
     \\ENQ\EOT\ETX\STX\SOH\ENQ\DC2\ETX*\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\SOH\DC2\ETX*\t\DLE\n\
+    \\ENQ\EOT\ETX\STX\SOH\SOH\DC2\ETX*\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\SOH\ETX\DC2\ETX*\DC3\DC4\n\
+    \\ENQ\EOT\ETX\STX\SOH\ETX\DC2\ETX*\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\STX\DC2\ETX+\STX\DC4\n\
+    \\EOT\EOT\ETX\STX\STX\DC2\ETX+\STX\CAN\n\
     \\f\n\
     \\ENQ\EOT\ETX\STX\STX\ENQ\DC2\ETX+\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\STX\SOH\DC2\ETX+\t\SI\n\
+    \\ENQ\EOT\ETX\STX\STX\SOH\DC2\ETX+\t\DC3\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\STX\ETX\DC2\ETX+\DC2\DC3\n\
+    \\ENQ\EOT\ETX\STX\STX\ETX\DC2\ETX+\SYN\ETB\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\ETX\DC2\ETX,\STX\DC3\n\
+    \\EOT\EOT\ETX\STX\ETX\DC2\ETX,\STX\DC4\n\
     \\f\n\
     \\ENQ\EOT\ETX\STX\ETX\ENQ\DC2\ETX,\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ETX\SOH\DC2\ETX,\t\SO\n\
+    \\ENQ\EOT\ETX\STX\ETX\SOH\DC2\ETX,\t\SI\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\ETX\ETX\DC2\ETX,\DC1\DC2\n\
+    \\ENQ\EOT\ETX\STX\ETX\ETX\DC2\ETX,\DC2\DC3\n\
     \\v\n\
-    \\EOT\EOT\ETX\STX\EOT\DC2\ETX-\STX\SUB\n\
+    \\EOT\EOT\ETX\STX\EOT\DC2\ETX-\STX\DC3\n\
     \\f\n\
     \\ENQ\EOT\ETX\STX\EOT\ENQ\DC2\ETX-\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\EOT\SOH\DC2\ETX-\t\NAK\n\
+    \\ENQ\EOT\ETX\STX\EOT\SOH\DC2\ETX-\t\SO\n\
     \\f\n\
-    \\ENQ\EOT\ETX\STX\EOT\ETX\DC2\ETX-\CAN\EM\n\
+    \\ENQ\EOT\ETX\STX\EOT\ETX\DC2\ETX-\DC1\DC2\n\
+    \\v\n\
+    \\EOT\EOT\ETX\STX\ENQ\DC2\ETX.\STX\DLE\n\
+    \\f\n\
+    \\ENQ\EOT\ETX\STX\ENQ\ENQ\DC2\ETX.\STX\ACK\n\
+    \\f\n\
+    \\ENQ\EOT\ETX\STX\ENQ\SOH\DC2\ETX.\a\v\n\
+    \\f\n\
+    \\ENQ\EOT\ETX\STX\ENQ\ETX\DC2\ETX.\SO\SI\n\
+    \\v\n\
+    \\EOT\EOT\ETX\STX\ACK\DC2\ETX/\STX\SUB\n\
+    \\f\n\
+    \\ENQ\EOT\ETX\STX\ACK\ENQ\DC2\ETX/\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\ETX\STX\ACK\SOH\DC2\ETX/\t\NAK\n\
+    \\f\n\
+    \\ENQ\EOT\ETX\STX\ACK\ETX\DC2\ETX/\CAN\EM\n\
     \\n\
     \\n\
-    \\STX\EOT\EOT\DC2\EOT0\NUL6\SOH\n\
+    \\STX\EOT\EOT\DC2\EOT2\NUL9\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\EOT\SOH\DC2\ETX0\b\DLE\n\
+    \\ETX\EOT\EOT\SOH\DC2\ETX2\b\CAN\n\
     \\v\n\
-    \\EOT\EOT\EOT\STX\NUL\DC2\ETX1\STX\GS\n\
+    \\EOT\EOT\EOT\STX\NUL\DC2\ETX3\STX\NAK\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\NUL\ENQ\DC2\ETX1\STX\b\n\
+    \\ENQ\EOT\EOT\STX\NUL\ENQ\DC2\ETX3\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\NUL\SOH\DC2\ETX1\t\CAN\n\
+    \\ENQ\EOT\EOT\STX\NUL\SOH\DC2\ETX3\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\NUL\ETX\DC2\ETX1\ESC\FS\n\
+    \\ENQ\EOT\EOT\STX\NUL\ETX\DC2\ETX3\DC3\DC4\n\
     \\v\n\
-    \\EOT\EOT\EOT\STX\SOH\DC2\ETX2\STX\DC3\n\
+    \\EOT\EOT\EOT\STX\SOH\DC2\ETX4\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\SOH\ENQ\DC2\ETX2\STX\b\n\
+    \\ENQ\EOT\EOT\STX\SOH\ENQ\DC2\ETX4\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\SOH\SOH\DC2\ETX2\t\SO\n\
+    \\ENQ\EOT\EOT\STX\SOH\SOH\DC2\ETX4\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\SOH\ETX\DC2\ETX2\DC1\DC2\n\
+    \\ENQ\EOT\EOT\STX\SOH\ETX\DC2\ETX4\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\EOT\STX\STX\DC2\ETX3\STX\CAN\n\
+    \\EOT\EOT\EOT\STX\STX\DC2\ETX5\STX\ETB\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\STX\ENQ\DC2\ETX3\STX\b\n\
+    \\ENQ\EOT\EOT\STX\STX\ENQ\DC2\ETX5\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\STX\SOH\DC2\ETX3\t\DC3\n\
+    \\ENQ\EOT\EOT\STX\STX\SOH\DC2\ETX5\t\DC2\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\STX\ETX\DC2\ETX3\SYN\ETB\n\
+    \\ENQ\EOT\EOT\STX\STX\ETX\DC2\ETX5\NAK\SYN\n\
     \\v\n\
-    \\EOT\EOT\EOT\STX\ETX\DC2\ETX4\STX\CAN\n\
+    \\EOT\EOT\EOT\STX\ETX\DC2\ETX6\STX\EM\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\ETX\ENQ\DC2\ETX4\STX\b\n\
+    \\ENQ\EOT\EOT\STX\ETX\ENQ\DC2\ETX6\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\ETX\SOH\DC2\ETX4\t\DC3\n\
+    \\ENQ\EOT\EOT\STX\ETX\SOH\DC2\ETX6\t\DC4\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\ETX\ETX\DC2\ETX4\SYN\ETB\n\
+    \\ENQ\EOT\EOT\STX\ETX\ETX\DC2\ETX6\ETB\CAN\n\
     \\v\n\
-    \\EOT\EOT\EOT\STX\EOT\DC2\ETX5\STX\SUB\n\
+    \\EOT\EOT\EOT\STX\EOT\DC2\ETX7\STX\SUB\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\EOT\ENQ\DC2\ETX5\STX\b\n\
+    \\ENQ\EOT\EOT\STX\EOT\ENQ\DC2\ETX7\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\EOT\SOH\DC2\ETX5\t\NAK\n\
+    \\ENQ\EOT\EOT\STX\EOT\SOH\DC2\ETX7\t\NAK\n\
     \\f\n\
-    \\ENQ\EOT\EOT\STX\EOT\ETX\DC2\ETX5\CAN\EM\n\
+    \\ENQ\EOT\EOT\STX\EOT\ETX\DC2\ETX7\CAN\EM\n\
+    \\v\n\
+    \\EOT\EOT\EOT\STX\ENQ\DC2\ETX8\STX\SUB\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\ENQ\ENQ\DC2\ETX8\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\ENQ\SOH\DC2\ETX8\t\NAK\n\
+    \\f\n\
+    \\ENQ\EOT\EOT\STX\ENQ\ETX\DC2\ETX8\CAN\EM\n\
     \\n\
     \\n\
-    \\STX\EOT\ENQ\DC2\EOT8\NUL>\SOH\n\
+    \\STX\EOT\ENQ\DC2\EOT;\NULA\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\ENQ\SOH\DC2\ETX8\b\CAN\n\
+    \\ETX\EOT\ENQ\SOH\DC2\ETX;\b\CAN\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\NUL\DC2\ETX9\STX\GS\n\
+    \\EOT\EOT\ENQ\STX\NUL\DC2\ETX<\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\NUL\ENQ\DC2\ETX9\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\NUL\ENQ\DC2\ETX<\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\NUL\SOH\DC2\ETX9\t\CAN\n\
+    \\ENQ\EOT\ENQ\STX\NUL\SOH\DC2\ETX<\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\NUL\ETX\DC2\ETX9\ESC\FS\n\
+    \\ENQ\EOT\ENQ\STX\NUL\ETX\DC2\ETX<\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\SOH\DC2\ETX:\STX\SUB\n\
+    \\EOT\EOT\ENQ\STX\SOH\DC2\ETX=\STX\SUB\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\SOH\ENQ\DC2\ETX:\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\SOH\ENQ\DC2\ETX=\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\SOH\SOH\DC2\ETX:\t\NAK\n\
+    \\ENQ\EOT\ENQ\STX\SOH\SOH\DC2\ETX=\t\NAK\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\SOH\ETX\DC2\ETX:\CAN\EM\n\
+    \\ENQ\EOT\ENQ\STX\SOH\ETX\DC2\ETX=\CAN\EM\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\STX\DC2\ETX;\STX\DC2\n\
+    \\EOT\EOT\ENQ\STX\STX\DC2\ETX>\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\STX\ENQ\DC2\ETX;\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\STX\ENQ\DC2\ETX>\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\STX\SOH\DC2\ETX;\t\r\n\
+    \\ENQ\EOT\ENQ\STX\STX\SOH\DC2\ETX>\t\r\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\STX\ETX\DC2\ETX;\DLE\DC1\n\
+    \\ENQ\EOT\ENQ\STX\STX\ETX\DC2\ETX>\DLE\DC1\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\ETX\DC2\ETX<\STX\EM\n\
+    \\EOT\EOT\ENQ\STX\ETX\DC2\ETX?\STX\EM\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\ETX\ENQ\DC2\ETX<\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\ETX\ENQ\DC2\ETX?\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\ETX\SOH\DC2\ETX<\t\DC4\n\
+    \\ENQ\EOT\ENQ\STX\ETX\SOH\DC2\ETX?\t\DC4\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\ETX\ETX\DC2\ETX<\ETB\CAN\n\
+    \\ENQ\EOT\ENQ\STX\ETX\ETX\DC2\ETX?\ETB\CAN\n\
     \\v\n\
-    \\EOT\EOT\ENQ\STX\EOT\DC2\ETX=\STX\RS\n\
+    \\EOT\EOT\ENQ\STX\EOT\DC2\ETX@\STX\RS\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\EOT\ENQ\DC2\ETX=\STX\b\n\
+    \\ENQ\EOT\ENQ\STX\EOT\ENQ\DC2\ETX@\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\EOT\SOH\DC2\ETX=\t\EM\n\
+    \\ENQ\EOT\ENQ\STX\EOT\SOH\DC2\ETX@\t\EM\n\
     \\f\n\
-    \\ENQ\EOT\ENQ\STX\EOT\ETX\DC2\ETX=\FS\GS\n\
+    \\ENQ\EOT\ENQ\STX\EOT\ETX\DC2\ETX@\FS\GS\n\
     \\n\
     \\n\
-    \\STX\EOT\ACK\DC2\EOT@\NULD\SOH\n\
+    \\STX\EOT\ACK\DC2\EOTC\NULG\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\ACK\SOH\DC2\ETX@\b!\n\
+    \\ETX\EOT\ACK\SOH\DC2\ETXC\b!\n\
     \\v\n\
-    \\EOT\EOT\ACK\STX\NUL\DC2\ETXA\STX\RS\n\
+    \\EOT\EOT\ACK\STX\NUL\DC2\ETXD\STX\RS\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\NUL\ENQ\DC2\ETXA\STX\b\n\
+    \\ENQ\EOT\ACK\STX\NUL\ENQ\DC2\ETXD\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\NUL\SOH\DC2\ETXA\t\EM\n\
+    \\ENQ\EOT\ACK\STX\NUL\SOH\DC2\ETXD\t\EM\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\NUL\ETX\DC2\ETXA\FS\GS\n\
+    \\ENQ\EOT\ACK\STX\NUL\ETX\DC2\ETXD\FS\GS\n\
     \\v\n\
-    \\EOT\EOT\ACK\STX\SOH\DC2\ETXB\STX\"\n\
+    \\EOT\EOT\ACK\STX\SOH\DC2\ETXE\STX\"\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\SOH\ACK\DC2\ETXB\STX\DC2\n\
+    \\ENQ\EOT\ACK\STX\SOH\ACK\DC2\ETXE\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\SOH\SOH\DC2\ETXB\DC3\GS\n\
+    \\ENQ\EOT\ACK\STX\SOH\SOH\DC2\ETXE\DC3\GS\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\SOH\ETX\DC2\ETXB !\n\
+    \\ENQ\EOT\ACK\STX\SOH\ETX\DC2\ETXE !\n\
     \\v\n\
-    \\EOT\EOT\ACK\STX\STX\DC2\ETXC\STX\US\n\
+    \\EOT\EOT\ACK\STX\STX\DC2\ETXF\STX\US\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\STX\ENQ\DC2\ETXC\STX\a\n\
+    \\ENQ\EOT\ACK\STX\STX\ENQ\DC2\ETXF\STX\a\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\STX\SOH\DC2\ETXC\b\SUB\n\
+    \\ENQ\EOT\ACK\STX\STX\SOH\DC2\ETXF\b\SUB\n\
     \\f\n\
-    \\ENQ\EOT\ACK\STX\STX\ETX\DC2\ETXC\GS\RS\n\
+    \\ENQ\EOT\ACK\STX\STX\ETX\DC2\ETXF\GS\RS\n\
     \\n\
     \\n\
-    \\STX\EOT\a\DC2\EOTF\NULK\SOH\n\
+    \\STX\EOT\a\DC2\EOTI\NULO\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\a\SOH\DC2\ETXF\b\DC4\n\
+    \\ETX\EOT\a\SOH\DC2\ETXI\b\DC4\n\
     \\v\n\
-    \\EOT\EOT\a\STX\NUL\DC2\ETXG\STX\GS\n\
+    \\EOT\EOT\a\STX\NUL\DC2\ETXJ\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\NUL\ENQ\DC2\ETXG\STX\b\n\
+    \\ENQ\EOT\a\STX\NUL\ENQ\DC2\ETXJ\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\NUL\SOH\DC2\ETXG\t\CAN\n\
+    \\ENQ\EOT\a\STX\NUL\SOH\DC2\ETXJ\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\NUL\ETX\DC2\ETXG\ESC\FS\n\
+    \\ENQ\EOT\a\STX\NUL\ETX\DC2\ETXJ\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\a\STX\SOH\DC2\ETXH\STX\DC2\n\
+    \\EOT\EOT\a\STX\SOH\DC2\ETXK\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\SOH\ENQ\DC2\ETXH\STX\b\n\
+    \\ENQ\EOT\a\STX\SOH\ENQ\DC2\ETXK\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\SOH\SOH\DC2\ETXH\t\r\n\
+    \\ENQ\EOT\a\STX\SOH\SOH\DC2\ETXK\t\r\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\SOH\ETX\DC2\ETXH\DLE\DC1\n\
+    \\ENQ\EOT\a\STX\SOH\ETX\DC2\ETXK\DLE\DC1\n\
     \\v\n\
-    \\EOT\EOT\a\STX\STX\DC2\ETXI\STX\DC3\n\
+    \\EOT\EOT\a\STX\STX\DC2\ETXL\STX\DC3\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\STX\ENQ\DC2\ETXI\STX\b\n\
+    \\ENQ\EOT\a\STX\STX\ENQ\DC2\ETXL\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\STX\SOH\DC2\ETXI\t\SO\n\
+    \\ENQ\EOT\a\STX\STX\SOH\DC2\ETXL\t\SO\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\STX\ETX\DC2\ETXI\DC1\DC2\n\
+    \\ENQ\EOT\a\STX\STX\ETX\DC2\ETXL\DC1\DC2\n\
     \\v\n\
-    \\EOT\EOT\a\STX\ETX\DC2\ETXJ\STX\SUB\n\
+    \\EOT\EOT\a\STX\ETX\DC2\ETXM\STX\SUB\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\ETX\ENQ\DC2\ETXJ\STX\b\n\
+    \\ENQ\EOT\a\STX\ETX\ENQ\DC2\ETXM\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\ETX\SOH\DC2\ETXJ\t\NAK\n\
+    \\ENQ\EOT\a\STX\ETX\SOH\DC2\ETXM\t\NAK\n\
     \\f\n\
-    \\ENQ\EOT\a\STX\ETX\ETX\DC2\ETXJ\CAN\EM\n\
-    \\185\SOH\n\
-    \\STX\EOT\b\DC2\EOTP\NULV\SOH\SUB\172\SOH Plan-correlated AlphaZero evidence. Generic RL events remain unchanged;\n\
-    \ these shapes carry the exact generation and arena keys needed by the\n\
-    \ AlphaZero contract reducer.\n\
+    \\ENQ\EOT\a\STX\ETX\ETX\DC2\ETXM\CAN\EM\n\
+    \\v\n\
+    \\EOT\EOT\a\STX\EOT\DC2\ETXN\STX\NAK\n\
+    \\f\n\
+    \\ENQ\EOT\a\STX\EOT\ENQ\DC2\ETXN\STX\b\n\
+    \\f\n\
+    \\ENQ\EOT\a\STX\EOT\SOH\DC2\ETXN\t\DLE\n\
+    \\f\n\
+    \\ENQ\EOT\a\STX\EOT\ETX\DC2\ETXN\DC3\DC4\n\
+    \\210\SOH\n\
+    \\STX\EOT\b\DC2\EOTT\NULZ\SOH\SUB\197\SOH Plan-correlated AlphaZero evidence. These shapes carry the exact generation\n\
+    \ and arena keys needed by the AlphaZero contract reducer, alongside the\n\
+    \ plan-correlated traditional-RL evidence above.\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\b\SOH\DC2\ETXP\b\ESC\n\
+    \\ETX\EOT\b\SOH\DC2\ETXT\b\ESC\n\
     \\v\n\
-    \\EOT\EOT\b\STX\NUL\DC2\ETXQ\STX\GS\n\
+    \\EOT\EOT\b\STX\NUL\DC2\ETXU\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\NUL\ENQ\DC2\ETXQ\STX\b\n\
+    \\ENQ\EOT\b\STX\NUL\ENQ\DC2\ETXU\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\NUL\SOH\DC2\ETXQ\t\DLE\n\
+    \\ENQ\EOT\b\STX\NUL\SOH\DC2\ETXU\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\NUL\ETX\DC2\ETXQ\ESC\FS\n\
+    \\ENQ\EOT\b\STX\NUL\ETX\DC2\ETXU\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\b\STX\SOH\DC2\ETXR\STX\GS\n\
+    \\EOT\EOT\b\STX\SOH\DC2\ETXV\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\SOH\ENQ\DC2\ETXR\STX\b\n\
+    \\ENQ\EOT\b\STX\SOH\ENQ\DC2\ETXV\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\SOH\SOH\DC2\ETXR\t\CAN\n\
+    \\ENQ\EOT\b\STX\SOH\SOH\DC2\ETXV\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\SOH\ETX\DC2\ETXR\ESC\FS\n\
+    \\ENQ\EOT\b\STX\SOH\ETX\DC2\ETXV\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\b\STX\STX\DC2\ETXS\STX\GS\n\
+    \\EOT\EOT\b\STX\STX\DC2\ETXW\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\STX\ENQ\DC2\ETXS\STX\b\n\
+    \\ENQ\EOT\b\STX\STX\ENQ\DC2\ETXW\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\STX\SOH\DC2\ETXS\t\DC3\n\
+    \\ENQ\EOT\b\STX\STX\SOH\DC2\ETXW\t\DC3\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\STX\ETX\DC2\ETXS\ESC\FS\n\
+    \\ENQ\EOT\b\STX\STX\ETX\DC2\ETXW\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\b\STX\ETX\DC2\ETXT\STX\GS\n\
+    \\EOT\EOT\b\STX\ETX\DC2\ETXX\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\ETX\ENQ\DC2\ETXT\STX\b\n\
+    \\ENQ\EOT\b\STX\ETX\ENQ\DC2\ETXX\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\ETX\SOH\DC2\ETXT\t\CAN\n\
+    \\ENQ\EOT\b\STX\ETX\SOH\DC2\ETXX\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\ETX\ETX\DC2\ETXT\ESC\FS\n\
+    \\ENQ\EOT\b\STX\ETX\ETX\DC2\ETXX\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\b\STX\EOT\DC2\ETXU\STX\GS\n\
+    \\EOT\EOT\b\STX\EOT\DC2\ETXY\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\EOT\ENQ\DC2\ETXU\STX\b\n\
+    \\ENQ\EOT\b\STX\EOT\ENQ\DC2\ETXY\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\EOT\SOH\DC2\ETXU\t\DLE\n\
+    \\ENQ\EOT\b\STX\EOT\SOH\DC2\ETXY\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\b\STX\EOT\ETX\DC2\ETXU\ESC\FS\n\
+    \\ENQ\EOT\b\STX\EOT\ETX\DC2\ETXY\ESC\FS\n\
     \\n\
     \\n\
-    \\STX\EOT\t\DC2\EOTX\NUL]\SOH\n\
+    \\STX\EOT\t\DC2\EOT\\\NULa\SOH\n\
     \\n\
     \\n\
-    \\ETX\EOT\t\SOH\DC2\ETXX\b\SYN\n\
+    \\ETX\EOT\t\SOH\DC2\ETX\\\b\SYN\n\
     \\v\n\
-    \\EOT\EOT\t\STX\NUL\DC2\ETXY\STX\GS\n\
+    \\EOT\EOT\t\STX\NUL\DC2\ETX]\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\NUL\ENQ\DC2\ETXY\STX\b\n\
+    \\ENQ\EOT\t\STX\NUL\ENQ\DC2\ETX]\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\NUL\SOH\DC2\ETXY\t\DLE\n\
+    \\ENQ\EOT\t\STX\NUL\SOH\DC2\ETX]\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\NUL\ETX\DC2\ETXY\ESC\FS\n\
+    \\ENQ\EOT\t\STX\NUL\ETX\DC2\ETX]\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\t\STX\SOH\DC2\ETXZ\STX\GS\n\
+    \\EOT\EOT\t\STX\SOH\DC2\ETX^\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\SOH\ENQ\DC2\ETXZ\STX\b\n\
+    \\ENQ\EOT\t\STX\SOH\ENQ\DC2\ETX^\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\SOH\SOH\DC2\ETXZ\t\CAN\n\
+    \\ENQ\EOT\t\STX\SOH\SOH\DC2\ETX^\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\SOH\ETX\DC2\ETXZ\ESC\FS\n\
+    \\ENQ\EOT\t\STX\SOH\ETX\DC2\ETX^\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\t\STX\STX\DC2\ETX[\STX\GS\n\
+    \\EOT\EOT\t\STX\STX\DC2\ETX_\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\STX\ENQ\DC2\ETX[\STX\b\n\
+    \\ENQ\EOT\t\STX\STX\ENQ\DC2\ETX_\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\STX\SOH\DC2\ETX[\t\DC4\n\
+    \\ENQ\EOT\t\STX\STX\SOH\DC2\ETX_\t\DC4\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\STX\ETX\DC2\ETX[\ESC\FS\n\
+    \\ENQ\EOT\t\STX\STX\ETX\DC2\ETX_\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\t\STX\ETX\DC2\ETX\\\STX\GS\n\
+    \\EOT\EOT\t\STX\ETX\DC2\ETX`\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\ETX\ENQ\DC2\ETX\\\STX\b\n\
+    \\ENQ\EOT\t\STX\ETX\ENQ\DC2\ETX`\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\ETX\SOH\DC2\ETX\\\t\DC1\n\
+    \\ENQ\EOT\t\STX\ETX\SOH\DC2\ETX`\t\DC1\n\
     \\f\n\
-    \\ENQ\EOT\t\STX\ETX\ETX\DC2\ETX\\\ESC\FS\n\
+    \\ENQ\EOT\t\STX\ETX\ETX\DC2\ETX`\ESC\FS\n\
     \\n\
     \\n\
     \\STX\EOT\n\
-    \\DC2\EOT_\NULl\SOH\n\
+    \\DC2\EOTc\NULp\SOH\n\
     \\n\
     \\n\
     \\ETX\EOT\n\
-    \\SOH\DC2\ETX_\b\CAN\n\
+    \\SOH\DC2\ETXc\b\CAN\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\NUL\DC2\ETX`\STX\GS\n\
+    \\STX\NUL\DC2\ETXd\STX\GS\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\NUL\ENQ\DC2\ETX`\STX\b\n\
+    \\STX\NUL\ENQ\DC2\ETXd\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\NUL\SOH\DC2\ETX`\t\CAN\n\
+    \\STX\NUL\SOH\DC2\ETXd\t\CAN\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\NUL\ETX\DC2\ETX`\ESC\FS\n\
+    \\STX\NUL\ETX\DC2\ETXd\ESC\FS\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\SOH\DC2\ETXa\STX\EM\n\
+    \\STX\SOH\DC2\ETXe\STX\EM\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\SOH\ENQ\DC2\ETXa\STX\b\n\
+    \\STX\SOH\ENQ\DC2\ETXe\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\SOH\SOH\DC2\ETXa\t\DC4\n\
+    \\STX\SOH\SOH\DC2\ETXe\t\DC4\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\SOH\ETX\DC2\ETXa\ETB\CAN\n\
+    \\STX\SOH\ETX\DC2\ETXe\ETB\CAN\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\STX\DC2\ETXb\STX\NAK\n\
+    \\STX\STX\DC2\ETXf\STX\NAK\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\STX\ENQ\DC2\ETXb\STX\b\n\
+    \\STX\STX\ENQ\DC2\ETXf\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\STX\SOH\DC2\ETXb\t\DLE\n\
+    \\STX\STX\SOH\DC2\ETXf\t\DLE\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\STX\ETX\DC2\ETXb\DC3\DC4\n\
+    \\STX\STX\ETX\DC2\ETXf\DC3\DC4\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\ETX\DC2\ETXc\STX\DC2\n\
+    \\STX\ETX\DC2\ETXg\STX\DC2\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ETX\ENQ\DC2\ETXc\STX\b\n\
+    \\STX\ETX\ENQ\DC2\ETXg\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ETX\SOH\DC2\ETXc\t\r\n\
+    \\STX\ETX\SOH\DC2\ETXg\t\r\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ETX\ETX\DC2\ETXc\DLE\DC1\n\
+    \\STX\ETX\ETX\DC2\ETXg\DLE\DC1\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\EOT\DC2\ETXd\STX\DC4\n\
+    \\STX\EOT\DC2\ETXh\STX\DC4\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\EOT\ENQ\DC2\ETXd\STX\b\n\
+    \\STX\EOT\ENQ\DC2\ETXh\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\EOT\SOH\DC2\ETXd\t\SI\n\
+    \\STX\EOT\SOH\DC2\ETXh\t\SI\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\EOT\ETX\DC2\ETXd\DC2\DC3\n\
+    \\STX\EOT\ETX\DC2\ETXh\DC2\DC3\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\ENQ\DC2\ETXe\STX\DLE\n\
+    \\STX\ENQ\DC2\ETXi\STX\DLE\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ENQ\ENQ\DC2\ETXe\STX\ACK\n\
+    \\STX\ENQ\ENQ\DC2\ETXi\STX\ACK\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ENQ\SOH\DC2\ETXe\a\v\n\
+    \\STX\ENQ\SOH\DC2\ETXi\a\v\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ENQ\ETX\DC2\ETXe\SO\SI\n\
+    \\STX\ENQ\ETX\DC2\ETXi\SO\SI\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\ACK\DC2\ETXf\STX\DC4\n\
+    \\STX\ACK\DC2\ETXj\STX\DC4\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ACK\ENQ\DC2\ETXf\STX\b\n\
+    \\STX\ACK\ENQ\DC2\ETXj\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ACK\SOH\DC2\ETXf\t\SI\n\
+    \\STX\ACK\SOH\DC2\ETXj\t\SI\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\ACK\ETX\DC2\ETXf\DC2\DC3\n\
+    \\STX\ACK\ETX\DC2\ETXj\DC2\DC3\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\a\DC2\ETXg\STX\"\n\
+    \\STX\a\DC2\ETXk\STX\"\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\a\EOT\DC2\ETXg\STX\n\
+    \\STX\a\EOT\DC2\ETXk\STX\n\
     \\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\a\ENQ\DC2\ETXg\v\DC1\n\
+    \\STX\a\ENQ\DC2\ETXk\v\DC1\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\a\SOH\DC2\ETXg\DC2\GS\n\
+    \\STX\a\SOH\DC2\ETXk\DC2\GS\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\a\ETX\DC2\ETXg !\n\
+    \\STX\a\ETX\DC2\ETXk !\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\b\DC2\ETXh\STX+\n\
+    \\STX\b\DC2\ETXl\STX+\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\b\EOT\DC2\ETXh\STX\n\
+    \\STX\b\EOT\DC2\ETXl\STX\n\
     \\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\b\ENQ\DC2\ETXh\v\DC1\n\
+    \\STX\b\ENQ\DC2\ETXl\v\DC1\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\b\SOH\DC2\ETXh\DC2&\n\
+    \\STX\b\SOH\DC2\ETXl\DC2&\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\b\ETX\DC2\ETXh)*\n\
+    \\STX\b\ETX\DC2\ETXl)*\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\t\DC2\ETXi\STX\US\n\
+    \\STX\t\DC2\ETXm\STX\US\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\t\ENQ\DC2\ETXi\STX\b\n\
+    \\STX\t\ENQ\DC2\ETXm\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\t\SOH\DC2\ETXi\t\EM\n\
+    \\STX\t\SOH\DC2\ETXm\t\EM\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\t\ETX\DC2\ETXi\FS\RS\n\
+    \\STX\t\ETX\DC2\ETXm\FS\RS\n\
     \\v\n\
     \\EOT\EOT\n\
     \\STX\n\
-    \\DC2\ETXj\STX\FS\n\
+    \\DC2\ETXn\STX\FS\n\
     \\f\n\
     \\ENQ\EOT\n\
     \\STX\n\
-    \\ENQ\DC2\ETXj\STX\b\n\
+    \\ENQ\DC2\ETXn\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
     \\STX\n\
-    \\SOH\DC2\ETXj\t\SYN\n\
+    \\SOH\DC2\ETXn\t\SYN\n\
     \\f\n\
     \\ENQ\EOT\n\
     \\STX\n\
-    \\ETX\DC2\ETXj\EM\ESC\n\
+    \\ETX\DC2\ETXn\EM\ESC\n\
     \\v\n\
     \\EOT\EOT\n\
-    \\STX\v\DC2\ETXk\STX\ESC\n\
+    \\STX\v\DC2\ETXo\STX\ESC\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\v\ENQ\DC2\ETXk\STX\b\n\
+    \\STX\v\ENQ\DC2\ETXo\STX\b\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\v\SOH\DC2\ETXk\t\NAK\n\
+    \\STX\v\SOH\DC2\ETXo\t\NAK\n\
     \\f\n\
     \\ENQ\EOT\n\
-    \\STX\v\ETX\DC2\ETXk\CAN\SUB\n\
+    \\STX\v\ETX\DC2\ETXo\CAN\SUB\n\
+    \\v\n\
+    \\STX\EOT\v\DC2\ENQr\NUL\128\SOH\SOH\n\
     \\n\
     \\n\
-    \\STX\EOT\v\DC2\EOTn\NUL|\SOH\n\
-    \\n\
-    \\n\
-    \\ETX\EOT\v\SOH\DC2\ETXn\b\NAK\n\
+    \\ETX\EOT\v\SOH\DC2\ETXr\b\NAK\n\
     \\v\n\
-    \\EOT\EOT\v\STX\NUL\DC2\ETXo\STX\GS\n\
+    \\EOT\EOT\v\STX\NUL\DC2\ETXs\STX\GS\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\NUL\ENQ\DC2\ETXo\STX\b\n\
+    \\ENQ\EOT\v\STX\NUL\ENQ\DC2\ETXs\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\NUL\SOH\DC2\ETXo\t\CAN\n\
+    \\ENQ\EOT\v\STX\NUL\SOH\DC2\ETXs\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\NUL\ETX\DC2\ETXo\ESC\FS\n\
+    \\ENQ\EOT\v\STX\NUL\ETX\DC2\ETXs\ESC\FS\n\
     \\v\n\
-    \\EOT\EOT\v\STX\SOH\DC2\ETXp\STX\ETB\n\
+    \\EOT\EOT\v\STX\SOH\DC2\ETXt\STX\ETB\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\SOH\ENQ\DC2\ETXp\STX\b\n\
+    \\ENQ\EOT\v\STX\SOH\ENQ\DC2\ETXt\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\SOH\SOH\DC2\ETXp\t\DC2\n\
+    \\ENQ\EOT\v\STX\SOH\SOH\DC2\ETXt\t\DC2\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\SOH\ETX\DC2\ETXp\NAK\SYN\n\
+    \\ENQ\EOT\v\STX\SOH\ETX\DC2\ETXt\NAK\SYN\n\
     \\v\n\
-    \\EOT\EOT\v\STX\STX\DC2\ETXq\STX\EM\n\
+    \\EOT\EOT\v\STX\STX\DC2\ETXu\STX\EM\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\STX\ENQ\DC2\ETXq\STX\b\n\
+    \\ENQ\EOT\v\STX\STX\ENQ\DC2\ETXu\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\STX\SOH\DC2\ETXq\t\DC4\n\
+    \\ENQ\EOT\v\STX\STX\SOH\DC2\ETXu\t\DC4\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\STX\ETX\DC2\ETXq\ETB\CAN\n\
+    \\ENQ\EOT\v\STX\STX\ETX\DC2\ETXu\ETB\CAN\n\
     \\v\n\
-    \\EOT\EOT\v\STX\ETX\DC2\ETXr\STX\NAK\n\
+    \\EOT\EOT\v\STX\ETX\DC2\ETXv\STX\NAK\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ETX\ENQ\DC2\ETXr\STX\b\n\
+    \\ENQ\EOT\v\STX\ETX\ENQ\DC2\ETXv\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ETX\SOH\DC2\ETXr\t\DLE\n\
+    \\ENQ\EOT\v\STX\ETX\SOH\DC2\ETXv\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ETX\ETX\DC2\ETXr\DC3\DC4\n\
+    \\ENQ\EOT\v\STX\ETX\ETX\DC2\ETXv\DC3\DC4\n\
     \\v\n\
-    \\EOT\EOT\v\STX\EOT\DC2\ETXs\STX\DC2\n\
+    \\EOT\EOT\v\STX\EOT\DC2\ETXw\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\EOT\ENQ\DC2\ETXs\STX\b\n\
+    \\ENQ\EOT\v\STX\EOT\ENQ\DC2\ETXw\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\EOT\SOH\DC2\ETXs\t\r\n\
+    \\ENQ\EOT\v\STX\EOT\SOH\DC2\ETXw\t\r\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\EOT\ETX\DC2\ETXs\DLE\DC1\n\
+    \\ENQ\EOT\v\STX\EOT\ETX\DC2\ETXw\DLE\DC1\n\
     \\v\n\
-    \\EOT\EOT\v\STX\ENQ\DC2\ETXt\STX\DC4\n\
+    \\EOT\EOT\v\STX\ENQ\DC2\ETXx\STX\DC4\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ENQ\ENQ\DC2\ETXt\STX\b\n\
+    \\ENQ\EOT\v\STX\ENQ\ENQ\DC2\ETXx\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ENQ\SOH\DC2\ETXt\t\SI\n\
+    \\ENQ\EOT\v\STX\ENQ\SOH\DC2\ETXx\t\SI\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ENQ\ETX\DC2\ETXt\DC2\DC3\n\
+    \\ENQ\EOT\v\STX\ENQ\ETX\DC2\ETXx\DC2\DC3\n\
     \\v\n\
-    \\EOT\EOT\v\STX\ACK\DC2\ETXu\STX\DC4\n\
+    \\EOT\EOT\v\STX\ACK\DC2\ETXy\STX\DC4\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ACK\ENQ\DC2\ETXu\STX\b\n\
+    \\ENQ\EOT\v\STX\ACK\ENQ\DC2\ETXy\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ACK\SOH\DC2\ETXu\t\SI\n\
+    \\ENQ\EOT\v\STX\ACK\SOH\DC2\ETXy\t\SI\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\ACK\ETX\DC2\ETXu\DC2\DC3\n\
+    \\ENQ\EOT\v\STX\ACK\ETX\DC2\ETXy\DC2\DC3\n\
     \\v\n\
-    \\EOT\EOT\v\STX\a\DC2\ETXv\STX\DLE\n\
+    \\EOT\EOT\v\STX\a\DC2\ETXz\STX\DLE\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\a\ENQ\DC2\ETXv\STX\ACK\n\
+    \\ENQ\EOT\v\STX\a\ENQ\DC2\ETXz\STX\ACK\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\a\SOH\DC2\ETXv\a\v\n\
+    \\ENQ\EOT\v\STX\a\SOH\DC2\ETXz\a\v\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\a\ETX\DC2\ETXv\SO\SI\n\
+    \\ENQ\EOT\v\STX\a\ETX\DC2\ETXz\SO\SI\n\
     \\v\n\
-    \\EOT\EOT\v\STX\b\DC2\ETXw\STX\"\n\
+    \\EOT\EOT\v\STX\b\DC2\ETX{\STX\"\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\b\EOT\DC2\ETXw\STX\n\
+    \\ENQ\EOT\v\STX\b\EOT\DC2\ETX{\STX\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\b\ENQ\DC2\ETXw\v\DC1\n\
+    \\ENQ\EOT\v\STX\b\ENQ\DC2\ETX{\v\DC1\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\b\SOH\DC2\ETXw\DC2\GS\n\
+    \\ENQ\EOT\v\STX\b\SOH\DC2\ETX{\DC2\GS\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\b\ETX\DC2\ETXw !\n\
+    \\ENQ\EOT\v\STX\b\ETX\DC2\ETX{ !\n\
     \\v\n\
-    \\EOT\EOT\v\STX\t\DC2\ETXx\STX(\n\
+    \\EOT\EOT\v\STX\t\DC2\ETX|\STX(\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\t\EOT\DC2\ETXx\STX\n\
+    \\ENQ\EOT\v\STX\t\EOT\DC2\ETX|\STX\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\t\ENQ\DC2\ETXx\v\DC1\n\
+    \\ENQ\EOT\v\STX\t\ENQ\DC2\ETX|\v\DC1\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\t\SOH\DC2\ETXx\DC2\"\n\
+    \\ENQ\EOT\v\STX\t\SOH\DC2\ETX|\DC2\"\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\t\ETX\DC2\ETXx%'\n\
+    \\ENQ\EOT\v\STX\t\ETX\DC2\ETX|%'\n\
     \\v\n\
     \\EOT\EOT\v\STX\n\
-    \\DC2\ETXy\STX\GS\n\
+    \\DC2\ETX}\STX\GS\n\
     \\f\n\
     \\ENQ\EOT\v\STX\n\
-    \\ENQ\DC2\ETXy\STX\b\n\
+    \\ENQ\DC2\ETX}\STX\b\n\
     \\f\n\
     \\ENQ\EOT\v\STX\n\
-    \\SOH\DC2\ETXy\t\ETB\n\
+    \\SOH\DC2\ETX}\t\ETB\n\
     \\f\n\
     \\ENQ\EOT\v\STX\n\
-    \\ETX\DC2\ETXy\SUB\FS\n\
+    \\ETX\DC2\ETX}\SUB\FS\n\
     \\v\n\
-    \\EOT\EOT\v\STX\v\DC2\ETXz\STX\US\n\
+    \\EOT\EOT\v\STX\v\DC2\ETX~\STX\US\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\v\ENQ\DC2\ETXz\STX\b\n\
+    \\ENQ\EOT\v\STX\v\ENQ\DC2\ETX~\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\v\SOH\DC2\ETXz\t\EM\n\
+    \\ENQ\EOT\v\STX\v\SOH\DC2\ETX~\t\EM\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\v\ETX\DC2\ETXz\FS\RS\n\
+    \\ENQ\EOT\v\STX\v\ETX\DC2\ETX~\FS\RS\n\
     \\v\n\
-    \\EOT\EOT\v\STX\f\DC2\ETX{\STX\ESC\n\
+    \\EOT\EOT\v\STX\f\DC2\ETX\DEL\STX\ESC\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\f\ENQ\DC2\ETX{\STX\b\n\
+    \\ENQ\EOT\v\STX\f\ENQ\DC2\ETX\DEL\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\f\SOH\DC2\ETX{\t\NAK\n\
+    \\ENQ\EOT\v\STX\f\SOH\DC2\ETX\DEL\t\NAK\n\
     \\f\n\
-    \\ENQ\EOT\v\STX\f\ETX\DC2\ETX{\CAN\SUB\n\
+    \\ENQ\EOT\v\STX\f\ETX\DC2\ETX\DEL\CAN\SUB\n\
+    \\f\n\
+    \\STX\EOT\f\DC2\ACK\130\SOH\NUL\136\SOH\SOH\n\
     \\v\n\
-    \\STX\EOT\f\DC2\ENQ~\NUL\132\SOH\SOH\n\
-    \\n\
-    \\n\
-    \\ETX\EOT\f\SOH\DC2\ETX~\b\DC1\n\
-    \\r\n\
-    \\EOT\EOT\f\b\NUL\DC2\ENQ\DEL\STX\131\SOH\ETX\n\
-    \\f\n\
-    \\ENQ\EOT\f\b\NUL\SOH\DC2\ETX\DEL\b\f\n\
-    \\f\n\
-    \\EOT\EOT\f\STX\NUL\DC2\EOT\128\SOH\EOT*\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\NUL\ACK\DC2\EOT\128\SOH\EOT\SO\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\NUL\SOH\DC2\EOT\128\SOH\NAK\SUB\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\NUL\ETX\DC2\EOT\128\SOH()\n\
-    \\f\n\
-    \\EOT\EOT\f\STX\SOH\DC2\EOT\129\SOH\EOT*\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\SOH\ACK\DC2\EOT\129\SOH\EOT\r\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\SOH\SOH\DC2\EOT\129\SOH\NAK\EM\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\SOH\ETX\DC2\EOT\129\SOH()\n\
-    \\f\n\
-    \\EOT\EOT\f\STX\STX\DC2\EOT\130\SOH\EOT+\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\STX\ACK\DC2\EOT\130\SOH\EOT\NAK\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\STX\SOH\DC2\EOT\130\SOH\SYN&\n\
-    \\r\n\
-    \\ENQ\EOT\f\STX\STX\ETX\DC2\EOT\130\SOH)*\n\
-    \\f\n\
-    \\STX\EOT\r\DC2\ACK\134\SOH\NUL\146\SOH\SOH\n\
-    \\v\n\
-    \\ETX\EOT\r\SOH\DC2\EOT\134\SOH\b\SI\n\
+    \\ETX\EOT\f\SOH\DC2\EOT\130\SOH\b\DC1\n\
     \\SO\n\
-    \\EOT\EOT\r\b\NUL\DC2\ACK\135\SOH\STX\145\SOH\ETX\n\
+    \\EOT\EOT\f\b\NUL\DC2\ACK\131\SOH\STX\135\SOH\ETX\n\
     \\r\n\
-    \\ENQ\EOT\r\b\NUL\SOH\DC2\EOT\135\SOH\b\f\n\
+    \\ENQ\EOT\f\b\NUL\SOH\DC2\EOT\131\SOH\b\f\n\
     \\f\n\
-    \\EOT\EOT\r\STX\NUL\DC2\EOT\136\SOH\EOT$\n\
+    \\EOT\EOT\f\STX\NUL\DC2\EOT\132\SOH\EOT*\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\NUL\ACK\DC2\EOT\136\SOH\EOT\SI\n\
+    \\ENQ\EOT\f\STX\NUL\ACK\DC2\EOT\132\SOH\EOT\SO\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\NUL\SOH\DC2\EOT\136\SOH\NAK\FS\n\
+    \\ENQ\EOT\f\STX\NUL\SOH\DC2\EOT\132\SOH\NAK\SUB\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\NUL\ETX\DC2\EOT\136\SOH\"#\n\
+    \\ENQ\EOT\f\STX\NUL\ETX\DC2\EOT\132\SOH()\n\
     \\f\n\
-    \\EOT\EOT\r\STX\SOH\DC2\EOT\137\SOH\EOT$\n\
+    \\EOT\EOT\f\STX\SOH\DC2\EOT\133\SOH\EOT*\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\SOH\ACK\DC2\EOT\137\SOH\EOT\f\n\
+    \\ENQ\EOT\f\STX\SOH\ACK\DC2\EOT\133\SOH\EOT\r\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\SOH\SOH\DC2\EOT\137\SOH\NAK\EM\n\
+    \\ENQ\EOT\f\STX\SOH\SOH\DC2\EOT\133\SOH\NAK\EM\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\SOH\ETX\DC2\EOT\137\SOH\"#\n\
+    \\ENQ\EOT\f\STX\SOH\ETX\DC2\EOT\133\SOH()\n\
     \\f\n\
-    \\EOT\EOT\r\STX\STX\DC2\EOT\138\SOH\EOT$\n\
+    \\EOT\EOT\f\STX\STX\DC2\EOT\134\SOH\EOT+\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\STX\ACK\DC2\EOT\138\SOH\EOT\DC4\n\
+    \\ENQ\EOT\f\STX\STX\ACK\DC2\EOT\134\SOH\EOT\NAK\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\STX\SOH\DC2\EOT\138\SOH\NAK\US\n\
+    \\ENQ\EOT\f\STX\STX\SOH\DC2\EOT\134\SOH\SYN&\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\STX\ETX\DC2\EOT\138\SOH\"#\n\
+    \\ENQ\EOT\f\STX\STX\ETX\DC2\EOT\134\SOH)*\n\
     \\f\n\
-    \\EOT\EOT\r\STX\ETX\DC2\EOT\139\SOH\EOT$\n\
+    \\STX\EOT\r\DC2\ACK\138\SOH\NUL\150\SOH\SOH\n\
+    \\v\n\
+    \\ETX\EOT\r\SOH\DC2\EOT\138\SOH\b\SI\n\
+    \\SO\n\
+    \\EOT\EOT\r\b\NUL\DC2\ACK\139\SOH\STX\149\SOH\ETX\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ETX\ACK\DC2\EOT\139\SOH\EOT\DLE\n\
-    \\r\n\
-    \\ENQ\EOT\r\STX\ETX\SOH\DC2\EOT\139\SOH\NAK\ESC\n\
-    \\r\n\
-    \\ENQ\EOT\r\STX\ETX\ETX\DC2\EOT\139\SOH\"#\n\
+    \\ENQ\EOT\r\b\NUL\SOH\DC2\EOT\139\SOH\b\f\n\
     \\f\n\
-    \\EOT\EOT\r\STX\EOT\DC2\EOT\140\SOH\EOT$\n\
+    \\EOT\EOT\r\STX\NUL\DC2\EOT\140\SOH\EOT%\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\EOT\ACK\DC2\EOT\140\SOH\EOT\DC4\n\
+    \\ENQ\EOT\r\STX\NUL\ACK\DC2\EOT\140\SOH\EOT\NAK\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\EOT\SOH\DC2\EOT\140\SOH\NAK\RS\n\
+    \\ENQ\EOT\r\STX\NUL\SOH\DC2\EOT\140\SOH\SYN \n\
     \\r\n\
-    \\ENQ\EOT\r\STX\EOT\ETX\DC2\EOT\140\SOH\"#\n\
+    \\ENQ\EOT\r\STX\NUL\ETX\DC2\EOT\140\SOH#$\n\
     \\f\n\
-    \\EOT\EOT\r\STX\ENQ\DC2\EOT\141\SOH\EOT$\n\
+    \\EOT\EOT\r\STX\SOH\DC2\EOT\141\SOH\EOT%\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ENQ\ACK\DC2\EOT\141\SOH\EOT\DC1\n\
+    \\ENQ\EOT\r\STX\SOH\ACK\DC2\EOT\141\SOH\EOT\DC4\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ENQ\SOH\DC2\EOT\141\SOH\NAK\ESC\n\
+    \\ENQ\EOT\r\STX\SOH\SOH\DC2\EOT\141\SOH\NAK\RS\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ENQ\ETX\DC2\EOT\141\SOH\"#\n\
+    \\ENQ\EOT\r\STX\SOH\ETX\DC2\EOT\141\SOH#$\n\
     \\f\n\
-    \\EOT\EOT\r\STX\ACK\DC2\EOT\142\SOH\EOT1\n\
+    \\EOT\EOT\r\STX\STX\DC2\EOT\142\SOH\EOT$\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ACK\ACK\DC2\EOT\142\SOH\EOT\ETB\n\
+    \\ENQ\EOT\r\STX\STX\ACK\DC2\EOT\142\SOH\EOT\DC4\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ACK\SOH\DC2\EOT\142\SOH\CAN,\n\
+    \\ENQ\EOT\r\STX\STX\SOH\DC2\EOT\142\SOH\NAK\US\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\ACK\ETX\DC2\EOT\142\SOH/0\n\
+    \\ENQ\EOT\r\STX\STX\ETX\DC2\EOT\142\SOH\"#\n\
     \\f\n\
-    \\EOT\EOT\r\STX\a\DC2\EOT\143\SOH\EOT1\n\
+    \\EOT\EOT\r\STX\ETX\DC2\EOT\143\SOH\EOT$\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\a\ACK\DC2\EOT\143\SOH\EOT\DC2\n\
+    \\ENQ\EOT\r\STX\ETX\ACK\DC2\EOT\143\SOH\EOT\DLE\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\a\SOH\DC2\EOT\143\SOH\CAN'\n\
+    \\ENQ\EOT\r\STX\ETX\SOH\DC2\EOT\143\SOH\NAK\ESC\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\a\ETX\DC2\EOT\143\SOH/0\n\
+    \\ENQ\EOT\r\STX\ETX\ETX\DC2\EOT\143\SOH\"#\n\
     \\f\n\
-    \\EOT\EOT\r\STX\b\DC2\EOT\144\SOH\EOT7\n\
+    \\EOT\EOT\r\STX\EOT\DC2\EOT\144\SOH\EOT$\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\b\ACK\DC2\EOT\144\SOH\EOT\GS\n\
+    \\ENQ\EOT\r\STX\EOT\ACK\DC2\EOT\144\SOH\EOT\DC4\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\b\SOH\DC2\EOT\144\SOH\RS2\n\
+    \\ENQ\EOT\r\STX\EOT\SOH\DC2\EOT\144\SOH\NAK\RS\n\
     \\r\n\
-    \\ENQ\EOT\r\STX\b\ETX\DC2\EOT\144\SOH56b\ACKproto3"
+    \\ENQ\EOT\r\STX\EOT\ETX\DC2\EOT\144\SOH\"#\n\
+    \\f\n\
+    \\EOT\EOT\r\STX\ENQ\DC2\EOT\145\SOH\EOT$\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\ENQ\ACK\DC2\EOT\145\SOH\EOT\DC1\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\ENQ\SOH\DC2\EOT\145\SOH\NAK\ESC\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\ENQ\ETX\DC2\EOT\145\SOH\"#\n\
+    \\f\n\
+    \\EOT\EOT\r\STX\ACK\DC2\EOT\146\SOH\EOT1\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\ACK\ACK\DC2\EOT\146\SOH\EOT\ETB\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\ACK\SOH\DC2\EOT\146\SOH\CAN,\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\ACK\ETX\DC2\EOT\146\SOH/0\n\
+    \\f\n\
+    \\EOT\EOT\r\STX\a\DC2\EOT\147\SOH\EOT1\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\a\ACK\DC2\EOT\147\SOH\EOT\DC2\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\a\SOH\DC2\EOT\147\SOH\CAN'\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\a\ETX\DC2\EOT\147\SOH/0\n\
+    \\f\n\
+    \\EOT\EOT\r\STX\b\DC2\EOT\148\SOH\EOT7\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\b\ACK\DC2\EOT\148\SOH\EOT\GS\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\b\SOH\DC2\EOT\148\SOH\RS2\n\
+    \\r\n\
+    \\ENQ\EOT\r\STX\b\ETX\DC2\EOT\148\SOH56b\ACKproto3"

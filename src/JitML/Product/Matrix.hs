@@ -199,7 +199,6 @@ data ProductPlanDescriptor (kind :: RunKind) where
        , rlDescriptorVectorEnvironments :: !Word64
        , rlDescriptorEpisodeSteps :: !Word64
        , rlDescriptorEvaluationEpisodes :: !Word64
-       , rlDescriptorOptimizerUpdates :: !Word64
        }
     -> ProductPlanDescriptor 'Plan.ReinforcementLearning
   TuningProductDescriptor
@@ -293,7 +292,6 @@ descriptorAndEvidenceEqual leftDescriptor leftEvidence rightDescriptor rightEvid
         && rlDescriptorVectorEnvironments leftDescriptor == rlDescriptorVectorEnvironments rightDescriptor
         && rlDescriptorEpisodeSteps leftDescriptor == rlDescriptorEpisodeSteps rightDescriptor
         && rlDescriptorEvaluationEpisodes leftDescriptor == rlDescriptorEvaluationEpisodes rightDescriptor
-        && rlDescriptorOptimizerUpdates leftDescriptor == rlDescriptorOptimizerUpdates rightDescriptor
     ( TuningProductDescriptor {}
       , TuningProductDescriptor {}
       , TuningProductEvidence
@@ -784,10 +782,9 @@ supervisedRow problem =
         regressionRmseBar "rmse" 0.90 0.10
 
 -- | The fixed product budget is the one source of truth for the publisher.
--- The compact heavy-vision rows use five epochs over their bounded product
--- datasets; the remaining supervised rows use the ten-epoch schedule that
--- their real convergence runs exercise.  Producers must consume this value
--- rather than independently clamping or extending it.
+-- CIFAR ResNet-20/56 and ViT use forty epochs, Tiny ImageNet uses fifteen,
+-- and the other seven supervised rows use ten.  Producers must consume this
+-- value rather than independently clamping or extending it.
 supervisedEpochBudget :: Text -> Word64
 supervisedEpochBudget problemName =
   case problemName of
@@ -964,27 +961,23 @@ rlDescriptorFromSchedule algorithm environment schedule =
         (fromIntegral (ProductBudget.scheduleOnPolicyRolloutSteps schedule))
         (fromIntegral (ProductBudget.scheduleOnPolicyVectorEnvironments schedule))
         (fromIntegral (ProductBudget.scheduleOnPolicyMaxEpisodeSteps schedule))
-        (fromIntegral (ProductBudget.scheduleOnPolicyIterations schedule))
     ProductBudget.FixedStepTrainingSchedule {} ->
       descriptor
         1
         1
         (fromIntegral (ProductBudget.scheduleFixedMaxEpisodeSteps schedule))
-        (fromIntegral (ProductBudget.scheduleFixedSteps schedule))
     ProductBudget.ArsTrainingSchedule {} ->
       descriptor
         (fromIntegral (ProductBudget.scheduleArsMaxEpisodeSteps schedule))
         1
         (fromIntegral (ProductBudget.scheduleArsMaxEpisodeSteps schedule))
-        (fromIntegral (ProductBudget.scheduleArsIterations schedule))
     ProductBudget.HerTrainingSchedule {} ->
       descriptor
         (fromIntegral (ProductBudget.scheduleHerEnvironmentStepsPerEpisode schedule))
         1
         (fromIntegral (ProductBudget.scheduleHerEnvironmentStepsPerEpisode schedule))
-        (fromIntegral (ProductBudget.scheduleHerEpisodes schedule))
  where
-  descriptor rolloutTicks vectorEnvironments episodeSteps optimizerUpdates =
+  descriptor rolloutTicks vectorEnvironments episodeSteps =
     RlProductDescriptor
       { rlDescriptorAlgorithm = algorithm
       , rlDescriptorEnvironment = environment
@@ -992,7 +985,6 @@ rlDescriptorFromSchedule algorithm environment schedule =
       , rlDescriptorVectorEnvironments = vectorEnvironments
       , rlDescriptorEpisodeSteps = episodeSteps
       , rlDescriptorEvaluationEpisodes = fromIntegral ProductBudget.productRlDefaultEvaluationEpisodes
-      , rlDescriptorOptimizerUpdates = optimizerUpdates
       }
 
 supervisedTrainingExampleCount :: Text -> Word64
@@ -1412,7 +1404,7 @@ productSeedHeadroom row descriptor =
                 ( "supervised architecture " <> SL.problemModel problem
                 , SLArchitecture.architectureSeedHeadroomForProblem problem
                 )
-    RlProductDescriptor algorithm _ _ _ _ _ _ ->
+    RlProductDescriptor algorithm _ _ _ _ _ ->
       let trainer = ProductBudget.trainerKindForAlgorithm algorithm
        in case rlTrainerSeedHeadroom trainer of
             Nothing -> Nothing
@@ -1495,14 +1487,13 @@ validateProductDescriptorSemantics row descriptor =
         rolloutTicks
         vectorEnvironments
         episodeSteps
-        evaluationEpisodes
-        optimizerUpdates ->
+        evaluationEpisodes ->
           case exactRlSchedule of
             Left err ->
               projectionFailure (InvalidProductRlSchedule (rowId row) err)
             Right schedule ->
               requireProjection
-                (rlDescriptorMatchesSchedule rolloutTicks vectorEnvironments episodeSteps optimizerUpdates schedule)
+                (rlDescriptorMatchesSchedule rolloutTicks vectorEnvironments episodeSteps schedule)
                 ( InvalidProductRlSchedule
                     (rowId row)
                     ( "descriptor does not match the exact resolved schedule: descriptor="
@@ -1571,13 +1562,11 @@ descriptorQuantities descriptor =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         [ ("RL rollout ticks per environment", rolloutTicks)
         , ("RL vector environments", vectorEnvironments)
         , ("RL episode steps", episodeSteps)
         , ("RL evaluation episodes", evaluationEpisodes)
-        , ("RL optimizer updates", optimizerUpdates)
         ]
     TuningProductDescriptor _ parallelTrials promotions perTrialUpdates ->
       [ ("tuning parallel trials", parallelTrials)
@@ -1596,31 +1585,26 @@ rlDescriptorMatchesSchedule
   :: Word64
   -> Word64
   -> Word64
-  -> Word64
   -> ProductBudget.RlTrainingSchedule
   -> Bool
-rlDescriptorMatchesSchedule rolloutTicks vectorEnvironments episodeSteps optimizerUpdates schedule =
+rlDescriptorMatchesSchedule rolloutTicks vectorEnvironments episodeSteps schedule =
   case schedule of
     ProductBudget.OnPolicyTrainingSchedule {} ->
       rolloutTicks == fromIntegral (ProductBudget.scheduleOnPolicyRolloutSteps schedule)
         && vectorEnvironments == fromIntegral (ProductBudget.scheduleOnPolicyVectorEnvironments schedule)
         && episodeSteps == fromIntegral (ProductBudget.scheduleOnPolicyMaxEpisodeSteps schedule)
-        && optimizerUpdates == fromIntegral (ProductBudget.scheduleOnPolicyIterations schedule)
     ProductBudget.FixedStepTrainingSchedule {} ->
       rolloutTicks == 1
         && vectorEnvironments == 1
         && episodeSteps == fromIntegral (ProductBudget.scheduleFixedMaxEpisodeSteps schedule)
-        && optimizerUpdates == fromIntegral (ProductBudget.scheduleFixedSteps schedule)
     ProductBudget.ArsTrainingSchedule {} ->
       rolloutTicks == fromIntegral (ProductBudget.scheduleArsMaxEpisodeSteps schedule)
         && vectorEnvironments == 1
         && episodeSteps == fromIntegral (ProductBudget.scheduleArsMaxEpisodeSteps schedule)
-        && optimizerUpdates == fromIntegral (ProductBudget.scheduleArsIterations schedule)
     ProductBudget.HerTrainingSchedule {} ->
       rolloutTicks == fromIntegral (ProductBudget.scheduleHerEnvironmentStepsPerEpisode schedule)
         && vectorEnvironments == 1
         && episodeSteps == fromIntegral (ProductBudget.scheduleHerEnvironmentStepsPerEpisode schedule)
-        && optimizerUpdates == fromIntegral (ProductBudget.scheduleHerEpisodes schedule)
 
 word64ToInt :: Text -> Word64 -> Either Text Int
 word64ToInt label value
@@ -1652,11 +1636,11 @@ descriptorMatchesRowClass descriptor rowClass' =
   case (descriptor, rowClass') of
     (SupervisedProductDescriptor {}, SupervisedClassification _ _) -> True
     (SupervisedProductDescriptor {}, SupervisedRegression _ _) -> True
-    ( RlProductDescriptor algorithm environment _ _ _ _ _
+    ( RlProductDescriptor algorithm environment _ _ _ _
       , RlAlgorithmEnvironment observedAlgorithm observedEnvironment
       ) ->
         algorithm == observedAlgorithm && environment == observedEnvironment
-    (RlProductDescriptor algorithm environment _ _ _ _ _, RlGoalConditioned observedEnvironment) ->
+    (RlProductDescriptor algorithm environment _ _ _ _, RlGoalConditioned observedEnvironment) ->
       Text.toCaseFold algorithm == "her" && environment == observedEnvironment
     (TuningProductDescriptor executionSpec _ _ _, HyperparameterTuning label) ->
       Text.intercalate
@@ -1708,8 +1692,7 @@ resolveProductDescriptor substrate row descriptor =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         ResolvedRlProductPlan
           <$> mapValidationErrors
             (InvalidProductRunPlan (rowId row))
@@ -1727,7 +1710,6 @@ resolveProductDescriptor substrate row descriptor =
                         (toInteger vectorEnvironments)
                         (toInteger episodeSteps)
                         (toInteger evaluationEpisodes)
-                        (toInteger optimizerUpdates)
                     )
                 )
             )
@@ -1863,8 +1845,7 @@ descriptorSemanticFields descriptor =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         [ "descriptor"
         , "rl"
         , algorithm
@@ -1873,7 +1854,6 @@ descriptorSemanticFields descriptor =
         , showText vectorEnvironments
         , showText episodeSteps
         , showText evaluationEpisodes
-        , showText optimizerUpdates
         ]
     TuningProductDescriptor executionSpec parallelTrials promotions perTrialUpdates ->
       [ "descriptor"
@@ -1938,8 +1918,7 @@ renderProductDescriptor descriptor =
       rolloutTicks
       vectorEnvironments
       episodeSteps
-      evaluationEpisodes
-      optimizerUpdates ->
+      evaluationEpisodes ->
         Text.intercalate
           ":"
           ( ["rl", algorithm, environment]
@@ -1949,7 +1928,6 @@ renderProductDescriptor descriptor =
                 , vectorEnvironments
                 , episodeSteps
                 , evaluationEpisodes
-                , optimizerUpdates
                 ]
           )
     TuningProductDescriptor executionSpec parallelTrials promotions perTrialUpdates ->

@@ -21,7 +21,6 @@ module JitML.Product.Completion
 where
 
 import Data.Char (isHexDigit, isUpper)
-import Data.List (sort)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
@@ -31,21 +30,19 @@ import Data.Word (Word32, Word64)
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Plan.Plan
   ( PlanId
-  , planIdFromCanonicalText
   , quantityValue
   , runPlanSeeds
   , seedCohortValues
-  , validationToEither
   )
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Algorithms.Registry qualified as Cohort
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
-import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
-import JitML.RL.TrainerExecution qualified as TrainerExecution
+import JitML.RL.Framework qualified as Framework
 import JitML.SL.Canonicals qualified as SL
 import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog qualified as Tune
@@ -200,16 +197,6 @@ attemptCompletedTrainingForProductRowWithWeightHashes planId budget row datasetS
             }
       Right (SupervisedCompletionPassed completed)
     else Right (SupervisedCompletionMiss nonEmptyObservations)
-
--- | Compatibility identity for the non-ProductRow traditional-RL checkpoint
--- path.  Sprint 25.4 replaces that path with its resolved algorithm plan; it
--- is deliberately separate from the ProductRow projection closed here.
-completionPlanIdFromCanonicalText :: Text -> Either Text PlanId
-completionPlanIdFromCanonicalText canonical =
-  case validationToEither (planIdFromCanonicalText canonical) of
-    Right planId -> Right planId
-    Left errors ->
-      Left ("completion plan-id refinement failed: " <> Text.pack (show errors))
 
 convergenceObservationsForProductRow
   :: ProductMatrix.ProductRow state
@@ -380,45 +367,42 @@ requireCanonicalJmw1Sha256 label identity
 
 rlCompletionMetrics
   :: Text
-  -> Word64
-  -> [EpisodeEnvelope.SimulatedEpisode]
+  -> AlgorithmCommon.MeasuredTrainerCounters
+  -> Framework.EvaluationSet
   -> Either Text [(Text, Double)]
-rlCompletionMetrics trainerKind observedUnits episodes = do
-  evaluationObservedUnits <- TrainerExecution.rlObservedBudgetUnits episodes
-  let rewards = fmap EpisodeEnvelope.simEpisodeReward episodes
-      avgReward = meanOrZero rewards
-      medianTail = medianValues (tailHalf rewards)
-      envSteps = fromIntegral (max observedUnits evaluationObservedUnits)
-      episodeCount = fromIntegral (length episodes)
-      baseMetrics =
-        [ ("avg_reward", avgReward)
-        , ("median_final_reward", medianTail)
-        , ("env_steps", envSteps)
-        , ("episode_count", episodeCount)
-        ]
-      herMetrics =
-        if trainerKind == "her"
-          then
-            -- Read the greedy-eval episodes directly: success = fraction that
-            -- reached the goal (simEpisodeDone), achieved distance = mean
-            -- normalized distance (= 1 - mean reward, since reward = 1 - dist).
-            -- The old `lastOrZero rewards` read a padding zero once eval episodes
-            -- exceeded the recorded training-stat intervals (so it reported 0.0),
-            -- and derived distance as `1 - success` rather than a real distance.
-            let reached = length (filter EpisodeEnvelope.simEpisodeDone episodes)
-                successRate =
-                  if null episodes
-                    then 0.0
-                    else fromIntegral reached / fromIntegral (length episodes)
-                achievedDistance = clamp01 (1.0 - avgReward)
-             in [ ("goal_success_rate", clamp01 successRate)
-                , ("achieved_goal_distance", achievedDistance)
-                ]
-          else []
+rlCompletionMetrics trainerKind counters evaluationSet =
   Right (baseMetrics <> herMetrics)
+ where
+  outcomes = fmap snd (Framework.evaluationSetOutcomes evaluationSet)
+  avgReward = Framework.evaluationSetMeanReward evaluationSet
+  medianReward = Framework.evaluationSetMedianReward evaluationSet
+  envSteps =
+    fromIntegral (AlgorithmCommon.measuredEnvironmentTransitionCount counters)
+  episodeCount = fromIntegral (length outcomes)
+  baseMetrics =
+    [ ("avg_reward", avgReward)
+    , ("median_final_reward", medianReward)
+    , ("env_steps", envSteps)
+    , ("episode_count", episodeCount)
+    ]
+  herMetrics =
+    if Text.toLower trainerKind == "her"
+      then
+        -- Read the exact greedy-evaluation cohort directly: success is the
+        -- fraction that reached the goal and distance is the mean normalized
+        -- distance encoded by reward. No training summary or partial set enters
+        -- these final-quality metrics.
+        let reached = length (filter Framework.episodeOutcomeDone outcomes)
+            successRate = fromIntegral reached / fromIntegral (length outcomes)
+            achievedDistance = clamp01 (1.0 - avgReward)
+         in [ ("goal_success_rate", clamp01 successRate)
+            , ("achieved_goal_distance", achievedDistance)
+            ]
+      else []
 
 rlCompletedTraining
-  :: (Text -> Word64 -> Either Text TrainingBudget.TrainingBudget)
+  :: PlanId
+  -> (Text -> Word64 -> Either Text TrainingBudget.TrainingBudget)
   -> Text
   -> Text
   -> Text
@@ -427,19 +411,8 @@ rlCompletedTraining
   -> [(Text, Double)]
   -> ProductEvidence.TrainingEvidence
   -> Either Text (Maybe TrainingBudget.CompletedTraining)
-rlCompletedTraining checkpointTrainingBudgetForTensor trainerKind envName experimentHash tensorName checkpointStep metrics evidence = do
+rlCompletedTraining planId checkpointTrainingBudgetForTensor trainerKind envName experimentHash tensorName checkpointStep metrics evidence = do
   budget <- checkpointTrainingBudgetForTensor tensorName checkpointStep
-  planId <-
-    completionPlanIdFromCanonicalText
-      ( Text.intercalate
-          "\NUL"
-          [ "jitml-rl-completion-plan-v1"
-          , experimentHash
-          , trainerKind
-          , envName
-          , TrainingBudget.renderTrainingBudget budget
-          ]
-      )
   Right
     ( rlCompletedTrainingWithBudget
         planId
@@ -570,25 +543,6 @@ algorithmNameForTrainer trainerKind =
 metricValue :: Text -> [(Text, Double)] -> Either Text Double
 metricValue name metrics =
   maybe (Left ("missing RL convergence metric: " <> name)) Right (lookup name metrics)
-
-tailHalf :: [a] -> [a]
-tailHalf [] = []
-tailHalf values =
-  drop (length values - max 1 (length values `div` 2)) values
-
-meanOrZero :: [Double] -> Double
-meanOrZero [] = 0.0
-meanOrZero values = sum values / fromIntegral (length values)
-
-medianValues :: [Double] -> Double
-medianValues [] = 0.0
-medianValues values =
-  let sorted = sort values
-      n = length sorted
-      mid = n `div` 2
-   in if even n
-        then (sorted !! (mid - 1) + sorted !! mid) / 2
-        else sorted !! mid
 
 clamp01 :: Double -> Double
 clamp01 value =

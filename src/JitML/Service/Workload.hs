@@ -35,6 +35,8 @@ module JitML.Service.Workload
   , parseWorkloadEffectPayload
   , planWorkloadPlacement
   , renderRlJob
+  , rlPlanForStart
+  , rlRunConfigFor
   , renderAlphaZeroJob
   , renderTrainingJob
   , renderTuneJob
@@ -66,21 +68,20 @@ import Data.Char
   , intToDigit
   , isAsciiLower
   , isAsciiUpper
+  , isControl
   , isDigit
   , isHexDigit
   , toLower
   )
 import Data.Either.Combinators (mapLeft)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 
 import JitML.Checkpoint.Format
   ( CheckpointManifest (..)
-  , ModelFamily (..)
-  , manifestContentSha
   )
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
@@ -115,6 +116,7 @@ import JitML.Plan.Workload
   , supervisedPlanId
   , tuningPlanId
   )
+import JitML.Product.BrowserCatalogue qualified as BrowserCatalogue
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Inference
   ( AdversarialMoveCommand (..)
@@ -183,16 +185,6 @@ import JitML.Substrate
   , parseSubstrate
   , renderSubstrate
   , substrateRuntimeClass
-  )
-import JitML.Training.Budget
-  ( ConvergenceObservation
-  , coMetricName
-  , coMetricValue
-  , completedTrainingBudget
-  , completedTrainingMetrics
-  , completedTrainingTensorBoard
-  , renderTrainingBudget
-  , tbrLogPrefix
   )
 
 type InferenceRunner m =
@@ -427,9 +419,11 @@ runWorkloadEffectWithInference
 runWorkloadEffectWithInference runInference effect =
   case effect of
     WriteCheckpointBlob ref payload ->
-      fmap CheckpointBlobWritten <$> putBlobBytesIfAbsent ref payload
+      runGenericCheckpointMutation ref $
+        fmap CheckpointBlobWritten <$> putBlobBytesIfAbsent ref payload
     UpdateCheckpointPointer ref expected payload ->
-      fmap CheckpointPointerUpdated <$> casPointer ref expected payload
+      runGenericCheckpointMutation ref $
+        fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
     RunInference target request ->
@@ -949,9 +943,11 @@ runWorkloadEffectWithWeightedInference
 runWorkloadEffectWithWeightedInference runInference effect =
   case effect of
     WriteCheckpointBlob ref payload ->
-      fmap CheckpointBlobWritten <$> putBlobBytesIfAbsent ref payload
+      runGenericCheckpointMutation ref $
+        fmap CheckpointBlobWritten <$> putBlobBytesIfAbsent ref payload
     UpdateCheckpointPointer ref expected payload ->
-      fmap CheckpointPointerUpdated <$> casPointer ref expected payload
+      runGenericCheckpointMutation ref $
+        fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
     RunInference target request ->
@@ -976,6 +972,111 @@ runWorkloadEffectWithWeightedInference runInference effect =
       fmap WorkloadResourceStatus <$> kubectlStatus resource
     DeleteWorkloadResource resource ->
       fmap (const WorkloadResourceDeleted) <$> kubectlDelete resource
+
+-- | Generic daemon effects may still write ordinary immutable checkpoint
+-- payloads, but checkpoint transaction state is owned exclusively by
+-- 'JitML.Checkpoint.Store'.  Reject these paths before invoking 'HasMinIO' so
+-- a decoded workload payload cannot publish a manifest, advance a Store
+-- pointer, or manufacture GC/snapshot control state outside Store's validation
+-- and ordering protocol.
+runGenericCheckpointMutation
+  :: (Applicative m)
+  => ObjectRef
+  -> m (Either ServiceError result)
+  -> m (Either ServiceError result)
+runGenericCheckpointMutation ref action =
+  case validateGenericCheckpointMutationRef ref of
+    Left reason ->
+      pure
+        ( Left
+            ( SEUnauthorized
+                ( "generic workload checkpoint effect cannot mutate an unsafe object reference: "
+                    <> renderObjectRef ref
+                    <> " ("
+                    <> reason
+                    <> ")"
+                )
+            )
+        )
+    Right () ->
+      case checkpointStoreControlPrefix ref of
+        Nothing -> action
+        Just controlPrefix ->
+          pure
+            ( Left
+                ( SEUnauthorized
+                    ( "generic workload checkpoint effect cannot mutate Store-owned "
+                        <> controlPrefix
+                        <> "/ control path: "
+                        <> renderObjectRef ref
+                    )
+                )
+            )
+
+-- | Generic checkpoint effects cross both the remote S3 boundary and the
+-- filesystem-backed test interpreter.  Require one portable bucket segment
+-- and one portable relative key spelling before classifying Store-owned
+-- prefixes: filesystem normalization must never turn an authorized
+-- 'ObjectRef' spelling into a different bucket or key.
+validateGenericCheckpointMutationRef :: ObjectRef -> Either Text ()
+validateGenericCheckpointMutationRef ref = do
+  validateBucketName rawBucket
+  validateObjectKey rawKey
+ where
+  rawBucket = unBucketName (objectBucket ref)
+  rawKey = unObjectKey (objectKey ref)
+  validateBucketName bucket
+    | Text.null bucket = Left "bucket name is empty"
+    | isAbsoluteObjectKey bucket = Left "bucket name is absolute"
+    | bucket == "." = Left "bucket name is a dot path segment"
+    | bucket == ".." = Left "bucket name is a dot-dot path segment"
+    | Text.any (\character -> character == '/' || character == '\\') bucket =
+        Left "bucket name contains a path separator"
+    | Text.any isControl bucket = Left "bucket name contains a control character"
+    | otherwise = Right ()
+  validateObjectKey key
+    | Text.null key = Left "object key is empty"
+    | isAbsoluteObjectKey key = Left "object key is absolute"
+    | Text.any (== '\\') key = Left "object key contains a backslash separator"
+    | otherwise = mapM_ validateKeySegment (Text.splitOn "/" key)
+  validateKeySegment segment
+    | Text.null segment = Left "object key contains an empty path segment"
+    | segment == "." = Left "object key contains a dot path segment"
+    | segment == ".." = Left "object key contains a dot-dot path segment"
+    | Text.any isControl segment = Left "object key contains a control character"
+    | otherwise = Right ()
+
+isAbsoluteObjectKey :: Text -> Bool
+isAbsoluteObjectKey rawKey =
+  "/" `Text.isPrefixOf` rawKey
+    || "\\" `Text.isPrefixOf` rawKey
+    || case Text.unpack rawKey of
+      drive : ':' : separator : _ ->
+        (isAsciiLower drive || isAsciiUpper drive)
+          && separator `elem` ['/', '\\']
+      _ -> False
+
+checkpointStoreControlPrefix :: ObjectRef -> Maybe Text
+checkpointStoreControlPrefix ref
+  | objectBucket ref /= BucketName "jitml-checkpoints" = Nothing
+  | otherwise =
+      case Text.splitOn "/" relativeKey of
+        experimentHash : controlPrefix : _
+          | not (Text.null experimentHash)
+          , controlPrefix `elem` checkpointStoreControlPrefixes ->
+              Just controlPrefix
+        _ -> Nothing
+ where
+  rawKey = unObjectKey (objectKey ref)
+  relativeKey = fromMaybe rawKey (Text.stripPrefix "jitml-checkpoints/" rawKey)
+
+checkpointStoreControlPrefixes :: [Text]
+checkpointStoreControlPrefixes =
+  [ "manifests"
+  , "pointers"
+  , "snapshots"
+  , "gc"
+  ]
 
 runWorkloadEffectsWithWeightedInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
@@ -1155,181 +1256,104 @@ productRowCheckpointTargets :: [(Text, ProductMatrix.ProductRow 'ProductMatrix.D
 productRowCheckpointTargets =
   [(ProductMatrix.productRowExperimentHash row, row) | row <- ProductMatrix.allProductRows]
 
--- | Checkpoint browse as an Engine job: for each product-row artifact
--- namespace, list manifests from the `jitml-checkpoints` MinIO bucket and
--- publish a single `CheckpointList` frame summarising eligible manifests plus
--- per-row selector state on the typed result target retained by the effect.
+-- | Checkpoint browse as an Engine job.  The selected authenticated catalogue
+-- is the only authority: a stable selector read and exact live re-admission of
+-- all 55 rows must succeed before one result frame is published.  There is no
+-- fallback manifest-prefix scan and therefore no way for stale extras to enter
+-- the browser projection.
 runListCheckpointsRequestWithTarget
   :: (HasMinIO m, HasPulsar m)
   => InferenceResultTarget
   -> ListCheckpointsCommand
   -> m (Either ServiceError Text)
 runListCheckpointsRequestWithTarget target command = do
-  let substrate = Just (inferenceResultTargetSubstrate target)
-  listings <-
-    traverse
-      ( \(experimentHash, row) -> do
-          manifests <- CheckpointStore.listCheckpointManifestsMinIO experimentHash
-          admittedSummaries <-
-            case manifests of
-              Left err -> pure (Left err)
-              Right listed ->
-                Right
-                  <$> admittedCheckpointSummariesForRow
-                    (ProductMatrix.rowId row)
-                    experimentHash
-                    listed
-          pure
-            ( rowCheckpointResult
-                substrate
-                experimentHash
-                row
-                admittedSummaries
+  selected <-
+    BrowserCatalogue.readSelectedProductBrowserCatalogue
+      (inferenceResultTargetSubstrate target)
+  case selected of
+    Left errors ->
+      pure
+        ( Left
+            ( SETransient
+                ( "authenticated browser catalogue admission failed: "
+                    <> Text.pack (show errors)
+                )
             )
-      )
-      productRowCheckpointTargets
-  let summaries = concatMap productCheckpointSummaries listings
-      selectors = fmap productRowSelectorLine listings
-  publishInferenceResultTo
-    target
-    (lccReplyTopic command)
-    (renderCheckpointListResultWithSelectors (lccCallId command) selectors summaries)
+        )
+    Right admitted ->
+      publishInferenceResultTo
+        target
+        (lccReplyTopic command)
+        (renderAdmittedProductBrowserCatalogue (lccCallId command) admitted)
 
-data ProductRowCheckpointResult = ProductRowCheckpointResult
-  { prcrRowId :: !Text
-  , prcrExperimentHash :: !Text
-  , prcrRowFamily :: !Text
-  , prcrDemoPanel :: !Text
-  , prcrSelectorState :: !Text
-  , prcrEligibleSummaries :: ![Text]
-  }
-  deriving stock (Eq, Show)
-
-rowCheckpointResult
-  :: Maybe Substrate
-  -> Text
-  -> ProductMatrix.ProductRow state
-  -> Either ServiceError [Text]
-  -> ProductRowCheckpointResult
-rowCheckpointResult substrate experimentHash row summariesResult =
-  case productRowUnsupportedReason substrate row of
-    Just _ ->
-      baseResult "unsupported" []
-    Nothing ->
-      case summariesResult of
-        Left _ ->
-          baseResult "error" []
-        Right summaries ->
-          baseResult (productRowSelectorState summaries) summaries
- where
-  baseResult selectorState summaries =
-    ProductRowCheckpointResult
-      { prcrRowId = ProductMatrix.rowId row
-      , prcrExperimentHash = experimentHash
-      , prcrRowFamily = ProductMatrix.renderRowFamily (ProductMatrix.family row)
-      , prcrDemoPanel = ProductMatrix.demoPanel row
-      , prcrSelectorState = selectorState
-      , prcrEligibleSummaries = summaries
-      }
-
-productCheckpointSummaries :: ProductRowCheckpointResult -> [Text]
-productCheckpointSummaries =
-  prcrEligibleSummaries
-
-productRowSelectorLine :: ProductRowCheckpointResult -> Text
-productRowSelectorLine result =
-  Text.intercalate
-    "\t"
-    [ prcrRowId result
-    , prcrExperimentHash result
-    , prcrRowFamily result
-    , prcrSelectorState result
-    , Text.pack (show (length (prcrEligibleSummaries result)))
-    , prcrDemoPanel result
-    ]
-
-productRowSelectorState :: [Text] -> Text
-productRowSelectorState [] = "training-required"
-productRowSelectorState _ = "eligible"
-
-productRowUnsupportedReason :: Maybe Substrate -> ProductMatrix.ProductRow state -> Maybe Text
-productRowUnsupportedReason _ row =
-  case ProductMatrix.rowClass row of
-    ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
-      rlTrainerEnvironmentCompatibilityError (rlTrainerForAlgorithm algorithm) environment
-    ProductMatrix.RlGoalConditioned environment ->
-      rlTrainerEnvironmentCompatibilityError "her" environment
-    _ -> Nothing
-
-rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
-rlTrainerEnvironmentCompatibilityError =
-  ProductBudget.rlTrainerEnvironmentCompatibilityError
-
--- | Re-admit every listed immutable address before it can participate in the
--- serving selector. Listing and decoding alone are inspection evidence:
--- Store must re-fetch and bind the exact V2 outer/body/blob graph.
-admittedCheckpointSummariesForRow
-  :: (HasMinIO m)
-  => Text
-  -> Text
-  -> [CheckpointManifest]
-  -> m [Text]
-admittedCheckpointSummariesForRow rowId experimentHash manifests =
-  catMaybes <$> traverse admitOne manifests
- where
-  admitOne manifest = do
-    admission <-
-      CheckpointStore.admitCheckpointAt
-        experimentHash
-        (manifestContentSha manifest)
-    pure $
-      case admission >>= CheckpointStore.requireAdmittedCompletedCheckpoint of
-        Left _ -> Nothing
-        Right admitted ->
-          Just (admittedCheckpointSummaryLine rowId experimentHash admitted)
-
--- | Render only an opaque, completed Store admission. No in-memory manifest
--- helper can produce the @eligible@ marker used by serving selection.
-admittedCheckpointSummaryLine
+renderAdmittedProductBrowserCatalogue
   :: Text
+  -> BrowserCatalogue.AdmittedProductBrowserCatalogue
   -> Text
-  -> CheckpointStore.AdmittedCompletedCheckpoint
+renderAdmittedProductBrowserCatalogue callId admittedCatalogue =
+  Text.unlines $
+    [ "kind: CheckpointList"
+    , "call-id: " <> callId
+    , "panel: checkpoint-browse"
+    , "status: published"
+    , "run-id: " <> BrowserCatalogue.productBrowserCatalogueRunId catalogue
+    , "substrate: "
+        <> renderSubstrate (BrowserCatalogue.productBrowserCatalogueSubstrate catalogue)
+    , "catalogue-sha256: "
+        <> BrowserCatalogue.productBrowserCatalogueSha256 catalogue
+    , "source-journal-sha256: "
+        <> BrowserCatalogue.productBrowserCatalogueSourceJournalDigest catalogue
+    , "count: " <> Text.pack (show (length rows))
+    , "selector-state: ready"
+    ]
+      <> fmap (("row-selector: " <>) . admittedCatalogueSelectorLine) rows
+      <> fmap (("checkpoint-summary: " <>) . admittedCatalogueSummaryLine) rows
+ where
+  catalogue = BrowserCatalogue.admittedProductBrowserCatalogue admittedCatalogue
+  rows = BrowserCatalogue.admittedProductBrowserCatalogueRows admittedCatalogue
+
+admittedCatalogueSelectorLine
+  :: BrowserCatalogue.AdmittedProductBrowserCatalogueRow
   -> Text
-admittedCheckpointSummaryLine rowId experimentHash completedAdmission =
+admittedCatalogueSelectorLine admittedRow =
   Text.intercalate
     "\t"
-    [ rowId
-    , experimentHash
-    , CheckpointStore.admittedCheckpointManifestSha admitted
-    , Text.pack (show (manifestStep manifest))
-    , renderModelFamily (manifestModelFamily manifest)
-    , Text.pack (show (length (manifestTensors manifest)))
-    , "eligible"
-    , renderTrainingBudget (completedTrainingBudget completed)
-    , renderConvergenceMetrics (completedTrainingMetrics completed)
-    , tbrLogPrefix (completedTrainingTensorBoard completed)
+    [ Text.pack (show (BrowserCatalogue.productBrowserCatalogueRowOrdinal row))
+    , BrowserCatalogue.productBrowserCatalogueRowRowId row
+    , BrowserCatalogue.productBrowserCatalogueRowPlanId row
+    , BrowserCatalogue.productBrowserCatalogueRowExperimentHash row
+    , BrowserCatalogue.productBrowserCatalogueRowManifestSha row
+    , BrowserCatalogue.admittedProductBrowserCatalogueRowModelFamily admittedRow
+    , BrowserCatalogue.productBrowserCatalogueRowStatus row
+    , ""
+    , BrowserCatalogue.productBrowserCatalogueRowDemoPanel row
     ]
  where
-  admitted = CheckpointStore.admittedCompletedCheckpoint completedAdmission
-  manifest = CheckpointStore.admittedCheckpointManifest admitted
-  completed = CheckpointStore.admittedCompletedTraining completedAdmission
+  row = BrowserCatalogue.admittedProductBrowserCatalogueRowCatalogueRow admittedRow
 
-renderConvergenceMetrics :: [ConvergenceObservation] -> Text
-renderConvergenceMetrics metrics =
+admittedCatalogueSummaryLine
+  :: BrowserCatalogue.AdmittedProductBrowserCatalogueRow
+  -> Text
+admittedCatalogueSummaryLine admittedRow =
   Text.intercalate
-    ","
-    [ coMetricName metric <> "=" <> Text.pack (show (coMetricValue metric))
-    | metric <- metrics
+    "\t"
+    [ Text.pack (show (BrowserCatalogue.productBrowserCatalogueRowOrdinal row))
+    , BrowserCatalogue.productBrowserCatalogueRowRowId row
+    , BrowserCatalogue.productBrowserCatalogueRowPlanId row
+    , BrowserCatalogue.productBrowserCatalogueRowExperimentHash row
+    , BrowserCatalogue.productBrowserCatalogueRowManifestSha row
+    , Text.pack
+        (show (BrowserCatalogue.admittedProductBrowserCatalogueRowStep admittedRow))
+    , BrowserCatalogue.admittedProductBrowserCatalogueRowModelFamily admittedRow
+    , Text.pack
+        (show (BrowserCatalogue.admittedProductBrowserCatalogueRowTensorCount admittedRow))
+    , "eligible"
+    , BrowserCatalogue.admittedProductBrowserCatalogueRowBudget admittedRow
+    , BrowserCatalogue.admittedProductBrowserCatalogueRowMeasuredResult admittedRow
+    , BrowserCatalogue.admittedProductBrowserCatalogueRowTensorBoardPrefix admittedRow
     ]
-
-renderModelFamily :: ModelFamily -> Text
-renderModelFamily family =
-  case family of
-    GenericModelFamily -> "generic"
-    SupervisedModelFamily -> "supervised"
-    ReinforcementLearningPolicyFamily -> "rl-policy"
-    AlphaZeroPolicyValueFamily -> "alphazero"
-    HyperparameterTuningFamily -> "hyperparameter"
+ where
+  row = BrowserCatalogue.admittedProductBrowserCatalogueRowCatalogueRow admittedRow
 
 -- | Sprint 14.1 (Feature A) — the `CheckpointList` result frame. Each
 -- `checkpoint-summary:` line carries one tab-separated manifest summary; the
@@ -1438,13 +1462,12 @@ alphaZeroRunConfigFor plan =
     , azrcPulsarWsUrl = inClusterPulsarWsUrl
     }
 
--- | Phase 251 — compile the daemon-side RL plan from the raw @StartRLRun@ proto
--- request fields (@max_steps@/@eval_episodes@ stay raw request inputs feeding
--- the compiler here) into the content-addressed transport the worker consumes.
--- The training episode-budget floor is the canonical training constant, so the
--- requested evaluation episode count only shapes the plan's @EvaluationPlan@.
-rlRunConfigFor :: StartRLRun -> Either Text RlRunConfig
-rlRunConfigFor start = do
+-- | Compile a raw traditional-RL start through the one daemon/Apple adapter.
+-- This boundary is pure and fixes the compatibility vector override to
+-- 'Nothing'; host process environment therefore cannot change its schedule or
+-- content-derived identity.
+rlPlanForStart :: StartRLRun -> Either Text ProductBudget.CompiledRlPlan
+rlPlanForStart start =
   let training =
         ProductBudget.TrainingPlan
           { ProductBudget.trainingPlanTrainerKind = rlTrainerForAlgorithm (srlAlgorithm start)
@@ -1457,10 +1480,19 @@ rlRunConfigFor start = do
           , ProductBudget.trainingPlanRequestedTransitionFloor = Nothing
           , ProductBudget.trainingPlanExactTransitionTarget = Nothing
           }
-  plan <-
-    ProductBudget.compileRlPlan
-      training
-      (ProductBudget.EvaluationPlan (fromIntegral (srlEvalEpisodes start)))
+   in ProductBudget.compileRlPlan
+        training
+        (ProductBudget.EvaluationPlan (fromIntegral (srlEvalEpisodes start)))
+
+-- | Phase 251 — compile the daemon-side RL plan from the raw @StartRLRun@ proto
+-- request fields (@max_steps@/@eval_episodes@ stay raw request inputs feeding
+-- the compiler here) into the content-addressed transport the worker consumes.
+-- The same 'rlPlanForStart' value drives Apple host execution. The training
+-- episode-budget floor is the canonical training constant, so the requested
+-- evaluation episode count only shapes the plan's @EvaluationPlan@.
+rlRunConfigFor :: StartRLRun -> Either Text RlRunConfig
+rlRunConfigFor start = do
+  plan <- rlPlanForStart start
   pure
     RlRunConfig
       { rlcExperimentHash = srlExperimentHash start

@@ -1,17 +1,17 @@
 -- | Checkpoint browse panel.
 -- |
--- | Sprint 14.1 (Feature A) — asynchronous to the browser: on init it POSTs
--- | `/api/checkpoints` (a trigger) and subscribes to `/api/ws/inference`. The
--- | Engine lists product-row checkpoint manifests from MinIO and replies with a
--- | `CheckpointList` frame, which this panel renders as row selector state plus
--- | eligible checkpoint summaries. No webapp/panel compute — the daemon lists;
--- | the panel renders.
+-- | The daemon returns one complete, publication-bound `CheckpointList` from
+-- | `/api/checkpoints`. The generated parser rejects partial, duplicated,
+-- | orphaned, reordered, or identity-mismatched rows before this component can
+-- | render them. Static registry rows are declarations only and are always
+-- | shown as `NotRun`; only a validated live response can render `Passed`.
 module Panels.Checkpoints where
 
 import Prelude
 
-import Data.Array as Array
 import Chrome.Header as Header
+import Data.Array as Array
+import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
@@ -22,7 +22,6 @@ import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Panels.Api (requestText)
-import Panels.Stream (subscribeStream)
 
 type CheckpointListResponse = Contracts.CheckpointList
 
@@ -35,7 +34,6 @@ type State =
 data Action
   = Initialize
   | ListAck String
-  | FrameText String
   | ListReceived CheckpointListResponse
   | ListFailed String
 
@@ -58,8 +56,7 @@ component =
     }
   where
   handleAction = case _ of
-    Initialize -> do
-      subscribeStream "/api/ws/inference" FrameText ListFailed
+    Initialize ->
       requestText
         "POST"
         "/api/checkpoints"
@@ -68,13 +65,8 @@ component =
         ListFailed
     ListAck payload ->
       case Contracts.parseCheckpointList payload of
-        Just frame -> handleAction (ListReceived frame)
-        Nothing -> pure unit
-    FrameText payload ->
-      case Contracts.parseCheckpointList payload of
-        Just frame -> handleAction (ListReceived frame)
-        Nothing ->
-          pure unit
+        Left detail -> handleAction (ListFailed detail)
+        Right response -> handleAction (ListReceived response)
     ListReceived response ->
       H.modify_
         ( _
@@ -87,6 +79,7 @@ component =
       H.modify_
         ( _
             { pendingList = false
+            , lastResponse = Nothing
             , lastError = Just message
             }
         )
@@ -97,6 +90,7 @@ component =
       [ Header.render
       , HH.h2_ [ HH.text "Checkpoint browse" ]
       , renderStatus state
+      , renderPublication state
       , renderList state
       , renderArtifactRenderers state
       , renderModelMatrix state
@@ -107,54 +101,90 @@ component =
     HH.div
       [ HP.id (panelName <> "-status") ]
       [ HH.text
-          ( case state.lastResponse of
-              Just response ->
-                if response.selectorState == "fail-closed:no-inference-eligible-artifact" then
-                  "No inference-eligible checkpoint artifacts"
+          ( case state.lastResponse, state.lastError of
+              Just response, _ ->
+                let
+                  passed = Array.length (Array.filter (\row -> row.evidenceStatus == "Passed") response.rowSelectors)
+                  failed = Array.length (Array.filter (\row -> row.evidenceStatus == "Failed") response.rowSelectors)
+                  notRun = Array.length (Array.filter (\row -> row.evidenceStatus == "NotRun") response.rowSelectors)
+                  completion =
+                    if passed == response.count && failed == 0 && notRun == 0 then
+                      "; complete publication-bound checkpoint evidence"
+                    else
+                      "; incomplete checkpoint evidence"
+                in
+                  "Passed: " <> show passed <> "; Failed: " <> show failed
+                    <> "; NotRun: "
+                    <> show notRun
+                    <> completion
+              Nothing, Just _ ->
+                "Passed: 0; Failed: 0; NotRun: " <> show (Array.length Contracts.allModelMatrixRows)
+                  <> "; request: Failed; checkpoint evidence was rejected"
+              Nothing, Nothing ->
+                if state.pendingList then
+                  "Passed: 0; Failed: 0; NotRun: " <> show (Array.length Contracts.allModelMatrixRows)
+                    <> "; loading checkpoint evidence"
                 else
-                  "Inference-eligible checkpoints"
-              Nothing ->
-                if state.pendingList then "Loading checkpoints…" else "Inference-eligible checkpoints"
+                  "Passed: 0; Failed: 0; NotRun: " <> show (Array.length Contracts.allModelMatrixRows)
+                    <> "; checkpoint evidence unavailable"
           )
       ]
+
+  renderPublication state =
+    case state.lastResponse of
+      Nothing ->
+        HH.section
+          [ HP.id (panelName <> "-publication") ]
+          [ HH.div [ HP.id (panelName <> "-publication-status") ] [ HH.text "status: NotRun" ]
+          , HH.div [ HP.id (panelName <> "-publication-reason") ] [ HH.text "reason: no validated live CheckpointList" ]
+          ]
+      Just response ->
+        HH.section
+          [ HP.id (panelName <> "-publication") ]
+          [ HH.div [ HP.id (panelName <> "-publication-status") ] [ HH.text ("status: " <> response.publicationStatus) ]
+          , HH.div [ HP.id (panelName <> "-run-id") ] [ HH.text ("run-id: " <> response.runId) ]
+          , HH.div [ HP.id (panelName <> "-substrate") ] [ HH.text ("substrate: " <> response.substrate) ]
+          , HH.div [ HP.id (panelName <> "-catalogue-sha256") ] [ HH.text ("catalogue-sha256: " <> response.catalogueSha256) ]
+          , HH.div [ HP.id (panelName <> "-source-journal-sha256") ] [ HH.text ("source-journal-sha256: " <> response.sourceJournalSha256) ]
+          , HH.div [ HP.id (panelName <> "-row-count") ] [ HH.text ("count: " <> show response.count) ]
+          , HH.div [ HP.id (panelName <> "-selector-state") ] [ HH.text ("selector-state: " <> response.selectorState) ]
+          ]
 
   renderList state =
     case state.lastResponse of
       Nothing -> HH.div_ []
       Just response ->
-        if response.selectorState == "fail-closed:no-inference-eligible-artifact" then
-          HH.div
-            [ HP.id (panelName <> "-fail-closed")
-            , HP.classes [ H.ClassName "jitml-fail-closed" ]
-            ]
-            [ HH.text "No row has an inference-eligible artifact yet." ]
-        else
-          HH.ol
-            [ HP.id (panelName <> "-list")
-            , HP.classes [ H.ClassName "jitml-checkpoint-list" ]
-            ]
-            (map renderItem response.checkpoints)
+        HH.ol
+          [ HP.id (panelName <> "-list")
+          , HP.classes [ H.ClassName "jitml-checkpoint-list" ]
+          ]
+          (map renderItem response.checkpoints)
 
   renderItem summary =
-    HH.li
-      [ HP.id (panelName <> "-item-" <> summary.sha)
-      , HP.classes [ H.ClassName "jitml-checkpoint-item" ]
-      ]
-      [ HH.div_ [ HH.text ("experiment: " <> summary.experimentHash) ]
-      , HH.div_ [ HH.text ("row: " <> summary.rowId) ]
-      , HH.div_ [ HH.text ("sha: " <> summary.sha) ]
-      , HH.div_ [ HH.text ("step: " <> show summary.step) ]
-      , HH.div_ [ HH.text ("family: " <> summary.modelFamily) ]
-      , HH.div_ [ HH.text ("tensors: " <> show summary.tensorCount) ]
-      , HH.div_ [ HH.text ("eligibility: " <> summary.eligibility) ]
-      , HH.div_ [ HH.text ("budget: " <> summary.completedBudget) ]
-      , HH.div_ [ HH.text ("convergence: " <> summary.convergenceMetrics) ]
-      , HH.div_
-          [ HH.a
-              [ HP.href ("/tensorboard/#" <> summary.tensorboardPrefix) ]
-              [ HH.text ("tensorboard: " <> summary.tensorboardPrefix) ]
-          ]
-      ]
+    let
+      prefix = panelName <> "-summary-" <> show summary.ordinal
+    in
+      HH.li
+        [ HP.id prefix
+        , HP.classes [ H.ClassName "jitml-checkpoint-item" ]
+        ]
+        [ evidenceCell prefix "row-id" ("row: " <> summary.rowId)
+        , evidenceCell prefix "plan-id" ("PlanId: " <> summary.planId)
+        , evidenceCell prefix "experiment-hash" ("experiment: " <> summary.experimentHash)
+        , evidenceCell prefix "manifest-sha256" ("manifest: " <> summary.sha)
+        , evidenceCell prefix "step" ("step: " <> show summary.step)
+        , evidenceCell prefix "family" ("family: " <> summary.modelFamily)
+        , evidenceCell prefix "tensor-count" ("tensors: " <> show summary.tensorCount)
+        , evidenceCell prefix "eligibility" ("eligibility: " <> summary.eligibility)
+        , evidenceCell prefix "budget" ("budget: " <> summary.completedBudget)
+        , evidenceCell prefix "measured-result" ("measured-result: " <> summary.measuredResult)
+        , HH.div
+            [ HP.id (prefix <> "-tensorboard") ]
+            [ HH.a
+                [ HP.href ("/tensorboard/#" <> summary.tensorboardPrefix) ]
+                [ HH.text ("tensorboard: " <> summary.tensorboardPrefix) ]
+            ]
+        ]
 
   renderModelMatrix state =
     HH.section
@@ -169,32 +199,36 @@ component =
       ]
 
   renderSelectorRow row =
-    HH.li_
-      [ HH.div_ [ HH.text ("model: " <> row.rowId) ]
-      , HH.div_ [ HH.text ("kind: " <> row.family) ]
-      , HH.div_ [ HH.text ("selector: " <> row.selectorState) ]
-      , HH.div_ [ HH.text ("checkpoints: " <> show row.checkpointCount) ]
-      , HH.div_ [ HH.text ("experiment: " <> row.experimentHash) ]
-      , HH.div_ [ HH.text ("panel: " <> row.demoPanel) ]
-      , HH.div_
-          [ HH.text "requires trained artifact: yes" ]
-      ]
+    let
+      prefix = panelName <> "-selector-" <> show row.ordinal
+    in
+      HH.li
+        [ HP.id prefix ]
+        [ evidenceCell prefix "row-id" ("model: " <> row.rowId)
+        , evidenceCell prefix "plan-id" ("PlanId: " <> row.planId)
+        , evidenceCell prefix "experiment-hash" ("experiment: " <> row.experimentHash)
+        , evidenceCell prefix "manifest-sha256" ("manifest: " <> row.manifestSha)
+        , evidenceCell prefix "family" ("kind: " <> row.family)
+        , evidenceCell prefix "status" ("status: " <> row.evidenceStatus)
+        , evidenceCell prefix "reason" (renderEvidenceReason row.evidenceReason)
+        , evidenceCell prefix "panel" ("panel: " <> row.demoPanel)
+        ]
 
   renderModelRow row =
-    HH.li_
-      [ HH.div_ [ HH.text ("model: " <> row.name) ]
-      , HH.div_ [ HH.text ("kind: " <> row.kind) ]
-      , HH.div_ [ HH.text ("experiment: " <> row.experimentHash) ]
-      , HH.div_ [ HH.text ("e2e: " <> row.e2eTest) ]
-      , HH.div_ [ HH.text ("panel: " <> row.demoPanel) ]
-      , HH.div_ [ HH.text ("budget: " <> row.budget) ]
-      , HH.div_
-          [ HH.text
-              ( "requires trained artifact: "
-                  <> (if row.requiresTrainedArtifact then "yes" else "no")
-              )
-          ]
-      ]
+    let
+      prefix = panelName <> "-declaration-" <> row.name
+    in
+      HH.li
+        [ HP.id prefix ]
+        [ evidenceCell prefix "row-id" ("model: " <> row.name)
+        , evidenceCell prefix "plan-id" "PlanId: NotRun; live substrate unavailable"
+        , evidenceCell prefix "experiment-hash" ("experiment: " <> row.experimentHash)
+        , evidenceCell prefix "status" "status: NotRun"
+        , evidenceCell prefix "reason" "reason: declaration only; substrate-bound live evidence not loaded"
+        , evidenceCell prefix "e2e" ("e2e: " <> row.e2eTest)
+        , evidenceCell prefix "panel" ("panel: " <> row.demoPanel)
+        , evidenceCell prefix "budget" ("budget: " <> row.budget)
+        ]
 
   renderArtifactRenderers state =
     case state.lastResponse of
@@ -210,24 +244,38 @@ component =
 
   renderArtifactCard checkpoints selector =
     let
-      summary = Array.find (\checkpoint -> checkpoint.rowId == selector.rowId) checkpoints
+      prefix = panelName <> "-artifact-" <> show selector.ordinal
+      summary =
+        Array.find
+          ( \checkpoint ->
+              checkpoint.ordinal == selector.ordinal
+                && checkpoint.rowId == selector.rowId
+                && checkpoint.planId == selector.planId
+                && checkpoint.experimentHash == selector.experimentHash
+                && checkpoint.sha == selector.manifestSha
+          )
+          checkpoints
     in
       HH.li
-        [ HP.id (panelName <> "-artifact-" <> selector.experimentHash)
+        [ HP.id prefix
         , HP.classes
             [ H.ClassName "jitml-artifact-card"
             , H.ClassName ("artifact-" <> selector.family)
-            , H.ClassName ("selector-" <> selector.selectorState)
+            , H.ClassName ("evidence-" <> selector.evidenceStatus)
             ]
         ]
-        [ HH.div_ [ HH.text ("row: " <> selector.rowId) ]
-        , HH.div_ [ HH.text ("state: " <> selector.selectorState) ]
+        [ evidenceCell prefix "row-id" ("row: " <> selector.rowId)
+        , evidenceCell prefix "plan-id" ("PlanId: " <> selector.planId)
+        , evidenceCell prefix "experiment-hash" ("experiment: " <> selector.experimentHash)
+        , evidenceCell prefix "manifest-sha256" ("manifest: " <> selector.manifestSha)
+        , evidenceCell prefix "status" ("status: " <> selector.evidenceStatus)
+        , evidenceCell prefix "reason" (renderEvidenceReason selector.evidenceReason)
         , case summary of
             Nothing ->
-              HH.div_
-                [ HH.text ("artifact: " <> selector.selectorState) ]
-            Just checkpoint ->
-              renderFamilyArtifact selector checkpoint
+              HH.div
+                [ HP.id (prefix <> "-identity-error"), HP.classes [ H.ClassName "jitml-error" ] ]
+                [ HH.text "Failed: exact selector/summary identity is missing" ]
+            Just checkpoint -> renderFamilyArtifact selector checkpoint
         ]
 
   renderFamilyArtifact selector summary =
@@ -246,8 +294,8 @@ component =
       , renderCheckpointMetadata summary
       ]
 
-  supervisedInputLabel panel =
-    case panel of
+  supervisedInputLabel candidatePanel =
+    case candidatePanel of
       "mnist-live-inference" -> "28x28 grayscale tensor"
       "cifar-imagenet-upload" -> "image tensor"
       "generic-inference-lab" -> "numeric feature vector"
@@ -261,7 +309,7 @@ component =
       [ HP.classes [ H.ClassName "artifact-rl-renderer" ] ]
       [ HH.div_ [ HH.text ("trajectory: " <> selector.demoPanel) ]
       , HH.div_ [ HH.text ("policy row: " <> selector.rowId) ]
-      , HH.div_ [ HH.text ("action metadata: policy distribution + rollout reward") ]
+      , HH.div_ [ HH.text "action metadata: policy distribution + rollout reward" ]
       , renderCheckpointMetadata summary
       ]
 
@@ -300,10 +348,17 @@ component =
     HH.div
       [ HP.classes [ H.ClassName "artifact-metadata" ] ]
       [ HH.div_ [ HH.text ("manifest: " <> summary.sha) ]
+      , HH.div_ [ HH.text ("PlanId: " <> summary.planId) ]
       , HH.div_ [ HH.text ("budget: " <> summary.completedBudget) ]
-      , HH.div_ [ HH.text ("convergence: " <> summary.convergenceMetrics) ]
+      , HH.div_ [ HH.text ("measured-result: " <> summary.measuredResult) ]
       , HH.div_ [ HH.text ("tensorboard: " <> summary.tensorboardPrefix) ]
       ]
+
+  evidenceCell prefix suffix value =
+    HH.div [ HP.id (prefix <> "-" <> suffix) ] [ HH.text value ]
+
+  renderEvidenceReason reason =
+    if reason == "" then "reason: (none)" else "reason: " <> reason
 
   renderError state =
     case state.lastError of

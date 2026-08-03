@@ -238,7 +238,7 @@ allProductPhaseStatuses =
       252
       "Typed Measured Counters and Evidence Separation"
       "DEVELOPMENT_PLAN/phase-252-typed-measured-counters-and-evidence-separation.md"
-      [ sprint "252.1" "Typed Measured Counters and Evidence Separation" Planned
+      [ sprint "252.1" "Typed Measured Counters and Evidence Separation" Done
       ]
   , productPhase
       253
@@ -292,13 +292,13 @@ allProductPhaseStatuses =
       261
       "Contract-Driven Live Execution - Integration Journal"
       "DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md"
-      [ sprint "261.1" "Contract-Driven Live Execution - Integration Journal" Blocked
+      [ sprint "261.1" "Contract-Driven Live Execution - Integration Journal" Done
       ]
   , productPhase
       262
       "Contract-Driven Live Execution - Browser and Playwright"
       "DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md"
-      [ sprint "262.1" "Contract-Driven Live Execution - Browser and Playwright" Blocked
+      [ sprint "262.1" "Contract-Driven Live Execution - Browser and Playwright" Active
       ]
   , productPhase
       263

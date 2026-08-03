@@ -38,20 +38,23 @@ message StopRLRun {
   bool   drain = 2;
 }
 
-message EpisodeDone {
-  string experiment_hash = 1;
-  uint32 episode = 2;
-  double reward = 3;
-  uint32 steps = 4;
-  uint64 timestamp_ns = 5;
+message EvaluationOutcome {
+  string plan_id = 1;
+  string experiment_hash = 2;
+  uint64 episode_id = 3;
+  double reward = 4;
+  uint64 steps = 5;
+  bool done = 6;
+  uint64 timestamp_ns = 7;
 }
 
-message EvalDone {
-  string experiment_hash = 1;
-  uint32 epoch = 2;
-  double avg_reward = 3;
-  double std_reward = 4;
-  uint64 timestamp_ns = 5;
+message IterationSummary {
+  string plan_id = 1;
+  string experiment_hash = 2;
+  uint64 iteration = 3;
+  string metric_name = 4;
+  double metric_value = 5;
+  uint64 timestamp_ns = 6;
 }
 
 message CheckpointDoneRL {
@@ -73,11 +76,12 @@ message MetricUpdate {
   string name = 2;
   double value = 3;
   uint64 timestamp_ns = 4;
+  string plan_id = 5;
 }
 
-// Plan-correlated AlphaZero evidence. Generic RL events remain unchanged;
-// these shapes carry the exact generation and arena keys needed by the
-// AlphaZero contract reducer.
+// Plan-correlated AlphaZero evidence. These shapes carry the exact generation
+// and arena keys needed by the AlphaZero contract reducer, alongside the
+// plan-correlated traditional-RL evidence above.
 message GenerationCompleted {
   string plan_id         = 1;
   string experiment_hash = 2;
@@ -134,8 +138,8 @@ message RlCommand {
 
 message RlEvent {
   oneof body {
-    EpisodeDone      episode    = 1;
-    EvalDone         eval       = 2;
+    EvaluationOutcome evaluation = 1;
+    IterationSummary iteration   = 2;
     CheckpointDoneRL checkpoint = 3;
     MetricUpdate     metric     = 4;
     RlAnimationFrame animation  = 5;

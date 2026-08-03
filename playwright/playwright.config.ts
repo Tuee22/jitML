@@ -1,9 +1,32 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const browserEvidenceEnvironment = [
+  "JITML_BROWSER_CATALOGUE_PATH",
+  "JITML_BROWSER_PUBLICATION_PATH",
+  "JITML_BROWSER_RESULT_PATH",
+  "JITML_BROWSER_RESULT_KEY_FILE",
+] as const;
+
+function configuredReporters(): [["list"], [string]] | [["list"]] {
+  const configured = browserEvidenceEnvironment.filter((name) => {
+    const value = process.env[name];
+    return value !== undefined && value.trim() !== "";
+  });
+  if (configured.length !== 0 && configured.length !== browserEvidenceEnvironment.length) {
+    const missing = browserEvidenceEnvironment.filter((name) => !configured.includes(name));
+    throw new Error(
+      `partial browser-evidence environment; missing ${missing.join(", ")}`,
+    );
+  }
+  return configured.length === browserEvidenceEnvironment.length
+    ? [["list"], ["./jitml-browser-evidence-reporter.ts"]]
+    : [["list"]];
+}
+
 // Sprint 13.14 — Playwright config for the canonical demo panel matrix.
-// The spec (`jitml-demo.spec.ts`) reads
-// `./.build/runtime/cluster-publication.json` to pick the live Envoy edge
-// URL and fails fast when no live publication is available.
+// The spec (`jitml-demo.spec.ts`) reads the individually mounted
+// `JITML_BROWSER_PUBLICATION_PATH` to pick the live Envoy edge URL and fails
+// fast when the exact publication or catalogue is unavailable.
 // Run from the repo root through `jitml test jitml-e2e --live --<substrate>`;
 // the typed plan uses the pinned `mcr.microsoft.com/playwright:v1.49.1-noble`
 // browser image.
@@ -20,14 +43,12 @@ export default defineConfig({
   // per-assertion `expect` timeout is raised well above the 5s default to give the
   // async DOM render time to arrive on a loaded host.
   expect: { timeout: 45000 },
-  // Sprint 16.11 — the checkpoint-backed panels each drive a full async
-  // Webapp→cluster→host-Metal-Engine→websocket round trip; under a loaded host the
-  // round-trip latency varies, so retry a panel whose async result is late rather
-  // than fail the matrix on an environmental timing wobble (every panel serves its
-  // result kind, as the report-card `browser_product_matrix` 5/5 probe confirms).
+  // Checkpoint-backed panels each drive a full async daemon round trip. The
+  // evidence reporter retains the final attempt for every exact catalogue row;
+  // a retry contributes Passed only when that final attempt actually passes.
   retries: 2,
   fullyParallel: false,
-  reporter: [["list"]],
+  reporter: configuredReporters(),
   use: {
     ...devices["Desktop Chrome"],
     headless: true,

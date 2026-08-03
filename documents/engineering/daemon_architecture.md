@@ -21,8 +21,14 @@ mounted versioned Dhall DTO is authoritative input. Supervised, Tune, and
 AlphaZero transports carry only a canonical resolved plan, its content-derived
 `PlanId`, and the operational Pulsar endpoint. Their loaders re-refine and
 reject malformed, non-canonical, version-incompatible, or identity-mismatched
-input before effects. Traditional RL retains a separately tracked primitive
-adapter; the development plan owns that migration and validation status.
+input before effects. Traditional `RlRunConfig` follows the same boundary with
+a canonical `CompiledRlPlan` transport and content-derived id. Its experiment
+hash, optional ROM path, and Pulsar endpoint are operational fields rather than
+duplicate semantic budgets. Mounted RL workers reject `--seed` and `--algorithm`
+instead of treating those flags as a post-validation semantic source. Apple
+host execution and Linux RunConfig rendering share one pure `StartRLRun` plan
+adapter whose vector-environment input is explicit, not read from host process
+environment.
 
 ## Service Daemon Model
 
@@ -273,9 +279,10 @@ Worker Jobs read their versioned transport mounted at `/etc/jitml/run/` before
 consulting any explicitly developer-only fallback. Supervised, Tune, and
 AlphaZero mounts contain the canonical resolved plan and `PlanId`; they do not
 repeat primitive budgets or selector axes, and a corrupt or mismatched transport
-fails before workload effects. The surviving traditional-RL primitive adapter
-is tracked separately in the development plan. See [Typed Plans and
-Dimensional Budgets](run_contract.md#typed-plans-and-dimensional-budgets).
+fails before workload effects. Traditional `RlRunConfig` likewise re-refines
+its canonical `CompiledRlPlan` transport and content-derived id before workload
+effects; no primitive training/evaluation budget fields survive beside it. See
+[Typed Plans and Dimensional Budgets](run_contract.md#typed-plans-and-dimensional-budgets).
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
@@ -440,13 +447,14 @@ Docker host socket, and the repo-local Docker config directory; the client does
 not read process environment variables or write to the user's global Docker
 config.
 
-The daemon writes the worker's canonical resolved supervised, Tune, or
-AlphaZero plan by experiment hash; the worker also mounts `BootConfig.dhall` for
-substrate and Pulsar wiring. The plan compiler, not the daemon renderer or
-worker entry point, is the only place that interprets those training,
-evaluation, sampler, scheduler, pruner, trial, or self-play budgets. Traditional
-RL remains the explicitly tracked primitive exception. See [Typed Plans and
-Dimensional Budgets](run_contract.md#typed-plans-and-dimensional-budgets).
+The daemon writes the worker's canonical resolved supervised, Tune, AlphaZero,
+or traditional-RL plan by experiment hash; the worker also mounts
+`BootConfig.dhall` for substrate and Pulsar wiring. The applicable plan compiler,
+not the daemon renderer or worker entry point, is the only place that interprets
+training, evaluation, sampler, scheduler, pruner, trial, or self-play budgets.
+For traditional RL, `compileRlPlan` alone performs schedule arithmetic and the
+worker only re-refines and executes its canonical transport. See [Typed Plans
+and Dimensional Budgets](run_contract.md#typed-plans-and-dimensional-budgets).
 
 ## RetryPolicy
 

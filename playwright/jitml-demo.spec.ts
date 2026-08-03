@@ -1,231 +1,282 @@
 import { test, expect } from "@playwright/test";
 import type { Locator, Page, Route } from "@playwright/test";
 import * as fs from "fs";
+import {
+  PRODUCT_ROW_COUNT,
+  loadBrowserCatalogue,
+} from "./jitml-browser-evidence-reporter";
+import type {
+  BrowserCatalogueInput,
+  BrowserCatalogueRow,
+} from "./jitml-browser-evidence-reporter";
 
-// Canonical live panel matrix for the demo bundle. Each test reads the
-// published live `jitml-demo` edge from
-// `./.build/runtime/cluster-publication.json` and navigates through the
-// real browser bundle.
-//
-// Sprint 15.3 — the previous inline DOM fallback is retired; this matrix
-// now requires the typed
-// `JitML.Test.LivePlan` orchestration that drives `helm dependency
-// build chart` + `jitml bootstrap` (ephemeral Kind + phased Helm
-// rollout) + pinned `mcr.microsoft.com/playwright:v1.49.1-noble` browser run +
-// `jitml cluster down`.
-
+// Phase 262: the positive matrix is instantiated exclusively from the exact
+// command-owned catalogue. The checked-in Generated.Contracts module is not an
+// evidence source, and positive cases never route-mock the live API.
 interface ClusterPublication {
   edge_port: number;
   substrate: string;
+  pulsar_url: string;
+  minio_url: string;
+  components: Array<{ name: string; status: string }>;
+  evidence: string | null;
 }
 
-interface ProductRow {
-  kind: string;
-  name: string;
-  experimentHash: string;
-  e2eTest: string;
-  demoPanel: string;
-  budget: string;
-  requiresTrainedArtifact: boolean;
-}
+const CATALOGUE: BrowserCatalogueInput = loadBrowserCatalogue();
 
-function loadLiveEdge(): string {
-  const path = "./.build/runtime/cluster-publication.json";
-  if (!fs.existsSync(path)) {
-    throw new Error("live demo Playwright requires ./.build/runtime/cluster-publication.json");
+function requiredEnvironment(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === "") {
+    throw new Error(`live demo Playwright requires ${name}`);
   }
+  return value;
+}
+
+function loadLivePublication(): ClusterPublication {
+  const publicationPath = requiredEnvironment("JITML_BROWSER_PUBLICATION_PATH");
   try {
-    const raw = fs.readFileSync(path, "utf-8");
-    const parsed = JSON.parse(raw) as ClusterPublication;
-    if (typeof parsed.edge_port !== "number") {
-      throw new Error("cluster-publication.json is missing numeric edge_port");
+    const decoded: unknown = JSON.parse(fs.readFileSync(publicationPath, "utf8"));
+    if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+      throw new Error("cluster publication must be an object");
     }
-    return `http://127.0.0.1:${parsed.edge_port}/`;
-  } catch (err) {
-    if (err instanceof Error) {
-      throw err;
+    const parsed = decoded as Record<string, unknown>;
+    const expectedKeys = [
+      "components",
+      "edge_port",
+      "evidence",
+      "minio_url",
+      "pulsar_url",
+      "substrate",
+    ];
+    const observedKeys = Object.keys(parsed).sort();
+    if (
+      observedKeys.length !== expectedKeys.length ||
+      observedKeys.some((key, index) => key !== expectedKeys[index])
+    ) {
+      throw new Error("cluster publication fields differ from the frozen wire");
     }
-    throw new Error("failed to read cluster-publication.json");
+    if (
+      !Number.isSafeInteger(parsed.edge_port) ||
+      (parsed.edge_port as number) < 1 ||
+      (parsed.edge_port as number) > 65535
+    ) {
+      throw new Error("cluster publication edge_port is not a valid TCP port");
+    }
+    for (const key of ["substrate", "pulsar_url", "minio_url"] as const) {
+      const value = parsed[key];
+      if (
+        typeof value !== "string" ||
+        value.length === 0 ||
+        value.trim() !== value ||
+        /\p{Cc}/u.test(value)
+      ) {
+        throw new Error(`cluster publication ${key} must be one non-empty canonical string`);
+      }
+    }
+    const publicationSubstrate = parsed.substrate as string;
+    const selectedSubstrate = requiredEnvironment("JITML_SUBSTRATE");
+    if (
+      publicationSubstrate !== selectedSubstrate ||
+      publicationSubstrate !== CATALOGUE.substrate
+    ) {
+      throw new Error(
+        `publication/catalogue substrate mismatch: publication=${publicationSubstrate}, catalogue=${CATALOGUE.substrate}, selected=${selectedSubstrate}`,
+      );
+    }
+    if (!Array.isArray(parsed.components) || parsed.components.length === 0) {
+      throw new Error("cluster publication components must be a non-empty array");
+    }
+    const requiredComponents = [
+      "harbor",
+      "minio",
+      "pulsar",
+      "postgres",
+      "observability",
+      ...(publicationSubstrate === "apple-silicon" ? [] : ["jitml-engine"]),
+      "jitml-coordinator",
+      "jitml-demo",
+      "edge",
+    ];
+    const observedComponents: string[] = [];
+    for (const component of parsed.components) {
+      if (
+        typeof component !== "object" || component === null || Array.isArray(component) ||
+        Object.keys(component).sort().join(",") !== "name,status" ||
+        typeof (component as Record<string, unknown>).name !== "string" ||
+        (component as Record<string, unknown>).status !== "ready"
+      ) {
+        throw new Error("cluster publication contains a malformed or non-ready component");
+      }
+      observedComponents.push((component as Record<string, unknown>).name as string);
+    }
+    if (
+      observedComponents.length !== requiredComponents.length ||
+      new Set(observedComponents).size !== observedComponents.length ||
+      requiredComponents.some((name) => !observedComponents.includes(name))
+    ) {
+      throw new Error("cluster publication component set is incomplete, duplicated, or unexpected");
+    }
+    if (parsed.evidence !== "live-readiness") {
+      throw new Error("cluster publication lacks exact live-readiness evidence");
+    }
+    const publication = parsed as unknown as ClusterPublication;
+    return publication;
+  } catch (error) {
+    throw error instanceof Error
+      ? error
+      : new Error("failed to read exact cluster publication");
   }
 }
 
-const LIVE_DEMO_URL = loadLiveEdge();
-
-function loadProductRows(): ProductRow[] {
-  const path = "./web/src/Generated/Contracts.purs";
-  if (!fs.existsSync(path)) {
-    throw new Error("Generated.Contracts.purs is required for the browser model matrix");
-  }
-  const raw = fs.readFileSync(path, "utf-8");
-  const matrixMatch = raw.match(
-    /allModelMatrixRows :: Array ModelMatrixRow[\s\S]*?\n  \]/,
-  );
-  if (!matrixMatch) {
-    throw new Error("Generated.Contracts.purs contains no allModelMatrixRows block");
-  }
-  const rows = matrixMatch[0]
-    .split("\n")
-    .filter((line) => line.includes("{ kind:") && line.includes("requiresTrainedArtifact"))
-    .map(parseProductRowLine);
-  if (rows.length === 0) {
-    throw new Error("Generated.Contracts.purs contains no allModelMatrixRows entries");
-  }
-  const e2eTests = new Set(rows.map((row) => row.e2eTest));
-  if (e2eTests.size !== rows.length) {
-    throw new Error("Generated.Contracts.purs contains duplicate e2eTest ids");
-  }
-  return rows;
-}
-
-function parseProductRowLine(line: string): ProductRow {
-  const requires = line.match(/requiresTrainedArtifact: (true|false)/);
-  if (!requires) {
-    throw new Error(`model matrix row is missing requiresTrainedArtifact: ${line}`);
-  }
-  return {
-    kind: quotedField(line, "kind"),
-    name: quotedField(line, "name"),
-    experimentHash: quotedField(line, "experimentHash"),
-    e2eTest: quotedField(line, "e2eTest"),
-    demoPanel: quotedField(line, "demoPanel"),
-    budget: quotedField(line, "budget"),
-    requiresTrainedArtifact: requires[1] === "true",
-  };
-}
-
-function quotedField(line: string, field: string): string {
-  const match = line.match(new RegExp(`${field}: "([^"]+)"`));
-  if (!match) {
-    throw new Error(`model matrix row is missing ${field}: ${line}`);
-  }
-  return match[1];
-}
-
-const PRODUCT_ROWS = loadProductRows();
-const EXPECTED_MODEL_NAMES = PRODUCT_ROWS.map((row) => row.name);
-let cachedLiveCheckpointList: string | undefined;
+const PUBLICATION = loadLivePublication();
+const LIVE_DEMO_URL = `http://127.0.0.1:${PUBLICATION.edge_port}/`;
+const PRODUCT_ROWS = CATALOGUE.rows;
+const EXPECTED_MODEL_NAMES = PRODUCT_ROWS.map((row) => row.row_id);
 
 async function loadShell(page: Page): Promise<void> {
   await page.goto(LIVE_DEMO_URL);
-  await page
-    .locator("main#app")
-    .waitFor({ state: "attached", timeout: 10000 });
+  await page.locator("main#app").waitFor({ state: "attached", timeout: 10000 });
 }
 
-async function loadPanel(
-  page: Page,
-  panelId: string
-): Promise<void> {
-  // `Main.main` mounts the panel selected by `location.hash`; the bare
-  // demo URL mounts the portals home, so each test navigates to its
-  // own `#<panel-id>` hash to drive the matching `Panels.*` mount.
+async function loadPanel(page: Page, panelId: string): Promise<void> {
   await page.goto(`${LIVE_DEMO_URL}#${panelId}`);
-  await page
-    .locator(`#${panelId}`)
-    .waitFor({ state: "attached", timeout: 10000 });
+  await page.locator(`#${panelId}`).waitFor({ state: "attached", timeout: 10000 });
 }
 
-function artifactCard(page: Page, row: ProductRow): Locator {
-  return page.locator(`[id="checkpoint-browse-artifact-${row.experimentHash}"]`);
+function artifactCard(page: Page, row: BrowserCatalogueRow): Locator {
+  return page.locator(`#checkpoint-browse-artifact-${row.ordinal}`);
 }
 
-async function assertLiveProductRowArtifact(page: Page, row: ProductRow): Promise<void> {
-  const liveBody = await liveCheckpointListPayload(page);
-  await withCheckpointBrowseRoute(page, 200, liveBody, async () => {
-    const artifact = artifactCard(page, row);
-    await expect(artifact).toBeVisible();
-    await expect(artifact).toContainText(`row: ${row.name}`);
-    await expect(artifact).toContainText("state: eligible");
-    await expect(artifact).toContainText("manifest:");
-    await expect(artifact).toContainText("budget:");
-    await expect(artifact).toContainText("convergence:");
-    await expect(artifact).toContainText("tensorboard:");
-    await assertFamilyRenderer(row, artifact);
-  });
+async function loadLiveProductRowArtifacts(page: Page): Promise<void> {
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/checkpoints") &&
+      response.request().method() === "POST",
+  );
+  await loadPanel(page, "checkpoint-browse");
+  const response = await responsePromise;
+  expect(response.ok()).toBeTruthy();
+
+  await expect(page.locator("#checkpoint-browse-status")).toHaveText(
+    `Passed: ${PRODUCT_ROW_COUNT}; Failed: 0; NotRun: 0; complete publication-bound checkpoint evidence`,
+  );
+  await expect(page.locator("#checkpoint-browse-run-id")).toHaveText(`run-id: ${CATALOGUE.run_id}`);
+  await expect(page.locator("#checkpoint-browse-substrate")).toHaveText(`substrate: ${CATALOGUE.substrate}`);
+  await expect(page.locator("#checkpoint-browse-catalogue-sha256")).toHaveText(
+    `catalogue-sha256: ${CATALOGUE.catalogue_sha256}`,
+  );
+  await expect(page.locator("#checkpoint-browse-source-journal-sha256")).toHaveText(
+    `source-journal-sha256: ${CATALOGUE.source_journal_sha256}`,
+  );
 }
 
-async function liveCheckpointListPayload(page: Page): Promise<string> {
-  if (cachedLiveCheckpointList !== undefined) {
-    return cachedLiveCheckpointList;
-  }
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      const response = await page.request.post(`${LIVE_DEMO_URL}api/checkpoints`, {
-        timeout: 30000,
-      });
-      const body = await response.text();
-      if (!response.ok()) {
-        throw new Error(
-          `live checkpoint list returned ${response.status()}: ${body.slice(0, 500)}`,
-        );
-      }
-      assertLiveCheckpointRows(body);
-      cachedLiveCheckpointList = body;
-      return body;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      await page.waitForTimeout(1000);
-    }
-  }
-  throw lastError ?? new Error("live checkpoint list was not available");
+async function assertLiveProductRowArtifact(
+  page: Page,
+  row: BrowserCatalogueRow,
+): Promise<void> {
+  const prefix = `checkpoint-browse-artifact-${row.ordinal}`;
+  const artifact = artifactCard(page, row);
+  await expect(artifact).toBeVisible();
+  await expect(artifact.locator(`#${prefix}-row-id`)).toHaveText(`row: ${row.row_id}`);
+  await expect(artifact.locator(`#${prefix}-plan-id`)).toHaveText(`PlanId: ${row.plan_id}`);
+  await expect(artifact.locator(`#${prefix}-experiment-hash`)).toHaveText(
+    `experiment: ${row.experiment_hash}`,
+  );
+  await expect(artifact.locator(`#${prefix}-manifest-sha256`)).toHaveText(
+    `manifest: ${row.manifest_sha256}`,
+  );
+  await expect(artifact.locator(`#${prefix}-status`)).toHaveText("status: Passed");
+  await expect(artifact.locator(`#${prefix}-reason`)).toHaveText("reason: (none)");
+  await expect(page.locator(`#checkpoint-browse-summary-${row.ordinal}-measured-result`)).toHaveText(
+    `measured-result: ${row.measured_result}`,
+  );
+  await assertFamilyRenderer(row, artifact);
 }
 
-function assertLiveCheckpointRows(body: string): void {
-  expect(body).toContain("kind: CheckpointList");
-  expect(body).toContain("selector-state: ready");
-  for (const row of PRODUCT_ROWS) {
-    expect(body).toContain(
-      `row-selector: ${row.name}\t${row.experimentHash}\t${selectorFamily(row)}\teligible`,
-    );
-    expect(body).toContain(`checkpoint-summary: ${row.name}\t${row.experimentHash}\t`);
-  }
-}
-
-async function assertFamilyRenderer(row: ProductRow, artifact: Locator): Promise<void> {
-  switch (row.kind) {
+async function assertFamilyRenderer(row: BrowserCatalogueRow, artifact: Locator): Promise<void> {
+  switch (rowFamily(row)) {
     case "supervised":
       await expect(artifact.locator(".artifact-supervised-renderer")).toBeVisible();
       await expect(artifact).toContainText("input:");
       await expect(artifact).toContainText(
-        row.name === "california-housing-mlp"
+        row.row_id === "california-housing-mlp"
           ? "output: regression value"
           : "output: class probabilities",
       );
       break;
     case "rl":
-    case "her":
       await expect(artifact.locator(".artifact-rl-renderer")).toBeVisible();
-      await expect(artifact).toContainText(`policy row: ${row.name}`);
+      await expect(artifact).toContainText(`policy row: ${row.row_id}`);
       await expect(artifact).toContainText("action metadata:");
       break;
     case "alphazero":
       await expect(artifact.locator(".artifact-alphazero-renderer")).toBeVisible();
       await expect(artifact).toContainText("policy/value:");
-      await expect(artifact).toContainText(`replay panel: ${row.demoPanel}`);
+      await expect(artifact).toContainText(`replay panel: ${row.demo_panel}`);
       break;
     case "tuning":
       await expect(artifact.locator(".artifact-tuning-renderer")).toBeVisible();
-      await expect(artifact).toContainText(`sweep: ${row.name}`);
+      await expect(artifact).toContainText(`sweep: ${row.row_id}`);
       await expect(artifact).toContainText("trial table:");
       break;
-    default:
-      throw new Error(`unknown generated model kind: ${row.kind}`);
   }
 }
 
-function selectorFamily(row: ProductRow): string {
-  return row.kind === "her" ? "rl" : row.kind;
+function rowFamily(row: BrowserCatalogueRow): "supervised" | "rl" | "alphazero" | "tuning" {
+  if (row.demo_panel === "rl-trajectory") return "rl";
+  if (row.demo_panel === "connect4-human-vs-alphazero") return "alphazero";
+  if (row.demo_panel === "hyperparameter-sweep") return "tuning";
+  return "supervised";
 }
 
-function checkpointListForState(row: ProductRow, state: string): string {
+function checkpointListFixture(
+  mutateSelector?: (line: string, row: BrowserCatalogueRow) => string,
+  mutateSummary?: (line: string, row: BrowserCatalogueRow) => string,
+): string {
+  const selectors = PRODUCT_ROWS.map((row) => {
+    const line = [
+      row.ordinal,
+      row.row_id,
+      row.plan_id,
+      row.experiment_hash,
+      row.manifest_sha256,
+      rowFamily(row),
+      "Passed",
+      "",
+      row.demo_panel,
+    ].join("\t");
+    return `row-selector: ${mutateSelector?.(line, row) ?? line}`;
+  });
+  const summaries = PRODUCT_ROWS.map((row) => {
+    const line = [
+      row.ordinal,
+      row.row_id,
+      row.plan_id,
+      row.experiment_hash,
+      row.manifest_sha256,
+      1,
+      rowFamily(row),
+      1,
+      "eligible",
+      "bounded-live-budget",
+      row.measured_result,
+      `jitml-tensorboard/${row.experiment_hash}`,
+    ].join("\t");
+    return `checkpoint-summary: ${mutateSummary?.(line, row) ?? line}`;
+  });
   return [
     "kind: CheckpointList",
-    `call-id: playwright-negative-${row.e2eTest}`,
+    "call-id: playwright-negative-fixture",
     "panel: checkpoint-browse",
-    "count: 0",
-    "selector-state: fail-closed:no-inference-eligible-artifact",
-    `row-selector: ${row.name}\t${row.experimentHash}\t${selectorFamily(row)}\t${state}\t0\t${row.demoPanel}`,
+    "status: published",
+    `run-id: ${CATALOGUE.run_id}`,
+    `substrate: ${CATALOGUE.substrate}`,
+    `catalogue-sha256: ${CATALOGUE.catalogue_sha256}`,
+    `source-journal-sha256: ${CATALOGUE.source_journal_sha256}`,
+    `count: ${PRODUCT_ROW_COUNT}`,
+    "selector-state: ready",
+    ...selectors,
+    ...summaries,
     "",
   ].join("\n");
 }
@@ -237,58 +288,25 @@ async function withCheckpointBrowseRoute(
   assertion: () => Promise<void>,
 ): Promise<void> {
   const handler = async (route: Route): Promise<void> => {
-    await route.fulfill({
-      status,
-      contentType: "text/plain; charset=utf-8",
-      body,
-    });
-  };
-  const wsHandler = async (route: Route): Promise<void> => {
-    await route.abort();
+    await route.fulfill({ status, contentType: "text/plain; charset=utf-8", body });
   };
   await page.route("**/api/checkpoints", handler);
-  if (status === 200) {
-    await page.route("**/api/ws/inference", wsHandler);
-  }
   try {
     await page.goto(`${LIVE_DEMO_URL}#portals`);
     await loadPanel(page, "checkpoint-browse");
     await assertion();
   } finally {
     await page.unroute("**/api/checkpoints", handler);
-    if (status === 200) {
-      await page.unroute("**/api/ws/inference", wsHandler);
-    }
   }
 }
 
-async function assertRowFailClosedState(
-  page: Page,
-  row: ProductRow,
-  state: string,
-): Promise<void> {
-  await withCheckpointBrowseRoute(
-    page,
-    200,
-    checkpointListForState(row, state),
-    async () => {
-      await expect(page.locator("#checkpoint-browse-fail-closed")).toBeVisible();
-      const artifact = artifactCard(page, row);
-      await expect(artifact).toBeVisible();
-      await expect(artifact).toContainText(`row: ${row.name}`);
-      await expect(artifact).toContainText(`state: ${state}`);
-      await expect(artifact).toContainText(`artifact: ${state}`);
-    },
-  );
-}
-
-async function assertMissingClusterFailClosed(page: Page, row: ProductRow): Promise<void> {
+async function assertMissingClusterFailClosed(page: Page): Promise<void> {
   await withCheckpointBrowseRoute(
     page,
     503,
     [
       "checkpoint-required: checkpoint-browse",
-      `reason: missing cluster while loading ${row.e2eTest}`,
+      "reason: missing live cluster publication",
       "selector-state: fail-closed:missing-cluster",
       "status: failed",
       "",
@@ -302,19 +320,6 @@ async function assertMissingClusterFailClosed(page: Page, row: ProductRow): Prom
       );
     },
   );
-}
-
-async function assertRowNegativeCases(page: Page, row: ProductRow): Promise<void> {
-  await assertMissingClusterFailClosed(page, row);
-  for (const state of [
-    "fail-closed:missing-artifact",
-    "fail-closed:untrained-checkpoint",
-    "fail-closed:partial-checkpoint",
-    "fail-closed:failed-provenance-checkpoint",
-    "unsupported",
-  ]) {
-    await assertRowFailClosedState(page, row, state);
-  }
 }
 
 test("demo shell responds and renders the portals home", async ({ page }) => {
@@ -584,12 +589,6 @@ test("adversarial game selectors submit product-row policy-value hashes", async 
 });
 
 test("checkpoint browse panel lists eligible checkpoints and every model row", async ({ page }) => {
-  // Sprint 14.1 (Feature A) — the panel POSTs `/api/checkpoints` on init; the
-  // Engine lists the product-row experiment manifests from MinIO and replies
-  // with a `CheckpointList` frame over `/api/ws/inference`, which the panel
-  // renders as a list. Sprint 14.4 also renders the generated all-model matrix
-  // so the browser surface covers every trained-artifact row in the shared
-  // Haskell/PureScript registry.
   const responsePromise = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/checkpoints") &&
@@ -599,16 +598,18 @@ test("checkpoint browse panel lists eligible checkpoints and every model row", a
   await expect(page.locator("#checkpoint-browse")).toBeVisible();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
-  const body = await response.text();
-  expect(body).toContain("kind: CheckpointList");
-  expect(body).toContain("selector-state: ready");
-  expect(body).toContain("row-selector: mnist-shallow-mlp");
+  await expect(page.locator("#checkpoint-browse-selector-state")).toHaveText(
+    "selector-state: ready",
+  );
+  await expect(page.locator("#checkpoint-browse-row-count")).toHaveText(
+    `count: ${PRODUCT_ROW_COUNT}`,
+  );
   await expect(page.locator("#checkpoint-browse-list")).toBeVisible();
   const firstCheckpoint = page.locator("#checkpoint-browse-list li").first();
   await expect(firstCheckpoint).toBeVisible();
   await expect(firstCheckpoint).toContainText("eligibility: eligible");
   await expect(firstCheckpoint).toContainText("budget:");
-  await expect(firstCheckpoint).toContainText("convergence:");
+  await expect(firstCheckpoint).toContainText("measured-result:");
   await expect(firstCheckpoint).toContainText("jitml-tensorboard/");
   await expect(firstCheckpoint.locator("a[href^='/tensorboard/#']")).toBeVisible();
   const checkpointText = (await page.locator("#checkpoint-browse-list").textContent()) ?? "";
@@ -624,7 +625,7 @@ test("checkpoint browse panel lists eligible checkpoints and every model row", a
   for (const modelName of EXPECTED_MODEL_NAMES) {
     await expect(matrix).toContainText(`model: ${modelName}`);
   }
-  await expect(matrix).toContainText("requires trained artifact: yes");
+  await expect(matrix).toContainText("status: Passed");
   await expect(matrix).toContainText("experiment: product-row-mnist-deep-mlp");
   await expect(matrix).not.toContainText("-demo-weights");
   await expect(page.locator("#checkpoint-browse-artifact-renderers")).not.toContainText(
@@ -767,12 +768,93 @@ test("tune panel renders the trial heatmap", async ({ page }) => {
   await expect(page.locator("#hyperparameter-sweep")).toBeVisible();
 });
 
+test.describe("CheckpointList fail-closed contract fixtures", () => {
+  test("rejects a full 55-row frame with an unknown field", async ({ page }) => {
+    const body = checkpointListFixture().replace(
+      "selector-state: ready\n",
+      "selector-state: ready\nunexpected-field: forbidden\n",
+    );
+    await withCheckpointBrowseRoute(page, 200, body, async () => {
+      await expect(page.locator("#checkpoint-browse-status")).toContainText("request: Failed");
+      await expect(page.locator("#checkpoint-browse-error")).toContainText(
+        "malformed CheckpointList frame",
+      );
+    });
+  });
+
+  test("rejects a full 55-row manifest identity mismatch", async ({ page }) => {
+    const body = checkpointListFixture((line, row) =>
+      row.ordinal === 0
+        ? line.replace(row.manifest_sha256, "f".repeat(64))
+        : line,
+    );
+    await withCheckpointBrowseRoute(page, 200, body, async () => {
+      await expect(page.locator("#checkpoint-browse-status")).toContainText("Failed:");
+      await expect(page.locator("#checkpoint-browse-error")).toContainText(
+        "selectors and summaries are not an exact identity bijection",
+      );
+      await expect(page.locator("#checkpoint-browse-artifact-renderers")).toHaveCount(0);
+    });
+  });
+
+  test("rejects full 55-row explicit Failed evidence", async ({ page }) => {
+    const body = checkpointListFixture(
+      (line, row) =>
+        row.ordinal === 0
+          ? line.replace("\tPassed\t\t", "\tFailed\tfixture source failure\t")
+          : line,
+      (line, row) =>
+        row.ordinal === 0 ? line.replace("\teligible\t", "\tunavailable\t") : line,
+    );
+    await withCheckpointBrowseRoute(page, 200, body, async () => {
+      await expect(page.locator("#checkpoint-browse-status")).toContainText("Failed:");
+      await expect(page.locator("#checkpoint-browse-error")).toContainText(
+        "non-Passed source evidence",
+      );
+    });
+  });
+
+  test("rejects full 55-row explicit NotRun evidence", async ({ page }) => {
+    const body = checkpointListFixture(
+      (line, row) =>
+        row.ordinal === 0
+          ? line.replace("\tPassed\t\t", "\tNotRun\tfixture was not executed\t")
+          : line,
+      (line, row) =>
+        row.ordinal === 0 ? line.replace("\teligible\t", "\tunavailable\t") : line,
+    );
+    await withCheckpointBrowseRoute(page, 200, body, async () => {
+      await expect(page.locator("#checkpoint-browse-status")).toContainText("Failed:");
+      await expect(page.locator("#checkpoint-browse-error")).toContainText(
+        "non-Passed source evidence",
+      );
+    });
+  });
+
+  test("renders a missing-cluster API failure without Passed fallback", async ({ page }) => {
+    await assertMissingClusterFailClosed(page);
+    await expect(page.locator("#checkpoint-browse-status")).toContainText("Failed:");
+    await expect(page.locator("#checkpoint-browse-artifact-renderers")).toHaveCount(0);
+  });
+});
+
 test.describe("ProductRow artifact-backed e2e matrix", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let evidencePage: Page;
+
+  test.beforeAll(async ({ browser }) => {
+    evidencePage = await browser.newPage();
+    await loadLiveProductRowArtifacts(evidencePage);
+  });
+
+  test.afterAll(async () => {
+    await evidencePage?.close();
+  });
+
   for (const row of PRODUCT_ROWS) {
-    test(row.e2eTest, async ({ page }) => {
-      expect(row.requiresTrainedArtifact).toBeTruthy();
-      await assertRowNegativeCases(page, row);
-      await assertLiveProductRowArtifact(page, row);
+    test(row.e2e_test, async () => {
+      await assertLiveProductRowArtifact(evidencePage, row);
     });
   }
 });

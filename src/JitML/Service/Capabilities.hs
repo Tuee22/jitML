@@ -81,7 +81,7 @@ import JitML.Service.Pulsar.Internal
   , SubscriptionOwnership (..)
   , SubscriptionStart (..)
   )
-import JitML.Service.Retry (ServiceError)
+import JitML.Service.Retry (ServiceError (..))
 
 newtype BucketName = BucketName {unBucketName :: Text}
   deriving stock (Eq, Show)
@@ -235,11 +235,19 @@ doneBatch = DoneBatchInternal
 -- `minioReadObject` returns Text (lenient-decoded for binary safety); the
 -- byte-faithful sibling `minioReadBytes` returns the raw `ByteString` and
 -- is the right call for binary CBOR manifests / split-blob tensor payloads.
--- `putBlobBytesIfAbsent` is the byte-faithful PUT variant.
+-- `minioReadBytesWithETag` returns the bytes and the object-version witness
+-- from the same response.  Its default fails closed: interpreters must opt in
+-- before callers may use the returned token for compare-and-swap.  The
+-- byte-faithful PUT variant is `putBlobBytesIfAbsent`.
 class (Monad m) => HasMinIO m where
   minioPutIfAbsent :: ObjectRef -> Text -> m (Either ServiceError ObjectRef)
   minioReadObject :: ObjectRef -> m (Either ServiceError Text)
   minioReadBytes :: ObjectRef -> m (Either ServiceError Data.ByteString.ByteString)
+  minioReadBytesWithETag
+    :: ObjectRef
+    -> m (Either ServiceError (Data.ByteString.ByteString, ETag))
+  minioReadBytesWithETag _ =
+    pure (Left (SETransient "MinIO byte+ETag reads are not implemented by this interpreter"))
   putBlobIfAbsent :: ObjectRef -> Text -> m (Either ServiceError ETag)
   putBlobBytesIfAbsent :: ObjectRef -> Data.ByteString.ByteString -> m (Either ServiceError ETag)
   casPointer :: ObjectRef -> Maybe ETag -> Text -> m (Either ServiceError ETag)

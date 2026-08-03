@@ -9,6 +9,8 @@
 module JitML.Test.LiveE2EScope
   ( LiveE2EScopeBackend (..)
   , LiveE2EFailure (..)
+  , LiveE2ERefinement (..)
+  , LiveE2ERefinementOutcome (..)
   , LiveE2EScopeFailure (..)
   , LiveE2EScopePhase (..)
   , LiveE2EScopeResult
@@ -22,12 +24,14 @@ module JitML.Test.LiveE2EScope
   , liveE2ESecondaryFailures
   , liveE2EDiagnosticsRequired
   , runLiveE2EScope
+  , runStagedLiveE2EScope
   )
 where
 
-import Control.Exception.Safe (generalBracket)
+import Control.Exception.Safe (displayException, generalBracket, tryAny)
 import Control.Monad.Catch (ExitCase (..))
 import Data.Text (Text)
+import Data.Text qualified as Text
 
 import JitML.Sub.Outcome
   ( ObservedProcessFailure (..)
@@ -36,7 +40,10 @@ import JitML.Sub.Outcome
   , ProcessOutcome
   )
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Stream (observeProcessAction)
+import JitML.Sub.Stream
+  ( SubprocessEnv
+  , observeProcessAction
+  )
 import JitML.Sub.Subprocess (Subprocess)
 import JitML.Test.LivePlan
   ( LivePlanStep (..)
@@ -47,6 +54,7 @@ import JitML.Test.Report
   , appendInvocation
   , emptyInvocationJournal
   , failedObservedInvocation
+  , notRunAfterRefinement
   , notRunObservedInvocation
   , passedInvocation
   )
@@ -63,7 +71,28 @@ import JitML.Test.ScenarioJournal
 data PlannedTestInvocation = PlannedTestInvocation
   { plannedTestStanza :: !Text
   , plannedTestCommand :: !Subprocess
+  , plannedTestEnvironment :: !SubprocessEnv
   }
+  deriving stock (Eq)
+
+-- | One parent-owned refinement boundary between subprocess stages.  The
+-- source stanza identifies the successful process whose output is being
+-- refined; the name identifies the proof operation itself.  A refinement is
+-- not a subprocess and therefore can never fabricate a process result.
+data LiveE2ERefinement value = LiveE2ERefinement
+  { liveE2ERefinementSourceStanza :: !Text
+  , liveE2ERefinementName :: !Text
+  , liveE2ERefinementAction :: IO (LiveE2ERefinementOutcome value)
+  }
+
+-- | A refinement can succeed, reject its input entirely, or retain an exact
+-- refined value while also raising a gate issue.  The last case is required by
+-- the browser report: 55 explicit row statuses remain renderable even when one
+-- or more cells are Failed/NotRun and therefore fail the command.
+data LiveE2ERefinementOutcome value
+  = LiveE2ERefined !value
+  | LiveE2ERefinedWithIssue !value !Text
+  | LiveE2ERefinementRejected !Text
   deriving stock (Eq, Show)
 
 data LiveE2EScopePhase
@@ -81,7 +110,8 @@ data LiveE2EScopeFailure = LiveE2EScopeFailure
   deriving stock (Eq, Show)
 
 data LiveE2EScopeBackend = LiveE2EScopeBackend
-  { liveE2ERunStep :: LivePlanStep -> IO ProcessOutcome
+  { liveE2ERunStep :: SubprocessEnv -> LivePlanStep -> IO ProcessOutcome
+  , liveE2ELifecycleEnvironment :: !SubprocessEnv
   , liveE2EDiagnosticSteps :: ![LivePlanStep]
   , liveE2EAcceptReleaseFailure :: ProcessFailure -> Bool
   }
@@ -151,6 +181,67 @@ runLiveE2EScope backend plan invocations postBody = do
       , liveE2EPostBodyFailure = bodyPostFailure bodyResult
       , liveE2EPostBodyResult = bodyPostResult bodyResult
       }
+
+-- | Run the browser lane as two causally separated process stages.  The
+-- producer must first exit successfully and refine into the exact proof needed
+-- by the consumer stage.  A failed refinement records consumers as honest
+-- 'NotRunAfterRefinement' rows; it is never rewritten into a failed process.
+--
+-- The final refinement always runs after an attempted consumer stage, even
+-- when Playwright failed.  This admits the
+-- authenticated all-'NotRun' seed (or the partial/final browser journal) before
+-- the original process failure is propagated.  Post-refinement invocations
+-- (the Haskell E2E stanza and, for @test all@, the remaining stanzas) run only
+-- after that trust boundary.  The refinement and all post-refinement work stay
+-- inside the live cluster bracket, before diagnostics and release.
+runStagedLiveE2EScope
+  :: LiveE2EScopeBackend
+  -> ScopedLivePlan
+  -> [PlannedTestInvocation]
+  -> LiveE2ERefinement ()
+  -> [PlannedTestInvocation]
+  -> LiveE2ERefinement body
+  -> [PlannedTestInvocation]
+  -> IO (LiveE2EScopeResult body)
+runStagedLiveE2EScope
+  backend
+  plan
+  producerInvocations
+  producerRefinement
+  consumerInvocations
+  finalRefinement
+  postRefinementInvocations = do
+    (bodyResult, releaseResult) <-
+      generalBracket
+        (pure ())
+        ( \() exitCase ->
+            runDiagnosticsAndRelease
+              backend
+              plan
+              (liveE2EDiagnosticsRequired hasPrimaryFailure exitCase)
+        )
+        ( \() ->
+            runAcquireAndStagedBody
+              backend
+              plan
+              producerInvocations
+              producerRefinement
+              consumerInvocations
+              finalRefinement
+              postRefinementInvocations
+        )
+    pure
+      LiveE2EScopeResult
+        { liveE2EInvocationJournal = bodyInvocationJournal bodyResult
+        , liveE2EScenarioJournal =
+            appendScenarioJournal
+              (bodyScenarioJournal bodyResult)
+              (releaseScenarioJournal releaseResult)
+        , liveE2EPrimaryFailure = bodyPrimaryFailure bodyResult
+        , liveE2ESecondaryFailures = releaseFailures releaseResult
+        , liveE2EPostBodyFailure = bodyPostFailure bodyResult
+        , liveE2EPostBodyResult = bodyPostResult bodyResult
+        }
 
 hasPrimaryFailure :: BodyResult body -> Bool
 hasPrimaryFailure result =
@@ -244,6 +335,261 @@ runAcquireAndBody backend plan invocations postBody = do
                   , bodyPostResult = Just value
                   }
 
+runAcquireAndStagedBody
+  :: LiveE2EScopeBackend
+  -> ScopedLivePlan
+  -> [PlannedTestInvocation]
+  -> LiveE2ERefinement ()
+  -> [PlannedTestInvocation]
+  -> LiveE2ERefinement body
+  -> [PlannedTestInvocation]
+  -> IO (BodyResult body)
+runAcquireAndStagedBody
+  backend
+  plan
+  producerInvocations
+  producerRefinement
+  consumerInvocations
+  finalRefinement
+  postRefinementInvocations = do
+    acquisition <-
+      runAcquireSteps
+        backend
+        (emptyScenarioJournal "live-e2e")
+        (scopedLivePlanAcquire plan)
+    case acquireFailure acquisition of
+      Just failure ->
+        pure
+          BodyResult
+            { bodyInvocationJournal =
+                blockedInvocationJournal
+                  ( producerInvocations
+                      <> consumerInvocations
+                      <> postRefinementInvocations
+                  )
+                  failure
+            , bodyScenarioJournal = acquireJournal acquisition
+            , bodyPrimaryFailure = Just failure
+            , bodyPostFailure = Nothing
+            , bodyPostResult = Nothing
+            }
+      Nothing -> do
+        producer <-
+          runTestInvocations
+            backend
+            (acquireJournal acquisition)
+            emptyInvocationJournal
+            producerInvocations
+        case testFailure producer of
+          Just failure ->
+            pure
+              BodyResult
+                { bodyInvocationJournal =
+                    appendBlockedInvocations
+                      (testInvocationJournal producer)
+                      (consumerInvocations <> postRefinementInvocations)
+                      failure
+                , bodyScenarioJournal = testScenarioJournal producer
+                , bodyPrimaryFailure = Just failure
+                , bodyPostFailure = Nothing
+                , bodyPostResult = Nothing
+                }
+          Nothing -> do
+            refinedProducer <- runRefinement producerRefinement
+            case refinedProducer of
+              LiveE2ERefinementRejected failure ->
+                pure
+                  BodyResult
+                    { bodyInvocationJournal =
+                        appendRefinementBlockedInvocations
+                          (testInvocationJournal producer)
+                          (consumerInvocations <> postRefinementInvocations)
+                          producerRefinement
+                          failure
+                    , bodyScenarioJournal =
+                        appendRefinementIssue
+                          (testScenarioJournal producer)
+                          producerRefinement
+                          failure
+                    , bodyPrimaryFailure = Nothing
+                    , bodyPostFailure = Just failure
+                    , bodyPostResult = Nothing
+                    }
+              LiveE2ERefinedWithIssue () failure ->
+                pure
+                  BodyResult
+                    { bodyInvocationJournal =
+                        appendRefinementBlockedInvocations
+                          (testInvocationJournal producer)
+                          (consumerInvocations <> postRefinementInvocations)
+                          producerRefinement
+                          failure
+                    , bodyScenarioJournal =
+                        appendRefinementIssue
+                          (testScenarioJournal producer)
+                          producerRefinement
+                          failure
+                    , bodyPrimaryFailure = Nothing
+                    , bodyPostFailure = Just failure
+                    , bodyPostResult = Nothing
+                    }
+              LiveE2ERefined () -> do
+                consumers <-
+                  runTestInvocations
+                    backend
+                    (testScenarioJournal producer)
+                    (testInvocationJournal producer)
+                    consumerInvocations
+                refinedFinal <- runRefinement finalRefinement
+                finishStagedBody
+                  backend
+                  consumers
+                  finalRefinement
+                  refinedFinal
+                  postRefinementInvocations
+
+finishStagedBody
+  :: LiveE2EScopeBackend
+  -> TestResult
+  -> LiveE2ERefinement body
+  -> LiveE2ERefinementOutcome body
+  -> [PlannedTestInvocation]
+  -> IO (BodyResult body)
+finishStagedBody backend consumers finalRefinement refinedFinal postInvocations =
+  case refinedFinal of
+    LiveE2ERefinementRejected failure ->
+      pure
+        BodyResult
+          { bodyInvocationJournal =
+              appendRefinementBlockedInvocations
+                (testInvocationJournal consumers)
+                postInvocations
+                finalRefinement
+                failure
+          , bodyScenarioJournal =
+              appendRefinementIssue
+                (testScenarioJournal consumers)
+                finalRefinement
+                failure
+          , bodyPrimaryFailure = testFailure consumers
+          , bodyPostFailure = Just failure
+          , bodyPostResult = Nothing
+          }
+    LiveE2ERefinedWithIssue value failure ->
+      pure
+        BodyResult
+          { bodyInvocationJournal =
+              blockedPostRefinementInvocations
+                consumers
+                finalRefinement
+                failure
+                postInvocations
+          , bodyScenarioJournal =
+              appendRefinementIssue
+                (testScenarioJournal consumers)
+                finalRefinement
+                failure
+          , bodyPrimaryFailure = testFailure consumers
+          , bodyPostFailure = Just failure
+          , bodyPostResult = Just value
+          }
+    LiveE2ERefined value ->
+      case testFailure consumers of
+        Just processFailure ->
+          pure
+            BodyResult
+              { bodyInvocationJournal =
+                  appendBlockedInvocations
+                    (testInvocationJournal consumers)
+                    postInvocations
+                    processFailure
+              , bodyScenarioJournal = testScenarioJournal consumers
+              , bodyPrimaryFailure = Just processFailure
+              , bodyPostFailure = Nothing
+              , bodyPostResult = Just value
+              }
+        Nothing -> do
+          post <-
+            runTestInvocations
+              backend
+              (testScenarioJournal consumers)
+              (testInvocationJournal consumers)
+              postInvocations
+          pure
+            BodyResult
+              { bodyInvocationJournal = testInvocationJournal post
+              , bodyScenarioJournal = testScenarioJournal post
+              , bodyPrimaryFailure = testFailure post
+              , bodyPostFailure = Nothing
+              , bodyPostResult = Just value
+              }
+
+blockedPostRefinementInvocations
+  :: TestResult
+  -> LiveE2ERefinement body
+  -> Text
+  -> [PlannedTestInvocation]
+  -> InvocationJournal
+blockedPostRefinementInvocations consumers finalRefinement failure postInvocations =
+  case testFailure consumers of
+    Just processFailure ->
+      appendBlockedInvocations
+        (testInvocationJournal consumers)
+        postInvocations
+        processFailure
+    Nothing ->
+      appendRefinementBlockedInvocations
+        (testInvocationJournal consumers)
+        postInvocations
+        finalRefinement
+        failure
+
+runRefinement
+  :: LiveE2ERefinement value
+  -> IO (LiveE2ERefinementOutcome value)
+runRefinement refinement = do
+  attempted <- tryAny (liveE2ERefinementAction refinement)
+  pure $
+    case attempted of
+      Left exception ->
+        LiveE2ERefinementRejected
+          ( liveE2ERefinementName refinement
+              <> " raised an exception: "
+              <> Text.pack (displayException exception)
+          )
+      Right outcome -> outcome
+
+appendRefinementBlockedInvocations
+  :: InvocationJournal
+  -> [PlannedTestInvocation]
+  -> LiveE2ERefinement value
+  -> Text
+  -> InvocationJournal
+appendRefinementBlockedInvocations journal invocations refinement failure =
+  foldl appendBlocked journal invocations
+ where
+  appendBlocked observed planned =
+    appendInvocation
+      observed
+      ( notRunAfterRefinement
+          (plannedTestStanza planned)
+          (renderSubprocess (plannedTestCommand planned))
+          (liveE2ERefinementSourceStanza refinement)
+          (liveE2ERefinementName refinement)
+          failure
+      )
+
+appendRefinementIssue
+  :: ScenarioJournal
+  -> LiveE2ERefinement value
+  -> Text
+  -> ScenarioJournal
+appendRefinementIssue journal refinement =
+  appendScenarioIssue
+    journal
+    ScenarioBody
+    (liveE2ERefinementName refinement)
+
 data AcquireResult = AcquireResult
   { acquireJournal :: !ScenarioJournal
   , acquireFailure :: !(Maybe LiveE2EScopeFailure)
@@ -257,7 +603,11 @@ runAcquireSteps
 runAcquireSteps _backend journal [] =
   pure (AcquireResult journal Nothing)
 runAcquireSteps backend journal (step : remaining) = do
-  outcome <- runObservedStep backend step
+  outcome <-
+    runObservedStep
+      backend
+      (liveE2ELifecycleEnvironment backend)
+      step
   let observed =
         appendScenarioRecord
           journal
@@ -305,7 +655,11 @@ runTestInvocations backend scenarioJournal invocationJournal (planned : remainin
           { livePlanStepName = plannedTestStanza planned
           , livePlanStepCommand = plannedTestCommand planned
           }
-  outcome <- runObservedStep backend step
+  outcome <-
+    runObservedStep
+      backend
+      (plannedTestEnvironment planned)
+      step
   let observedScenario =
         appendScenarioRecord
           scenarioJournal
@@ -443,7 +797,11 @@ runLifecycleSteps backend journalPhase failurePhase acceptFailure = go []
         , lifecycleFailures = reverse failures
         }
   go failures journal (step : remaining) = do
-    outcome <- runObservedStep backend step
+    outcome <-
+      runObservedStep
+        backend
+        (liveE2ELifecycleEnvironment backend)
+        step
     let (disposition, nextFailures) =
           case outcome of
             ObservedProcessSucceeded _ -> (ScenarioStepSucceeded, failures)
@@ -478,12 +836,13 @@ runLifecycleSteps backend journalPhase failurePhase acceptFailure = go []
 
 runObservedStep
   :: LiveE2EScopeBackend
+  -> SubprocessEnv
   -> LivePlanStep
   -> IO ObservedProcessOutcome
-runObservedStep backend step =
+runObservedStep backend environment step =
   observeProcessAction
     (livePlanStepCommand step)
-    (liveE2ERunStep backend step)
+    (liveE2ERunStep backend environment step)
 
 outcomeDisposition :: ObservedProcessOutcome -> ScenarioDisposition
 outcomeDisposition (ObservedProcessSucceeded _) = ScenarioStepSucceeded

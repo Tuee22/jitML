@@ -4,11 +4,12 @@
 module JitML.App
   ( alphaZeroArtifactStep
   , checkpointTrainingBudgetForTensor
+  , gcFreshPlanIntentsToPersist
+  , gcFreshTerminalRecoveryWork
   , inferenceReplyAppError
   , main
   , matchingInferenceResult
   , parseUserIntOptionAtLeast
-  , rlObservedBudgetUnits
   , validateProductCompletedTrainingPlanId
   , rlTrainerEnvironmentCompatibilityError
   , selectInternalProductRows
@@ -30,9 +31,9 @@ import Data.Aeson (eitherDecode, encode)
 import Data.ByteString qualified
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (lefts)
-import Data.Foldable (for_)
 import Data.List (sort, stripPrefix)
 import Data.Maybe (catMaybes, listToMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
@@ -46,7 +47,7 @@ import System.Directory
   , listDirectory
   , removeFile
   )
-import System.Environment (getArgs, lookupEnv)
+import System.Environment (getArgs, lookupEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeFileName, (</>))
 import Text.Read (readMaybe)
@@ -136,6 +137,7 @@ import JitML.Prerequisite.Registry
   , scopeRootNodeId
   )
 import JitML.Product.Benchmark qualified as ProductBenchmark
+import JitML.Product.BrowserCatalogue qualified as BrowserCatalogue
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
@@ -143,14 +145,11 @@ import JitML.Product.Publisher qualified as ProductPublisher
 import JitML.Project.Config qualified as ProjectConfig
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Training qualified as ProtoTraining
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Command qualified as RlCommand
 import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
 import JitML.RL.TrainerExecution
-  ( TrainerRun
-  , trainerRunEpisodes
-  , trainerRunEvidence
-  , trainerRunObservedUnits
-  , trainerRunWeights
+  ( trainerRunEpisodes
   )
 import JitML.RL.TrainerExecution qualified as TrainerExecution
 import JitML.SL.Canonicals qualified as SL
@@ -178,6 +177,7 @@ import JitML.Sub.Stream
   )
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
 import JitML.Test.Command qualified as TestCommand
+import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Command qualified as TuneCommand
 
@@ -1492,18 +1492,16 @@ checkpointTrainingBudgetForTensor
 checkpointTrainingBudgetForTensor = CheckpointWriter.checkpointTrainingBudgetForTensor
 {-# NOINLINE checkpointTrainingBudgetForTensor #-}
 
-validateTrainerEvidenceCounters :: Word64 -> Word64 -> Either Text ()
+validateTrainerEvidenceCounters
+  :: Word64
+  -> AlgorithmCommon.MeasuredTrainerCounters
+  -> Either Text ()
 validateTrainerEvidenceCounters =
   TrainerExecution.validateTrainerEvidenceCounters
 
 rlTrainerEnvironmentCompatibilityError :: Text -> Text -> Maybe Text
 rlTrainerEnvironmentCompatibilityError =
   TrainerExecution.rlTrainerEnvironmentCompatibilityError
-
-rlObservedBudgetUnits
-  :: [EpisodeEnvelope.SimulatedEpisode]
-  -> Either Text Word64
-rlObservedBudgetUnits = TrainerExecution.rlObservedBudgetUnits
 
 -- | Sprint 5.7 — the mounted per-run Dhall config path inside a
 -- daemon-dispatched worker pod.
@@ -1599,8 +1597,56 @@ testCommandRuntime =
         measureTestSlFinalLossText
     , TestCommand.testCommandMeasureRlFinalRewardText =
         measureTestRlFinalRewardText
+    , TestCommand.testCommandPublishBrowserCatalogue =
+        publishTestBrowserCatalogue
     }
 {-# NOINLINE testCommandRuntime #-}
+
+-- | Publish the authenticated ProductScenario aggregate into the live browser
+-- catalogue transaction.  Selector ETag acquisition and CAS occur in one
+-- MinIO interpreter action so repeat runs update safely rather than relying on
+-- an unconditional pointer overwrite.
+publishTestBrowserCatalogue
+  :: ProductMatrix.ProductProjectionBatch
+  -> ProductScenarioJournal.AuthenticatedProductScenarioReport
+  -> App (Either Text BrowserCatalogue.ProductBrowserCatalogue)
+publishTestBrowserCatalogue batch authenticated = do
+  publication <- liftIO (readExistingLivePublication ".")
+  case publication of
+    Nothing ->
+      pure (Left "browser catalogue publication requires a live cluster publication")
+    Just livePublication
+      | not (Publication.publicationHasLiveEvidence livePublication) ->
+          pure (Left "browser catalogue publication requires measured live readiness")
+      | Publication.publicationSubstrate livePublication
+          /= ProductMatrix.productProjectionBatchSubstrate batch ->
+          pure (Left "browser catalogue substrate differs from live cluster publication")
+      | otherwise -> do
+          let settings =
+                MinIOSubprocess.minioSettingsForLocalEdge
+                  (Publication.publicationEdgePort livePublication)
+              substrate = ProductMatrix.productProjectionBatchSubstrate batch
+          liftIO
+            ( MinIOSubprocess.runMinIOSubprocess settings $ do
+                expected <-
+                  MinIOSubprocess.minioObjectETag
+                    (BrowserCatalogue.productBrowserCatalogueSelectorRef substrate)
+                case expected of
+                  Left err -> pure (Left ("catalogue selector ETag read failed: " <> Text.pack (show err)))
+                  Right expectedETag -> do
+                    published <-
+                      BrowserCatalogue.publishProductBrowserCatalogue
+                        expectedETag
+                        batch
+                        authenticated
+                    pure $
+                      case published of
+                        Left errors ->
+                          Left ("browser catalogue publication failed: " <> Text.pack (show errors))
+                        Right value ->
+                          Right
+                            (BrowserCatalogue.publishedProductBrowserCatalogue value)
+            )
 
 measureTestSlFinalLossText :: App (Maybe Text)
 measureTestSlFinalLossText = do
@@ -1672,8 +1718,10 @@ measureTestRlFinalRewardText = do
 -- `jitml-checkpoints/<experiment-hash>/manifests/` through
 -- `JitML.Checkpoint.Store.listCheckpointManifestsMinIO`, applies the
 -- registry-sourced `checkpoints` retention (Sprint 10.8) through
--- `Store.buildGcPlan`, and executes the
--- plan through `Store.executeGcPlan` over `JitML.Service.MinIOSubprocess`.
+-- `Store.buildGcPlan`, persists its exact intents, brackets a complete fresh
+-- root view with the monotonic writer epoch, authorizes opaque Executing
+-- operations through the experiment fence, and calls
+-- `Store.executeAuthorizedGcIntents` over `JitML.Service.MinIOSubprocess`.
 -- Without a live publication the reconciler falls back to walking the
 -- local on-disk manifest store. Exits `3` (`ReconcilerNoop`) when the
 -- store is already at the target state.
@@ -1857,7 +1905,35 @@ runInternalTrainAndPublishProductRows parsedOptions = do
           commandRow
           (Text.pack <$> rowFilterRaw)
       )
-  ProductPublisher.runTrainAndPublishProductRows productPublisherRuntime substrate selectedRows
+  rawInvocation <- liftIO $ do
+    encoded <- lookupEnv "JITML_PRODUCT_SCENARIO_INVOCATION"
+    case encoded of
+      Nothing -> pure ()
+      Just _ ->
+        -- The parent-to-command handoff is one-shot.  Remove it immediately
+        -- after the atomic read, before parsing, training, codegen, or compiler
+        -- helpers can inherit a replayable scenario challenge.
+        unsetEnv "JITML_PRODUCT_SCENARIO_INVOCATION"
+    pure encoded
+  case rawInvocation of
+    Nothing ->
+      ProductPublisher.runTrainAndPublishProductRows
+        productPublisherRuntime
+        substrate
+        selectedRows
+    Just encodedInvocation -> do
+      case TrainingBudget.parseProductScenarioInvocation (Text.pack encodedInvocation) of
+        Left err -> do
+          exitWithError
+            ( InvalidConfig
+                ("invalid JITML_PRODUCT_SCENARIO_INVOCATION: " <> err)
+            )
+        Right invocation -> do
+          ProductPublisher.runTrainAndPublishProductRowsForInvocation
+            invocation
+            productPublisherRuntime
+            substrate
+            selectedRows
 
 productPublisherRuntime :: ProductPublisher.ProductPublisherRuntime
 productPublisherRuntime =
@@ -1876,8 +1952,7 @@ productPublisherRuntime =
               (Just exactLearningRate)
     , ProductPublisher.publisherRunRlTraining =
         \substrate device plan ->
-          fmap rlPublishRunFromTrainerRun
-            <$> TrainerExecution.runTrainerEpisodesForPlan substrate device Nothing plan
+          TrainerExecution.runTrainerEpisodesForPlan substrate device Nothing plan
     , ProductPublisher.publisherCompleteProductRow = ProductCompletion.completedTrainingForProductRow
     , ProductPublisher.publisherCompleteSupervisedProductRowWithWeightHashes =
         ProductCompletion.completedTrainingForProductRowWithWeightHashes
@@ -1937,15 +2012,6 @@ supervisedPublishRunFromTrainingMetrics metrics =
     , ProductPublisher.supervisedPublishInitialWeights = tmInitialCheckpointWeights metrics
     , ProductPublisher.supervisedPublishCheckpointWeights = tmCheckpointWeights metrics
     , ProductPublisher.supervisedPublishDatasetShaAtRead = tmDatasetShaAtRead metrics
-    }
-
-rlPublishRunFromTrainerRun :: TrainerRun -> ProductPublisher.RlPublishRun
-rlPublishRunFromTrainerRun trainerRun =
-  ProductPublisher.RlPublishRun
-    { ProductPublisher.rlPublishEpisodes = trainerRunEpisodes trainerRun
-    , ProductPublisher.rlPublishObservedUnits = trainerRunObservedUnits trainerRun
-    , ProductPublisher.rlPublishWeights = trainerRunWeights trainerRun
-    , ProductPublisher.rlPublishEvidence = trainerRunEvidence trainerRun
     }
 
 tuningPublishDatasetFromExecutionDataset
@@ -2026,6 +2092,316 @@ checkpointsGcRetention =
     Just ProjectConfig.KeepAll -> CheckpointStore.KeepAll
     _ -> CheckpointStore.KeepAll
 
+-- | Return the exact intents discovered by a fresh, epoch-stable plan which
+-- are not yet durable. An occupied semantic event id must carry byte-identical
+-- intent data; otherwise reconciliation fails closed instead of silently
+-- treating a substituted intent as persisted.
+gcFreshPlanIntentsToPersist
+  :: CheckpointStore.GcPlan
+  -> [CheckpointStore.GcIntent]
+  -> Either Text [CheckpointStore.GcIntent]
+gcFreshPlanIntentsToPersist freshPlan pending =
+  catMaybes <$> traverse classify (CheckpointStore.gcPlanIntents freshPlan)
+ where
+  classify intent =
+    case filter
+      ( (== CheckpointStore.gcIntentEventId intent)
+          . CheckpointStore.gcIntentEventId
+      )
+      pending of
+      [] -> Right (Just intent)
+      [observed]
+        | observed == intent -> Right Nothing
+        | otherwise ->
+            Left "fresh GC plan event id is bound to different durable intent bytes"
+      _ -> Left "fresh GC intent scan contains duplicate semantic event ids"
+
+-- | Classify terminal outbox work discovered after the initial recovery scan.
+-- Published records are permanent, so they need acknowledgement only while a
+-- transient ready record or semantic intent remains. Ready records which do
+-- not yet have a published tombstone still require broker publication.
+gcFreshTerminalRecoveryWork
+  :: [CheckpointStore.GcIntent]
+  -> [CheckpointStore.GcReadyEvent]
+  -> [CheckpointStore.GcReadyEvent]
+  -> ([CheckpointStore.GcReadyEvent], [CheckpointStore.GcReadyEvent])
+gcFreshTerminalRecoveryWork pending ready published =
+  ( publishedCleanup
+  , unpublishedReady
+  )
+ where
+  pendingIds = Set.fromList (fmap CheckpointStore.gcIntentEventId pending)
+  readyIds = Set.fromList (fmap CheckpointStore.gcReadyEventId ready)
+  publishedIds = Set.fromList (fmap CheckpointStore.gcReadyEventId published)
+  publishedCleanup =
+    [ event
+    | event <- published
+    , CheckpointStore.gcReadyEventId event `Set.member` (pendingIds <> readyIds)
+    ]
+  unpublishedReady =
+    [ event
+    | event <- ready
+    , CheckpointStore.gcReadyEventId event `Set.notMember` publishedIds
+    ]
+
+data FreshGcConvergence = FreshGcConvergence
+  { freshGcConvergedPlan :: CheckpointStore.GcPlan
+  , freshGcDiscoveredIntents :: [CheckpointStore.GcIntent]
+  , freshGcRecoveredTerminalEvents :: [CheckpointStore.GcReadyEvent]
+  , freshGcStaleCancellations :: [CheckpointStore.GcIntent]
+  , freshGcAuthorizationCancellations :: [CheckpointStore.GcIntent]
+  , freshGcExecution :: CheckpointStore.GcExecutionResult
+  , freshGcPromotion :: CheckpointStore.GcPromotionResult
+  , freshGcPublishFailures :: [(Text, Text)]
+  }
+
+-- | Converge the epoch-bracketed destructive view. A coherent fresh plan may
+-- discover work that did not exist during the initial scan (for example, a
+-- writer which completed between the two views). Those exact intents are made
+-- durable and the complete bracket is restarted before any authorization or
+-- no-op decision. Epoch churn also restarts the whole view.
+runFreshGcConvergence
+  :: ClusterPublication
+  -> MinIOSubprocess.MinIOSettings
+  -> Text
+  -> Text
+  -> CheckpointStore.RetentionPolicy
+  -> App FreshGcConvergence
+runFreshGcConvergence publication minioSettings substrateText experimentHash retention =
+  go (0 :: Int) [] []
+ where
+  go attempt discovered recoveredTerminalEvents
+    | attempt >= 4096 =
+        exitWithError
+          (InvalidConfig "gc fresh-view convergence did not stabilize")
+    | otherwise = do
+        freshEpochBefore <-
+          runGcMinIO
+            minioSettings
+            "fresh writer/root epoch start"
+            (CheckpointStore.loadGcFenceEpoch experimentHash)
+        freshManifests <-
+          runGcMinIO
+            minioSettings
+            "fresh manifest revalidation"
+            (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+        freshCatalogueRoots <-
+          runGcMinIO
+            minioSettings
+            "fresh browser-catalogue root revalidation"
+            ( BrowserCatalogue.loadProductBrowserCatalogueGcRoots
+                experimentHash
+                freshManifests
+            )
+        freshPointerRoots <-
+          runGcMinIO
+            minioSettings
+            "fresh mutable-pointer revalidation"
+            ( CheckpointStore.loadCheckpointPointerGcRoots
+                experimentHash
+                freshManifests
+            )
+        freshReservations <-
+          runGcMinIO
+            minioSettings
+            "fresh writer-reservation revalidation"
+            (CheckpointStore.loadActiveWriterReservations experimentHash)
+        freshPending <-
+          runGcMinIO
+            minioSettings
+            "fresh durable-intent revalidation"
+            (CheckpointStore.loadGcIntents experimentHash)
+        freshCancelled <-
+          runGcMinIO
+            minioSettings
+            "fresh cancelled-intent revalidation"
+            (CheckpointStore.loadGcCancelledIntents experimentHash)
+        freshReady <-
+          runGcMinIO
+            minioSettings
+            "fresh publish-ready revalidation"
+            (CheckpointStore.loadGcReadyEvents experimentHash)
+        freshPublished <-
+          runGcMinIO
+            minioSettings
+            "fresh published-tombstone revalidation"
+            (CheckpointStore.loadGcPublishedEvents experimentHash)
+        freshEpochAfter <-
+          runGcMinIO
+            minioSettings
+            "fresh writer/root epoch end"
+            (CheckpointStore.loadGcFenceEpoch experimentHash)
+        validateGcTerminalState
+          freshPending
+          freshCancelled
+          freshReady
+          freshPublished
+        let freshRoots = freshCatalogueRoots <> freshPointerRoots
+            freshPlan =
+              CheckpointStore.buildGcPlan
+                experimentHash
+                retention
+                freshManifests
+                freshRoots
+        if freshEpochBefore /= freshEpochAfter
+          then go (attempt + 1) discovered recoveredTerminalEvents
+          else do
+            let (publishedCleanup, unpublishedReady) =
+                  gcFreshTerminalRecoveryWork
+                    freshPending
+                    freshReady
+                    freshPublished
+                terminalRecovery = publishedCleanup <> unpublishedReady
+            if not (null terminalRecovery)
+              then do
+                publishedCleanupResults <-
+                  traverse
+                    ( liftIO
+                        . MinIOSubprocess.runMinIOSubprocess minioSettings
+                        . CheckpointStore.acknowledgeGcReadyEvent
+                    )
+                    publishedCleanup
+                let publishedCleanupFailures =
+                      [ (CheckpointStore.gcPublishedObjectKey event, err)
+                      | (event, Left err) <-
+                          zip publishedCleanup publishedCleanupResults
+                      ]
+                recoveredPublishFailures <-
+                  publishGcReadyEvents
+                    publication
+                    minioSettings
+                    unpublishedReady
+                unlessNull
+                  "gc fresh published-tombstone cleanup"
+                  publishedCleanupFailures
+                unlessNull
+                  "gc fresh recovered event publication"
+                  recoveredPublishFailures
+                go
+                  (attempt + 1)
+                  discovered
+                  ( Set.toAscList
+                      (Set.fromList (recoveredTerminalEvents <> terminalRecovery))
+                  )
+              else do
+                missing <-
+                  case gcFreshPlanIntentsToPersist freshPlan freshPending of
+                    Left reason ->
+                      exitWithError
+                        (InvalidConfig ("gc fresh intent discovery: " <> reason))
+                    Right values -> pure values
+                if not (null missing)
+                  then do
+                    persisted <-
+                      runGcMinIO
+                        minioSettings
+                        "fresh durable-intent persistence"
+                        (CheckpointStore.persistGcIntents missing)
+                    go
+                      (attempt + 1)
+                      (Set.toAscList (Set.fromList (discovered <> persisted)))
+                      recoveredTerminalEvents
+                  else
+                    completeFreshView
+                      freshEpochBefore
+                      freshEpochAfter
+                      freshPlan
+                      freshManifests
+                      freshRoots
+                      freshReservations
+                      freshPending
+                      freshReady
+                      freshPublished
+                      discovered
+                      recoveredTerminalEvents
+
+  completeFreshView freshEpochBefore freshEpochAfter freshPlan freshManifests freshRoots freshReservations freshPending freshReady freshPublished discovered recoveredTerminalEvents = do
+    let freshReadyIds =
+          Set.fromList (fmap CheckpointStore.gcReadyEventId freshReady)
+        freshPublishedIds =
+          Set.fromList (fmap CheckpointStore.gcReadyEventId freshPublished)
+        activeIntents =
+          [ intent
+          | intent <- freshPending
+          , CheckpointStore.gcIntentEventId intent `Set.notMember` freshReadyIds
+          , CheckpointStore.gcIntentEventId intent `Set.notMember` freshPublishedIds
+          ]
+        terminalEvents =
+          fmap CheckpointStore.gcReadyEvent (freshReady <> freshPublished)
+    (executableIntents, staleFreshIntents) <-
+      case CheckpointStore.revalidateGcIntents
+        freshEpochBefore
+        freshEpochAfter
+        freshPlan
+        freshManifests
+        freshRoots
+        freshReservations
+        terminalEvents
+        activeIntents of
+        Left failures ->
+          exitWithError
+            (InvalidConfig ("gc fresh intent revalidation: " <> Text.pack (show failures)))
+        Right result -> pure result
+    staleCancellation <-
+      runGcMinIO
+        minioSettings
+        "whole-intent cancellation"
+        (CheckpointStore.cancelGcIntents staleFreshIntents)
+    authorization <-
+      liftIO
+        ( MinIOSubprocess.runMinIOSubprocess
+            minioSettings
+            (CheckpointStore.authorizeRevalidatedGcIntents executableIntents)
+        )
+    authorizationCancellation <-
+      runGcMinIO
+        minioSettings
+        "authorization-loser cancellation"
+        ( CheckpointStore.cancelGcIntents
+            (CheckpointStore.gcAuthorizationCancelledIntents authorization)
+        )
+    unlessNull
+      "gc experiment-fence authorization"
+      (CheckpointStore.gcAuthorizationFailures authorization)
+    executed <-
+      liftIO
+        ( MinIOSubprocess.runMinIOSubprocess
+            minioSettings
+            ( CheckpointStore.executeAuthorizedGcIntents
+                (CheckpointStore.gcAuthorizedIntents authorization)
+            )
+        )
+    completionTimestampNs <- liftIO ServiceCommand.currentTimestampNs
+    promoted <-
+      liftIO
+        ( MinIOSubprocess.runMinIOSubprocess
+            minioSettings
+            ( CheckpointStore.promoteGcIntents
+                substrateText
+                completionTimestampNs
+                ( fmap
+                    CheckpointStore.gcExecutionIntent
+                    (CheckpointStore.gcCompletedExecutions executed)
+                )
+            )
+        )
+    publishFailures <-
+      publishGcReadyEvents
+        publication
+        minioSettings
+        (CheckpointStore.gcPromotedReadyEvents promoted)
+    pure
+      FreshGcConvergence
+        { freshGcConvergedPlan = freshPlan
+        , freshGcDiscoveredIntents = discovered
+        , freshGcRecoveredTerminalEvents = recoveredTerminalEvents
+        , freshGcStaleCancellations = staleCancellation
+        , freshGcAuthorizationCancellations = authorizationCancellation
+        , freshGcExecution = executed
+        , freshGcPromotion = promoted
+        , freshGcPublishFailures = publishFailures
+        }
+
 runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do
   let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
@@ -2035,39 +2411,180 @@ runInternalGc parsedOptions = do
     Just publication -> do
       let edgePort = Publication.publicationEdgePort publication
           minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-      listing <-
+          substrate = Publication.publicationSubstrate publication
+          substrateText = renderSubstrate substrate
+      initialPending <-
+        runGcMinIO
+          minioSettings
+          "durable-intent scan"
+          (CheckpointStore.loadGcIntents experimentHash)
+      initialCancelled <-
+        runGcMinIO
+          minioSettings
+          "cancelled-intent scan"
+          (CheckpointStore.loadGcCancelledIntents experimentHash)
+      initialReady <-
+        runGcMinIO
+          minioSettings
+          "publish-ready scan"
+          (CheckpointStore.loadGcReadyEvents experimentHash)
+      initialPublished <-
+        runGcMinIO
+          minioSettings
+          "published-tombstone scan"
+          (CheckpointStore.loadGcPublishedEvents experimentHash)
+      validateGcTerminalState
+        initialPending
+        initialCancelled
+        initialReady
+        initialPublished
+      recoveredCancellations <-
+        runGcMinIO
+          minioSettings
+          "cancelling-generation recovery"
+          (CheckpointStore.helpGcCancellations initialCancelled)
+      let publishedIds =
+            Set.fromList (fmap CheckpointStore.gcReadyEventId initialPublished)
+          readyIds = Set.fromList (fmap CheckpointStore.gcReadyEventId initialReady)
+          staleIntents =
+            [ intent
+            | intent <- initialPending
+            , CheckpointStore.gcIntentEventId intent `Set.member` readyIds
+            , CheckpointStore.gcIntentEventId intent `Set.notMember` publishedIds
+            ]
+          unpublishedReady =
+            [ event
+            | event <- initialReady
+            , CheckpointStore.gcReadyEventId event `Set.notMember` publishedIds
+            ]
+          publishedTransientIntents =
+            [ intent
+            | intent <- initialPending
+            , CheckpointStore.gcIntentEventId intent `Set.member` publishedIds
+            ]
+      publishedCleanupResults <-
+        traverse
+          ( liftIO
+              . MinIOSubprocess.runMinIOSubprocess minioSettings
+              . CheckpointStore.acknowledgeGcReadyEvent
+          )
+          initialPublished
+      let publishedCleanupFailures =
+            [ (CheckpointStore.gcPublishedObjectKey event, err)
+            | (event, Left err) <- zip initialPublished publishedCleanupResults
+            ]
+      recoveryTimestampNs <- liftIO ServiceCommand.currentTimestampNs
+      stalePromotion <-
         liftIO
           ( MinIOSubprocess.runMinIOSubprocess
               minioSettings
-              (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+              ( CheckpointStore.promoteGcIntents
+                  substrateText
+                  recoveryTimestampNs
+                  staleIntents
+              )
+          )
+      oldPublishFailures <-
+        publishGcReadyEvents
+          publication
+          minioSettings
+          ( unpublishedReady
+              <> CheckpointStore.gcPromotedReadyEvents stalePromotion
           )
       manifests <-
-        case listing of
-          Left err ->
-            exitWithError
-              ( InvalidConfig
-                  ("gc live manifest scan: " <> Text.pack (show err))
-              )
-          Right found -> pure found
-      let plan = CheckpointStore.buildGcPlan experimentHash retention manifests []
-      executed <-
-        liftIO
-          ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              (CheckpointStore.executeGcPlan plan)
+        runGcMinIO
+          minioSettings
+          "live manifest scan"
+          (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+      catalogueRoots <-
+        runGcMinIO
+          minioSettings
+          "browser-catalogue root admission"
+          ( BrowserCatalogue.loadProductBrowserCatalogueGcRoots
+              experimentHash
+              manifests
           )
-      publishGcReapedEvents publication executed plan
+      pointerRoots <-
+        runGcMinIO
+          minioSettings
+          "mutable-pointer root admission"
+          (CheckpointStore.loadCheckpointPointerGcRoots experimentHash manifests)
+      let roots = catalogueRoots <> pointerRoots
+          plan =
+            CheckpointStore.buildGcPlan
+              experimentHash
+              retention
+              manifests
+              roots
+      initialDiscoveredIntents <-
+        case gcFreshPlanIntentsToPersist plan initialPending of
+          Left reason ->
+            exitWithError
+              (InvalidConfig ("gc initial intent discovery: " <> reason))
+          Right values -> pure values
+      _initialPersistedIntents <-
+        runGcMinIO
+          minioSettings
+          "durable-intent persistence"
+          (CheckpointStore.persistGcIntents initialDiscoveredIntents)
+
+      convergence <-
+        runFreshGcConvergence
+          publication
+          minioSettings
+          substrateText
+          experimentHash
+          retention
+      let freshPlan = freshGcConvergedPlan convergence
+          staleCancellation = freshGcStaleCancellations convergence
+          authorizationCancellation =
+            freshGcAuthorizationCancellations convergence
+          executed = freshGcExecution convergence
+          promoted = freshGcPromotion convergence
+          publishFailures = freshGcPublishFailures convergence
+      -- A failed delete must not strand independent executions that already
+      -- completed in this pass.  Promote and publish every exact success
+      -- first, then fail the command on any recorded error so all incomplete
+      -- work remains durable for the next reconciliation.
+      unlessNull "gc published-tombstone cleanup" publishedCleanupFailures
+      unlessNull
+        "gc stale-intent cleanup"
+        (CheckpointStore.gcPromotionFailures stalePromotion)
+      unlessNull "gc recovered event publication" oldPublishFailures
+      unlessNull
+        "gc object deletion"
+        (CheckpointStore.gcExecutionFailures executed)
+      unlessNull
+        "gc publish-ready persistence"
+        (CheckpointStore.gcPromotionFailures promoted)
+      unlessNull "gc event publication" publishFailures
+      let completedExecutions = CheckpointStore.gcCompletedExecutions executed
+          reapedObjectCount =
+            sum
+              [ length (CheckpointStore.gcObjectDeleteOutcomes execution)
+              | execution <- completedExecutions
+              ]
+          hadRecoveryWork =
+            not (null recoveredCancellations)
+              || not (null initialDiscoveredIntents)
+              || not (null (freshGcDiscoveredIntents convergence))
+              || not (null (freshGcRecoveredTerminalEvents convergence))
+              || not (null staleCancellation)
+              || not (null authorizationCancellation)
+              || not (null initialReady)
+              || not (null publishedTransientIntents)
+              || not (null completedExecutions)
       writeLine
         ( "gc: "
             <> experimentHash
             <> " kept="
-            <> Text.pack (show (length (CheckpointStore.gcKeptManifestShas plan)))
+            <> Text.pack (show (length (CheckpointStore.gcKeptManifestShas freshPlan)))
             <> " reaped="
-            <> Text.pack (show (CheckpointStore.gcExecutedReapedManifests executed))
-            <> " reaped-blobs="
-            <> Text.pack (show (CheckpointStore.gcExecutedReapedBlobs executed))
+            <> Text.pack (show (length completedExecutions))
+            <> " reaped-objects="
+            <> Text.pack (show reapedObjectCount)
         )
-      when (CheckpointStore.gcNoOp plan) $
+      when (CheckpointStore.gcNoOp freshPlan && not hadRecoveryWork) $
         exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
     Nothing -> do
       checkpointRoot <- CheckpointWriter.localCheckpointRoot
@@ -2088,61 +2605,108 @@ runInternalGc parsedOptions = do
       when (CheckpointStore.gcNoOp plan) $
         exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
 
--- | Publish a `gc.event.<substrate>` envelope per successfully reaped
--- manifest after `executeGcPlan` returns. Sprint 13.7. The envelope is
--- emitted only for manifests that the live execution actually reaped
--- (excluding the trailing partial failure window) so consumers see a
--- delete stream that matches MinIO state. Publication errors are
--- non-fatal: a failed `pulsarPublish` is logged to stderr but does not
--- roll back the MinIO delete (which already happened) and does not
--- short-circuit the reconciler — the consumer's at-least-once recovery
--- handles the missed event on the next run.
-publishGcReapedEvents
-  :: ClusterPublication
-  -> CheckpointStore.GcExecutionResult
-  -> CheckpointStore.GcPlan
+runGcMinIO
+  :: (Show err)
+  => MinIOSubprocess.MinIOSettings
+  -> Text
+  -> MinIOSubprocess.MinIOSubprocess (Either err value)
+  -> App value
+runGcMinIO settings label action = do
+  result <- liftIO (MinIOSubprocess.runMinIOSubprocess settings action)
+  case result of
+    Left err ->
+      exitWithError
+        (InvalidConfig ("gc " <> label <> ": " <> Text.pack (show err)))
+    Right value -> pure value
+
+validateGcTerminalState
+  :: [CheckpointStore.GcIntent]
+  -> [CheckpointStore.GcIntent]
+  -> [CheckpointStore.GcReadyEvent]
+  -> [CheckpointStore.GcReadyEvent]
   -> App ()
-publishGcReapedEvents publication executed plan
-  | CheckpointStore.gcExecutedReapedManifests executed <= 0 = pure ()
-  | otherwise = do
-      let edgePort = Publication.publicationEdgePort publication
-          substrate = Publication.publicationSubstrate publication
-          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
-          reapedCount = CheckpointStore.gcExecutedReapedManifests executed
-          reapedEvents =
-            take reapedCount (CheckpointStore.gcReapEvents plan)
-      timestampNs <- liftIO ServiceCommand.currentTimestampNs
-      for_ reapedEvents $ \event -> do
-        let envelope =
-              ProtoGc.GcReapedEvent
-                { ProtoGc.gcEventExperimentHash =
-                    CheckpointStore.gcExperimentHash event
-                , ProtoGc.gcEventManifestSha =
-                    CheckpointStore.gcReapedManifestSha event
-                , ProtoGc.gcEventReapedBlobShas =
-                    CheckpointStore.gcReapedBlobShas event
-                , ProtoGc.gcEventStepAtReap =
-                    CheckpointStore.gcStepAtReap event
-                , ProtoGc.gcEventSubstrate = substrate
-                , ProtoGc.gcEventTimestampNs = timestampNs
-                }
-        result <-
-          liftIO
-            ( ServiceCommand.publishPulsarEvent
-                pulsarSettings
-                Topology.GcEventRoute
-                substrate
-                envelope
-            )
-        case result of
-          Right _ -> pure ()
-          Left err ->
-            writeText
-              ( "gc: publish failed for "
-                  <> ProtoGc.gcEventManifestSha envelope
-                  <> ": "
-                  <> Text.pack (show err)
-                  <> "\n"
+validateGcTerminalState pending cancelled ready published =
+  case CheckpointStore.validateGcTerminalRelations
+    pending
+    cancelled
+    ready
+    published of
+    Left err ->
+      exitWithError
+        (InvalidConfig ("gc terminal state: " <> Text.pack (show err)))
+    Right () -> pure ()
+
+unlessNull :: (Show value) => Text -> [value] -> App ()
+unlessNull _ [] = pure ()
+unlessNull label failures =
+  exitWithError
+    (InvalidConfig (label <> ": " <> Text.pack (show failures)))
+
+-- | Publish byte-stable, durable ready events and acknowledge each outbox
+-- object only after Pulsar returns success. A broker failure leaves the ready
+-- record intact. After broker success, acknowledgement first persists the
+-- permanent published tombstone and then removes transient ready/intent state;
+-- either transient may remain on cleanup failure, while the tombstone makes
+-- every retry idempotent.
+publishGcReadyEvents
+  :: ClusterPublication
+  -> MinIOSubprocess.MinIOSettings
+  -> [CheckpointStore.GcReadyEvent]
+  -> App [(Text, Text)]
+publishGcReadyEvents publication minioSettings readyEvents = do
+  outcomes <- traverse publishOne (Set.toAscList (Set.fromList readyEvents))
+  pure [(key, err) | Left (key, err) <- outcomes]
+ where
+  edgePort = Publication.publicationEdgePort publication
+  pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+
+  publishOne ready =
+    let event = CheckpointStore.gcReadyEvent ready
+        readyKey = CheckpointStore.gcReadyObjectKey ready
+     in case parseSubstrate (CheckpointStore.gcReadySubstrate ready) of
+          Just readySubstrate -> do
+            let envelope =
+                  ProtoGc.GcReapedEvent
+                    { ProtoGc.gcEventId = CheckpointStore.gcReadyEventId ready
+                    , ProtoGc.gcEventExperimentHash =
+                        CheckpointStore.gcExperimentHash event
+                    , ProtoGc.gcEventManifestSha =
+                        CheckpointStore.gcReapedManifestSha event
+                    , ProtoGc.gcEventReapedObjectKeys =
+                        CheckpointStore.gcReapedObjectKeys event
+                    , ProtoGc.gcEventStepAtReap =
+                        CheckpointStore.gcStepAtReap event
+                    , ProtoGc.gcEventSubstrate = readySubstrate
+                    , ProtoGc.gcEventTimestampNs =
+                        CheckpointStore.gcReadyTimestampNs ready
+                    }
+            published <-
+              liftIO
+                ( ServiceCommand.publishPulsarEvent
+                    pulsarSettings
+                    Topology.GcEventRoute
+                    readySubstrate
+                    envelope
+                )
+            case published of
+              Left err -> pure (Left (readyKey, Text.pack (show err)))
+              Right _ -> do
+                acknowledged <-
+                  liftIO
+                    ( MinIOSubprocess.runMinIOSubprocess
+                        minioSettings
+                        (CheckpointStore.acknowledgeGcReadyEvent ready)
+                    )
+                pure $
+                  case acknowledged of
+                    Left err -> Left (readyKey, Text.pack (show err))
+                    Right () -> Right ()
+          _ ->
+            pure
+              ( Left
+                  ( readyKey
+                  , "ready-event substrate is invalid"
+                  )
               )
 
 data CacheFileInfo = CacheFileInfo

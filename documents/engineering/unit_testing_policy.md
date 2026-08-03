@@ -2,29 +2,25 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../README.md, determinism_contract.md, training_workloads.md, product_completion_contract.md, jit_codegen_architecture.md, run_contract.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-15-linux-cuda-and-cluster-closure.md, ../../DEVELOPMENT_PLAN/phase-17-cross-substrate-and-handoff.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md
+**Referenced by**: [engineering index](README.md), [documentation standards](../documentation_standards.md), [root README](../../README.md), [determinism contract](determinism_contract.md), [training workloads](training_workloads.md), [product completion contract](product_completion_contract.md), [JIT code-generation architecture](jit_codegen_architecture.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 261](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md), [Phase 279](../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md), [Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
 **Generated sections**: none
 
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
 > doctrine for the per-tier stanza model, the standard testing stack, the
 > seven test categories, and the test-organization invariants; names the
 > jitML test stanzas — the ten declared in `jitml.cabal`, including the
-> Phase 32/33 realness stanzas owned here — the doctrine-category mapping,
+> realness stanzas whose retained and successor scopes are owned by Phases
+> `276`, `279`–`281`, and `284` — the doctrine-category mapping,
 > and the integration/e2e verification boundary for typed run contracts.
 
 ## Current Status
 
-**Implemented today.** `jitml-sl-canonicals` asserts the `cifar10-vit` exact V2
-parameter layout (123,595 parameters and its slice offsets); a byte-frozen V1
-golden fixture is retained; `jitml-backends` covers per-example layer forward/
-backward against the pure oracle.
-
-**Target (Phases `234`, `243`, `245`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-The persisted representation these assert against becomes the single envelope with
-the IR parameter layout (the `cifar10-vit` count is re-measured), the byte-freeze
-golden is retired, and `jitml-backends` gains batched-gradient coverage. Until
-those phases close, the assertions described below are the implemented reality and
-the single-envelope/IR-layout form is a target contract.
+**Implemented today.** `jitml-sl-canonicals` asserts the current literal trained
+`LayerGraph`, its graph-derived parameter count, the single supervised-graph
+checkpoint envelope, Store reload parity, and row convergence/evidence.
+`jitml-backends` covers batched device gradients and correct-operator execution
+against the finite-difference-validated pure oracle. The obsolete byte-frozen V1
+fixture and the `cifar10-vit` frozen-Mixer 123,595-parameter layout are retired.
 
 ## Doctrine Deferrals
 
@@ -86,47 +82,50 @@ WorkflowMatrix commands to use the projected
 Store-admitted checkpoint is accepted. The admitted manifest must preserve its
 exact SHA and match the projection's experiment, canonical row, `PlanId`, full
 completion, budget/kind/criterion, every dimensionally defined update-count
-relation, and Product runtime provenance. Traditional RL asserts the admitted
-positive measured trainer count but defers equality with a typed projected
-counter to Sprint `25.4`, because its current descriptor mixes iterations,
-transitions, and optimizer epochs. Cross-experiment, cross-plan,
-generic-origin supervised, missing completion,
-projection mismatch, duplicate, orphan, and wrong-lane joins fail. E2E report
+relation, and Product runtime provenance. Traditional RL has no projected
+optimizer-update plan axis: its admitted completion retains the trainer-measured
+positive update count without comparing it to the removed heterogeneous
+descriptor. The typed trainer boundary separately rejects zero counters and a
+measured transition count that differs from the compiled plan, then binds the
+measured update count unchanged into `TrainingEvidence`. Cross-experiment,
+cross-plan, generic-origin supervised, missing completion, projection mismatch,
+duplicate, orphan, and wrong-lane joins fail. E2E report
 rendering tests may consume the opaque report, but cannot manufacture a generic
 completion fixture.
 
-The same Sprint `19.4` unit boundary proves canonical non-supervised Product
-V1 can be Store-admitted only with exact transcript bytes, while non-product
-V1 and supervised V1 remain outside completed admission. Publisher tests
-exercise stored/admitted address equality, Product projection substitution
-rejection, and tuning-v2 trial semantics rather than treating a successful
-write receipt as eligibility.
+At the historical Sprint `19.4` boundary, the unit suite proved that the
+then-canonical non-supervised Product V1 form could be Store-admitted only with
+exact transcript bytes, while then-non-product V1 and supervised V1 remained
+outside completed admission. Phase `235` subsequently migrated the current
+tests and writes to one self-describing checkpoint envelope with weight-only
+and supervised-graph body variants. Publisher tests exercise stored/admitted
+address equality, Product projection substitution rejection, and the separate
+versioned tuning-transcript (`tuning-v2`) semantics rather than treating a
+successful write receipt as eligibility.
 
 | Stanza | Verification boundary | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, frontend bundle/panel/demo-route surfaces, the structural `ValidatedCheckpointCompletion` boundary plus Store-admitted completed-checkpoint gate, total ProductRow projection/batch identity, opaque completed-product report admission, pure all-model workflow-matrix enumeration, and inference-reply matching by both `callId` and experiment hash. Sprint `10.6` additionally checks all eleven canonical supervised learning rates (`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight rows), rejects zero/negative/NaN/infinite values, proves rate-sensitive `PlanId` identity, and observes exact Publisher callback propagation. | Pure Logic + Parser + Property + Snapshot | Sprint 10.6 / Sprint 12.1 / Sprint 19.4 |
-| `jitml-integration` | `test/integration/Main.hs` covers typed process results, bootstrap/live-rollout renderers, route-table snapshots, real-binary spawn, filesystem-backed MinIO checkpoint/inference/resume, local Linux CPU weighted checkpoint inference, partial-manifest rejection, routed MinIO/Pulsar behavior, exact 34-topic bootstrap evidence, daemon settings, Kind/RBAC rendering, Dhall numerics, oneDNN probing, and typed service command shapes. Sprint `19.4` adds an independent 55-row admitted-inventory audit: all 11 supervised rows must be Product-origin V2 with no companion pointer, all 39 RL rows, four AlphaZero rows, and the tuning row must be canonical Product V1 with exactly one family-appropriate content-addressed pointer, and the tuning-v2 payload is re-read and header-bound independently. Missing, duplicate, orphaned, and substituted pointer mutations fail. Its evidence-bearing live workflow cases execute `runLiveWorkflow` over typed topics/subscriptions, exact reducers, closed workload observations, a terminal/evidence join, diagnostics-before-cleanup, and retained journals. The uniform WorkflowMatrix remains public-CLI executable-outcome coverage, while exact Apple forwarding and duplicate-delivery cases are explicitly non-completion transport/placement smokes; Phase `28` makes ProductRow execution row-complete. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 / Sprint 5.18 / Sprint 12.16 / Sprint 19.4 / Phase 28 |
-| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix, dataset parsing, Training command/event envelope round-trips, selected live convergence, and checkpoint/inference helpers. Sprint `10.6` adds exact canonical epoch-permutation replay, a current `cifar10-vit` V2 contract assertion for `32×32×3` geometry, patch size/stride `4/4`, 64-token mixing, **123,595** parameters, and contiguous graph-order slice ends, plus a fitted-transform bind→project check and a live latest-pointer check that derives the exact train-only RGB transform from the verified staged archive and rejects a stale runtime contract. Those exact-current-executable checks do not establish Phase `23`'s single graph or Phase `24`'s literal architecture. Phase `24`/`28` make this row-complete: read-time SHA verification, literal architecture parity, fixed `TrainingBudget`, weight-update proof, completed-training witness, convergence-statistics recording, eligible-checkpoint writes, and infer-before-complete rejection for every SL row. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 10.6 / Sprint 12.3 / Phase 24 / Phase 28 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, deterministic snapshot preparation, canonical original/scoped/payload-SHA descriptor reconstruction and tamper rejection, zero-payload-object commit admission/GC, unique reservation attempts plus marker-conflict/leaked-entry/marker roots, the canonical versioned `ExperimentGcFence` path and experiment/revision/writer-root-epoch/reservation/history validation, contiguous generation histories, experiment-scoped writer/GC CAS transitions including cross-snapshot parent overlap, epoch increments on reservation register/unregister, complete-root-view epoch bracketing, exact fresh-plan missing-intent discovery/persistence and whole-view restart before no-op, late ready/published-transient recovery classification and cleanup, absent-target rejection without exact `Executing`/`Reaped` history, exact-epoch `Open`/`Cancelled` → `Planned` despite sibling GC-only revisions, `Planned` → `Cancelling` writer insertion, durable byte-identical immutable cancellation-artifact settlement without semantic-intent deletion to complete `Cancelled`, delayed-helper idempotence, no premature re-arm, executing/reaped writer rejection, post-`Reaped` intent cleanup, and helpable exact-executing authorization through Store's sole destructive `executeAuthorizedGcIntents` export without cancellation-artifact retirement, whole-intent cancellation and terminal-state contradictions, commit-inclusive one-snapshot GC events, strict protobuf-hex decoding, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, frontend bundle/panel/demo-route surfaces, the structural `ValidatedCheckpointCompletion` boundary plus Store-admitted completed-checkpoint gate, total ProductRow projection/batch identity, opaque completed-product report admission, pure all-model workflow-matrix enumeration, and inference-reply matching by both `callId` and experiment hash. It also checks all eleven canonical supervised learning rates (`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight rows), rejects zero/negative/NaN/infinite values, proves rate-sensitive `PlanId` identity, and observes exact Publisher callback propagation. | Pure Logic + Parser + Property + Snapshot | Sprint 10.6 / Sprint 12.1 / Sprint 19.4 / Phase 262 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed process results, bootstrap/live-rollout renderers, route-table snapshots, real-binary spawn, filesystem-backed MinIO checkpoint/inference/resume, local Linux CPU weighted checkpoint inference, partial-manifest rejection, routed MinIO/Pulsar behavior, exact 34-topic bootstrap evidence, daemon settings, Kind/RBAC rendering, Dhall numerics, oneDNN probing, and typed service command shapes. Its checkpoint/GC boundary covers scoped candidate conflicts, complete fail-closed ListObjectsV2 pagination and token echo/global ordering, atomic MinIO byte-plus-ETag coordination reads and CAS, canonical `ExperimentGcFence` path/identity/revision/writer-root-epoch/reservation/history validation, cross-snapshot writer/GC authorization and recovery, marker-conflict retained-entry protection, epoch increments on reservation register/unregister, complete-root-view epoch bracketing, exact-epoch planning with sibling GC-only revision tolerance, `Planned` → `Cancelling` crash recovery through byte-identical immutable cancellation persistence without intent removal, complete `Cancelled`, delayed-helper idempotence, exact-executing help without cancellation-artifact retirement, post-`Reaped` ready/published intent cleanup, durable cancelled/ready/published recovery, commit-inclusive exact deletion outcomes, idempotent already-absent DELETE, stored-substrate ready replay, and pre-capability weighted/unweighted Workload rejection of noncanonical bucket/key aliases and Store-owned control prefixes. The independent Product inventory uses one self-describing envelope: supervised rows carry supervised-graph bodies with no companion pointer; RL, AlphaZero, and tuning rows carry weight-only bodies with exactly one family-appropriate content-addressed companion pointer. The independently versioned `tuning-v2` transcript payload is re-read and header-bound separately; it is not a checkpoint-envelope version. Missing, duplicate, orphaned, and substituted pointer mutations fail. Its evidence-bearing live workflow cases execute `runLiveWorkflow` over typed topics/subscriptions, exact reducers, closed workload observations, a terminal/evidence join, diagnostics-before-cleanup, and retained journals. The command-owned startup capability, complete projection-batch ProductScenario resource, invocation-bound version-2 `RawCompletedTraining` completion DTO (not a checkpoint-envelope version), version-`3` authenticated journal, and parent-side exact Store re-admission bind every ordered ProductRow record. The uniform WorkflowMatrix remains public-CLI executable-outcome coverage, while exact Apple forwarding and duplicate-delivery cases are explicitly non-completion transport/placement smokes. Dated counts and current gate evidence live in the owning phase files. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 / Sprint 5.18 / Sprint 12.16 / Sprint 19.4 / Phases 261–262 |
+| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix, dataset parsing, Training command/event envelope round-trips, exact canonical epoch-permutation replay, and every row's read-time SHA verification, literal trained-`LayerGraph` feature/block parity, fixed `TrainingBudget`, measured update proof, completed-training witness, convergence statistics, single-envelope checkpoint write/reload, trained-versus-Store-loaded inference parity, and infer-before-complete rejection. The current `cifar10-vit` assertion derives its 8×8-patch/16-token graph parameter count and one physical graph-ordered `supervised.weights` shape from the literal graph; the obsolete Sprint `10.6` 123,595-parameter frozen-Mixer slices are not used as current truth. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 10.6 / Sprint 12.3 / Phases 24, 235–246, and 28 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, canonical-game surface, RL command/event envelope round-trips, representative measured convergence, and AlphaZero metrics. Sprint `20.1` relocated the deterministic `runRLLoop`, simulator-loop runners, and `deterministicStep` into `test/rl-canonicals/Support/`; tests that exercise them carry a `scaffolding:` title prefix and are not product evidence. Phase `25`/`28` make this row-complete: every documented algorithm/env row dispatches to its named environment, updates learned state where applicable, writes completed artifacts, and has named integration/e2e evidence. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 / Sprint 20.1 / Phase 25 / Phase 28 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), checkpointable trained weights for measured trial objectives, fixed trial-budget completion, promoted-checkpoint eligibility, and Tune command/event envelope round-trips. Sampler trial values are checked as properties rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
 | `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, **symmetric across all three backends**: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/{Main,SigtermRegression}.hs` covers lifecycle ordering, endpoints, opaque role-derived borrowed subscriptions, receipt-bound equal-payload delivery, strict decode failure, handler and settlement failure, owned cleanup, bounded persistent consumption, exact Coordinator topic/readiness state, role/domain dispatch separation, per-command dedup commits that survive later batch cancellation, Engine publication-entry refusal after the captured deadline, and actual compiled Engine/Webapp processes. Its companion unit groups cover dynamic log/retry/batch/SLO policy and the keyed Apple host workload registry, including duplicate/unknown/terminal Stops and bounded drain. Process cases exercise adjacent LiveConfig fail-closed loading; unchanged, valid changed, malformed-live, and immutable-Boot SIGHUP decisions; dynamically resized/expired dedup state; SIGTERM readiness loss; configured drain deadlines; forced-cleanup joins; and clean Webapp reload/termination. | Daemon Lifecycle | Sprint 12.7 / Sprint 5.18 / Sprint 12.16 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` is present and the active Docker context answers `docker info`, typed live-plan surfaces, and structural workflow assertions. Live execution borrows an existing publication without deletion or owns an auto-bootstrapped cluster and always releases it; primary failure is preserved when cleanup also fails. Phase `27`/`28` make the live Playwright path row-complete: every product row launches or selects a trained artifact, validates model-specific interactions, observes RL animations where applicable, replays adversarial games, exercises tuning controls, and proves inference rejection before training completion. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.16 / Phase 27 / Phase 28 |
-| `jitml-negative-controls` | **Owned by [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md); declared and wired into `jitml test all`.** `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) commits known-fake artifacts, each paired with the gate that must **reject** it — an untrained random-init checkpoint (must fail `InferenceEligible`), a below-threshold trained model (must fail the convergence bar), a scripted-controller RL reward trace (must fail RL row evidence), and a dense layer labelled as a convolution (must fail the differential conv≠dense assertion). The build **fails if any known-fake is accepted**; a gate that cannot reject its known-fake is a failure, not a pass. Enumerated from the `ProductRow` registry; `linux-cpu` only. | Integration (project-specific) | Sprint 32.1 / Phase 32 |
-| `jitml-model-convergence` | **Owned by [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md); declared and wired into `jitml test all`.** One case per `ProductRow`, enumerated from `JitML.Product.Matrix.allProductRows`, drives the row's validated plan through real training, terminal success, exact evidence collection, checkpoint refinement, served-artifact metric recomputation, and inference. Row identity, named integration/e2e evidence, external bars, and a non-wall-clock inference-performance floor are assertions over that journal, not substitutes for executing it. A `Declared` row is explicitly incomplete and never faked. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 33 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` is present and the active Docker context answers `docker info`, typed live-plan surfaces, browser-evidence mount/capability isolation, reporter wiring, and structural workflow assertions. Live execution borrows an existing publication without deletion or owns an auto-bootstrapped cluster and always releases it; primary failure is preserved when cleanup also fails. Phase `262` creates exactly 55 positive tests from the command-owned catalogue, binds their exact row/PlanId/artifact/measured identities through the real API/UI path, and returns a separately authenticated browser journal. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.16 / Phase 27 / Phase 28 / Phase 262 |
+| `jitml-negative-controls` | **Owned by [Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md) and wired into `jitml test all`.** The current `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) rejects hand-built known fakes with pure gate logic and requires the remaining production-path controls to stay explicitly enumerated. That pure gate-soundness scope does not mutate contract-driven production journals or require one negative case per `ProductRow`; Phases `279`–`281` own those production boundaries. Current status and validation evidence live in the development plan. | Integration (project-specific) | Phase 276 (legacy Sprint 32.1) / Phases 279–281 (legacy Sprints 32.4–32.6) |
+| `jitml-model-convergence` | **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map); declared and wired into `jitml test all`.** The current lightweight guard enumerates one case per `ProductRow` from `JitML.Product.Matrix.allProductRows` and validates row identity, named integration/e2e handles, external bars, and positive non-wall-clock performance floors. It does not train, reload, recompute served metrics, or infer; [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md) owns migration to opaque completed-run evidence. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 284 |
 
-Sprint `10.6` records current execution counts and closure evidence. The policy
-requires the complete unit run to include the exact-runtime,
+Sprint `10.6` records historical pre-IR execution counts and diagnostics. The
+current policy requires the complete unit run to include the graph-runtime,
 permuted-training/fitted-transform, typed-rate recipe/refinement, `PlanId`
 sensitivity, and Publisher propagation checks; structural passes cannot replace
-fresh-image `jitml-sl-canonicals`, integration, docs, and code-quality gates.
+the phase-owned live/integration, standing, docs, and code-quality gates.
 
-The table states the required verification boundary, not current closure. In the
-pre-refactor tree, `jitml-negative-controls` exercises pure constructed records
-and passes while production-path controls remain pending, while
-`jitml-model-convergence` checks declared metadata without training or inference.
-Those stand-ins are Pending Removal under Sprints `32.4` and `33.3`; neither can
-satisfy the target rows above.
+The table states the current verification boundary, not phase status. The
+standing realness stanzas are green lightweight guards, not substitutes for the
+contract-driven production evidence still owned by Phases `279`–`284`. Current
+closure evidence lives only in the Development Plan.
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -145,8 +144,8 @@ runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 | Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
 The four `*-canonicals`/HPO/backends rows, plus the two 2026-07-05 realness
-rows (`jitml-negative-controls`, Phase `32`; `jitml-model-convergence`, Phase
-`33`), are **project-specific Integration** stanzas under doctrine §Test
+rows (`jitml-negative-controls`, retained by Phase `276` from legacy Phase
+`32`; `jitml-model-convergence`, legacy Phase `33`), are **project-specific Integration** stanzas under doctrine §Test
 Organization's project-specific stanzas allowance — extensions of the
 Integration category, not parallel test systems.
 
@@ -179,18 +178,16 @@ infer-before-complete rejection. No `.txt` / `.json` files of hardcoded
 per-epoch loss values are committed — see [Snapshot Tests and the Prohibition
 on Numerical Fixtures](#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
-The Sprint `10.6` exact-runtime cases separately pin the current compact CIFAR
-executable: patch size/stride `4/4` over `32×32×3`, token-mixing count `64`,
-**123,595** total parameters, contiguous virtual slices ending at **23,040**,
-**39,616**, **105,664**, and **123,595**, and equality between every live V2
-latest target and the current canonical runtime contract. A stale 16×16 or
-8×8 V2 artifact therefore cannot pass merely by retaining the right row and
-`PlanId`. The current ProductRow plan supplies **2,000** training examples,
-forty epochs, batch size 128, **80,000** processed examples, **640** successful
-optimizer updates, and the typed `1.5e-3` rate. The final current-image
-publisher and full stanza are still required
-by the Active sprint; the structural assertion alone is not convergence or
-live-reload evidence.
+The retained Sprint `10.6` compact-Mixer counts are historical diagnostics, not
+the current graph contract. Current cases derive the literal ViT parameter
+count from its 8×8-patch/16-token trained `LayerGraph`, require one physical
+`supervised.weights` object of that exact graph-ordered length, and prove
+trained-versus-Store-reloaded inference parity. The ProductRow plan supplies
+**2,000** training examples, forty epochs, batch size 128, **80,000** processed
+examples, **640** successful optimizer updates, and the typed `1.5e-3` rate.
+Phases `245`–`246` own the literal-graph convergence and completion closure;
+Phase `262` separately owns the browser/e2e consumption of authenticated live
+evidence.
 
 ### `jitml-rl-canonicals` — RL canon coverage
 
@@ -307,40 +304,39 @@ Only within-substrate bit-for-bit reproducibility is asserted; there is no
 cross-substrate drift check and no tolerance band. See
 [determinism_contract.md → The Contract](determinism_contract.md#the-contract).
 
-### `jitml-negative-controls` — committed known-fakes must be rejected (Phase 32)
+### `jitml-negative-controls` — committed known-fakes must be rejected
 
-**Owned by [Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md)
-(Sprint `32.1`; declared in `jitml.cabal` and exposed through `jitml test all`).** Added on
-2026-07-05 by the realness audit, which found every prior product closure was
-graded by a self-authored, self-referential gate. `test/negative-controls/Main.hs`
-(backed by `src/JitML/Test/NegativeControls.hs`) commits a set of known-fake
-artifacts, each paired with the gate that must **reject** it, and **fails the
-build if any known-fake is accepted**. The committed fakes and their required
-verdicts are: an untrained random-init checkpoint (must fail `InferenceEligible`);
-a below-threshold trained model (must fail the convergence bar); an RL reward
-trace produced by a scripted controller (must fail RL row evidence); and a dense
-layer labelled as a convolution (must fail the differential conv≠dense
-assertion). A gate that cannot reject its known-fake is a **failure, not a
-pass**. The suite is enumerated from the `ProductRow` registry so a new row
-cannot ship without its negative control, and it is wired into `jitml test all`.
-The owning phase defines its validation lane and records current evidence; see
-[Phase 32](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md).
+**The retained pure gate-soundness scope is owned by
+[Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md)
+(legacy Sprint `32.1`; declared in `jitml.cabal` and exposed through
+`jitml test all`).** The realness contract requires a gate that is not
+self-authored or self-referential. The current
+`test/negative-controls/Main.hs` (backed by
+`src/JitML/Test/NegativeControls.hs`) commits hand-built gate-soundness fakes,
+pairs each with pure gate logic that must reject it, and **fails the build if
+any fake is accepted**. It also asserts that `pendingProductionControls` is
+non-empty, so blocked production-path coverage cannot disappear silently. It
+does not yet mutate the contract's real request/event journals, cover the full
+lifecycle, or require a negative control per `ProductRow`. Phases `279`–`281`
+own those production boundaries: request
+and event fixtures in Phase `279`, journal/reducer coverage in Phase `280`, and
+lifecycle plus mandatory per-row registration in Phase `281`.
 
-### `jitml-model-convergence` — per-model measured convergence + inference (Phase 33)
+### `jitml-model-convergence` — per-model case-registry guard
 
-**Owned by [Phase 33](../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md)
+**Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+and currently owned for production evidence by
+[Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
 (declared in `jitml.cabal` and exposed through `jitml test all`).** The realness
-audit found that artifact readers, declared evidence handles, and scripted
-controllers are not training drivers. `test/model-convergence/Main.hs`
-(backed by `src/JitML/Test/RowAssertions.hs`) owns one case per `ProductRow`,
-enumerated from `JitML.Product.Matrix.allProductRows` so coverage cannot silently
-drop. Each case must drive the row's real validated run plan, exact evidence
-contract, terminal checkpoint refinement, served-artifact metric recomputation,
-and inference path. Named integration/e2e evidence, the external convergence
-bar, and the non-wall-clock inference-performance floor are assertions over the
-resulting journal. Bars and floors are never derived from the value they check;
-a `Declared` row remains explicitly incomplete. Current closure and validation
-evidence live in the development plan.
+audit found that artifact readers and declared evidence handles are not training
+drivers. The current `test/model-convergence/Main.hs` (backed by
+`src/JitML/Test/ModelConvergence.hs`) is a lightweight registry guard: it owns
+one case per `ProductRow`, enumerated from
+`JitML.Product.Matrix.allProductRows`, and validates coverage, row identity,
+named integration/e2e handles, externally anchored bar metadata, and positive
+non-wall-clock performance floors. No current case trains, reloads a completed
+artifact, recomputes its served metric, or performs inference. Phase `284`
+owns that completed-run-evidence migration and its validation record.
 
 ### `jitml-daemon-lifecycle`
 
@@ -373,14 +369,13 @@ before success and bounded drain joins all remaining work. These surfaces are
 exercised by the Sprint `12.16` daemon-lifecycle and canonical Linux CPU
 validation.
 
-The Phase `12` sparse-inference regression boundary is explicit and focused:
-the `InferenceBatch` unit group passes **6 / 6**, including the distinct early
-collection cutoff and exact shared deadline predicate; the `PulsarTransport`
-group passes **32 / 32**, including redirect-safe owned cleanup,
+The sparse-inference regression boundary is explicit and focused:
+the `InferenceBatch` unit group covers the distinct early collection cutoff and
+exact shared deadline predicate; the `PulsarTransport` group covers redirect-safe owned cleanup,
 under-capacity dispatch, cancellation
 settlement/drain/process/cleanup failure precedence, and an actual Node bridge
 drain race whose hidden Nack flushes before `Drained`. The four `inference reply
-scope` cases pass **4 / 4**. Those reply-scope cases prove the CLI cancels and
+scope` branches prove the CLI cancels and
 joins its `Async` reply worker, treats the expected joined `AsyncCancelled` as a
 clean release, preserves a typed DELETE failure beside a normal primary failure,
 avoids duplicating a natural consumer failure, and observes cleanup before
@@ -388,11 +383,10 @@ rethrowing an exceptional primary with its identity unchanged. Unit coverage
 also rejects a same-`callId` reply carrying the wrong experiment hash and maps
 live request/reply transport failure to `PulsarFailed`, not checkpoint absence.
 They import the isolated `JitML.Service.InferenceReplyScope` boundary directly,
-while `JitML.App` only composes it into the public command. The current source
-gates pass `jitml-unit` **544 / 544**, `jitml-daemon-lifecycle` **51 / 51**, and
-non-Live `jitml-integration` **125 / 125**. The live WorkflowMatrix additionally
-snapshots `jitml-infer-*` subscriptions on the result topic before and after its
-CLI cells and rejects any newly leaked `Owned` cursor.
+while `JitML.App` only composes it into the public command.
+The live WorkflowMatrix additionally snapshots `jitml-infer-*` subscriptions on
+the result topic before and after its CLI cells and rejects any newly leaked
+`Owned` cursor.
 
 ### `jitml-e2e` and the ephemeral-cluster live driver
 
@@ -407,9 +401,14 @@ binary is absent or Docker is unreachable, the local Docker-backed Kind query
 fails closed. The typed
 `JitML.Test.LivePlan.liveE2EPlan` records the live orchestration as `Subprocess`
 values: `helm dependency build chart` → `jitml bootstrap` (ephemeral Kind +
-phased Helm rollout) → substrate-bound
-`docker run --rm --network host -v .:/work:ro -w /work -e JITML_SUBSTRATE=<substrate> mcr.microsoft.com/playwright:v1.49.1-noble ... playwright test --config playwright/playwright.config.ts`
-→ cluster release. The live driver is an explicit command path, not a
+phased Helm rollout) → substrate-bound Playwright in the pinned browser image
+with the repository read-only, the exact catalogue and publication mounted as
+individual read-only files, and one command-owned browser-evidence directory
+read-write → cluster release. The browser subprocess receives no Phase 261
+journal, executable challenge, checkpoint root, or ProductScenario/integration
+signing capability. Its only signing key is the independent browser-result key
+created after the parent-only fallback is durable.
+The live driver is an explicit command path, not a
 process-environment gate or part of default `cabal test all`, because it selects
 or bootstraps Kind, builds Helm dependencies, mutates image/runtime state, and
 polls live routes.
@@ -421,17 +420,42 @@ Live test driver:
 2. `jitml bootstrap --<substrate>` brings up the stack (ephemeral Kind cluster,
    Helm chart in its `final` phase, plus the `jitml-demo` Deployment) and writes
    `cluster-publication.json`.
-3. The driver executes validated SL, RL, AlphaZero, and tuning plans through the
-   common live-workflow interpreter to seed completed demo state. Each seed run
-   must reach terminal success and its exact evidence contract before its
-   artifact becomes selectable.
-4. The driver invokes the Playwright suite from
-   [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md → Sprint
-   11.6](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
-   against the live bundle across the six demo cohorts (training control,
-   MNIST handwriting, image upload, Connect 4 game-play, TensorBoard/Grafana
-   navigation, hyperparameter sweep).
-5. Release follows the acquisition ownership: a borrowed publication is never
+3. Exactly one fresh `jitml-integration` producer runs inside the command-owned
+   ProductScenario scope and is the only child that receives the Phase `261`
+   capability. Its zero exit is not proof: before Playwright starts, the parent
+   authenticates the resulting 55-row journal, re-admits every exact immutable
+   checkpoint through Store, and publishes the projection-ordered browser
+   catalogue. After precondition success, every row retains its exact typed
+   plan under the same bounded four-hour command-and-evidence-resolution
+   envelope; that wall-clock safety limit is not a
+   training-budget axis, and expiry cannot contribute or authorize reuse of a
+   partial row.
+4. The parent writes an authenticated all-`NotRun` fallback in a separate
+   parent-only temporary directory while the browser result path is absent.
+   Only after that succeeds does it create the fresh `0600` browser-only key in
+   the isolated writable browser scope. The exact catalogue and matching
+   cluster publication are individual read-only mounts; the browser scope is
+   the only read-write mount.
+5. The suite validates the exact live publication and catalogue and performs one
+   authenticated real checkpoint API/panel load in a serial setup. It then runs
+   one exact-title test per catalogue `e2e_test`; each case asserts its row id,
+   PlanId, experiment, manifest, measured result, explicit status/reason, and
+   family renderer against the shared refined DOM. Route mocks occur only in
+   separate negative contract cases.
+6. The custom reporter retains the final retry outcome for every exact planned
+   title, maps missing/skipped work to reasoned `NotRun`, consumes and unlinks
+   its fresh key, HMAC-signs a strict ordered 55-row result, and publishes it
+   atomically without replacing stale output.
+7. Final parent refinement first removes any surviving key, then authenticates
+   the exact result when present or the inaccessible parent fallback otherwise
+   and joins all 55 ordered identities to the catalogue. Structural or
+   authentication rejection records every later stanza as
+   `NotRunAfterRefinement`. An authenticated report with a `Failed`/`NotRun`
+   row, or with a later measurement issue, is `LiveE2ERefinedWithIssue`: its
+   measurements remain reportable, but it still blocks later stanzas. Only an
+   all-`Passed` refinement permits the Haskell e2e and remaining `test all`
+   stanzas. The browser never receives authority to mint integration evidence.
+8. Release follows the acquisition ownership: a borrowed publication is never
    deleted; an auto-bootstrapped Kind cluster is always deleted on success or
    failure. If primary execution and cleanup both fail, the primary exception
    is preserved and the cleanup failure is emitted as additional diagnostics.
@@ -467,10 +491,16 @@ legacy: an absent optional field means the measurement was not requested,
 `MeasurementUnavailable` carries no reason, and `MeasurementAvailable Text` is
 not yet tied to the scenario journal. Product-row evidence is stricter: it can
 only be an opaque `CompletedProductScenarioReport`, and when selected targets
-request it without the cross-process journal reader, collection fails closed
-instead of silently omitting rows. Sprint `28.4` supplies that reader. Sprint
-`34.3` replaces the remaining generic probes with `NotRequested`, reasoned
-`Unavailable`, and journal-bound `Available` evidence. Failed invocations
+request it without the exact authenticated cross-process journal, collection
+fails closed instead of silently omitting rows. The command-owned writer/reader
+boundary gives only the integration
+child receives the current run, `0600` key-file capability, journal path, and
+canonical executable identity; startup consumes and clears that capability
+before Tasty; and the parent authenticates the returned aggregate before exact
+Store re-admission. Phase `262` owns
+the separate browser/Playwright consumption boundary described above; it cannot
+mint or replace the integration journal. Sprint `34.3` replaces the remaining generic probes with
+`NotRequested`, reasoned `Unavailable`, and journal-bound `Available` evidence. Failed invocations
 already retain their complete subprocess transcript/failure and block post-test
 measurement. See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
@@ -479,22 +509,34 @@ measurement. See
 
 Playwright belongs to the doctrine's Ephemeral-Cluster Infrastructure test
 category. The checked-in `playwright/jitml-demo.spec.ts` is a live-only product
-matrix: it reads
-`.build/runtime/cluster-publication.json`, drives the published edge route, and
-fails fast when no live publication exists. The default `jitml-e2e` body
-validates the typed Playwright plan and server-side route/concurrency
-invariants without invoking the live stack; live edge-route Playwright
-execution stays on the explicit live orchestration path. Static route/API
-scaffold checks stay in the local Haskell e2e and the `purescript-spec` smoke
-suite run by `spago test` through the Node `spec-node` runner.
+matrix. It reads `JITML_BROWSER_CATALOGUE_PATH` plus the individually mounted
+`JITML_BROWSER_PUBLICATION_PATH`, validates exact live-readiness and substrate,
+and drives the published edge route. The positive 55-row group contains no
+route mocks and does not parse `Generated.Contracts` for evidence identities.
+Its separate negative suite supplies complete frozen frames with intentional
+identity/status faults and proves the panel rejects them without a Passed
+fallback. The default `jitml-e2e` body validates the typed Playwright plan,
+capability isolation, reporter wiring, and server-side route/concurrency
+invariants without invoking the live stack; live edge-route execution stays on
+the explicit live orchestration path. Static route/API scaffold checks stay in
+the local Haskell e2e and the `purescript-spec` smoke suite run by `spago test`
+through the Node `spec-node` runner.
 
-The completed Sprint `12.13` / Phase `14` expansion starts real
+The list reporter remains available for ordinary tooling. The evidence reporter
+is enabled only when all four browser-evidence path variables are present; a
+partial environment fails configuration. In evidence mode it rejects malformed
+catalogues, stale output, non-exact key files, missing or duplicate planned test
+titles, and publishes all 55 final retry outcomes as `Passed`, `Failed`, or
+reasoned `NotRun` under a canonical UTF-8 byte-length HMAC-SHA256 receipt.
+Failure detail is normalized by Unicode code point, removes every Unicode `Cc`
+control, and is bounded to 4096 code points to match Haskell `Text`; an
+independent multibyte golden fixes the cross-language receipt bytes.
+
+The live Playwright expansion starts real
 SL/RL/AlphaZero/tuning workflows, waits for live events and checkpoint evidence,
 invokes model-specific interactions, observes non-identical RL animation
 frames, drives legal moves on every canonical adversarial game, replays
-persisted transcripts, and exercises tuning controls. The binding Sprint
-`12.16` live e2e run passed all **72** Playwright checks plus **29 / 29** Haskell
-cases on the retained Linux CPU cluster.
+persisted transcripts, and exercises tuning controls.
 User-interaction fixtures such as drawn strokes, uploaded image files, or fixed
 human move sequences are allowed as inputs; numerical curves, reward
 distributions, policy outputs, and replay transcripts remain runtime-produced
@@ -507,9 +549,14 @@ public-workflow cells enumerate SL train/eval, RL train/eval/rollout, tune,
 inference, and AlphaZero self-play for each canonical substrate, with the
 canonical `jitml` command and typed protocol instance for each cell. Its
 ProductRow model cells instead derive from the common opaque projection batch
-and carry the exact internal per-row executor argv; these cells prove command
-process outcomes only until Sprint `28.4` supplies their completed journals. The
-integration `Live` group filters the matrix to the current publication
+and carry the exact internal per-row executor argv. The completed Phase `261` integration
+group executes the complete projection-ordered ProductRow batch, admits each
+row only from its exact completed local-workflow evidence, and atomically writes
+the authenticated aggregate for the parent command; declared ids, artifact-only
+reads, and process outcomes cannot substitute for that journal. The separate
+public WorkflowMatrix cells retain executable-outcome coverage. Phase `262`
+owns the downstream browser/Playwright consumer of this boundary. The integration
+`Live` group filters the matrix to the current publication
 substrate, stages required input state, resolves each plan, and runs it through
 the real binary plus common live interpreter. The
 AlphaZero cell uses `jitml rl alphazero self-play`, so it follows the same CLI
@@ -594,7 +641,7 @@ substrates, so each substrate is validated for real within its own lane.
 ## Cross-References
 
 - [../../README.md](../../README.md)
-- [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
+- [Development Plan legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [determinism_contract.md](determinism_contract.md)
 - [run_contract.md](run_contract.md)
 - [../documentation_standards.md](../documentation_standards.md)

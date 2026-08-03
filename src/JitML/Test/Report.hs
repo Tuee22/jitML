@@ -1,8 +1,10 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Test.Report
   ( BlockedBy
+  , RefinementBlocker
   , CompletedProductScenarioEvidence
   , CompletedProductScenarioReport
   , InvocationJournal
@@ -16,20 +18,43 @@ module JitML.Test.Report
   , SuiteStatus (..)
   , ProductRowReportEvidence (..)
   , ProductScenarioCompletion
+  , AddressedProductScenarioCompletion
+  , ProductScenarioPrecondition
+  , ProductScenarioPreconditionError (..)
+  , ExecutedProductScenarioCompletion
   , ProductScenarioCompletionError (..)
   , ProductScenarioEvidenceError (..)
   , ProductScenarioReportError (..)
-  , RowIntegrationEvidence (..)
   , aggregateProductLaneAttestations
   , appendInvocation
   , appendInvocationJournal
   , blockedByFailure
   , blockedByStanza
+  , canonicalCompletedTrainingDigest
+  , canonicalCompletedTrainingSummary
   , completedProductScenarioEvidence
+  , completedProductScenarioReportEntries
   , completedProductScenarioLane
   , completedProductScenarioManifestSha
+  , completedProductScenarioMeasuredDigest
+  , completedProductScenarioMeasuredSummary
   , completedProductScenarioPlanId
   , completedProductScenarioRowId
+  , completedProductScenarioRunId
+  , completedProductScenarioCommand
+  , completedProductScenarioCheckpointScopeDigest
+  , completedProductScenarioContractDigest
+  , completedProductScenarioExecutablePath
+  , completedProductScenarioExecutableSha256
+  , completedProductScenarioInvocationDigest
+  , completedProductScenarioExperimentHash
+  , completedProductScenarioInferenceManifestSha
+  , completedProductScenarioJournalDigest
+  , completedProductScenarioJournalReceipt
+  , completedProductScenarioPreconditionRejected
+  , completedProductScenarioPreconditionSequence
+  , completedProductScenarioInferenceSequence
+  , completedProductScenarioCompletionSequence
   , defaultReportCardKnobs
   , deriveSuiteResult
   , emptyInvocationJournal
@@ -42,23 +67,41 @@ module JitML.Test.Report
   , invocationJournalEntries
   , invocationResult
   , invocationStanza
+  , refinementBlockerDetail
+  , refinementBlockerName
+  , refinementBlockerStanza
   , loadAggregatedProductLaneAttestations
   , loadReportCardKnobs
   , notRunInvocation
+  , notRunAfterRefinement
   , notRunObservedInvocation
   , parseReportCardKnobs
   , passedInvocation
   , parseProductRowReportEvidenceTable
   , productScenarioCompletion
+  , admitAddressedProductScenarioCompletion
+  , observeProductScenarioPrecondition
+  , productScenarioPreconditionCheckpointRoot
+  , productScenarioPreconditionExecutablePath
+  , productScenarioPreconditionExecutableSha256
+  , productScenarioPreconditionInvocation
+  , productScenarioPreconditionPinnedExecutablePath
+  , revalidateProductScenarioPinnedExecutable
+  , renderProductScenarioPrecondition
+  , renderProductScenarioExecutionAcknowledgement
+  , executedProductScenarioCompletion
+  , renderExecutedProductScenarioCompletion
+  , journaledProductScenarioEvidence
   , projectCompletedProductScenarioReport
+  , productScenarioCheckpointScopeDigest
+  , productScenarioProjectionContractDigest
   , productRowReportCoverageFailures
   , productLaneAttestationFailures
   , renderReportCardWithKnobs
   , renderProductRowReportEvidence
   , renderCompletedProductScenarioEvidence
-  , renderRowIntegrationEvidence
+  , validateCompletedProductScenarioLiveAdmission
   , reportStanzas
-  , rowIntegrationCoverageFailures
   , suiteDuration
   , suiteFailed
   , suiteNotRun
@@ -71,14 +114,35 @@ module JitML.Test.Report
   )
 where
 
+import Control.Exception (IOException, try)
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
+import Data.Char (isControl)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
 import Data.Word (Word64)
+import System.Directory
+  ( canonicalizePath
+  , createDirectoryIfMissing
+  , renameFile
+  )
 import System.Exit (ExitCode (..))
+import System.FilePath (isAbsolute, normalise, takeDirectory, (</>))
+import System.IO (hFlush)
+import System.IO.Temp (withTempFile)
+import System.Posix.Files
+  ( ownerExecuteMode
+  , ownerReadMode
+  , ownerWriteMode
+  , setFileMode
+  , unionFileModes
+  )
 
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
@@ -90,6 +154,7 @@ import JitML.Product.Convergence
   , convergenceThreshold
   )
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.SL.Architecture (ArchitectureFeature)
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Sub.Outcome
@@ -107,13 +172,33 @@ import JitML.Sub.Outcome
   , processFailureStdout
   , processFailureWorkingDirectory
   )
+import JitML.Sub.Render (renderSubprocess)
+import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Test.BrowserEvidenceJournal qualified as BrowserEvidenceJournal
 import JitML.Test.LiveWorkflow
-  ( CompletedRunEvidence
+  ( LiveDiagnostic (..)
+  , LiveJournalEvent (..)
+  , LiveJournalRecord (..)
+  , LiveTerminalFact (..)
+  , Placement (..)
   , completedRunEvidence
+  , completedRunJournal
+  , completedRunPlacement
   , completedRunPlanId
+  , completedRunTerminal
+  , hostRunHandleKey
+  , hostRunHandlePlanId
   )
-import JitML.Test.RowAssertions qualified as RowAssertions
+import JitML.Test.ProductScenarioAuthorization
+  ( AuthenticatedProductScenarioJournalRow
+  , authenticatedProductScenarioJournalRowMaterialMatches
+  , authenticatedProductScenarioJournalRowRunId
+  , generateProductScenarioJournalKey
+  , productScenarioJournalEvidenceMaterial
+  , renderProductScenarioJournalKey
+  )
+import JitML.Test.ProductScenarioInterpreter.Internal qualified as ProductScenarioInterpreter
 import JitML.Test.ScenarioJournal
   ( ScenarioDisposition (..)
   , ScenarioIssue
@@ -133,15 +218,32 @@ import JitML.Test.ScenarioJournal
   )
 import JitML.Training.Budget
   ( BudgetKind (..)
+  , CompletedTraining
   , MetricGoal
+  , ProductScenarioInvocation
   , TrainingBudget
   , coMetricGoal
   , coMetricName
+  , coMetricValue
   , coThreshold
   , completedTrainingBudget
   , completedTrainingMetrics
+  , completedTrainingObservedUnits
   , completedTrainingPlanId
+  , completedTrainingProductScenarioInvocation
+  , completedTrainingTensorBoard
   , completedTrainingUpdateCount
+  , encodeCompletedTraining
+  , mkProductScenarioInvocation
+  , productScenarioInvocationCheckpointScopeDigest
+  , productScenarioInvocationDigest
+  , productScenarioInvocationExecutableSha256
+  , productScenarioInvocationPlanId
+  , productScenarioInvocationRowId
+  , productScenarioInvocationRunId
+  , productScenarioInvocationSubstrate
+  , renderTrainingBudget
+  , tbrLogPrefix
   , trainingBudgetKind
   )
 
@@ -153,6 +255,7 @@ data InvocationResult
   = Passed !ProcessTranscript
   | Failed !ObservedProcessFailure
   | NotRun !BlockedBy
+  | NotRunAfterRefinement !RefinementBlocker
   deriving stock (Eq, Show)
 
 -- | Structured reason an invocation was not run. The blocker is the complete
@@ -160,6 +263,15 @@ data InvocationResult
 data BlockedBy = BlockedBy
   { blockerStanzaValue :: !Text
   , blockerFailureValue :: !ObservedProcessFailure
+  }
+  deriving stock (Eq, Show)
+
+-- | Honest non-process blocker: a preceding command may have exited zero but
+-- failed to refine into the proof required by a downstream invocation.
+data RefinementBlocker = RefinementBlocker
+  { refinementBlockerStanzaValue :: !Text
+  , refinementBlockerNameValue :: !Text
+  , refinementBlockerDetailValue :: !Text
   }
   deriving stock (Eq, Show)
 
@@ -204,6 +316,15 @@ blockedByStanza = blockerStanzaValue
 
 blockedByFailure :: BlockedBy -> ObservedProcessFailure
 blockedByFailure = blockerFailureValue
+
+refinementBlockerStanza :: RefinementBlocker -> Text
+refinementBlockerStanza = refinementBlockerStanzaValue
+
+refinementBlockerName :: RefinementBlocker -> Text
+refinementBlockerName = refinementBlockerNameValue
+
+refinementBlockerDetail :: RefinementBlocker -> Text
+refinementBlockerDetail = refinementBlockerDetailValue
 
 invocationStanza :: InvocationRecord -> Text
 invocationStanza = recordStanzaValue
@@ -291,6 +412,25 @@ notRunObservedInvocation stanza command blockerStanza blocker =
     , recordResultValue = NotRun (BlockedBy blockerStanza blocker)
     }
 
+-- | Record a downstream invocation as NotRun because a successful process did
+-- not refine into the required proof.  This deliberately cannot carry an
+-- 'ObservedProcessFailure'.
+notRunAfterRefinement
+  :: Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> InvocationRecord
+notRunAfterRefinement stanza command blockerStanza refinementName detail =
+  InvocationRecord
+    { recordStanzaValue = stanza
+    , recordCommandValue = command
+    , recordResultValue =
+        NotRunAfterRefinement
+          (RefinementBlocker blockerStanza refinementName detail)
+    }
+
 deriveSuiteResult :: InvocationJournal -> SuiteResult
 deriveSuiteResult (InvocationJournal entries) =
   SuiteResult
@@ -305,7 +445,15 @@ deriveSuiteResult (InvocationJournal entries) =
  where
   passed = length [() | InvocationRecord {recordResultValue = Passed _} <- entries]
   failed = length [() | InvocationRecord {recordResultValue = Failed _} <- entries]
-  notRun = length [() | InvocationRecord {recordResultValue = NotRun _} <- entries]
+  notRun =
+    length
+      [ ()
+      | InvocationRecord {recordResultValue = result} <- entries
+      , case result of
+          NotRun _ -> True
+          NotRunAfterRefinement _ -> True
+          _ -> False
+      ]
   status
     | failed > 0 = SuiteFailed
     | notRun > 0 || null entries = SuiteNotRun
@@ -342,6 +490,7 @@ invocationDurationNanoseconds (Passed transcript) =
 invocationDurationNanoseconds (Failed failure) =
   processDurationNanoseconds (observedProcessFailureDuration failure)
 invocationDurationNanoseconds (NotRun _) = 0
+invocationDurationNanoseconds (NotRunAfterRefinement _) = 0
 
 data ReportMeasurement
   = MeasurementAvailable Text
@@ -355,12 +504,10 @@ data ReportMeasurements = ReportMeasurements
   , measuredTuneBestObjective :: Maybe ReportMeasurement
   , measuredJitCacheHitRate :: Maybe ReportMeasurement
   , measuredDaemonHealthz :: Maybe ReportMeasurement
-  , measuredBrowserProductMatrix :: Maybe ReportMeasurement
-  -- ^ No-caveat browser/product matrix (Sprint 12.13): the live Playwright
-  -- product run over every model/product interaction cell. Reports
-  -- 'MeasurementUnavailable' until Phase `17` exercises the matrix live, so a
-  -- live report card that has not proven the browser product surface fails the
-  -- no-caveat handoff rather than vacuously omitting the row.
+  , measuredBrowserProductEvidence :: Maybe BrowserEvidenceJournal.BrowserEvidenceReport
+  -- ^ Opaque authenticated browser results, exactly ordered and bound to the
+  -- same catalogue rowId/PlanId/manifest/e2e identities.  A substring count or
+  -- green child exit cannot inhabit this field.
   , measuredProductRowEvidence :: Maybe CompletedProductScenarioReport
   -- ^ Opaque live-interpreter completion projections keyed by ProductRow and
   -- semantic PlanId. Empty means the report received no cross-process
@@ -379,22 +526,6 @@ data ReportCardKnobs = ReportCardKnobs
   , knobTuneTrials :: Int
   , knobTuneBudgetPerTrial :: Int
   , knobCrossClusterKindNodes :: Int
-  }
-  deriving stock (Eq, Show)
-
-data RowIntegrationEvidence = RowIntegrationEvidence
-  { rieRowId :: !Text
-  , rieIntegrationTest :: !Text
-  , rieFamily :: !Text
-  , rieInitialParamHash :: !Text
-  , rieFinalParamHash :: !Text
-  , rieUpdateCount :: !Word64
-  , rieObservedUnits :: !Word64
-  , rieCompletedMetricNames :: ![Text]
-  , rieCompletedTrainingPassed :: !Bool
-  , rieDatasetShaAtRead :: !Text
-  , rieManifestSha :: !Text
-  , rieRejectedBeforeCompletion :: !Bool
   }
   deriving stock (Eq, Show)
 
@@ -424,8 +555,454 @@ data ProductScenarioCompletion kind
       !CheckpointStore.AdmittedCompletedCheckpoint
   deriving stock (Eq, Show)
 
+-- | Exact-address completion physically re-admitted from one canonical local
+-- checkpoint scope.  The root and its digest are retained behind the private
+-- constructor so a freshness witness from one cache cannot be paired with an
+-- admitted checkpoint read from another cache.
+data AddressedProductScenarioCompletion kind
+  = AddressedProductScenarioCompletion
+      !FilePath
+      !Text
+      !(ProductScenarioCompletion kind)
+  deriving stock (Eq, Show)
+
+-- | Chronological negative-control witness for one fresh scenario cache.  It
+-- can only be obtained by attempting the production local inference-admission
+-- boundary for the exact row before execution, observing its typed rejection,
+-- and then confirming that no latest pointer exists.  The constructor is
+-- private so a post-hoc Boolean cannot stand in for that attempted read.
+data ProductScenarioPrecondition kind
+  = ProductScenarioPrecondition
+      !ProductScenarioInvocation
+      !FilePath
+      !Text
+      !FilePath
+      !Text
+      !FilePath
+      !(ProductMatrix.ProductProjection kind)
+      !CheckpointStore.CheckpointAdmissionError
+  deriving stock (Eq, Show)
+
+data ProductScenarioPreconditionError
+  = ProductScenarioRunIdInvalid !Text
+  | ProductScenarioCheckpointRootIdentityFailed !Text !FilePath !Text
+  | ProductScenarioExecutableIdentityFailed !Text !FilePath !Text
+  | ProductScenarioExecutableDigestMismatch !Text !Text !Text
+  | ProductScenarioExecutablePinFailed !Text !FilePath !Text
+  | ProductScenarioChallengeGenerationFailed !Text !Text
+  | ProductScenarioInvocationInvalid !Text !Text
+  | ProductScenarioPreconditionReadFailed !Text !Text
+  | ProductScenarioCheckpointAlreadyExists !Text !Text
+  | ProductScenarioInferenceUnexpectedlyEligible !Text !Text
+  deriving stock (Eq, Show)
+
+-- | Store admission and inference eligibility for the exact projection,
+-- coupled to the earlier empty-cache witness.  This is the evidence carried by
+-- the live executable reducer; an admitted checkpoint obtained without the
+-- chronological negative control cannot inhabit it.
+data ExecutedProductScenarioCompletion kind
+  = ExecutedProductScenarioCompletion
+      !(ProductScenarioPrecondition kind)
+      !(ProductScenarioCompletion kind)
+      !ProductPipeline.InferenceEligibleRef
+  deriving stock (Eq, Show)
+
+observeProductScenarioPrecondition
+  :: Text
+  -> FilePath
+  -> Text
+  -> FilePath
+  -> ProductMatrix.ProductProjection kind
+  -> IO
+       ( Either
+           ProductScenarioPreconditionError
+           (ProductScenarioPrecondition kind)
+       )
+observeProductScenarioPrecondition runId executablePath expectedExecutableSha256 checkpointRoot projection
+  | not (validProductScenarioRunId runId) =
+      pure (Left (ProductScenarioRunIdInvalid runId))
+  | not (canonicalSha256 expectedExecutableSha256) =
+      pure
+        ( Left
+            ( ProductScenarioExecutableIdentityFailed
+                rowId
+                executablePath
+                "caller-supplied executable SHA-256 is not canonical"
+            )
+        )
+  | otherwise = do
+      canonicalRootResult <- canonicalProductScenarioCheckpointRoot checkpointRoot
+      case canonicalRootResult of
+        Left detail ->
+          pure
+            ( Left
+                (ProductScenarioCheckpointRootIdentityFailed rowId checkpointRoot detail)
+            )
+        Right canonicalRoot -> do
+          executableIdentityResult <- productScenarioExecutableIdentity executablePath
+          case executableIdentityResult of
+            Left detail ->
+              pure
+                ( Left
+                    (ProductScenarioExecutableIdentityFailed rowId executablePath detail)
+                )
+            Right (canonicalExecutablePath, executableSha256, executableBytes)
+              | executableSha256 /= expectedExecutableSha256 ->
+                  pure
+                    ( Left
+                        ( ProductScenarioExecutableDigestMismatch
+                            rowId
+                            expectedExecutableSha256
+                            executableSha256
+                        )
+                    )
+              | otherwise ->
+                  observeAtCanonicalIdentities
+                    canonicalRoot
+                    canonicalExecutablePath
+                    executableSha256
+                    executableBytes
+ where
+  rowId = ProductMatrix.productProjectionRowId projection
+  experimentHash = ProductMatrix.productProjectionExperimentHash projection
+  pointerKey = Checkpoint.latestPointerKey experimentHash
+
+  observeAtCanonicalIdentities canonicalRoot canonicalExecutablePath executableSha256 executableBytes = do
+    let scopeDigest = productScenarioCheckpointScopeDigest canonicalRoot
+    inferenceAttempt <-
+      CheckpointStore.admitLocalLatestCheckpoint canonicalRoot experimentHash
+    case inferenceAttempt of
+      Right admitted ->
+        pure
+          ( Left
+              ( ProductScenarioInferenceUnexpectedlyEligible
+                  rowId
+                  (CheckpointStore.admittedCheckpointManifestSha admitted)
+              )
+          )
+      Left rejection -> do
+        observed <- CheckpointStore.readCheckpointPointer canonicalRoot pointerKey
+        case observed of
+          Left err ->
+            pure (Left (ProductScenarioPreconditionReadFailed rowId err))
+          Right (Just manifestSha) ->
+            pure (Left (ProductScenarioCheckpointAlreadyExists rowId manifestSha))
+          Right Nothing -> do
+            pinnedResult <-
+              pinProductScenarioExecutable canonicalRoot executableSha256 executableBytes
+            case pinnedResult of
+              Left detail ->
+                pure
+                  ( Left
+                      ( ProductScenarioExecutablePinFailed
+                          rowId
+                          canonicalExecutablePath
+                          detail
+                      )
+                  )
+              Right pinnedExecutablePath -> do
+                generatedChallenge <- generateProductScenarioJournalKey
+                case generatedChallenge of
+                  Left err ->
+                    pure
+                      ( Left
+                          ( ProductScenarioChallengeGenerationFailed
+                              rowId
+                              (Text.pack (show err))
+                          )
+                      )
+                  Right challengeKey ->
+                    case mkProductScenarioInvocation
+                      runId
+                      rowId
+                      (ProductMatrix.productProjectionPlanId projection)
+                      (ProductMatrix.productProjectionSubstrate projection)
+                      scopeDigest
+                      executableSha256
+                      (renderProductScenarioJournalKey challengeKey) of
+                      Left detail ->
+                        pure
+                          (Left (ProductScenarioInvocationInvalid rowId detail))
+                      Right invocation ->
+                        pure
+                          ( Right
+                              ( ProductScenarioPrecondition
+                                  invocation
+                                  canonicalRoot
+                                  scopeDigest
+                                  canonicalExecutablePath
+                                  executableSha256
+                                  pinnedExecutablePath
+                                  projection
+                                  rejection
+                              )
+                          )
+
+productScenarioPreconditionCheckpointRoot
+  :: ProductScenarioPrecondition kind
+  -> FilePath
+productScenarioPreconditionCheckpointRoot
+  ( ProductScenarioPrecondition
+      _invocation
+      checkpointRoot
+      _scope
+      _path
+      _sha
+      _pinned
+      _projection
+      _rejection
+    ) =
+    checkpointRoot
+
+productScenarioPreconditionExecutablePath
+  :: ProductScenarioPrecondition kind
+  -> FilePath
+productScenarioPreconditionExecutablePath
+  ( ProductScenarioPrecondition
+      _invocation
+      _root
+      _scope
+      executablePath
+      _sha
+      _pinned
+      _projection
+      _rejection
+    ) =
+    executablePath
+
+productScenarioPreconditionExecutableSha256
+  :: ProductScenarioPrecondition kind
+  -> Text
+productScenarioPreconditionExecutableSha256
+  ( ProductScenarioPrecondition
+      _invocation
+      _root
+      _scope
+      _path
+      executableSha256
+      _pinned
+      _projection
+      _rejection
+    ) =
+    executableSha256
+
+productScenarioPreconditionPinnedExecutablePath
+  :: ProductScenarioPrecondition kind
+  -> FilePath
+productScenarioPreconditionPinnedExecutablePath
+  (ProductScenarioPrecondition _invocation _root _scope _path _sha pinnedPath _projection _rejection) =
+    pinnedPath
+
+productScenarioPreconditionInvocation
+  :: ProductScenarioPrecondition kind
+  -> ProductScenarioInvocation
+productScenarioPreconditionInvocation
+  (ProductScenarioPrecondition invocation _root _scope _path _sha _pinned _projection _rejection) =
+    invocation
+
+-- | Canonical negative-control event payload.  The typed Store rejection is
+-- retained privately in 'ProductScenarioPrecondition'; the persisted receipt
+-- names the exact row, plan, lane, and checkpoint scope whose inference
+-- admission failed before command execution.
+renderProductScenarioPrecondition :: ProductScenarioPrecondition kind -> Text
+renderProductScenarioPrecondition
+  ( ProductScenarioPrecondition
+      invocation
+      _root
+      scopeDigest
+      executablePath
+      executableSha256
+      pinnedExecutablePath
+      projection
+      _rejection
+    ) =
+    expectedProductScenarioPreconditionReceipt
+      projection
+      (productScenarioInvocationRunId invocation)
+      scopeDigest
+      executablePath
+      executableSha256
+      pinnedExecutablePath
+      (productScenarioInvocationDigest invocation)
+
+renderProductScenarioExecutionAcknowledgement
+  :: ProductScenarioPrecondition kind
+  -> Text
+  -> Text
+renderProductScenarioExecutionAcknowledgement precondition =
+  productScenarioExecutionAcknowledgement
+    (productScenarioPreconditionExecutableSha256 precondition)
+    ( productScenarioInvocationDigest
+        (productScenarioPreconditionInvocation precondition)
+    )
+
+productScenarioExecutionAcknowledgement :: Text -> Text -> Text -> Text
+productScenarioExecutionAcknowledgement executableSha256 invocationDigest actualCommand =
+  Text.intercalate
+    "\t"
+    [ "process-exit:0"
+    , actualCommand
+    , executableSha256
+    , invocationDigest
+    ]
+
+-- | Re-admit an immutable manifest address from one explicit local scope and
+-- retain that scope nominally beside the completion.  Both the live runner and
+-- the cross-process reader use this path.
+admitAddressedProductScenarioCompletion
+  :: FilePath
+  -> ProductMatrix.ProductProjection kind
+  -> Text
+  -> IO
+       ( Either
+           (NonEmpty ProductScenarioCompletionError)
+           (AddressedProductScenarioCompletion kind)
+       )
+admitAddressedProductScenarioCompletion checkpointRoot projection manifestSha = do
+  canonicalRootResult <- canonicalProductScenarioCheckpointRoot checkpointRoot
+  case canonicalRootResult of
+    Left detail ->
+      pure
+        ( Left
+            ( ProductCompletionCheckpointScopeResolutionFailed
+                (ProductMatrix.productProjectionRowId projection)
+                checkpointRoot
+                detail
+                NonEmpty.:| []
+            )
+        )
+    Right canonicalRoot -> do
+      admittedResult <-
+        CheckpointStore.admitLocalCheckpointAt
+          canonicalRoot
+          (ProductMatrix.productProjectionExperimentHash projection)
+          manifestSha
+      pure $ do
+        admitted <-
+          case admittedResult of
+            Left admissionError ->
+              Left
+                ( ProductCompletionStoreAdmissionFailed
+                    (ProductMatrix.productProjectionRowId projection)
+                    admissionError
+                    NonEmpty.:| []
+                )
+            Right value -> Right value
+        admittedCompleted <-
+          case CheckpointStore.requireAdmittedCompletedCheckpoint admitted of
+            Left admissionError ->
+              Left
+                ( ProductCompletionStoreAdmissionFailed
+                    (ProductMatrix.productProjectionRowId projection)
+                    admissionError
+                    NonEmpty.:| []
+                )
+            Right value -> Right value
+        completion <- productScenarioCompletion projection admittedCompleted
+        Right
+          ( AddressedProductScenarioCompletion
+              canonicalRoot
+              (productScenarioCheckpointScopeDigest canonicalRoot)
+              completion
+          )
+
+executedProductScenarioCompletion
+  :: ProductScenarioPrecondition kind
+  -> ProductMatrix.ProductProjection kind
+  -> AddressedProductScenarioCompletion kind
+  -> Either
+       (NonEmpty ProductScenarioCompletionError)
+       (ExecutedProductScenarioCompletion kind)
+executedProductScenarioCompletion precondition projection addressed = do
+  let ProductScenarioPrecondition
+        invocation
+        _preconditionRoot
+        preconditionScope
+        _executablePath
+        _executableSha256
+        _pinnedExecutablePath
+        preconditionProjection
+        _inferenceRejection = precondition
+      AddressedProductScenarioCompletion
+        _addressedRoot
+        addressedScope
+        completion@(ProductScenarioCompletion completionProjection admitted) = addressed
+      rowId = ProductMatrix.productProjectionRowId projection
+      boundaryFailures =
+        [ProductCompletionPreconditionMismatch rowId | preconditionProjection /= projection]
+          <> [ProductCompletionProjectionMismatch rowId | completionProjection /= projection]
+          <> [ ProductCompletionCheckpointScopeMismatch
+                 rowId
+                 preconditionScope
+                 addressedScope
+             | preconditionScope /= addressedScope
+             ]
+          <> [ ProductCompletionInvocationMismatch
+                 rowId
+                 (productScenarioInvocationDigest invocation)
+                 (productScenarioInvocationDigest <$> observedInvocation)
+             | observedInvocation /= Just invocation
+             ]
+      observedInvocation =
+        completedTrainingProductScenarioInvocation
+          (CheckpointStore.admittedCompletedTraining admitted)
+  case NonEmpty.nonEmpty boundaryFailures of
+    Just failures -> Left failures
+    Nothing -> Right ()
+  let inferenceRef = ProductPipeline.inferenceEligibleModelRef admitted
+      expectedExperiment = ProductMatrix.productProjectionExperimentHash projection
+      expectedManifestSha =
+        CheckpointStore.admittedCheckpointManifestSha
+          (CheckpointStore.admittedCompletedCheckpoint admitted)
+      inferenceFailures =
+        [ ProductCompletionInferenceExperimentMismatch
+            (ProductMatrix.productProjectionRowId projection)
+            expectedExperiment
+            (ProductPipeline.modelRefExperimentHash inferenceRef)
+        | ProductPipeline.modelRefExperimentHash inferenceRef /= expectedExperiment
+        ]
+          <> [ ProductCompletionInferenceManifestMismatch
+                 (ProductMatrix.productProjectionRowId projection)
+                 expectedManifestSha
+                 (ProductPipeline.modelRefManifestSha inferenceRef)
+             | ProductPipeline.modelRefManifestSha inferenceRef /= Just expectedManifestSha
+             ]
+  case NonEmpty.nonEmpty inferenceFailures of
+    Just failures -> Left failures
+    Nothing ->
+      Right
+        ( ExecutedProductScenarioCompletion
+            precondition
+            completion
+            inferenceRef
+        )
+
+renderExecutedProductScenarioCompletion
+  :: ExecutedProductScenarioCompletion kind
+  -> Text
+renderExecutedProductScenarioCompletion
+  ( ExecutedProductScenarioCompletion
+      precondition
+      (ProductScenarioCompletion projection admitted)
+      _inferenceRef
+    ) =
+    Text.intercalate
+      "\t"
+      [ "product-publish-completed-v2"
+      , ProductMatrix.productProjectionRowId projection
+      , planIdText (ProductMatrix.productProjectionPlanId projection)
+      , productScenarioInvocationDigest
+          (productScenarioPreconditionInvocation precondition)
+      , CheckpointStore.admittedCheckpointManifestSha
+          (CheckpointStore.admittedCompletedCheckpoint admitted)
+      ]
+
 data ProductScenarioCompletionError
-  = ProductCompletionExperimentMismatch !Text !Text !Text
+  = ProductCompletionStoreAdmissionFailed
+      !Text
+      !CheckpointStore.CheckpointAdmissionError
+  | ProductCompletionCheckpointScopeResolutionFailed !Text !FilePath !Text
+  | ProductCompletionExperimentMismatch !Text !Text !Text
   | ProductCompletionUnknownManifestExperiment !Text !Text
   | ProductCompletionCanonicalRowMismatch !Text !Text !Text
   | ProductCompletionPlanMismatch !Text !PlanId !PlanId
@@ -440,6 +1017,12 @@ data ProductScenarioCompletionError
   | ProductCompletionCriterionMismatch !Text !Text !MetricGoal !Double
   | ProductCompletionUpdateCountMismatch !Text !Word64 !Word64
   | ProductCompletionUpdateCountOverflow !Text !Word64 !Word64
+  | ProductCompletionPreconditionMismatch !Text
+  | ProductCompletionProjectionMismatch !Text
+  | ProductCompletionCheckpointScopeMismatch !Text !Text !Text
+  | ProductCompletionInvocationMismatch !Text !Text !(Maybe Text)
+  | ProductCompletionInferenceExperimentMismatch !Text !Text !Text
+  | ProductCompletionInferenceManifestMismatch !Text !Text !(Maybe Text)
   deriving stock (Eq, Show)
 
 -- | Refine only Store-admitted completed checkpoint evidence into the exact
@@ -572,12 +1155,12 @@ productRuntimeBindingFailures rowId projection manifest =
             (RuntimeArtifact.payloadRowId payload)
         ]
 
--- | Validate the optimiser-step relation that Sprint 19.4 can derive exactly
--- from the kind-indexed resolved plan. Traditional RL intentionally has no
--- check here: its current descriptor mixes trainer iterations, environment
--- steps, and optimiser epochs, and Sprint 25.4 owns the dimensionally correct
--- compiled RL plan. Treating that field as an exact optimiser-step count here
--- would manufacture a stronger proof than the current RL plan can express.
+-- | Validate optimiser-step relations that are statically derivable from a
+-- kind-indexed plan. Traditional RL optimizer applications are measured-only:
+-- Phase 252 removed the heterogeneous planned field, and the opaque trained
+-- artifact checks its measured counter against TrainingEvidence before a
+-- CompletedTraining value can be minted. Its environment-transition total is
+-- independently exact-checked by the RL budget/completion witness.
 productCompletionUpdateCountFailures
   :: Text
   -> ProductMatrix.ProductProjection kind
@@ -627,10 +1210,25 @@ productEvidenceBudgetKind requirements =
 -- legacy seven-column lane-attestation parser cannot mint this value.
 data CompletedProductScenarioEvidence = CompletedProductScenarioEvidence
   { scenarioEvidenceRowId :: !Text
+  , scenarioEvidenceRunId :: !Text
   , scenarioEvidencePlanId :: !PlanId
   , scenarioEvidenceLane :: !Substrate
+  , scenarioEvidenceExperimentHash :: !Text
   , scenarioEvidenceManifestSha :: !Text
   , scenarioEvidenceContract :: !ProductScenarioReportContract
+  , scenarioEvidenceCommand :: !Text
+  , scenarioEvidenceExecutablePath :: !FilePath
+  , scenarioEvidenceExecutableSha256 :: !Text
+  , scenarioEvidenceInvocationDigest :: !Text
+  , scenarioEvidenceCheckpointScopeDigest :: !Text
+  , scenarioEvidenceJournalReceipt :: !Text
+  , scenarioEvidenceJournalDigest :: !Text
+  , scenarioEvidenceInferenceManifestSha :: !Text
+  , scenarioEvidencePreconditionRejected :: !Bool
+  , scenarioEvidencePreconditionSequence :: !Word64
+  , scenarioEvidenceInferenceSequence :: !Word64
+  , scenarioEvidenceCompletionSequence :: !Word64
+  , scenarioEvidenceAdmittedCompletion :: !CheckpointStore.AdmittedCompletedCheckpoint
   }
   deriving stock (Eq, Show)
 
@@ -640,6 +1238,9 @@ data CompletedProductScenarioEvidence = CompletedProductScenarioEvidence
 completedProductScenarioRowId :: CompletedProductScenarioEvidence -> Text
 completedProductScenarioRowId = scenarioEvidenceRowId
 
+completedProductScenarioRunId :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioRunId = scenarioEvidenceRunId
+
 completedProductScenarioPlanId :: CompletedProductScenarioEvidence -> PlanId
 completedProductScenarioPlanId = scenarioEvidencePlanId
 
@@ -648,6 +1249,134 @@ completedProductScenarioLane = scenarioEvidenceLane
 
 completedProductScenarioManifestSha :: CompletedProductScenarioEvidence -> Text
 completedProductScenarioManifestSha = scenarioEvidenceManifestSha
+
+-- | SHA-256 of the exact Store-refined CompletedTraining CBOR retained by the
+-- opaque evidence.  The digest binds every measured field, while the raw
+-- invocation challenge remains private.
+completedProductScenarioMeasuredDigest :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioMeasuredDigest =
+  canonicalCompletedTrainingDigest
+    . CheckpointStore.admittedCompletedTraining
+    . scenarioEvidenceAdmittedCompletion
+
+-- | Canonical, browser-safe measured projection.  It deliberately omits the
+-- executable identity, checkpoint root, receipt, and invocation challenge.
+completedProductScenarioMeasuredSummary :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioMeasuredSummary =
+  canonicalCompletedTrainingSummary
+    . CheckpointStore.admittedCompletedTraining
+    . scenarioEvidenceAdmittedCompletion
+
+completedProductScenarioExperimentHash :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioExperimentHash = scenarioEvidenceExperimentHash
+
+completedProductScenarioCommand :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioCommand = scenarioEvidenceCommand
+
+completedProductScenarioExecutablePath :: CompletedProductScenarioEvidence -> FilePath
+completedProductScenarioExecutablePath = scenarioEvidenceExecutablePath
+
+completedProductScenarioExecutableSha256 :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioExecutableSha256 = scenarioEvidenceExecutableSha256
+
+completedProductScenarioInvocationDigest :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioInvocationDigest = scenarioEvidenceInvocationDigest
+
+completedProductScenarioCheckpointScopeDigest
+  :: CompletedProductScenarioEvidence
+  -> Text
+completedProductScenarioCheckpointScopeDigest = scenarioEvidenceCheckpointScopeDigest
+
+completedProductScenarioJournalReceipt :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioJournalReceipt = scenarioEvidenceJournalReceipt
+
+completedProductScenarioJournalDigest :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioJournalDigest = scenarioEvidenceJournalDigest
+
+completedProductScenarioInferenceManifestSha :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioInferenceManifestSha = scenarioEvidenceInferenceManifestSha
+
+completedProductScenarioPreconditionRejected :: CompletedProductScenarioEvidence -> Bool
+completedProductScenarioPreconditionRejected = scenarioEvidencePreconditionRejected
+
+completedProductScenarioPreconditionSequence :: CompletedProductScenarioEvidence -> Word64
+completedProductScenarioPreconditionSequence = scenarioEvidencePreconditionSequence
+
+completedProductScenarioInferenceSequence :: CompletedProductScenarioEvidence -> Word64
+completedProductScenarioInferenceSequence = scenarioEvidenceInferenceSequence
+
+completedProductScenarioCompletionSequence :: CompletedProductScenarioEvidence -> Word64
+completedProductScenarioCompletionSequence = scenarioEvidenceCompletionSequence
+
+completedProductScenarioContractDigest :: CompletedProductScenarioEvidence -> Text
+completedProductScenarioContractDigest =
+  productScenarioReportContractDigest . scenarioEvidenceContract
+
+-- | Re-check a live MinIO Store admission against the exact completion that
+-- originally minted this opaque evidence and against the current projection.
+-- Equality includes the addressed manifest, physical loaded weights, and the
+-- refined CompletedTraining value.
+validateCompletedProductScenarioLiveAdmission
+  :: ProductMatrix.ProductProjection kind
+  -> CompletedProductScenarioEvidence
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> Either Text ()
+validateCompletedProductScenarioLiveAdmission projection evidence liveAdmission =
+  case failures of
+    [] -> Right ()
+    failure : _ -> Left failure
+ where
+  rowId = ProductMatrix.productProjectionRowId projection
+  liveCheckpoint = CheckpointStore.admittedCompletedCheckpoint liveAdmission
+  liveManifestSha = CheckpointStore.admittedCheckpointManifestSha liveCheckpoint
+  failures =
+    [ "catalogue evidence row differs from current ProductProjection"
+    | completedProductScenarioRowId evidence /= rowId
+    ]
+      <> [ "catalogue evidence PlanId differs from current ProductProjection"
+         | completedProductScenarioPlanId evidence
+             /= ProductMatrix.productProjectionPlanId projection
+         ]
+      <> [ "catalogue evidence substrate differs from current ProductProjection"
+         | completedProductScenarioLane evidence
+             /= ProductMatrix.productProjectionSubstrate projection
+         ]
+      <> [ "catalogue evidence experiment differs from current ProductProjection"
+         | completedProductScenarioExperimentHash evidence
+             /= ProductMatrix.productProjectionExperimentHash projection
+         ]
+      <> [ "catalogue evidence contract differs from current ProductProjection"
+         | scenarioEvidenceContract evidence
+             /= productScenarioReportContract projection
+         ]
+      <> [ "live Store admission manifest differs from authenticated evidence"
+         | liveManifestSha /= completedProductScenarioManifestSha evidence
+         ]
+      <> [ "live Store admission differs from exact authenticated completion"
+         | liveAdmission /= scenarioEvidenceAdmittedCompletion evidence
+         ]
+
+canonicalCompletedTrainingDigest :: CompletedTraining -> Text
+canonicalCompletedTrainingDigest = sha256Bytes . encodeCompletedTraining
+
+canonicalCompletedTrainingSummary :: CompletedTraining -> Text
+canonicalCompletedTrainingSummary completed =
+  Text.intercalate
+    ";"
+    [ "budget=" <> renderTrainingBudget (completedTrainingBudget completed)
+    , "observed_units=" <> showText (completedTrainingObservedUnits completed)
+    , "updates=" <> showText (completedTrainingUpdateCount completed)
+    , "metrics="
+        <> Text.intercalate
+          ","
+          [ coMetricName observation
+              <> "="
+              <> Text.pack (show (coMetricValue observation))
+          | observation <- completedTrainingMetrics completed
+          ]
+    , "tensorboard="
+        <> tbrLogPrefix (completedTrainingTensorBoard completed)
+    ]
 
 -- | Report-only axes do not belong to the worker RunPlan, but evidence minted
 -- under an older criterion or scenario declaration must not be reusable after
@@ -670,6 +1399,12 @@ data ProductScenarioEvidenceError
   = ProductScenarioDidNotComplete !Text
   | ProductScenarioPlanMismatch !Text !PlanId !PlanId
   | ProductScenarioProjectionMismatch !Text
+  | ProductScenarioCommandMismatch !Text !Text !Text
+  | ProductScenarioAcknowledgementMismatch !Text !Text !Text
+  | ProductScenarioNonExecutableTerminal !Text
+  | ProductScenarioJournalInvalid !Text !Text
+  | ProductScenarioJournalReceiptMismatch !Text !Text
+  | ProductScenarioInferenceBindingMismatch !Text !Text !(Maybe Text)
   deriving stock (Eq, Show)
 
 -- | A validated, registry-ordered collection.  Its constructor and underlying
@@ -679,6 +1414,11 @@ newtype CompletedProductScenarioReport
   = CompletedProductScenarioReport
       [CompletedProductScenarioEvidence]
   deriving stock (Eq, Show)
+
+completedProductScenarioReportEntries
+  :: CompletedProductScenarioReport
+  -> [CompletedProductScenarioEvidence]
+completedProductScenarioReportEntries (CompletedProductScenarioReport evidence) = evidence
 
 data ProductScenarioReportError
   = MissingCompletedProductScenario !Text !PlanId
@@ -694,51 +1434,464 @@ data ProductScenarioReportError
 -- such as @()@ cannot inhabit this signature.
 completedProductScenarioEvidence
   :: ProductMatrix.ProductProjection kind
-  -> Either
-       failure
-       ( CompletedRunEvidence
-           terminal
-           (ProductScenarioCompletion kind)
-           violation
-           missing
-       )
+  -> ProductScenarioInterpreter.ProductScenarioInterpreterRun
+       terminal
+       (ExecutedProductScenarioCompletion kind)
+       violation
+       missing
   -> Either ProductScenarioEvidenceError CompletedProductScenarioEvidence
-completedProductScenarioEvidence projection outcome =
-  case outcome of
-    Left _failure ->
-      Left (ProductScenarioDidNotComplete expectedRowId)
-    Right completed ->
-      let ProductScenarioCompletion completionProjection admittedCheckpoint =
-            completedRunEvidence completed
-          observedPlanId = completedRunPlanId completed
-          manifestSha =
-            CheckpointStore.admittedCheckpointManifestSha
-              (CheckpointStore.admittedCompletedCheckpoint admittedCheckpoint)
-       in if observedPlanId /= expectedPlanId
-            then
-              Left
-                ( ProductScenarioPlanMismatch
-                    expectedRowId
-                    expectedPlanId
-                    observedPlanId
-                )
-            else
-              if completionProjection /= projection
-                then Left (ProductScenarioProjectionMismatch expectedRowId)
-                else
-                  Right
-                    CompletedProductScenarioEvidence
-                      { scenarioEvidenceRowId = expectedRowId
-                      , scenarioEvidencePlanId = expectedPlanId
-                      , scenarioEvidenceLane =
-                          ProductMatrix.productProjectionSubstrate projection
-                      , scenarioEvidenceManifestSha = manifestSha
-                      , scenarioEvidenceContract =
-                          productScenarioReportContract projection
-                      }
+completedProductScenarioEvidence projection interpreterRun
+  | observedPlanId /= expectedPlanId =
+      Left
+        ( ProductScenarioPlanMismatch
+            expectedRowId
+            expectedPlanId
+            observedPlanId
+        )
+  | completionProjection /= projection =
+      Left (ProductScenarioProjectionMismatch expectedRowId)
+  | observedCommands /= [expectedCommand] =
+      Left
+        ( ProductScenarioCommandMismatch
+            expectedRowId
+            expectedCommand
+            (Text.intercalate " | " observedCommands)
+        )
+  | otherwise = case completedRunTerminal completed of
+      ExecutableCommandSucceeded acknowledgement
+        | acknowledgement /= expectedAcknowledgement ->
+            Left
+              ( ProductScenarioAcknowledgementMismatch
+                  expectedRowId
+                  expectedAcknowledgement
+                  acknowledgement
+              )
+        | observedInferenceManifest /= Just manifestSha ->
+            Left
+              ( ProductScenarioInferenceBindingMismatch
+                  expectedRowId
+                  manifestSha
+                  observedInferenceManifest
+              )
+        | otherwise ->
+            case productScenarioJournalReceipt
+              projection
+              runId
+              checkpointRoot
+              checkpointScopeDigest
+              executablePath
+              executableSha256
+              pinnedExecutablePath
+              invocationDigest
+              manifestSha
+              expectedCommand
+              (renderProductScenarioPrecondition precondition)
+              (completedRunPlacement completed)
+              journal of
+              Left detail ->
+                Left (ProductScenarioJournalInvalid expectedRowId detail)
+              Right journalReceipt ->
+                Right
+                  CompletedProductScenarioEvidence
+                    { scenarioEvidenceRowId = expectedRowId
+                    , scenarioEvidenceRunId = runId
+                    , scenarioEvidencePlanId = expectedPlanId
+                    , scenarioEvidenceLane =
+                        ProductMatrix.productProjectionSubstrate projection
+                    , scenarioEvidenceExperimentHash =
+                        ProductMatrix.productProjectionExperimentHash projection
+                    , scenarioEvidenceManifestSha = manifestSha
+                    , scenarioEvidenceContract =
+                        productScenarioReportContract projection
+                    , scenarioEvidenceCommand = expectedCommand
+                    , scenarioEvidenceExecutablePath = executablePath
+                    , scenarioEvidenceExecutableSha256 = executableSha256
+                    , scenarioEvidenceInvocationDigest = invocationDigest
+                    , scenarioEvidenceCheckpointScopeDigest =
+                        checkpointScopeDigest
+                    , scenarioEvidenceJournalReceipt = journalReceipt
+                    , scenarioEvidenceJournalDigest =
+                        sha256Text journalReceipt
+                    , scenarioEvidenceInferenceManifestSha = manifestSha
+                    , scenarioEvidencePreconditionRejected = True
+                    , scenarioEvidencePreconditionSequence =
+                        requiredJournalSequence
+                          (\case LocalPreconditionObserved {} -> True; _ -> False)
+                          journal
+                    , scenarioEvidenceInferenceSequence =
+                        requiredJournalSequence
+                          (\case LocalEvidenceObserved {} -> True; _ -> False)
+                          journal
+                    , scenarioEvidenceCompletionSequence =
+                        requiredJournalSequence
+                          (\case ProtocolEvidenceCompleted -> True; _ -> False)
+                          journal
+                    , scenarioEvidenceAdmittedCompletion = admittedCheckpoint
+                    }
+      _ -> Left (ProductScenarioNonExecutableTerminal expectedRowId)
  where
+  completed =
+    ProductScenarioInterpreter.productScenarioInterpreterCompletedRun interpreterRun
+  ExecutedProductScenarioCompletion
+    precondition
+    (ProductScenarioCompletion completionProjection admittedCheckpoint)
+    inferenceRef = completedRunEvidence completed
+  ProductScenarioPrecondition
+    invocation
+    checkpointRoot
+    checkpointScopeDigest
+    executablePath
+    executableSha256
+    pinnedExecutablePath
+    _preconditionProjection
+    _preconditionRejection = precondition
+  runId = productScenarioInvocationRunId invocation
+  invocationDigest = productScenarioInvocationDigest invocation
+  observedPlanId = completedRunPlanId completed
+  manifestSha =
+    CheckpointStore.admittedCheckpointManifestSha
+      (CheckpointStore.admittedCompletedCheckpoint admittedCheckpoint)
+  observedInferenceManifest = ProductPipeline.modelRefManifestSha inferenceRef
+  journal = completedRunJournal completed
+  observedCommands =
+    [ payload
+    | LiveJournalRecord _sequence (CommandPublicationStarted _address payload) <- journal
+    ]
   expectedRowId = ProductMatrix.productProjectionRowId projection
   expectedPlanId = ProductMatrix.productProjectionPlanId projection
+  expectedCommand =
+    renderSubprocess
+      (subprocess "jitml" (ProductMatrix.productProjectionCommand projection))
+  expectedAcknowledgement =
+    renderProductScenarioExecutionAcknowledgement
+      precondition
+      (productScenarioExecutedCommand projection checkpointRoot pinnedExecutablePath)
+
+-- | Rehydrate one previously completed scenario only after the journal reader
+-- has re-admitted its exact checkpoint address.  This is the explicit process
+-- boundary: every persisted identity is compared again with the current
+-- projection and the opaque Store completion before evidence is minted.
+journaledProductScenarioEvidence
+  :: AuthenticatedProductScenarioJournalRow
+  -> ProductMatrix.ProductProjection kind
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Bool
+  -> Word64
+  -> Word64
+  -> Word64
+  -> AddressedProductScenarioCompletion kind
+  -> Either ProductScenarioEvidenceError CompletedProductScenarioEvidence
+journaledProductScenarioEvidence
+  authenticatedJournalRow
+  projection
+  recordedRunId
+  recordedExecutablePath
+  recordedExecutableSha256
+  recordedInvocationDigest
+  recordedExperiment
+  recordedManifestSha
+  recordedCommand
+  recordedContractDigest
+  recordedCheckpointScopeDigest
+  recordedJournalReceipt
+  recordedJournalDigest
+  recordedInferenceManifestSha
+  preconditionRejected
+  preconditionSequence
+  inferenceSequence
+  completionSequence
+  ( AddressedProductScenarioCompletion
+      checkpointRoot
+      addressedCheckpointScopeDigest
+      (ProductScenarioCompletion completionProjection admitted)
+    ) =
+    case failures of
+      [] ->
+        Right
+          CompletedProductScenarioEvidence
+            { scenarioEvidenceRowId = rowId
+            , scenarioEvidenceRunId = recordedRunId
+            , scenarioEvidencePlanId = ProductMatrix.productProjectionPlanId projection
+            , scenarioEvidenceLane = ProductMatrix.productProjectionSubstrate projection
+            , scenarioEvidenceExperimentHash = recordedExperiment
+            , scenarioEvidenceManifestSha = recordedManifestSha
+            , scenarioEvidenceContract = contract
+            , scenarioEvidenceCommand = recordedCommand
+            , scenarioEvidenceExecutablePath = recordedExecutablePath
+            , scenarioEvidenceExecutableSha256 = recordedExecutableSha256
+            , scenarioEvidenceInvocationDigest = recordedInvocationDigest
+            , scenarioEvidenceCheckpointScopeDigest = recordedCheckpointScopeDigest
+            , scenarioEvidenceJournalReceipt = recordedJournalReceipt
+            , scenarioEvidenceJournalDigest = recordedJournalDigest
+            , scenarioEvidenceInferenceManifestSha = recordedInferenceManifestSha
+            , scenarioEvidencePreconditionRejected = preconditionRejected
+            , scenarioEvidencePreconditionSequence = preconditionSequence
+            , scenarioEvidenceInferenceSequence = inferenceSequence
+            , scenarioEvidenceCompletionSequence = completionSequence
+            , scenarioEvidenceAdmittedCompletion = admitted
+            }
+      detail : _ -> Left (ProductScenarioJournalReceiptMismatch rowId detail)
+   where
+    rowId = ProductMatrix.productProjectionRowId projection
+    expectedExperiment = ProductMatrix.productProjectionExperimentHash projection
+    expectedManifestSha =
+      CheckpointStore.admittedCheckpointManifestSha
+        (CheckpointStore.admittedCompletedCheckpoint admitted)
+    expectedCommand =
+      renderSubprocess
+        (subprocess "jitml" (ProductMatrix.productProjectionCommand projection))
+    contract = productScenarioReportContract projection
+    expectedContractDigest = productScenarioReportContractDigest contract
+    completed = CheckpointStore.admittedCompletedTraining admitted
+    admittedInvocation = completedTrainingProductScenarioInvocation completed
+    pinnedExecutablePath =
+      productScenarioPinnedExecutablePath checkpointRoot recordedExecutableSha256
+    expectedPreconditionReceipt =
+      expectedProductScenarioPreconditionReceipt
+        projection
+        recordedRunId
+        addressedCheckpointScopeDigest
+        recordedExecutablePath
+        recordedExecutableSha256
+        pinnedExecutablePath
+        recordedInvocationDigest
+    expectedJournalReceipt =
+      expectedProductScenarioJournalReceipt
+        projection
+        recordedRunId
+        checkpointRoot
+        addressedCheckpointScopeDigest
+        recordedExecutablePath
+        recordedExecutableSha256
+        pinnedExecutablePath
+        recordedInvocationDigest
+        recordedManifestSha
+        recordedCommand
+        expectedPreconditionReceipt
+    expectedJournalDigest = sha256Text expectedJournalReceipt
+    expectedAuthenticatedRowMaterial =
+      productScenarioJournalEvidenceMaterial
+        rowId
+        recordedRunId
+        (planIdText (ProductMatrix.productProjectionPlanId projection))
+        (renderSubstrate (ProductMatrix.productProjectionSubstrate projection))
+        recordedExecutablePath
+        recordedExecutableSha256
+        recordedInvocationDigest
+        recordedExperiment
+        recordedManifestSha
+        recordedCommand
+        recordedContractDigest
+        recordedCheckpointScopeDigest
+        recordedJournalReceipt
+        recordedJournalDigest
+        recordedInferenceManifestSha
+        preconditionRejected
+        preconditionSequence
+        inferenceSequence
+        completionSequence
+    failures =
+      [ "completion projection differs from current ProductProjection" | completionProjection /= projection
+      ]
+        <> [ "authenticated journal row run differs from persisted row run"
+           | authenticatedProductScenarioJournalRowRunId authenticatedJournalRow
+               /= recordedRunId
+           ]
+        <> [ "authenticated journal row material differs from Report's exact semantic row"
+           | not
+               ( authenticatedProductScenarioJournalRowMaterialMatches
+                   authenticatedJournalRow
+                   expectedAuthenticatedRowMaterial
+               )
+           ]
+        <> ["journal run identity is invalid" | not (validProductScenarioRunId recordedRunId)]
+        <> [ "journal executable path is not an absolute canonical path"
+           | not (canonicalAbsolutePath recordedExecutablePath)
+           ]
+        <> [ "journal executable SHA-256 is not canonical lowercase hexadecimal"
+           | not (canonicalSha256 recordedExecutableSha256)
+           ]
+        <> [ "journal invocation digest is not canonical lowercase hexadecimal"
+           | not (canonicalSha256 recordedInvocationDigest)
+           ]
+        <> [ "Store-admitted completion has no ProductScenario invocation"
+           | isNothing admittedInvocation
+           ]
+        <> [ "journal invocation digest differs from exact Store-admitted completion"
+           | (productScenarioInvocationDigest <$> admittedInvocation)
+               /= Just recordedInvocationDigest
+           ]
+        <> [ "Store-admitted invocation run differs from persisted row run"
+           | (productScenarioInvocationRunId <$> admittedInvocation)
+               /= Just recordedRunId
+           ]
+        <> [ "Store-admitted invocation row differs from current ProductProjection"
+           | (productScenarioInvocationRowId <$> admittedInvocation)
+               /= Just rowId
+           ]
+        <> [ "Store-admitted invocation PlanId differs from current ProductProjection"
+           | (productScenarioInvocationPlanId <$> admittedInvocation)
+               /= Just (ProductMatrix.productProjectionPlanId projection)
+           ]
+        <> [ "Store-admitted invocation substrate differs from current ProductProjection"
+           | (productScenarioInvocationSubstrate <$> admittedInvocation)
+               /= Just (ProductMatrix.productProjectionSubstrate projection)
+           ]
+        <> [ "Store-admitted invocation checkpoint scope differs from exact admission"
+           | (productScenarioInvocationCheckpointScopeDigest <$> admittedInvocation)
+               /= Just addressedCheckpointScopeDigest
+           ]
+        <> [ "Store-admitted invocation executable SHA differs from persisted executable"
+           | (productScenarioInvocationExecutableSha256 <$> admittedInvocation)
+               /= Just recordedExecutableSha256
+           ]
+        <> [ "journal experiment differs from current ProductProjection"
+           | recordedExperiment /= expectedExperiment
+           ]
+        <> ["journal manifest differs from exact Store admission" | recordedManifestSha /= expectedManifestSha]
+        <> [ "journal command differs from current ProductProjection command"
+           | recordedCommand /= expectedCommand
+           ]
+        <> [ "journal contract digest differs from current report contract"
+           | recordedContractDigest /= expectedContractDigest
+           ]
+        <> [ "journal checkpoint scope differs from the exact Store admission scope"
+           | recordedCheckpointScopeDigest /= addressedCheckpointScopeDigest
+           ]
+        <> [ "persisted execution receipt differs from the exact current local-workflow receipt"
+           | recordedJournalReceipt /= expectedJournalReceipt
+           ]
+        <> [ "persisted execution journal digest does not hash the exact execution receipt"
+           | recordedJournalDigest /= expectedJournalDigest
+           ]
+        <> [ "journal inference receipt differs from exact admitted manifest"
+           | recordedInferenceManifestSha /= recordedManifestSha
+           ]
+        <> ["pre-completion inference rejection is absent" | not preconditionRejected]
+        <> [ "scenario receipt sequences are not the exact successful local-workflow chronology"
+           | (preconditionSequence, inferenceSequence, completionSequence) /= (3, 7, 9)
+           ]
+
+requiredJournalSequence
+  :: (LiveJournalEvent terminal violation missing -> Bool)
+  -> [LiveJournalRecord terminal violation missing]
+  -> Word64
+requiredJournalSequence select journal =
+  case [ liveJournalSequence record
+       | record <- journal
+       , select (liveJournalEvent record)
+       ] of
+    [sequenceNumber] -> sequenceNumber
+    _ -> 0
+
+productScenarioJournalReceipt
+  :: ProductMatrix.ProductProjection kind
+  -> Text
+  -> FilePath
+  -> Text
+  -> FilePath
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Placement
+  -> [LiveJournalRecord terminal violation missing]
+  -> Either Text Text
+productScenarioJournalReceipt
+  projection
+  runId
+  checkpointRoot
+  checkpointScopeDigest
+  executablePath
+  executableSha256
+  pinnedExecutablePath
+  invocationDigest
+  manifestSha
+  expectedCommand
+  expectedPreconditionReceipt
+  placement
+  journal =
+    case journal of
+      [ LiveJournalRecord 1 (PlacementAcquired acquired)
+        , LiveJournalRecord 2 (LocalEvidenceSourceReady sourceName sourceAddress)
+        , LiveJournalRecord 3 (LocalPreconditionObserved preconditionReceipt)
+        , LiveJournalRecord 4 (CommandPublicationStarted commandAddress startedCommand)
+        , LiveJournalRecord 5 (CommandPublished publishedAddress publishedCommand acknowledgement)
+        , LiveJournalRecord 6 (LocalEvidenceResolutionStarted resolverCommand)
+        , LiveJournalRecord 7 (LocalEvidenceObserved evidenceAddress evidencePayload)
+        , LiveJournalRecord 8 ProtocolEvidenceAccepted
+        , LiveJournalRecord 9 ProtocolEvidenceCompleted
+        , LiveJournalRecord 10 (DiagnosticsGathered diagnostics)
+        , LiveJournalRecord 11 (PlacementReleased released)
+        ]
+          | acquired == placement
+          , isExpectedHostPlacement acquired
+          , sourceName == expectedSourceName
+          , sourceAddress == expectedSourceAddress
+          , preconditionReceipt == expectedPreconditionReceipt
+          , commandAddress == expectedCommandAddress
+          , startedCommand == expectedCommand
+          , publishedAddress == expectedCommandAddress
+          , publishedCommand == expectedCommand
+          , acknowledgement == expectedAcknowledgement
+          , resolverCommand == expectedCommand
+          , evidenceAddress == expectedSourceAddress
+          , evidencePayload == expectedEvidencePayload
+          , diagnostics == expectedDiagnostics
+          , released == placement ->
+              Right
+                ( expectedProductScenarioJournalReceipt
+                    projection
+                    runId
+                    checkpointRoot
+                    checkpointScopeDigest
+                    executablePath
+                    executableSha256
+                    pinnedExecutablePath
+                    invocationDigest
+                    manifestSha
+                    expectedCommand
+                    expectedPreconditionReceipt
+                )
+      _ ->
+        Left
+          "local scenario journal is not the exact 11-event successful executable receipt"
+   where
+    expectedSourceName = productScenarioSourceName projection
+    expectedSourceAddress =
+      productScenarioSourceAddress runId invocationDigest projection
+    expectedCommandAddress = "subprocess:jitml"
+    expectedAcknowledgement =
+      productScenarioExecutionAcknowledgement
+        executableSha256
+        invocationDigest
+        (productScenarioExecutedCommand projection checkpointRoot pinnedExecutablePath)
+    expectedEvidencePayload =
+      productScenarioEvidencePayload runId invocationDigest projection manifestSha
+    expectedDiagnostics =
+      [ LiveDiagnostic
+          ( "product scenario working directory: "
+              <> Text.pack (productScenarioWorkdir checkpointRoot)
+          )
+      ]
+    isExpectedHostPlacement (HostRun handle) =
+      hostRunHandlePlanId handle == ProductMatrix.productProjectionPlanId projection
+        && hostRunHandleKey handle
+          == "product-row-" <> ProductMatrix.productProjectionRowId projection
+    isExpectedHostPlacement _ = False
 
 -- | Join already opaque scenario evidence against one validated projection
 -- batch.  Batch construction owns raw-row projection, duplicate registry IDs,
@@ -851,6 +2004,375 @@ productScenarioReportContract projection =
  where
   bar = ProductMatrix.productProjectionConvergenceBar projection
 
+productScenarioReportContractDigest :: ProductScenarioReportContract -> Text
+productScenarioReportContractDigest contract =
+  sha256Text
+    ( "jitml-product-scenario-report-contract-v1\NUL"
+        <> Text.pack (show contract)
+    )
+
+-- | Public read-only digest of the current projection's complete report-only
+-- contract.  The structured contract and its constructor remain private.
+productScenarioProjectionContractDigest
+  :: ProductMatrix.ProductProjection kind
+  -> Text
+productScenarioProjectionContractDigest =
+  productScenarioReportContractDigest . productScenarioReportContract
+
+canonicalProductScenarioCheckpointRoot :: FilePath -> IO (Either Text FilePath)
+canonicalProductScenarioCheckpointRoot checkpointRoot = do
+  attempted <-
+    try
+      ( do
+          createDirectoryIfMissing True checkpointRoot
+          canonicalizePath checkpointRoot
+      )
+      :: IO (Either IOException FilePath)
+  pure $ case attempted of
+    Left exception -> Left (Text.pack (show exception))
+    Right canonicalRoot -> Right canonicalRoot
+
+productScenarioExecutableIdentity
+  :: FilePath
+  -> IO (Either Text (FilePath, Text, ByteString.ByteString))
+productScenarioExecutableIdentity executablePath = do
+  attempted <-
+    try
+      ( do
+          canonicalExecutablePath <- canonicalizePath executablePath
+          executableBytes <- ByteString.readFile canonicalExecutablePath
+          pure (canonicalExecutablePath, sha256Bytes executableBytes, executableBytes)
+      )
+      :: IO (Either IOException (FilePath, Text, ByteString.ByteString))
+  pure $ case attempted of
+    Left exception -> Left (Text.pack (show exception))
+    Right identity -> Right identity
+
+pinProductScenarioExecutable
+  :: FilePath
+  -> Text
+  -> ByteString.ByteString
+  -> IO (Either Text FilePath)
+pinProductScenarioExecutable checkpointRoot executableSha256 executableBytes = do
+  attempted <-
+    try
+      ( do
+          let pinDirectory =
+                takeDirectory
+                  (productScenarioPinnedExecutablePath checkpointRoot executableSha256)
+              pinnedPath =
+                productScenarioPinnedExecutablePath checkpointRoot executableSha256
+              ownerDirectoryMode =
+                ownerReadMode
+                  `unionFileModes` ownerWriteMode
+                  `unionFileModes` ownerExecuteMode
+              ownerExecutableMode = ownerReadMode `unionFileModes` ownerExecuteMode
+          createDirectoryIfMissing True pinDirectory
+          setFileMode pinDirectory ownerDirectoryMode
+          withTempFile pinDirectory ".jitml.tmp" $ \temporaryPath handle -> do
+            ByteString.hPut handle executableBytes
+            hFlush handle
+            setFileMode temporaryPath ownerExecutableMode
+            renameFile temporaryPath pinnedPath
+          setFileMode pinnedPath ownerExecutableMode
+          canonicalPinnedPath <- canonicalizePath pinnedPath
+          pinnedBytes <- ByteString.readFile canonicalPinnedPath
+          if sha256Bytes pinnedBytes == executableSha256
+            then pure canonicalPinnedPath
+            else ioError (userError "pinned executable bytes differ from the authorized digest")
+      )
+      :: IO (Either IOException FilePath)
+  pure $ case attempted of
+    Left exception -> Left (Text.pack (show exception))
+    Right pinnedPath -> Right pinnedPath
+
+-- | Re-read the mode-restricted private content-pinned copy immediately around
+-- execution.  The configured parent path may be replaced after the
+-- precondition, but it is never executed; only this copy may satisfy the
+-- receipt.
+revalidateProductScenarioPinnedExecutable
+  :: ProductScenarioPrecondition kind
+  -> IO (Either ProductScenarioPreconditionError ())
+revalidateProductScenarioPinnedExecutable precondition = do
+  observed <-
+    productScenarioExecutableIdentity
+      (productScenarioPreconditionPinnedExecutablePath precondition)
+  pure $ case observed of
+    Left detail ->
+      Left
+        ( ProductScenarioExecutablePinFailed
+            rowId
+            pinnedPath
+            detail
+        )
+    Right (canonicalPath, observedSha256, _bytes)
+      | canonicalPath /= pinnedPath ->
+          Left
+            ( ProductScenarioExecutablePinFailed
+                rowId
+                pinnedPath
+                "pinned executable canonical path changed"
+            )
+      | observedSha256 /= expectedSha256 ->
+          Left
+            ( ProductScenarioExecutableDigestMismatch
+                rowId
+                expectedSha256
+                observedSha256
+            )
+      | otherwise -> Right ()
+ where
+  ProductScenarioPrecondition
+    _invocation
+    _checkpointRoot
+    _scopeDigest
+    _configuredPath
+    expectedSha256
+    pinnedPath
+    projection
+    _rejection = precondition
+  rowId = ProductMatrix.productProjectionRowId projection
+
+validProductScenarioRunId :: Text -> Bool
+validProductScenarioRunId runId =
+  not (Text.null runId)
+    && Text.strip runId == runId
+    && Text.length runId <= 256
+    && not (Text.any isControl runId)
+
+canonicalAbsolutePath :: FilePath -> Bool
+canonicalAbsolutePath path = isAbsolute path && normalise path == path
+
+canonicalSha256 :: Text -> Bool
+canonicalSha256 digest =
+  Text.length digest == 64
+    && Text.all (\char -> char `elem` (['0' .. '9'] <> ['a' .. 'f'])) digest
+
+-- | Stable identity for one physically canonical local checkpoint namespace.
+-- Admission paths create the directory and resolve every symlink before this
+-- digest is computed, so retargeting a symlink cannot preserve the scope.
+productScenarioCheckpointScopeDigest :: FilePath -> Text
+productScenarioCheckpointScopeDigest checkpointRoot =
+  sha256Text
+    ( "jitml-product-scenario-checkpoint-scope-v1\NUL"
+        <> Text.pack (normalise checkpointRoot)
+    )
+
+expectedProductScenarioPreconditionReceipt
+  :: ProductMatrix.ProductProjection kind
+  -> Text
+  -> Text
+  -> FilePath
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+expectedProductScenarioPreconditionReceipt
+  projection
+  runId
+  checkpointScopeDigest
+  executablePath
+  executableSha256
+  pinnedExecutablePath
+  invocationDigest =
+    receiptLine
+      0
+      [ "product-inference-precondition-rejected-v3"
+      , runId
+      , ProductMatrix.productProjectionRowId projection
+      , planIdText (ProductMatrix.productProjectionPlanId projection)
+      , renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+      , checkpointScopeDigest
+      , Text.pack executablePath
+      , executableSha256
+      , Text.pack pinnedExecutablePath
+      , invocationDigest
+      ]
+
+-- | Canonical, complete serialization of the successful local-interpreter
+-- journal.  Each payload is length-delimited before tab separation, so a
+-- command or path containing whitespace cannot alias another event stream.
+expectedProductScenarioJournalReceipt
+  :: ProductMatrix.ProductProjection kind
+  -> Text
+  -> FilePath
+  -> Text
+  -> FilePath
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+expectedProductScenarioJournalReceipt
+  projection
+  runId
+  checkpointRoot
+  checkpointScopeDigest
+  executablePath
+  executableSha256
+  pinnedExecutablePath
+  invocationDigest
+  manifestSha
+  command
+  preconditionReceipt =
+    Text.unlines
+      [ "jitml-product-scenario-execution-receipt-v3"
+      , "run-id\t" <> lengthDelimited runId
+      , "checkpoint-scope\t" <> checkpointScopeDigest
+      , "executable-path\t" <> lengthDelimited (Text.pack executablePath)
+      , "executable-sha256\t" <> executableSha256
+      , "pinned-executable-path\t" <> lengthDelimited (Text.pack pinnedExecutablePath)
+      , "invocation-digest\t" <> invocationDigest
+      , "actual-command\t"
+          <> lengthDelimited
+            (productScenarioExecutedCommand projection checkpointRoot pinnedExecutablePath)
+      , receiptLine
+          1
+          [ "placement-acquired"
+          , "host-run"
+          , plan
+          , hostKey
+          ]
+      , receiptLine
+          2
+          [ "local-evidence-source-ready"
+          , sourceName
+          , sourceAddress
+          ]
+      , receiptLine 3 ["local-precondition-observed", preconditionReceipt]
+      , receiptLine
+          4
+          ["command-publication-started", commandAddress, command]
+      , receiptLine
+          5
+          [ "command-published"
+          , commandAddress
+          , command
+          , productScenarioExecutionAcknowledgement
+              executableSha256
+              invocationDigest
+              (productScenarioExecutedCommand projection checkpointRoot pinnedExecutablePath)
+          ]
+      , receiptLine 6 ["local-evidence-resolution-started", command]
+      , receiptLine
+          7
+          [ "local-evidence-observed"
+          , sourceAddress
+          , productScenarioEvidencePayload runId invocationDigest projection manifestSha
+          ]
+      , receiptLine 8 ["protocol-evidence-accepted"]
+      , receiptLine 9 ["protocol-evidence-completed"]
+      , receiptLine
+          10
+          [ "diagnostics-gathered"
+          , "product scenario working directory: "
+              <> Text.pack (productScenarioWorkdir checkpointRoot)
+          ]
+      , receiptLine
+          11
+          [ "placement-released"
+          , "host-run"
+          , plan
+          , hostKey
+          ]
+      ]
+   where
+    plan = planIdText (ProductMatrix.productProjectionPlanId projection)
+    hostKey = "product-row-" <> ProductMatrix.productProjectionRowId projection
+    sourceName = productScenarioSourceName projection
+    sourceAddress = productScenarioSourceAddress runId invocationDigest projection
+    commandAddress = "subprocess:jitml"
+    lengthDelimited value = Text.pack (show (Text.length value)) <> ":" <> value
+
+receiptLine :: Word64 -> [Text] -> Text
+receiptLine sequenceNumber fields =
+  Text.intercalate
+    "\t"
+    (Text.pack (show sequenceNumber) : fmap lengthDelimited fields)
+ where
+  lengthDelimited value = Text.pack (show (Text.length value)) <> ":" <> value
+
+productScenarioSourceName :: ProductMatrix.ProductProjection kind -> Text
+productScenarioSourceName projection =
+  "product-row-" <> ProductMatrix.productProjectionRowId projection <> "-completion"
+
+productScenarioSourceAddress
+  :: Text
+  -> Text
+  -> ProductMatrix.ProductProjection kind
+  -> Text
+productScenarioSourceAddress runId invocationDigest projection =
+  Text.intercalate
+    ":"
+    [ "local-product-row"
+    , runId
+    , ProductMatrix.productProjectionRowId projection
+    , planIdText (ProductMatrix.productProjectionPlanId projection)
+    , renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+    , invocationDigest
+    ]
+
+productScenarioEvidencePayload
+  :: Text
+  -> Text
+  -> ProductMatrix.ProductProjection kind
+  -> Text
+  -> Text
+productScenarioEvidencePayload runId invocationDigest projection manifestSha =
+  Text.intercalate
+    ":"
+    [ "product-row-completed"
+    , runId
+    , ProductMatrix.productProjectionRowId projection
+    , planIdText (ProductMatrix.productProjectionPlanId projection)
+    , renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+    , invocationDigest
+    , manifestSha
+    ]
+
+productScenarioWorkdir :: FilePath -> FilePath
+productScenarioWorkdir = takeDirectory . takeDirectory . normalise
+
+productScenarioPinnedExecutablePath :: FilePath -> Text -> FilePath
+productScenarioPinnedExecutablePath checkpointRoot executableSha256 =
+  normalise
+    ( takeDirectory checkpointRoot
+        </> "product-scenario-executables"
+        </> Text.unpack (productScenarioCheckpointScopeDigest checkpointRoot)
+        </> Text.unpack executableSha256
+        </> "jitml"
+    )
+
+productScenarioExecutedCommand
+  :: ProductMatrix.ProductProjection kind
+  -> FilePath
+  -> FilePath
+  -> Text
+productScenarioExecutedCommand projection checkpointRoot executablePath =
+  renderSubprocess
+    ( (subprocess executablePath (ProductMatrix.productProjectionCommand projection))
+        { subprocessWorkingDirectory =
+            Just (productScenarioWorkdir checkpointRoot)
+        }
+    )
+
+sha256Text :: Text -> Text
+sha256Text = sha256Bytes . Text.Encoding.encodeUtf8
+
+sha256Bytes :: ByteString.ByteString -> Text
+sha256Bytes =
+  Text.pack
+    . concatMap byteHex
+    . ByteString.unpack
+    . SHA256.hash
+ where
+  byteHex byte =
+    let digits = "0123456789abcdef"
+        value = fromIntegral byte
+     in [digits !! (value `div` 16), digits !! (value `mod` 16)]
+
 defaultReportCardKnobs :: ReportCardKnobs
 defaultReportCardKnobs =
   ReportCardKnobs
@@ -874,7 +2396,7 @@ emptyReportMeasurements =
     , measuredTuneBestObjective = Nothing
     , measuredJitCacheHitRate = Nothing
     , measuredDaemonHealthz = Nothing
-    , measuredBrowserProductMatrix = Nothing
+    , measuredBrowserProductEvidence = Nothing
     , measuredProductRowEvidence = Nothing
     }
 
@@ -911,6 +2433,7 @@ substrateRuntimeStanzas =
   [ "jitml-sl-canonicals"
   , "jitml-rl-canonicals"
   , "jitml-hyperparameter"
+  , "jitml-integration"
   ]
     <> substratePartitionedStanzas
 
@@ -1086,6 +2609,12 @@ renderInvocationStatus entry =
       Passed _ -> "PASS"
       Failed _ -> "FAIL"
       NotRun blocker -> "NOT-RUN (blocked by " <> blockedByStanza blocker <> ")"
+      NotRunAfterRefinement blocker ->
+        "NOT-RUN (blocked by "
+          <> refinementBlockerStanza blocker
+          <> " refinement "
+          <> refinementBlockerName blocker
+          <> ")"
 
 renderSuiteStatus :: SuiteStatus -> Text
 renderSuiteStatus SuitePassed = "passed"
@@ -1123,6 +2652,13 @@ renderInvocation entry =
         , "      command: " <> observedProcessFailureCommand (blockedByFailure blocker)
         ]
           <> renderObservedFailureTranscript "      " (blockedByFailure blocker)
+      NotRunAfterRefinement blocker ->
+        [ "    status: not-run"
+        , "    blocked_by:"
+        , "      stanza: " <> refinementBlockerStanza blocker
+        , "      refinement: " <> refinementBlockerName blocker
+        , "      detail: " <> refinementBlockerDetail blocker
+        ]
 
 renderObservedFailureTranscript
   :: Text
@@ -1239,7 +2775,8 @@ renderMeasurements measurements
         <> measurementLine "tune_best_objective" (measuredTuneBestObjective measurements)
         <> measurementLine "jit_cache_hit_rate" (measuredJitCacheHitRate measurements)
         <> measurementLine "daemon_healthz" (measuredDaemonHealthz measurements)
-        <> measurementLine "browser_product_matrix" (measuredBrowserProductMatrix measurements)
+        <> browserEvidenceMeasurementLine (measuredBrowserProductEvidence measurements)
+        <> renderBrowserEvidenceTable (measuredBrowserProductEvidence measurements)
 
 hasMeasurements :: ReportMeasurements -> Bool
 hasMeasurements measurements =
@@ -1251,8 +2788,8 @@ hasMeasurements measurements =
     , measuredTuneBestObjective measurements
     , measuredJitCacheHitRate measurements
     , measuredDaemonHealthz measurements
-    , measuredBrowserProductMatrix measurements
     ]
+    || isJust (measuredBrowserProductEvidence measurements)
  where
   isMeasured Nothing = False
   isMeasured (Just _) = True
@@ -1265,6 +2802,51 @@ measurementLine label (Just measurement) =
 renderMeasurement :: ReportMeasurement -> Text
 renderMeasurement (MeasurementAvailable value) = value
 renderMeasurement MeasurementUnavailable = "unavailable"
+
+browserEvidenceMeasurementLine
+  :: Maybe BrowserEvidenceJournal.BrowserEvidenceReport
+  -> [Text]
+browserEvidenceMeasurementLine Nothing = []
+browserEvidenceMeasurementLine (Just report) =
+  [ "  browser_product_matrix: "
+      <> showText passed
+      <> "/"
+      <> showText (length entries)
+      <> " Passed"
+  ]
+ where
+  entries = BrowserEvidenceJournal.browserEvidenceReportEntries report
+  passed =
+    length
+      [ ()
+      | entry <- entries
+      , BrowserEvidenceJournal.browserEvidenceResultStatus entry
+          == BrowserEvidenceJournal.BrowserPassed
+      ]
+
+renderBrowserEvidenceTable
+  :: Maybe BrowserEvidenceJournal.BrowserEvidenceReport
+  -> [Text]
+renderBrowserEvidenceTable Nothing = []
+renderBrowserEvidenceTable (Just report) =
+  "browser_rows:"
+    : "  ordinal\trow_id\tplan_id\texperiment_hash\tmanifest_sha256\te2e_test\tstatus\tdetail"
+    : fmap renderEntry (BrowserEvidenceJournal.browserEvidenceReportEntries report)
+ where
+  renderEntry entry =
+    "  "
+      <> Text.intercalate
+        "\t"
+        [ showText (BrowserEvidenceJournal.browserEvidenceResultOrdinal entry)
+        , BrowserEvidenceJournal.browserEvidenceResultRowId entry
+        , BrowserEvidenceJournal.browserEvidenceResultPlanId entry
+        , BrowserEvidenceJournal.browserEvidenceResultExperimentHash entry
+        , BrowserEvidenceJournal.browserEvidenceResultManifestSha256 entry
+        , BrowserEvidenceJournal.browserEvidenceResultE2ETest entry
+        , BrowserEvidenceJournal.renderBrowserEvidenceStatus
+            (BrowserEvidenceJournal.browserEvidenceResultStatus entry)
+        , BrowserEvidenceJournal.browserEvidenceResultDetail entry
+        ]
 
 renderProductRowEvidenceTable :: ReportMeasurements -> [Text]
 renderProductRowEvidenceTable measurements =
@@ -1566,98 +3148,6 @@ productLaneAttestationFailures lanes rows nonProductRows observed =
         ]
     , Text.null (Text.strip value)
     ]
-
-rowIntegrationCoverageFailures
-  :: [ProductMatrix.ProductRow state]
-  -> [RowIntegrationEvidence]
-  -> [Text]
-rowIntegrationCoverageFailures rows observed =
-  missingFailures
-    <> duplicateFailures
-    <> orphanFailures
-    <> concatMap evidenceFailures observed
- where
-  expectedPairs =
-    [ (ProductMatrix.rowId row, ProductMatrix.integrationTest row)
-    | row <- rows
-    ]
-  observedPairs =
-    [ (rieRowId evidence, rieIntegrationTest evidence)
-    | evidence <- observed
-    ]
-  missingFailures =
-    [ "missing integration evidence: rowId="
-        <> rowId
-        <> " testId="
-        <> testId
-    | (rowId, testId) <- expectedPairs
-    , (rowId, testId) `notElem` observedPairs
-    ]
-  duplicateFailures =
-    [ "duplicate integration evidence: rowId="
-        <> rowId
-        <> " testId="
-        <> testId
-        <> " count="
-        <> showText (length group)
-    | group@((rowId, testId) : _) <- List.group (List.sort observedPairs)
-    , length group > 1
-    ]
-  orphanFailures =
-    [ "orphan integration evidence: rowId="
-        <> rowId
-        <> " testId="
-        <> testId
-    | (rowId, testId) <- observedPairs
-    , (rowId, testId) `notElem` expectedPairs
-    ]
-  evidenceFailures evidence =
-    RowAssertions.assertLearnedStateChanged
-      RowAssertions.LearnedStateEvidence
-        { RowAssertions.lseRowId = rieRowId evidence
-        , RowAssertions.lseInitialParamHash = rieInitialParamHash evidence
-        , RowAssertions.lseFinalParamHash = rieFinalParamHash evidence
-        , RowAssertions.lseUpdateCount = rieUpdateCount evidence
-        }
-      <> [ "completed-training observed units must be positive for row " <> rieRowId evidence
-         | rieObservedUnits evidence == 0
-         ]
-      <> [ "completed-training convergence metrics are required for row " <> rieRowId evidence
-         | null (rieCompletedMetricNames evidence)
-         ]
-      <> [ "completed-training convergence metrics failed for row " <> rieRowId evidence
-         | not (rieCompletedTrainingPassed evidence)
-         ]
-      <> [ "dataset sha at read is required for row " <> rieRowId evidence
-         | Text.null (Text.strip (rieDatasetShaAtRead evidence))
-         ]
-      <> [ "manifest sha is required for row " <> rieRowId evidence
-         | Text.null (Text.strip (rieManifestSha evidence))
-         ]
-      <> [ "inference was not rejected before completion for row " <> rieRowId evidence
-         | not (rieRejectedBeforeCompletion evidence)
-         ]
-
-renderRowIntegrationEvidence :: [RowIntegrationEvidence] -> Text
-renderRowIntegrationEvidence rows =
-  Text.unlines
-    ( [ "row_id\tintegration_test\tfamily\tupdates\tobserved_units\tmetrics\tdataset_sha\tmanifest_sha"
-      ]
-        <> fmap renderRow rows
-    )
- where
-  renderRow row =
-    Text.intercalate
-      "\t"
-      [ rieRowId row
-      , rieIntegrationTest row
-      , rieFamily row
-      , showText (rieUpdateCount row)
-      , showText (rieObservedUnits row)
-      , Text.intercalate "," (rieCompletedMetricNames row)
-      , rieDatasetShaAtRead row
-      , rieManifestSha row
-      ]
 
 showText :: (Show a) => a -> Text
 showText = Text.pack . show

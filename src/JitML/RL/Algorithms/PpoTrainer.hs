@@ -109,6 +109,7 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
+import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
 import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
@@ -282,11 +283,12 @@ data PpoIterationStat = PpoIterationStat
 data PpoTrainResult = PpoTrainResult
   { resultIterations :: ![PpoIterationStat]
   , resultFinalParams :: !MlpParams
-  , resultOptimizerSteps :: !Int
-  -- ^ Optimizer applications that changed the returned combined policy/value
-  -- tensor. PPO-family minibatch Adam steps count once each. TRPO additionally
-  -- counts each accepted actor natural-gradient application; its value-head
-  -- Adam applications are read from the same optimizer state.
+  , resultMeasuredCounters :: !Common.MeasuredTrainerCounters
+  -- ^ Actual environment transitions plus optimizer applications that changed
+  -- the returned combined policy/value tensor. PPO-family minibatch Adam steps
+  -- count once each. TRPO additionally counts each accepted actor
+  -- natural-gradient application; its value-head Adam applications are read
+  -- from the same optimizer state.
   , resultConfig :: !PpoTrainConfig
   }
   deriving stock (Eq, Show)
@@ -309,7 +311,7 @@ evaluateOnPolicyWithEnvironment
   -> PpoTrainConfig
   -> MlpParams
   -> Int
-  -> [(Double, Int)]
+  -> [Common.EvaluationEpisodeResult]
 evaluateOnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
   replicate (max 1 episodeCount) (evaluateEpisode environment config params)
 
@@ -317,11 +319,12 @@ evaluateEpisode
   :: SimulatedEnvironment state
   -> PpoTrainConfig
   -> MlpParams
-  -> (Double, Int)
+  -> Common.EvaluationEpisodeResult
 evaluateEpisode environment config params = go (envInitial environment) 0 0.0
  where
   go !state !episodeLen !episodeReturn
-    | episodeLen >= ppoMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | episodeLen >= ppoMaxEpisodeSteps config =
+        Common.EvaluationEpisodeResult episodeReturn episodeLen False
     | otherwise =
         let obs = obsVectorFor environment state
             pvOut = policyValueForwardWith LinearValueHead params (ppoActionCount config) obs
@@ -332,7 +335,7 @@ evaluateEpisode environment config params = go (envInitial environment) 0 0.0
             nextReturn = episodeReturn + simStepReward stepResult
             nextLen = episodeLen + 1
          in if simStepDone stepResult
-              then (nextReturn, nextLen)
+              then Common.EvaluationEpisodeResult nextReturn nextLen True
               else go (simStepState stepResult) nextLen nextReturn
 
 collectRolloutInEnvironment
@@ -1617,9 +1620,9 @@ trainPpoInEnvironment environment config = do
       initialAdam = adamInit shape
   -- One visitation table for the whole run, mutated across rollouts.
   countTable <- CountExploration.newCountTable
-  (_, _, _, finalAdam, stats, finalParams, trpoActorSteps) <-
+  (_, _, _, finalAdam, stats, finalParams, trpoActorSteps, measuredTransitions) <-
     foldM
-      ( \(state, gen, params, adam, stats, _, actorSteps) iteration -> do
+      ( \(state, gen, params, adam, stats, _, actorSteps, transitions) iteration -> do
           (rollout, nextState, nextGen) <-
             collectRolloutInEnvironment countTable environment config params state gen
           let (advs, targets) = computeAdvantages config rollout
@@ -1629,6 +1632,7 @@ trainPpoInEnvironment environment config = do
               actorStepsAfter =
                 actorSteps
                   + if trpoActorParametersChanged config params paramsAfter then 1 else 0
+              transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
               episodeReturns = rolloutEpisodes rollout
               stat = rolloutSummary iteration episodeReturns
           pure
@@ -1639,6 +1643,7 @@ trainPpoInEnvironment environment config = do
             , stats <> [stat]
             , paramsAfter
             , actorStepsAfter
+            , transitionsAfter
             )
       )
       ( envInitial environment
@@ -1648,13 +1653,19 @@ trainPpoInEnvironment environment config = do
       , [] :: [PpoIterationStat]
       , initialParams
       , 0 :: Int
+      , 0 :: Integer
       )
       [0 .. ppoNumIterations config - 1]
+  counters <-
+    either (fail . Text.unpack) pure $
+      Common.mkMeasuredTrainerCounters
+        measuredTransitions
+        (toInteger (adamStep_ finalAdam + trpoActorSteps))
   pure
     PpoTrainResult
       { resultIterations = stats
       , resultFinalParams = finalParams
-      , resultOptimizerSteps = adamStep_ finalAdam + trpoActorSteps
+      , resultMeasuredCounters = counters
       , resultConfig = config
       }
 
@@ -1742,23 +1753,26 @@ trainPpoOnDeviceWithEnvironment device environment config = do
           , [] :: [PpoIterationStat]
           , initialParams
           , 0 :: Int
+          , 0 :: Integer
           )
       )
       [0 .. ppoNumIterations config - 1]
-  pure $
-    fmap
-      ( \(_, _, _, finalAdam, stats, finalParams, trpoActorSteps) ->
-          PpoTrainResult
-            { resultIterations = stats
-            , resultFinalParams = finalParams
-            , resultOptimizerSteps = adamStep_ finalAdam + trpoActorSteps
-            , resultConfig = config
-            }
-      )
-      result
+  pure $ do
+    (_, _, _, finalAdam, stats, finalParams, trpoActorSteps, measuredTransitions) <- result
+    counters <-
+      Common.mkMeasuredTrainerCounters
+        measuredTransitions
+        (toInteger (adamStep_ finalAdam + trpoActorSteps))
+    pure
+      PpoTrainResult
+        { resultIterations = stats
+        , resultFinalParams = finalParams
+        , resultMeasuredCounters = counters
+        , resultConfig = config
+        }
  where
   step _ (Left e) _ = pure (Left e)
-  step countTable (Right (vecEnv, gen, params, adam, stats, _, actorSteps)) iteration = do
+  step countTable (Right (vecEnv, gen, params, adam, stats, _, actorSteps, transitions)) iteration = do
     collected <-
       collectRolloutVectorizedOnDevice
         device
@@ -1780,6 +1794,7 @@ trainPpoOnDeviceWithEnvironment device environment config = do
             let actorStepsAfter =
                   actorSteps
                     + if trpoActorParametersChanged config params paramsAfter then 1 else 0
+                transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
                 stat = rolloutSummary iteration (rolloutEpisodes rollout)
              in pure
                   ( Right
@@ -1790,6 +1805,7 @@ trainPpoOnDeviceWithEnvironment device environment config = do
                       , stats <> [stat]
                       , paramsAfter
                       , actorStepsAfter
+                      , transitionsAfter
                       )
                   )
 

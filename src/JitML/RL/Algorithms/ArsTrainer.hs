@@ -27,11 +27,14 @@ module JitML.RL.Algorithms.ArsTrainer
   )
 where
 
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
 import JitML.RL.Algorithms.ArsLoss (arsTopDirections, arsUpdateDirection)
+import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Simulator
   ( SimStep (..)
   , SimulatedEnvironment (..)
@@ -77,6 +80,10 @@ data ArsIterationStat = ArsIterationStat
 data ArsTrainResult = ArsTrainResult
   { arsResultStats :: ![ArsIterationStat]
   , arsResultFinalParams :: !(Vector Double)
+  , arsResultMeasuredCounters :: !Common.MeasuredTrainerCounters
+  -- ^ Exact physical perturbation-rollout transitions and applied linear-policy
+  -- updates, accumulated by the trainer loop rather than reconstructed from its
+  -- configuration.
   , arsResultConfig :: !ArsTrainConfig
   }
   deriving stock (Eq, Show)
@@ -99,7 +106,7 @@ evaluateArsPolicyWithEnvironment
   -> ArsTrainConfig
   -> Vector Double
   -> Int
-  -> [(Double, Int)]
+  -> [Common.EvaluationEpisodeResult]
 evaluateArsPolicyWithEnvironment (SomeSimulatedEnvironment environment) config theta episodeCount =
   replicate (max 1 episodeCount) (evaluatePolicyEpisode environment config theta)
 
@@ -107,7 +114,10 @@ trainArsOnSimulatedEnvironment :: SimulatedEnvironment state -> ArsTrainConfig -
 trainArsOnSimulatedEnvironment environment config = do
   let theta0 = initialArsParams config
       gen0 = Random.mkStdGen (arsSeed config)
-  pure (go environment config theta0 gen0 0 [])
+  either
+    (fail . Text.unpack)
+    pure
+    (go environment config theta0 gen0 0 0 0 [])
 
 initialArsParams :: ArsTrainConfig -> Vector Double
 initialArsParams config =
@@ -119,25 +129,46 @@ go
   -> Vector Double
   -> Random.StdGen
   -> Int
+  -> Integer
+  -> Integer
   -> [ArsIterationStat]
-  -> ArsTrainResult
-go environment config theta gen iteration stats
-  | iteration >= arsIterations config =
-      ArsTrainResult
-        { arsResultStats = reverse stats
-        , arsResultFinalParams = theta
-        , arsResultConfig = config
-        }
+  -> Either Text ArsTrainResult
+go environment config theta gen iteration observedTransitions appliedUpdates stats
+  | iteration >= arsIterations config = do
+      measuredCounters <-
+        Common.mkMeasuredTrainerCounters observedTransitions appliedUpdates
+      pure
+        ArsTrainResult
+          { arsResultStats = reverse stats
+          , arsResultFinalParams = theta
+          , arsResultMeasuredCounters = measuredCounters
+          , arsResultConfig = config
+          }
   | otherwise =
       let (deltas, gen') = sampleDirections config gen
           nu = arsNoiseStd config
-          triples =
-            [ ( evaluatePolicy environment config (VU.zipWith (\t d -> t + nu * d) theta delta)
-              , evaluatePolicy environment config (VU.zipWith (\t d -> t - nu * d) theta delta)
+          evaluated =
+            [ ( evaluateTrainingPolicy
+                  environment
+                  config
+                  (VU.zipWith (\t d -> t + nu * d) theta delta)
+              , evaluateTrainingPolicy
+                  environment
+                  config
+                  (VU.zipWith (\t d -> t - nu * d) theta delta)
               , VU.toList delta
               )
             | delta <- deltas
             ]
+          triples =
+            [ (plusReturn, minusReturn, delta)
+            | ((plusReturn, _), (minusReturn, _), delta) <- evaluated
+            ]
+          transitionCount =
+            sum
+              [ toInteger plusSteps + toInteger minusSteps
+              | ((_, plusSteps), (_, minusSteps), _) <- evaluated
+              ]
           kept = arsTopDirections (arsTopB config) triples
           keptReturns = concatMap (\(p, m, _) -> [p, m]) kept
           sigmaR = max 1.0e-6 (stddev keptReturns)
@@ -153,27 +184,77 @@ go environment config theta gen iteration stats
             if null allReturns then 0.0 else sum allReturns / fromIntegral (length allReturns)
           bestR = if null allReturns then 0.0 else maximum allReturns
           stat = ArsIterationStat iteration meanR bestR
-       in go environment config thetaNext gen' (iteration + 1) (stat : stats)
+       in go
+            environment
+            config
+            thetaNext
+            gen'
+            (iteration + 1)
+            (observedTransitions + transitionCount)
+            (appliedUpdates + 1)
+            (stat : stats)
 
--- | Evaluate one episode's return under the deterministic linear-argmax
--- policy from the selected canonical environment start.
-evaluatePolicy :: SimulatedEnvironment state -> ArsTrainConfig -> Vector Double -> Double
-evaluatePolicy environment config theta =
-  fst (evaluatePolicyEpisode environment config theta)
+-- | Evaluate one perturbation for exactly the scheduled number of physical
+-- environment transitions. A terminal state closes that episode and the next
+-- transition starts from the environment's canonical initial state; no
+-- post-terminal horizon slots are reported as if they had executed. The
+-- perturbation score is the mean of its completed (plus final partial) episode
+-- returns, preserving episodic duration as signal in constant-per-step-reward
+-- environments such as cartpole and mountain-car.
+evaluateTrainingPolicy
+  :: SimulatedEnvironment state -> ArsTrainConfig -> Vector Double -> (Double, Int)
+evaluateTrainingPolicy environment config theta =
+  loop (envInitial environment) 0 (0 :: Int) 0.0 []
+ where
+  loop !state !totalSteps !episodeSteps !episodeReturn !completedReturns
+    | totalSteps >= arsMaxEpisodeSteps config =
+        let scoredReturns =
+              if episodeSteps > 0
+                then episodeReturn : completedReturns
+                else completedReturns
+            score =
+              if null scoredReturns
+                then 0.0
+                else sum scoredReturns / fromIntegral (length scoredReturns)
+         in (score, totalSteps)
+    | otherwise =
+        let action = linearAction environment config state theta (obsVector environment state)
+            stepResult = envStep environment state action
+            episodeReturn' = episodeReturn + simStepReward stepResult
+            totalSteps' = totalSteps + 1
+         in if simStepDone stepResult
+              then
+                loop
+                  (envInitial environment)
+                  totalSteps'
+                  0
+                  0.0
+                  (episodeReturn' : completedReturns)
+              else
+                loop
+                  (simStepState stepResult)
+                  totalSteps'
+                  (episodeSteps + 1)
+                  episodeReturn'
+                  completedReturns
 
 evaluatePolicyEpisode
-  :: SimulatedEnvironment state -> ArsTrainConfig -> Vector Double -> (Double, Int)
+  :: SimulatedEnvironment state
+  -> ArsTrainConfig
+  -> Vector Double
+  -> Common.EvaluationEpisodeResult
 evaluatePolicyEpisode environment config theta = loop (envInitial environment) 0 0.0
  where
   loop !state !len !ret
-    | len >= arsMaxEpisodeSteps config = (ret, len)
+    | len >= arsMaxEpisodeSteps config =
+        Common.EvaluationEpisodeResult ret len False
     | otherwise =
         let action = linearAction environment config state theta (obsVector environment state)
             stepResult = envStep environment state action
             ret' = ret + simStepReward stepResult
             len' = len + 1
          in if simStepDone stepResult
-              then (ret', len')
+              then Common.EvaluationEpisodeResult ret' len' True
               else loop (simStepState stepResult) len' ret'
 
 linearAction

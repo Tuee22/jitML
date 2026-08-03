@@ -81,6 +81,7 @@ import JitML.Numerics.MlpCuda (cudaMlpDevice)
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
+import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.CrossQLoss (crossQTarget)
 import JitML.RL.Algorithms.DdpgLoss (ddpgCriticTarget)
 import JitML.RL.Algorithms.SacLoss (sacCriticTarget, sacTemperatureLoss)
@@ -194,10 +195,11 @@ data ContinuousIterationStat = ContinuousIterationStat
 data ContinuousTrainResult = ContinuousTrainResult
   { contResultStats :: ![ContinuousIterationStat]
   , contResultFinalActor :: !MlpParams
-  , contResultActorOptimizerSteps :: !Int
-  -- ^ Adam applications executed against 'contResultFinalActor'. Critic and
-  -- entropy-temperature updates are deliberately excluded because neither is
-  -- part of the flattened learned-state tensor returned for evidence.
+  , contResultMeasuredCounters :: !Common.MeasuredTrainerCounters
+  -- ^ Exact physical environment transitions and Adam applications executed
+  -- against 'contResultFinalActor'. Critic and entropy-temperature updates are
+  -- deliberately excluded because neither is part of the flattened
+  -- learned-state tensor returned for evidence.
   , contResultConfig :: !ContinuousTrainConfig
   }
   deriving stock (Eq, Show)
@@ -332,15 +334,18 @@ loopEither
   -> IO (Either Text ContinuousTrainResult)
 loopEither environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats
   | step >= ctNumSteps config =
-      pure
-        ( Right
-            ContinuousTrainResult
-              { contResultStats = reverse stats
-              , contResultFinalActor = acActor nets
-              , contResultActorOptimizerSteps = adamStep_ (acActorAdam opt)
-              , contResultConfig = config
-              }
-        )
+      pure $ do
+        measuredCounters <-
+          Common.mkMeasuredTrainerCounters
+            (toInteger step)
+            (toInteger (adamStep_ (acActorAdam opt)))
+        Right
+          ContinuousTrainResult
+            { contResultStats = reverse stats
+            , contResultFinalActor = acActor nets
+            , contResultMeasuredCounters = measuredCounters
+            , contResultConfig = config
+            }
   | otherwise = do
       let obs = obsVector environment state
           -- Action selection: random during warmup, else actor + Gaussian noise.
@@ -854,7 +859,7 @@ evaluateContinuousPolicyWithEnvironment
   -> ContinuousTrainConfig
   -> MlpParams
   -> Int
-  -> [(Double, Int)]
+  -> [Common.EvaluationEpisodeResult]
 evaluateContinuousPolicyWithEnvironment (SomeContinuousEnvironment environment) config actor episodeCount =
   replicate (max 1 episodeCount) (evaluateEpisode environment config actor)
 
@@ -862,11 +867,12 @@ evaluateEpisode
   :: ContinuousEnvironment state
   -> ContinuousTrainConfig
   -> MlpParams
-  -> (Double, Int)
+  -> Common.EvaluationEpisodeResult
 evaluateEpisode environment config actor = go (cEnvInitial environment) 0 0.0
  where
   go state episodeLen episodeReturn
-    | episodeLen >= ctMaxEpisodeSteps config = (episodeReturn, episodeLen)
+    | episodeLen >= ctMaxEpisodeSteps config =
+        Common.EvaluationEpisodeResult episodeReturn episodeLen False
     | otherwise =
         let obs = obsVector environment state
             action = actorAction config actor obs
@@ -874,7 +880,7 @@ evaluateEpisode environment config actor = go (cEnvInitial environment) 0 0.0
             nextReturn = episodeReturn + cStepReward stepResult
             nextLen = episodeLen + 1
          in if cStepDone stepResult
-              then (nextReturn, nextLen)
+              then Common.EvaluationEpisodeResult nextReturn nextLen True
               else go (cStepState stepResult) nextLen nextReturn
 
 -- | Device-backed minibatch actor-critic update. The critic param

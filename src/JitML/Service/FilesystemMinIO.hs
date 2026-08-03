@@ -13,12 +13,14 @@ import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.ByteString qualified as ByteString
 import Data.Char (intToDigit)
+import Data.List (sort)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word8)
 import System.Directory
   ( createDirectoryIfMissing
+  , doesDirectoryExist
   , doesFileExist
   , listDirectory
   , removeFile
@@ -112,6 +114,16 @@ instance HasMinIO FilesystemMinIO where
       then fmap Right (liftIO (ByteString.readFile path))
       else pure (Left (SEUnauthorized "filesystem: object missing"))
 
+  minioReadBytesWithETag ref = do
+    root <- ask
+    let path = objectPath root ref
+    exists <- liftIO (doesFileExist path)
+    if exists
+      then do
+        bytes <- liftIO (ByteString.readFile path)
+        pure (Right (bytes, ETag (sha256BytesHex bytes)))
+      else pure (Left (SEUnauthorized "filesystem: object missing"))
+
   putBlobBytesIfAbsent ref payload = do
     root <- ask
     let path = objectPath root ref
@@ -138,18 +150,12 @@ instance HasMinIO FilesystemMinIO where
   listObjects bucket prefix = do
     root <- ask
     let dir = prefixPath root bucket
-    exists <- liftIO (doesFileExist dir)
-    entries <-
-      liftIO
-        ( if exists
-            then pure []
-            else listDirectoryQuiet dir
-        )
+    entries <- liftIO (listObjectKeys dir "")
     pure
       ( Right
           [ ObjectRef bucket (ObjectKey (Text.pack entry))
           | entry <- entries
-          , Text.pack entry `Text.isPrefixOf` prefix || Text.null prefix
+          , prefix `Text.isPrefixOf` Text.pack entry || Text.null prefix
           ]
       )
 
@@ -159,7 +165,9 @@ instance HasMinIO FilesystemMinIO where
     exists <- liftIO (doesFileExist path)
     if exists
       then liftIO (removeFile path) >> pure (Right ())
-      else pure (Left (SEUnauthorized "filesystem: object missing"))
+      -- S3 DELETE is idempotent: a successful response means the object is
+      -- confirmed absent, regardless of whether this invocation removed it.
+      else pure (Right ())
 
 readText :: FilePath -> IO Text
 readText path =
@@ -238,9 +246,22 @@ takeDirectory' path =
     (_, '/' : rest) -> reverse rest
     _ -> "."
 
-listDirectoryQuiet :: FilePath -> IO [FilePath]
-listDirectoryQuiet path = do
-  exists <- doesFileExist path
-  if exists
+listObjectKeys :: FilePath -> FilePath -> IO [FilePath]
+listObjectKeys root relative = do
+  let directory = if null relative then root else root </> relative
+  exists <- doesDirectoryExist directory
+  if not exists
     then pure []
-    else listDirectory path
+    else do
+      entries <- sort <$> listDirectory directory
+      fmap concat . traverse (visit directory) $ entries
+ where
+  visit directory entry = do
+    let path = directory </> entry
+        objectKey = if null relative then entry else relative </> entry
+    isDirectory <- doesDirectoryExist path
+    if isDirectory
+      then listObjectKeys root objectKey
+      else do
+        isFile <- doesFileExist path
+        pure [objectKey | isFile]

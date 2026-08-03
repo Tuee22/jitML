@@ -131,6 +131,7 @@ library
         JitML.Plan.Command
         JitML.Plan.Workload
         JitML.Product.Benchmark
+        JitML.Product.BrowserCatalogue
         JitML.Product.Completion
         JitML.Product.Convergence
         JitML.Product.Evidence
@@ -263,6 +264,7 @@ library
         JitML.Sub.Stream
         JitML.Sub.Subprocess
         JitML.Substrate
+        JitML.Test.BrowserEvidenceJournal
         JitML.Test.Command
         JitML.Test.HostWorkloadRegistry
         JitML.Test.InferenceBatch
@@ -276,6 +278,8 @@ library
         JitML.Test.Pulsar
         JitML.Test.PulsarBridge
         JitML.Test.PulsarTransport
+        JitML.Test.ProductScenarioJournal
+        JitML.Test.ProductScenarioRunner
         JitML.Test.Report
         JitML.Test.RunContract
         JitML.Test.RunPlan
@@ -305,7 +309,15 @@ library
 
     hs-source-dirs:   src gen
     other-modules:
+        JitML.Product.Publisher.AlphaZero
         JitML.Product.Publisher.Audit
+        JitML.Product.Publisher.Common
+        JitML.Product.Publisher.Orchestrator
+        JitML.Product.Publisher.Projection
+        JitML.Product.Publisher.RL
+        JitML.Product.Publisher.Runtime
+        JitML.Product.Publisher.Supervised
+        JitML.Product.Publisher.Tuning
         JitML.Product.Publisher.TuningTranscript
         JitML.RL.Command.AlphaZero
         JitML.RL.Command.Options
@@ -313,6 +325,8 @@ library
         JitML.Service.Pulsar.Bridge
         JitML.Service.Pulsar.Internal
         JitML.Sub.Piped
+        JitML.Test.ProductScenarioAuthorization
+        JitML.Test.ProductScenarioInterpreter.Internal
 
     default-language: GHC2024
     ghc-options:
@@ -446,6 +460,7 @@ test-suite jitml-integration
         base >=4.21 && <4.22,
         bytestring,
         containers,
+        cryptohash-sha256,
         directory,
         filepath,
         jitml,
@@ -505,6 +520,9 @@ test-suite jitml-rl-canonicals
         bytestring,
         cryptohash-sha256,
         jitml,
+        lens-family,
+        proto-lens,
+        proto-lens-runtime,
         random,
         text,
         tasty,

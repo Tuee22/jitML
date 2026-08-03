@@ -2173,13 +2173,10 @@ residualPatchSide geometry
 
 vitPatchSide :: ImageGeometry -> Int
 vitPatchSide geometry
-  -- Four 16x16 tokens leave the bounded CIFAR product row with almost no
-  -- spatial sequence to mix, while the diagnostic 8x8/16-token correction
-  -- remained below the frozen held-out bar.  The standard 4x4 CIFAR patch
-  -- yields 64 tokens and reduces the data-limited patch projection from 770 to
-  -- 50 inputs while keeping the exact five-epoch / forty-update product budget
-  -- unchanged.  The later literal-architecture phase still owns replacing
-  -- this executable Mixer approximation with the single typed ViT graph.
+  -- This geometry describes the retained legacy @archLayers@ initialization
+  -- adapter only. The trained literal ViT is built by 'correctOpsVitGraph',
+  -- which uses an 8x8 CIFAR patch and 16 tokens. Do not treat this 4x4/64-token
+  -- descriptor as the executable graph contract.
   | geomWidth geometry >= 32 = 4
   | otherwise = patchSide geometry
 

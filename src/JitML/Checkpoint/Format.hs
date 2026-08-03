@@ -61,6 +61,7 @@ module JitML.Checkpoint.Format
   , manifestContentSha
   , manifestKey
   , manifestPointer
+  , snapshotPhysicalObjectKey
   , manifestTrainingEvidence
   , renderCheckpointCompletionValidationError
   , refineCheckpointManifest
@@ -153,6 +154,8 @@ import JitML.Training.Budget
   , completedTrainingUpdateCount
   , convergencePassed
   , mkTrainingBudget
+  , rawCompletedTrainingProductScenarioInvocation
+  , rawCompletedTrainingVersion
   , refineCompletedTraining
   , tbrLogPrefix
   , tbrRunId
@@ -1437,9 +1440,9 @@ validateSupervisedV2Bindings manifest payload =
              ]
           <> [ "V2 supervised physical tensor key mismatch: expected "
                  <> expectedTensorKey
-                 <> ", got "
+                 <> " or its exact snapshot-scoped address, got "
                  <> tensorBlobKey tensor
-             | tensorBlobKey tensor /= expectedTensorKey
+             | not (isExpectedTensorKey (tensorBlobKey tensor))
              ]
       tensors ->
         [ "V2 supervised manifest must name exactly one physical tensor; got "
@@ -1455,6 +1458,26 @@ validateSupervisedV2Bindings manifest payload =
           <> [ "V2 supervised FlatWeightLayout does not equal the graph-ordered virtual slices"
              | specs /= expectedLayout
              ]
+
+  isExpectedTensorKey objectKey =
+    objectKey == expectedTensorKey
+      || case Text.stripPrefix
+        ( "jitml-checkpoints/"
+            <> manifestExperiment manifest
+            <> "/snapshots/"
+        )
+        objectKey of
+        Just remainder ->
+          case Text.splitOn "/" remainder of
+            [snapshotId, "objects", _]
+              | isCanonicalSha256 snapshotId ->
+                  objectKey
+                    == snapshotPhysicalObjectKey
+                      (manifestExperiment manifest)
+                      snapshotId
+                      expectedTensorKey
+            _ -> False
+        Nothing -> False
 
 maybeTextBindingErrors :: Text -> Text -> Maybe Text -> [Text]
 maybeTextBindingErrors label expected observed =
@@ -1741,7 +1764,10 @@ decodeAddressedSupervisedGraph outerBytes envelope bodyBytes actualBodyDigest bo
       )
   let manifest = baseManifest {manifestSupervisedRuntime = Just runtimePayload}
       canonical = canonicalManifest manifest
-      canonicalRawManifest = checkpointManifestToRaw canonical
+      canonicalRawManifest =
+        canonicalRawManifestForCompletionWire
+          (rawCheckpointV2Manifest body)
+          (checkpointManifestToRaw canonical)
       canonicalRawRuntime =
         RuntimeArtifact.supervisedRuntimePayloadToRaw runtimePayload
   if rawCheckpointV2Manifest body == canonicalRawManifest
@@ -1766,6 +1792,32 @@ decodeAddressedSupervisedGraph outerBytes envelope bodyBytes actualBodyDigest bo
       , addressedManifestBodyBytes = Just bodyBytes
       , addressedManifestBodySha = Just (hexBytes actualBodyDigest)
       }
+
+-- A structurally valid CompletedTraining V1 remains readable inside an exact
+-- supervised-graph body.  Reconstruct the canonical raw value from the
+-- refined domain manifest, then project only its wire version back to V1 for
+-- equality with the fetched bytes.  Every semantic field still has to equal
+-- the canonical projection, and V1 can never carry a ProductScenario
+-- invocation.
+canonicalRawManifestForCompletionWire
+  :: RawCheckpointManifest
+  -> RawCheckpointManifest
+  -> RawCheckpointManifest
+canonicalRawManifestForCompletionWire observed canonical =
+  case ( rawManifestCompletedTraining observed
+       , rawManifestCompletedTraining canonical
+       ) of
+    (Just observedCompletion, Just canonicalCompletion)
+      | rawCompletedTrainingVersion observedCompletion == 1 ->
+          canonical
+            { rawManifestCompletedTraining =
+                Just
+                  canonicalCompletion
+                    { rawCompletedTrainingVersion = 1
+                    , rawCompletedTrainingProductScenarioInvocation = Nothing
+                    }
+            }
+    _ -> canonical
 
 validateFiniteManifest :: RawCheckpointManifest -> Either Text ()
 validateFiniteManifest raw = do
@@ -1800,6 +1852,24 @@ manifestContentSha =
 blobKey :: Text -> Text -> Text
 blobKey experimentHash blobSha =
   "jitml-checkpoints/" <> experimentHash <> "/blobs/" <> blobSha
+
+-- | Address one logical checkpoint object inside an immutable storage
+-- snapshot. The final segment binds the exact UTF-8 bytes of the pre-rebase
+-- full object key; callers can therefore validate semantic logical addresses
+-- even after every physical class has moved into one snapshot namespace.
+snapshotPhysicalObjectKey :: Text -> Text -> Text -> Text
+snapshotPhysicalObjectKey experimentHash snapshotId originalFullKey =
+  "jitml-checkpoints/"
+    <> experimentHash
+    <> "/snapshots/"
+    <> snapshotId
+    <> "/objects/"
+    <> hexBytes (SHA256.hash (Text.Encoding.encodeUtf8 originalFullKey))
+
+isCanonicalSha256 :: Text -> Bool
+isCanonicalSha256 value =
+  Text.length value == 64
+    && Text.all (`elem` ("0123456789abcdef" :: String)) value
 
 manifestKey :: Text -> Text -> Text
 manifestKey experimentHash manifestSha =

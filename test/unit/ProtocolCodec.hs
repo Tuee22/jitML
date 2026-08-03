@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module ProtocolCodec
@@ -5,10 +7,14 @@ module ProtocolCodec
   )
 where
 
+import Codec.Serialise (Serialise, serialise)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as ByteString
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word64)
+import GHC.Generics (Generic)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, (@?=))
 
@@ -298,6 +304,32 @@ protocolCodecTests =
               (sweepFinished {Tune.sfTrialsCompleted = Tune.sfTrialsCompleted sweepFinished + 1})
               tuningCompletion
           )
+    , testCase "CompletedTraining V1 bytes remain readable but carry no ProductScenario invocation" $ do
+        let legacyBytes = encodeLegacyRawCompletedTrainingV1 rawSupervisedCompletion
+            currentBytes = TrainingBudget.encodeCompletedTraining supervisedCompletion
+        ByteString.take 1 legacyBytes @?= ByteString.pack [0x8a]
+        ByteString.take 1 currentBytes @?= ByteString.pack [0x8b]
+        TrainingBudget.decodeCompletedTraining currentBytes
+          @?= Right supervisedCompletion
+        let legacyCompletion =
+              expectRightFixture
+                "legacy CompletedTraining V1"
+                (TrainingBudget.decodeCompletedTraining legacyBytes)
+        legacyCompletion @?= supervisedCompletion
+        TrainingBudget.completedTrainingProductScenarioInvocation legacyCompletion
+          @?= Nothing
+        let expectedEvent =
+              Training.TrainingCompletedCheckpoint
+                ( expectRightFixture
+                    "legacy completed training checkpoint"
+                    ( Training.completeCheckpointDone
+                        trainingCheckpoint
+                        legacyCompletion
+                    )
+                )
+        Training.decodeTrainingEventProto
+          (trainingCompletedEventProto legacyBytes)
+          @?= Right expectedEvent
     , testCase "completion event decode re-refines malformed, non-finite, incomplete, and forged raw DTOs" $ do
         let incomplete =
               rawSupervisedCompletion
@@ -773,6 +805,40 @@ rawSupervisedCompletion =
     0.8
     0.9
 
+-- Exact source shape used by CompletedTraining wire V1: generic Serialise
+-- emits one constructor tag followed by these nine fields.  Keeping the
+-- legacy declaration in the fixture prevents a V2 encoder from manufacturing
+-- the bytes that are meant to exercise the compatibility decoder.
+data LegacyRawCompletedTrainingV1
+  = LegacyRawCompletedTrainingV1
+      !Word64
+      !Text
+      !TrainingBudget.RawTrainingBudget
+      !TrainingBudget.BudgetKind
+      !Word64
+      !Text
+      !ProductEvidence.TrainingEvidence
+      ![TrainingBudget.RawConvergenceObservation]
+      !TrainingBudget.TensorBoardRunMetadata
+  deriving stock (Generic)
+  deriving anyclass (Serialise)
+
+encodeLegacyRawCompletedTrainingV1
+  :: TrainingBudget.RawCompletedTraining
+  -> ByteString
+encodeLegacyRawCompletedTrainingV1 raw =
+  LazyByteString.toStrict . serialise $
+    LegacyRawCompletedTrainingV1
+      1
+      (TrainingBudget.rawCompletedTrainingPlanId raw)
+      (TrainingBudget.rawCompletedTrainingBudget raw)
+      (TrainingBudget.rawCompletedTrainingObservedKind raw)
+      (TrainingBudget.rawCompletedTrainingObservedUnits raw)
+      (TrainingBudget.rawCompletedTrainingObservedUnitLabel raw)
+      (TrainingBudget.rawCompletedTrainingEvidence raw)
+      (TrainingBudget.rawCompletedTrainingMeasurements raw)
+      (TrainingBudget.rawCompletedTrainingTensorBoard raw)
+
 rawCompletion
   :: TrainingBudget.BudgetKind
   -> Text
@@ -810,6 +876,7 @@ rawCompletion budgetKind unitLabel target metric threshold measurement =
           , TrainingBudget.tbrLogPrefix = "tensorboard/protocol-run"
           , TrainingBudget.tbrScalarTags = [metric]
           }
+    , TrainingBudget.rawCompletedTrainingProductScenarioInvocation = Nothing
     }
 
 trainingEvidence :: ProductEvidence.TrainingEvidence
@@ -1064,14 +1131,23 @@ inferenceCommandsForReply replyTopic =
 
 gcEventFor :: Substrate -> Gc.GcReapedEvent
 gcEventFor substrate =
-  Gc.GcReapedEvent
-    { Gc.gcEventExperimentHash = "gc-exp"
-    , Gc.gcEventManifestSha = "sha256:gc"
-    , Gc.gcEventReapedBlobShas = ["blob-gc"]
-    , Gc.gcEventStepAtReap = 17
-    , Gc.gcEventSubstrate = substrate
-    , Gc.gcEventTimestampNs = 23
-    }
+  let snapshotId = Text.replicate 64 "b"
+      snapshotPrefix =
+        "jitml-checkpoints/gc-exp/snapshots/" <> snapshotId <> "/"
+      event =
+        Gc.GcReapedEvent
+          { Gc.gcEventId = ""
+          , Gc.gcEventExperimentHash = "gc-exp"
+          , Gc.gcEventManifestSha = Text.replicate 64 "a"
+          , Gc.gcEventReapedObjectKeys =
+              [ snapshotPrefix <> "committed.cbor"
+              , snapshotPrefix <> "objects/" <> Text.replicate 64 "c"
+              ]
+          , Gc.gcEventStepAtReap = 17
+          , Gc.gcEventSubstrate = substrate
+          , Gc.gcEventTimestampNs = 23
+          }
+   in event {Gc.gcEventId = Gc.gcReapedEventSemanticId event}
 
 assertRouteAccepts
   :: (Eq event, Show event)

@@ -1,13 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Test.LivePlan
-  ( LivePlanStep (..)
+  ( BrowserEvidencePlanPaths (..)
+  , LivePlanStep (..)
   , LiveResourceOwnership (..)
   , ScopedLivePlan (..)
+  , defaultBrowserEvidencePlanPaths
   , flattenScopedLivePlan
   , liveE2EPlan
   , liveE2EPlanFor
+  , liveE2EPlanForBrowserEvidence
   , scopedLiveE2EPlanFor
+  , scopedLiveE2EPlanForBrowserEvidence
   , livePhasedClusterPlan
   , renderLivePlan
   , renderScopedLivePlan
@@ -36,6 +40,30 @@ data LiveResourceOwnership
   | BorrowedLiveCluster
   deriving stock (Eq, Show)
 
+-- | Host-visible paths for the browser evidence subprocess.  The catalogue and
+-- exact cluster publication are mounted as individual read-only files.  The
+-- separate browser scope is writable only so the reporter can consume and
+-- unlink its fresh signing key, write its atomic result journal, and retain
+-- Playwright diagnostics.  It never contains the ProductScenario journal,
+-- checkpoint root, executable challenge, or any Phase 261 signing capability.
+data BrowserEvidencePlanPaths = BrowserEvidencePlanPaths
+  { browserEvidenceCataloguePath :: !FilePath
+  , browserEvidencePublicationPath :: !FilePath
+  , browserEvidenceScopePath :: !FilePath
+  }
+  deriving stock (Eq, Show)
+
+-- | Structural/default paths used by plan rendering.  The live command runner
+-- supplies a fresh command-owned scope through
+-- 'scopedLiveE2EPlanForBrowserEvidence'.
+defaultBrowserEvidencePlanPaths :: BrowserEvidencePlanPaths
+defaultBrowserEvidencePlanPaths =
+  BrowserEvidencePlanPaths
+    { browserEvidenceCataloguePath = "./.build/runtime/browser-catalogue-input.json"
+    , browserEvidencePublicationPath = "./.build/runtime/cluster-publication.json"
+    , browserEvidenceScopePath = "./.build/runtime/browser-evidence"
+    }
+
 -- | Resource phases stay distinct so the IO runner can bracket acquire/use/
 -- release.  Flattening exists only for renderer/backward compatibility; an
 -- interpreter must not treat release as an ordinary tail step that disappears
@@ -62,8 +90,24 @@ liveE2EPlanFor :: Substrate -> [LivePlanStep]
 liveE2EPlanFor substrate =
   flattenScopedLivePlan (scopedLiveE2EPlanFor OwnedEphemeralCluster substrate)
 
+liveE2EPlanForBrowserEvidence
+  :: BrowserEvidencePlanPaths
+  -> Substrate
+  -> [LivePlanStep]
+liveE2EPlanForBrowserEvidence paths substrate =
+  flattenScopedLivePlan
+    (scopedLiveE2EPlanForBrowserEvidence paths OwnedEphemeralCluster substrate)
+
 scopedLiveE2EPlanFor :: LiveResourceOwnership -> Substrate -> ScopedLivePlan
-scopedLiveE2EPlanFor ownership substrate =
+scopedLiveE2EPlanFor =
+  scopedLiveE2EPlanForBrowserEvidence defaultBrowserEvidencePlanPaths
+
+scopedLiveE2EPlanForBrowserEvidence
+  :: BrowserEvidencePlanPaths
+  -> LiveResourceOwnership
+  -> Substrate
+  -> ScopedLivePlan
+scopedLiveE2EPlanForBrowserEvidence evidencePaths ownership substrate =
   ScopedLivePlan
     { scopedLivePlanOwnership = ownership
     , scopedLivePlanAcquire =
@@ -86,12 +130,29 @@ scopedLiveE2EPlanFor ownership substrate =
                 , "host"
                 , "-v"
                 , ".:/work:ro"
+                , "-v"
+                , Text.pack (browserEvidenceCataloguePath evidencePaths)
+                    <> ":/jitml-browser-input/catalogue.json:ro"
+                , "-v"
+                , Text.pack (browserEvidencePublicationPath evidencePaths)
+                    <> ":/jitml-browser-input/cluster-publication.json:ro"
+                , "-v"
+                , Text.pack (browserEvidenceScopePath evidencePaths)
+                    <> ":/jitml-browser-scope:rw"
                 , "-w"
                 , "/work"
                 , "-e"
                 , "JITML_SUBSTRATE=" <> renderSubstrate substrate
                 , "-e"
-                , "PLAYWRIGHT_TEST_RESULTS_DIR=/tmp/jitml-playwright-test-results"
+                , "JITML_BROWSER_CATALOGUE_PATH=/jitml-browser-input/catalogue.json"
+                , "-e"
+                , "JITML_BROWSER_PUBLICATION_PATH=/jitml-browser-input/cluster-publication.json"
+                , "-e"
+                , "JITML_BROWSER_RESULT_PATH=/jitml-browser-scope/result.json"
+                , "-e"
+                , "JITML_BROWSER_RESULT_KEY_FILE=/jitml-browser-scope/result.key"
+                , "-e"
+                , "PLAYWRIGHT_TEST_RESULTS_DIR=/jitml-browser-scope/playwright-test-results"
                 , "mcr.microsoft.com/playwright:v1.49.1-noble"
                 , "sh"
                 , "-lc"
@@ -104,7 +165,8 @@ scopedLiveE2EPlanFor ownership substrate =
                     , "--no-fund"
                     , "--loglevel=error"
                     , "@playwright/test@1.49.1"
-                    , ">/tmp/jitml-playwright-install.log"
+                    , ">/jitml-browser-scope/npm-install.log"
+                    , "2>&1"
                     , "&&"
                     , "NODE_PATH=/tmp/jitml-playwright/node_modules"
                     , "/tmp/jitml-playwright/node_modules/.bin/playwright"
