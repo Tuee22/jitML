@@ -1393,7 +1393,19 @@ This is an ownership-chain overlay on the phase DAG: later phases that are not
 named remain Done on their retained surfaces. Sprints `1.18`, `2.9`, `3.7`,
 `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Phases
 `235`–`246`, `250`, `251`, `252`, and `261` are closed `Done`; Phase `262` is
-Active. The Phase `19`–`34` product-sprint status checkpoint is
+Active.
+
+The 2026-08-09 correlated request/reply audit adds two ownership transfers to
+that overlay under rule `M(a)`, and no dependency edges. Phase `71` retains the
+receipt-bound delivery and total-settlement contract it validated, and transfers
+the **establishment** half — proving a reply cursor exists before a correlated
+request is published — forward to Phase `262`, which owns the opaque
+`ReplyCursor` and the Pulsar admin subscription CREATE that mints it. Phase
+`160` retains the `NOINLINE`-isolated reply supervisor and transfers that
+supervisor's readiness gate, which used the diagnostic `ConsumerSessionConnected`
+event as proof of receivability; the same phase's note records that Phase `262`
+raised the compiler heap cap the `160` narrative had preserved. Neither phase
+reopens. The Phase `19`–`34` product-sprint status checkpoint is
 **57 Done / 1 Active / 0 Planned / 11 Blocked**. Every later phase in the chain
 is Blocked by its immediate predecessor, and the
 apple-silicon wall at Phase `272` is the hard stop on non-Apple hosts. Prior Sprint

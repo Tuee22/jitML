@@ -104,7 +104,7 @@ instance HasMinIO FilesystemMinIO where
     exists <- liftIO (doesFileExist path)
     if exists
       then fmap Right (liftIO (readText path))
-      else pure (Left (SEUnauthorized "filesystem: object missing"))
+      else pure (Left (SENotFound "filesystem: object missing"))
 
   minioReadBytes ref = do
     root <- ask
@@ -112,7 +112,7 @@ instance HasMinIO FilesystemMinIO where
     exists <- liftIO (doesFileExist path)
     if exists
       then fmap Right (liftIO (ByteString.readFile path))
-      else pure (Left (SEUnauthorized "filesystem: object missing"))
+      else pure (Left (SENotFound "filesystem: object missing"))
 
   minioReadBytesWithETag ref = do
     root <- ask
@@ -122,7 +122,7 @@ instance HasMinIO FilesystemMinIO where
       then do
         bytes <- liftIO (ByteString.readFile path)
         pure (Right (bytes, ETag (sha256BytesHex bytes)))
-      else pure (Left (SEUnauthorized "filesystem: object missing"))
+      else pure (Left (SENotFound "filesystem: object missing"))
 
   putBlobBytesIfAbsent ref payload = do
     root <- ask

@@ -133,6 +133,15 @@ cohorts and exact keyed event coverage. Arbitrary text and runtime facts are not
 promoted to the type level merely for novelty; the goal is a small, reviewable
 set of types that prevents meaningful illegal states.
 
+A runtime fact that is expensive to observe and catastrophic to assume qualifies
+on that test. The correlated request/reply channel is one: an opaque
+`ReplyCursor` is minted only from an acknowledged broker subscription creation,
+and the correlated publish accepts nothing else, so a request cannot be
+published before the cursor that must receive its reply exists. The token is
+minted by the effect that establishes the fact, in the same shape as
+`ArtifactRef` from a completed admission — a lifecycle event observed along the
+way is a diagnostic, never the proof.
+
 ### Resolved Worker Plan Transports
 
 `JitML.Plan.Workload` supplies hidden `SupervisedPlan`, `TuningPlan`, and

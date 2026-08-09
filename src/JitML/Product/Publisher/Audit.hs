@@ -8,6 +8,7 @@ module JitML.Product.Publisher.Audit
   , productPublishStatus
   , renderProductInventoryEntry
   , renderProductPublishResult
+  , snapshotScopedPointer
   , validateAdmittedProductCheckpoint
   , validateAdmittedProjectionIdentity
   , validateProductCompletedTrainingPlanId
@@ -132,10 +133,28 @@ validateProductPublishBatch projectedBatch results = do
                 List.sortOn
                   artifactPointerIdentity
                   (Checkpoint.manifestTranscriptPointers manifest)
-              expectedPointers =
+          -- The admitted manifest addresses every physical object inside its
+          -- deterministic storage-snapshot namespace, so the projected logical
+          -- pointer is rebased through the exact same derivation the writer
+          -- used before the inventories are compared. Equality then proves the
+          -- companion artifact is bound to this snapshot, not merely that some
+          -- object shares its payload SHA.
+          snapshotId <-
+            case CheckpointStore.checkpointStorageSnapshotId manifest of
+              Left reason ->
+                Left
+                  ( ProductMatrix.productProjectionRowId projection
+                      <> " admitted manifest has no single storage snapshot namespace: "
+                      <> reason
+                  )
+              Right resolved -> Right resolved
+          let expectedPointers =
                 List.sortOn
                   artifactPointerIdentity
-                  (fmap productArtifactPointer (productPublishArtifacts result))
+                  ( fmap
+                      (snapshotScopedPointer manifest snapshotId . productArtifactPointer)
+                      (productPublishArtifacts result)
+                  )
           requireProjectedValue
             "admitted companion artifact inventory"
             expectedPointers
@@ -337,6 +356,24 @@ validateAdmittedProjectionIdentity projection admitted = do
         "inventory non-supervised runtime payload"
         Nothing
         (Checkpoint.manifestSupervisedRuntime manifest)
+
+-- | Rebase a projected logical companion pointer into the admitted manifest's
+-- storage-snapshot namespace. A manifest without physical objects has no
+-- namespace, so its pointers keep their logical addresses.
+snapshotScopedPointer
+  :: Checkpoint.CheckpointManifest
+  -> Maybe Text
+  -> Checkpoint.ArtifactPointer
+  -> Checkpoint.ArtifactPointer
+snapshotScopedPointer _manifest Nothing pointer = pointer
+snapshotScopedPointer manifest (Just snapshotId) pointer =
+  pointer
+    { Checkpoint.artifactPointerObjectKey =
+        Checkpoint.snapshotPhysicalObjectKey
+          (Checkpoint.manifestExperiment manifest)
+          snapshotId
+          (Checkpoint.artifactPointerObjectKey pointer)
+    }
 
 productArtifactPointer :: ProductArtifactReceipt -> Checkpoint.ArtifactPointer
 productArtifactPointer receipt =

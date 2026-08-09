@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, cluster_topology.md, haskell_code_guide.md, jit_codegen_architecture.md, purescript_frontend.md, training_workloads.md, durable_state_dsl.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, cluster_topology.md, haskell_code_guide.md, jit_codegen_architecture.md, purescript_frontend.md, training_workloads.md, durable_state_dsl.md, run_contract.md
 **Generated sections**: daemon.surface
 
 > **Purpose**: Project-specific `jitml service` daemon architecture — the
@@ -270,10 +270,12 @@ The daemon keeps the HTTP listener active while workers drain messages.
 2026-05-21 live Linux CPU
 validation proves the historical held-open path handles
 `RunInference` and publishes the expected `InferenceResult` without
-`--consume-once`, proves duplicate payloads produce exactly one matching
-`InferenceResult`, and proves a missing-checkpoint dispatch failure is
-negative-acked until broker redelivery publishes the result after the checkpoint
-is seeded.
+`--consume-once`, and proves duplicate payloads produce exactly one matching
+`InferenceResult`. That run also observed a missing-checkpoint dispatch failure
+being negative-acked until broker redelivery published the result after the
+checkpoint was seeded; that half is superseded by
+[Terminal inference settlement](#terminal-inference-settlement) below and is
+retained only as history.
 
 Worker Jobs read their versioned transport mounted at `/etc/jitml/run/` before
 consulting any explicitly developer-only fallback. Supervised, Tune, and
@@ -526,10 +528,56 @@ In particular:
   deleted idempotently during cleanup, while `Borrowed` daemon subscriptions
   survive process shutdown.
 
-The `jitml inference run` request/reply client opens its correlated reply
-subscription `FromLatest` with `Owned` scope before publishing. Its reply
+### Terminal inference settlement
+
+Every inference-family command — `RunInference`, `CompareCheckpoints`,
+`SelectAdversarialMove`, `ListCheckpoints`, `LoadTranscript` — shares the one
+durable `jitml-engine` subscription. A negative acknowledgement is therefore a
+statement about that whole subscription, not about the one command: a command
+that can never succeed and is only nacked returns forever and starves every
+unrelated command behind it. Retrying is a settlement only when a retry could
+change the answer.
+
+The Engine classifies a failed checkpoint load by whether its operands can
+change. A load is **terminal** when the store proved the object ABSENT
+(`SENotFound`, distinct from a 401/403 that may clear on its own) or when the
+admitted runtime rejected the request's own input — a value outside the
+declared unit-image `[0,1]` domain, a width mismatch, a non-finite
+standardization. Both verdicts are fixed by immutable operands: the request
+bytes and an admitted, content-addressed checkpoint. A terminal load is
+answered on the request's reply topic as a call-id-keyed `InferenceFailure`
+frame, which both settles the delivery and hands the requester a diagnosis
+instead of a reply timeout. Every other failure — transient store or broker
+errors, and any runner-side execution failure — stays retryable and still
+nacks.
+
+A batch likewise keeps dispatching after one member fails. Aborting the batch
+left every co-batched command undispatched while its receipt was nacked anyway,
+so one unsatisfiable request forced the redelivery of unrelated healthy work
+and the backlog sustained itself; the first failure still decides the batch
+disposition.
+
+### Request/reply client
+
+The `jitml inference run` request/reply client establishes its correlated reply
+subscription `FromLatest` with `Owned` scope — through an acknowledged admin
+`CREATE`, not merely by attaching a consumer — before publishing. Its reply
 consumer accepts a result only when both `callId` and experiment hash match the
-request; a same-call result for another experiment is unrelated. Every success,
+request; a same-call result for another experiment is unrelated. It accepts a
+call-id-matched `InferenceFailure` as a real answer and completes the caller's
+wait with that diagnosis rather than sitting out the reply deadline; a failure
+frame carrying another call's id is ignored, because the reply topic is shared.
+
+The acknowledged `CREATE` is what makes the reply reachable, and an opaque
+`ReplyCursor` is minted only from it. A consumer whose socket is open is not yet
+a consumer the broker will deliver to: a latest-position cursor is planted at the
+topic tail when the broker creates the subscription, so a reply published before
+that creation is behind the cursor forever and no redelivery can recover it. The
+correlated publish therefore takes the cursor token and reads the request topic
+and reply-topic text out of it, which makes publishing before establishment, and
+publishing a reply topic the subscription does not cover, unrepresentable rather
+than merely discouraged. `ConsumerSessionConnected` remains what its name says —
+a diagnostic lifecycle observation — and gates nothing. Every success,
 timeout, publish failure, or exceptional exit cancels and joins that supervised
 `Async` before the CLI returns. Joining keeps the transport's drain and
 idempotent admin `DELETE` inside the owner scope. The DELETE is

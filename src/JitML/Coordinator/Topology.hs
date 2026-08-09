@@ -42,6 +42,7 @@ module JitML.Coordinator.Topology
   , coordinatorTopics
   , validateTopology
   , topologyLogicalNames
+  , checkpointListPayloadFields
   )
 where
 
@@ -183,8 +184,41 @@ mkInferenceResultMessage payload = do
     "AdversarialMoveResult" -> validateAdversarialMoveResult fields
     "CheckpointList" -> validateCheckpointListResult fields
     "TranscriptReplay" -> validateTranscriptReplayResult fields
+    "InferenceFailure" -> validateInferenceFailureResult fields
     _ -> Left "unknown inference result kind"
   pure (InferenceResultMessage payload)
+
+-- | A terminal answer to a request that can never succeed. It carries a
+-- diagnosis instead of an output, so it deliberately admits no @output@ field.
+validateInferenceFailureResult :: [(Text, Text)] -> Either Text ()
+validateInferenceFailureResult fields = do
+  _ <- requireNonEmptyPayloadField "experiment-hash" fields
+  _ <- requireNonEmptyPayloadField "error" fields
+  requireOnlyPayloadFields inferenceFailureBaseFields fields
+
+inferenceFailureBaseFields :: [Text]
+inferenceFailureBaseFields = ["kind", "call-id", "experiment-hash", "error"]
+
+-- | Exactly the field names a @CheckpointList@ frame may carry, and the same
+-- set @Generated.Contracts.checkpointFieldNames@ declares on the browser side.
+-- Both ends of one wire form are held to this list by a @jitml-unit@ anti-drift
+-- case: a field the Engine renders but this set omits makes the reply
+-- unpublishable, which the Engine can only report as a failed publication.
+checkpointListPayloadFields :: [Text]
+checkpointListPayloadFields =
+  [ "kind"
+  , "call-id"
+  , "panel"
+  , "status"
+  , "run-id"
+  , "substrate"
+  , "catalogue-sha256"
+  , "source-journal-sha256"
+  , "count"
+  , "selector-state"
+  , "row-selector"
+  , "checkpoint-summary"
+  ]
 
 validateInferenceResult :: [(Text, Text)] -> Either Text ()
 validateInferenceResult fields = do
@@ -299,21 +333,21 @@ validateAdversarialMoveResult fields = do
   _ <- requireNonEmptyPayloadField "transcript-id" fields
   Right ()
 
+-- | The published catalogue's provenance rides in the frame: the browser
+-- renders artifact cards only from an authenticated catalogue, so it needs the
+-- run, substrate, catalogue digest, and source-journal digest that catalogue
+-- was admitted under. This field set is the one
+-- @Generated.Contracts.parseCheckpointList@ requires; a narrower set here does
+-- not make the frame stricter, it makes the Engine's own reply unpublishable.
 validateCheckpointListResult :: [(Text, Text)] -> Either Text ()
 validateCheckpointListResult fields = do
-  requireOnlyPayloadFields
-    [ "kind"
-    , "call-id"
-    , "panel"
-    , "status"
-    , "count"
-    , "selector-state"
-    , "row-selector"
-    , "checkpoint-summary"
-    ]
-    fields
+  requireOnlyPayloadFields checkpointListPayloadFields fields
   requirePayloadFieldEquals "panel" "checkpoint-browse" fields
   requirePayloadFieldEquals "status" "published" fields
+  _ <- requireNonEmptyPayloadField "run-id" fields
+  _ <- requireNonEmptyPayloadField "substrate" fields
+  _ <- requireNonEmptyPayloadField "catalogue-sha256" fields
+  _ <- requireNonEmptyPayloadField "source-journal-sha256" fields
   count <- requireParsedPayloadField "count" parseNonNegativeIntText fields
   _ <- requireNonEmptyPayloadField "selector-state" fields
   traverse_ requireNonEmptyRepeatedField (payloadFieldValues "row-selector" fields)

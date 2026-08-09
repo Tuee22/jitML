@@ -48,6 +48,7 @@ module JitML.Service.Workload
   , renderSomeWorkloadOutcome
   , renderCheckpointListResult
   , renderCheckpointListResultWithSelectors
+  , renderTranscriptReplayResult
   , seededDemoExperimentHashes
   , runWorkloadEffect
   , runWorkloadEffectWithInference
@@ -124,12 +125,14 @@ import JitML.Proto.Inference
   , CheckpointCompareCommand (..)
   , CheckpointCompareResult (..)
   , InferenceCommand
+  , InferenceFailure (..)
   , InferenceRequest (..)
   , InferenceResult (..)
   , ListCheckpointsCommand (..)
   , LoadTranscriptCommand (..)
   , renderAdversarialMoveResult
   , renderCheckpointCompareResult
+  , renderInferenceFailure
   , renderInferenceRequest
   , renderInferenceResult
   )
@@ -865,6 +868,62 @@ publishHostCommand
   -> m (Either ServiceError Text)
 publishHostCommand (HostCommandSpec topic event) = pulsarPublish topic event
 
+-- | Answer a permanently unsatisfiable request on its reply topic.
+--
+-- Returning the publish result means a successful publication settles the
+-- delivery as handled, so the request stops being redelivered. A failure to
+-- publish is still transient and still nacks — the reply itself must be
+-- delivered at least once.
+publishInferenceFailureTo
+  :: (HasPulsar m)
+  => InferenceResultTarget
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> m (Either ServiceError Text)
+publishInferenceFailureTo target rawTopic callId experimentHash reason =
+  publishInferenceResultTo
+    target
+    rawTopic
+    ( renderInferenceFailure
+        InferenceFailure
+          { ifailCallId = callId
+          , ifailExperimentHash = experimentHash
+          , ifailError = reason
+          }
+    )
+
+-- | Dispose of a failed checkpoint load for any inference-family command.
+--
+-- A permanently unsatisfiable load is answered on the reply topic and the
+-- delivery settles: the requester gets a diagnosis instead of waiting out its
+-- timeout, and — decisively — the message stops cycling on a subscription every
+-- other inference command shares. Nacking such a request forever starves that
+-- subscription, so one malformed request would silence the whole Engine. Any
+-- other failure stays transient and still nacks, because a redelivery can
+-- legitimately succeed once the underlying condition clears.
+settleInferenceLoadFailure
+  :: (HasPulsar m)
+  => InferenceResultTarget
+  -> Text
+  -- ^ reply topic
+  -> Text
+  -- ^ call id
+  -> Text
+  -- ^ experiment hash the failure is attributed to
+  -> Text
+  -- ^ command label, e.g. @inference@ or @compare baseline@
+  -> CheckpointStore.CheckpointLoadError
+  -> m (Either ServiceError Text)
+settleInferenceLoadFailure target rawTopic callId experimentHash label loadError
+  | CheckpointStore.checkpointLoadErrorTerminal loadError =
+      publishInferenceFailureTo target rawTopic callId experimentHash rendered
+  | otherwise = pure (Left (SETransient rendered))
+ where
+  rendered =
+    label <> ": " <> CheckpointStore.renderCheckpointLoadError loadError
+
 publishInferenceResultTo
   :: (HasPulsar m)
   => InferenceResultTarget
@@ -1105,13 +1164,19 @@ runInferenceRequestWithWeightedInferenceTo target runInference request = do
   -- and appends the typed `decoded-*` lines to the `WorkResult` so the browser
   -- panels render the decoded value without computing.
   result <-
-    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeightsTyped
       runInference
       (irExperimentHash request)
       (irInput request)
   case result of
     Left err ->
-      pure (Left (SETransient ("inference: " <> err)))
+      settleInferenceLoadFailure
+        target
+        (irReplyTopic request)
+        (irCallId request)
+        (irExperimentHash request)
+        "inference"
+        err
     Right (output, decoded) ->
       publishInferenceResultTo
         target
@@ -1135,18 +1200,35 @@ runCheckpointCompareRequestWithWeightedInference
   -> m (Either ServiceError Text)
 runCheckpointCompareRequestWithWeightedInference target runInference command = do
   baseline <-
-    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeightsTyped
       runInference
       (cccBaselineExperimentHash command)
       (cccInput command)
   candidate <-
-    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeightsTyped
       runInference
       (cccCandidateExperimentHash command)
       (cccInput command)
   case (baseline, candidate) of
-    (Left err, _) -> pure (Left (SETransient ("compare baseline: " <> err)))
-    (_, Left err) -> pure (Left (SETransient ("compare candidate: " <> err)))
+    -- A compare rides the same shared subscription as every other inference
+    -- command, so an unsatisfiable side must settle here for the same reason a
+    -- plain request does. The failure names the side that could not be served.
+    (Left err, _) ->
+      settleInferenceLoadFailure
+        target
+        (cccReplyTopic command)
+        (cccCallId command)
+        (cccBaselineExperimentHash command)
+        "compare baseline"
+        err
+    (_, Left err) ->
+      settleInferenceLoadFailure
+        target
+        (cccReplyTopic command)
+        (cccCallId command)
+        (cccCandidateExperimentHash command)
+        "compare candidate"
+        err
     (Right (baselineOutput, _), Right (candidateOutput, _)) ->
       let deltas = absoluteDeltas baselineOutput candidateOutput
        in publishInferenceResultTo
@@ -1181,12 +1263,19 @@ runAdversarialMoveRequestWithWeightedInference target runInference command = do
           (amcHumanIsPlayer command)
           (amcSimulationsPerMove command)
   result <-
-    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeightsTyped
       runInference
       (amcExperimentHash command)
       runtimeInput
   case result of
-    Left err -> pure (Left (SETransient ("adversarial: " <> err)))
+    Left err ->
+      settleInferenceLoadFailure
+        target
+        (amcReplyTopic command)
+        (amcCallId command)
+        (amcExperimentHash command)
+        "adversarial"
+        err
     Right (output, _) -> do
       let outcome =
             computeAdversarialMove
@@ -1271,14 +1360,22 @@ runListCheckpointsRequestWithTarget target command = do
     BrowserCatalogue.readSelectedProductBrowserCatalogue
       (inferenceResultTargetSubstrate target)
   case selected of
+    -- Answer rather than negatively acknowledge, for the same reason
+    -- 'runLoadTranscriptRequestWithTarget' does: this command shares the one
+    -- durable `jitml-engine` subscription, and no catalogue appears because a
+    -- browse request was redelivered. Before any catalogue is published the
+    -- selector is simply absent, so nacking parked an unanswerable command on
+    -- that subscription and starved every other inference command behind it.
+    -- The reply is a terminal failure carrying the admission diagnosis, so the
+    -- panel fails closed with a reason instead of waiting out its deadline.
     Left errors ->
-      pure
-        ( Left
-            ( SETransient
-                ( "authenticated browser catalogue admission failed: "
-                    <> Text.pack (show errors)
-                )
-            )
+      publishInferenceFailureTo
+        target
+        (lccReplyTopic command)
+        (lccCallId command)
+        (renderSubstrate (inferenceResultTargetSubstrate target))
+        ( "authenticated browser catalogue admission failed: "
+            <> Text.pack (show errors)
         )
     Right admitted ->
       publishInferenceResultTo

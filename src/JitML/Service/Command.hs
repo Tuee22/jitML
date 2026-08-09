@@ -5,6 +5,7 @@ module JitML.Service.Command
   ( ServiceCommandRuntime (..)
   , ServiceInvocation (..)
   , currentTimestampNs
+  , daemonCommandBatchDeadline
   , engineWeightedInference
   , publishPulsarEvent
   , runInstallMetalBridge
@@ -1189,11 +1190,11 @@ runDaemonConsumerBatch
   observeOutcome
   routerRef
   initialCommands =
-    go [] (NonEmpty.toList initialCommands)
+    go [] Nothing (NonEmpty.toList initialCommands)
    where
-    go outcomes pendingCommands =
+    go outcomes firstFailure pendingCommands =
       case pendingCommands of
-        [] -> pure (reverse outcomes, Nothing)
+        [] -> pure (reverse outcomes, firstFailure)
         command : remaining -> do
           now <- getMonotonicTimeNSec
           if InferenceBatch.batchWindowExpiredAt now window
@@ -1209,16 +1210,49 @@ runDaemonConsumerBatch
                       runtime
                       hostWorkloadRegistry
                       liveConfig
-                      (Just (InferenceBatch.batchWindowDeadlineNanoseconds window))
+                      (daemonCommandBatchDeadline window command)
                   )
               observeOutcome outcome
               case Consumer.consumerOutcomeError outcome of
                 Just appError ->
-                  pure
-                    ( reverse (outcome : outcomes)
-                    , Just (DaemonBatchDispatchFailed appError)
+                  -- Keep dispatching the rest of the batch. Aborting here left
+                  -- every co-batched command undispatched while its receipt was
+                  -- nacked anyway, so a single unsatisfiable request forced the
+                  -- redelivery of unrelated healthy work and the backlog
+                  -- sustained itself. The first failure still decides the
+                  -- batch disposition.
+                  go
+                    (outcome : outcomes)
+                    ( case firstFailure of
+                        Just existing -> Just existing
+                        Nothing -> Just (DaemonBatchDispatchFailed appError)
                     )
-                Nothing -> go (outcome : outcomes) remaining
+                    remaining
+                Nothing -> go (outcome : outcomes) firstFailure remaining
+
+-- | Which commands the inference batch window may cancel.
+--
+-- The window is a batching target: it bounds how long a batch may wait to
+-- accumulate, and with it the latency of the forward passes it coalesces. It is
+-- not a budget for the control commands that merely share the same
+-- subscription. Admitting the authenticated 55-row browser catalogue takes
+-- seconds longer than the batching target by design, so cancelling it against
+-- that clock produces a command that can never fit its own deadline: it is
+-- nacked, redelivered, and cancelled again forever. The subscription is
+-- @Failover@, so that one command then blocks every command queued behind it
+-- and the whole inference surface goes silent.
+--
+-- A control command therefore runs without the batching deadline. Its own
+-- work is still bounded by the retry policy and the drain deadline.
+daemonCommandBatchDeadline
+  :: InferenceBatch.BatchWindow -> Consumer.DaemonCommand -> Maybe Integer
+daemonCommandBatchDeadline window command =
+  case command of
+    Consumer.InferenceDaemonCommand _substrate (Inference.RunInference {}) -> batched
+    Consumer.InferenceDaemonCommand _substrate _control -> Nothing
+    _nonInference -> batched
+ where
+  batched = Just (InferenceBatch.batchWindowDeadlineNanoseconds window)
 
 daemonBatchDisposition :: Maybe DaemonBatchFailure -> Capabilities.Disposition
 daemonBatchDisposition batchFailure =

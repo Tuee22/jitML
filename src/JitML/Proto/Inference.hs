@@ -28,6 +28,9 @@ module JitML.Proto.Inference
   , parseInferenceCommand
   , parseInferenceRequest
   , parseInferenceResult
+  , InferenceFailure (..)
+  , parseInferenceFailure
+  , renderInferenceFailure
   , renderInferenceInput
   , renderInferenceCommand
   , renderInferenceRequest
@@ -62,6 +65,21 @@ data InferenceResult = InferenceResult
   { iresCallId :: Text
   , iresExperimentHash :: Text
   , iresOutput :: [Double]
+  }
+  deriving stock (Eq, Show)
+
+-- | A permanently unsatisfiable inference request, answered rather than
+-- redelivered.
+--
+-- The Engine publishes this when the requested checkpoint provably does not
+-- exist. Without it the only settlement for such a request is a negative
+-- acknowledgement, which redelivers forever and starves every other command on
+-- the shared subscription; the requester meanwhile learns nothing and waits out
+-- its full reply timeout.
+data InferenceFailure = InferenceFailure
+  { ifailCallId :: Text
+  , ifailExperimentHash :: Text
+  , ifailError :: Text
   }
   deriving stock (Eq, Show)
 
@@ -235,6 +253,28 @@ parseInferenceResult payload = do
     <$> value "call-id"
     <*> value "experiment-hash"
     <*> (value "output" >>= parseInferenceInput)
+
+-- | Parse the daemon's @renderInferenceFailure@ reply text.
+parseInferenceFailure :: Text -> Maybe InferenceFailure
+parseInferenceFailure payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "InferenceFailure" <- value "kind"
+  InferenceFailure
+    <$> value "call-id"
+    <*> value "experiment-hash"
+    <*> value "error"
+
+renderInferenceFailure :: InferenceFailure -> Text
+renderInferenceFailure failure =
+  Text.unlines
+    [ "kind: InferenceFailure"
+    , "call-id: " <> ifailCallId failure
+    , "experiment-hash: " <> ifailExperimentHash failure
+    , -- The reply is line-delimited, so a multi-line diagnosis would be parsed
+      -- as separate fields. Keep it to one line.
+      "error: " <> Text.unwords (Text.words (ifailError failure))
+    ]
 
 renderInferenceResult :: InferenceResult -> Text
 renderInferenceResult result =

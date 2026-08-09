@@ -55,8 +55,13 @@ defaultBaselineExperimentHash = "product-row-mnist-shallow-mlp"
 defaultCandidateExperimentHash :: String
 defaultCandidateExperimentHash = "product-row-mnist-deep-mlp"
 
+-- | Both compared rows are MNIST classifiers, and a trained classification
+-- | runtime declares a unit-image input transform, so every submitted value
+-- | must lie in `[0,1]`. The panel's default therefore stays inside that
+-- | domain; the wider `[-0.5, 2.0]` vector belongs to the standardized
+-- | regression row served by `Panels.GenericInference`.
 defaultInputText :: Array String
-defaultInputText = [ "0.25", "-0.5", "1.0", "2.0" ]
+defaultInputText = [ "0.25", "0.5", "1.0", "0.0" ]
 
 renderRequest :: Array Number -> CheckpointCompareRequest
 renderRequest input =

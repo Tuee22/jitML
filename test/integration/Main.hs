@@ -104,6 +104,7 @@ import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env)
+import JitML.Inference.Command qualified as InferenceCommand
 import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.Schema qualified as Numerics
 import JitML.Product.BrowserCatalogue qualified as BrowserCatalogue
@@ -457,18 +458,29 @@ stageCandidateSnapshot manifest payloads = do
           @?= CheckpointStore.preparedSnapshotManifestSha prepared
       pure prepared
 
--- | Stage a fully committed snapshot fixture and select it without invoking
+-- | Stage a snapshot fixture and select it through @latest@ without invoking
 -- the high-level completed writer.  Admission-negative fixtures use this to
 -- persist structurally invalid completion claims while still satisfying the
 -- storage writer protocol; the test can then observe the intended deeper
 -- admission error instead of being short-circuited as legacy storage.
+--
+-- The writer transaction kind follows the manifest: a completed transaction is
+-- only legal for a manifest that carries a completed-training witness, so a
+-- witness-less negative fixture stages a candidate snapshot instead.  The
+-- manual CAS below then hostilely selects it through @latest@, which is
+-- precisely the store state these tests must simulate.
 stagePreparedSnapshotAndPointer
   :: (HasMinIO m, MonadIO m)
   => Checkpoint.CheckpointManifest
   -> [(Text, ByteString.Lazy.ByteString)]
   -> m CheckpointStore.PreparedCheckpointSnapshot
 stagePreparedSnapshotAndPointer manifest payloads = do
-  prepared <- liftIO (requirePreparedCompletedSnapshot manifest payloads)
+  prepared <-
+    liftIO
+      ( case Checkpoint.manifestCompletedTraining manifest of
+          Nothing -> requirePreparedCandidateSnapshot manifest payloads
+          Just _ -> requirePreparedCompletedSnapshot manifest payloads
+      )
   traverse_
     ( \(objectKey, payload) -> do
         let ref = CheckpointStore.checkpointObjectRef objectKey
@@ -655,6 +667,11 @@ data AdmittedProductRowInventory = AdmittedProductRowInventory
   , admittedInventoryManifestBodySha :: !(Maybe Text)
   , admittedInventoryReplayPointers :: ![Checkpoint.ArtifactPointer]
   , admittedInventoryTranscriptPointers :: ![Checkpoint.ArtifactPointer]
+  , admittedInventoryTensorObjectKeys :: ![Text]
+  -- ^ Physical weight-object keys. These anchor the publishing
+  -- transaction's storage-snapshot namespace independently of the transcript
+  -- pointer under test, so the expected companion address is never derived
+  -- from the value it judges.
   , admittedInventoryRuntimePayload :: !(Maybe RuntimeArtifact.RawSupervisedRuntimePayload)
   , admittedInventoryDatasetShaAtRead :: !Text
   , admittedInventoryInitialJmw1Sha :: !Text
@@ -703,6 +720,8 @@ admittedProductRowInventory row admittedCompleted =
         , admittedInventoryReplayPointers = Checkpoint.manifestReplayPointers manifest
         , admittedInventoryTranscriptPointers =
             Checkpoint.manifestTranscriptPointers manifest
+        , admittedInventoryTensorObjectKeys =
+            fmap Checkpoint.tensorBlobKey (Checkpoint.manifestTensors manifest)
         , admittedInventoryRuntimePayload =
             RuntimeArtifact.supervisedRuntimePayloadToRaw
               <$> Checkpoint.manifestSupervisedRuntime manifest
@@ -743,15 +762,52 @@ admittedProductRowInventoryFailures expected inventory =
           <> expectedInventoryRowId expected
       | not (null (admittedInventoryReplayPointers inventory))
       ]
-    , transcriptPointerFailures expected (admittedInventoryTranscriptPointers inventory)
+    , transcriptPointerFailures
+        expected
+        (admittedInventoryTensorObjectKeys inventory)
+        (admittedInventoryTranscriptPointers inventory)
     , runtimeInventoryFailures expected inventory
     ]
 
+-- | Resolve the publishing transaction's storage-snapshot namespace from the
+-- row's physical weight objects alone.
+--
+-- Phase 262 binds every canonical original key to
+-- @snapshots\/\<snapshot-id\>\/objects\/sha256(original-full-key)@, so the
+-- expected companion address must be rebased into that namespace.  Deriving
+-- the namespace from the weights rather than from the transcript pointer keeps
+-- this an independent oracle: a pointer substituted into some other
+-- transaction's snapshot still fails, because the weights name the snapshot
+-- the manifest actually committed.
+inventoryStorageSnapshotId :: Text -> [Text] -> Either Text Text
+inventoryStorageSnapshotId experimentHash tensorKeys =
+  case tensorKeys of
+    [] ->
+      Left
+        "row declares no physical weight object to anchor its storage snapshot namespace"
+    _ ->
+      let prefix = "jitml-checkpoints/" <> experimentHash <> "/snapshots/"
+          scoped =
+            [ snapshotId
+            | key <- tensorKeys
+            , Just remainder <- [Text.stripPrefix prefix key]
+            , [snapshotId, "objects", originalKeySha] <- [Text.splitOn "/" remainder]
+            , null (canonicalShaFailures "snapshot id" snapshotId)
+            , null (canonicalShaFailures "scoped object key" originalKeySha)
+            ]
+       in case List.nub scoped of
+            [snapshotId]
+              | length scoped == length tensorKeys -> Right snapshotId
+            _ ->
+              Left
+                "row's physical weight objects do not share one exact storage snapshot namespace"
+
 transcriptPointerFailures
   :: ExpectedProductRowInventory
+  -> [Text]
   -> [Checkpoint.ArtifactPointer]
   -> [Text]
-transcriptPointerFailures expected pointers =
+transcriptPointerFailures expected tensorKeys pointers =
   case expectedTranscriptKind (expectedInventoryFamily expected) of
     Nothing ->
       [ "orphan transcript pointer inventory for supervised row "
@@ -766,7 +822,8 @@ transcriptPointerFailures expected pointers =
               <> " transcript pointer for row "
               <> expectedInventoryRowId expected
           ]
-        [pointer] -> transcriptPointerIdentityFailures expected expectedKind pointer
+        [pointer] ->
+          transcriptPointerIdentityFailures expected tensorKeys expectedKind pointer
         _ ->
           [ "duplicate/multiple transcript pointers for row "
               <> expectedInventoryRowId expected
@@ -776,15 +833,16 @@ transcriptPointerFailures expected pointers =
               <> Text.pack (show (length pointers))
           ]
             <> concatMap
-              (transcriptPointerIdentityFailures expected expectedKind)
+              (transcriptPointerIdentityFailures expected tensorKeys expectedKind)
               pointers
 
 transcriptPointerIdentityFailures
   :: ExpectedProductRowInventory
+  -> [Text]
   -> Text
   -> Checkpoint.ArtifactPointer
   -> [Text]
-transcriptPointerIdentityFailures expected expectedKind pointer =
+transcriptPointerIdentityFailures expected tensorKeys expectedKind pointer =
   let rowId = expectedInventoryRowId expected
       experimentHash = expectedInventoryExperimentHash expected
       pointerKind = Checkpoint.artifactPointerKind pointer
@@ -803,15 +861,26 @@ transcriptPointerIdentityFailures expected expectedKind pointer =
             ]
           Just pointerSha ->
             canonicalShaFailures ("transcript SHA for row " <> rowId) pointerSha
-              <> [ "substituted/orphan transcript pointer key for row "
-                     <> rowId
-                     <> ": expected "
-                     <> canonicalProductArtifactKey experimentHash expectedKind pointerSha
-                     <> ", got "
-                     <> pointerKey
-                 | pointerKey
-                     /= canonicalProductArtifactKey experimentHash expectedKind pointerSha
-                 ]
+              <> case inventoryStorageSnapshotId experimentHash tensorKeys of
+                Left reason -> [reason <> " for row " <> rowId]
+                Right snapshotId ->
+                  let expectedKey =
+                        Checkpoint.snapshotPhysicalObjectKey
+                          experimentHash
+                          snapshotId
+                          ( canonicalProductArtifactKey
+                              experimentHash
+                              expectedKind
+                              pointerSha
+                          )
+                   in [ "substituted/orphan transcript pointer key for row "
+                          <> rowId
+                          <> ": expected "
+                          <> expectedKey
+                          <> ", got "
+                          <> pointerKey
+                      | pointerKey /= expectedKey
+                      ]
 
 runtimeInventoryFailures
   :: ExpectedProductRowInventory
@@ -1935,18 +2004,29 @@ phase262BrowserCatalogueTests getAggregate =
                   CheckpointStore.listCheckpointManifestsMinIO
                     (BrowserCatalogue.productBrowserCatalogueRowExperimentHash row)
                 case remaining of
-                  Left err -> pure (Left (show err))
-                  Right manifests ->
-                    fmap
-                      (Bifunctor.first show)
-                      ( BrowserCatalogue.loadProductBrowserCatalogueGcRoots
-                          (BrowserCatalogue.productBrowserCatalogueRowExperimentHash row)
-                          manifests
+                  Left err ->
+                    liftIO
+                      ( assertFailureWithIO
+                          ( "post-delete manifest listing failed: "
+                              <> show err
+                          )
                       )
+                  Right manifests ->
+                    BrowserCatalogue.loadProductBrowserCatalogueGcRoots
+                      (BrowserCatalogue.productBrowserCatalogueRowExperimentHash row)
+                      manifests
             )
         liftIO $
           case missingRoot of
-            Left _ -> pure ()
+            -- The rejection must be the exact missing-root refusal, not any
+            -- Left: an interpreter or transport failure would otherwise let
+            -- this case pass without ever reaching the root admission check.
+            Left errors ->
+              errors
+                @?= BrowserCatalogue.CatalogueGcRootMissingManifest
+                  rootRef
+                  (BrowserCatalogue.productBrowserCatalogueRowManifestSha row)
+                :| []
             Right _ -> assertFailure "GC admitted a root whose exact manifest was missing"
   ]
 
@@ -1956,9 +2036,15 @@ withProductBrowserCatalogueFixture
   -> IO value
 withProductBrowserCatalogueFixture aggregate action =
   withSystemTempDirectory "jitml-browser-catalogue" $ \root -> do
+    -- Every checkpoint key is already bucket-prefixed
+    -- ("jitml-checkpoints/<experiment>/..."), and FilesystemMinIO resolves an
+    -- object as @root </> bucket </> key@.  The scenario checkpoint root and
+    -- the FilesystemMinIO root are therefore two views of the same directory,
+    -- so the mirror is root-to-root; appending the bucket name here would bury
+    -- every object one level too deep and fail every read.
     copyDirectoryTree
       (productScenarioAggregateCheckpointRoot aggregate)
-      (root </> "jitml-checkpoints")
+      root
     runFilesystemMinIO root $ do
       published <-
         BrowserCatalogue.publishProductBrowserCatalogue
@@ -2141,6 +2227,7 @@ instance HasMinIO SelectorChangingMinIO where
         liftIO (Text.IO.writeFile path (selectorChangingReplacement environment))
     pure result
   minioReadBytes ref = withFilesystemMinIO (minioReadBytes ref)
+  minioReadBytesWithETag ref = withFilesystemMinIO (minioReadBytesWithETag ref)
   putBlobIfAbsent ref payload = withFilesystemMinIO (putBlobIfAbsent ref payload)
   putBlobBytesIfAbsent ref payload =
     withFilesystemMinIO (putBlobBytesIfAbsent ref payload)
@@ -2178,25 +2265,22 @@ instance HasMinIO CorrectListingMinIO where
   minioPutIfAbsent ref payload = withCorrectFilesystemMinIO (minioPutIfAbsent ref payload)
   minioReadObject ref = withCorrectFilesystemMinIO (minioReadObject ref)
   minioReadBytes ref = withCorrectFilesystemMinIO (minioReadBytes ref)
+  minioReadBytesWithETag ref =
+    withCorrectFilesystemMinIO (minioReadBytesWithETag ref)
   putBlobIfAbsent ref payload = withCorrectFilesystemMinIO (putBlobIfAbsent ref payload)
   putBlobBytesIfAbsent ref payload =
     withCorrectFilesystemMinIO (putBlobBytesIfAbsent ref payload)
   casPointer ref expected payload =
     withCorrectFilesystemMinIO (casPointer ref expected payload)
-  listObjects bucket prefix = do
-    root <- CorrectListingMinIO ask
-    let prefixDirectory =
-          root
-            </> Text.unpack (unBucketName bucket)
-            </> Text.unpack prefix
-    exists <- liftIO (doesDirectoryExist prefixDirectory)
-    entries <- liftIO (if exists then listDirectory prefixDirectory else pure [])
-    pure
-      ( Right
-          [ ObjectRef bucket (ObjectKey (prefix <> Text.pack entry))
-          | entry <- entries
-          ]
-      )
+
+  -- ListObjectsV2 without a delimiter is flat over every key under the exact
+  -- prefix, so the listing must recurse into `snapshots/<id>/committed.cbor`
+  -- and `snapshots/<id>/reservations/<attempt>.cbor`. A single-directory
+  -- listing hides every writer commit and reservation, which makes
+  -- `listCheckpointManifestsMinIO` reject each snapshot-scoped manifest as
+  -- having neither a commit nor an active reservation.
+  listObjects bucket prefix =
+    withCorrectFilesystemMinIO (listObjects bucket prefix)
   deleteObject ref = withCorrectFilesystemMinIO (deleteObject ref)
 
 withCorrectFilesystemMinIO
@@ -3452,7 +3536,7 @@ main = do
                 `Text.isInfixOf` renderSubprocess putCommand
             )
           assertBool
-            "MinIO preserves legal S3 dot-only path segments"
+            "MinIO transmits the caller's key verbatim without dot-segment rewriting"
             ( "--path-as-is"
                 `Text.isInfixOf` renderSubprocess dotSegmentCommand
                 && "/jitml-checkpoints/objects/./literal/../key"
@@ -6580,8 +6664,12 @@ main = do
                 TuneResume.resumedSeeds outcome @?= [corruptSeed, missingSeed]
                 TuneResume.resumedTrials outcome @?= []
                 case TuneResume.resumeReadFailures outcome of
+                  -- The two failures are deliberately different kinds. Seed 7's
+                  -- object exists and does not decode; seed 8's object is not
+                  -- there at all, which the store reports as `SENotFound`
+                  -- rather than folding absence into an authorization failure.
                   [ (keyA, TuneResume.ResumeDecodeFailure message)
-                    , (keyB, TuneResume.ResumeServiceFailure (SEUnauthorized _))
+                    , (keyB, TuneResume.ResumeServiceFailure (SENotFound _))
                     ] -> do
                       keyA @?= corruptKey
                       keyB @?= missingKey
@@ -6774,15 +6862,33 @@ main = do
                         ((== substrate) . WorkflowMatrix.cellSubstrate)
                         WorkflowMatrix.workflowMatrix
                     inferenceReplyTopic = topologyTopic InferenceResultRoute substrate
+                    inferenceRequestTopic = topologyTopic InferenceRequestRoute substrate
                 length cells @?= length WorkflowMatrix.allWorkflows
                 inferenceSubscriptionsBefore <-
                   pulsarSubscriptionNamesWithPrefix inferenceReplyTopic "jitml-infer-"
+                requestBacklogBefore <-
+                  pulsarSubscriptionBacklog inferenceRequestTopic "jitml-engine"
                 traverse_ (runTypedExecutableWorkflowMatrixCell repoRoot binary publication) cells
                 inferenceSubscriptionsAfter <-
                   pulsarSubscriptionNamesWithPrefix inferenceReplyTopic "jitml-infer-"
                 let leakedSubscriptions =
                       filter (`notElem` inferenceSubscriptionsBefore) inferenceSubscriptionsAfter
                 leakedSubscriptions @?= []
+                -- The matrix's inference cell deliberately targets a checkpoint
+                -- that is never admitted. The Engine must ANSWER that request
+                -- terminally, not nack it forever: an unsettled request stays on
+                -- the shared `jitml-engine` subscription and starves every other
+                -- inference command, and the leak compounds on every run.
+                requestBacklogAfter <-
+                  pulsarSubscriptionBacklog inferenceRequestTopic "jitml-engine"
+                assertBool
+                  ( "WorkflowMatrix leaked an unsettled inference request onto the shared "
+                      <> "jitml-engine subscription: backlog "
+                      <> show requestBacklogBefore
+                      <> " -> "
+                      <> show requestBacklogAfter
+                  )
+                  (requestBacklogAfter <= requestBacklogBefore)
           , testCase "live HasMinIO conditional writes round-trip on jitml-checkpoints" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -6855,7 +6961,15 @@ main = do
                               ("expected pointer CAS OK on first write, got: " <> show err)
                           )
                 )
-          , testCase "live HasMinIO preserves and lists S3 dot-only path segments" $ do
+          , testCase "live HasMinIO refuses S3 dot-only path segments without aliasing" $ do
+              -- S3 resolves `/./` and `/../` path segments server-side, so a
+              -- key spelled with them cannot round-trip verbatim: the server
+              -- sees the collapsed key.  `--path-as-is` makes the client sign
+              -- the caller's exact bytes, so that divergence surfaces as a
+              -- refused request instead of silently writing to a different
+              -- address -- which in a content-addressed store would be a real
+              -- corruption.  This case pins the refusal AND, more importantly,
+              -- that nothing was written under the collapsed spelling.
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
                   settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
@@ -6863,9 +6977,56 @@ main = do
               uniqueSuffix <- pickRandomSuffix
               let prefix = "live-test/dot-segments/" <> uniqueSuffix <> "/"
                   ref = ObjectRef bucket (ObjectKey (prefix <> "./literal/../key"))
+                  -- The address the server would collapse that spelling onto.
+                  -- Nothing is ever created at the dot-segment spelling, so
+                  -- cleanup owns the alias: deleteObject treats a missing key
+                  -- as success, while a regression that DID alias gets swept
+                  -- out of the live bucket instead of leaking.
+                  aliasRef = ObjectRef bucket (ObjectKey (prefix <> "key"))
               withTemporaryMinioObjects
                 settings
                 "live HasMinIO dot-segment listObjects"
+                [aliasRef]
+                ( MinIOSubprocess.runMinIOSubprocess settings $ do
+                    writeResult <- putBlobIfAbsent ref "hello"
+                    liftIO $ case writeResult of
+                      Right _ ->
+                        assertFailure
+                          ( "expected live MinIO to refuse the dot-segment key "
+                              <> show ref
+                              <> "; the write was accepted, so the client and "
+                              <> "server disagree on the object address"
+                          )
+                      Left _ -> pure ()
+                    -- The substantive guarantee: the refused write did not
+                    -- land under the collapsed address either.
+                    result <- listObjects bucket prefix
+                    liftIO $ case result of
+                      Right refs ->
+                        assertBool
+                          ( "expected no object under "
+                              <> show prefix
+                              <> " after the refused dot-segment write; got: "
+                              <> show refs
+                          )
+                          (null refs)
+                      Left err ->
+                        assertFailure ("listObjects failed live: " <> show err)
+                )
+          , testCase "live HasMinIO preserves legal dotted names in S3 keys" $ do
+              -- Dots inside a *name* are legal and must survive verbatim; only
+              -- whole `.`/`..` path segments are resolved away.  This keeps the
+              -- positive half of the contract covered.
+              publication <- requireLivePublication
+              let edgePort = Publication.publicationEdgePort publication
+                  settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+                  bucket = BucketName "jitml-checkpoints"
+              uniqueSuffix <- pickRandomSuffix
+              let prefix = "live-test/dotted-names/" <> uniqueSuffix <> "/"
+                  ref = ObjectRef bucket (ObjectKey (prefix <> "a.b/..c/key.txt"))
+              withTemporaryMinioObjects
+                settings
+                "live HasMinIO dotted-name listObjects"
                 [ref]
                 ( MinIOSubprocess.runMinIOSubprocess settings $ do
                     writeResult <- putBlobIfAbsent ref "hello"
@@ -6878,7 +7039,7 @@ main = do
                         assertBool
                           ( "expected listObjects to include "
                               <> show ref
-                              <> " under exact dot-segment prefix; got: "
+                              <> " under exact dotted-name prefix; got: "
                               <> show refs
                           )
                           (ref `elem` refs)
@@ -7107,6 +7268,88 @@ main = do
                 "Harbor live-test repository cleanup"
                 ExitSuccess
                 cleanupOutcome
+          , testCase
+              "live unsatisfiable inference request never starves the shared Engine subscription (Phase 262)"
+              $ do
+                -- The co-tenancy invariant. Every inference command shares the
+                -- one durable `jitml-engine` subscription, and its consumers
+                -- carry a single permit. A request whose checkpoint does not
+                -- exist can never succeed, so if it is merely nacked it returns
+                -- to that subscription forever and every unrelated command
+                -- queues behind it until the reply deadline expires. This asserts
+                -- the Engine ANSWERS such a request terminally instead.
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    pulsarSettings =
+                      PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    substrate = Publication.publicationSubstrate publication
+                    requestTopic = topologyTopic InferenceRequestRoute substrate
+                uniqueSuffix <- pickRandomSuffix
+                let absentExperimentHash = "phase262-absent-" <> uniqueSuffix
+                backlogBefore <- pulsarSubscriptionBacklog requestTopic "jitml-engine"
+                -- A request that provably cannot be served.
+                absent <-
+                  InferenceCommand.requestInferenceViaEngine
+                    pulsarSettings
+                    substrate
+                    absentExperimentHash
+                    [1.0, 2.0]
+                case absent of
+                  Right output ->
+                    assertFailure
+                      ( "expected the absent checkpoint "
+                          <> Text.unpack absentExperimentHash
+                          <> " to fail closed; got output "
+                          <> show output
+                      )
+                  Left reason ->
+                    assertBool
+                      ( "expected a checkpoint-absence diagnosis for "
+                          <> Text.unpack absentExperimentHash
+                          <> "; got: "
+                          <> Text.unpack reason
+                      )
+                      (not ("no matching reply received" `Text.isInfixOf` reason))
+                -- An unrelated command must still be served promptly. The
+                -- production reply deadline is 30s; a starved subscription blows
+                -- straight through it, so this bounds well inside that.
+                listed <-
+                  Timeout.timeout
+                    15_000_000
+                    ( InferenceCommand.publishListCheckpointsCommandOnly
+                        pulsarSettings
+                        substrate
+                    )
+                case listed of
+                  Nothing ->
+                    assertFailure
+                      ( "an unrelated ListCheckpoints did not complete within 15s after an "
+                          <> "unsatisfiable inference request; the shared jitml-engine "
+                          <> "subscription is starved"
+                      )
+                  -- Being ANSWERED is the invariant, not succeeding. Ordering
+                  -- inside the live subtree does not guarantee a published
+                  -- catalogue yet, and "there is no catalogue" is a legitimate
+                  -- prompt answer. Only the reply-timeout sentinel means the
+                  -- Engine never answered at all, which is what starvation
+                  -- looks like from here.
+                  Just (Left reason) ->
+                    assertBool
+                      ( "ListCheckpoints returned the no-reply sentinel rather than an "
+                          <> "answer, so the shared jitml-engine subscription is starved: "
+                          <> Text.unpack reason
+                      )
+                      (not ("no matching reply received" `Text.isInfixOf` reason))
+                  Just (Right _) -> pure ()
+                backlogAfter <- pulsarSubscriptionBacklog requestTopic "jitml-engine"
+                assertBool
+                  ( "the unsatisfiable inference request was left unsettled on the shared "
+                      <> "jitml-engine subscription: backlog "
+                      <> show backlogBefore
+                      <> " -> "
+                      <> show backlogAfter
+                  )
+                  (backlogAfter <= backlogBefore)
           , testCase "live daemon places StartTraining by substrate (Sprint 13.3 / 12.12)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -8058,6 +8301,135 @@ main = do
                         assertProcessExitCode "jitml internal gc second run" (ExitFailure 3) secondOutcome
                 )
           , testCase
+              "live jitml internal gc reaps a zero-payload-object snapshot as reaped-objects=1 (Phase 262 CLI)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+                    substrateText = renderSubstrate (Publication.publicationSubstrate publication)
+                uniqueSuffix <- pickRandomSuffix
+                -- The lowest step declares no payload objects at all, so its
+                -- exact `committed.cbor` is the only GC-owned key in its
+                -- snapshot namespace and reaping it must report exactly one
+                -- object.  The five retained steps each carry a payload so the
+                -- store still holds multi-object snapshots around it.
+                let experimentHash = "live-cli-gc-empty-" <> uniqueSuffix
+                    zeroPayloadManifest =
+                      (Checkpoint.emptyManifest "empty" experimentHash [])
+                        { Checkpoint.manifestStep = 1
+                        }
+                    retainedSteps = [2 .. 6] :: [Int]
+                    payloadFor stepIdx = Checkpoint.encodeJmw1 [fromIntegral stepIdx]
+                    retainedInputFor stepIdx =
+                      let payload = payloadFor stepIdx
+                          logicalBlobKey =
+                            Checkpoint.blobKey
+                              experimentHash
+                              (WeightCodec.jmw1ContentSha payload)
+                          manifest =
+                            (Checkpoint.emptyManifest "m" experimentHash [])
+                              { Checkpoint.manifestStep = fromIntegral stepIdx
+                              , Checkpoint.manifestTensors =
+                                  [ Checkpoint.TensorBlob
+                                      ("dense.weight.step" <> Text.pack (show stepIdx))
+                                      [1]
+                                      logicalBlobKey
+                                  ]
+                              }
+                       in (manifest, [(logicalBlobKey, payload)])
+                    retainedInputs = fmap retainedInputFor retainedSteps
+                    inputs = (zeroPayloadManifest, []) : retainedInputs
+                prepared <-
+                  traverse (uncurry requirePreparedCandidateSnapshot) inputs
+                zeroPayloadPrepared <-
+                  case prepared of
+                    value : _ -> pure value
+                    [] ->
+                      assertFailureWithIO
+                        "zero-payload GC fixture prepared no snapshots"
+                CheckpointStore.preparedSnapshotPayloads zeroPayloadPrepared @?= []
+                let manifests = fmap CheckpointStore.preparedSnapshotManifest prepared
+                    expectedPlan =
+                      CheckpointStore.buildGcPlan
+                        experimentHash
+                        (CheckpointStore.LastN 5)
+                        manifests
+                        []
+                expectedEvent <-
+                  case CheckpointStore.gcReapEvents expectedPlan of
+                    [event] -> pure event
+                    events ->
+                      assertFailureWithIO
+                        ("expected one zero-payload-object GC event, got " <> show events)
+                CheckpointStore.gcReapedManifestSha expectedEvent
+                  @?= CheckpointStore.preparedSnapshotManifestSha zeroPayloadPrepared
+                CheckpointStore.gcReapedObjectKeys expectedEvent
+                  @?= [ CheckpointStore.writerCommitObjectKey
+                          (CheckpointStore.preparedSnapshotCommit zeroPayloadPrepared)
+                      ]
+                let outboxRefs =
+                      concatMap
+                        ( \intent ->
+                            let event = CheckpointStore.gcIntentEvent intent
+                                ready =
+                                  CheckpointStore.GcReadyEvent
+                                    { CheckpointStore.gcReadyEvent = event
+                                    , CheckpointStore.gcReadyEventId =
+                                        CheckpointStore.gcIntentEventId intent
+                                    , CheckpointStore.gcReadySubstrate = substrateText
+                                    , CheckpointStore.gcReadyTimestampNs = 1
+                                    }
+                             in fmap
+                                  CheckpointStore.checkpointObjectRef
+                                  [ CheckpointStore.gcIntentObjectKey intent
+                                  , CheckpointStore.gcReadyObjectKey ready
+                                  , CheckpointStore.gcPublishedObjectKey ready
+                                  ]
+                        )
+                        (CheckpointStore.gcPlanIntents expectedPlan)
+                    ownedObjects =
+                      concatMap preparedSnapshotObjectRefs prepared
+                        <> outboxRefs
+                        <> [experimentGcFenceRef experimentHash]
+                withTemporaryMinioObjects
+                  settings
+                  "live zero-payload-object CLI GC fixture"
+                  ownedObjects
+                  ( do
+                      MinIOSubprocess.runMinIOSubprocess settings $
+                        traverse_
+                          (void . uncurry stageCandidateSnapshot)
+                          inputs
+                      jitmlBinary <- locateJitmlBinary
+                      case jitmlBinary of
+                        Nothing ->
+                          assertFailure
+                            "jitml binary not found — needed for the Phase 262 zero-payload CLI gc test"
+                        Just binary -> do
+                          repoRoot <- makeAbsolute "."
+                          let gcCmd =
+                                (subprocess binary ["internal", "gc", experimentHash])
+                                  { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just repoRoot
+                                  }
+                          firstOutcome <- runStreaming defaultSubprocessEnv gcCmd
+                          assertProcessExitCode
+                            "jitml internal gc zero-payload first run"
+                            ExitSuccess
+                            firstOutcome
+                          assertProcessStreamContains
+                            "jitml internal gc zero-payload first run"
+                            ProcessStdout
+                            "kept=5 reaped=1 reaped-objects=1"
+                            firstOutcome
+                          -- Five multi-object snapshots remain → kept=5,
+                          -- reaped=0 → gcNoOp → exit 3.
+                          secondOutcome <- runStreaming defaultSubprocessEnv gcCmd
+                          assertProcessExitCode
+                            "jitml internal gc zero-payload second run"
+                            (ExitFailure 3)
+                            secondOutcome
+                  )
+          , testCase
               "live jitml internal gc publishes the committed snapshot deletion set (Phase 262 events)"
               $ do
                 publication <- requireLivePublication
@@ -8943,6 +9315,12 @@ withWorkflowMatrixCheckpoint settings experimentHash action = do
                 <> ": "
                 <> show err
             )
+    -- The inference cell publishes a durable request against this deliberately
+    -- unadmitted checkpoint, and the bracket below deletes the staged objects as
+    -- soon as this returns. That is safe only because the Engine now ANSWERS an
+    -- absent checkpoint terminally: `jitml inference run` returns once its reply
+    -- arrives, so the request is already settled here. The enclosing test's
+    -- `jitml-engine` backlog assertion is what holds that guarantee to account.
     action
 
 assertWorkflowMatrixDatasetVerified :: MinIOSubprocess.MinIOSettings -> IO ()
@@ -10384,6 +10762,76 @@ assertPulsarSubscriptionAbsent topic subscriptionName =
               <> ":\n"
               <> Text.unpack (renderProcessOutcome outcome)
           )
+
+-- | Undelivered message count for one named subscription.
+--
+-- The result-side inventory above proves reply cursors are not leaked. This is
+-- its request-side counterpart: a request that is nacked forever never leaves
+-- the backlog, so it occupies the Engine's shared subscription indefinitely and
+-- starves every other command on it. An absent topic or subscription is zero —
+-- nothing has been published, which is exactly the empty state.
+pulsarSubscriptionBacklog :: Topic event -> Text -> IO Integer
+pulsarSubscriptionBacklog topic subscription = do
+  let statsCommand =
+        subprocess
+          "kubectl"
+          [ "--kubeconfig"
+          , "./.build/jitml.kubeconfig"
+          , "exec"
+          , "-n"
+          , "platform"
+          , "pulsar-toolset-0"
+          , "--"
+          , "/pulsar/bin/pulsar-admin"
+          , "topics"
+          , "stats"
+          , topicName topic
+          ]
+  outcome <- runStreaming defaultSubprocessEnv statsCommand
+  case outcome of
+    ProcessSucceeded transcript ->
+      case eitherDecode
+        (ByteString.Lazy.fromStrict (Text.Encoding.encodeUtf8 (processTranscriptStdout transcript))) of
+        Right (Aeson.Object objectValue)
+          | Just (Aeson.Object subscriptions) <-
+              AesonKeyMap.lookup "subscriptions" objectValue ->
+              case AesonKeyMap.lookup (AesonKey.fromText subscription) subscriptions of
+                Nothing -> pure 0
+                Just (Aeson.Object stats) ->
+                  case AesonKeyMap.lookup "msgBacklog" stats of
+                    Just (Aeson.Number backlog) -> pure (truncate backlog)
+                    other ->
+                      assertFailureWithIO
+                        ( "Pulsar subscription "
+                            <> Text.unpack subscription
+                            <> " on "
+                            <> Text.unpack (topicName topic)
+                            <> " has no numeric msgBacklog: "
+                            <> show other
+                        )
+                other ->
+                  assertFailureWithIO
+                    ( "Pulsar subscription "
+                        <> Text.unpack subscription
+                        <> " stats are not an object: "
+                        <> show other
+                    )
+        parsed ->
+          assertFailureWithIO
+            ( "failed to decode Pulsar subscription backlog for "
+                <> Text.unpack (topicName topic)
+                <> ": "
+                <> show parsed
+            )
+    ProcessFailed _
+      | pulsarTopicAbsentFromStats topic outcome -> pure 0
+      | otherwise ->
+          assertFailureWithIO
+            ( "failed to inspect Pulsar subscription backlog for "
+                <> Text.unpack (topicName topic)
+                <> ":\n"
+                <> Text.unpack (renderProcessOutcome outcome)
+            )
 
 pulsarSubscriptionNamesWithPrefix :: Topic event -> Text -> IO [Text]
 pulsarSubscriptionNamesWithPrefix topic prefix = do

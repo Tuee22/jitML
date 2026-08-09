@@ -44,7 +44,9 @@ docker compose run --rm jitml jitml check-code
 
 - Blocked until Sprint `262.1` publishes measured browser cells.
 - Replace the committed `linux-cpu` fragment only after the full live validation
-  passes and retire the remaining metadata-only row helpers.
+  passes and retire the remaining metadata-only row helpers, including the
+  provenance-free `CheckpointList` renderers recorded in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Documentation Requirements
 

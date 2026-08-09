@@ -93,6 +93,7 @@ import JitML.Service.Capabilities
   , subscriptionTopic
   )
 import JitML.Service.Clients qualified as ServiceClients
+import JitML.Service.Command qualified as ServiceCommand
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
   , DaemonCommand (..)
@@ -1821,6 +1822,57 @@ main =
               assertBool "batch admission predates the test clock" (admitted >= before)
               assertBool "batch admission exceeds the test clock" (admitted <= after)
               assertBool "batch deadline does not follow admission" (deadline > toInteger admitted)
+      , testCase
+          "the batch window cancels a batched forward pass but never a control command (Phase 262)"
+          $ do
+            -- The window is a batching target, so it may bound the forward
+            -- passes it coalesces. Applying it to a control command instead
+            -- produces work that can never fit its own deadline: admitting the
+            -- authenticated 55-row catalogue takes seconds longer than the
+            -- batching budget, so `ListCheckpoints` was cancelled, nacked, and
+            -- redelivered forever. On this Failover subscription that silences
+            -- every command queued behind it.
+            policy <- expectRight (InferenceBatch.mkBatchPolicy 64 5_000_000)
+            let window = InferenceBatch.batchWindow (InferenceBatch.openBatch 0 policy () ())
+                deadlineFor = ServiceCommand.daemonCommandBatchDeadline window
+                inference = InferenceDaemonCommand LinuxCPU
+                batched =
+                  Just (InferenceBatch.batchWindowDeadlineNanoseconds window)
+            deadlineFor
+              ( inference
+                  ( Inference.RunInference
+                      Inference.InferenceRequest
+                        { Inference.irCallId = "call"
+                        , Inference.irExperimentHash = "product-row-mnist-deep-mlp"
+                        , Inference.irReplyTopic = "reply"
+                        , Inference.irInput = [0.5]
+                        }
+                  )
+              )
+              @?= batched
+            deadlineFor
+              ( inference
+                  ( Inference.ListCheckpoints
+                      Inference.ListCheckpointsCommand
+                        { Inference.lccCallId = "call"
+                        , Inference.lccReplyTopic = "reply"
+                        }
+                  )
+              )
+              @?= Nothing
+            deadlineFor
+              ( inference
+                  ( Inference.LoadTranscript
+                      Inference.LoadTranscriptCommand
+                        { Inference.ltcCallId = "call"
+                        , Inference.ltcTranscriptId = "transcript"
+                        , Inference.ltcReplyTopic = "reply"
+                        }
+                  )
+              )
+              @?= Nothing
+            -- Non-inference domains keep the window they already honoured.
+            deadlineFor (syntheticTrainingCommand "train" LinuxCPU) @?= batched
       , testCase "consumerLoopExit short-circuits on first PulsarFailed (Sprint 5.5)" $ do
           eventA <- expectDaemonCommandEventId (syntheticTrainingCommand "a" LinuxCPU)
           eventB <- expectDaemonCommandEventId (syntheticTrainingCommand "b" LinuxCPU)

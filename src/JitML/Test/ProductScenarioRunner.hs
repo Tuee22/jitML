@@ -17,6 +17,7 @@
 -- inference eligibility before the report completion can be minted.
 module JitML.Test.ProductScenarioRunner
   ( ProductScenarioRunError (..)
+  , productScenarioWorkflowTimeoutMicros
   , renderProductScenarioRunError
   , runProductScenario
   )
@@ -501,6 +502,9 @@ scenarioBackend workdir handle =
 -- | Finite operational wall-clock envelope for one exact ProductScenario.
 -- This bounds command execution and evidence resolution without changing the
 -- projection's TrainingBudget, PlanId, or completion-equality requirements.
+-- It is exported so the envelope the runner installs is the same value the
+-- unit gate pins; the heaviest canonical row exceeded the former two-hour
+-- envelope before it could publish completion.
 productScenarioWorkflowTimeoutMicros :: Int
 productScenarioWorkflowTimeoutMicros = 4 * 60 * 60 * 1_000_000
 

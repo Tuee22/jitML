@@ -3,6 +3,7 @@
 module JitML.Routes
   ( Route (..)
   , adminPortalRoutes
+  , demoApiRouteTimeoutSeconds
   , renderHTTPRoute
   , renderRouteTable
   , routeRegistry
@@ -24,10 +25,31 @@ data Route = Route
   }
   deriving stock (Eq, Show)
 
+-- | Edge budget for the demo API.
+--
+-- The webapp brokers request/reply work through the Engine: it waits up to
+-- @inferenceReplyStartupTimeoutMicros@ for its correlated reply consumer and
+-- then up to @inferenceReplyTimeoutMicros@ for the Engine's answer. The edge
+-- must outlast that sum, so that whatever the webapp concludes — a result, or
+-- its typed fail-closed reason — is what the browser observes, rather than a
+-- gateway timeout that discards it. @JitML.Routes@ cannot import the inference
+-- command module (it sits below @JitML.Bootstrap@, which imports this module),
+-- so the relationship is held by a @jitml-unit@ case instead of by
+-- construction.
+demoApiRouteTimeoutSeconds :: Int
+demoApiRouteTimeoutSeconds = 80
+
 routeRegistry :: [Route]
 routeRegistry =
   [ Route "demo-root" "/" "jitml-demo" 80 Nothing False Nothing Nothing
-  , Route "demo-api" "/api" "jitml-demo" 80 Nothing False Nothing Nothing
+  , -- The demo API brokers request/reply work through the Engine, so the edge
+    -- must outlast the webapp's own reply budget: a shorter edge timeout
+    -- returns a gateway error for a request the webapp would have answered,
+    -- and the browser never sees the typed result or the typed fail-closed
+    -- reason. Browsing the authenticated 55-row catalogue is the heaviest of
+    -- those reads and took 6.5-9.9s measured live, well past the gateway's
+    -- 15s default. See `demoApiRouteTimeoutSeconds`.
+    Route "demo-api" "/api" "jitml-demo" 80 Nothing False (Just demoApiRouteTimeoutSeconds) Nothing
   , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True Nothing Nothing
   , Route "jitml-service-healthz" "/healthz" "jitml-service" 8080 Nothing False Nothing Nothing
   , Route "jitml-service-readyz" "/readyz" "jitml-service" 8080 Nothing False Nothing Nothing

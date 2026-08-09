@@ -45,6 +45,7 @@ code-quality gate below.
 `test/negative-controls/Main.hs`,
 `test/daemon-lifecycle/SigtermRegression.hs`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`,
+`../documents/engineering/daemon_architecture.md`,
 `../documents/engineering/unit_testing_policy.md`,
 `../documents/engineering/run_contract.md`,
 `../documents/engineering/product_completion_contract.md`,
@@ -54,8 +55,11 @@ code-quality gate below.
 `../documents/engineering/training_metrics_and_splits.md`,
 `../documents/engineering/training_workloads.md`,
 `../documents/engineering/haskell_code_guide.md`,
+`../documents/engineering/pulsar_ml_workflow.md`,
 `README.md`, `00-overview.md`, `development_plan_standards.md`,
+`phase-71-receipt-bound-delivery-and-total-settlement.md`,
 `phase-124-bit-determinism-contract-and-retention-reconciler.md`,
+`phase-160-functional-core-live-workflow-interpreter.md`,
 `phase-174-live-minio-checkpoint-round-trip-and-retention.md`,
 `phase-276-negative-control-suite.md`,
 `system-components.md`, `legacy-tracking-for-deletion.md`, `../README.md`
@@ -227,12 +231,91 @@ check stands in for a measured browser outcome.
   protobuf bytes; reject noncanonical protobuf, unsafe/aliased/cross-experiment
   keys, a key set without exactly one snapshot and one commit, forged manifest
   SHA, and forged semantic event id.
+- Sign every MinIO request over the caller's exact key bytes (`--path-as-is`),
+  so a key spelled with `.` or `..` path segments is refused rather than
+  silently written to the address S3 collapses it onto. S3 resolves those
+  segments server-side, so such a key cannot round-trip verbatim; in a
+  content-addressed store a silent collapse is object substitution. Dots inside
+  a name (`a.b/..c/key.txt`) are ordinary characters and must survive
+  unchanged. The live capability gate proves both halves: the dot-segment write
+  is refused and leaves nothing under the collapsed address, and the
+  legal dotted-name key round-trips and lists exactly.
 - Reject generic weighted and unweighted `JitML.Service.Workload` mutations of
   noncanonical bucket/key references and Store-owned checkpoint `manifests/`,
   `pointers/`, `snapshots/`, and `gc/` prefixes before `HasMinIO`, while
   continuing to permit ordinary canonical data keys. Filesystem-normalizing
   dot, dot-dot, empty-segment, absolute, backslash, control, and bucket aliases
   must fail before the capability call.
+- Answer a permanently unsatisfiable inference-family command on its reply
+  topic instead of negatively acknowledging it. Every `RunInference`,
+  `CompareCheckpoints`, `SelectAdversarialMove`, `ListCheckpoints`, and
+  `LoadTranscript` command shares the one durable `jitml-engine` subscription,
+  so a command that can never succeed and is only nacked returns to that
+  subscription forever and starves every unrelated command behind it. A load
+  failure is terminal exactly when its operands are immutable — the checkpoint
+  is proved ABSENT, or the admitted runtime rejects the request's own input —
+  and is then published as a call-id-keyed `InferenceFailure` frame that both
+  settles the delivery and gives the requester a diagnosis instead of a reply
+  timeout. Every other failure, including any runner-side execution failure,
+  stays transient and still nacks, because a redelivery can legitimately
+  succeed once the underlying condition clears.
+- Hold the `CheckpointList` wire form to one field set at both ends. The Engine
+  renders the authenticated catalogue's provenance — run, substrate, catalogue
+  digest, and source-journal digest — because the browser renders artifact
+  cards only from an authenticated catalogue, and the generated browser
+  contract requires exactly those fields. The topology validator permits and
+  requires the same set. A narrower validator does not make the frame stricter:
+  it makes the Engine's own reply unpublishable, which the Engine can only
+  report as a failed publication and therefore as a command that never
+  succeeds. A standing unit case binds the validator's field list to the
+  generated contract's.
+- Make "publish a correlated request before its reply cursor exists"
+  unrepresentable. A consumer whose socket is open is not yet a consumer the
+  broker will deliver to: the reply subscription starts from the latest position,
+  so its cursor is planted at the topic tail when the broker creates the
+  subscription, and a reply published before that creation sits permanently
+  behind the cursor and cannot be replayed. Readiness is therefore a proved fact,
+  not an observed lifecycle event. An opaque `ReplyCursor` carries that proof:
+  its constructor is hidden and it is minted only from an acknowledged Pulsar
+  admin subscription CREATE, mirroring the admin DELETE the owned cursor already
+  issues. The correlated publish takes that token and reads both the request
+  topic and the reply-topic text out of it, so a request cannot be published
+  before its cursor exists and cannot name a reply topic its subscription does
+  not cover. `ConsumerSessionConnected` returns to being purely diagnostic and
+  gates nothing.
+- Give the demo API edge route a budget that outlasts the webapp's own reply
+  budget. The webapp brokers request/reply work through the Engine, so an edge
+  timeout shorter than that budget returns a gateway error for a request the
+  webapp would have answered, and the browser never observes the typed result or
+  the typed fail-closed reason. The route registry carries the value explicitly
+  rather than inheriting the gateway default, and a standing unit case holds it
+  above the webapp's reply-consumer startup plus reply deadline.
+- Cancel a command against the inference batch window only when that window is
+  the right clock for it. The window is a batching target: it bounds how long a
+  batch may wait to accumulate, and with it the latency of the forward passes it
+  coalesces. Admitting the authenticated 55-row catalogue takes seconds longer
+  than that target by design, so measuring `ListCheckpoints` against it produces
+  a command that can never fit its own deadline — cancelled, nacked
+  `RetryRequested`, redelivered, cancelled again, without ever recording an
+  outcome error. The subscription is `Failover`, so that one command then blocks
+  every command behind it and the whole inference surface goes silent. Control
+  commands therefore dispatch without the batching deadline; their work stays
+  bounded by the retry policy and the drain deadline.
+- Answer a `ListCheckpoints` command whose catalogue cannot be admitted instead
+  of negatively acknowledging it, on the same reasoning
+  `LoadTranscript` already uses. Before any catalogue is published the selector
+  object is simply absent, and no catalogue appears because a browse request
+  was redelivered; nacking parks an unanswerable command on the shared
+  subscription and starves every inference command behind it. The reply is a
+  call-id-keyed `InferenceFailure` carrying the admission diagnosis, so the
+  panel fails closed with a reason rather than waiting out its deadline.
+- Submit browser-panel inputs inside the input domain the compared or served
+  trained runtime declares. A trained classification row declares a unit-image
+  transform, so a panel bound to such a row submits values in `[0,1]`; the
+  wider standardized-regression vector belongs only to a regression row. An
+  out-of-domain default is unanswerable by construction, and the standing unit
+  gate reads the panel source to keep the submitted default and the compared
+  rows' declared domain in agreement.
 
 ### Catalogue Retention Policy
 
@@ -298,9 +381,25 @@ docker compose run --rm jitml jitml test jitml-e2e --live --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
 docker compose run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
+
+The correlated-cursor cases are additionally runnable on their own against the
+same live publication, so the reply-loss obligation does not require a second
+full-matrix lane to observe:
+
+```bash
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu \
+  --test-options='-p "correlated reply"'
+```
+
+The `jitml-daemon-lifecycle` stanza is part of this phase's gate because it owns
+the executable proof that generic weighted and unweighted
+`JitML.Service.Workload` mutations reject noncanonical bucket/key references and
+the Store-owned `manifests/`, `pointers/`, `snapshots/`, and `gc/` prefixes
+before `HasMinIO`, while still permitting ordinary canonical data keys.
 
 ### Current Validation State
 
@@ -332,6 +431,130 @@ no `TrainingBudget`, `PlanId`, seed, dataset quantity, optimizer-update count,
 ordering, niceness, or completion equality. Closure starts a new command-owned
 scope and executes all 55 rows; it neither resumes row 10 nor reuses the nine
 partial roots.
+
+The 2026-08-05 live attempt under the four-hour envelope cleared the whole
+integration stanza — **193 / 193** in 36,899s, including the complete 55-row
+producer and every Phase `261` and Phase `262` aggregate- and
+catalogue-dependent case — and then failed closed in Playwright: **14 passed /
+9 failed / 54 did not run**, exit `1`. Every failure was an Engine-answered
+panel (`mnist`, generic inference, `cifar` upload, checkpoint compare,
+`connect4`, adversarial selectors, checkpoint browse, transcript replay); every
+panel the webapp answers alone passed. The retained transcript is the
+gitignored `.build/gate-logs/final262-e2e-run2.log`.
+
+The 2026-08-07 live attempt against immutable image
+`jitml:local@sha256:61d1cf72b6e845b8006f2a0cc2b100feb7c04765ab65c8f6822fc1aa49562460`
+and cluster-publication file SHA-256
+`fb1655ec0b4148f889cf682a25f36d6321a98899c7fcc0d13e3e961f06897e87` — built from
+a purged cluster, a fresh nine-component publication, and the exact 12
+SHA-verified dataset objects — passed integration **192 / 194** in 36,572s and
+failed closed before Playwright. Every standing gate on that same image passed:
+`jitml-unit`, `jitml-negative-controls`, `jitml-model-convergence`,
+`jitml-daemon-lifecycle`, `jitml docs check`, and `jitml check-code`. The two
+integration failures were both consequences of the settlement work above rather
+than of the surfaces this phase owns:
+
+- `Tune replay reports corrupt transcripts as typed decode failures` asserted the
+  pre-existing `SEUnauthorized` for an absent object. Absence is now the
+  distinct `SENotFound` that terminal settlement is decided on, so the fixture
+  asserts the typed value the store actually reports.
+- `live unsatisfiable inference request never starves the shared Engine
+  subscription` proved its own invariant against a second starvation source. The
+  Engine answered the absent-checkpoint request terminally, but the unrelated
+  `ListCheckpoints` that follows it did not return within 15s. The Engine logs
+  show why: with no catalogue published yet, `ListCheckpoints` failed with
+  `CatalogueSelectorReadFailed … (SENotFound "minioReadBytes: object missing")`,
+  classified that as transient, and nacked it back onto the shared
+  subscription. Auditing that path also found the `CheckpointList` frame's field
+  set had drifted: the Engine renders the catalogue's `run-id`, `substrate`,
+  `catalogue-sha256`, and `source-journal-sha256`, and the generated browser
+  contract requires them, but the topology validator still carried the narrower
+  pre-catalogue set — so a successful browse reply was unpublishable and would
+  have starved the same subscription once a catalogue existed. Both are closed
+  above, and a standing unit case now binds the validator's field list to the
+  generated contract's.
+
+The 2026-08-07 re-run of the live gate against the same image and publication
+passed integration **194 / 194** in 36,761s and every standing gate, and ran
+Playwright for the first time this cycle: **20 passed / 3 failed / 54 did not
+run**. The settlement work above is confirmed live — no redelivery loop occurred
+across the whole run, and six previously failing panels now pass. The three
+remaining failures are `checkpoint browse`, `transcript replay`, and the
+`e2e.product.*` matrix that depends on the browse artifacts.
+
+Their single cause was isolated against the warm cluster rather than inferred.
+`POST /api/checkpoints` returned `504 upstream request timeout` at exactly
+15.000s at the edge and, bypassing the edge, exhausted the webapp's own 30s
+reply deadline with `no matching reply received from the Engine`. The Engine
+logged `dispatched inference` for the command and no error; the reply topic held
+its published `CheckpointList` frames; and the request topic's `jitml-engine`
+subscription sat at backlog 11 with 0 unacked behind a head-of-line
+`ListCheckpoints`. Raising `inferenceMaxLatencyMillis` from `5000` to `120000`
+on the live daemon and restarting it made the same browse succeed **5 / 5 in
+6.5–9.9s**; the value was then reverted. A catalogue browse therefore
+legitimately exceeds the batching budget it was being measured against, which is
+the defect closed above. An earlier probe appeared to refute this and was a
+false negative: it ran while the daemon was still replaying the stuck backlog,
+so the probe queued behind the very messages under test.
+
+The 2026-08-09 run against immutable image
+`jitml:local@sha256:fa76aa99fea6e870b80a1c9c93c5787425c81b8288a587f06781113277d4e43b`
+passed integration **194 / 194** in 36,305s and every standing gate, and
+Playwright returned **75 passed / 1 failed / 1 flaky**. The batch-deadline fix
+is confirmed: the whole 55-row `e2e.product.*` matrix executes, where 54 of its
+cases previously never ran. The edge-budget fix is confirmed in the cluster —
+the deployed `demo-api` HTTPRoute carries
+`{"request":"80s","backendRequest":"80s"}` — and the browse failure moved from
+exactly `15.0s` to exactly `30.2s`, which is the webapp's own reply deadline
+rather than the gateway's.
+
+The residual failure is a request/reply readiness race, not a latency problem.
+Three identical browse requests against the idle warm cluster returned
+`4.98s`, `4.77s`, and then a full `30s` timeout, so roughly one reply in three
+is lost outright. `runInferenceCommandWithReply` treats
+`ConsumerSessionConnected` — emitted when the bridge's WebSocket opens — as
+readiness, and publishes the command immediately afterwards. The reply consumer
+runs in `pullMode` with `subscriptionInitialPosition=Latest`, so the broker
+does not establish its cursor until the parent sends its first `permit`. A
+reply published inside that window has no cursor to land on and cannot be
+replayed, and the caller then waits out its full deadline. The Engine is not
+implicated: it logs `dispatched inference` with no error, and its published
+`CheckpointList` frames are present on `inference.result.linux-cpu`.
+
+Closing this requires readiness to be a proved fact rather than an observed
+lifecycle event, which is the `ReplyCursor` obligation in the deliverables
+above. A permitted-session event was considered and rejected: the bridge calls
+`permitOne()` synchronously in the same socket-open handler that emits
+`connected`, so such an event would arrive microseconds later, would still carry
+no evidence, and would swap one lucky-timing signal for another.
+
+This phase's image build also raised the `exe:jitml` GHC heap cap in
+`docker/Dockerfile` from `-M2G` to `-M6G`. Phase `160` recorded the same cap as
+deliberately preserved when it isolated the reply supervisor behind `NOINLINE`
+boundaries; that remains the right structural fix and is unchanged. The cap had
+since become the binding constraint on the generated `Proto.Jitml.Rl` module
+under `-O2 -fexpose-all-unfoldings`, so the same source built on one run and
+failed with a GHC `heap overflow` panic on the next. Serialisation (`jobs: 1`)
+is what keeps the layer within host memory; the cap is a runaway guard, and it
+now leaves the headroom that guard was meant to leave.
+
+The diagnosis is recorded here because it defines the phase's remaining scope
+rather than closing it. The `checkpoint-compare-lab` panel carried a
+`[0.25, -0.5, 1.0, 2.0]` default input left over from its retired
+generic-tensor target while now comparing two MNIST rows, whose trained
+runtime declares a unit-image transform admitting only `[0,1]`. The resulting
+`RunInference` command could never be served. The Engine classified that
+refusal as transient and negatively acknowledged it, so Pulsar redelivered the
+identical command onto the one durable `jitml-engine` subscription
+indefinitely — **3,808** recorded redeliveries across the following 13 hours —
+and every other inference command starved behind it. A live probe against the
+still-running cluster reproduced it exactly: `jitml inference run
+--experiment-hash product-row-mnist-deep-mlp` returned `no matching reply
+received from the Engine` for a checkpoint the same run had admitted, and
+`pulsar-admin topics peek-messages` recovered the poisoned `kind:
+RunInference` command verbatim. Both halves are therefore in scope: the panel
+submits inside the declared domain, and an unsatisfiable command settles by
+being answered rather than by starving its subscription.
 
 Pre-outbox historical source-mounted validation passed the focused shared-blob GC
 regression (**1 / 1**), the complete `jitml-unit` stanza (**785 / 785**), and
@@ -444,6 +667,35 @@ evidence or a completed removal.
   terminal flow, and does not republish or recreate the timestamp on the
   steady-state retry; an absent ready record is accepted only when the exact
   published tombstone already exists.
+- Validate the shared-subscription co-tenancy invariant against the final
+  image. Prove that an unsatisfiable inference command is answered on its reply
+  topic as a call-id-keyed `InferenceFailure` and leaves no backlog, that an
+  unrelated command is still served promptly afterwards, that a request input
+  outside the admitted runtime's declared domain is classified terminal while a
+  runner-side execution failure stays retryable, and that a batch keeps
+  dispatching its remaining commands after one member fails.
+- Implement and validate the correlated reply cursor. Confirm the Pulsar admin
+  subscription CREATE and its cursor-position body against the live broker before
+  writing the transport, then render it exactly as the existing DELETE is
+  rendered — bounded redirects preserving the method, bounded connect and total
+  time, and a status classification in which `409` is success because an
+  already-existing subscription still proves the cursor. Mint the opaque
+  `ReplyCursor` only from an acknowledged CREATE, take the correlated publish
+  through that token alone, and release the cursor on every scope exit. Retire
+  the untyped readiness `MVar`, the `ConsumerSessionConnected` gate, and the bare
+  request/reply topic triple.
+- Prove the cursor contract offline before spending a live lane on it: a
+  negative control in which a reply published with no cursor is lost and the
+  same reply with a pre-created cursor is delivered; an ordered admin/publish/
+  delivery log showing CREATE strictly precedes publication; and a
+  cursor-creation failure that fails closed without publishing at all.
+- Replace the self-referential discriminator in the co-tenancy assertion. It
+  currently rejects the reply-timeout sentinel, which is the same string a lost
+  reply produces, so it cannot distinguish a starved subscription from a lost
+  correlated reply. Assert positively instead: the absent-checkpoint answer
+  carries its own experiment hash, and the unrelated command returns a parsed
+  `CheckpointList`. Add a repeated-request case, because a loss rate below one
+  cannot be observed by a single invocation.
 - Run `jitml docs generate` after the `src/JitML/CLI/Spec.hs` GC description is
   final so the generated command Markdown, manpages, completions/help fixtures,
   and README command mirrors are updated only from `CommandSpec`; do not
@@ -458,6 +710,8 @@ evidence or a completed removal.
 **Engineering docs to create/update:**
 
 - `../documents/engineering/purescript_frontend.md`
+- `../documents/engineering/daemon_architecture.md`
+- `../documents/engineering/pulsar_ml_workflow.md`
 - `../documents/engineering/unit_testing_policy.md`
 - `../documents/engineering/run_contract.md`
 - `../documents/engineering/product_completion_contract.md`

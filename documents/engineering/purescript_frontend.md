@@ -232,7 +232,20 @@ publication. That handler loads the selected checkpoint with
 `loadInferenceCheckpointWithWeights`, dispatches to the publication substrate's
 weighted runner, and renders typed MNIST, generic tensor, CIFAR/ImageNet,
 checkpoint comparison, and Connect 4 responses. Without the injected handler
-those routes still fail closed with `503 checkpoint-required`. The Connect 4 panel
+those routes still fail closed with `503 checkpoint-required`.
+
+A panel submits inputs inside the input domain the row it targets declares. A
+trained classification row declares a unit-image transform, so the MNIST,
+CIFAR/ImageNet, and checkpoint-comparison panels submit values in `[0,1]`; the
+wider standardized vector belongs only to the generic-tensor panel's regression
+row. This is a correctness obligation rather than a presentation detail: an
+out-of-domain default asks the Engine for an answer no admitted checkpoint can
+give, and the served path rejects it every time it is retried. The standing
+`jitml-unit` gate reads `web/src/Panels/CheckpointCompare.purs` and holds its
+default input to the domain of the rows it names. The Engine's side of that
+contract — answering such a request terminally rather than starving its shared
+subscription — is
+[Terminal inference settlement](daemon_architecture.md#terminal-inference-settlement). The Connect 4 panel
 now acts as the adversarial-games panel: it selects Connect 4, Othello, Hex,
 or Gomoku, renders the corresponding board dimensions from the move
 transcript, displays the typed MCTS/value response, renders per-game rule

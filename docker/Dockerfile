@@ -176,8 +176,16 @@ COPY . .
 # concurrent GHC processes and OOM-SIGSEGVs the compile; `jobs: 1` keeps the
 # warning-clean build serial and within memory. The explicit `--jobs=1` on
 # the binary build below reinforces that serial limit for the heap-capped exe.
+#
+# The heap cap is a runaway guard, not a memory budget. Serialisation is what
+# keeps this layer within host memory: with `jobs: 1` exactly one GHC runs, so
+# the cap bounds that single process. At 2G it had become the binding
+# constraint instead — the generated `Proto.Jitml.Rl` sits right at that
+# boundary under `-O2 -fexpose-all-unfoldings`, so the build failed with a GHC
+# `heap overflow` panic on some runs and succeeded on others. 6G restores the
+# headroom the guard was meant to leave while still bounding one process.
 RUN printf 'jobs: 1\n' >> /root/.cabal/config \
-    && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M2G -RTS" exe:jitml \
+    && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M6G -RTS" exe:jitml \
     && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
     && chmod 0755 /usr/local/bin/jitml \
     && jitml check-code

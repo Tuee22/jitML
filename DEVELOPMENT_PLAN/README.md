@@ -20,7 +20,7 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-08-02).** The Phase `19`–`34` registry is **57 Done / 1
+**🔄 Active (2026-08-09).** The Phase `19`–`34` registry is **57 Done / 1
 Active / 0 Planned / 11 Blocked**. Phase `262` is the only Active phase; the
 numerically ordered open suffix is `262 → 263 → 268 → 272 → 275 → 277 → 279 →
 280 → 281 → 284 → 287 → 288`. Every later member is Blocked by its immediate
@@ -29,14 +29,27 @@ predecessor, and Phase `272` remains the hard Apple-Silicon host boundary.
 Phase `262` has no current immutable-image closure pass count yet. Its required
 same-source/image validation is `docker compose build jitml`, retained
 `bootstrap/linux-cpu.sh up`, live `jitml-e2e`, `jitml-unit`,
-`jitml-negative-controls`, `jitml-model-convergence`, `jitml docs check`, and
+`jitml-negative-controls`, `jitml-model-convergence`, `jitml-daemon-lifecycle`,
+`jitml docs check`, and
 `jitml check-code`; exact commands and the latest failed attempt are recorded in
 [Phase 262 → Validation](phase-262-contract-driven-live-execution-browser-and-playwright.md#validation).
 The active protocol obligations are maintained in
 [Phase 262 → Remaining Work](phase-262-contract-driven-live-execution-browser-and-playwright.md#remaining-work).
-Its failed live attempt, pre-build checks, and adversarial audit remain explicit
+Its failed live attempts, pre-build checks, and adversarial audit remain explicit
 non-closure evidence in
 [Phase 262 → Current Validation State](phase-262-contract-driven-live-execution-browser-and-playwright.md#current-validation-state).
+
+Its scope expanded on 2026-08-09 after the live lane isolated a correlated
+request/reply defect: roughly one reply in three was lost because a request is
+published on the strength of a socket-open lifecycle event rather than proof
+that the broker created the reply cursor. Phase `262` now additionally owns an
+opaque `ReplyCursor` minted from an acknowledged Pulsar admin subscription
+CREATE, and the correlated publish that requires it. The transport surface this
+corrects was declared `Done` by Phase `71`, whose `Done` is now defined on its
+retained delivery/settlement surface with the establishment obligation
+transferred forward per rule `M(a)`; Phase `160` carries the matching note for
+the reply supervisor and the compiler heap cap. Neither reopens, and neither
+creates a dependency edge.
 The latest closed predecessor, Phase `261`, passed integration **161 / 161**
 (its owned subtree **60 / 60**), unit **772 / 772**, exact **55-row** aggregate
 re-admission, **9** live components, **12** SHA-verified dataset objects, docs,

@@ -1770,7 +1770,15 @@ The representation technique follows the invariant:
   facts such as finite measurements, non-empty seed cohorts, unique event ids,
   and passing criteria;
 - ordinary runtime state is a closed sum whose variants are all legal, never a
-  record of independent `Bool` and `Maybe` fields.
+  record of independent `Bool` and `Maybe` fields;
+- where a required fact is established by an effect rather than decided by
+  inspection, the value that proves it is minted by that effect and by nothing
+  else, and the operation depending on the fact accepts only that value. A
+  correlated request is publishable only against a `ReplyCursor` minted from an
+  acknowledged broker subscription creation, exactly as a serveable
+  `ArtifactRef` is obtainable only from a completed admission. A lifecycle event
+  observed on the way to the fact — a socket reporting itself open — is a
+  diagnostic, never the proof.
 
 Historical Sprint `10.12` validation established broker receipt identity,
 settlement, closed daemon state, indexed daemon effects, hidden-constructor

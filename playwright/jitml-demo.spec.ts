@@ -500,7 +500,9 @@ test("checkpoint compare panel renders output deltas", async ({ page }) => {
   await page.locator("#checkpoint-compare-lab-submit").click();
   const response = await responsePromise;
   const body = await response.text();
-  expect(response.request().postData() ?? "").toContain("input: 0.7,-0.5,1.0,2.0");
+  // Both compared rows are MNIST classifiers, so every value must stay inside
+  // the unit-image domain the trained runtime declares.
+  expect(response.request().postData() ?? "").toContain("input: 0.7,0.5,1.0,0.0");
   expect(response.request().postData() ?? "").toContain(
     "baseline-experiment-hash: product-row-mnist-shallow-mlp",
   );

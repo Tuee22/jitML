@@ -3,6 +3,8 @@
 module JitML.Inference.Command
   ( InferenceCommandRuntime (..)
   , inferenceReplyAppError
+  , inferenceReplyStartupTimeoutMicros
+  , inferenceReplyTimeoutMicros
   , matchingInferenceResult
   , publishAdversarialMoveCommandOnly
   , publishCheckpointCompareCommandOnly
@@ -120,6 +122,7 @@ requestInferenceViaEngine settings substrate experimentHash input = do
     settings
     substrate
     ("jitml-infer-" <> callId)
+    callId
     ( \replyTopic ->
         Inference.RunInference
           Inference.InferenceRequest
@@ -162,10 +165,12 @@ runInferenceCommandWithReply
   :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> Substrate
   -> Text
+  -> Text
+  -- ^ this call's id, so a terminal failure frame is matched to this request
   -> (Text -> Inference.InferenceCommand)
   -> (Text -> Maybe result)
   -> IO (Either Text result)
-runInferenceCommandWithReply settings substrate subscriptionName buildCommand match =
+runInferenceCommandWithReply settings substrate subscriptionName callId buildCommand match =
   case inferenceRequestReplyPlan substrate subscriptionName of
     Left err -> pure (Left err)
     Right (requestTopic, replyTopic, subscription) -> do
@@ -178,7 +183,7 @@ runInferenceCommandWithReply settings substrate subscriptionName buildCommand ma
                 Capabilities.pulsarConsumeUntil
                   subscription
                   (observeReplySession startupSignal)
-                  (handleReplyDelivery match)
+                  (handleReplyDelivery callId resultSignal match)
             case consumed of
               Left failure -> do
                 void
@@ -262,17 +267,36 @@ observeReplySession startupSignal sessionEvent =
       Capabilities.ConsumerSessionDrained -> pure ()
 
 handleReplyDelivery
-  :: (Text -> Maybe result)
+  :: Text
+  -> MVar (Either Text result)
+  -> (Text -> Maybe result)
   -> Capabilities.Delivery Topology.InferenceResultMessage
   -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess (Capabilities.ConsumerDecision result)
-handleReplyDelivery match delivery =
+handleReplyDelivery callId resultSignal match delivery =
   let payload =
         Topology.inferenceResultMessagePayload
           (Capabilities.deliveryEvent delivery)
-   in pure $
-        case match payload of
-          Just result -> Capabilities.done Capabilities.ack result
-          Nothing -> Capabilities.continue Capabilities.ack
+      -- The reply topic is shared, so a failure frame only answers THIS request
+      -- when its call id matches; another call's terminal failure must not be
+      -- misattributed here.
+      terminalFailure =
+        case Inference.parseInferenceFailure payload of
+          Just failure
+            | Inference.ifailCallId failure == callId ->
+                Just (Inference.ifailError failure)
+          _ -> Nothing
+   in case terminalFailure of
+        -- A terminal failure is a real answer. Complete the caller's wait with
+        -- its diagnosis rather than letting the reply timeout expire; the scope
+        -- then tears the cursor down as it would after any answered request.
+        Just reason -> do
+          liftIO (void (tryPutMVar resultSignal (Left reason)))
+          pure (Capabilities.continue Capabilities.ack)
+        Nothing ->
+          pure $
+            case match payload of
+              Just result -> Capabilities.done Capabilities.ack result
+              Nothing -> Capabilities.continue Capabilities.ack
 
 mapLeftText :: (Show err) => Text -> Either err value -> Either Text value
 mapLeftText context =
@@ -348,6 +372,7 @@ publishAdversarialMoveCommandOnly settings substrate game experimentHash moves h
     settings
     substrate
     ("jitml-move-" <> callId)
+    callId
     ( \replyTopic ->
         Inference.SelectAdversarialMove
           Inference.AdversarialMoveCommand
@@ -379,6 +404,7 @@ publishListCheckpointsCommandOnly settings substrate = do
     settings
     substrate
     ("jitml-checkpoints-" <> callId)
+    callId
     ( \replyTopic ->
         Inference.ListCheckpoints
           Inference.ListCheckpointsCommand
@@ -404,6 +430,7 @@ publishLoadTranscriptCommandOnly settings substrate transcriptId = do
     settings
     substrate
     ("jitml-transcript-" <> callId)
+    callId
     ( \replyTopic ->
         Inference.LoadTranscript
           Inference.LoadTranscriptCommand

@@ -852,6 +852,7 @@ renderServiceError (SEConflict message) = "conflict: " <> message
 renderServiceError (SEUnauthorized message) = "unauthorized: " <> message
 renderServiceError (SETimeout message) = "timeout: " <> message
 renderServiceError (SETransient message) = "transient: " <> message
+renderServiceError (SENotFound message) = "not-found: " <> message
 
 renderDaemonClientProbeStatuses :: [DaemonClientProbeStatus] -> Text
 renderDaemonClientProbeStatuses [] = "(none)\n"

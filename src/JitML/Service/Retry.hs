@@ -9,6 +9,7 @@ module JitML.Service.Retry
   , retryServiceAction
   , retryServiceActionEither
   , retryServiceActionWith
+  , serviceErrorPermanent
   , serviceErrorToAppError
   )
 where
@@ -35,6 +36,12 @@ data ServiceError
   | SEUnauthorized Text
   | SETimeout Text
   | SETransient Text
+  | -- | The addressed object does not exist. Distinct from 'SEUnauthorized'
+    -- because absence is terminal: retrying or redelivering cannot make an
+    -- object appear, whereas a 401/403 can clear once credentials or clock
+    -- skew resolve. Callers that settle work use 'serviceErrorPermanent' to
+    -- tell those apart.
+    SENotFound Text
   deriving stock (Eq, Show)
 
 renderRetryPolicyDhall :: RetryPolicy -> Text
@@ -226,12 +233,28 @@ retryableServiceError (SEConflict _) = True
 retryableServiceError (SETimeout _) = True
 retryableServiceError (SETransient _) = True
 retryableServiceError (SEUnauthorized _) = False
+retryableServiceError (SENotFound _) = False
+
+-- | Is this failure permanent for the addressed resource?
+--
+-- Only absence qualifies. An authorization failure is deliberately excluded:
+-- 401/403 can clear on their own (credential reload, clock skew, an edge route
+-- programmed after the request), so treating it as permanent would discard work
+-- that a redelivery would have completed. Settlement decisions must use this
+-- rather than @not . retryableServiceError@, which conflates the two.
+serviceErrorPermanent :: ServiceError -> Bool
+serviceErrorPermanent (SENotFound _) = True
+serviceErrorPermanent (SEConflict _) = False
+serviceErrorPermanent (SEUnauthorized _) = False
+serviceErrorPermanent (SETimeout _) = False
+serviceErrorPermanent (SETransient _) = False
 
 serviceErrorToAppError :: ServiceError -> AppError
 serviceErrorToAppError (SEConflict message) = MinIOFailed ("conflict: " <> message)
 serviceErrorToAppError (SEUnauthorized message) = MinIOFailed ("unauthorized: " <> message)
 serviceErrorToAppError (SETimeout message) = PulsarFailed ("timeout: " <> message)
 serviceErrorToAppError (SETransient message) = PulsarFailed ("transient: " <> message)
+serviceErrorToAppError (SENotFound message) = MinIOFailed ("not-found: " <> message)
 
 showText :: (Show a) => a -> Text
 showText = Text.pack . show

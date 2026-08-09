@@ -7,6 +7,7 @@ module JitML.Product.Publisher
   , runTrainAndPublishProductRows
   , runTrainAndPublishProductRowsForInvocation
   , selectInternalProductRows
+  , snapshotScopedPointer
   , validateAdmittedProductCheckpoint
   , validateProductCompletedTrainingPlanId
   , supervisedPublishMetricRows
@@ -15,7 +16,8 @@ module JitML.Product.Publisher
 where
 
 import JitML.Product.Publisher.Audit
-  ( validateAdmittedProductCheckpoint
+  ( snapshotScopedPointer
+  , validateAdmittedProductCheckpoint
   , validateProductCompletedTrainingPlanId
   )
 import JitML.Product.Publisher.Orchestrator

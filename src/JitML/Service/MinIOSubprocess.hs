@@ -223,7 +223,7 @@ instance HasMinIO MinIOSubprocess where
         invokeCurl
           "minioReadBytes"
           ["200"]
-          MissingIsUnauthorized
+          MissingIsNotFound
           (minioGetObjectSubprocess settings ref bodyPath)
           bodyPath
       pure (fst <$> result)
@@ -236,7 +236,7 @@ instance HasMinIO MinIOSubprocess where
           invokeCurl
             "minioReadBytesWithETag"
             ["200"]
-            MissingIsUnauthorized
+            MissingIsNotFound
             (minioGetObjectWithEtagSubprocess settings ref bodyPath etagPath)
             bodyPath
         case result of
@@ -337,6 +337,9 @@ data MissingObjectMode
   = MissingIsUnauthorized
   | MissingIsConflict
   | MissingIsSuccess
+  | -- | A read whose object simply is not there. Reported as 'SENotFound' so
+    -- callers can distinguish terminal absence from a 401/403 that may clear.
+    MissingIsNotFound
   deriving stock (Eq, Show)
 
 invokeCurl
@@ -361,8 +364,18 @@ invokeCurl tag successCodes missingMode command bodyPath = do
           pure (Right (body, status))
       | status == "404" && missingMode == MissingIsConflict ->
           pure (Left (SEConflict (tag <> ": object missing")))
+      | status == "404" && missingMode == MissingIsNotFound ->
+          pure (Left (SENotFound (tag <> ": object missing")))
       | status == "401" || status == "403" || status == "404" ->
-          pure (Left (SEUnauthorized (tag <> ": HTTP " <> status)))
+          -- Carry S3's error body through. Discarding it turns a precise
+          -- diagnosis (SignatureDoesNotMatch, and the exact key the server
+          -- resolved the request onto) into a bare status code.
+          pure
+            ( Left
+                ( SEUnauthorized
+                    (tag <> ": HTTP " <> status <> ": " <> decodeBody body)
+                )
+            )
       | otherwise ->
           pure (Left (SETransient (tag <> ": HTTP " <> status <> ": " <> decodeBody body)))
      where

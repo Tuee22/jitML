@@ -6,6 +6,8 @@
 
 module Main where
 
+import Codec.Serialise qualified as Serialise
+import Control.Applicative ((<|>))
 import Control.Concurrent (MVar, forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import Control.Exception (IOException, bracket_, finally, try)
 import Control.Exception qualified as Exception
@@ -19,13 +21,14 @@ import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as AesonKeyMap
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
-import Data.Char (isDigit)
+import Data.Char (intToDigit, isDigit)
 import Data.Foldable (for_, toList, traverse_)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -70,6 +73,9 @@ import Data.Vector qualified as Vector
 import Data.Vector.Unboxed qualified
 import JitML.App
   ( alphaZeroArtifactStep
+  , convergeBoundedView
+  , freshGcConvergenceAttemptBound
+  , freshGcConvergenceFailure
   , gcFreshPlanIntentsToPersist
   , gcFreshTerminalRecoveryWork
   , inferenceReplyAppError
@@ -138,6 +144,7 @@ import JitML.Generated.Registry
   , generatedSectionRules
   )
 import JitML.Inference.AdversarialMove qualified as AdversarialMove
+import JitML.Inference.Command qualified as InferenceCommand
 import JitML.Inference.Decode qualified as Decode
 import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
@@ -198,6 +205,7 @@ import JitML.Product.PhaseStatus
   )
 import JitML.Product.PhaseStatus qualified as PhaseStatus
 import JitML.Product.Pipeline qualified as ProductPipeline
+import JitML.Product.Publisher qualified as Publisher
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Inference qualified as ProtoInference
 import JitML.Proto.Rl qualified as ProtoRl
@@ -257,6 +265,7 @@ import JitML.Service.InferenceReplyScope (runInferenceReplyScope, runInferenceRe
 import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Service.Retry qualified as ServiceRetry
 import JitML.Service.RunConfig qualified as RunConfig
+import JitML.Service.Transcript qualified as Transcript
 import JitML.Service.WebSocket qualified as WS
 import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Outcome
@@ -1864,6 +1873,208 @@ phase262PreparedTensorSnapshot experimentHash tag step =
       { Checkpoint.manifestStep = step
       }
 
+-- A manifest whose admitted runtime declares the unit-image input transform
+-- every trained classification row uses: a 2x2 single-channel image, so a legal
+-- request carries exactly four values, each in @[0,1]@.
+phase262UnitImageServingManifest :: Checkpoint.CheckpointManifest
+phase262UnitImageServingManifest =
+  phase262ServingManifest
+    ( Runtime.RawUnitImageInput
+        Runtime.RawRuntimeImageGeometry
+          { Runtime.rawRuntimeImageWidth = 2
+          , Runtime.rawRuntimeImageHeight = 2
+          , Runtime.rawRuntimeImageChannels = 1
+          }
+    )
+    (Runtime.RawClassificationRuntimeTask 4)
+
+-- The regression counterpart: a standardized four-feature input, which admits
+-- any finite value. It is what makes the unit-image rejection above a statement
+-- about the declared domain rather than about the literal numbers.
+phase262StandardizedServingManifest :: Checkpoint.CheckpointManifest
+phase262StandardizedServingManifest =
+  phase262ServingManifest
+    (Runtime.RawStandardizeInput [0.0, 0.0, 0.0, 0.0] [1.0, 1.0, 1.0, 1.0])
+    (Runtime.RawRegressionRuntimeTask 1)
+
+phase262ServingManifest
+  :: Runtime.RawRuntimeInputTransform
+  -> Runtime.RawRuntimeTask
+  -> Checkpoint.CheckpointManifest
+phase262ServingManifest inputTransform task =
+  (completedTestManifest 4)
+    { Checkpoint.manifestSupervisedRuntime = Just payload
+    }
+ where
+  payload =
+    case Runtime.refineSupervisedRuntimePayload raw of
+      Left err ->
+        error ("Phase 262 serving-manifest fixture failed: " <> Text.unpack err)
+      Right refined -> refined
+  raw =
+    Runtime.RawSupervisedRuntimePayload
+      { Runtime.rawRuntimePayloadRowId = "phase262-serving"
+      , Runtime.rawRuntimePayloadOrigin = Runtime.RawProductRowProjectionOrigin
+      , Runtime.rawRuntimePayloadPlanId = Text.replicate 64 "e"
+      , Runtime.rawRuntimePayloadDatasetSha256 = Text.replicate 64 "a"
+      , Runtime.rawRuntimePayloadInitialJmw1Sha256 = Text.replicate 64 "b"
+      , Runtime.rawRuntimePayloadFinalJmw1Sha256 = Text.replicate 64 "c"
+      , Runtime.rawRuntimePayloadRuntime =
+          Runtime.RawSupervisedRuntime
+            { Runtime.rawSupervisedRuntimeTask = task
+            , Runtime.rawSupervisedRuntimeInputTransform = inputTransform
+            , Runtime.rawSupervisedRuntimeOutputTransform = Runtime.RawIdentityOutput
+            }
+      , Runtime.rawRuntimePayloadLayerGraphMetadata = Nothing
+      }
+
+-- | Every inference reply kind, rendered by the Engine's own renderer.
+phase262RenderedInferenceReplies :: [(String, Text)]
+phase262RenderedInferenceReplies =
+  [
+    ( "InferenceResult"
+    , ProtoInference.renderInferenceResult
+        ProtoInference.InferenceResult
+          { ProtoInference.iresCallId = "unit-call"
+          , ProtoInference.iresExperimentHash = "product-row-mnist-deep-mlp"
+          , ProtoInference.iresOutput = [0.25, 0.75]
+          }
+    )
+  ,
+    ( "InferenceFailure"
+    , ProtoInference.renderInferenceFailure
+        ProtoInference.InferenceFailure
+          { ProtoInference.ifailCallId = "unit-call"
+          , ProtoInference.ifailExperimentHash = "product-row-mnist-deep-mlp"
+          , ProtoInference.ifailError = "inference: request input rejected"
+          }
+    )
+  ,
+    ( "CheckpointCompareResult"
+    , ProtoInference.renderCheckpointCompareResult
+        ProtoInference.CheckpointCompareResult
+          { ProtoInference.ccrCallId = "unit-call"
+          , ProtoInference.ccrBaselineExperimentHash = "product-row-mnist-shallow-mlp"
+          , ProtoInference.ccrCandidateExperimentHash = "product-row-mnist-deep-mlp"
+          , ProtoInference.ccrBaselineOutput = [0.25]
+          , ProtoInference.ccrCandidateOutput = [0.5]
+          , ProtoInference.ccrMaxAbsDelta = 0.25
+          , ProtoInference.ccrMeanAbsDelta = 0.25
+          }
+    )
+  ,
+    ( "AdversarialMoveResult"
+    , ProtoInference.renderAdversarialMoveResult
+        ProtoInference.AdversarialMoveResult
+          { ProtoInference.amrCallId = "unit-call"
+          , ProtoInference.amrExperimentHash = "product-row-connect4"
+          , ProtoInference.amrGame = "connect4"
+          , ProtoInference.amrChosenColumn = 3
+          , ProtoInference.amrLegalMoves = [0, 1, 2, 3]
+          , ProtoInference.amrVisitCounts = [1, 2, 3, 4]
+          , ProtoInference.amrPolicyPriors = [0.1, 0.2, 0.3, 0.4]
+          , ProtoInference.amrValueEstimate = 0.5
+          , ProtoInference.amrGameOver = False
+          , ProtoInference.amrTranscriptId = "transcript-1"
+          }
+    )
+  ,
+    ( "TranscriptReplay"
+    , Workload.renderTranscriptReplayResult
+        "unit-call"
+        "transcript-1"
+        Transcript.TranscriptRecord
+          { Transcript.transcriptGame = "connect4"
+          , Transcript.transcriptExperimentHash = "product-row-connect4"
+          , Transcript.transcriptMoves = [1, 2, 3]
+          , Transcript.transcriptAnalysis = "complete"
+          }
+    )
+  , -- The transcript fail path, which answers with an empty replay rather than
+    -- redelivering. It publishes only because the wire form admits empty game
+    -- and experiment-hash values; a stricter form would make the Engine's own
+    -- fallback unpublishable and starve the shared subscription.
+
+    ( "TranscriptReplay (unavailable)"
+    , Workload.renderTranscriptReplayResult
+        "unit-call"
+        "transcript-missing"
+        Transcript.TranscriptRecord
+          { Transcript.transcriptGame = ""
+          , Transcript.transcriptExperimentHash = ""
+          , Transcript.transcriptMoves = []
+          , Transcript.transcriptAnalysis = "transcript unavailable: absent"
+          }
+    )
+  , ("CheckpointList", phase262CheckpointListFrame)
+  ]
+
+-- | One authenticated @CheckpointList@ frame with zero rows, spelled out
+-- literally rather than rendered, so the wire form is pinned independently of
+-- the renderer that produces it.
+phase262CheckpointListFrame :: Text
+phase262CheckpointListFrame =
+  Text.unlines
+    [ "kind: CheckpointList"
+    , "call-id: unit-call"
+    , "panel: checkpoint-browse"
+    , "status: published"
+    , "run-id: unit-run"
+    , "substrate: linux-cpu"
+    , "catalogue-sha256: " <> Text.replicate 64 "a"
+    , "source-journal-sha256: " <> Text.replicate 64 "b"
+    , "count: 0"
+    , "selector-state: fail-closed:no-inference-eligible-artifact"
+    ]
+
+-- | The field names the generated browser contract accepts on a
+-- @CheckpointList@ frame, read out of its @checkpointFieldNames@ binding.
+phase262BrowserCheckpointFieldNames :: Text -> IO [Text]
+phase262BrowserCheckpointFieldNames generated =
+  case break ("checkpointFieldNames =" `Text.isPrefixOf`) (fmap Text.strip (Text.lines generated)) of
+    (_, []) -> assertFailure "generated contracts declare no checkpointFieldNames"
+    (_, _ : rest) ->
+      pure
+        [ name
+        | line <- takeWhile (not . Text.isPrefixOf "]") rest
+        , Just quoted <- [Text.stripPrefix "[ " line <|> Text.stripPrefix ", " line]
+        , let name = Text.dropAround (== '"') (Text.strip quoted)
+        , not (Text.null name)
+        ]
+
+-- | Read the right-hand side of a top-level @name = ...@ binding out of a
+-- PureScript panel.
+phase262PanelBinding :: Text -> Text -> IO Text
+phase262PanelBinding source name =
+  case mapMaybe (Text.stripPrefix (name <> " = ")) (Text.lines source) of
+    [] -> assertFailure ("panel declares no " <> Text.unpack name)
+    binding : _ -> pure (Text.strip binding)
+
+-- | Read a top-level @name = "literal"@ binding out of a PureScript panel.
+phase262PanelStringField :: Text -> Text -> IO Text
+phase262PanelStringField source name =
+  Text.dropAround (== '"') <$> phase262PanelBinding source name
+
+-- | Read the compare panel's @defaultInputText@ array as numbers.
+phase262PanelDefaultInput :: Text -> IO [Double]
+phase262PanelDefaultInput source = do
+  binding <- phase262PanelBinding source "defaultInputText"
+  let literals =
+        filter (not . Text.null)
+          . fmap (Text.dropAround (== '"') . Text.strip)
+          . Text.splitOn ","
+          . Text.dropAround (\char -> char == '[' || char == ']')
+          . Text.strip
+          $ binding
+  traverse readPanelNumber literals
+ where
+  readPanelNumber literal =
+    case reads (Text.unpack literal) of
+      [(value, "")] -> pure value
+      _ ->
+        assertFailure
+          ("compare panel default input is not numeric: " <> Text.unpack literal)
+
 phase262PreparedGcObjectKeys
   :: CheckpointStore.PreparedCheckpointSnapshot
   -> [Text]
@@ -1874,6 +2085,53 @@ phase262PreparedGcObjectKeys prepared =
                (CheckpointStore.preparedSnapshotCommit prepared)
            ]
     )
+
+-- Independent lowercase-hex renderer for the experiment-fence text envelope.
+-- Deliberately does not call Store's encoder, so the expected wire bytes are
+-- computed from the CBOR payload rather than restated by the implementation.
+phase262LowerHex :: StrictByteString.ByteString -> Text
+phase262LowerHex =
+  Text.pack . concatMap encodeByte . StrictByteString.unpack
+ where
+  encodeByte byte =
+    let (high, low) = fromIntegral byte `divMod` (16 :: Int)
+     in [intToDigit high, intToDigit low]
+
+-- Independent restatement of the storage snapshot identity: SHA-256 over
+-- canonical CBOR of the literal @jitml-snapshot-v1@ domain string, the exact
+-- canonical logical-manifest bytes, and the sorted original-key/payload-SHA
+-- binding table.
+phase262DerivedSnapshotId
+  :: Checkpoint.CheckpointManifest
+  -> [(Text, Text)]
+  -> Text
+phase262DerivedSnapshotId logicalManifest originalBindings =
+  WeightCodec.jmw1ContentSha
+    ( Serialise.serialise
+        ( "jitml-snapshot-v1" :: Text
+        , ByteString.toStrict (Checkpoint.encodeManifestCbor logicalManifest)
+        , List.sortOn fst originalBindings
+        )
+    )
+
+-- Drive the production bounded-convergence helper and count exactly how many
+-- attempts it performed.
+phase262CountedConvergence
+  :: Int
+  -> (Int -> Int -> Either Int Text)
+  -> IO (Maybe Text, Int)
+phase262CountedConvergence bound step = do
+  attempts <- newIORef (0 :: Int)
+  outcome <-
+    convergeBoundedView
+      bound
+      ( \attempt state -> do
+          modifyIORef' attempts (+ 1)
+          pure (step attempt state)
+      )
+      0
+  performed <- readIORef attempts
+  pure (outcome, performed)
 
 phase262ScopedGcObjectKeys :: Text -> Text -> [Text] -> [Text]
 phase262ScopedGcObjectKeys experimentHash snapshotId objectIds =
@@ -7672,6 +7930,83 @@ unitTestMain =
                 >>= \case
                   Left failures -> assertFailure ("marker-conflict cancellation failed: " <> show failures)
                   Right _ -> pure ()
+      , testCase
+          "a failed marker delete retains the writer's fence entry because deletion precedes unregister (Phase 262)"
+          $ withSystemTempDirectory "jitml-phase262-marker-delete-order"
+          $ \root -> do
+            let experimentHash = "exp-marker-delete-order"
+                payload = Checkpoint.encodeJmw1 [12]
+                logicalObjectKey =
+                  Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha payload)
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "marker-delete-order"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalObjectKey, payload)]
+                    )
+                reservation =
+                  journalExpectEitherRight
+                    ( CheckpointStore.instantiateWriterReservation
+                        (Text.replicate 64 "0")
+                        (CheckpointStore.preparedSnapshotReservationTemplate prepared)
+                    )
+                markerRef =
+                  CheckpointStore.checkpointObjectRef
+                    (CheckpointStore.writerReservationObjectKey reservation)
+                fencedRoot = root </> "marker-delete-failed"
+                releasedRoot = root </> "marker-delete-succeeded"
+            deleteCalls <- newIORef []
+            let environment =
+                  Phase262DeleteFailureEnv
+                    { phase262DeleteFailureRoot = fencedRoot
+                    , phase262DeleteFailureRef = markerRef
+                    , phase262DeleteFailureCalls = deleteCalls
+                    }
+            fenced <-
+              runPhase262DeleteFailureMinIO environment $
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                  logicalManifest
+                  [(logicalObjectKey, payload)]
+            case fenced of
+              Left err -> err @?= ServiceRetry.SETransient "injected manifest failure"
+              Right _ -> assertFailure "the writer reported success after its marker delete failed"
+            -- The marker delete is the only deletion the writer attempts, and
+            -- it aborts before the fence CAS, so the reservation entry is still
+            -- protecting the snapshot.
+            readIORef deleteCalls >>= (@?= [markerRef])
+            runFilesystemMinIO fencedRoot (minioReadBytes markerRef) >>= \case
+              Left err -> assertFailure ("the undeletable marker vanished: " <> show err)
+              Right _ -> pure ()
+            fencedFence <- phase262LoadExperimentFence fencedRoot experimentHash
+            CheckpointStore.experimentGcFenceReservations fencedFence @?= [reservation]
+            runFilesystemMinIO
+              fencedRoot
+              (CheckpointStore.loadActiveWriterReservations experimentHash)
+              >>= (@?= Right [reservation])
+            released <-
+              runFilesystemMinIO releasedRoot $
+                CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO
+                  logicalManifest
+                  [(logicalObjectKey, payload)]
+            case released of
+              Left err -> assertFailure ("the unobstructed writer failed: " <> show err)
+              Right _ -> pure ()
+            runFilesystemMinIO releasedRoot (minioReadBytes markerRef) >>= \case
+              Left _ -> pure ()
+              Right _ -> assertFailure "successful cleanup left the reservation marker"
+            releasedFence <- phase262LoadExperimentFence releasedRoot experimentHash
+            CheckpointStore.experimentGcFenceReservations releasedFence @?= []
+            runFilesystemMinIO
+              releasedRoot
+              (CheckpointStore.loadActiveWriterReservations experimentHash)
+              >>= (@?= Right [])
       , testCase "absent-manifest intents cannot mint fresh destructive authority (Phase 262)" $
           withSystemTempDirectory "jitml-phase262-absent-intent" $ \root -> do
             let experimentHash = "exp-absent-intent"
@@ -7911,6 +8246,169 @@ unitTestMain =
             CheckpointStore.listCheckpointManifests commitlessRoot experimentHash
               >>= (@?= Right [])
       , testCase
+          "the admitted-inventory audit rebases companion pointers exactly as the writer does (Phase 262)"
+          $ do
+            let experimentHash = "exp-companion-artifact"
+                payload = Checkpoint.encodeJmw1 [7]
+                payloadSha = WeightCodec.jmw1ContentSha payload
+                logicalKey =
+                  "jitml-checkpoints/"
+                    <> experimentHash
+                    <> "/artifacts/rl-trajectory/"
+                    <> payloadSha
+                    <> ".txt"
+                logicalPointer =
+                  Checkpoint.ArtifactPointer
+                    { Checkpoint.artifactPointerKind = "rl-trajectory"
+                    , Checkpoint.artifactPointerObjectKey = logicalKey
+                    , Checkpoint.artifactPointerSha = Just payloadSha
+                    }
+                logicalManifest =
+                  (Checkpoint.emptyManifest "companion" experimentHash [])
+                    { Checkpoint.manifestTranscriptPointers = [logicalPointer]
+                    }
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalKey, payload)]
+                    )
+                preparedManifest = CheckpointStore.preparedSnapshotManifest prepared
+                snapshotId =
+                  journalExpectEitherRight
+                    (CheckpointStore.checkpointStorageSnapshotId preparedManifest)
+            -- The writer rebases companion pointers into the snapshot
+            -- namespace, so the publisher audit must project the logical
+            -- pointer through the identical derivation before comparing
+            -- inventories. This is the exact equality the live
+            -- admitted-inventory audit performs.
+            Checkpoint.manifestTranscriptPointers preparedManifest
+              @?= [ Publisher.snapshotScopedPointer
+                      preparedManifest
+                      snapshotId
+                      logicalPointer
+                  ]
+            assertBool
+              "the writer must not leave a companion pointer at its logical key"
+              ( Checkpoint.manifestTranscriptPointers preparedManifest
+                  /= [logicalPointer]
+              )
+            -- A manifest with no physical objects has no namespace, so the
+            -- audit leaves its projected pointer untouched.
+            Publisher.snapshotScopedPointer
+              (Checkpoint.emptyManifest "companion-empty" experimentHash [])
+              Nothing
+              logicalPointer
+              @?= logicalPointer
+      , testCase
+          "the storage snapshot id binds the jitml-snapshot-v1 domain, logical manifest, and sorted bindings (Phase 262)"
+          $ do
+            let experimentHash = "exp-snapshot-domain"
+                payload = Checkpoint.encodeJmw1 [11]
+                payloadSha = WeightCodec.jmw1ContentSha payload
+                logicalObjectKey = Checkpoint.blobKey experimentHash payloadSha
+                logicalManifest =
+                  Checkpoint.emptyManifest
+                    "snapshot-domain"
+                    experimentHash
+                    [Checkpoint.TensorBlob "weights" [1] logicalObjectKey]
+                emptyManifest =
+                  Checkpoint.emptyManifest "snapshot-domain-empty" experimentHash []
+                prepared =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        logicalManifest
+                        [(logicalObjectKey, payload)]
+                    )
+                preparedEmpty =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        emptyManifest
+                        []
+                    )
+                expectedSnapshotId =
+                  phase262DerivedSnapshotId
+                    logicalManifest
+                    [(logicalObjectKey, payloadSha)]
+                expectedEmptySnapshotId = phase262DerivedSnapshotId emptyManifest []
+                orderedPayloads =
+                  [Checkpoint.encodeJmw1 [21], Checkpoint.encodeJmw1 [22]]
+                orderedPairs =
+                  [ (Checkpoint.blobKey experimentHash (WeightCodec.jmw1ContentSha blob), blob)
+                  | blob <- orderedPayloads
+                  ]
+                -- Declare the payload bindings in the reverse of their sorted
+                -- key order so the implementation's sort is observable.
+                declaredPairs = List.sortOn (Down . fst) orderedPairs
+                declaredBindings =
+                  [ (objectKey, WeightCodec.jmw1ContentSha blob)
+                  | (objectKey, blob) <- declaredPairs
+                  ]
+                declaredManifest =
+                  Checkpoint.emptyManifest
+                    "snapshot-domain-order"
+                    experimentHash
+                    [ Checkpoint.TensorBlob tensorName [1] objectKey
+                    | (tensorName, (objectKey, _)) <-
+                        zip ["weights-a", "weights-b"] declaredPairs
+                    ]
+                preparedOrdered =
+                  journalExpectEitherRight
+                    ( CheckpointStore.prepareCheckpointSnapshot
+                        CheckpointStore.WriterCandidateSnapshot
+                        CheckpointStore.WriterNoPointerIntent
+                        declaredManifest
+                        declaredPairs
+                    )
+                commitKeyFor snapshotId =
+                  "jitml-checkpoints/"
+                    <> experimentHash
+                    <> "/snapshots/"
+                    <> snapshotId
+                    <> "/committed.cbor"
+            CheckpointStore.preparedSnapshotId prepared @?= expectedSnapshotId
+            CheckpointStore.preparedSnapshotId preparedEmpty @?= expectedEmptySnapshotId
+            -- The derived identity is the namespace every rebased physical key
+            -- and the sole GC-owned control key are bound to.
+            CheckpointStore.checkpointStorageSnapshotId
+              (CheckpointStore.preparedSnapshotManifest prepared)
+              @?= Right (Just expectedSnapshotId)
+            CheckpointStore.writerCommitObjectKey
+              (CheckpointStore.preparedSnapshotCommit prepared)
+              @?= commitKeyFor expectedSnapshotId
+            CheckpointStore.checkpointStorageSnapshotId
+              (CheckpointStore.preparedSnapshotManifest preparedEmpty)
+              @?= Right Nothing
+            CheckpointStore.writerCommitObjectKey
+              (CheckpointStore.preparedSnapshotCommit preparedEmpty)
+              @?= commitKeyFor expectedEmptySnapshotId
+            -- The binding table is sorted before it is hashed, so a manifest
+            -- which declares its payloads out of key order still derives the
+            -- sorted identity.
+            assertBool
+              "fixture must declare its bindings out of sorted key order"
+              (declaredBindings /= List.sortOn fst declaredBindings)
+            CheckpointStore.preparedSnapshotId preparedOrdered
+              @?= phase262DerivedSnapshotId declaredManifest declaredBindings
+            assertBool
+              "snapshot identity does not sort its payload binding table"
+              ( CheckpointStore.preparedSnapshotId preparedOrdered
+                  /= WeightCodec.jmw1ContentSha
+                    ( Serialise.serialise
+                        ( "jitml-snapshot-v1" :: Text
+                        , ByteString.toStrict
+                            (Checkpoint.encodeManifestCbor declaredManifest)
+                        , declaredBindings
+                        )
+                    )
+              )
+      , testCase
           "fresh-plan discovery persists a writer completion and restarts before GC no-op (Phase 262)"
           $ withSystemTempDirectory "jitml-phase262-fresh-plan-restart"
           $ \root -> do
@@ -8003,6 +8501,137 @@ unitTestMain =
                 )
             length (CheckpointStore.gcCompletedExecutions executed) @?= 1
             CheckpointStore.gcExecutionFailures executed @?= []
+      , testCase
+          "the bounded fresh-view driver fails closed after exactly 4,096 attempts (Phase 262)"
+          $ do
+            freshGcConvergenceFailure
+              @?= AppError.InvalidConfig "gc fresh-view convergence did not stabilize"
+            -- A view which always asks for another restart must exhaust the
+            -- production bound instead of looping forever.
+            exhausted <-
+              phase262CountedConvergence
+                freshGcConvergenceAttemptBound
+                (\attempt state -> Left (state + attempt))
+            exhausted @?= (Nothing, 4096)
+            -- The bound is the driver's only stopping rule for a restarting
+            -- view, so a smaller bound stops sooner and the 4,096 above is the
+            -- value `runFreshGcConvergence` supplies.
+            phase262CountedConvergence 3 (\attempt state -> Left (state + attempt))
+              >>= (@?= (Nothing, 3))
+            -- A view which stabilizes returns its value and stops attempting.
+            converged <-
+              phase262CountedConvergence
+                freshGcConvergenceAttemptBound
+                ( \attempt state ->
+                    if attempt == 2
+                      then Right ("converged after " <> Text.pack (show state))
+                      else Left (state + 1)
+                )
+            converged @?= (Just "converged after 2", 3)
+      , testCase
+          "the ProductScenario operational envelope is exactly four hours (Phase 262)"
+          $ do
+            -- The runner installs this exact value as its live-workflow
+            -- timeout, so pinning it here is what keeps the envelope from
+            -- silently regressing to the former two-hour bound that expired
+            -- the heaviest canonical row before it could publish completion.
+            let oneHourMicros = 60 * 60 * 1_000_000 :: Int
+                envelopeMicros =
+                  ProductScenarioRunner.productScenarioWorkflowTimeoutMicros
+            envelopeMicros @?= 4 * oneHourMicros
+            -- Stated in the units the envelope is reasoned about in, so a
+            -- micro/millisecond mix-up is caught rather than merely a change
+            -- in the arithmetic that spells the same number.
+            envelopeMicros `div` oneHourMicros @?= 4
+      , testCase
+          "an out-of-domain request input is a terminal load failure, a runner failure is not (Phase 262)"
+          $ do
+            -- The Engine settles a terminal failure by answering it and moves
+            -- on; a non-terminal one nacks and is redelivered. Getting this
+            -- classification wrong in either direction is severe: a
+            -- misclassified transient discards recoverable work, and a
+            -- misclassified permanent failure parks an unanswerable request on
+            -- the one shared `jitml-engine` subscription forever, which
+            -- silences every other inference command behind it.
+            let unitImage = phase262UnitImageServingManifest
+            -- Outside `[0,1]`: exactly the shape that starved the live Engine.
+            case CheckpointStore.checkpointRequestInputRejection
+              unitImage
+              [0.7, -0.5, 1.0, 2.0] of
+              Nothing ->
+                assertFailure
+                  "an out-of-[0,1] unit-image input was accepted by the request oracle"
+              Just reason ->
+                assertBool
+                  ("rejected for the wrong reason: " <> Text.unpack reason)
+                  ("[0,1]" `Text.isInfixOf` reason)
+            -- The same values are legal for a standardized regression runtime,
+            -- so the verdict follows the admitted runtime's declared domain
+            -- rather than the literal numbers.
+            CheckpointStore.checkpointRequestInputRejection
+              phase262StandardizedServingManifest
+              [0.7, -0.5, 1.0, 2.0]
+              @?= Nothing
+            -- Inside the domain, and at both closed endpoints.
+            CheckpointStore.checkpointRequestInputRejection
+              unitImage
+              [0.0, 0.25, 0.5, 1.0]
+              @?= Nothing
+            -- Width is equally request-determined.
+            assertBool
+              "a wrong-width input was accepted by the request oracle"
+              ( isJust
+                  ( CheckpointStore.checkpointRequestInputRejection
+                      unitImage
+                      [0.5, 0.5, 0.5]
+                  )
+              )
+            -- A manifest declaring no supervised runtime declares no input
+            -- domain, so it must not manufacture a terminal verdict.
+            CheckpointStore.checkpointRequestInputRejection
+              (completedTestManifest 4)
+              [0.7, -0.5, 1.0, 2.0]
+              @?= Nothing
+            -- The settlement decision itself.
+            CheckpointStore.checkpointLoadErrorTerminal
+              (CheckpointStore.CheckpointLoadInputRejected "outside [0,1]")
+              @?= True
+            -- A runner failure describes execution, not the request, so a
+            -- redelivery can still succeed and it must stay retryable.
+            CheckpointStore.checkpointLoadErrorTerminal
+              (CheckpointStore.CheckpointLoadRunnerFailed "device dispatch failed")
+              @?= False
+      , testCase
+          "the checkpoint-compare panel submits inside the unit-image domain it compares (Phase 262)"
+          $ do
+            -- The panel compares two MNIST classifiers, whose trained runtime
+            -- declares a unit-image input transform. A default outside `[0,1]`
+            -- is unanswerable by construction, and that exact residue — carried
+            -- over from the panel's retired generic-tensor target — is what
+            -- poisoned the live Engine's shared subscription.
+            source <- Text.IO.readFile "web/src/Panels/CheckpointCompare.purs"
+            baseline <- phase262PanelStringField source "defaultBaselineExperimentHash"
+            candidate <- phase262PanelStringField source "defaultCandidateExperimentHash"
+            assertBool
+              ( "this guard only holds while both compared rows are unit-image "
+                  <> "classifiers; got "
+                  <> Text.unpack baseline
+                  <> " and "
+                  <> Text.unpack candidate
+              )
+              ( all
+                  ("product-row-mnist-" `Text.isPrefixOf`)
+                  [baseline, candidate]
+              )
+            values <- phase262PanelDefaultInput source
+            assertBool
+              "the compare panel declares no default input values"
+              (not (null values))
+            assertBool
+              ( "compare panel default input leaves the unit-image domain: "
+                  <> show values
+              )
+              (all (\value -> value >= 0.0 && value <= 1.0) values)
       , testCase
           "fresh revalidation executes or cancels each exact intent without subset trimming (Phase 262)"
           $ withSystemTempDirectory "jitml-phase262-fresh-revalidation"
@@ -8559,6 +9188,89 @@ unitTestMain =
               @?= "jitml-checkpoints/"
               <> experimentHash
               <> "/gc/coordination-fence.txt"
+      , testCase
+          "experiment fence wire envelope is the exact prefix plus lowercase-hex canonical CBOR (Phase 262)"
+          $ do
+            let experimentHash = "exp-fence-envelope"
+                fence =
+                  CheckpointStore.ExperimentGcFence
+                    { CheckpointStore.experimentGcFenceVersion = 1
+                    , CheckpointStore.experimentGcFenceRevision = 23
+                    , CheckpointStore.experimentGcFenceWriterEpoch = 0
+                    , CheckpointStore.experimentGcFenceExperimentHash = experimentHash
+                    , CheckpointStore.experimentGcFenceReservations = []
+                    , CheckpointStore.experimentGcFenceDecisions = []
+                    }
+                canonicalPayload = ByteString.toStrict (Serialise.serialise fence)
+                canonicalHex = phase262LowerHex canonicalPayload
+                envelopeFor payload =
+                  "jitml-experiment-gc-fence-v1:" <> phase262LowerHex payload
+                encoded = CheckpointStore.encodeExperimentGcFence fence
+            encoded @?= envelopeFor canonicalPayload
+            CheckpointStore.decodeExperimentGcFence encoded @?= Right fence
+            assertBool
+              "the fence hex payload has no case-sensitive digits"
+              (Text.toUpper canonicalHex /= canonicalHex)
+            -- The redundant one-byte-length unsigned form is well-formed CBOR
+            -- that cborg accepts but never emits, so the same revision decodes
+            -- from different bytes and only the re-encode check rejects it.
+            revisionIndex <-
+              case StrictByteString.elemIndices 23 canonicalPayload of
+                [index] -> pure index
+                indices ->
+                  assertFailure ("the fence revision byte is not unique: " <> show indices)
+                    >> error "unreachable"
+            let noncanonicalPayload =
+                  StrictByteString.take revisionIndex canonicalPayload
+                    <> StrictByteString.pack [0x18, 23]
+                    <> StrictByteString.drop (revisionIndex + 1) canonicalPayload
+            Serialise.deserialiseOrFail (ByteString.fromStrict noncanonicalPayload)
+              @?= ( Right fence
+                      :: Either Serialise.DeserialiseFailure CheckpointStore.ExperimentGcFence
+                  )
+            traverse_
+              ( \(label, rejected, reason) ->
+                  assertEqual
+                    label
+                    (Left reason)
+                    (CheckpointStore.decodeExperimentGcFence rejected)
+              )
+              [
+                ( "uppercase hex payload"
+                , "jitml-experiment-gc-fence-v1:" <> Text.toUpper canonicalHex
+                , "experiment GC fence hex payload is not lowercase hexadecimal"
+                )
+              ,
+                ( "missing envelope prefix"
+                , canonicalHex
+                , "experiment GC fence has an unsupported text-envelope prefix"
+                )
+              ,
+                ( "wrong envelope prefix"
+                , "jitml-experiment-gc-fence-v2:" <> canonicalHex
+                , "experiment GC fence has an unsupported text-envelope prefix"
+                )
+              ,
+                ( "odd hex length"
+                , encoded <> "0"
+                , "experiment GC fence hex payload has odd length"
+                )
+              ,
+                ( "non-hex payload characters"
+                , encoded <> "zz"
+                , "experiment GC fence hex payload is not lowercase hexadecimal"
+                )
+              ,
+                ( "trailing bytes after the canonical CBOR"
+                , envelopeFor (canonicalPayload <> StrictByteString.pack [0])
+                , "experiment GC fence is not canonical text/CBOR"
+                )
+              ,
+                ( "noncanonical CBOR revision encoding"
+                , envelopeFor noncanonicalPayload
+                , "experiment GC fence is not canonical text/CBOR"
+                )
+              ]
       , testCase "jmw1 encoder emits magic, CBOR header length, and little-endian doubles" $ do
           let payload = Checkpoint.encodeJmw1 [1.0]
           ByteString.take 4 payload @?= "JMW1"
@@ -9054,6 +9766,42 @@ unitTestMain =
           assertBool
             "admin portal renderer emits the generated module"
             ("module Generated.AdminPortals where" `Text.isInfixOf` WebAdminPortals.renderPureScriptAdminPortals)
+      , testCase
+          "the demo API edge route outlasts the webapp's own reply budget (Phase 262)"
+          $ do
+            -- The webapp brokers request/reply work through the Engine, so a
+            -- shorter edge budget returns a gateway timeout for a request the
+            -- webapp would have answered, and the browser never sees the typed
+            -- result or the typed fail-closed reason. `JitML.Routes` sits below
+            -- `JitML.Bootstrap`, which imports it, so it cannot derive this
+            -- from the inference constants; the relationship is held here.
+            let replyBudgetSeconds =
+                  ( InferenceCommand.inferenceReplyStartupTimeoutMicros
+                      + InferenceCommand.inferenceReplyTimeoutMicros
+                  )
+                    `div` 1_000_000
+            assertBool
+              ( "demo API edge timeout "
+                  <> show Routes.demoApiRouteTimeoutSeconds
+                  <> "s does not outlast the webapp reply budget "
+                  <> show replyBudgetSeconds
+                  <> "s"
+              )
+              (Routes.demoApiRouteTimeoutSeconds > replyBudgetSeconds)
+            -- The route really carries it, so the rendered HTTPRoute cannot
+            -- silently fall back to the gateway default.
+            case filter ((== "demo-api") . Routes.routeName) Routes.routeRegistry of
+              [demoApi] -> do
+                Routes.routeTimeoutSeconds demoApi
+                  @?= Just Routes.demoApiRouteTimeoutSeconds
+                assertBool
+                  "rendered demo-api HTTPRoute omits its request timeout"
+                  ( ("request: " <> Text.pack (show Routes.demoApiRouteTimeoutSeconds) <> "s")
+                      `Text.isInfixOf` Routes.renderHTTPRoute demoApi
+                  )
+              other ->
+                assertFailure
+                  ("expected exactly one demo-api route, got " <> show (length other))
       , testGroup
           "MLP checkpoint inference plan (Sprint 14.3)"
           [ testCase "detects named W1/b1/W2/b2 tensors, fits input, and trims semantic output width" $ do
@@ -10494,6 +11242,58 @@ unitTestMain =
                   assertBool
                     "global selector is ready when at least one row is eligible"
                     ("selector-state: ready" `Text.isInfixOf` frame)
+          , testCase
+              "CheckpointList wire fields agree between the topology validator and the browser contract (Phase 262)"
+              $ do
+                -- Both ends of one wire form. The Engine renders the frame, the
+                -- topology validator gates it on the way out, and the generated
+                -- PureScript parses it on the way in. When the validator's set
+                -- was the narrower pre-catalogue one, the Engine's own reply was
+                -- unpublishable: every browse request failed publication, and
+                -- because that read as a transient failure the command was
+                -- nacked back onto the shared `jitml-engine` subscription
+                -- forever. Nothing in a single-ended test could see it.
+                generated <- Text.IO.readFile "web/src/Generated/Contracts.purs"
+                browserFields <- phase262BrowserCheckpointFieldNames generated
+                browserFields @?= Topology.checkpointListPayloadFields
+                -- A frame carrying the agreed provenance publishes; the same
+                -- frame without the catalogue digest does not, so the
+                -- provenance is required rather than merely tolerated.
+                case Topology.mkInferenceResultMessage phase262CheckpointListFrame of
+                  Left err ->
+                    assertFailure
+                      ("authenticated CheckpointList frame is unpublishable: " <> Text.unpack err)
+                  Right _ -> pure ()
+                -- Every kind the Engine renders, gated by the validator it
+                -- must pass on the way out. A reply the Engine can render but
+                -- not publish is reported as a failed publication, which reads
+                -- as a command that never succeeds; a single-ended renderer
+                -- test cannot see that.
+                traverse_
+                  ( \(label, frame) ->
+                      case Topology.mkInferenceResultMessage frame of
+                        Left err ->
+                          assertFailure
+                            ( "Engine-rendered "
+                                <> label
+                                <> " frame is unpublishable: "
+                                <> Text.unpack err
+                            )
+                        Right _ -> pure ()
+                  )
+                  phase262RenderedInferenceReplies
+                assertBool
+                  "a CheckpointList frame without its catalogue digest was accepted"
+                  ( isLeftResult
+                      ( Topology.mkInferenceResultMessage
+                          ( Text.unlines
+                              ( filter
+                                  (not . Text.isPrefixOf "catalogue-sha256: ")
+                                  (Text.lines phase262CheckpointListFrame)
+                              )
+                          )
+                      )
+                  )
           , testCase "README matrix rows match the ProductRow registry in both directions" $ do
               readme <- Text.IO.readFile "README.md"
               case readmeProductParityFailures readme of

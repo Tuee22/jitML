@@ -203,7 +203,13 @@ DELETE, preserve normal and exceptional primary identity, and are covered by
 **4 / 4** lifecycle regressions plus a live broker-inventory assertion. Their
 replies require matching `callId` and experiment hash; live transport failures
 remain `PulsarFailed`. Their supervisor is isolated in
-`JitML.Service.InferenceReplyScope` with non-inlining entrypoints. The first
+`JitML.Service.InferenceReplyScope` with non-inlining entrypoints. A correlated
+request is published only against an opaque `ReplyCursor`, minted from an
+acknowledged Pulsar admin subscription CREATE and carrying both the request
+topic and the reply-topic name, so publishing before the broker has created the
+reply cursor — or naming a reply topic the subscription does not cover — is
+unrepresentable; `ConsumerSessionConnected` is diagnostic and gates nothing.
+Phase `262` owns that contract by transfer from Phase `71`. The first
 immutable-image build exposed a binding GHC **2 GiB** heap-cap overflow in
 `JitML.App` at module **251 / 261**; the extracted ordinary container build and
 Haskell lint pass. The supported retry then completed all

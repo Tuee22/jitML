@@ -604,12 +604,19 @@ protocolCodecTests =
                   , Inference.amrGameOver = False
                   , Inference.amrTranscriptId = "transcript-1"
                   }
+            -- The browser renders artifact cards only from an authenticated
+            -- catalogue, so the frame carries that catalogue's provenance and
+            -- the wire form requires it.
             checkpointList =
               Text.unlines
                 [ "kind: CheckpointList"
                 , "call-id: call-4"
                 , "panel: checkpoint-browse"
                 , "status: published"
+                , "run-id: run-4"
+                , "substrate: linux-cpu"
+                , "catalogue-sha256: " <> Text.replicate 64 "a"
+                , "source-journal-sha256: " <> Text.replicate 64 "b"
                 , "count: 1"
                 , "selector-state: ready"
                 , "row-selector: row-1"
@@ -648,12 +655,19 @@ protocolCodecTests =
                 , "max-abs-delta: 0.1"
                 , "mean-abs-delta: 0.1"
                 ]
+            -- Complete provenance, so this frame is rejected for the reason
+            -- under test — a count with no matching summary — rather than
+            -- incidentally for a missing field.
             checkpointList =
               Text.unlines
                 [ "kind: CheckpointList"
                 , "call-id: call-4"
                 , "panel: checkpoint-browse"
                 , "status: published"
+                , "run-id: run-4"
+                , "substrate: linux-cpu"
+                , "catalogue-sha256: " <> Text.replicate 64 "a"
+                , "source-journal-sha256: " <> Text.replicate 64 "b"
                 , "count: 1"
                 , "selector-state: ready"
                 ]

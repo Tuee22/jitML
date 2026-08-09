@@ -724,3 +724,4 @@ renderServiceError err =
     SEUnauthorized message -> "unauthorized: " <> message
     SETimeout message -> "timeout: " <> message
     SETransient message -> "transient: " <> message
+    SENotFound message -> "not-found: " <> message

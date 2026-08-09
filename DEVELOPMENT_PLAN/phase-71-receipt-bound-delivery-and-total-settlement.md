@@ -9,7 +9,32 @@
 
 ## Phase State
 
-✅ **Done**.
+✅ **Done** on its retained surface: broker delivery identity, decoding, and
+settlement. The **correlated request/reply cursor** is an ownership transfer to
+[Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md),
+not a blocker on this phase — see
+[Retained Surface and Ownership Transfer](#retained-surface-and-ownership-transfer).
+
+## Retained Surface and Ownership Transfer
+
+This sprint made settlement total: a handler cannot acknowledge the wrong
+delivery, acknowledge twice, or forget to settle. That contract is unchanged and
+its validation stands.
+
+It did not make request/reply *establishment* total. The transport can express
+publishing a correlated request before the subscription that must receive its
+reply exists at the broker, and it offers no operation that proves such a cursor
+exists — the owned subscription has an admin DELETE with no CREATE counterpart.
+Phase `262`'s live gate found the consequence: with a latest-position cursor
+planted at the topic tail when the broker creates the subscription, a reply
+published before that creation sits permanently behind the cursor, and roughly
+one correlated reply in three was lost.
+
+That obligation, and the `ReplyCursor` token and admin CREATE that discharge it,
+are owned by [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md).
+Per [development_plan_standards.md](development_plan_standards.md) rule `M(a)`
+this is an ownership transfer to a later phase, so this phase's `Done` is defined
+on the retained surface above and no dependency edge is created.
 
 ## Sprint 71.1: Receipt-Bound Delivery and Total Settlement [✅ Done]
 

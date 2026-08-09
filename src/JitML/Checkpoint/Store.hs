@@ -92,6 +92,13 @@ module JitML.Checkpoint.Store
   , loadInferenceCheckpointWith
   , loadInferenceCheckpointWithWeights
   , loadInferenceCheckpointDecodedWithWeights
+  , loadInferenceCheckpointDecodedWithWeightsTyped
+  , CheckpointLoadError (..)
+  , renderCheckpointLoadError
+  , checkpointLoadErrorTerminal
+  , checkpointAdmissionErrorTerminal
+  , checkpointRequestInputRejection
+  , withWeightedCheckpointTyped
   , loadSupervisedRuntimeFromCheckpoint
   , reconstructSupervisedGraphFromCheckpoint
   , runSupervisedGraphCheckpointInference
@@ -209,7 +216,7 @@ import JitML.Service.Capabilities
   , ObjectKey (..)
   , ObjectRef (..)
   )
-import JitML.Service.Retry (ServiceError (..))
+import JitML.Service.Retry (ServiceError (..), serviceErrorPermanent)
 import JitML.Training.Budget
   ( CompletedTraining
   , completedTrainingFinalWeightHash
@@ -285,6 +292,53 @@ admittedCompletedCheckpoint = admittedCompletedCheckpointInternal
 admittedCompletedTraining :: AdmittedCompletedCheckpoint -> CompletedTraining
 admittedCompletedTraining =
   validatedCheckpointCompletedTraining . admittedCompletionValidationInternal
+
+-- | Why a checkpoint load failed, keeping admission failures typed.
+--
+-- The rendered 'Text' form loses whether the checkpoint was absent, which is
+-- exactly the fact a durable consumer needs in order to settle rather than
+-- redeliver forever.
+data CheckpointLoadError
+  = CheckpointLoadAdmissionFailed CheckpointAdmissionError
+  | -- | The request's input lies outside the input domain the admitted runtime
+    -- declares. Both operands — the request bytes and the immutable admitted
+    -- checkpoint — are fixed, so this verdict cannot change on a later attempt.
+    CheckpointLoadInputRejected Text
+  | CheckpointLoadRunnerFailed Text
+  deriving stock (Eq, Show)
+
+renderCheckpointLoadError :: CheckpointLoadError -> Text
+renderCheckpointLoadError loadError =
+  case loadError of
+    CheckpointLoadAdmissionFailed err -> renderCheckpointAdmissionError err
+    CheckpointLoadInputRejected reason -> "request input rejected: " <> reason
+    CheckpointLoadRunnerFailed message -> message
+
+-- | Is this load permanently unsatisfiable for the addressed experiment?
+--
+-- True when the store proved the object ABSENT, or when the admitted runtime
+-- rejected the request's own input. Both are decided entirely by immutable
+-- operands, so redelivering the identical request can only reproduce them. A
+-- malformed or unauthorized read, and any runner-side execution failure, stay
+-- retryable: a redelivery can still complete the work once the underlying
+-- condition clears.
+checkpointLoadErrorTerminal :: CheckpointLoadError -> Bool
+checkpointLoadErrorTerminal loadError =
+  case loadError of
+    CheckpointLoadAdmissionFailed err -> checkpointAdmissionErrorTerminal err
+    CheckpointLoadInputRejected _ -> True
+    CheckpointLoadRunnerFailed _ -> False
+
+-- | An admission failure is terminal exactly when the underlying read proved
+-- the object absent. The runner-side and structural variants are not terminal:
+-- they describe state that a later attempt may legitimately find different.
+checkpointAdmissionErrorTerminal :: CheckpointAdmissionError -> Bool
+checkpointAdmissionErrorTerminal admissionError =
+  case admissionError of
+    AdmissionPointerReadFailed _ err -> serviceErrorPermanent err
+    AdmissionManifestReadFailed _ err -> serviceErrorPermanent err
+    AdmissionBlobReadFailed _ err -> serviceErrorPermanent err
+    _ -> False
 
 renderCheckpointAdmissionError :: CheckpointAdmissionError -> Text
 renderCheckpointAdmissionError admissionError =
@@ -5899,13 +5953,63 @@ loadInferenceCheckpointDecodedWithWeights
   -- ^ inference input
   -> m (Either Text ([Double], DecodedInference))
 loadInferenceCheckpointDecodedWithWeights runInference experimentHash input =
-  withWeightedCheckpoint
+  fmap
+    (mapLeft renderCheckpointLoadError)
+    (loadInferenceCheckpointDecodedWithWeightsTyped runInference experimentHash input)
+
+-- | Typed sibling of 'loadInferenceCheckpointDecodedWithWeights'. The Engine
+-- uses this so it can settle a permanently-unsatisfiable request terminally
+-- instead of nacking it forever onto a shared subscription.
+loadInferenceCheckpointDecodedWithWeightsTyped
+  :: (HasMinIO m)
+  => ( AdmittedCompletedCheckpoint
+       -> CheckpointManifest
+       -> [LoadedWeightTensor]
+       -> [Double]
+       -> m (Either Text [Double])
+     )
+  -> Text
+  -> [Double]
+  -> m (Either CheckpointLoadError ([Double], DecodedInference))
+loadInferenceCheckpointDecodedWithWeightsTyped runInference experimentHash input =
+  withWeightedCheckpointLoadTyped
     ( \modelRef manifest weights ->
-        fmap
-          (fmap (\output -> (output, decodeManifestOutput manifest output)))
-          (runInference modelRef manifest weights input)
+        case checkpointRequestInputRejection manifest input of
+          -- Classify before the runner so the verdict is attributable. The
+          -- runner reaches the same conclusion, but only as an untyped 'Text'
+          -- failure indistinguishable from a device error — and a device error
+          -- must stay retryable while this must not.
+          Just reason -> pure (Left (CheckpointLoadInputRejected reason))
+          Nothing ->
+            fmap
+              ( mapLeft CheckpointLoadRunnerFailed
+                  . fmap (\output -> (output, decodeManifestOutput manifest output))
+              )
+              (runInference modelRef manifest weights input)
     )
     experimentHash
+
+-- | Does the admitted manifest's declared runtime reject this request's input?
+--
+-- The served path applies the runtime's input transform, so its domain — the
+-- declared width, the unit-image @[0,1]@ range, standardization finiteness — is
+-- part of the request contract rather than a runtime hazard. Answering the
+-- question here, against the same transform the served path uses, is what lets
+-- the Engine tell a request it can never satisfy from one it merely failed to
+-- satisfy this time. A manifest with no supervised runtime declares no input
+-- domain, so it rejects nothing and the runner remains the sole judge.
+checkpointRequestInputRejection :: CheckpointManifest -> [Double] -> Maybe Text
+checkpointRequestInputRejection manifest input =
+  case manifestSupervisedRuntime manifest of
+    Nothing -> Nothing
+    Just payload ->
+      case RuntimeArtifact.applyRuntimeInputTransform
+        ( RuntimeArtifact.supervisedRuntimeInputTransform
+            (RuntimeArtifact.payloadRuntime payload)
+        )
+        (VU.fromList input) of
+        Left reason -> Just reason
+        Right _ -> Nothing
 
 -- | Shared core for the weighted-inference loaders: read + validate the latest
 -- manifest, decode the weight-only tensors, and run a continuation with both.
@@ -5918,10 +6022,51 @@ withWeightedCheckpoint
      )
   -> Text
   -> m (Either Text a)
-withWeightedCheckpoint continuation experimentHash = do
+withWeightedCheckpoint continuation experimentHash =
+  fmap
+    (mapLeft renderCheckpointLoadError)
+    (withWeightedCheckpointTyped continuation experimentHash)
+
+-- | Typed core of 'withWeightedCheckpoint'.
+--
+-- 'withWeightedCheckpoint' renders its failure to 'Text', which discards
+-- whether the checkpoint was ABSENT or merely unreadable. Callers that settle
+-- durable work need that distinction: an absent checkpoint can never be
+-- satisfied by a retry, while a transient read failure can. This variant keeps
+-- the admission error intact so 'checkpointLoadErrorTerminal' can decide.
+withWeightedCheckpointTyped
+  :: (HasMinIO m)
+  => ( AdmittedCompletedCheckpoint
+       -> CheckpointManifest
+       -> [LoadedWeightTensor]
+       -> m (Either Text a)
+     )
+  -> Text
+  -> m (Either CheckpointLoadError a)
+withWeightedCheckpointTyped continuation =
+  withWeightedCheckpointLoadTyped
+    ( \admitted manifest weights ->
+        fmap
+          (mapLeft CheckpointLoadRunnerFailed)
+          (continuation admitted manifest weights)
+    )
+
+-- | Admit the latest completed checkpoint and hand it to a continuation that
+-- already classifies its own failures. 'withWeightedCheckpointTyped' is the
+-- special case whose continuation can only fail as a runner.
+withWeightedCheckpointLoadTyped
+  :: (HasMinIO m)
+  => ( AdmittedCompletedCheckpoint
+       -> CheckpointManifest
+       -> [LoadedWeightTensor]
+       -> m (Either CheckpointLoadError a)
+     )
+  -> Text
+  -> m (Either CheckpointLoadError a)
+withWeightedCheckpointLoadTyped continuation experimentHash = do
   admission <- admitLatestCompletedCheckpoint experimentHash
   case admission of
-    Left err -> pure (Left (renderCheckpointAdmissionError err))
+    Left err -> pure (Left (CheckpointLoadAdmissionFailed err))
     Right admitted ->
       let checkpoint = admittedCompletedCheckpoint admitted
        in continuation

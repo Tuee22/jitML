@@ -72,3 +72,8 @@ docker compose run --rm jitml jitml check-code
   owned by [Phase 279](phase-279-runcontract-negative-controls-request-and-event-fixtures.md),
   [Phase 280](phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
   and [Phase 281](phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md).
+- Record that the retained `jitml-negative-controls` stanza is a standing gate of
+  [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md),
+  which re-runs it against its final aligned `jitml:local` image. That re-run
+  re-proves this phase's gate-soundness scope on the closing image; it does not
+  extend the scope, and it does not satisfy Phases `279`–`281`.

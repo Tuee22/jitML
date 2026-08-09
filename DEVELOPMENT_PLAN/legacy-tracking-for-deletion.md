@@ -486,7 +486,14 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-08-02): Pending Removal is open with 6 rows.** The open
+**Current state (2026-08-09): Pending Removal is open with 8 rows.** Phase
+`262`'s wire-form audit added the provenance-free `CheckpointList` renderer
+row: proving the authenticated frame's field set also proved that the parallel
+renderer emits frames neither end of the wire accepts. Its correlated-reply
+audit added the readiness-from-diagnostic-event row: the production inference
+client stops publishing on a socket-open lifecycle event, and the two harness
+call sites that still do are recorded here rather than silently retained. The
+open
 suffix begins with Active Phase `262`; every later owner is Blocked by its
 immediate predecessor in that suffix. Earlier counts are historical snapshots, not the
 current ledger. Phase `261` moved its validated integration-journal replacement
@@ -503,6 +510,8 @@ implementation obligations in the owning sprint documents.
 | Metadata-only model-convergence stand-in | `src/JitML/Test/ModelConvergence.hs`, `test/model-convergence/Main.hs` | The purported per-model runner validates declared bar/floor metadata (including a literal `1.0` family floor) and never trains from random initialization or runs inference, contrary to the Phase `33` contract. | Sprint `33.3` | One real resolved-plan scenario per `ProductRow`, yielding measured convergence and inference evidence from the executed artifact. |
 | Post-test global measurement probes | `src/JitML/App.hs` (`collectLiveReportMeasurements`, `measureSlFinalLoss`, `measureRlFinalReward`, `measureAlphaZeroArenaWinRate`, `measureTuneBestObjective`, related probes) | Reporting launches new work or secondary probes after the tested invocation, so its values are not evidence from the tests it labels and failures collapse to undifferentiated `unavailable`. | Sprint `34.3` | Report only from invocation/scenario/lane journals, with `NotRequested`, reasoned `Unavailable`, and validated `Available` evidence. |
 | Literal product phase-status registry used as “evidence-derived” closure | `src/JitML/Product/PhaseStatus.hs`, `src/JitML/Docs/Check.hs` (`allProductPhasesDone` closure-claim input) | The hand-maintained registry mirrors the current reopened sprints as literal `Done` / `Active` / `Planned` / `Blocked` states, but it still consumes neither suite results nor the deletion ledger and a future literal edit could authorize an unsupported closure claim. | Sprint `34.3` | Derive closure from validated scenario journals / attestations, plan status, and an empty Pending Removal ledger. |
+| Provenance-free `CheckpointList` renderers | `src/JitML/Service/Workload.hs` (`renderCheckpointListResult`, `renderCheckpointListResultWithSelectors`, `checkpointSelectorState`) | A parallel renderer beside the authenticated `renderAdmittedProductBrowserCatalogue`. It emits no catalogue provenance, so the frames it produces are rejected by the `CheckpointList` wire form and cannot be parsed by the generated browser contract; it has no production caller and survives only in shape fixtures. | Sprint `263.1` | The authenticated catalogue renderer, which is the sole producer of the frame the Engine publishes. |
+| Readiness derived from the diagnostic `ConsumerSessionConnected` event | `src/JitML/Test/LiveWorkflow.hs` (the observer that releases the publish gate), `test/integration/Main.hs` (the two live observers that publish from inside `ConsumerSessionConnected`) | A correlated request is published on the strength of a socket-open lifecycle event, which is not evidence that the broker created the reply cursor. Phase `262` retires this shape on the production inference client by requiring an opaque `ReplyCursor`; these harness call sites retain the superseded pattern and are latently subject to the same lost-reply race. | Sprint `263.1` | Publish through the `ReplyCursor` token, so the harnesses exercise the same establishment contract as production. |
 
 Rows move to `Completed` only after their replacement is implemented, every
 old constructor/helper/call site is removed, and the owning sprint's validation

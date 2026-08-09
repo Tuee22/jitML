@@ -4,6 +4,9 @@
 module JitML.App
   ( alphaZeroArtifactStep
   , checkpointTrainingBudgetForTensor
+  , convergeBoundedView
+  , freshGcConvergenceAttemptBound
+  , freshGcConvergenceFailure
   , gcFreshPlanIntentsToPersist
   , gcFreshTerminalRecoveryWork
   , inferenceReplyAppError
@@ -2155,6 +2158,40 @@ data FreshGcConvergence = FreshGcConvergence
   , freshGcPublishFailures :: [(Text, Text)]
   }
 
+-- | The hard bound on complete epoch-bracketed view attempts the live GC
+-- reconciler may take. 'runFreshGcConvergence' drives 'convergeBoundedView'
+-- with exactly this bound, so the production limit and the tested limit are
+-- one value.
+freshGcConvergenceAttemptBound :: Int
+freshGcConvergenceAttemptBound = 4096
+
+-- | The fail-closed error raised when the complete fresh view cannot stabilize
+-- within 'freshGcConvergenceAttemptBound' attempts.
+freshGcConvergenceFailure :: AppError
+freshGcConvergenceFailure =
+  InvalidConfig "gc fresh-view convergence did not stabilize"
+
+-- | Drive a restartable view to convergence under a hard attempt bound. Each
+-- attempt either requests a restart carrying its refreshed accumulated state
+-- ('Left') or yields the converged value ('Right'). At most @bound@ attempts
+-- run, so a view which never stabilizes fails closed with 'Nothing' instead of
+-- looping forever.
+convergeBoundedView
+  :: (Monad m)
+  => Int
+  -> (Int -> state -> m (Either state value))
+  -> state
+  -> m (Maybe value)
+convergeBoundedView bound step = go 0
+ where
+  go attempt state
+    | attempt >= bound = pure Nothing
+    | otherwise = do
+        outcome <- step attempt state
+        case outcome of
+          Left restarted -> go (attempt + 1) restarted
+          Right value -> pure (Just value)
+
 -- | Converge the epoch-bracketed destructive view. A coherent fresh plan may
 -- discover work that did not exist during the initial scan (for example, a
 -- writer which completed between the two views). Those exact intents are made
@@ -2167,153 +2204,157 @@ runFreshGcConvergence
   -> Text
   -> CheckpointStore.RetentionPolicy
   -> App FreshGcConvergence
-runFreshGcConvergence publication minioSettings substrateText experimentHash retention =
-  go (0 :: Int) [] []
+runFreshGcConvergence publication minioSettings substrateText experimentHash retention = do
+  converged <-
+    convergeBoundedView freshGcConvergenceAttemptBound freshViewAttempt ([], [])
+  case converged of
+    Nothing -> exitWithError freshGcConvergenceFailure
+    Just convergence -> pure convergence
  where
-  go attempt discovered recoveredTerminalEvents
-    | attempt >= 4096 =
-        exitWithError
-          (InvalidConfig "gc fresh-view convergence did not stabilize")
-    | otherwise = do
-        freshEpochBefore <-
-          runGcMinIO
-            minioSettings
-            "fresh writer/root epoch start"
-            (CheckpointStore.loadGcFenceEpoch experimentHash)
-        freshManifests <-
-          runGcMinIO
-            minioSettings
-            "fresh manifest revalidation"
-            (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
-        freshCatalogueRoots <-
-          runGcMinIO
-            minioSettings
-            "fresh browser-catalogue root revalidation"
-            ( BrowserCatalogue.loadProductBrowserCatalogueGcRoots
-                experimentHash
-                freshManifests
-            )
-        freshPointerRoots <-
-          runGcMinIO
-            minioSettings
-            "fresh mutable-pointer revalidation"
-            ( CheckpointStore.loadCheckpointPointerGcRoots
-                experimentHash
-                freshManifests
-            )
-        freshReservations <-
-          runGcMinIO
-            minioSettings
-            "fresh writer-reservation revalidation"
-            (CheckpointStore.loadActiveWriterReservations experimentHash)
-        freshPending <-
-          runGcMinIO
-            minioSettings
-            "fresh durable-intent revalidation"
-            (CheckpointStore.loadGcIntents experimentHash)
-        freshCancelled <-
-          runGcMinIO
-            minioSettings
-            "fresh cancelled-intent revalidation"
-            (CheckpointStore.loadGcCancelledIntents experimentHash)
-        freshReady <-
-          runGcMinIO
-            minioSettings
-            "fresh publish-ready revalidation"
-            (CheckpointStore.loadGcReadyEvents experimentHash)
-        freshPublished <-
-          runGcMinIO
-            minioSettings
-            "fresh published-tombstone revalidation"
-            (CheckpointStore.loadGcPublishedEvents experimentHash)
-        freshEpochAfter <-
-          runGcMinIO
-            minioSettings
-            "fresh writer/root epoch end"
-            (CheckpointStore.loadGcFenceEpoch experimentHash)
-        validateGcTerminalState
-          freshPending
-          freshCancelled
-          freshReady
-          freshPublished
-        let freshRoots = freshCatalogueRoots <> freshPointerRoots
-            freshPlan =
-              CheckpointStore.buildGcPlan
-                experimentHash
-                retention
-                freshManifests
-                freshRoots
-        if freshEpochBefore /= freshEpochAfter
-          then go (attempt + 1) discovered recoveredTerminalEvents
+  freshViewAttempt _attempt (discovered, recoveredTerminalEvents) = do
+    freshEpochBefore <-
+      runGcMinIO
+        minioSettings
+        "fresh writer/root epoch start"
+        (CheckpointStore.loadGcFenceEpoch experimentHash)
+    freshManifests <-
+      runGcMinIO
+        minioSettings
+        "fresh manifest revalidation"
+        (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+    freshCatalogueRoots <-
+      runGcMinIO
+        minioSettings
+        "fresh browser-catalogue root revalidation"
+        ( BrowserCatalogue.loadProductBrowserCatalogueGcRoots
+            experimentHash
+            freshManifests
+        )
+    freshPointerRoots <-
+      runGcMinIO
+        minioSettings
+        "fresh mutable-pointer revalidation"
+        ( CheckpointStore.loadCheckpointPointerGcRoots
+            experimentHash
+            freshManifests
+        )
+    freshReservations <-
+      runGcMinIO
+        minioSettings
+        "fresh writer-reservation revalidation"
+        (CheckpointStore.loadActiveWriterReservations experimentHash)
+    freshPending <-
+      runGcMinIO
+        minioSettings
+        "fresh durable-intent revalidation"
+        (CheckpointStore.loadGcIntents experimentHash)
+    freshCancelled <-
+      runGcMinIO
+        minioSettings
+        "fresh cancelled-intent revalidation"
+        (CheckpointStore.loadGcCancelledIntents experimentHash)
+    freshReady <-
+      runGcMinIO
+        minioSettings
+        "fresh publish-ready revalidation"
+        (CheckpointStore.loadGcReadyEvents experimentHash)
+    freshPublished <-
+      runGcMinIO
+        minioSettings
+        "fresh published-tombstone revalidation"
+        (CheckpointStore.loadGcPublishedEvents experimentHash)
+    freshEpochAfter <-
+      runGcMinIO
+        minioSettings
+        "fresh writer/root epoch end"
+        (CheckpointStore.loadGcFenceEpoch experimentHash)
+    validateGcTerminalState
+      freshPending
+      freshCancelled
+      freshReady
+      freshPublished
+    let freshRoots = freshCatalogueRoots <> freshPointerRoots
+        freshPlan =
+          CheckpointStore.buildGcPlan
+            experimentHash
+            retention
+            freshManifests
+            freshRoots
+    if freshEpochBefore /= freshEpochAfter
+      then pure (Left (discovered, recoveredTerminalEvents))
+      else do
+        let (publishedCleanup, unpublishedReady) =
+              gcFreshTerminalRecoveryWork
+                freshPending
+                freshReady
+                freshPublished
+            terminalRecovery = publishedCleanup <> unpublishedReady
+        if not (null terminalRecovery)
+          then do
+            publishedCleanupResults <-
+              traverse
+                ( liftIO
+                    . MinIOSubprocess.runMinIOSubprocess minioSettings
+                    . CheckpointStore.acknowledgeGcReadyEvent
+                )
+                publishedCleanup
+            let publishedCleanupFailures =
+                  [ (CheckpointStore.gcPublishedObjectKey event, err)
+                  | (event, Left err) <-
+                      zip publishedCleanup publishedCleanupResults
+                  ]
+            recoveredPublishFailures <-
+              publishGcReadyEvents
+                publication
+                minioSettings
+                unpublishedReady
+            unlessNull
+              "gc fresh published-tombstone cleanup"
+              publishedCleanupFailures
+            unlessNull
+              "gc fresh recovered event publication"
+              recoveredPublishFailures
+            pure
+              ( Left
+                  ( discovered
+                  , Set.toAscList
+                      (Set.fromList (recoveredTerminalEvents <> terminalRecovery))
+                  )
+              )
           else do
-            let (publishedCleanup, unpublishedReady) =
-                  gcFreshTerminalRecoveryWork
+            missing <-
+              case gcFreshPlanIntentsToPersist freshPlan freshPending of
+                Left reason ->
+                  exitWithError
+                    (InvalidConfig ("gc fresh intent discovery: " <> reason))
+                Right values -> pure values
+            if not (null missing)
+              then do
+                persisted <-
+                  runGcMinIO
+                    minioSettings
+                    "fresh durable-intent persistence"
+                    (CheckpointStore.persistGcIntents missing)
+                pure
+                  ( Left
+                      ( Set.toAscList (Set.fromList (discovered <> persisted))
+                      , recoveredTerminalEvents
+                      )
+                  )
+              else
+                Right
+                  <$> completeFreshView
+                    freshEpochBefore
+                    freshEpochAfter
+                    freshPlan
+                    freshManifests
+                    freshRoots
+                    freshReservations
                     freshPending
                     freshReady
                     freshPublished
-                terminalRecovery = publishedCleanup <> unpublishedReady
-            if not (null terminalRecovery)
-              then do
-                publishedCleanupResults <-
-                  traverse
-                    ( liftIO
-                        . MinIOSubprocess.runMinIOSubprocess minioSettings
-                        . CheckpointStore.acknowledgeGcReadyEvent
-                    )
-                    publishedCleanup
-                let publishedCleanupFailures =
-                      [ (CheckpointStore.gcPublishedObjectKey event, err)
-                      | (event, Left err) <-
-                          zip publishedCleanup publishedCleanupResults
-                      ]
-                recoveredPublishFailures <-
-                  publishGcReadyEvents
-                    publication
-                    minioSettings
-                    unpublishedReady
-                unlessNull
-                  "gc fresh published-tombstone cleanup"
-                  publishedCleanupFailures
-                unlessNull
-                  "gc fresh recovered event publication"
-                  recoveredPublishFailures
-                go
-                  (attempt + 1)
-                  discovered
-                  ( Set.toAscList
-                      (Set.fromList (recoveredTerminalEvents <> terminalRecovery))
-                  )
-              else do
-                missing <-
-                  case gcFreshPlanIntentsToPersist freshPlan freshPending of
-                    Left reason ->
-                      exitWithError
-                        (InvalidConfig ("gc fresh intent discovery: " <> reason))
-                    Right values -> pure values
-                if not (null missing)
-                  then do
-                    persisted <-
-                      runGcMinIO
-                        minioSettings
-                        "fresh durable-intent persistence"
-                        (CheckpointStore.persistGcIntents missing)
-                    go
-                      (attempt + 1)
-                      (Set.toAscList (Set.fromList (discovered <> persisted)))
-                      recoveredTerminalEvents
-                  else
-                    completeFreshView
-                      freshEpochBefore
-                      freshEpochAfter
-                      freshPlan
-                      freshManifests
-                      freshRoots
-                      freshReservations
-                      freshPending
-                      freshReady
-                      freshPublished
-                      discovered
-                      recoveredTerminalEvents
+                    discovered
+                    recoveredTerminalEvents
 
   completeFreshView freshEpochBefore freshEpochAfter freshPlan freshManifests freshRoots freshReservations freshPending freshReady freshPublished discovered recoveredTerminalEvents = do
     let freshReadyIds =

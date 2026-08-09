@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../../README.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, run_contract.md
+**Referenced by**: README.md, ../../README.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, run_contract.md, daemon_architecture.md
 **Generated sections**: none
 
 > **Purpose**: The shared normative cross-project contract, specialized locally
@@ -163,11 +163,25 @@ externally visible; broker acknowledgement or publication completion is not
 guaranteed by the deadline. Commanded and drain-race settlements must flush and
 be confirmed before `Drained`.
 
-The jitML inference CLI never computes. It opens one `Owned`, `FromLatest` reply
-cursor, publishes the typed request to Engine, and waits for the correlated
-result only when both `callId` and experiment hash match. Release cancels and
+The jitML inference CLI never computes. It **establishes** one `Owned`,
+`FromLatest` reply cursor through an acknowledged admin subscription `CREATE`,
+publishes the typed request to Engine, and waits for the correlated result only
+when both `callId` and experiment hash match. Release cancels and
 joins the short-lived consumer before a bounded, cancellation-safe subscription
-`DELETE`. Settlement, drain/protocol, bridge-process, and cleanup failures
+`DELETE`.
+
+Establishment precedes publication, and the types enforce that order. A
+latest-position cursor is planted at the topic tail when the **broker** creates
+the subscription, so a reply published before that creation sits permanently
+behind the cursor and cannot be replayed; a socket-open lifecycle event is not
+evidence that the cursor exists. The acknowledged `CREATE` is that evidence, and
+it is the sole mint for an opaque `ReplyCursor`. The correlated publish takes
+that token and reads the request topic and the reply-topic text out of it, so
+neither "publish before the cursor exists" nor "publish a request naming a reply
+topic the subscription does not cover" is expressible. Uncorrelated publishes —
+those whose result is consumed by an independently established cursor, such as
+the browser's own websocket bridge — remain ordinary publishes and are marked as
+such at their call sites. Settlement, drain/protocol, bridge-process, and cleanup failures
 observed during cancellation remain typed; only a fully successful drain and
 cleanup rethrows the original asynchronous-cancellation identity. Product Tune
 evidence likewise comes from the registered `ProductRow` and Catalog

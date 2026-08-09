@@ -9,7 +9,27 @@
 
 ## Phase State
 
-✅ **Done**.
+✅ **Done** on its retained surface. Two later corrections touch material this
+phase recorded; both are ownership transfers to
+[Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md)
+under [development_plan_standards.md](development_plan_standards.md) rule `M(a)`,
+not blockers, and neither reopens this phase.
+
+- **Reply-scope readiness.** This phase isolated the higher-order reply
+  supervisor in `JitML.Service.InferenceReplyScope` behind `NOINLINE`
+  boundaries, and that structure stands. The supervisor's *readiness gate*,
+  however, treats the diagnostic `ConsumerSessionConnected` event as proof that
+  a correlated reply can be received. It is not: the cursor is planted at the
+  topic tail when the broker creates the subscription, so a reply published
+  before that creation is lost. Phase `262` replaces the gate with an opaque
+  `ReplyCursor` minted from an acknowledged admin subscription CREATE.
+- **Compiler heap cap.** This phase records the `+RTS -M2G -RTS` cap as
+  deliberately not weakened when it resolved a GHC `heap overflow` by isolating
+  the supervisor. Phase `262` raised the cap to `-M6G` for a different reason:
+  the generated `Proto.Jitml.Rl` module had drifted to the boundary under
+  `-O2 -fexpose-all-unfoldings`, so the same source built on one run and
+  panicked on the next. The `NOINLINE` isolation this phase introduced is
+  unchanged and still required; only the runaway guard's headroom moved.
 
 ## Sprint 160.1: Functional-Core Live Workflow Interpreter [✅ Done]
 
