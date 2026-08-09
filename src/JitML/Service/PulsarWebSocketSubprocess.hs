@@ -3,11 +3,17 @@
 module JitML.Service.PulsarWebSocketSubprocess
   ( PulsarWebSocketSettings (..)
   , PulsarWebSocketSubprocess (..)
+  , ReplyCursor
+  , establishReplyCursor
+  , publishWithReplyCursor
+  , releaseReplyCursor
+  , replyCursorSubscription
   , defaultPulsarWebSocketSettings
   , pulsarBatchConsumerBridgeScript
   , pulsarBatchConsumerSubprocess
   , pulsarConsumerBridgeScript
   , pulsarConsumerSubprocess
+  , pulsarCreateSubscriptionSubprocess
   , pulsarDeleteSubscriptionSubprocess
   , pulsarProducerScript
   , pulsarPublishSubprocess
@@ -113,6 +119,15 @@ data PulsarWebSocketSettings = PulsarWebSocketSettings
   }
   deriving stock (Eq, Show)
 
+-- | Proof that the broker has created the exact @Owned@, @FromLatest@
+-- subscription which receives a correlated command's reply.  The constructor
+-- is intentionally hidden: only an acknowledged admin CREATE below can mint
+-- the token, and the correlated publisher reads both topics from the token.
+data ReplyCursor command result = ReplyCursor
+  { replyCursorRequestTopicInternal :: Topic command
+  , replyCursorOwnedSubscriptionInternal :: Subscription result
+  }
+
 defaultPulsarWebSocketSettings :: PulsarWebSocketSettings
 defaultPulsarWebSocketSettings =
   pulsarSettingsForLocalEdge 9090
@@ -204,6 +219,81 @@ pulsarPublishSubprocess settings topic event =
     ]
     (encodeTopicPayload topic event)
 
+-- | Establish an owned, from-latest reply subscription through the broker's
+-- admin API.  HTTP 409 is success: an already-existing subscription still
+-- proves that the cursor exists.  No token is returned for any other failure,
+-- so the correlated publish cannot be attempted.
+establishReplyCursor
+  :: PulsarWebSocketSettings
+  -> Topic command
+  -> Subscription result
+  -> IO (Either ServiceError (ReplyCursor command result))
+establishReplyCursor settings requestTopic subscription
+  | subscriptionStartInternal subscription /= FromLatest =
+      pure (Left (SEConflict "reply cursor subscription must start FromLatest"))
+  | subscriptionOwnershipInternal subscription /= Owned =
+      pure (Left (SEConflict "reply cursor subscription must be Owned"))
+  | otherwise = do
+      outcomeResult <-
+        tryProcessOutcome
+          ( runStreaming
+              defaultSubprocessEnv
+              (pulsarCreateSubscriptionSubprocess settings subscription)
+          )
+      pure $ do
+        outcome <- outcomeResult
+        case outcome of
+          ProcessFailed _failure ->
+            Left
+              ( SETransient
+                  ("reply cursor creation failed:\n" <> renderProcessOutcome outcome)
+              )
+          ProcessSucceeded transcript
+            | createHttpStatusIsSuccess (Text.strip (processTranscriptStdout transcript)) ->
+                Right (ReplyCursor requestTopic subscription)
+            | otherwise ->
+                Left
+                  ( SETransient
+                      ( "reply cursor creation returned an unexpected HTTP status:\n"
+                          <> renderProcessOutcome outcome
+                      )
+                  )
+
+-- | Publish a command which names the exact result topic protected by this
+-- cursor.  Callers cannot provide either topic independently.
+publishWithReplyCursor
+  :: PulsarWebSocketSettings
+  -> ReplyCursor command result
+  -> (Text -> command)
+  -> IO (Either ServiceError Text)
+publishWithReplyCursor settings cursor buildCommand =
+  runPulsarWebSocketSubprocess settings $
+    pulsarPublish
+      (replyCursorRequestTopicInternal cursor)
+      ( buildCommand
+          ( topicName
+              (subscriptionTopicInternal (replyCursorOwnedSubscriptionInternal cursor))
+          )
+      )
+
+-- | Consumer view of an established cursor.  Cleanup remains with the cursor
+-- owner below, so cancellation before the consumer thread starts cannot leak
+-- the admin-created subscription.
+replyCursorSubscription :: ReplyCursor command result -> Subscription result
+replyCursorSubscription cursor =
+  (replyCursorOwnedSubscriptionInternal cursor)
+    { subscriptionOwnershipInternal = Borrowed
+    }
+
+-- | Release the owned cursor on every scope exit.  The bounded DELETE is the
+-- same cancellation-safe cleanup used by ordinary owned consumers.
+releaseReplyCursor
+  :: PulsarWebSocketSettings
+  -> ReplyCursor command result
+  -> IO (Either ConsumerFailure ())
+releaseReplyCursor settings =
+  cleanupSubscription settings . replyCursorOwnedSubscriptionInternal
+
 pulsarConsumerSubprocess
   :: PulsarWebSocketSettings
   -> Subscription event
@@ -227,6 +317,38 @@ pulsarBatchConsumerSubprocess settings subscription =
     , pulsarBatchConsumerBridgeScript
     , consumerUrl settings subscription
     ]
+
+pulsarCreateSubscriptionSubprocess
+  :: PulsarWebSocketSettings
+  -> Subscription event
+  -> Subprocess
+pulsarCreateSubscriptionSubprocess settings subscription =
+  subprocessWithStdin
+    "curl"
+    [ "--silent"
+    , "--show-error"
+    , "--location"
+    , "--max-redirs"
+    , "5"
+    , "--proto-redir"
+    , "=http,https"
+    , "--connect-timeout"
+    , "10"
+    , "--max-time"
+    , "30"
+    , "--output"
+    , "/dev/null"
+    , "--write-out"
+    , "%{http_code}"
+    , "--header"
+    , "Content-Type: application/json"
+    , "--request"
+    , "PUT"
+    , "--data-binary"
+    , "@-"
+    , subscriptionAdminResourceUrl settings subscription
+    ]
+    latestMessageIdJson
 
 pulsarDeleteSubscriptionSubprocess
   :: PulsarWebSocketSettings
@@ -252,7 +374,7 @@ pulsarDeleteSubscriptionSubprocess settings subscription =
     , "%{http_code}"
     , "--request"
     , "DELETE"
-    , subscriptionAdminUrl settings subscription
+    , subscriptionAdminResourceUrl settings subscription <> "?force=true"
     ]
 
 subscriptionCleanupSubprocess
@@ -1669,6 +1791,10 @@ cleanupHttpStatusIsSuccess :: Text -> Bool
 cleanupHttpStatusIsSuccess status =
   status `elem` ["200", "204", "404"]
 
+createHttpStatusIsSuccess :: Text -> Bool
+createHttpStatusIsSuccess status =
+  status `elem` ["200", "204", "409"]
+
 tryProcessOutcome :: IO ProcessOutcome -> IO (Either ServiceError ProcessOutcome)
 tryProcessOutcome action = do
   result <- trySync action
@@ -1734,14 +1860,19 @@ consumerUrl settings subscription =
     <> initialPosition (subscriptionStartInternal subscription)
     <> "&negativeAckRedeliveryDelay=1000"
 
-subscriptionAdminUrl :: PulsarWebSocketSettings -> Subscription event -> Text
-subscriptionAdminUrl settings subscription =
+subscriptionAdminResourceUrl :: PulsarWebSocketSettings -> Subscription event -> Text
+subscriptionAdminResourceUrl settings subscription =
   stripTrailingSlash (pulsarAdminEndpoint settings)
     <> "/"
     <> topicPath (topicName (subscriptionTopicInternal subscription))
     <> "/subscription/"
     <> pathSegment (subscriptionNameInternal subscription)
-    <> "?force=true"
+
+-- MessageId.latest.  Pulsar's admin client serializes MessageIdImpl(-1,-1,-1)
+-- to this JSON body for createSubscription(..., MessageId.latest).
+latestMessageIdJson :: Text
+latestMessageIdJson =
+  "{\"ledgerId\":-1,\"entryId\":-1,\"partitionIndex\":-1}"
 
 initialPosition :: SubscriptionStart -> Text
 initialPosition FromEarliest = "Earliest"

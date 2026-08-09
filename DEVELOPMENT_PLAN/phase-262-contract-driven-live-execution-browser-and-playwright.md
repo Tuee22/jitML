@@ -28,8 +28,11 @@ code-quality gate below.
 `src/JitML/Product/PhaseStatus.hs`,
 `src/JitML/Service/Workload.hs`,
 `src/JitML/Service/Capabilities.hs`,
+`src/JitML/Service/InferenceReplyScope.hs`,
 `src/JitML/Service/MinIOSubprocess.hs`,
+`src/JitML/Service/PulsarWebSocketSubprocess.hs`,
 `src/JitML/Proto/Gc.hs`, `proto/jitml/gc.proto`,
+`src/JitML/Inference/Command.hs`, `src/JitML/Routes.hs`,
 `src/JitML/SL/Architecture.hs`,
 `src/JitML/Test/BrowserEvidenceJournal.hs`,
 `src/JitML/Test/Command.hs`, `src/JitML/Test/LiveE2EScope.hs`,
@@ -556,6 +559,39 @@ RunInference` command verbatim. Both halves are therefore in scope: the panel
 submits inside the declared domain, and an unsatisfiable command settles by
 being answered rather than by starving its subscription.
 
+On 2026-08-09 the remaining correlated-reply source change was implemented but
+is not yet closure evidence. `runInferenceCommandWithReply` now obtains an
+opaque `ReplyCursor` only after an acknowledged, bounded Pulsar admin
+subscription `PUT` at `MessageId.latest`; HTTP `409` is admitted as an existing
+cursor. The token owns both command and reply topic identity, is the only input
+to correlated publication, supplies a borrowed consumer view, and is explicitly
+released after the consumer is cancelled and joined on every ordinary or
+exceptional scope exit. The readiness `MVar` and
+`ConsumerSessionConnected` publication gate are gone. Offline transport and
+scope cases cover the exact admin rendering, success/`409`/failure
+classification, token-bound publication, release before consumer readiness, a
+discarded pre-cursor reply followed by a delivered post-cursor reply, strict
+CREATE-before-publish-before-delivery ordering, and failed creation with no
+publisher invocation;
+the live correlated-reply case publishes a negative-control reply before cursor
+creation, requires only the post-cursor reply, records CREATE-before-publish-
+before-delivery ordering, and verifies subscription removal. Repeated
+integration and Playwright catalogue requests require typed answers rather than
+accepting the no-reply sentinel. The aligned image build and every prescribed
+gate below are still pending, so the phase remains Active.
+
+The 2026-08-09 focused offline cursor gate passed against
+`jitml:local@sha256:da71b40c6354b4942c4fe8dacb8fcff344d43fc0aaaffe1ed7ed60f02756bc1f`.
+The filtered `PulsarTransport` group passed **37 / 37** in **4.35s**, including
+the no-cursor negative control, pre-created-cursor delivery, strict
+CREATE/publish/delivery ordering, `409` admission, token-bound publication,
+explicit early release, and creation-failure/no-publish cases. Its containing
+`jitml-unit` orchestrator invocation passed **1 / 1** in **1,522.51s**, including
+the one-time optimized test build. The same image build completed its baked
+container-only `jitml check-code` gate with `check-code: ok`. This is focused
+pre-live evidence only; the phase remains Active pending the live and standing
+gates below.
+
 Pre-outbox historical source-mounted validation passed the focused shared-blob GC
 regression (**1 / 1**), the complete `jitml-unit` stanza (**785 / 785**), and
 `jitml-negative-controls` (**3 / 3**), `jitml docs check`, and `jitml
@@ -669,37 +705,19 @@ evidence or a completed removal.
   published tombstone already exists.
 - Validate the shared-subscription co-tenancy invariant against the final
   image. Prove that an unsatisfiable inference command is answered on its reply
-  topic as a call-id-keyed `InferenceFailure` and leaves no backlog, that an
-  unrelated command is still served promptly afterwards, that a request input
-  outside the admitted runtime's declared domain is classified terminal while a
-  runner-side execution failure stays retryable, and that a batch keeps
-  dispatching its remaining commands after one member fails.
-- Implement and validate the correlated reply cursor. Confirm the Pulsar admin
-  subscription CREATE and its cursor-position body against the live broker before
-  writing the transport, then render it exactly as the existing DELETE is
-  rendered — bounded redirects preserving the method, bounded connect and total
-  time, and a status classification in which `409` is success because an
-  already-existing subscription still proves the cursor. Mint the opaque
-  `ReplyCursor` only from an acknowledged CREATE, take the correlated publish
-  through that token alone, and release the cursor on every scope exit. Retire
-  the untyped readiness `MVar`, the `ConsumerSessionConnected` gate, and the bare
-  request/reply topic triple.
-- Prove the cursor contract offline before spending a live lane on it: a
-  negative control in which a reply published with no cursor is lost and the
-  same reply with a pre-created cursor is delivered; an ordered admin/publish/
-  delivery log showing CREATE strictly precedes publication; and a
-  cursor-creation failure that fails closed without publishing at all.
-- Replace the self-referential discriminator in the co-tenancy assertion. It
-  currently rejects the reply-timeout sentinel, which is the same string a lost
-  reply produces, so it cannot distinguish a starved subscription from a lost
-  correlated reply. Assert positively instead: the absent-checkpoint answer
-  carries its own experiment hash, and the unrelated command returns a parsed
-  `CheckpointList`. Add a repeated-request case, because a loss rate below one
-  cannot be observed by a single invocation.
-- Run `jitml docs generate` after the `src/JitML/CLI/Spec.hs` GC description is
-  final so the generated command Markdown, manpages, completions/help fixtures,
-  and README command mirrors are updated only from `CommandSpec`; do not
-  hand-edit those generated artifacts.
+  topic as a call-id-keyed `InferenceFailure` carrying its exact absent
+  experiment hash and leaves no backlog; require five repeated unrelated
+  catalogue requests to return parsed topology-valid `CheckpointList` frames
+  promptly afterwards. Also prove that a request input outside the admitted
+  runtime's declared domain is classified terminal while a runner-side
+  execution failure stays retryable, and that a batch keeps dispatching its
+  remaining commands after one member fails.
+- Validate the implemented correlated reply cursor against the aligned image
+  and live broker. Confirm the exact admin subscription CREATE and
+  cursor-position body, bounded redirect/time behavior, `409` classification,
+  opaque-token-only correlated publication, cleanup on every scope exit, and
+  the absence of the retired readiness `MVar`, `ConsumerSessionConnected` gate,
+  and bare request/reply topic triple.
 - Pass the documentation checker and full container-only code-quality gate
   plus the unit, negative-control, and model-convergence standing gates against
   that same final source/image state, then record the exact closure evidence in

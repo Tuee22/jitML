@@ -173,46 +173,48 @@ runInferenceCommandWithReply
 runInferenceCommandWithReply settings substrate subscriptionName callId buildCommand match =
   case inferenceRequestReplyPlan substrate subscriptionName of
     Left err -> pure (Left err)
-    Right (requestTopic, replyTopic, subscription) -> do
-      startupSignal <- newEmptyMVar
-      resultSignal <- newEmptyMVar
-      InferenceReplyScope.runInferenceReplyScope
-        ( do
-            consumed <-
-              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
-                Capabilities.pulsarConsumeUntil
-                  subscription
-                  (observeReplySession startupSignal)
-                  (handleReplyDelivery callId resultSignal match)
-            case consumed of
-              Left failure -> do
-                void
-                  ( tryPutMVar
-                      startupSignal
-                      (Left ("inference reply consumer failed: " <> Text.pack (show failure)))
-                  )
-                void
-                  ( tryPutMVar
-                      resultSignal
-                      (Left ("inference reply consumer failed: " <> Text.pack (show failure)))
-                  )
-              Right result ->
-                void (tryPutMVar resultSignal (Right result))
-            pure consumed
-        )
-        ( do
-            startup <- timeout inferenceReplyStartupTimeoutMicros (takeMVar startupSignal)
-            case startup of
-              Nothing -> pure (Left "inference reply consumer did not connect before the startup deadline")
-              Just (Left err) -> pure (Left err)
-              Just (Right ()) -> do
+    Right (requestTopic, _replyTopic, subscription) -> do
+      established <-
+        timeout
+          inferenceReplyStartupTimeoutMicros
+          ( PulsarWebSocketSubprocess.establishReplyCursor
+              settings
+              requestTopic
+              subscription
+          )
+      case established of
+        Nothing ->
+          pure (Left "inference reply cursor was not created before the startup deadline")
+        Just (Left err) ->
+          pure (Left ("inference reply cursor creation failed: " <> Text.pack (show err)))
+        Just (Right replyCursor) -> do
+          resultSignal <- newEmptyMVar
+          InferenceReplyScope.runInferenceReplyScopeWithRelease
+            ( do
+                consumed <-
+                  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+                    Capabilities.pulsarConsumeUntil
+                      (PulsarWebSocketSubprocess.replyCursorSubscription replyCursor)
+                      (const (pure ()))
+                      (handleReplyDelivery callId resultSignal match)
+                case consumed of
+                  Left failure ->
+                    void
+                      ( tryPutMVar
+                          resultSignal
+                          (Left ("inference reply consumer failed: " <> Text.pack (show failure)))
+                      )
+                  Right result ->
+                    void (tryPutMVar resultSignal (Right result))
+                pure consumed
+            )
+            (PulsarWebSocketSubprocess.releaseReplyCursor settings replyCursor)
+            ( do
                 published <-
-                  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                  PulsarWebSocketSubprocess.publishWithReplyCursor
                     settings
-                    ( Capabilities.pulsarPublish
-                        requestTopic
-                        (buildCommand (Topology.topicName replyTopic))
-                    )
+                    replyCursor
+                    buildCommand
                 case published of
                   Left err ->
                     pure (Left ("inference command publish failed: " <> Text.pack (show err)))
@@ -223,7 +225,7 @@ runInferenceCommandWithReply settings substrate subscriptionName callId buildCom
                           (Left "inference result: no matching reply received from the Engine")
                           result
                       )
-        )
+            )
 
 inferenceRequestReplyPlan
   :: Substrate
@@ -251,20 +253,6 @@ inferenceRequestReplyPlan substrate subscriptionName = do
           Capabilities.Owned
       )
   pure (requestTopic, replyTopic, subscription)
-
-observeReplySession
-  :: MVar (Either Text ())
-  -> Capabilities.ConsumerSessionEvent
-  -> PulsarWebSocketSubprocess.PulsarWebSocketSubprocess ()
-observeReplySession startupSignal sessionEvent =
-  liftIO $
-    case sessionEvent of
-      Capabilities.ConsumerSessionConnected _ ->
-        void (tryPutMVar startupSignal (Right ()))
-      Capabilities.ConsumerSessionDisconnected detail ->
-        void (tryPutMVar startupSignal (Left ("inference reply disconnected: " <> detail)))
-      Capabilities.ConsumerSessionDraining -> pure ()
-      Capabilities.ConsumerSessionDrained -> pure ()
 
 handleReplyDelivery
   :: Text
@@ -314,7 +302,7 @@ frameField key =
       _ -> Nothing
 
 inferenceReplyStartupTimeoutMicros :: Int
-inferenceReplyStartupTimeoutMicros = 10000000
+inferenceReplyStartupTimeoutMicros = 30000000
 
 inferenceReplyTimeoutMicros :: Int
 inferenceReplyTimeoutMicros = 30000000

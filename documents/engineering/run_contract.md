@@ -463,8 +463,11 @@ subscription-cleanup failures are all typed run failures; a generic consume
 error is not silently treated as another timeout.
 
 Short-lived CLI reply consumers are supervised `Async` resources rather than
-detached threads. Release cancels and joins the consumer before issuing the
-bounded, cancellation-safe `DELETE` for its `Owned` subscription. A cleanup
+detached threads. An acknowledged admin CREATE first mints the opaque
+`ReplyCursor`; the consumer then borrows that established subscription while
+publication obtains both topics only from the token. Release cancels and joins
+the consumer before issuing the bounded, cancellation-safe `DELETE` for the
+cursor's `Owned` subscription. A cleanup
 failure is retained as secondary detail when a timeout, publication error, or
 other primary failure already exists; it becomes the failure when the primary
 action succeeded. Expected cancellation after successful cleanup is not an

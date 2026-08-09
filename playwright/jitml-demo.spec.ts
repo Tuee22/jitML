@@ -300,6 +300,31 @@ async function withCheckpointBrowseRoute(
   }
 }
 
+function assertLiveCheckpointListPayload(payload: string): void {
+  const lines = payload.split("\n").filter((line) => line.length > 0);
+  const uniqueField = (name: string): string => {
+    const prefix = `${name}: `;
+    const matches = lines
+      .filter((line) => line.startsWith(prefix))
+      .map((line) => line.slice(prefix.length));
+    expect(matches, `expected one ${name} field in CheckpointList`).toHaveLength(1);
+    return matches[0];
+  };
+  expect(uniqueField("kind")).toBe("CheckpointList");
+  expect(uniqueField("status")).toBe("published");
+  expect(uniqueField("run-id")).toBe(CATALOGUE.run_id);
+  expect(uniqueField("substrate")).toBe(CATALOGUE.substrate);
+  expect(uniqueField("catalogue-sha256")).toBe(CATALOGUE.catalogue_sha256);
+  expect(uniqueField("source-journal-sha256")).toBe(CATALOGUE.source_journal_sha256);
+  expect(uniqueField("count")).toBe(String(PRODUCT_ROW_COUNT));
+  expect(lines.filter((line) => line.startsWith("row-selector: "))).toHaveLength(
+    PRODUCT_ROW_COUNT,
+  );
+  expect(lines.filter((line) => line.startsWith("checkpoint-summary: "))).toHaveLength(
+    PRODUCT_ROW_COUNT,
+  );
+}
+
 async function assertMissingClusterFailClosed(page: Page): Promise<void> {
   await withCheckpointBrowseRoute(
     page,
@@ -600,6 +625,15 @@ test("checkpoint browse panel lists eligible checkpoints and every model row", a
   await expect(page.locator("#checkpoint-browse")).toBeVisible();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
+  assertLiveCheckpointListPayload(await response.text());
+  // A single lucky request cannot expose the former sub-100% reply-cursor
+  // race. Re-open the correlated request/reply scope repeatedly and require a
+  // complete parsed catalogue every time.
+  for (let attempt = 1; attempt < 5; attempt += 1) {
+    const repeated = await page.request.post(`${LIVE_DEMO_URL}api/checkpoints`);
+    expect(repeated.ok(), `checkpoint browse attempt ${attempt + 1} failed`).toBeTruthy();
+    assertLiveCheckpointListPayload(await repeated.text());
+  }
   await expect(page.locator("#checkpoint-browse-selector-state")).toHaveText(
     "selector-state: ready",
   );

@@ -1881,11 +1881,14 @@ Nack, because its publication may already be externally visible. The deadline
 therefore does not promise broker acknowledgement or publication completion by
 that instant, and Pulsar delivery remains at-least-once.
 
-Short-lived `Owned` CLI reply consumers use a `FromLatest` cursor, match both
-`callId` and experiment hash, then cancel and join before bounded,
-cancellation-safe deletion. Settlement, drain/protocol, bridge-process, and
-cleanup failures remain typed; only a completely successful drain and cleanup
-rethrows the original asynchronous cancellation identity.
+Short-lived CLI request/reply scopes first obtain an acknowledged admin CREATE
+for their `Owned`, `FromLatest` subscription. Only that effect mints the opaque
+`ReplyCursor` which carries both request and reply topics into publication; a
+socket-open lifecycle event is diagnostic and cannot release the request. The
+consumer matches both `callId` and experiment hash, then cancels and joins before
+bounded, cancellation-safe cursor deletion. Settlement, drain/protocol,
+bridge-process, and cleanup failures remain typed; only a completely successful
+drain and cleanup rethrows the original asynchronous cancellation identity.
 
 The uniform Sprint `12.11` WorkflowMatrix instead validates public CLI execution:
 each cell is one typed `Subprocess`, rendered canonically and checked through its

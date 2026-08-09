@@ -261,7 +261,11 @@ import JitML.Service.DhallSchema
   )
 import JitML.Service.FilesystemMinIO (FilesystemMinIO, runFilesystemMinIO)
 import JitML.Service.HotReload qualified as HotReload
-import JitML.Service.InferenceReplyScope (runInferenceReplyScope, runInferenceReplyScopeObserved)
+import JitML.Service.InferenceReplyScope
+  ( runInferenceReplyScope
+  , runInferenceReplyScopeObserved
+  , runInferenceReplyScopeWithRelease
+  )
 import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Service.Retry qualified as ServiceRetry
 import JitML.Service.RunConfig qualified as RunConfig
@@ -3916,6 +3920,25 @@ unitTestMain =
                 "owned cleanup failure was lost"
                 ("forced owned subscription DELETE failure" `Text.isInfixOf` detail)
             Right () -> assertFailure "cleanup failure incorrectly returned reply success"
+      , testCase "inference reply scope releases an admin-created cursor even before consumer readiness" $ do
+          neverReady <- newEmptyMVar
+          released <- newIORef False
+          let consumerAction :: IO (Either Capabilities.ConsumerFailure ())
+              consumerAction = do
+                _ <- takeMVar neverReady
+                pure (Right ())
+              releaseAction :: IO (Either Capabilities.ConsumerFailure ())
+              releaseAction = do
+                writeIORef released True
+                pure (Right ())
+              primaryAction :: IO (Either Text ())
+              primaryAction = pure (Left "correlated publish failed before consumer readiness")
+          result <-
+            withinUnitDeadline
+              "inference reply scope did not release the established cursor"
+              (runInferenceReplyScopeWithRelease consumerAction releaseAction primaryAction)
+          result @?= Left "correlated publish failed before consumer readiness"
+          readIORef released >>= (@?= True)
       , testCase "inference reply scope treats joined clean cancellation as a clean release" $ do
           workerStarted <- newEmptyMVar
           neverReply <- newEmptyMVar

@@ -8,7 +8,7 @@
 module Main where
 
 import Control.Concurrent qualified
-import Control.Concurrent.Async (AsyncCancelled (..))
+import Control.Concurrent.Async (AsyncCancelled (..), wait, withAsync)
 import Control.Exception qualified
 import Control.Exception.Safe qualified as SafeException
 import Control.Monad (unless, when)
@@ -93,6 +93,8 @@ import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
   , Topic
   , encodeTopicPayload
+  , inferenceResultMessagePayload
+  , mkInferenceResultMessage
   , topicFor
   , topicName
   )
@@ -113,6 +115,7 @@ import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Project.Config qualified as ProjectConfig
+import JitML.Proto.Inference qualified as ProtoInference
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 import JitML.RL.ConvergenceThresholds
@@ -7269,7 +7272,101 @@ main = do
                 ExitSuccess
                 cleanupOutcome
           , testCase
-              "live unsatisfiable inference request never starves the shared Engine subscription (Phase 262)"
+              "live correlated reply cursor excludes pre-cursor replies and orders CREATE before publish (Phase 262)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    settings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    substrate = Publication.publicationSubstrate publication
+                    requestTopic = topologyTopic InferenceRequestRoute substrate
+                    replyTopic = topologyTopic InferenceResultRoute substrate
+                uniqueSuffix <- pickRandomSuffix
+                let subscriptionName = "phase262-reply-cursor-" <> uniqueSuffix
+                    subscription =
+                      subscriptionFixture replyTopic subscriptionName FromLatest Owned
+                    preCursorPayload =
+                      ProtoInference.renderInferenceResult
+                        ProtoInference.InferenceResult
+                          { ProtoInference.iresCallId = "before-" <> uniqueSuffix
+                          , ProtoInference.iresExperimentHash = "cursor-negative-control"
+                          , ProtoInference.iresOutput = [0.0]
+                          }
+                    postCursorPayload =
+                      ProtoInference.renderInferenceResult
+                        ProtoInference.InferenceResult
+                          { ProtoInference.iresCallId = "after-" <> uniqueSuffix
+                          , ProtoInference.iresExperimentHash = "cursor-positive-control"
+                          , ProtoInference.iresOutput = [1.0]
+                          }
+                    preCursorMessage =
+                      either (error . Text.unpack) id (mkInferenceResultMessage preCursorPayload)
+                    postCursorMessage =
+                      either (error . Text.unpack) id (mkInferenceResultMessage postCursorPayload)
+                prePublished <-
+                  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+                    pulsarPublish replyTopic preCursorMessage
+                case prePublished of
+                  Left err -> assertFailure ("pre-cursor negative-control publish failed: " <> show err)
+                  Right _ -> pure ()
+                sequenceRef <- newIORef ([] :: [Text])
+                established <-
+                  PulsarWebSocketSubprocess.establishReplyCursor
+                    settings
+                    requestTopic
+                    subscription
+                case established of
+                  Left err -> assertFailure ("live reply cursor CREATE failed: " <> show err)
+                  Right cursor ->
+                    ( do
+                        modifyIORef' sequenceRef (<> ["create-acknowledged"])
+                        withAsync
+                          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+                              pulsarConsumeUntil
+                                (PulsarWebSocketSubprocess.replyCursorSubscription cursor)
+                                (const (pure ()))
+                                ( \delivery -> do
+                                    let payload =
+                                          inferenceResultMessagePayload (deliveryEvent delivery)
+                                    liftIO (modifyIORef' sequenceRef (<> ["delivered"]))
+                                    if payload == postCursorPayload
+                                      then pure (done ack payload)
+                                      else do
+                                        liftIO
+                                          ( assertFailure
+                                              ( "pre-cursor reply was delivered through a FromLatest cursor: "
+                                                  <> Text.unpack payload
+                                              )
+                                          )
+                                        pure (done ack payload)
+                                )
+                          )
+                          $ \consumer -> do
+                            modifyIORef' sequenceRef (<> ["publishing"])
+                            published <-
+                              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+                                pulsarPublish replyTopic postCursorMessage
+                            case published of
+                              Left err -> assertFailure ("post-cursor positive-control publish failed: " <> show err)
+                              Right _ -> pure ()
+                            consumed <- Timeout.timeout 15_000_000 (wait consumer)
+                            case consumed of
+                              Nothing -> assertFailure "pre-created reply cursor did not deliver the post-cursor reply"
+                              Just (Left err) -> assertFailure ("reply-cursor consumer failed: " <> show err)
+                              Just (Right payload) -> payload @?= postCursorPayload
+                    )
+                      `SafeException.finally` do
+                        released <- PulsarWebSocketSubprocess.releaseReplyCursor settings cursor
+                        released @?= Right ()
+                observed <- readIORef sequenceRef
+                assertBool
+                  ("expected CREATE acknowledgement before publish and delivery; got " <> show observed)
+                  ( orderedSubsequence
+                      ["create-acknowledged", "publishing", "delivered"]
+                      observed
+                  )
+                assertPulsarSubscriptionAbsent replyTopic subscriptionName 15
+          , testCase
+              "live correlated reply requests answer repeatedly without starving the shared Engine subscription (Phase 262)"
               $ do
                 -- The co-tenancy invariant. Every inference command shares the
                 -- one durable `jitml-engine` subscription, and its consumers
@@ -7309,38 +7406,53 @@ main = do
                           <> "; got: "
                           <> Text.unpack reason
                       )
-                      (not ("no matching reply received" `Text.isInfixOf` reason))
-                -- An unrelated command must still be served promptly. The
-                -- production reply deadline is 30s; a starved subscription blows
-                -- straight through it, so this bounds well inside that.
-                listed <-
-                  Timeout.timeout
-                    15_000_000
-                    ( InferenceCommand.publishListCheckpointsCommandOnly
-                        pulsarSettings
-                        substrate
-                    )
-                case listed of
-                  Nothing ->
-                    assertFailure
-                      ( "an unrelated ListCheckpoints did not complete within 15s after an "
-                          <> "unsatisfiable inference request; the shared jitml-engine "
-                          <> "subscription is starved"
+                      (absentExperimentHash `Text.isInfixOf` reason)
+                -- Repetition makes the former sub-100% cursor race observable.
+                -- This integration subtree precedes live catalogue publication,
+                -- so the positive catalogue parse is held by the repeated
+                -- Playwright browse case. Here, each unrelated command must be
+                -- either a topology-decoded CheckpointList or the Engine's
+                -- explicit catalogue-admission answer; a timeout string is not
+                -- accepted as its own proof of non-starvation.
+                for_ [1 :: Int .. 5] $ \attempt -> do
+                  listed <-
+                    Timeout.timeout
+                      15_000_000
+                      ( InferenceCommand.publishListCheckpointsCommandOnly
+                          pulsarSettings
+                          substrate
                       )
-                  -- Being ANSWERED is the invariant, not succeeding. Ordering
-                  -- inside the live subtree does not guarantee a published
-                  -- catalogue yet, and "there is no catalogue" is a legitimate
-                  -- prompt answer. Only the reply-timeout sentinel means the
-                  -- Engine never answered at all, which is what starvation
-                  -- looks like from here.
-                  Just (Left reason) ->
-                    assertBool
-                      ( "ListCheckpoints returned the no-reply sentinel rather than an "
-                          <> "answer, so the shared jitml-engine subscription is starved: "
-                          <> Text.unpack reason
-                      )
-                      (not ("no matching reply received" `Text.isInfixOf` reason))
-                  Just (Right _) -> pure ()
+                  case listed of
+                    Nothing ->
+                      assertFailure
+                        ( "unrelated ListCheckpoints attempt "
+                            <> show attempt
+                            <> " did not complete within 15s; the shared jitml-engine "
+                            <> "subscription is starved"
+                        )
+                    Just (Left reason) ->
+                      assertBool
+                        ( "ListCheckpoints attempt "
+                            <> show attempt
+                            <> " did not carry the Engine's catalogue-admission diagnosis: "
+                            <> Text.unpack reason
+                        )
+                        ("authenticated browser catalogue admission failed" `Text.isInfixOf` reason)
+                    Just (Right payload) ->
+                      case mkInferenceResultMessage payload of
+                        Left err ->
+                          assertFailure
+                            ( "ListCheckpoints attempt "
+                                <> show attempt
+                                <> " returned a malformed typed frame: "
+                                <> Text.unpack err
+                            )
+                        Right decoded ->
+                          assertBool
+                            ("ListCheckpoints attempt " <> show attempt <> " returned the wrong frame")
+                            ( "kind: CheckpointList"
+                                `Text.isInfixOf` inferenceResultMessagePayload decoded
+                            )
                 backlogAfter <- pulsarSubscriptionBacklog requestTopic "jitml-engine"
                 assertBool
                   ( "the unsatisfiable inference request was left unsettled on the shared "
@@ -10555,6 +10667,13 @@ assertAppleHostForwardingSmoke settings topic subscriptionName experimentHash ex
 
 nonFinite :: Double -> Bool
 nonFinite value = isNaN value || isInfinite value
+
+orderedSubsequence :: (Eq value) => [value] -> [value] -> Bool
+orderedSubsequence [] _actual = True
+orderedSubsequence _expected [] = False
+orderedSubsequence expected@(next : rest) (actual : remaining)
+  | next == actual = orderedSubsequence rest remaining
+  | otherwise = orderedSubsequence expected remaining
 
 kubectlJobExists :: Text -> IO Bool
 kubectlJobExists jobName = do

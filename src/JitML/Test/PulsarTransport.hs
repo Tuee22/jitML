@@ -21,7 +21,7 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket.ByteString
-import System.Directory (getPermissions, setOwnerExecutable, setPermissions)
+import System.Directory (doesFileExist, getPermissions, setOwnerExecutable, setPermissions)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -35,6 +35,7 @@ import JitML.Coordinator.Topology
   , WorkflowStatusMessage
   , mkWorkflowStatusMessage
   , topicFor
+  , topicName
   )
 import JitML.Service.Capabilities
   ( ConsumerFailure (..)
@@ -54,6 +55,10 @@ import JitML.Service.Capabilities
   , done
   , doneBatch
   , mkSubscription
+  , subscriptionName
+  , subscriptionOwnership
+  , subscriptionStart
+  , subscriptionTopic
   )
 import JitML.Service.InferenceBatch
   ( batchMaximumSize
@@ -81,10 +86,15 @@ import JitML.Service.Pulsar.Bridge
 import JitML.Service.Pulsar.Internal (DeliveryReceipt (..))
 import JitML.Service.PulsarWebSocketSubprocess
   ( PulsarWebSocketSettings (..)
+  , establishReplyCursor
+  , publishWithReplyCursor
   , pulsarBatchConsumerBridgeScript
   , pulsarConsumerBridgeScript
   , pulsarConsumerSubprocess
+  , pulsarCreateSubscriptionSubprocess
   , pulsarPublishSubprocess
+  , releaseReplyCursor
+  , replyCursorSubscription
   , runPulsarWebSocketSubprocess
   , subscriptionCleanupSubprocess
   )
@@ -538,6 +548,25 @@ pulsarTransportTests =
             Left err -> assertFailure ("failed to build owned subscription: " <> show err)
             Right owned -> do
               subscriptionCleanupSubprocess testSettings borrowed @?= Nothing
+              let createCommand = pulsarCreateSubscriptionSubprocess testSettings owned
+              subprocessPath createCommand @?= "curl"
+              assertBool "cursor creation is not PUT" ("PUT" `elem` subprocessArguments createCommand)
+              assertBool
+                "cursor creation does not carry MessageId.latest"
+                ( subprocessStdin createCommand
+                    == Just "{\"ledgerId\":-1,\"entryId\":-1,\"partitionIndex\":-1}"
+                )
+              assertBool
+                "cursor creation URL is not the exact admin subscription resource"
+                ( any
+                    ( Text.isSuffixOf
+                        "/admin/v2/persistent/public/default/workflow.status.linux-cpu/subscription/owned-unit"
+                    )
+                    (subprocessArguments createCommand)
+                )
+              assertBool
+                "cursor creation inherited the DELETE-only force query"
+                (not (any (Text.isInfixOf "force=true") (subprocessArguments createCommand)))
               case subscriptionCleanupSubprocess testSettings owned of
                 Nothing -> assertFailure "owned subscription omitted cleanup"
                 Just command -> do
@@ -594,6 +623,130 @@ pulsarTransportTests =
                     ("DELETE /redirected-cleanup " `Text.isPrefixOf` redirectedRequest)
                 other ->
                   assertFailure ("unexpected redirected cleanup requests: " <> show other)
+    , testCase "acknowledged reply-cursor CREATE mints a borrowed consumer view and releases it" $
+        withWorkflowFixture Owned $ \topic _event _fixtureSubscription ->
+          withReplySubscription topic "reply-cursor-unit" $ \subscription ->
+            withAdminResponses [httpNoContent, httpNoContent] $ \adminEndpoint requestsObserved -> do
+              let settings = testSettings {pulsarAdminEndpoint = adminEndpoint}
+              established <- establishReplyCursor settings topic subscription
+              case established of
+                Left err -> assertFailure ("reply cursor was not established: " <> show err)
+                Right cursor -> do
+                  let consumerSubscription = replyCursorSubscription cursor
+                  subscriptionTopic consumerSubscription @?= topic
+                  subscriptionName consumerSubscription @?= subscriptionName subscription
+                  subscriptionStart consumerSubscription @?= FromLatest
+                  subscriptionOwnership consumerSubscription @?= Borrowed
+                  released <- releaseReplyCursor settings cursor
+                  released @?= Right ()
+              requests <- withinFixtureTimeout (takeMVar requestsObserved)
+              case requests of
+                [createRequest, deleteRequest] -> do
+                  assertBool
+                    "reply cursor was not established by admin PUT"
+                    ("PUT /admin/v2/" `Text.isPrefixOf` Text.Encoding.decodeUtf8 createRequest)
+                  assertBool
+                    "reply cursor release was not admin DELETE"
+                    ("DELETE /admin/v2/" `Text.isPrefixOf` Text.Encoding.decodeUtf8 deleteRequest)
+                other -> assertFailure ("unexpected cursor admin request sequence: " <> show other)
+    , testCase "offline reply-cursor broker drops a pre-cursor reply and delivers the post-cursor reply" $
+        withWorkflowFixture Owned $ \topic event _fixtureSubscription ->
+          withReplySubscription topic "reply-cursor-offline-negative" $ \subscription ->
+            withSystemTempDirectory "jitml-reply-cursor-offline" $ \directory -> do
+              let cursorPath = directory </> "cursor-created"
+                  messagePath = directory </> "cursor-message"
+                  eventLogPath = directory </> "cursor-events.log"
+                  appendEvent eventName = Text.IO.appendFile eventLogPath (eventName <> "\n")
+                  createCursor = do
+                    Text.IO.writeFile cursorPath "created"
+                    appendEvent "create"
+                  deleteCursor = appendEvent "delete"
+              withFakeNode
+                (replyCursorBrokerScript validWorkflowPayload cursorPath messagePath eventLogPath)
+                $ \nodeSettings ->
+                  withAdminResponseEffects
+                    [(httpNoContent, createCursor), (httpNoContent, deleteCursor)]
+                    $ \adminEndpoint requestsObserved -> do
+                      let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                      preCursor <-
+                        runPulsarWebSocketSubprocess settings (pulsarPublish topic event)
+                      preCursor @?= Right "reply-publish-ack"
+                      doesFileExist messagePath >>= (@?= False)
+                      established <- establishReplyCursor settings topic subscription
+                      cursor <-
+                        case established of
+                          Left err -> assertFailure ("offline reply cursor was not established: " <> show err)
+                          Right establishedCursor -> pure establishedCursor
+                      published <- publishWithReplyCursor settings cursor (const event)
+                      published @?= Right "reply-publish-ack"
+                      consumed <-
+                        runPulsarWebSocketSubprocess settings $
+                          pulsarConsumeUntil
+                            (replyCursorSubscription cursor)
+                            (const (pure ()))
+                            (const (pure (done ack ())))
+                      consumed @?= Right ()
+                      released <- releaseReplyCursor settings cursor
+                      released @?= Right ()
+                      requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                      length requests @?= 2
+                      events <- Text.lines <$> Text.IO.readFile eventLogPath
+                      assertOrderedLog
+                        events
+                        [ "publish-without-cursor"
+                        , "create"
+                        , "publish-with-cursor"
+                        , "delivery"
+                        , "delete"
+                        ]
+    , testCase "reply-cursor CREATE accepts HTTP 409 as proof of an existing cursor" $
+        withWorkflowFixture Owned $ \topic _event _fixtureSubscription ->
+          withReplySubscription topic "reply-cursor-conflict" $ \subscription ->
+            withAdminResponses [httpConflict, httpNoContent] $ \adminEndpoint _requestsObserved -> do
+              let settings = testSettings {pulsarAdminEndpoint = adminEndpoint}
+              established <- establishReplyCursor settings topic subscription
+              case established of
+                Left err -> assertFailure ("existing reply cursor was rejected: " <> show err)
+                Right cursor -> do
+                  released <- releaseReplyCursor settings cursor
+                  released @?= Right ()
+    , testCase "correlated publish obtains both topics only from the acknowledged ReplyCursor" $
+        withWorkflowFixture Owned $ \topic event _fixtureSubscription ->
+          withReplySubscription topic "reply-cursor-publish" $ \subscription ->
+            withFakeNode publisherSuccessScript $ \nodeSettings ->
+              withAdminResponses [httpNoContent, httpNoContent] $ \adminEndpoint _requestsObserved -> do
+                let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                established <- establishReplyCursor settings topic subscription
+                case established of
+                  Left err -> assertFailure ("reply cursor was not established: " <> show err)
+                  Right cursor -> do
+                    published <-
+                      publishWithReplyCursor settings cursor $ \replyTopic ->
+                        if replyTopic == topicName topic
+                          then event
+                          else error "ReplyCursor exposed a mismatched reply topic"
+                    published @?= Right "correlated-publish-ack"
+                    released <- releaseReplyCursor settings cursor
+                    released @?= Right ()
+    , testCase "reply-cursor CREATE failure cannot mint a correlated-publish token" $
+        withWorkflowFixture Owned $ \topic _event _fixtureSubscription ->
+          withReplySubscription topic "reply-cursor-failure" $ \subscription ->
+            withSystemTempDirectory "jitml-reply-cursor-create-failure" $ \directory -> do
+              let publishMarker = directory </> "publisher-invoked"
+              withFakeNode (publisherInvocationMarkerScript publishMarker) $ \nodeSettings ->
+                withAdminResponses [httpInternalError] $ \adminEndpoint requestsObserved -> do
+                  let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                  established <- establishReplyCursor settings topic subscription
+                  case established of
+                    Left (SETransient detail) ->
+                      assertBool
+                        "cursor failure omitted the broker status"
+                        ("500" `Text.isInfixOf` detail)
+                    Left other -> assertFailure ("unexpected cursor failure class: " <> show other)
+                    Right _cursor -> assertFailure "failed admin CREATE minted a ReplyCursor"
+                  requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                  length requests @?= 1
+                  doesFileExist publishMarker >>= (@?= False)
     , testCase "publisher failure retains the complete process outcome" $
         withWorkflowFixture Borrowed $ \topic event _subscription ->
           withFakeNode publisherFailureScript $ \settings -> do
@@ -983,6 +1136,16 @@ withWorkflowFixture ownership assertion =
             Left err -> assertFailure ("failed to build subscription: " <> show err)
             Right subscription -> assertion topic event subscription
 
+withReplySubscription
+  :: Topic event
+  -> Text
+  -> (Subscription event -> Assertion)
+  -> Assertion
+withReplySubscription topic name assertion =
+  case mkSubscription topic name FromLatest Owned of
+    Left err -> assertFailure ("failed to build reply subscription: " <> show err)
+    Right subscription -> assertion subscription
+
 withFakeNode :: Text -> (PulsarWebSocketSettings -> Assertion) -> Assertion
 withFakeNode script assertion =
   withSystemTempDirectory "jitml-fake-pulsar-node" $ \directory -> do
@@ -1106,6 +1269,61 @@ withRedirectingSuccessfulAdmin assertion =
   sendResponse (_request, connection) response =
     bracket (pure connection) Socket.close $ \client -> do
       Socket.ByteString.sendAll client response
+
+withAdminResponses
+  :: [ByteString]
+  -> (Text -> MVar [ByteString] -> Assertion)
+  -> Assertion
+withAdminResponses responses =
+  withAdminResponseEffects [(response, pure ()) | response <- responses]
+
+withAdminResponseEffects
+  :: [(ByteString, IO ())]
+  -> (Text -> MVar [ByteString] -> Assertion)
+  -> Assertion
+withAdminResponseEffects responseEffects assertion =
+  Socket.withSocketsDo $
+    bracket openListener Socket.close $ \listener -> do
+      address <- Socket.getSocketName listener
+      port <-
+        case address of
+          Socket.SockAddrInet listenerPort _host -> pure listenerPort
+          other -> ioError (userError ("expected IPv4 test listener, got " <> show other))
+      requestsObserved <- newEmptyMVar
+      let endpoint = "http://127.0.0.1:" <> Text.pack (show port) <> "/admin/v2"
+          serve [] observed = putMVar requestsObserved (reverse observed)
+          serve ((response, effect) : remaining) observed = do
+            (connection, _peer) <- Socket.accept listener
+            request <-
+              bracket (pure connection) Socket.close $ \client -> do
+                received <- Socket.ByteString.recv client 8192
+                effect
+                Socket.ByteString.sendAll client response
+                pure received
+            serve remaining (request : observed)
+      bracket (async (serve responseEffects [])) cancel $ \_server ->
+        assertion endpoint requestsObserved
+ where
+  openListener = do
+    listener <- Socket.socket Socket.AF_INET Socket.Stream Socket.defaultProtocol
+    Socket.setSocketOption listener Socket.ReuseAddr 1
+    Socket.bind
+      listener
+      (Socket.SockAddrInet 0 (Socket.tupleToHostAddress (127, 0, 0, 1)))
+    Socket.listen listener (max 1 (length responseEffects))
+    pure listener
+
+httpNoContent :: ByteString
+httpNoContent =
+  "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+
+httpConflict :: ByteString
+httpConflict =
+  "HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+
+httpInternalError :: ByteString
+httpInternalError =
+  "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
 assertLateCleanupFailure
   :: String
@@ -1604,6 +1822,53 @@ publisherFailureScript =
     , "printf '%s' 'partial-out'"
     , "printf '%s' 'producer exploded' >&2"
     , "exit 19"
+    ]
+
+publisherSuccessScript :: Text
+publisherSuccessScript =
+  shellScript
+    [ "cat >/dev/null"
+    , "printf '%s' 'correlated-publish-ack'"
+    ]
+
+publisherInvocationMarkerScript :: FilePath -> Text
+publisherInvocationMarkerScript markerPath =
+  shellScript
+    [ "touch " <> shellQuote (Text.pack markerPath)
+    , "cat >/dev/null"
+    , "printf '%s' 'unexpected-publish'"
+    ]
+
+replyCursorBrokerScript :: Text -> FilePath -> FilePath -> FilePath -> Text
+replyCursorBrokerScript payload cursorPath messagePath eventLogPath =
+  shellScript
+    [ "case \"$3\" in"
+    , "  */producer/*)"
+    , "    if [ -e " <> shellQuote (Text.pack cursorPath) <> " ]; then"
+    , "      cat > " <> shellQuote (Text.pack messagePath)
+    , "      printf '%s\\n' 'publish-with-cursor' >> " <> shellQuote (Text.pack eventLogPath)
+    , "    else"
+    , "      cat >/dev/null"
+    , "      printf '%s\\n' 'publish-without-cursor' >> " <> shellQuote (Text.pack eventLogPath)
+    , "    fi"
+    , "    printf '%s' 'reply-publish-ack'"
+    , "    ;;"
+    , "  */consumer/*)"
+    , "    test -s " <> shellQuote (Text.pack messagePath)
+    , "    printf '%s\\n' 'delivery' >> " <> shellQuote (Text.pack eventLogPath)
+    , emitFrame (Connected 1)
+    , emitFrame (Delivery receipt1 (Text.Encoding.encodeUtf8 payload) 0)
+    , readCommand "settlement" "settle"
+    , requireCommandKind "settlement" "ack"
+    , readCommand "drain" "drain"
+    , emitFrame (Settled receipt1 AckKind)
+    , emitFrame Drained
+    , "    ;;"
+    , "  *)"
+    , "    echo 'unexpected fake reply-cursor URL' >&2"
+    , "    exit 41"
+    , "    ;;"
+    , "esac"
     ]
 
 fatalProtocolScript :: Text

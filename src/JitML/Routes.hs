@@ -28,8 +28,8 @@ data Route = Route
 -- | Edge budget for the demo API.
 --
 -- The webapp brokers request/reply work through the Engine: it waits up to
--- @inferenceReplyStartupTimeoutMicros@ for its correlated reply consumer and
--- then up to @inferenceReplyTimeoutMicros@ for the Engine's answer. The edge
+-- @inferenceReplyStartupTimeoutMicros@ for its broker-admin reply-cursor CREATE
+-- and then up to @inferenceReplyTimeoutMicros@ for the Engine's answer. The edge
 -- must outlast that sum, so that whatever the webapp concludes — a result, or
 -- its typed fail-closed reason — is what the browser observes, rather than a
 -- gateway timeout that discards it. @JitML.Routes@ cannot import the inference
