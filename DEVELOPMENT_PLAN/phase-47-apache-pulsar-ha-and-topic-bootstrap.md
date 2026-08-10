@@ -11,6 +11,13 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** the Pulsar dependency, routed
+admin/WebSocket surfaces, exact topic bootstrap, at-least-once delivery, and
+inactive-topic policy remain Done. Phase `53` owns replacing the three-member
+local roles/quorums with one of each and quorum one. The historical HA count is
+not current topology closure evidence; `Failover` means stable single-active
+coordination, not a repository-owned HA guarantee.
+
 ## Sprint 47.1: Apache Pulsar HA and Topic Bootstrap [✅ Done]
 
 **Status**: Done

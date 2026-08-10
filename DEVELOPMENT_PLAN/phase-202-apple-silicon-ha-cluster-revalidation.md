@@ -11,6 +11,12 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** this remains historical evidence for
+the real Apple host Metal lane, cluster-to-host forwarding, and zero clustered
+Engine placement. Its replicated platform measurements are superseded for
+current topology acceptance by Phases `42`, `53`, and `69`; no new explicit
+multi-worker Apple run is required, so this phase remains Done.
+
 ## Sprint 202.1: Apple-Silicon HA Cluster Revalidation [✅ Done]
 
 **Status**: Done (opened 2026-06-27; HA implementation unblocked 2026-06-28

@@ -15,6 +15,21 @@
 > implementation gap and its owning forward sprint rather than claiming that a
 > retained compatibility role already satisfies the target.
 
+## Current Status
+
+The shared coordination language is aligned with `infernix`: a Pulsar
+`Failover` subscription means stable single-active broker coordination, not a
+repository-owned high-availability guarantee. jitML's role split,
+receipt-bound settlement, redelivery, and semantic dedup paths are implemented.
+Its local Engine cardinality is still three in the checked-in renderer and will
+be reduced to one by the reopened Phase 42 → Phase 53 → Phase 69 chain. See
+[DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
+
+Positive multi-worker profiles remain supported. With the current `Failover`
+Engine subscription they are active/standby, not `Shared` throughput workers;
+jitML retains at-least-once semantics but no longer requires an explicit
+multi-worker or node-failover acceptance lane.
+
 ## Why this contract exists
 
 jitML (JIT-compiled, multi-substrate **training + inference**) and `infernix`
@@ -41,7 +56,7 @@ separate per-role executables). Every role runs the same lifecycle skeleton —
 | **Coordinator** | cluster only | **Owns Pulsar topic lifecycle**; batching, fan-in/fan-out, routing; **readiness gating** (derivation/training completion → serveable) | Pulsar + MinIO + cluster API |
 | **Webapp** | cluster | **Thin websocket server** for the browser; work dispatch + result/event streaming + static-artifact serving; **no ML compute** | **Pulsar + MinIO only** + browser (websocket) |
 
-**jitML specialization.** Linux clusters run three Engine replicas for
+**jitML specialization.** The target Linux cluster runs one Engine replica for
 inference compute and one non-compute Coordinator for Training/Tune/RL placement
 and cluster orchestration. The Coordinator alone owns Harbor/kubectl probes and
 the namespace-scoped Job/`pods/exec` RBAC; Engine retains only MinIO plus its
@@ -132,8 +147,12 @@ unrepresentable in the domain.
 
 - **Failover subscriptions** for every single-owner coordinator loop (dispatch,
   result-bridge, readiness/bootstrap): stable subscription name = ownership,
-  process-qualified consumer name = replica observability. HA with no external
-  consensus system.
+  process-qualified consumer name = consumer observability. This is stable
+  single-active broker coordination, not standby-role availability or
+  repo-owned HA. (`infernix`'s coordinator Failover loops are the shared
+  reference.) jitML Engine consumers use the same subscription type, so an
+  intentionally expanded Engine set is active/standby rather than shared-load
+  compute.
 - **Producer-side semantic dedup** keyed by `callId` is a pure first-seen fold
   over the work log. It makes duplicate commands idempotent at that semantic
   boundary; it does not change Pulsar's at-least-once delivery contract into an
@@ -235,10 +254,30 @@ A project conforms to this contract when all hold:
       `.ready` sentinel is written last.
 - [ ] The browser receives snapshot + patch frames over websocket; inference is
       asynchronous to the browser.
-- [ ] Failover subscriptions provide HA; semantic dedup makes redelivery
-      idempotent while broker delivery remains at-least-once.
+- [ ] Failover subscriptions provide stable single-active coordination;
+      acknowledgement ordering and semantic dedup make redelivery idempotent
+      while broker delivery remains at-least-once, without claiming platform
+      HA.
 - [ ] The binary emits its own (reflected) Dhall schema.
 - [ ] Every phase obeys forward-only DAG + single-accelerator-per-phase.
+
+## Validation
+
+jitML validates this contract on its target single-worker local profile. The
+focused gates prove one default Engine, `Failover` subscription rendering,
+at-least-once redelivery and deduplication, receipt-bound settlement, and total
+drain. No conformance criterion requires multiple workers, `Shared`
+subscriptions, or broker/node failover.
+
+```bash
+docker compose build jitml
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu \
+  --test-options='-p local-topology'
+docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
 
 ## Related Documents
 

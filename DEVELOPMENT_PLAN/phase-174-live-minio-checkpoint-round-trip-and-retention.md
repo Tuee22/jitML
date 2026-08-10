@@ -28,8 +28,9 @@ the live MinIO cluster: blobs and manifests land under
 `If-Match`, retry harness backs off per `RetryPolicy`. The
 `jitml internal gc` reconciler runs against the live store, deletes
 unreferenced checkpoint objects, emits `GcReapedEvent` Pulsar events, and exits
-`3` on steady state. Phase `262` now owns the active hardening of the retained
-reconciler; its target contract is recorded below and in
+`3` on steady state. Phase `262` owns the remaining hardening of the retained
+reconciler but is currently Blocked by Phase `69`; its target contract is
+recorded below and in
 [checkpoint_format.md](../documents/engineering/checkpoint_format.md#retention-and-gc).
 
 ### Deliverables
@@ -54,7 +55,7 @@ reconciler; its target contract is recorded below and in
    non-zero reap events on the first run and exits `3` (no-op) on the
    second.
 
-### Phase 262 Hardened Target Contract (Active)
+### Phase 262 Hardened Target Contract (Blocked)
 
 - `jitml internal gc` is an explicit operator/external-scheduler reconciler;
   trainers do not invoke it.

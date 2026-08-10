@@ -83,7 +83,7 @@ strict persisted-artifact reload. At that historical audit boundary, the
 frozen V1 encoding was 134 bytes with SHA-256
 `30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
 
-The current strict forward chain is `262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `235`
+The current strict forward chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `42` is the sole Active phase; Phase `53` is Blocked by `42`, Phase `69` is Blocked by `53`, and Phase `262` is Blocked by `69`. Intervening phases retain `Done` on their non-topology surfaces. Phase `235`
 (One Self-Describing Checkpoint Envelope) closed `Done` on 2026-07-27 (jitml-unit
 771/771, check-code ok, docs check ok), and Phase `236` (Checkpoint Admission
 Single-Path — one classify-on-payload-variant admission path, dormant
@@ -91,7 +91,7 @@ Single-Path — one classify-on-payload-variant admission path, dormant
 Phases `237` (supervised serving on the IR) and `238` (supervised training on
 the IR) closed `Done` on 2026-07-28; Phase `239` (checkpoint construction from the
 trained graph) closed `Done` on 2026-07-28; Phases `240`–`246` (the coupled
-literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `252` passed RL canonicals **47 / 47**, unit **757 / 757**, model convergence **111 / 111**, integration-target build/link, docs check, and check-code. Phase `261` closed `Done` on 2026-08-01 against immutable image `jitml:local@sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`: integration passed **161 / 161**, including the Phase `261` subtree **60 / 60**; unit passed **772 / 772**; the parent authenticated the ordered version-`3` **55-row** aggregate and exactly Store-re-admitted every row; all **9** live components were Ready and the exact **12** dataset objects were present; and docs check plus check-code passed. The Phase `19`–`34` table records **57 Done / 1 Active / 0 Planned / 11 Blocked**. Phase `262` is Active. Every later phase in the current open suffix is Blocked by its immediate predecessor, and the apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
+literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `252` passed RL canonicals **47 / 47**, unit **757 / 757**, model convergence **111 / 111**, integration-target build/link, docs check, and check-code. Phase `261` closed `Done` on 2026-08-01 against immutable image `jitml:local@sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`: integration passed **161 / 161**, including the Phase `261` subtree **60 / 60**; unit passed **772 / 772**; the parent authenticated the ordered version-`3` **55-row** aggregate and exactly Store-re-admitted every row; all **9** live components were Ready and the exact **12** dataset objects were present; and docs check plus check-code passed. The Phase `19`–`34` table records **57 Done / 0 Active / 0 Planned / 12 Blocked** because Phase `262` is Blocked by Phase `69`. The apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
 Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 
 The binding architecture is
@@ -284,8 +284,8 @@ and `gc/` prefixes before `HasMinIO`. Each GC event names exactly one snapshot a
 one `committed.cbor` plus its payload-object keys, so a zero-payload-object reap
 reports `reaped-objects=1`. ETags are used only for write CAS. Sprint
 `10.6`, `10.12`, and `19.4` are Done on `linux-cpu`; Phases `252` and `261` are
-Done, Phase `262` is Active, and every later phase in the current open suffix
-remains Blocked. The
+Done, Phase `42` is Active, and Phase `262` is Blocked behind the target
+topology chain. The
 live HTTP MinIO capability path remains implemented by
 `JitML.Service.MinIOSubprocess` and exercises write-once conflicts, pointer CAS,
 read, list, and delete. The frontend surface provides a
@@ -719,7 +719,8 @@ and the deletion ledger has no pending rows.
   journal: startup consumes and clears the private key-file
   capability before Tasty, all projected ProductRows must yield exact completed
   evidence, and the parent authenticates the aggregate before Store re-admission.
-  Browser/Playwright consumption is the Active Phase `262` successor.
+  Browser/Playwright consumption is the Phase `262` successor, now Blocked by
+  Phase `69` behind the reopened topology chain.
   Within-substrate apple-silicon reproducibility is validated host-native by
   Sprint `16.6`; no cross-substrate parity path remains. The seven doctrine
   test categories (Pure Logic, Parser, Property, Snapshot (pure-renderer
@@ -1137,7 +1138,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 39 | [Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener](phase-39-envoy-gateway-and-single-127-0-0-1-edge-port-listener.md) | ✅ Done | 3.3 |
 | 40 | [Typed Route Registry and Generated `HTTPRoute` Manifests](phase-40-typed-route-registry-and-generated-httproute-manifests.md) | ✅ Done | 3.4 |
 | 41 | [Cluster Lifecycle Reconciler and Phased Deploy](phase-41-cluster-lifecycle-reconciler-and-phased-deploy.md) | ✅ Done | 3.5 |
-| 42 | [HA Kind Node and Manual-PV Topology](phase-42-ha-kind-node-and-manual-pv-topology.md) | ✅ Done | 3.6 |
+| 42 | [Single-Worker Local Kind Node and Manual-PV Topology](phase-42-ha-kind-node-and-manual-pv-topology.md) | 🔄 Active | 3.6 |
 | 43 | [Live Cluster Lifecycle and Publication Truth](phase-43-live-cluster-lifecycle-and-publication-truth.md) | ✅ Done | 3.7 |
 | 44 | [Harbor Subchart and Bootstrap-Phase Install](phase-44-harbor-subchart-and-bootstrap-phase-install.md) | ✅ Done | 4.1 |
 | 45 | [Percona PG Operator and Patroni-Managed Service Postgres](phase-45-percona-pg-operator-and-patroni-managed-service-postgres.md) | ✅ Done | 4.2 |
@@ -1148,7 +1149,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 50 | [NVIDIA `RuntimeClass` for Linux CUDA](phase-50-nvidia-runtimeclass-for-linux-cuda.md) | ✅ Done | 4.7 |
 | 51 | [Per-Pod Resource Limits and Right-Sized Replicas from the `dhall/cluster/` Profile](phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md) | ✅ Done | 4.8 |
 | 52 | [Project the Durable-State `StoreRegistry` over MinIO Buckets](phase-52-project-the-durable-state-storeregistry-over-minio-buckets.md) | ✅ Done | 4.9 |
-| 53 | [HA Platform Service Topology](phase-53-ha-platform-service-topology.md) | ✅ Done | 4.10 |
+| 53 | [Single-Instance Local Platform Service Topology](phase-53-ha-platform-service-topology.md) | ⏸️ Blocked | 4.10 |
 | 54 | [`jitml service` Entry Point and Lifecycle Summary](phase-54-jitml-service-entry-point-and-lifecycle-summary.md) | ✅ Done | 5.1 |
 | 55 | [`BootConfig` / `LiveConfig` Dhall and Hot-Reload Schema Surface](phase-55-bootconfig-liveconfig-dhall-and-hot-reload-schema-surface.md) | ✅ Done | 5.2 |
 | 56 | [`/healthz` / `/readyz` / `/metrics` and Structured Logging](phase-56-healthz-readyz-metrics-and-structured-logging.md) | ✅ Done | 5.3 |
@@ -1164,7 +1165,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 66 | [Coordinator Topic Algebra](phase-66-coordinator-topic-algebra.md) | ✅ Done | 5.13 |
 | 67 | [One-Binary Engine / Coordinator / Webapp Role Model](phase-67-one-binary-engine-coordinator-webapp-role-model.md) | ✅ Done | 5.14 |
 | 68 | [Reconcile the Pulsar Topic Family with the `StoreRegistry`](phase-68-reconcile-the-pulsar-topic-family-with-the-storeregistry.md) | ✅ Done | 5.15 |
-| 69 | [One Numerical Worker per Kubernetes Node](phase-69-one-numerical-worker-per-kubernetes-node.md) | ✅ Done | 5.16 |
+| 69 | [One Numerical Worker per Kubernetes Node](phase-69-one-numerical-worker-per-kubernetes-node.md) | ⏸️ Blocked | 5.16 |
 | 70 | [Fail-Closed Mounted Worker `RunConfig`](phase-70-fail-closed-mounted-worker-runconfig.md) | ✅ Done | 5.17 |
 | 71 | [Receipt-Bound Delivery and Total Settlement](phase-71-receipt-bound-delivery-and-total-settlement.md) | ✅ Done | 5.18 |
 | 72 | [Layer Catalog](phase-72-layer-catalog.md) | ✅ Done | 6.1 |
@@ -1357,7 +1358,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 259 | [Row-Complete Playwright](phase-259-row-complete-playwright.md) | ✅ Done | 28.2 |
 | 260 | [linux-cpu Report Card](phase-260-linux-cpu-report-card.md) | ✅ Done | 28.3 |
 | 261 | [Contract-Driven Live Execution - Integration Journal](phase-261-contract-driven-live-execution-integration-journal.md) | ✅ Done | 28.4 |
-| 262 | [Contract-Driven Live Execution - Browser and Playwright](phase-262-contract-driven-live-execution-browser-and-playwright.md) | 🔄 Active | 28.5 |
+| 262 | [Contract-Driven Live Execution - Browser and Playwright](phase-262-contract-driven-live-execution-browser-and-playwright.md) | ⏸️ Blocked | 28.5 |
 | 263 | [Contract-Driven Live Execution - Fragment Issuance](phase-263-contract-driven-live-execution-fragment-issuance.md) | ⏸️ Blocked | 28.6 |
 | 264 | [Real cuDNN/cuBLAS Kernels](phase-264-real-cudnn-cublas-kernels.md) | ✅ Done | 29.1 |
 | 265 | [CUDA Row Device Evidence](phase-265-cuda-row-device-evidence.md) | ✅ Done | 29.2 |
@@ -1385,15 +1386,15 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 287 | [Journal-Derived Status Registry](phase-287-journal-derived-status-registry.md) | ⏸️ Blocked | 34.3 |
 | 288 | [Evidence-Typed Report Measurements](phase-288-evidence-typed-report-measurements.md) | ⏸️ Blocked | 34.4 |
 
-The 2026-07-18 checkpoint/runtime audit adds sprint-level dependencies without
-renumbering phases. After Sprints `10.6` and `10.12` closed, the current open
-suffix is:
+The 2026-07-18 checkpoint/runtime audit added sprint-level dependencies without
+renumbering phases. After Sprints `10.6` and `10.12` closed, its then-open
+suffix was:
 `262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 This is an ownership-chain overlay on the phase DAG: later phases that are not
 named remain Done on their retained surfaces. Sprints `1.18`, `2.9`, `3.7`,
 `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and `12.16` are closed. Phases
-`235`–`246`, `250`, `251`, `252`, and `261` are closed `Done`; Phase `262` is
-Active.
+`235`–`246`, `250`, `251`, `252`, and `261` are closed `Done`; Phase `262` was
+Active at that checkpoint.
 
 The 2026-08-09 correlated request/reply audit adds two ownership transfers to
 that overlay under rule `M(a)`, and no dependency edges. Phase `71` retains the
@@ -1405,11 +1406,16 @@ request is published — forward to Phase `262`, which owns the opaque
 supervisor's readiness gate, which used the diagnostic `ConsumerSessionConnected`
 event as proof of receivability; the same phase's note records that Phase `262`
 raised the compiler heap cap the `160` narrative had preserved. Neither phase
-reopens. The Phase `19`–`34` product-sprint status checkpoint is
-**57 Done / 1 Active / 0 Planned / 11 Blocked**. Every later phase in the chain
-is Blocked by its immediate predecessor, and the
-apple-silicon wall at Phase `272` is the hard stop on non-Apple hosts. Prior Sprint
-`10.12` validation and pre-V2 publisher results remain historical evidence only.
+reopens.
+
+The 2026-08-09 local-resource correction reopens Phase `42`, blocks Phase `53`
+on `42`, blocks Phase `69` on `53`, and blocks Phase `262` on `69`. The complete
+current chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 →
+280 → 281 → 284 → 287 → 288`. The Phase `19`–`34` product-sprint checkpoint is
+therefore **57 Done / 0 Active / 0 Planned / 12 Blocked**; the plan still has
+one Active owner overall in Phase `42`. The apple-silicon wall at Phase `272`
+remains the hard stop on non-Apple hosts. Prior Sprint `10.12` validation and
+pre-V2 publisher results remain historical evidence only.
 
 ## Status Vocabulary
 

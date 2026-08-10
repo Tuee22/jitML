@@ -11,6 +11,11 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** this handoff remains a historical
+record of the then-accepted topology. It is not a current single-worker handoff
+or an HA claim. Phases `42`, `53`, and `69` own the replacement local topology,
+and the product chain beginning at Phase `262` is Blocked behind them.
+
 ## Sprint 217.1: HA Topology Product Handoff [✅ Done]
 
 **Status**: Done (opened 2026-06-27; re-closed 2026-06-29 after Phase `17`

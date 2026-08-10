@@ -11,6 +11,12 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** the Percona operator, CR renderer,
+schema grant, pgBouncer endpoint, and Harbor integration remain Done. Phase
+`53` owns reducing the local Postgres/pgBouncer/pgBackRest counts and PV set;
+the historical Patroni/three-instance shape is not current topology closure
+evidence and does not reopen this phase.
+
 ## Sprint 45.1: Percona PG Operator and Patroni-Managed Service Postgres [✅ Done]
 
 **Status**: Done

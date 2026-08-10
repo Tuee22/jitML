@@ -10,18 +10,38 @@
 > Envoy Gateway listener, the typed route registry, the `jitml bootstrap
 > --<substrate>` rollout contract, and the no-kubeconfig-pollution invariant.
 
+## Current Status
+
+The target topology in this document is not yet the checked-in implementation.
+As of 2026-08-09, the worktree still renders one control-plane plus three Kind
+workers, four distributed MinIO replicas, three ZooKeeper / BookKeeper / Broker
+/ Proxy replicas, three Postgres instances, and three Linux Engine replicas.
+Phase 42 is reopened to reduce the Kind shape and make manual-PV rendering
+profile-driven, Phase 53 is Blocked by Phase 42 to reduce the platform services
+and materialized PV set, and Phase 69 is Blocked by Phase 53
+to reduce the Linux Engine default. Phase 262 and the later live-evidence chain
+are blocked behind Phase 69. See
+[DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status)
+for the authoritative status ledger.
+
+The target is one control-plane, one worker, one instance of each local
+platform role, and one Linux Engine replica. The renderer continues to accept
+positive operator-selected worker counts and to enforce at most one numerical
+worker of each compute scope per node. Pulsar's at-least-once semantics remain
+in force for those deployments, but jitML does not require explicit
+multi-worker, platform-HA, or node-failover acceptance evidence.
+
 **Durable-state source of truth (Sprint 4.9):** the MinIO bucket set and the logical
 Pulsar topic family are now projected from the durable-state registry
 (`JitML.Project.Config.defaultProjectConfig`) — `JitML.Storage.Buckets.bucketNames` is
 the `ObjectBucket` projection, and the topic logical names are anti-drift-checked
 against `JitML.Coordinator.Topology`. See [durable_state_dsl.md](durable_state_dsl.md).
 
-**HA topology source of truth:** this document defines one control-plane node
-plus three workers per
-substrate, one localhost Envoy edge socket, distributed stateful services, and
-scoped placement that permits at most one numerical ML compute worker of each
-scope per Kubernetes node. Current implementation and lane-validation status
-live only in the development plan.
+**Local topology source of truth:** this document defines one control-plane node
+plus one worker per substrate, one localhost Envoy edge socket,
+single-instance stateful services, and scoped placement that permits at most one
+numerical ML compute worker of each scope per Kubernetes node. Current
+implementation and lane-validation status live only in the development plan.
 
 **Reconciliation contract:** cluster health and edge coordinates
 come only from a successful live Kind/Helm reconcile. A locally materialized
@@ -41,9 +61,9 @@ host Engine from the zero-replica cluster Deployment.
 
 | Substrate | Kind shape | Node labels | Daemon residency |
 |-----------|-------------------|-------------|------------------|
-| `apple-silicon` | one control-plane plus three workers from `dhall/cluster/resources.dhall` | workers carry `jitml.node-role/compute=true`; host Metal compute remains host-resident | clustered (`Cluster + ForwardToHost`) + host-native (`Host + SelfInference`) |
-| `linux-cpu` | one control-plane plus three workers from `dhall/cluster/resources.dhall` | workers carry `jitml.node-role/compute=true` for numerical compute placement | clustered only (`Cluster + SelfInference`) |
-| `linux-cuda` | one control-plane plus three workers from `dhall/cluster/resources.dhall` | CUDA workers carry `jitml.node-role/compute=true` and `jitml.runtime/gpu=true` | clustered only (`Cluster + SelfInference`) |
+| `apple-silicon` | one control-plane plus one worker from `dhall/cluster/resources.dhall` | the worker carries `jitml.node-role/compute=true`; host Metal compute remains host-resident | one clustered Coordinator (`Cluster + ForwardToHost`) + one host-native Engine (`Host + SelfInference`) |
+| `linux-cpu` | one control-plane plus one worker from `dhall/cluster/resources.dhall` | the worker carries `jitml.node-role/compute=true` for numerical compute placement | one clustered Engine plus one Coordinator (`Cluster + SelfInference`) |
+| `linux-cuda` | one control-plane plus one worker from `dhall/cluster/resources.dhall` | the CUDA worker carries `jitml.node-role/compute=true` and `jitml.runtime/gpu=true` | one clustered Engine plus one Coordinator (`Cluster + SelfInference`) |
 
 This table owns where computation may reside. A validated workload consumes it
 as the closed `ClusterJob | HostRun` placement choice defined by
@@ -60,8 +80,8 @@ the control-plane.
 
 The host `./.build/` directory is bind-mounted into Kind via the `extraMounts`
 block in the Kind config. This is what lets in-cluster Linux workloads see the
-repo-local build/cache tree. The HA profile mounts every materialized Kind node
-that may run jitML workloads. It is **not**
+repo-local build/cache tree. The resource profile mounts every materialized Kind
+node that may run jitML workloads. It is **not**
 an Apple Metal execution bridge: Apple Metal work is macOS-host-resident and
 reaches the cluster only through Pulsar and MinIO. This is the **one** exception
 to the "no freestanding host paths in pod specs" discipline; the chart lint
@@ -110,13 +130,21 @@ Example layout for the `platform` namespace:
 ```
 .data/
 └── platform/
-    ├── minio/{pv_0, pv_1, pv_2, pv_3}                  -- 4 distributed replicas
-    ├── pulsar-bookie-journal/{pv_0, pv_1, pv_2}        -- bookie journals
-    ├── pulsar-bookie-ledgers/{pv_0, pv_1, pv_2}        -- bookie ledgers
-    ├── pulsar-zookeeper-data/{pv_0, pv_1, pv_2}        -- ZK data
-    ├── harbor-pg/{pv_0, pv_1, pv_2}                    -- 3 Postgres instances
-    └── harbor-pg-repo1/pv_0                            -- pgBackRest repo
+    ├── minio/pv_0                      -- standalone MinIO
+    ├── pulsar-bookie-journal/pv_0      -- one bookie journal
+    ├── pulsar-bookie-ledgers/pv_0      -- one bookie ledger store
+    ├── pulsar-zookeeper-data/pv_0      -- one ZooKeeper data store
+    ├── harbor-pg/pv_0                  -- one Postgres instance
+    └── harbor-pg-repo1/pv_0            -- one pgBackRest repo
 ```
+
+Changing an existing local installation from distributed MinIO to standalone
+MinIO requires `./bootstrap/<substrate>.sh purge` before the first target-shape
+`up`. A normal `down` preserves `.data`; `purge` removes the local cluster and
+its retained state and is intentionally destructive. The legacy replica paths,
+values, and assertions remain listed in
+[legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
+until their owning phases remove them.
 
 `jitml lint files` rejects any path under `.data/` that does not match the
 `<namespace>/<StatefulSet>/pv_<int>` regex. `jitml lint chart`
@@ -132,9 +160,9 @@ dependencies:
 | Third-party dependency | Purpose | Owning sprint |
 |------------------------|---------|---------------|
 | `harbor` | Image registry | Sprint 4.1 |
-| `pg-operator` | Percona Operator; HA Postgres clusters are jitML-rendered `PerconaPGCluster` CRs, not a `pg-db` subchart | Sprint 4.2 |
-| `pulsar` | Apache Pulsar HA (3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy; broker-embedded WebSocket enabled and routed through `/pulsar/ws`) | Sprint 4.4 |
-| `minio` | Distributed-mode object store (4 replicas) | Sprint 4.3 |
+| `pg-operator` | Percona Operator; the single-instance local Postgres service is a jitML-rendered `PerconaPGCluster` CR, not a `pg-db` subchart | Sprint 4.2, revised by Phase 53 |
+| `pulsar` | Apache Pulsar (1× ZooKeeper, 1× BookKeeper, 1× Broker, 1× Proxy, single-node ledger quorums; broker-embedded WebSocket routed through `/pulsar/ws`) | Sprint 4.4, revised by Phase 53 |
+| `minio` | Standalone-mode object store (1 replica) | Sprint 4.3, revised by Phase 53 |
 | `gateway-helm` | Envoy Gateway controller | Sprint 3.3 |
 | `kube-prometheus-stack` | Prometheus operator + Grafana | Sprint 4.5 |
 
@@ -169,10 +197,10 @@ subchart `.tgz` directly instead of installing the umbrella chart.
 
 ## Resource Budgets and the Kind-Node Cap
 
-The HA topology is bounded by a typed Dhall resource profile (`dhall/cluster/`,
+The local topology is bounded by a typed Dhall resource profile (`dhall/cluster/`,
 decoded by `JitML.Cluster.Resources`) rather than running unbounded. The profile
-is the source of truth for node caps, per-pod requests/limits, HA service
-replica counts, and worker placement budgets. It also preserves single-host phase
+is the source of truth for node caps, per-pod requests/limits, service replica
+counts, and worker placement budgets. It also preserves single-host phase
 closeability under the project's
 [Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
 doctrine: each development phase brings its lane up on one host with at most one
@@ -184,9 +212,9 @@ accelerator plus `linux-cpu` (bound by
   cgroups instead of exhausting the host. A `cluster.host-memory` preflight
   (`jitml doctor --scope cluster`) fails fast when host RAM is below the cap +
   reserve.
-- **Per-pod budgets and HA replicas** — Harbor, MinIO, Pulsar, service Postgres,
+- **Per-pod budgets and local replicas** — Harbor, MinIO, Pulsar, service Postgres,
   observability, TensorBoard, and jitML roles carry CPU/memory requests+limits
-  and HA replica counts from the same profile. Manual PV layout follows the HA
+  and target replica counts from the same profile. Manual PV layout follows the
   counts.
 - **Numerical worker cardinality** — regardless of service replica counts, the
   Engine/numerical ML compute role is capped at one worker per Kubernetes node.
@@ -194,8 +222,9 @@ accelerator plus `linux-cpu` (bound by
   independently without creating extra numerical workers on the same node.
 
 The compact single-node guardrails introduced by Phase `2` Sprint `2.8`, Phase
-`4` Sprint `4.8`, and Phase `3` Sprint `3.2` are historical evidence only; the
-current materialized profile is the HA profile above.
+`4` Sprint `4.8`, and Phase `3` Sprint `3.2` remain historical evidence. The
+later replicated profile is the current implementation being retired by Phases
+42, 53, and 69; neither historical shape is closure evidence for the target.
 
 ## Helm Values Ownership
 
@@ -412,19 +441,27 @@ writes a Haskell-encoded TensorBoard scalar shard through routed
 
 The Engine/numerical compute role is stateless and owns no PVC of its own —
 durable state lives entirely in MinIO and Pulsar — so a StatefulSet would be the
-wrong shape. The HA target enforces scoped **at most one numerical ML compute
+wrong shape. The target enforces scoped **at most one numerical ML compute
 worker per Kubernetes node** placement. Required anti-affinity/topology-spread
 belongs to compute scopes; Coordinator, Webapp, observability, and platform
 services may use their own replica counts without placing additional numerical
-workers on a node. Linux substrates render three Engine replicas, pin them to
-`jitml.node-role/compute=true` workers, and label them `jitml.compute="true"` plus
+workers on a node. The default Linux profile renders one Engine replica, pins it
+to a `jitml.node-role/compute=true` worker, and labels it `jitml.compute="true"` plus
 `jitml.compute-scope="service"`. Daemon-spawned Linux Training/RL/Tune Jobs use
 `jitml.compute="true"` plus `jitml.compute-scope="workload"`. Each scope matches
 only itself for required hostname anti-affinity and hard topology spread, so Jobs
-cannot bypass their one-per-node invariant and also cannot be blocked by the HA
-service replicas. Apple Silicon keeps the clustered service as a single
+cannot bypass their one-per-node invariant and also cannot be blocked by an
+operator-selected expanded service profile. Apple Silicon keeps the clustered service as a single
 non-compute forwarder (`jitml.compute="false"`); Metal work remains on the host
 daemon.
+
+Positive worker counts remain a supported deployment input. Engine consumers
+use Pulsar `Failover` subscriptions, so an expanded replica set is active/standby
+rather than shared-throughput load balancing. Pulsar still provides
+at-least-once redelivery, application deduplication, and total settlement. That
+semantic support is not a claim that the single-instance local platform is
+highly available, and multi-worker or node-failover behavior is not an explicit
+jitML acceptance lane.
 
 The Kind node maintains its JIT cache under the mounted
 `./.build/jit/<substrate>/` hostPath. JIT artifacts are deterministic functions
@@ -472,7 +509,7 @@ The shape:
   Kind host-port mapping. Its managed Envoy data-plane request is pinned to
   `cpu: 50m` / `memory: 64Mi` in the compact local profile so the platform can
   schedule the edge proxy after Harbor, MinIO, Pulsar, observability, and the
-  demo/service workloads are ready; Sprint `3.6` owns any HA resource-profile
+  demo/service workloads are ready; Phase `53` owns target resource-profile
   adjustment.
 
 Routes are rendered from the typed route registry in `src/JitML/Routes.hs`.
@@ -545,13 +582,14 @@ headless `jitml` service to host networking so
 Kind kubeconfig loopback endpoints are reachable from the outer container. The
 GPU-enabled `jitml-cuda` companion service uses the same image and mount shape,
 adding only `gpus: all` for direct live CUDA tests that need device exposure in
-the outer container. The HA renderer preserves the CUDA RuntimeClass contract on the three GPU
-worker nodes: worker labels include `jitml.runtime/gpu=true`,
+the outer container. The target renderer preserves the CUDA RuntimeClass contract on the one GPU
+worker node: its labels include `jitml.runtime/gpu=true`,
 `RuntimeClass/nvidia` applies, and `Deployment/jitml-service` plus daemon-spawned
 CUDA worker Jobs render `runtimeClassName: nvidia`,
 `NVIDIA_VISIBLE_DEVICES=all`, and
-`NVIDIA_DRIVER_CAPABILITIES=compute,utility`. Live HA CUDA revalidation is owned
-by Phase `15` Sprint `15.22`.
+`NVIDIA_DRIVER_CAPABILITIES=compute,utility`. The prior live replicated CUDA
+evidence owned by Phase `15` Sprint `15.22` is historical and is not target
+topology closure evidence.
 
 2026-05-23 Apple Silicon live validation completed `./bootstrap/apple-silicon.sh
 up` on the same compact topology, published all seven components ready on
@@ -560,6 +598,49 @@ edge coordinates, and runs the host-native
 `jitml service --consume-once 0` acquisition check. The host daemon derives
 `/pulsar/ws`, `/minio/s3`, Harbor, and repo-local kubeconfig settings from that
 Dhall and acquires `inference.command.apple-silicon` as `jitml-host`.
+
+## Validation
+
+Topology closure requires the rendered and live local profile to prove all of
+the following:
+
+- exactly one control-plane and one worker, with the worker carrying the
+  substrate-required compute/GPU labels, node caps, and `.build`/manual-PV
+  mounts;
+- exactly one MinIO, ZooKeeper, BookKeeper, Broker, Proxy, Postgres, pgBouncer,
+  pgBackRest, Harbor component, observability component, TensorBoard, Webapp,
+  Coordinator, and default Linux Engine as applicable to the substrate;
+- standalone MinIO and single-node Pulsar ledger quorum values, with every
+  manual PV/PVC binding converged and no stale higher-index PV manifest;
+- one Engine per compute node at most, Apple cluster Engine count zero and host
+  Engine count one; and
+- routed MinIO/Pulsar operations, at-least-once redelivery/dedup/settlement,
+  retained-cluster no-op reconciliation, teardown, and publication readiness.
+
+The focused and standing container gates are:
+
+```bash
+docker compose build jitml
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu \
+  --test-options='-p local-topology'
+docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml lint chart
+docker compose run --rm jitml jitml check-code
+```
+
+The first live validation after applying the replica-shape change starts from a
+clean local state:
+
+```bash
+./bootstrap/linux-cpu.sh purge
+JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cpu.sh up
+```
+
+`purge` is deliberately destructive; it is required here because `down`
+preserves the distributed MinIO `.data` layout. No closure criterion requires
+more than one worker or validates platform/node failover.
 
 ## No Kubeconfig Pollution
 

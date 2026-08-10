@@ -31,24 +31,25 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (2026-08-02): Phase `261` is Done; Phase `262` is
-> Active; every later phase in the current open
-> suffix is Blocked by its immediate predecessor in that suffix.** Phases through `261`
-> and every off-suffix phase are Done on their retained surfaces. The exact open
-> suffix is `262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 →
-> 287 → 288`. Phase `261` closed after integration **161 / 161** (including
-> its **60 / 60** subtree), unit **772 / 772**, an authenticated ordered
-> version-`3` aggregate for all **55 / 55** ProductRows with exact Store
-> re-admission, `docs check: ok`, and `check-code: ok`. Phase `272` remains the
-> hard Apple-Silicon host boundary, so it
-> cannot close on a non-Apple host. Phase `262` still owns the adversarial
-> experiment-scoped writer/GC CAS fence, per-attempt
-> marker/attempt-independent commit, intent-cancellation, and
-> permanent-publication-tombstone gates documented under
-> [Retention and GC](#retention-and-gc); none is closure
-> evidence until the same-source aligned image and live lane pass. The only current status ledger and the links
-> to historical closure evidence are in
-> [`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
+## Current Status
+
+As of 2026-08-09, Phase `42` is reopened and Active to replace the checked-in
+one-control-plane/three-worker local cluster with a one-control-plane/one-worker
+default. Phase `53` is Blocked by Phase `42`, Phase `69` is Blocked by Phase
+`53`, and the previously Active Phase `262` is Blocked by Phase `69`. The exact
+open chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280
+→ 281 → 284 → 287 → 288`; intervening Done phases retain their completed
+non-topology surfaces.
+
+The current worktree still renders the former three-worker local cluster,
+distributed/replicated platform services, and three Linux Engine replicas.
+The target described below is one local worker, one instance of each platform
+role, and one Linux Engine replica. Positive multi-worker profiles remain
+supported by the renderer and Pulsar's at-least-once delivery contract, but
+this repository will no longer carry an explicit multi-worker or platform-HA
+acceptance lane. The authoritative phase ledger, validation state, and
+historical closure evidence live in
+[`DEVELOPMENT_PLAN/README.md → Closure Status`](DEVELOPMENT_PLAN/README.md#closure-status).
 
 ---
 
@@ -196,15 +197,15 @@ The full per-target codegen detail (build flags, RTS options, fast-math discipli
 
 jitML produces **one Haskell front end** with JIT codegen for several hardware targets, packaged as **three supported substrates**[^linux-opencl]:
 
-| Substrate | Codegen | Container shape | Service residency |
+| Substrate | Codegen | Container shape | Target service residency |
 |---|---|---|---|
 | `apple-silicon` | Haskell-rendered MSL + fixed host Metal bridge | partial — cluster services in Kind; a second `jitml service` runs host-native because Metal cannot be containerized | **one binary, two instances** of `jitml service`, distinguished entirely by their Dhall configs: clustered (Dhall: `residency = Cluster`, `inferenceMode = ForwardToHost`) + host-native (Dhall: `residency = Host`, `inferenceMode = SelfInference`). See [Bit-determinism contract](#bit-determinism-contract) for what same-substrate equality means under this split. |
-| `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml:local` | clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); HA service replicas and daemon-spawned workload Jobs use separate compute-scope anti-affinity |
-| `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); HA service replicas and daemon-spawned workload Jobs use separate compute-scope anti-affinity |
+| `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml:local` | one clustered `jitml service` Engine plus one non-compute Coordinator (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); daemon-spawned workload Jobs retain separate compute-scope anti-affinity |
+| `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | one clustered `jitml service` Engine plus one non-compute Coordinator (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); daemon-spawned workload Jobs retain separate compute-scope anti-affinity |
 
 There is **one CLI surface for the daemon — `jitml service` — parameterised entirely by its Dhall config** ([CLI command topology, typed](#cli-command-topology-typed)). The Dhall declares substrate, residency (cluster | host), inference mode (`SelfInference` | `ForwardToHost`), and the host-side MinIO / Pulsar connection info when `residency = Host`. There is no separate `host-service` CLI verb.
 
-On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), and the orchestrator owns no PVC of its own. The HA topology preserves a strict numerical-worker invariant with scoped scheduling: service Engine pods use `jitml.compute-scope: service`, daemon-spawned workload Jobs use `jitml.compute-scope: workload`, and each scope has required pod anti-affinity at `topologyKey: kubernetes.io/hostname`. This keeps HA service replicas and live workload Jobs from deadlocking each other while still placing at most one numerical worker of a scope on a node. On every substrate the clustered daemon performs Pulsar fan-in/fan-out, durable state coordination, and client-facing routing. Linux substrates additionally execute device-backed workloads in-pod (`SelfInference`); Apple Silicon forwards every Metal-backed workload to the host daemon, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate x mode table above reflects current practice.
+On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), and the orchestrator owns no PVC of its own. The target local profile renders one Engine pod and preserves the strict numerical-worker invariant with scoped scheduling: service Engine pods use `jitml.compute-scope: service`, daemon-spawned workload Jobs use `jitml.compute-scope: workload`, and each scope has required pod anti-affinity at `topologyKey: kubernetes.io/hostname`. A positive operator-selected worker count remains expressible, with at most one numerical worker of a scope per node, but it is outside this repository's explicit acceptance matrix. On every substrate the clustered daemon performs Pulsar fan-in/fan-out, durable state coordination, and client-facing routing. Linux substrates additionally execute device-backed workloads in-pod (`SelfInference`); Apple Silicon forwards every Metal-backed workload to the host daemon, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate x mode table above reflects the target local practice.
 
 [^linux-opencl]: An optional fourth substrate `linux-opencl` (Intel GPU) is admitted as a future extension; the codegen path is shaped to accept it without disturbing the three primary substrates above. Not in the current support matrix.
 
@@ -416,11 +417,13 @@ A reconciler that finds a missing prerequisite fails with exit code `2` (system 
 
 # Cluster topology and Kind
 
-Per-substrate Kind configs live at `./kind/cluster-<substrate>.yaml`. The
-checked-in topology is HA-capable: one control-plane plus three worker nodes
-sized by the HA resource profile, a single user-facing Envoy socket, and scoped
-placement that permits at most one numerical ML compute worker of each scope per
-Kubernetes node.
+Per-substrate Kind configs live at `./kind/cluster-<substrate>.yaml`. The target
+local topology is one control-plane plus one worker node, a single user-facing
+Envoy socket, and scoped placement that permits at most one numerical ML compute
+worker of each scope per Kubernetes node. The checked-in configs still contain
+three workers until Phase 42 closes; see
+[Current Status](#current-status) and the canonical
+[cluster-topology document](documents/engineering/cluster_topology.md).
 After `kind create`, the bootstrap reconciler caps materialized node containers'
 memory and CPU (`docker update --memory/--memory-swap/--cpus`) from the typed
 `dhall/cluster/` resource profile, so the cluster footprint is bounded and a
@@ -514,10 +517,11 @@ third-party chart dependencies plus jitML-owned local charts and rendered CRs.
 `Chart.yaml` declares the third-party subchart dependencies:
 
 - `harbor` — image registry.
-- `pg-operator` — Percona Kubernetes Operator. HA Postgres clusters are
-  jitML-rendered `PerconaPGCluster` CRs, not a separate `pg-db` subchart.
+- `pg-operator` — Percona Kubernetes Operator. The single-instance local
+  Postgres service is a jitML-rendered `PerconaPGCluster` CR, not a separate
+  `pg-db` subchart.
 - `pulsar` — Apache Pulsar with ZooKeeper + BookKeeper + Broker + Proxy + WebSocket.
-- `minio` — distributed mode, four replicas.
+- `minio` — standalone mode, one replica.
 - `gateway-helm` — Envoy Gateway controller.
 - `kube-prometheus-stack` — Prometheus operator + Grafana.
 
@@ -546,21 +550,25 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
 ```
 .data/
 └── platform/
-    ├── minio/{pv_0, pv_1, pv_2, pv_3}                  -- 4 distributed replicas
-    ├── pulsar-bookie-journal/{pv_0, pv_1, pv_2}        -- bookie journals
-    ├── pulsar-bookie-ledgers/{pv_0, pv_1, pv_2}        -- bookie ledgers
-    ├── pulsar-zookeeper-data/{pv_0, pv_1, pv_2}        -- ZK data
-    ├── harbor-pg/{pv_0, pv_1, pv_2}                    -- 3 Postgres instances
-    └── harbor-pg-repo1/pv_0                            -- pgBackRest repo
+    ├── minio/pv_0                      -- standalone MinIO
+    ├── pulsar-bookie-journal/pv_0      -- one bookie journal
+    ├── pulsar-bookie-ledgers/pv_0      -- one bookie ledger store
+    ├── pulsar-zookeeper-data/pv_0      -- one ZooKeeper data store
+    ├── harbor-pg/pv_0                  -- one Postgres instance
+    └── harbor-pg-repo1/pv_0            -- one pgBackRest repo
 ```
 
-Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookie-journal-pv-1`, `platform-pulsar-bookie-ledgers-pv-1`, etc.; StatefulSet PVs are bound to the chart-generated per-replica PVC (for example `data-minio-0`, `pulsar-bookie-journal-pulsar-bookie-1`, `pulsar-bookie-ledgers-pulsar-bookie-1`, and `pulsar-zookeeper-data-pulsar-zookeeper-1`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
+Corresponding target PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookie-journal-pv-0`, `platform-pulsar-bookie-ledgers-pv-0`, etc.; StatefulSet PVs are bound to the chart-generated replica-zero PVC (for example `data-minio-0`, `pulsar-bookie-journal-pulsar-bookie-0`, `pulsar-bookie-ledgers-pulsar-bookie-0`, and `pulsar-zookeeper-data-pulsar-zookeeper-0`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
 
-The HA layout above is the documentation source of truth and the checked-in
-implementation: MinIO renders four distributed replicas, Pulsar renders three
-ZooKeeper / BookKeeper / Broker / Proxy replicas, registered Percona Postgres
-renders three instances plus the pgBackRest repo PV, and the typed Dhall
-cluster-resource profile drives those materialized counts.
+The one-instance layout above is the target source of truth. Until Phase 53
+closes, the checked-in implementation still renders four distributed MinIO
+replicas, three ZooKeeper / BookKeeper / Broker / Proxy replicas, and three
+registered Percona Postgres instances plus the pgBackRest repo PV. Moving an
+existing local installation from distributed MinIO to standalone MinIO requires
+`./bootstrap/<substrate>.sh purge` before the first new `up`; `down` deliberately
+preserves `.data`, while `purge` removes the local cluster state and is
+destructive. The exact stale manifests, values, and assertions are tracked in
+[`legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ## `jitml-service` Deployment, not StatefulSet
 
@@ -1231,7 +1239,27 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 > service-account token, and no GPU runtime/device request. The topic family
 > below is the current surface.
 
-Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, with the admin API routed at `/pulsar/admin`. The Pulsar WebSocket route is `/pulsar/ws`; it rewrites to `/ws` and targets the broker HTTP service (`pulsar-broker:8080`) with `webSocketServiceEnabled=true`. Live validation on 2026-05-19 publishes and consumes through that route with `JitML.Service.PulsarWebSocketSubprocess`; 2026-05-20 validation reconciles the substrate-scoped command/event family and publishes/consumes on `training.command.linux-cpu` from `jitml:local`. The same topic family includes Apple host-command topics for Metal-backed training, tuning, and RL placement. The image carries a pinned Node.js 22 runtime; the subprocess script uses `globalThis.WebSocket` when available and retains an `undici.WebSocket` fallback for older Node runtimes. The PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
+The target local Pulsar chart runs one ZooKeeper, one BookKeeper, one Broker,
+and one Proxy, with single-node ledger quorum settings and the admin API routed
+at `/pulsar/admin`. The checked-in chart still renders three of each until Phase
+53 closes. This count change does not weaken the application delivery contract:
+messages remain at-least-once, with redelivery, deduplication, and total
+settlement. The current Engine subscription type is `Failover`, so multiple
+Engine consumers are active/standby rather than throughput-sharing; an operator
+who intentionally expands the profile retains that supported Pulsar behavior,
+but explicit multi-worker and broker/node-failover testing is not a jitML local
+acceptance criterion. The Pulsar WebSocket route is `/pulsar/ws`; it rewrites to
+`/ws` and targets the broker HTTP service (`pulsar-broker:8080`) with
+`webSocketServiceEnabled=true`. Live validation on 2026-05-19 published and
+consumed through that route with `JitML.Service.PulsarWebSocketSubprocess`;
+2026-05-20 validation reconciled the substrate-scoped command/event family and
+published/consumed on `training.command.linux-cpu` from `jitml:local`. Those
+measurements are retained historical evidence, not proof of the new replica
+shape. The same topic family includes Apple host-command topics for Metal-backed
+training, tuning, and RL placement. The image carries a pinned Node.js 22
+runtime; the subprocess script uses `globalThis.WebSocket` when available and
+retains an `undici.WebSocket` fallback for older Node runtimes. The PureScript
+frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
 
 Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `linux-cuda`):
 
@@ -1344,7 +1372,7 @@ exercise this bounded join behavior against the actual threaded binary.
 
 # PostgreSQL
 
-Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. The local live path renders the registered `harbor-pg` `PerconaPGCluster` with pinned Percona component images, three manual data PVs, and one pgBackRest repo PV. Roles:
+Percona Kubernetes Operator manages the target single-instance local Postgres service. The local live path renders the registered `harbor-pg` `PerconaPGCluster` with pinned Percona component images, one manual data PV, and one pgBackRest repo PV. The checked-in CR and PV set remain at three Postgres instances until Phase 53 closes. Roles:
 
 - Harbor's metadata store.
 - (Optional, deployment-time) Grafana dashboard provisioning history when an operator wants persistence across pod restarts beyond what SQLite gives.
@@ -1800,8 +1828,8 @@ Tasty; the complete projection-ordered ProductRow run writes one authenticated
 version-`3` aggregate; and the parent verifies it before exact Store
 re-admission. Its closure gate passed integration **161 / 161**, including the
 **60 / 60** Phase `261` subtree and all **55 / 55** ordered ProductRow records,
-plus unit **772 / 772**, docs, and code quality. Phase `262` is Active and owns
-the distinct browser/Playwright consumption boundary; lane, aggregation, and
+plus unit **772 / 772**, docs, and code quality. Phase `262` owns the distinct
+browser/Playwright consumption boundary but is Blocked by Phase `69`; lane, aggregation, and
 status consumers remain in the numerically ordered downstream chain in
 [the development plan](DEVELOPMENT_PLAN/README.md#closure-status).
 
@@ -2858,7 +2886,7 @@ The framing for this section is *"we're not reimplementing PyTorch."* The list b
 - **Python class hierarchy** (`BaseAlgorithm` → `OnPolicyAlgorithm` → `PPO`). Replaced with ADTs + GADTs. Inheritance is not an idiomatic Haskell tool here.
 - **Pickle-based save/load** (`model.save()` / `model.load()`). Replaced with Dhall-described configuration + MinIO-checkpointed weights, optimizer state, RNG state, buffer state, and normalisation stats. The full state is reconstructible from `(experiment.dhall, seed, checkpoint blob)`.
 - **`gym.make()` env registry.** Replaced with explicit Dhall env declarations referencing typed envs in `src/JitML/Env/`. No global registry; no string-keyed env lookup.
-- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: HA may run multiple service replicas, but numerical ML compute is limited to one worker per Kubernetes node and multi-node distributed SGD is an explicit non-goal. Within-substrate bit-for-bit reproducibility is the headline execution property, not multi-GPU SGD.
+- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: an operator may select multiple service replicas, but numerical ML compute is limited to one worker per Kubernetes node, explicit multi-worker acceptance is outside jitML's local test matrix, and multi-node distributed SGD is an explicit non-goal. Within-substrate bit-for-bit reproducibility is the headline execution property, not multi-GPU SGD.
 - **The default multi-sink logger** that fans out to stdout, csv, log, and tensorboard simultaneously. Replaced with `Semigroup` composition over typed `Logger` and `Callback` values, so the developer states the fan-out explicitly.
 
 Patterns we *do* borrow, contrary to "out of scope" language that earlier drafts of this section included: standard RL wrappers such as no-op reset, frame skip, frame warp, frame stack, time limits, reward clipping, and action masking live alongside the native envs without making Atari ROMs part of the default demo surface; gSDE is a first-class `ActionDistribution` variant; every SB3-contrib algorithm (TRPO, MaskablePPO, RecurrentPPO, QR-DQN, CrossQ, TQC, ARS) is a first-class `AlgoSpec` case in [RL algorithm catalog](#rl-algorithm-catalog).

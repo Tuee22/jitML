@@ -10,6 +10,21 @@
 > health endpoints, structured logging, recoverable vs fatal errors,
 > capability classes, retry policy, and at-least-once Pulsar consumer.
 
+## Current Status
+
+The daemon roles, capability separation, at-least-once settlement, and Apple
+host/cluster split are implemented. The default Linux cardinality in this
+document is a target: the checked-in renderer still produces three clustered
+Engine replicas until the reopened Phase 42 → Phase 53 → Phase 69 topology
+chain closes. Phase 262 is blocked behind that chain. The authoritative status
+is [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
+
+The target local profile has one clustered Linux Engine, one clustered
+Coordinator, and one worker node. An operator may still select any positive
+worker count; the placement invariant and Pulsar at-least-once contract apply,
+but jitML does not require an explicit multi-worker or node-failover acceptance
+lane.
+
 **Durable-state topic family (Sprint 5.15):** the logical Pulsar topic family is
 declared by the durable-state registry and held consistent with the per-substrate
 routing in `JitML.Coordinator.Topology` by a `jitml-unit` anti-drift test
@@ -40,19 +55,19 @@ info when `residency = Host`.
 | Substrate | Daemon topology | Dhall configs |
 |-----------|-----------------|----------------|
 | `apple-silicon` | one clustered Coordinator plus one host Engine; clustered Engine replicas are zero | Coordinator ConfigMap from the materialized cluster config (`Cluster + ForwardToHost`) + host Engine file `./.build/conf/host/apple-silicon.dhall` (`Host + SelfInference`) |
-| `linux-cpu` | three clustered Engine replicas plus one clustered Coordinator | Separate Engine and Coordinator ConfigMaps derived from `./.build/conf/cluster/linux-cpu.dhall` (`Cluster + SelfInference`) |
-| `linux-cuda` | three clustered Engine replicas plus one clustered Coordinator | Separate Engine and Coordinator ConfigMaps derived from `./.build/conf/cluster/linux-cuda.dhall` (`Cluster + SelfInference`) |
+| `linux-cpu` | one clustered Engine replica plus one clustered Coordinator | Separate Engine and Coordinator ConfigMaps derived from `./.build/conf/cluster/linux-cpu.dhall` (`Cluster + SelfInference`) |
+| `linux-cuda` | one clustered Engine replica plus one clustered Coordinator | Separate Engine and Coordinator ConfigMaps derived from `./.build/conf/cluster/linux-cuda.dhall` (`Cluster + SelfInference`) |
 
 The clustered Engine and Coordinator Deployments are **stateless** — durable
 state lives in MinIO and Pulsar exclusively. Required Engine pod anti-affinity at
 `topologyKey: kubernetes.io/hostname` enforces scoped numerical worker
-cardinality. Linux substrates run three Engine replicas, one for each HA worker,
+cardinality. The default Linux profile runs one Engine replica on its one worker,
 with `jitml.compute="true"` and `jitml.compute-scope="service"`. Daemon-spawned
 Linux Training/RL/Tune Jobs carry `jitml.compute="true"` and
 `jitml.compute-scope="workload"`. Service replicas and workload Jobs each match
 their own scope in required hostname anti-affinity and hard topology spread, so
-HA service residency and transient workload execution do not deadlock each
-other. The single Coordinator is explicitly non-compute, uses its own
+an operator-selected expanded service profile and transient workload execution
+do not deadlock each other. The single Coordinator is explicitly non-compute, uses its own
 ServiceAccount, and owns namespace-scoped Job, per-run ConfigMap, and `pods/exec`
 permissions; the Engine ServiceAccount has no workload-mutation Role. Apple Silicon's
 Coordinator is the only clustered command daemon and host Metal work runs in
@@ -62,8 +77,17 @@ cardinality. 2026-05-23 live Linux CUDA validation historically proved the CUDA
 RuntimeClass path against the compact topology; the current renderer preserves
 that path on CUDA workers by rendering `runtimeClassName: nvidia`,
 `NVIDIA_VISIBLE_DEVICES=all`, and
-`NVIDIA_DRIVER_CAPABILITIES=compute,utility`. HA live revalidation is owned by
-Phase `15` Sprint `15.22` and Phase `16` Sprint `16.14`.
+`NVIDIA_DRIVER_CAPABILITIES=compute,utility`. The prior replicated live
+revalidation owned by Phase `15` Sprint `15.22` and Phase `16` Sprint `16.14`
+is retained historical evidence and is not closure evidence for the target
+cardinality.
+
+Engine subscriptions use Pulsar `Failover`, not `Shared`. With an intentionally
+expanded Engine count, one consumer is active and the others are standby;
+throughput is not distributed across replicas by this subscription type.
+Redelivery, application deduplication, receipt-bound settlement, and total drain
+remain at-least-once regardless of the replica count. This is a delivery
+semantic, not a platform high-availability guarantee.
 
 Daemon diagnostics use the conjunctive selector
 `app in (jitml-service,jitml-coordinator),jitml.role in (engine,coordinator)`.
@@ -683,6 +707,28 @@ with fast math disabled. There is no daemon-owned Tart lifecycle, SwiftPM build,
 offline `metal` compiler invocation, or keychain-dependent step in this path.
 
 Direct k8s API access from the host is hlint-forbidden.
+
+## Validation
+
+Daemon topology closure proves that the target profile renders one Linux Engine
+and one Coordinator, Apple renders zero clustered Engines plus one host Engine,
+and every numerical pod retains its compute-scope selector and hard
+one-per-node placement. The live single-worker lane must retain Pulsar
+redelivery, deduplication, receipt-bound Ack/Nack settlement, bounded drain, and
+daemon lifecycle behavior:
+
+```bash
+docker compose build jitml
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu \
+  --test-options='-p local-topology'
+docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+No closure criterion requires more than one Engine, a `Shared` subscription, or
+broker/node failover.
 
 ## Generated Daemon Surface Table
 

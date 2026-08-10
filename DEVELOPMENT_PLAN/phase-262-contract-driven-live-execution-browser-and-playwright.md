@@ -9,16 +9,20 @@
 
 ## Phase State
 
-🔄 **Active**. Phase 261 (Sprint 261.1) closed on 2026-08-01. Browser and
-Playwright evidence is now implemented against the authenticated completed-row
-journal through the staged producer/catalogue/reporter refinement. Closure still
-requires the final aligned `jitml:local` image, live `linux-cpu` gate, unit,
-negative-control, and model-convergence standing gates, docs check, and container
-code-quality gate below.
+⏸️ **Blocked** by Phase `69`. Phase 261 (Sprint 261.1) closed on 2026-08-01.
+Browser and Playwright evidence remains implemented against the authenticated
+completed-row journal through the staged producer/catalogue/reporter
+refinement. Its closure gate must run against the single-worker local topology
+owned by the reopened Phase 42 → Phase 53 → Phase 69 chain, so this phase is no
+longer the active execution owner. After Phase 69 closes, closure still requires
+the final aligned `jitml:local` image, live `linux-cpu` gate, unit,
+negative-control, and model-convergence standing gates, docs check, and
+container code-quality gate below.
 
-## Sprint 262.1: Contract-Driven Live Execution - Browser and Playwright [🔄 Active]
+## Sprint 262.1: Contract-Driven Live Execution - Browser and Playwright [⏸️ Blocked]
 
-**Status**: Active
+**Status**: Blocked
+**Blocked by**: Sprint `69.1` (Phase `69`)
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`,
@@ -336,9 +340,13 @@ own it.
 
 ### Validation
 
-Build the final `jitml:local` image, bring up a matching `linux-cpu` publication,
-and stage the exact 12 canonical dataset objects before the live gate. Dataset
-staging and publication-derived edge-port rules are the same as
+After Phase 69 closes, build the final `jitml:local` image, bring up a matching
+single-worker `linux-cpu` publication, and stage the exact 12 canonical dataset
+objects before the live gate. The topology prerequisite is one control-plane
+node, one numerical worker, one clustered Engine pod, and the single-instance
+platform services owned by Phases 42, 53, and 69; explicit multi-worker or
+node-failover evidence is not part of this phase's closure. Dataset staging and
+publication-derived edge-port rules are the same as
 [Phase 261 → Validation](phase-261-contract-driven-live-execution-integration-journal.md#validation):
 the edge port comes from `.build/runtime/cluster-publication.json` and is never
 hardcoded. The e2e driver borrows that healthy same-substrate publication,
@@ -635,6 +643,10 @@ evidence or a completed removal.
 
 ### Remaining Work
 
+- Remain blocked until Phase 69 closes the Phase 42 → Phase 53 → Phase 69
+  single-worker topology chain; then execute every closure gate below against
+  that aligned topology without adding an explicit multi-worker or platform-HA
+  acceptance lane.
 - The owned browser/e2e portions of Exit Definition obligations `24`, `31`,
   `33`, and `34` remain unmet until the fresh full live gate and every standing
   gate below pass from the same final source/image state.

@@ -15,6 +15,13 @@
 > `31` aggregation. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
 > evidence for the earlier product baseline.
 
+## Topology Scope
+
+The CUDA device/product evidence remains valid on its owned surfaces. The
+three-worker and replicated-platform measurements are historical and do not
+validate the single-worker target opened on 2026-08-09. Phases `42`, `53`, and
+`69` own that topology; no replacement multi-worker CUDA run is required.
+
 ## Host
 
 - NVIDIA GeForce RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`

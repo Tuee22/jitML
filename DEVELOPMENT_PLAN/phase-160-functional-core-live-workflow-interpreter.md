@@ -31,6 +31,11 @@ not blockers, and neither reopens this phase.
   panicked on the next. The `NOINLINE` isolation this phase introduced is
   unchanged and still required; only the runaway guard's headroom moved.
 
+The three-Engine and four-node measurements retained later in this file are
+historical evidence for this phase's workflow/runtime surface. They do not
+validate the single-worker target opened on 2026-08-09; Phases `42`, `53`, and
+`69` own that topology, and no replacement multi-worker run is required.
+
 ## Sprint 160.1: Functional-Core Live Workflow Interpreter [✅ Done]
 
 **Status**: Done (implementation started 2026-07-14; unblocked and validated

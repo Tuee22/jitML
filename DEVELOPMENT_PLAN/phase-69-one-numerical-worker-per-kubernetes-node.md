@@ -9,23 +9,27 @@
 
 ## Phase State
 
-✅ **Done**.
+⏸️ **Blocked** by Phase `53`, which owns the single-instance platform inputs
+that the profile-driven Engine deployment consumes.
 
-## Sprint 69.1: One Numerical Worker per Kubernetes Node [✅ Done]
+## Sprint 69.1: One Numerical Worker per Kubernetes Node [⏸️ Blocked]
 
-**Status**: Done (opened 2026-06-27; closed 2026-06-28)
+**Status**: Blocked (historical cardinality surface closed 2026-06-28; reopened
+2026-08-09 for the profile-driven single-worker local target)
+**Blocked by**: Sprint `53.1` (Phase `53`)
 **Implementation**: `chart/local/jitml-service`, `src/JitML/Service/*`,
 `src/JitML/Cluster/Helm.hs`, `dhall/service/*`, daemon lifecycle/workload
 placement tests
-**Docs to update**: `documents/engineering/daemon_architecture.md`,
-`documents/engineering/cluster_topology.md`, `system-components.md`,
+**Docs to update**: `../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/cluster_topology.md`, `system-components.md`,
 `legacy-tracking-for-deletion.md`
 
 ### Objective
 
-Make the HA service topology enforce that only the Engine/numerical compute role
-does ML work and that no Kubernetes node can host more than one numerical ML
-compute worker for a substrate.
+Make the supported local service topology run one Linux Engine on its one
+compute worker while retaining the general invariant that no Kubernetes node
+can host more than one numerical ML compute worker of a scope. Apple Silicon
+continues to run zero clustered Engines and one host Engine.
 
 ### Deliverables
 
@@ -33,36 +37,64 @@ compute worker for a substrate.
   observability, and platform-service replica scaling.
 - Render required anti-affinity/topology-spread or equivalent placement rules so
   the Engine/numerical compute role is capped at one per Kubernetes node.
+- Remove the independent hard-coded Linux Engine replica count. The loaded
+  `ClusterResources.jitmlService.replicas` value drives the rendered root
+  manifest, local chart runtime input, and readiness expectation, and validation
+  rejects a positive Linux Engine count greater than `workerCount`.
 - Preserve Apple Silicon host-resident compute semantics: cluster replicas may
   forward/control work, but host Metal compute remains bound to the host topology
   and does not multiply with in-cluster replicas.
-- Add tests that scaling noncompute roles does not add numerical compute workers
-  and that Engine replicas cannot co-locate on a Kubernetes node.
+- Validate the one-worker local default and the retained placement metadata.
+  Arbitrary positive worker/Engine counts remain expressible for deployment
+  owners, but this repository does not deploy or explicitly test a multi-worker
+  topology.
+- Preserve Pulsar's at-least-once delivery, negative-ack redelivery, semantic
+  deduplication, and total settlement tests. The current `Failover`
+  subscriptions permit active/standby ownership transfer; they do not claim
+  concurrent load-balanced fan-out or make the single-instance platform HA.
 
 ### Validation
 
-- `cabal test jitml-integration --ghc-options=-fasm --test-options='-p cardinality'`
-- `cabal test jitml-daemon-lifecycle --ghc-options=-fasm --test-options='-p cardinality'`
-- `cabal test jitml-integration --ghc-options=-fasm --test-options='-p HA'`
-  re-ran the HA topology regressions after service placement changed.
-- Shared final gates: `jitml docs check`, `jitml lint chart`, and
-  `docker compose run --rm jitml jitml check-code`.
+- `docker compose build jitml`
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+  --test-options='-p cardinality'` proves one Linux Engine, zero clustered Apple
+  Engines, one Coordinator, profile-to-renderer equality, and retained
+  compute-node/anti-affinity/rolling-update constraints.
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  retains the at-least-once redelivery, semantic-deduplication,
+  total-settlement, and lifecycle gates.
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml lint chart`
+- `docker compose run --rm jitml jitml check-code`
 
 ### Remaining Work
 
-- None. Live HA substrate revalidation is tracked by Phase `15` Sprint `15.22`
-  and Phase `16` Sprint `16.14`.
+- Blocked until Phase `53` closes.
+- Thread the loaded resource profile through every Engine deployment/runtime
+  render path, remove the Linux literal `3`, align checked-in chart defaults,
+  and replace HA-specific cardinality assertions with the local one-worker
+  contract.
+- Pass the Validation block above. No multi-worker deployment or failover lane
+  is required.
+- On closure, return Phase `262` to Active ownership. That handoff restores
+  parity with the still-literal product status registry; the registry's eventual
+  removal remains Sprint `34.3` work in the legacy ledger.
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/daemon_architecture.md` — profile-driven local
+  Engine cardinality and retained multi-worker protocol boundary.
+- `../documents/engineering/cluster_topology.md` — Engine-to-worker constraints.
+- `../documents/engineering/pulsar_ml_workflow.md` — at-least-once compatibility
+  without a repository-owned multi-worker acceptance claim.
 
 **Product docs to create/update:**
 
-- None.
+- `../README.md` — one-worker local daemon orientation.
 
 **Cross-references to add:**
 
-- None.
+- Keep [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) aligned
+  with the hard-coded three-Engine and HA-only test removal row.

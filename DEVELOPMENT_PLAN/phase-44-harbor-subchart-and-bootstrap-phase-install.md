@@ -11,6 +11,11 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** the Harbor dependency, routing,
+external Postgres/S3 wiring, and client contract remain Done. Phase `53` owns
+the one-instance-per-Harbor-component local count; the former replicated count
+is not current topology closure evidence and does not reopen this phase.
+
 ## Sprint 44.1: Harbor Subchart and Bootstrap-Phase Install [✅ Done]
 
 **Status**: Done

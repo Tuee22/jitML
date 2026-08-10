@@ -11,6 +11,12 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** this remains historical evidence for
+the real NVIDIA RuntimeClass/device lane and scoped one-worker-per-node
+placement. Its three-worker/platform-HA measurements are superseded for current
+topology acceptance by Phases `42`, `53`, and `69`; those owners do not require
+a new explicit multi-worker CUDA run, so this phase remains Done.
+
 ## Sprint 189.1: Linux-CUDA HA Cluster Revalidation [✅ Done]
 
 **Status**: Done (closed 2026-06-28 on the NVIDIA GeForce RTX 5090 host)

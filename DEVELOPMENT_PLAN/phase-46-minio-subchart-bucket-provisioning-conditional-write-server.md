@@ -11,6 +11,12 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** the MinIO dependency, typed bucket
+projection, conditional-write behavior, readiness, and S3 client remain Done.
+Phase `53` owns replacing distributed/four-replica local values and PVs with
+standalone/one-replica MinIO; the old replica-shape evidence does not reopen
+this phase.
+
 ## Sprint 46.1: MinIO Subchart, Bucket Provisioning, Conditional-Write Server [✅ Done]
 
 **Status**: Done

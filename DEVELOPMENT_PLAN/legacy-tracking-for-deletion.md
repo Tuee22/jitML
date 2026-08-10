@@ -57,8 +57,18 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-**2026-08-02 — Phase `262` adversarial GC audit; primary remediation remains
-Active.** The audit rejected the first shared-address intent/ready implementation
+**2026-08-09 — single-worker local topology correction; Phases `42`, `53`, and
+`69` reopened.** The checked-in one-control-plane/three-worker Kind profile,
+replicated platform values/manual PVs, and three-Engine Linux default are now
+concrete superseded surfaces. Three rows enter Pending Removal under the
+original topology owners. The primary target and validation work remains in
+those phases' `### Remaining Work` blocks. Pending Removal now has **11** rows;
+Completed remains **142**. Phase `42` is Active, Phase `53` is Blocked by `42`,
+Phase `69` is Blocked by `53`, and the product chain beginning at Phase `262`
+is blocked behind `69`.
+
+**2026-08-02 — Phase `262` adversarial GC audit; primary remediation was
+Active at that checkpoint.** The audit rejected the first shared-address intent/ready implementation
 as closure evidence: a paused executor could race a writer that reused a
 physical key, recovered intents lacked a fresh complete root proof, deletion of
 the ready record could permit timestamp recreation, replay used the current
@@ -486,30 +496,36 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-08-09): Pending Removal is open with 8 rows.** Phase
+**Current state (2026-08-09): Pending Removal is open with 11 rows.** The local
+topology correction added the three-worker Kind/manual-PV shape, replicated
+platform-service values/manifests, and three-Engine Linux default rows owned by
+Phases `42`, `53`, and `69`. Phase
 `262`'s wire-form audit added the provenance-free `CheckpointList` renderer
 row: proving the authenticated frame's field set also proved that the parallel
 renderer emits frames neither end of the wire accepts. Its correlated-reply
 audit added the readiness-from-diagnostic-event row: the production inference
 client stops publishing on a socket-open lifecycle event, and the two harness
 call sites that still do are recorded here rather than silently retained. The
-open
-suffix begins with Active Phase `262`; every later owner is Blocked by its
-immediate predecessor in that suffix. Earlier counts are historical snapshots, not the
+open chain begins with Active Phase `42`; Phase `53`, Phase `69`, and Phase
+`262` follow as Blocked owners before the prior suffix continues. Earlier counts are historical snapshots, not the
 current ledger. Phase `261` moved its validated integration-journal replacement
 to Completed and reconciled the already-closed Phase `229` and Phase `238`
-rows. The active Phase `262` GC protocol remediation remains primary work and
+rows. The Phase `262` GC protocol remediation remains primary work, now Blocked
+behind Phase `69`, and
 does not change these ledger counts. These are deletion targets, not substitutes for the primary
 implementation obligations in the owning sprint documents.
 
 | Item | Location | Reason for removal | Owning sprint | Replacement |
 |------|----------|--------------------|---------------|-------------|
+| Three-worker Kind default and hard-coded manual-PV renderer cardinality | `kind/cluster-{apple-silicon,linux-cpu,linux-cuda}.yaml`, `dhall/cluster/{Schema,resources}.dhall`, `src/JitML/Cluster/{Kind,Resources}.hs`, the manual-PV renderer, and topology fixtures | The default materializes one control-plane plus three workers, while storage rendering/assertions embed the replicated inventory instead of accepting the same typed profile that owns service counts. | Phase `42` / Sprint `3.6` | One-control-plane/one-worker default with target node caps plus profile-driven PV rendering; a synthetic one-instance profile proves the six-PV shape while Phase `53` owns changing the actual service counts/manifests. The renderer still accepts a positive operator-selected worker count. |
+| Replicated local platform values, higher-index PV manifests, quorum settings, and HA assertions | `dhall/cluster/resources.dhall`, `chart/values.yaml`, `chart/values/{harbor,minio,pulsar}.yaml`, `chart/templates/`, `src/JitML/Cluster/{Helm,PostgresRegistry,Resources}.hs`, and topology integration fixtures | MinIO distributed mode plus four replicas, three-member Pulsar roles/quorums, three Postgres instances, multi-replica Harbor components, higher-index PVs, and their readiness/chaos assertions describe the superseded local HA footprint. | Phase `53` / Sprint `4.10` | Standalone MinIO; one ZooKeeper, BookKeeper, Broker, and Proxy with single-node ledger quorums; six replica-zero stateful PVs; one Postgres/pgBouncer/pgBackRest; and one instance of every local platform/application role. The first migrated `up` requires destructive `bootstrap/<substrate>.sh purge` because `down` preserves `.data`. |
+| Hardcoded three-Engine Linux default and explicit multi-worker acceptance shape | `dhall/cluster/resources.dhall` (`jitmlService.replicas`), `chart/templates/deployment-jitml-service.yaml`, `src/JitML/Service/ConfigMap.hs`, and unit/integration cardinality fixtures | Linux renders three Engine pods and tests treat that count as the default acceptance shape, despite Pulsar `Failover` making an expanded set active/standby rather than shared-throughput workers. | Phase `69` / Sprint `5.16` | One Linux Engine by default, zero clustered Apple Engines plus one host Engine, profile-driven positive expansion, scoped at-most-one-per-node placement, and at-least-once redelivery/dedup/settlement without a dedicated multi-worker or node-failover lane. |
 | Prose/table ProductRow lane-fragment aggregation | Phase `29` / `30` attestation tables and `src/JitML/Test/Report.hs` attestation parsing/join helpers | The final join consumes separately authored report fragments rather than a typed lane journal whose rows are bound to `PlanId` and completed evidence. | Sprint `31.3` | Journal-derived product aggregation over committed typed lane journals; aggregation performs no accelerator rerun. |
 | Metadata-only external-bar and provenance binding | `src/JitML/Product/ExternalBars.hs`, `src/JitML/Product/Completion.hs`, `src/JitML/Checkpoint/Format.hs` | Current checks compare declared/stored identities and reconstructed weight metadata, but do not bind the measured claim to the exact admitted artifact bytes subsequently served. A metadata-consistent substitute can therefore satisfy the provenance surface without proving the served object. | Sprint `32.2` | Bind provenance to the verified persisted manifest address and exact served blob bytes, then recompute the reported metric from that admitted artifact before comparing it with the frozen external bar. |
 | Pure-gate-only negative-control stand-in and pass-on-pending sentinel | `src/JitML/Test/NegativeControls.hs` (`pendingProductionControls` and the explicit production-hook gap), `test/negative-controls/Main.hs` | Phase `276` is Done for retaining the hand-built pure gate-soundness records, while the test deliberately keeps the production-path controls pending; it does not prove the real workflow rejects a mutated artifact. | Phases `279`–`281` (legacy Sprints `32.4`–`32.6`) | Phase `279` adds request/event mutations, Phase `280` adds journal/reducer fixtures and properties, and Phase `281` adds lifecycle failures plus mandatory per-`ProductRow` registration through the validated workflow contract; a pending control is `NotRun`/failure, never a green production-coverage assertion. |
 | Metadata-only model-convergence stand-in | `src/JitML/Test/ModelConvergence.hs`, `test/model-convergence/Main.hs` | The purported per-model runner validates declared bar/floor metadata (including a literal `1.0` family floor) and never trains from random initialization or runs inference, contrary to the Phase `33` contract. | Sprint `33.3` | One real resolved-plan scenario per `ProductRow`, yielding measured convergence and inference evidence from the executed artifact. |
 | Post-test global measurement probes | `src/JitML/App.hs` (`collectLiveReportMeasurements`, `measureSlFinalLoss`, `measureRlFinalReward`, `measureAlphaZeroArenaWinRate`, `measureTuneBestObjective`, related probes) | Reporting launches new work or secondary probes after the tested invocation, so its values are not evidence from the tests it labels and failures collapse to undifferentiated `unavailable`. | Sprint `34.3` | Report only from invocation/scenario/lane journals, with `NotRequested`, reasoned `Unavailable`, and validated `Available` evidence. |
-| Literal product phase-status registry used as “evidence-derived” closure | `src/JitML/Product/PhaseStatus.hs`, `src/JitML/Docs/Check.hs` (`allProductPhasesDone` closure-claim input) | The hand-maintained registry mirrors the current reopened sprints as literal `Done` / `Active` / `Planned` / `Blocked` states, but it still consumes neither suite results nor the deletion ledger and a future literal edit could authorize an unsupported closure claim. | Sprint `34.3` | Derive closure from validated scenario journals / attestations, plan status, and an empty Pending Removal ledger. |
+| Literal product phase-status registry used as “evidence-derived” closure | `src/JitML/Product/PhaseStatus.hs`, `src/JitML/Docs/Check.hs` (`allProductPhasesDone` closure-claim input) | The hand-maintained registry still says Phase `262` is `Active` while the canonical plan now blocks it behind Phase `69`; it consumes neither suite results nor the deletion ledger, and a future literal edit could authorize an unsupported closure claim. | Sprint `34.3` | Keep any provisional literal synchronized while it exists, then derive closure from validated scenario journals / attestations, plan status, and an empty Pending Removal ledger. |
 | Provenance-free `CheckpointList` renderers | `src/JitML/Service/Workload.hs` (`renderCheckpointListResult`, `renderCheckpointListResultWithSelectors`, `checkpointSelectorState`) | A parallel renderer beside the authenticated `renderAdmittedProductBrowserCatalogue`. It emits no catalogue provenance, so the frames it produces are rejected by the `CheckpointList` wire form and cannot be parsed by the generated browser contract; it has no production caller and survives only in shape fixtures. | Sprint `263.1` | The authenticated catalogue renderer, which is the sole producer of the frame the Engine publishes. |
 | Readiness derived from the diagnostic `ConsumerSessionConnected` event | `src/JitML/Test/LiveWorkflow.hs` (the observer that releases the publish gate), `test/integration/Main.hs` (the two live observers that publish from inside `ConsumerSessionConnected`) | A correlated request is published on the strength of a socket-open lifecycle event, which is not evidence that the broker created the reply cursor. Phase `262` retires this shape on the production inference client by requiring an opaque `ReplyCursor`; these harness call sites retain the superseded pattern and are latently subject to the same lost-reply race. | Sprint `263.1` | Publish through the `ReplyCursor` token, so the harnesses exercise the same establishment contract as production. |
 

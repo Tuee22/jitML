@@ -460,8 +460,9 @@ It therefore reopens the existing Phase `10`, `19`, `23`, `24`, and `32` owners.
 The strict forward chain runs `1 → … → 288` in the single-session numbering.
 The 2026-07-26 IR-single-owner `+4` renumber inserted Phases `236`–`239` and
 shifted the former tail `236`–`283` to `240`–`287`; Phase `288` is the later
-evidence-typed report-measurement owner. The current open suffix (the phases not
-yet Done) is `262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Sprint `23.1` is Done — its correct reverse-mode autodiff node
+evidence-typed report-measurement owner. The 2026-08-09 local-resource correction
+reopens the existing topology owners instead of adding a tail phase. The current
+open chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`: Phase `42` is Active, Phase `53` is Blocked by `42`, Phase `69` is Blocked by `53`, and Phase `262` is Blocked by `69`. Intervening phases remain Done on their retained non-topology surfaces. Sprint `23.1` is Done — its correct reverse-mode autodiff node
 library over the typed `LayerGraph` IR is finite-difference-validated, its
 `cifar10-vit` convergence go/no-go returned GO, and the vacuous convergence bars
 are resolved (served-path Tier-2 wiring and the attention residual add are now
@@ -473,7 +474,7 @@ admission) all closed `Done` on 2026-07-27. Phases `237` (supervised serving on
 the IR) and `238` (supervised training on the IR) closed `Done` on 2026-07-28;
 Phase `239` (checkpoint construction from the trained graph) closed `Done` on
 2026-07-28; Phases `240`–`246` (the coupled literal-architecture landing) closed
-`Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `261` closed `Done` on 2026-08-01 after immutable-image integration **161 / 161** (Phase `261` subtree **60 / 60**), unit **772 / 772**, authenticated ordered version-`3` **55-row** aggregate plus exact Store re-admission, live **9-component** and **12-dataset-object** checks, docs check, and check-code passed. The Phase `19`–`34` status checkpoint is **57 Done / 1 Active / 0 Planned / 11 Blocked**. Phase `262` is Active; every later phase in that chain is Blocked by its immediate predecessor, and the apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Untouched
+`Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `261` closed `Done` on 2026-08-01 after immutable-image integration **161 / 161** (Phase `261` subtree **60 / 60**), unit **772 / 772**, authenticated ordered version-`3` **55-row** aggregate plus exact Store re-admission, live **9-component** and **12-dataset-object** checks, docs check, and check-code passed. The Phase `19`–`34` status checkpoint is **57 Done / 0 Active / 0 Planned / 12 Blocked** because Phase `262` is Blocked by Phase `69`; Phase `42` is the sole Active owner overall. The apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Untouched
 phases remain Done on their retained surfaces, but the overall product handoff
 is incomplete until this chain closes. Sprints `29.5` and `30.4` independently
 refresh the `linux-cuda` and `apple-silicon` evidence; Sprint `31.3` aggregates

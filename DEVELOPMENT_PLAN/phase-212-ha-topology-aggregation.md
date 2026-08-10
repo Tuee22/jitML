@@ -11,6 +11,11 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** the typed lane-fragment aggregation
+mechanism and historical artifact remain Done. The aggregated HA counts are not
+evidence for the new single-worker target; Phases `42`, `53`, and `69` own that
+validation, and no replacement multi-worker aggregation is required.
+
 ## Sprint 212.1: HA Topology Aggregation [✅ Done]
 
 **Status**: Done (opened 2026-06-27; re-closed 2026-06-29 after Phase `16`

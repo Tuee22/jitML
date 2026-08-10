@@ -15,6 +15,14 @@
 > realness audit; Phase `31` now consumes this file alongside the fresh
 > `linux-cpu` and `linux-cuda` fragments during `linux-cpu` aggregation.
 
+## Topology Scope
+
+The Apple Metal device/product and host-forwarding evidence remains valid on
+its owned surfaces. The three-worker and replicated-platform measurements
+retained later in this file are historical and do not validate the
+single-worker target opened on 2026-08-09. Phases `42`, `53`, and `69` own that
+topology; no replacement multi-worker Apple run is required.
+
 ## Host
 
 - Apple M1 Max workstation, macOS 26.5.1 (Darwin 25.5.0, arm64), Metal-capable

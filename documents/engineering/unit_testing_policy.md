@@ -22,6 +22,15 @@ checkpoint envelope, Store reload parity, and row convergence/evidence.
 against the finite-difference-validated pure oracle. The obsolete byte-frozen V1
 fixture and the `cifar10-vit` frozen-Mixer 123,595-parameter layout are retired.
 
+**Known plan-status guard mismatch (2026-08-09).** The canonical development
+plan now blocks Phase `262` behind the reopened Phase `42 → 53 → 69` topology
+chain, while the checked-in hand-maintained `JitML.Product.PhaseStatus` literal
+still says Phase `262` is `Active`. The existing
+[Pending Removal row](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md#pending-removal)
+owns that legacy registry. Its unit parity guard is expected to remain red
+until the provisional literal is synchronized; no phase may cite a full
+`jitml-unit` pass while that mismatch remains.
+
 ## Doctrine Deferrals
 
 This doc defers to [../../README.md](../../README.md) for:

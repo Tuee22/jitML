@@ -18,6 +18,14 @@
 > M(b)/(d)). Phase `28` re-attests this lane for the row-complete product
 > matrix on `linux-cpu`.
 
+## Topology Scope
+
+The HA/multi-worker measurements retained in this attestation are historical
+evidence only. They do not validate the single-worker target opened on
+2026-08-09. Phases `42`, `53`, and `69` own that topology, and Phase `262` is
+Blocked behind them; no replacement multi-worker or node-failover run is
+required.
+
 ## Host
 
 - Apple M1 Max workstation (macOS, arm64); Docker Desktop aarch64 Linux VM

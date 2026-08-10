@@ -11,6 +11,12 @@
 
 ✅ **Done**.
 
+**Current topology note (2026-08-09):** typed CPU/memory budgets, readiness
+loops, and profile decoding remain Done. Phase `42` owns the one-worker default,
+Phase `53` owns the single-instance platform counts, and Phase `69` owns the
+one-Engine Linux default. The counts this phase previously validated are
+historical and do not reopen its retained resource-budget surface.
+
 ## Sprint 51.1: Per-Pod Resource Limits and Right-Sized Replicas from the `dhall/cluster/` Profile [✅ Done]
 
 **Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 15 Sprint 15.1)
