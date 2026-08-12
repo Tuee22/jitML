@@ -10,10 +10,10 @@ affinity:
 kube-prometheus-stack:
   enabled: false
 
-# Sprint 4.10 — HA pod resource budgets from dhall/cluster/resources.dhall
+# Phase 53 — single-instance pod resource budgets from dhall/cluster/resources.dhall
 # (`pulsar`; applied uniformly across zk/bookkeeper/broker/proxy).
 zookeeper:
-  replicaCount: 3
+  replicaCount: 1
   podMonitor:
     enabled: false
   affinity:
@@ -32,7 +32,7 @@ zookeeper:
       memory: 1Gi
 
 bookkeeper:
-  replicaCount: 3
+  replicaCount: 1
   podMonitor:
     enabled: false
   affinity:
@@ -54,7 +54,7 @@ bookkeeper:
       memory: 1Gi
 
 broker:
-  replicaCount: 3
+  replicaCount: 1
   # The retained-cluster reconciler upgrades this release in place. Include
   # the broker ConfigMap checksum in the StatefulSet template so configData
   # changes reach already-running brokers instead of waiting for recreation.
@@ -65,6 +65,9 @@ broker:
     # make a reconciled cluster drift while idle.
     brokerDeleteInactiveTopicsEnabled: "false"
     webSocketServiceEnabled: "true"
+    managedLedgerDefaultEnsembleSize: "1"
+    managedLedgerDefaultWriteQuorum: "1"
+    managedLedgerDefaultAckQuorum: "1"
   podMonitor:
     enabled: false
   affinity:
@@ -78,7 +81,7 @@ broker:
       memory: 1Gi
 
 proxy:
-  replicaCount: 3
+  replicaCount: 1
   service:
     type: ClusterIP
   podMonitor:
@@ -94,6 +97,7 @@ proxy:
       memory: 1Gi
 
 autorecovery:
+  replicaCount: 1
   podMonitor:
     enabled: false
   resources:

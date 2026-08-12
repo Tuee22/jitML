@@ -5,12 +5,18 @@ module JitML.Service.ConfigMap
   , renderServiceConfigMaps
   , renderServiceDeployment
   , renderServiceRBAC
+  , renderServiceValues
   )
 where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Cluster.Resources
+  ( ClusterResources
+  , budgetReplicas
+  , jitmlService
+  )
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , Role (Coordinator)
@@ -57,14 +63,14 @@ renderCoordinatorConfigMap bootConfig liveConfig =
     <> Text.unlines ["  LiveConfig.dhall: |"]
     <> indentBlock (renderLiveConfigDhall liveConfig)
 
-renderServiceDeployment :: Substrate -> Text
-renderServiceDeployment substrate =
-  renderEngineDeployment substrate
+renderServiceDeployment :: ClusterResources -> Substrate -> Text
+renderServiceDeployment resources substrate =
+  renderEngineDeployment resources substrate
     <> "---\n"
     <> renderCoordinatorDeployment substrate
 
-renderEngineDeployment :: Substrate -> Text
-renderEngineDeployment substrate =
+renderEngineDeployment :: ClusterResources -> Substrate -> Text
+renderEngineDeployment resources substrate =
   Text.unlines $
     [ "apiVersion: apps/v1"
     , "kind: Deployment"
@@ -72,7 +78,7 @@ renderEngineDeployment substrate =
     , "  name: jitml-service"
     , "  namespace: platform"
     , "spec:"
-    , "  replicas: " <> Text.pack (show (serviceReplicaCount substrate))
+    , "  replicas: " <> Text.pack (show (serviceReplicaCount resources substrate))
     , "  strategy:"
     , "    type: RollingUpdate"
     , "    rollingUpdate:"
@@ -207,10 +213,22 @@ renderCoordinatorDeployment substrate =
     , "            name: jitml-coordinator-config"
     ]
 
-serviceReplicaCount :: Substrate -> Int
-serviceReplicaCount AppleSilicon = 0
-serviceReplicaCount LinuxCPU = 3
-serviceReplicaCount LinuxCUDA = 3
+serviceReplicaCount :: ClusterResources -> Substrate -> Int
+serviceReplicaCount _ AppleSilicon = 0
+serviceReplicaCount resources LinuxCPU = budgetReplicas (jitmlService resources)
+serviceReplicaCount resources LinuxCUDA = budgetReplicas (jitmlService resources)
+
+renderServiceValues :: ClusterResources -> Text
+renderServiceValues resources =
+  Text.unlines
+    [ "substrate: linux-cpu"
+    , "edgePort: 9090"
+    , "engineReplicas: " <> Text.pack (show (budgetReplicas (jitmlService resources)))
+    , ""
+    , "image:"
+    , "  repository: jitml"
+    , "  tag: local"
+    ]
 
 substrateHasClusterCompute :: Substrate -> Bool
 substrateHasClusterCompute AppleSilicon = False

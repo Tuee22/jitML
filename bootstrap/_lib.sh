@@ -378,8 +378,14 @@ purge_linux_state() {
   local full=${2:-false}
   local root
   root=$(repo_root)
-  purge_state "$substrate" "$full"
+  kind_down "$substrate"
+  # Stateful containers create database and object-store files as root. Remove
+  # Linux runtime trees through the same root-running outer container so purge
+  # remains reliable without sudo and without broadening the target beyond the
+  # repository's explicit runtime directories.
+  (cd "$root" && run_command docker compose run --rm --entrypoint rm jitml -rf "$root/.data")
   if [ "$full" = "true" ]; then
+    (cd "$root" && run_command docker compose run --rm --entrypoint rm jitml -rf "$root/.build")
     (cd "$root" && run_command docker compose down --rmi local --volumes || true)
   fi
 }

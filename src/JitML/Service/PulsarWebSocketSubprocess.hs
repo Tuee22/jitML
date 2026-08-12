@@ -1868,11 +1868,14 @@ subscriptionAdminResourceUrl settings subscription =
     <> "/subscription/"
     <> pathSegment (subscriptionNameInternal subscription)
 
--- MessageId.latest.  Pulsar's admin client serializes MessageIdImpl(-1,-1,-1)
--- to this JSON body for createSubscription(..., MessageId.latest).
+-- MessageId.latest. Pulsar serializes @MessageIdImpl(Long.MAX_VALUE,
+-- Long.MAX_VALUE, -1)@ for @createSubscription(..., MessageId.latest)@.
+-- @MessageIdImpl(-1, -1, -1)@ is @MessageId.earliest@, which plants the cursor
+-- at the start of the topic and replays every message already published to it —
+-- the exact inversion of the guarantee this cursor exists to prove.
 latestMessageIdJson :: Text
 latestMessageIdJson =
-  "{\"ledgerId\":-1,\"entryId\":-1,\"partitionIndex\":-1}"
+  "{\"ledgerId\":9223372036854775807,\"entryId\":9223372036854775807,\"partitionIndex\":-1}"
 
 initialPosition :: SubscriptionStart -> Text
 initialPosition FromEarliest = "Earliest"

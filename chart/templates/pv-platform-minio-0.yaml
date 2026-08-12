@@ -19,4 +19,4 @@ spec:
               operator: Exists
   claimRef:
     namespace: platform
-    name: data-minio-0
+    name: minio

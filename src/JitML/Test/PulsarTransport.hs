@@ -551,11 +551,20 @@ pulsarTransportTests =
               let createCommand = pulsarCreateSubscriptionSubprocess testSettings owned
               subprocessPath createCommand @?= "curl"
               assertBool "cursor creation is not PUT" ("PUT" `elem` subprocessArguments createCommand)
+              -- MessageId.latest is (Long.MAX_VALUE, Long.MAX_VALUE, -1).
+              -- (-1, -1, -1) is MessageId.earliest, which creates the cursor at
+              -- the head of the topic and replays every message already
+              -- published to it, so a reply the requester never asked for is
+              -- delivered as if it answered the correlated command.
               assertBool
                 "cursor creation does not carry MessageId.latest"
                 ( subprocessStdin createCommand
-                    == Just "{\"ledgerId\":-1,\"entryId\":-1,\"partitionIndex\":-1}"
+                    == Just
+                      "{\"ledgerId\":9223372036854775807,\"entryId\":9223372036854775807,\"partitionIndex\":-1}"
                 )
+              assertBool
+                "cursor creation carries the MessageId.earliest sentinel"
+                (subprocessStdin createCommand /= Just "{\"ledgerId\":-1,\"entryId\":-1,\"partitionIndex\":-1}")
               assertBool
                 "cursor creation URL is not the exact admin subscription resource"
                 ( any

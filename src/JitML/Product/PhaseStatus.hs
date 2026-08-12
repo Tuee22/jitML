@@ -298,13 +298,13 @@ allProductPhaseStatuses =
       262
       "Contract-Driven Live Execution - Browser and Playwright"
       "DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md"
-      [ sprint "262.1" "Contract-Driven Live Execution - Browser and Playwright" Active
+      [ sprint "262.1" "Contract-Driven Live Execution - Browser and Playwright" Done
       ]
   , productPhase
       263
       "Contract-Driven Live Execution - Fragment Issuance"
       "DEVELOPMENT_PLAN/phase-263-contract-driven-live-execution-fragment-issuance.md"
-      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Blocked
+      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Done
       ]
   , productPhase
       264
@@ -334,7 +334,7 @@ allProductPhaseStatuses =
       268
       "Contract-Driven CUDA Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Blocked
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Planned
       ]
   , productPhase
       269

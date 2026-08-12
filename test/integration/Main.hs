@@ -88,6 +88,7 @@ import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Cluster.Readiness qualified as Readiness
+import JitML.Cluster.Resources qualified as Resources
 import JitML.Cluster.Storage qualified as Storage
 import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
@@ -1755,6 +1756,39 @@ phase262BrowserCatalogueTests getAggregate =
                 )
                 rows
                 @?= ProductMatrix.productRowIds
+  , testCase "Phase 263 issues the committed lane fragment from the completed scenario journal" $ do
+      -- The committed per-lane attestation may only say what this run proved.
+      -- Rendering from the JOURNAL report rather than the executed one makes the
+      -- comparison a cross-process re-mint: the fragment is reconstructed from
+      -- persisted, HMAC-bound journal rows, not from the in-process values that
+      -- produced them.
+      aggregate <- getAggregate
+      let lane =
+            ProductMatrix.productProjectionBatchSubstrate
+              (productScenarioAggregateBatch aggregate)
+          issued =
+            TestReport.renderProductLaneAttestationFragment
+              (productScenarioAggregateJournalReport aggregate)
+              ProductMatrix.nonProductRows
+      path <-
+        case lookup (renderSubstrate lane) TestReport.productLaneAttestationInputs of
+          Nothing ->
+            assertFailure
+              ( "no committed lane attestation is registered for "
+                  <> Text.unpack (renderSubstrate lane)
+              )
+          Just registered -> pure registered
+      committed <- Text.IO.readFile path
+      case TestReport.productLaneAttestationFragmentDrift committed issued of
+        [] -> pure ()
+        failures ->
+          assertFailure
+            ( "committed "
+                <> path
+                <> " is not the fragment this lane issued; re-issue it from the run's"
+                <> " product_lane_fragment block rather than editing cells:\n"
+                <> Text.unpack (Text.unlines failures)
+            )
   , testCase "Phase 262 ignores stale manifest-prefix extras instead of scanning them" $ do
       aggregate <- getAggregate
       withProductBrowserCatalogueFixture aggregate $ \_published -> do
@@ -3253,7 +3287,7 @@ main = do
           uniformImageId [Just loadedImage, Just staleImage] @?= Nothing
           uniformImageId [] @?= Nothing
           uniformImageId [Just ""] @?= Nothing
-      , testCase "kind config render carries repo mounts for non-CUDA substrates" $ do
+      , testCase "local-topology: kind config carries repo mounts for non-CUDA substrates" $ do
           let appleConfig = renderKindConfig (kindConfigFor AppleSilicon)
               cpuConfig = renderKindConfig (kindConfigFor LinuxCPU)
           assertBool
@@ -3266,21 +3300,24 @@ main = do
           assertBool
             "linux-cpu does not mount NVIDIA toolkit"
             (not ("nvidia-container-runtime" `Text.isInfixOf` cpuConfig))
-      , testCase "kind config renders HA control-plane plus mounted workers (Sprint 3.6)" $ do
+      , testCase "local-topology: one control-plane plus one mounted worker (Phase 42)" $ do
           let cpuConfig = renderKindConfig (kindConfigFor LinuxCPU)
               controlPlaneCount =
                 length (Text.breakOnAll "  - role: control-plane" cpuConfig)
               workerCount =
                 length (Text.breakOnAll "  - role: worker" cpuConfig)
           controlPlaneCount @?= 1
-          workerCount @?= 3
+          workerCount @?= 1
           assertBool
             "worker nodes are labelled as compute-capable"
             ("jitml.node-role/compute=true" `Text.isInfixOf` cpuConfig)
           assertBool
-            "every HA node has the repo build mount"
-            (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 4)
-      , testCase "linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
+            "both local nodes have the repo build mount"
+            (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 2)
+          assertBool
+            "default local config contains no higher-index workers"
+            (not ("worker2" `Text.isInfixOf` cpuConfig || "worker3" `Text.isInfixOf` cpuConfig))
+      , testCase "local-topology: linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
           let cudaConfig = renderKindConfig (kindConfigFor LinuxCUDA)
           assertBool
             "linux-cuda worker nodes carry the GPU node label"
@@ -5322,10 +5359,6 @@ main = do
                     , "jitml-tensorboard/test"
                     ]
                 ]
-              failClosedFrame =
-                Workload.renderCheckpointListResult
-                  "call-empty"
-                  []
           workloadSource <- Text.IO.readFile "src/JitML/Service/Workload.hs"
           catalogueSource <-
             Text.IO.readFile "src/JitML/Product/BrowserCatalogue.hs"
@@ -5366,12 +5399,6 @@ main = do
           assertBool
             "selector summary carries the eligibility marker"
             (any ("\teligible\t" `Text.isInfixOf`) summaries)
-          assertBool
-            "empty selector frame is explicit fail-closed state"
-            ("selector-state: fail-closed:no-inference-eligible-artifact" `Text.isInfixOf` failClosedFrame)
-          assertBool
-            "empty selector frame reports zero eligible checkpoints"
-            ("count: 0" `Text.isInfixOf` failClosedFrame)
       , testCase "Dhall numerics schema decodes against the full Haskell catalog" $ do
           -- Decodes dhall/numerics/Schema.dhall through `Dhall.inputFile`
           -- and asserts the resulting NumericsCatalog matches the
@@ -5938,7 +5965,7 @@ main = do
           assertBool
             "retired mirror placeholder is absent from the Helm release plan"
             (not ("jitml-mirror" `Text.isInfixOf` rendered))
-      , testCase "Pulsar HA manual PVs match chart-generated PVC names (Sprint 15.22)" $ do
+      , testCase "local-topology: Pulsar manual PVs match chart-generated PVC names" $ do
           let renderedPVs = Text.unlines (fmap Storage.renderManualPV Storage.manualPVs)
           assertBool
             "BookKeeper journal PVC claimRef"
@@ -5962,6 +5989,36 @@ main = do
           assertBool
             "BookKeeper ledgers storage class is set at the chart's ledgers leaf"
             ("    ledgers:\n      size: 20Gi\n      storageClassName: jitml-manual" `Text.isInfixOf` pulsarValues)
+      , testCase "local-topology: default profile materializes the exact six-PV inventory" $ do
+          let targetPVs = Storage.manualPVsFor Resources.defaultClusterResources
+          length targetPVs @?= 6
+          fmap Storage.pvStatefulSet targetPVs
+            @?= [ "minio"
+                , "pulsar-bookie-journal"
+                , "pulsar-bookie-ledgers"
+                , "pulsar-zookeeper-data"
+                , "harbor-pg"
+                , "harbor-pg-repo1"
+                ]
+          assertBool "target profile contains only replica zero" (all ((== 0) . Storage.pvReplica) targetPVs)
+          fmap Storage.pvClaimRefName targetPVs
+            @?= [ Just "minio"
+                , Just "pulsar-bookie-journal-pulsar-bookie-0"
+                , Just "pulsar-bookie-ledgers-pulsar-bookie-0"
+                , Just "pulsar-zookeeper-data-pulsar-zookeeper-0"
+                , Nothing
+                , Nothing
+                ]
+          Resources.validateLocalPlatformTopology Resources.defaultClusterResources @?= Right ()
+          let drifted =
+                Resources.defaultClusterResources
+                  { Resources.minio =
+                      (Resources.minio Resources.defaultClusterResources)
+                        { Resources.budgetReplicas = 4
+                        }
+                  }
+          Resources.validateLocalPlatformTopology drifted
+            @?= Left "local platform topology requires exactly one replica for: minio"
       , testCase "jitml-service local chart carries current Dhall config surface" $ do
           configMap <- Text.IO.readFile "chart/local/jitml-service/templates/configmap.yaml"
           deployment <- Text.IO.readFile "chart/local/jitml-service/templates/deployment.yaml"
@@ -6113,7 +6170,7 @@ main = do
                 ( ServiceConfigMap.renderServiceConfigMaps
                     (BootConfig.defaultBootConfig substrate BootConfig.Cluster)
                     LiveConfig.defaultLiveConfig
-                , ServiceConfigMap.renderServiceDeployment substrate
+                , ServiceConfigMap.renderServiceDeployment Resources.defaultClusterResources substrate
                 )
               validMaterializations =
                 fmap materializedPair [AppleSilicon, LinuxCPU, LinuxCUDA]
@@ -6149,12 +6206,12 @@ main = do
           assertBool
             "umbrella Pulsar rolls retained brokers when their config changes"
             ("restartPodsOnConfigMapChange: true" `Text.isInfixOf` umbrellaValues)
-      , testCase "HA platform service values use distributed MinIO and 3x Pulsar (Sprint 4.10)" $ do
+      , testCase "local-topology: platform values use one-instance MinIO and Pulsar (Phase 53)" $ do
           minioValues <- Text.IO.readFile "chart/values/minio.yaml"
           pulsarValues <- Text.IO.readFile "chart/values/pulsar.yaml"
           umbrellaValues <- Text.IO.readFile "chart/values.yaml"
-          assertBool "direct MinIO is distributed" ("mode: distributed" `Text.isInfixOf` minioValues)
-          assertBool "direct MinIO has four replicas" ("replicas: 4" `Text.isInfixOf` minioValues)
+          assertBool "direct MinIO is standalone" ("mode: standalone" `Text.isInfixOf` minioValues)
+          assertBool "direct MinIO has one replica" ("replicas: 1" `Text.isInfixOf` minioValues)
           assertBool
             "direct MinIO liveness is tolerant of local live-test load"
             ( "livenessProbe:\n  enabled: true\n  initialDelaySeconds: 30\n  periodSeconds: 10\n  timeoutSeconds: 20\n  failureThreshold: 12"
@@ -6169,10 +6226,10 @@ main = do
             "direct MinIO uses manual persistent storage"
             ("storageClass: jitml-manual" `Text.isInfixOf` minioValues)
           assertBool
-            "direct distributed MinIO uses provisioning buckets"
+            "direct standalone MinIO uses provisioning buckets"
             ("provisioning:\n  enabled: true\n  buckets:" `Text.isInfixOf` minioValues)
           assertBool
-            "direct distributed MinIO does not use standalone defaultBuckets"
+            "direct MinIO does not use divergent defaultBuckets"
             (not ("defaultBuckets:" `Text.isInfixOf` minioValues))
           assertBool
             "direct MinIO provisions the Harbor registry bucket"
@@ -6181,25 +6238,35 @@ main = do
             "direct MinIO bucket provisioning does not issue versioning commands"
             ("versioning: Unchanged" `Text.isInfixOf` minioValues)
           assertBool
-            "direct Pulsar has 3x ZooKeeper"
-            ("zookeeper:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+            "direct Pulsar has one ZooKeeper"
+            ("zookeeper:\n  replicaCount: 1" `Text.isInfixOf` pulsarValues)
           assertBool
-            "direct Pulsar has 3x BookKeeper"
-            ("bookkeeper:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+            "direct Pulsar has one BookKeeper"
+            ("bookkeeper:\n  replicaCount: 1" `Text.isInfixOf` pulsarValues)
           assertBool
-            "direct Pulsar has 3x Broker"
-            ("broker:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+            "direct Pulsar has one Broker"
+            ("broker:\n  replicaCount: 1" `Text.isInfixOf` pulsarValues)
           assertBool
-            "direct Pulsar has 3x Proxy"
-            ("proxy:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+            "direct Pulsar has one Proxy"
+            ("proxy:\n  replicaCount: 1" `Text.isInfixOf` pulsarValues)
           assertBool
-            "umbrella values retain distributed MinIO"
-            ("minio:\n  mode: distributed\n  replicas: 4" `Text.isInfixOf` umbrellaValues)
+            "umbrella values use standalone MinIO"
+            ("minio:\n  mode: standalone\n  replicas: 1" `Text.isInfixOf` umbrellaValues)
           assertBool
-            "umbrella values retain 3x Pulsar broker"
-            ("broker:\n    replicaCount: 3" `Text.isInfixOf` umbrellaValues)
+            "umbrella values use one Pulsar broker"
+            ("broker:\n    replicaCount: 1" `Text.isInfixOf` umbrellaValues)
+          mapM_
+            ( \key ->
+                assertBool
+                  ("direct Pulsar pins " <> Text.unpack key)
+                  ((key <> ": \"1\"") `Text.isInfixOf` pulsarValues)
+            )
+            [ "managedLedgerDefaultEnsembleSize"
+            , "managedLedgerDefaultWriteQuorum"
+            , "managedLedgerDefaultAckQuorum"
+            ]
       , testCase
-          "live phased rollout wires the explicit Kind image load phase before final services (Sprint 3.5)"
+          "local-topology: live phased rollout caps and mounts the two Kind nodes (Phase 42)"
           $ do
             let rendered = fmap renderSubprocess (livePhasedRolloutSubprocesses LinuxCPU "chart")
                 commandText = Text.unlines rendered
@@ -6225,16 +6292,17 @@ main = do
               "live rollout raises worker inotify caps before Helm waits"
               ( "docker exec jitml-linux-cpu-worker sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536"
                   `Text.isInfixOf` commandText
-                  && "docker exec jitml-linux-cpu-worker3 sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536"
+              )
+            assertBool
+              "live rollout caps both local Kind nodes"
+              ( "docker update --memory 12884901888 --memory-swap 12884901888 --cpus 4 jitml-linux-cpu-control-plane"
+                  `Text.isInfixOf` commandText
+                  && "docker update --memory 12884901888 --memory-swap 12884901888 --cpus 4 jitml-linux-cpu-worker"
                     `Text.isInfixOf` commandText
               )
             assertBool
-              "live rollout caps every HA Kind node"
-              ( "docker update --memory 12884901888 --memory-swap 12884901888 --cpus 4 jitml-linux-cpu-control-plane"
-                  `Text.isInfixOf` commandText
-                  && "docker update --memory 12884901888 --memory-swap 12884901888 --cpus 4 jitml-linux-cpu-worker3"
-                    `Text.isInfixOf` commandText
-              )
+              "live rollout contains no higher-index workers"
+              (not ("worker2" `Text.isInfixOf` commandText || "worker3" `Text.isInfixOf` commandText))
             assertBool
               "live rollout restarts kube-proxy after the inotify cap is applied"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig delete pod -n kube-system -l k8s-app=kube-proxy --ignore-not-found"
@@ -6254,8 +6322,6 @@ main = do
               "linux-cpu live rollout prepares worker-local stateful PV storage"
               ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
                   `Text.isInfixOf` commandText
-                  && "docker exec jitml-linux-cpu-worker3 sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
-                    `Text.isInfixOf` commandText
               )
             assertBool
               "apple-silicon live rollout binds stateful PVs to node-local storage before Harbor"
@@ -6437,7 +6503,7 @@ main = do
             -- so they no longer appear in the rendered subprocess text.
             assertBool
               "live rollout waits for MinIO deployment readiness before topic bootstrap"
-              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status statefulset/minio --timeout=300s"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status deployment/minio --timeout=300s"
                   `Text.isInfixOf` commandText
               )
             assertBool
@@ -6503,7 +6569,7 @@ main = do
       , testCase "platform readiness checks cover Phase 4 service rollouts" $ do
           let rendered = Text.unlines (fmap renderSubprocess Readiness.platformReadinessSubprocesses)
           assertBool "Harbor readiness" ("rollout status deployment/harbor-core" `Text.isInfixOf` rendered)
-          assertBool "MinIO readiness" ("rollout status statefulset/minio" `Text.isInfixOf` rendered)
+          assertBool "MinIO readiness" ("rollout status deployment/minio" `Text.isInfixOf` rendered)
           assertBool "Pulsar readiness" ("rollout status statefulset/pulsar-broker" `Text.isInfixOf` rendered)
           assertBool
             "Prometheus readiness"
@@ -6525,9 +6591,9 @@ main = do
             ("get runtimeclass nvidia" `Text.isInfixOf` rendered)
           assertBool
             "MinIO bucket readiness exec"
-            ("exec -n platform statefulset/minio" `Text.isInfixOf` rendered)
+            ("exec -n platform deployment/minio" `Text.isInfixOf` rendered)
           -- Sprint 4.8: the typed final-gate `minioBucketReadinessSubprocess`
-          -- runs a single `kubectl exec statefulset/minio -- env
+          -- runs a single `kubectl exec deployment/minio -- env
           -- MC_HOST_jitml-minio=... mc ls jitml-minio` (no in-pod shell). The
           -- bootstrap-time per-bucket retry loop moved to typed Haskell IO in
           -- `JitML.Cluster.Readiness.runMinioBucketReadinessIO`, called by
@@ -6540,9 +6606,12 @@ main = do
             "MinIO readiness gate calls mc against jitml-minio"
             ("/opt/bitnami/minio-client/bin/mc ls jitml-minio" `Text.isInfixOf` rendered)
       , testCase "jitml-service cardinality is one numerical worker per Kubernetes node (Sprint 5.16)" $ do
-          let appleDeployment = ServiceConfigMap.renderServiceDeployment AppleSilicon
-              cpuDeployment = ServiceConfigMap.renderServiceDeployment LinuxCPU
-              cudaDeployment = ServiceConfigMap.renderServiceDeployment LinuxCUDA
+          let appleDeployment =
+                ServiceConfigMap.renderServiceDeployment Resources.defaultClusterResources AppleSilicon
+              cpuDeployment =
+                ServiceConfigMap.renderServiceDeployment Resources.defaultClusterResources LinuxCPU
+              cudaDeployment =
+                ServiceConfigMap.renderServiceDeployment Resources.defaultClusterResources LinuxCUDA
           assertBool
             "apple-silicon does not request the NVIDIA RuntimeClass"
             (not ("runtimeClassName: nvidia" `Text.isInfixOf` appleDeployment))
@@ -6562,8 +6631,41 @@ main = do
             "linux-cpu does not set NVIDIA runtime environment"
             (not ("NVIDIA_VISIBLE_DEVICES" `Text.isInfixOf` cpuDeployment))
           assertBool
-            "linux-cpu service has one Engine replica per HA worker"
-            ("replicas: 3" `Text.isInfixOf` cpuDeployment)
+            "linux-cpu service has one Engine replica per local worker"
+            ("replicas: 1" `Text.isInfixOf` cpuDeployment)
+          let expandedResources =
+                Resources.defaultClusterResources
+                  { Resources.workerCount = 2
+                  , Resources.jitmlService =
+                      (Resources.jitmlService Resources.defaultClusterResources)
+                        { Resources.budgetReplicas = 2
+                        }
+                  }
+              expandedDeployment =
+                ServiceConfigMap.renderServiceDeployment expandedResources LinuxCPU
+          assertBool
+            "Linux Engine replicas derive from the typed profile"
+            ("replicas: 2" `Text.isInfixOf` expandedDeployment)
+          ServiceConfigMap.renderServiceValues expandedResources
+            @?= Text.unlines
+              [ "substrate: linux-cpu"
+              , "edgePort: 9090"
+              , "engineReplicas: 2"
+              , ""
+              , "image:"
+              , "  repository: jitml"
+              , "  tag: local"
+              ]
+          Resources.validateEngineTopology expandedResources @?= Right ()
+          Resources.validateEngineTopology
+            ( expandedResources
+                { Resources.jitmlService =
+                    (Resources.jitmlService expandedResources)
+                      { Resources.budgetReplicas = 3
+                      }
+                }
+            )
+            @?= Left "engine topology requires replicas <= workerCount (3 > 2)"
           assertBool
             "apple-silicon has no cluster Engine and one non-compute Coordinator"
             ( "name: jitml-service\n  namespace: platform\nspec:\n  replicas: 0" `Text.isInfixOf` appleDeployment
@@ -6801,8 +6903,8 @@ main = do
             "rendered PerconaPGCluster binds a manual PV by volumeName"
             ("volumeName: platform-harbor-pg-pv-0" `Text.isInfixOf` yaml)
           assertBool
-            "rendered PerconaPGCluster binds every HA instance PV by volumeName"
-            ("volumeName: platform-harbor-pg-pv-2" `Text.isInfixOf` yaml)
+            "rendered PerconaPGCluster has no higher-index instance PV"
+            (not ("volumeName: platform-harbor-pg-pv-1" `Text.isInfixOf` yaml))
           assertBool
             "rendered PerconaPGCluster binds a manual backup PV by volumeName"
             ("volumeName: platform-harbor-pg-repo1-pv-0" `Text.isInfixOf` yaml)
@@ -7331,12 +7433,13 @@ main = do
                                     if payload == postCursorPayload
                                       then pure (done ack payload)
                                       else do
-                                        liftIO
-                                          ( assertFailure
-                                              ( "pre-cursor reply was delivered through a FromLatest cursor: "
-                                                  <> Text.unpack payload
-                                              )
-                                          )
+                                        _ <-
+                                          liftIO
+                                            ( assertFailure
+                                                ( "pre-cursor reply was delivered through a FromLatest cursor: "
+                                                    <> Text.unpack payload
+                                                )
+                                            )
                                         pure (done ack payload)
                                 )
                           )

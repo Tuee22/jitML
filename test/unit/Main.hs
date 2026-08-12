@@ -11212,59 +11212,35 @@ unitTestMain =
               assertBool
                 "product-row hashes avoid slash-separated object prefixes"
                 (not (any (Text.isInfixOf "/") hashes))
-          , testCase "CheckpointList frames carry ProductRow selector state and row ids" $ do
+          , testCase "claim-level device evidence agrees with the row-level composer" $ do
+              -- A lane fragment is issued from completed evidence, which retains
+              -- the device claim and the lane but not the declared row. Binding
+              -- the two composers here keeps the issued cell identical to the
+              -- registry's own rendering without re-entering the registry.
+              traverse_
+                ( \substrate ->
+                    traverse_
+                      ( \row ->
+                          ProductMatrix.deviceEvidenceForClaim
+                            substrate
+                            (ProductMatrix.deviceClaim row)
+                            @?= ProductMatrix.productRowDeviceEvidenceForSubstrate substrate row
+                      )
+                      ProductMatrix.allProductRows
+                )
+                [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
               case ProductMatrix.allProductRows of
                 [] -> assertFailure "ProductRow registry is unexpectedly empty"
-                row : _ -> do
-                  let rowId' = ProductMatrix.rowId row
-                      experimentHash = ProductMatrix.productRowExperimentHash row
-                      selectorStates = ["eligible", "training-required", "unsupported", "error"]
-                      summaries =
-                        [ Text.intercalate
-                            "\t"
-                            [ rowId'
-                            , experimentHash
-                            , Text.replicate 64 "a"
-                            , "1"
-                            , ProductMatrix.renderRowFamily (ProductMatrix.family row)
-                            , "1"
-                            , "eligible"
-                            , "test-budget"
-                            , "test-metric=1.0"
-                            , "jitml-tensorboard/test"
-                            ]
-                        ]
-                      selector state =
-                        Text.intercalate
-                          "\t"
-                          [ rowId' <> "-" <> state
-                          , experimentHash <> "-" <> state
-                          , ProductMatrix.renderRowFamily (ProductMatrix.family row)
-                          , state
-                          , if state == "eligible" then "1" else "0"
-                          , ProductMatrix.demoPanel row
-                          ]
-                      frame =
-                        Workload.renderCheckpointListResultWithSelectors
-                          "call-product"
-                          (fmap selector selectorStates)
-                          summaries
+                row : _ ->
                   assertBool
-                    "checkpoint summary carries the product row id"
-                    ( any
-                        (("checkpoint-summary: " <> rowId' <> "\t" <> experimentHash) `Text.isPrefixOf`)
-                        (Text.lines frame)
+                    "device evidence does not distinguish the executing lane"
+                    ( ProductMatrix.deviceEvidenceForClaim
+                        Substrate.LinuxCPU
+                        (ProductMatrix.deviceClaim row)
+                        /= ProductMatrix.deviceEvidenceForClaim
+                          Substrate.LinuxCUDA
+                          (ProductMatrix.deviceClaim row)
                     )
-                  traverse_
-                    ( \state ->
-                        assertBool
-                          ("row selector carries " <> Text.unpack state <> " state")
-                          (("\t" <> state <> "\t") `Text.isInfixOf` frame)
-                    )
-                    selectorStates
-                  assertBool
-                    "global selector is ready when at least one row is eligible"
-                    ("selector-state: ready" `Text.isInfixOf` frame)
           , testCase
               "CheckpointList wire fields agree between the topology validator and the browser contract (Phase 262)"
               $ do

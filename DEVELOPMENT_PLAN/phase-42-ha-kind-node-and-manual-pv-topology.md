@@ -13,16 +13,15 @@
 
 ## Phase State
 
-🔄 **Active**. Reopened on 2026-08-09 because the repository's supported local
-validation topology changes from the historical HA-shaped four-node cluster to
-one control-plane plus one worker. Phases `43`–`52` remain Done on their retained
-lifecycle, routing, service-install, and capability surfaces; Phase `53` is the
-next executable topology owner after this phase closes.
+✅ **Done** (2026-08-10). The supported local topology is one control-plane plus
+one worker, and manual-PV cardinality is derived from the typed resource profile.
+Phases `43`–`52` remain Done on their retained lifecycle, routing,
+service-install, and capability surfaces; Phase `53` is now Active.
 
-## Sprint 42.1: Single-Worker Local Kind Node and Manual-PV Topology [🔄 Active]
+## Sprint 42.1: Single-Worker Local Kind Node and Manual-PV Topology [✅ Done]
 
-**Status**: Active (historical HA surface closed 2026-06-28; reopened
-2026-08-09 for the single-worker local target)
+**Status**: Done (historical HA surface closed 2026-06-28; reopened
+2026-08-09 and re-closed 2026-08-10 for the single-worker local target)
 **Implementation**: `kind/cluster-*.yaml`, `src/JitML/Cluster/Kind.hs`,
 `src/JitML/Cluster/Storage.hs`, `chart/templates/pv-*.yaml`,
 `src/JitML/Lint/Chart.hs`
@@ -68,15 +67,11 @@ validation depend only on the one-worker profile.
 
 ### Remaining Work
 
-- Change the typed cluster profile and Haskell fallback from three workers to
-  one.
-- Parameterize the manual-PV registry from the typed replica profile, regenerate
-  all three checked-in Kind fixtures, and remove assertions for `worker2`,
-  `worker3`, or hard-coded storage cardinality. Phase `53` owns changing the
-  platform counts, regenerating the reduced checked-in PV set, and deleting the
-  higher-index manifests.
-- Pass the Validation block above from one source/image state. Phase `53` then
-  owns the live single-instance platform rollout.
+None. The 2026-08-10 closure passed the image build, all five focused
+`local-topology` integration cases, docs check, chart lint, and `check-code` from
+one source/image state. Phase `53` owns changing the platform counts,
+regenerating the reduced checked-in PV set, deleting higher-index manifests, and
+proving the live single-instance platform rollout.
 
 ## Documentation Requirements
 

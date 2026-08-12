@@ -3,11 +3,10 @@
 **Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
-[../phase-13-no-caveat-model-runtime.md](../phase-13-no-caveat-model-runtime.md),
-[../phase-14-interactive-demo-and-playwright-closure.md](../phase-14-interactive-demo-and-playwright-closure.md),
-[../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),
-[../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md),
-[../phase-28-per-model-integration-and-e2e.md](../phase-28-per-model-integration-and-e2e.md)
+[../phase-260-linux-cpu-report-card.md](../phase-260-linux-cpu-report-card.md),
+[../phase-263-contract-driven-live-execution-fragment-issuance.md](../phase-263-contract-driven-live-execution-fragment-issuance.md),
+[../phase-273-attestation-join.md](../phase-273-attestation-join.md),
+[../development_plan_standards.md](../development_plan_standards.md)
 **Generated sections**: none
 
 > **Purpose**: The committed `linux-cpu` per-lane report-card fragment that the
@@ -22,15 +21,20 @@
 
 The HA/multi-worker measurements retained in this attestation are historical
 evidence only. They do not validate the single-worker target opened on
-2026-08-09. Phases `42`, `53`, and `69` own that topology, and Phase `262` is
-Blocked behind them; no replacement multi-worker or node-failover run is
-required.
+2026-08-09. Phases `42`, `53`, and `69` own that topology and closed `Done` on
+2026-08-10; Phase `262` closed `Done` on 2026-08-11 against the single-worker
+publication. No replacement multi-worker or node-failover run is required.
 
 ## Host
 
-- Apple M1 Max workstation (macOS, arm64); Docker Desktop aarch64 Linux VM
-  (47 GiB), no NVIDIA GPU. The `linux-cpu` lane runs in the `jitml:local`
-  container where oneDNN (`libdnnl`, `oneapi/dnnl/dnnl.hpp`) is present.
+- **Current issuing host (2026-08-11):** x86_64 Linux workstation, 32 cores,
+  124 GiB RAM, NVIDIA RTX 5090 present but unused by this lane. The `linux-cpu`
+  lane runs in the `jitml:local` container where oneDNN (`libdnnl`,
+  `oneapi/dnnl/dnnl.hpp`) is present.
+- **Historical host for every measurement dated before 2026-08-11:** Apple M1
+  Max workstation (macOS, arm64); Docker Desktop aarch64 Linux VM (47 GiB), no
+  NVIDIA GPU. Those measurements are retained as dated evidence for the runs
+  that produced them and are not re-attested here.
 - Validated 2026-06-23, re-attested 2026-06-26 after the real-SL/RL chain and
   Sprint `14.3` demo-runtime replacement, re-attested 2026-06-29 as the HA
   `linux-cpu` aggregation after Phases `15` / `16` re-closed, and re-aggregated
@@ -50,6 +54,53 @@ required.
   `check-code` gate (fourmolu + hlint + docs check + `-Werror`) passed and the
   `-fcuda` library build linked, so all of those changes are live-validated on
   this lane.
+
+## Phase 263 journal-derived issuance (2026-08-12)
+
+The seven-column table below is no longer prose. Phase `263` made it issuable
+only from completed scenario evidence: `renderProductLaneAttestationFragment`
+derives every product cell from the opaque `CompletedProductScenarioReport`,
+which only an in-process interpreter receipt or a cross-process journal re-mint
+can produce, and a standing live case compares the committed table against that
+issuance byte for byte.
+
+The `jitml test all --live --linux-cpu` gate on 2026-08-12 passed
+**11 / 11 invocations, 0 failed, 0 NotRun** in 43,940.53s against image
+`jitml:local@sha256:e36d6ca11f4cc75c231ac8ba2e7f238b1e1ce68623b550b55c94be075ad599e7`
+and the nine-component single-worker `linux-cpu` publication
+`6e57383cbcb8bd89b1ec08a6bd876651075e74707965f2fe31f0a1e3b28f1806` (edge port
+`9090`), with the exact 12 SHA-verified canonical dataset objects staged first:
+
+| Stanza | Result |
+|---|---|
+| `jitml-integration` | **197 / 197** (37,396.11s) |
+| `jitml-e2e-playwright` | **77 passed** (39.3s) |
+| `jitml-e2e` | **30 / 30** |
+| `jitml-unit` | **829 / 829** |
+| `jitml-sl-canonicals` | **36 / 36** (6,104.12s) |
+| `jitml-rl-canonicals` | **47 / 47** (165.65s) |
+| `jitml-hyperparameter` | **26 / 26** |
+| `jitml-backends` | **35 / 35** |
+| `jitml-daemon-lifecycle` | **54 / 54** |
+| `jitml-negative-controls` | **3 / 3** |
+| `jitml-model-convergence` | **111 / 111** |
+
+`Phase 263 issues the committed lane fragment from the completed scenario
+journal` passed inside `jitml-integration`, rendering from the **journal**
+report rather than the executed one — a cross-process re-mint from persisted,
+HMAC-bound rows — and reporting zero drift against the committed table. The
+table therefore required no edit: its cells are unchanged, but they are now
+*proved* to be what the live lane issues rather than assumed. Before this phase
+the `DeviceEvidence` column in particular was unverified prose that merely
+happened to match, because `productRowDeviceEvidenceForSubstrate` had no caller
+anywhere in the repository.
+
+The retained transcript is the gitignored
+`.build/gate-logs/phase263-closure-gate.log`, SHA-256
+`8c409f5c72477c752f7bd2ef97b5f301f49aab280428a7c66470d54efc3efc8a`.
+
+Measurements in the dated sections below predate this run and are retained as
+evidence for the runs that produced them.
 
 ## Phase 28 row-complete re-attestation (2026-07-05)
 

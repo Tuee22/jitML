@@ -21,8 +21,8 @@ The shared coordination language is aligned with `infernix`: a Pulsar
 `Failover` subscription means stable single-active broker coordination, not a
 repository-owned high-availability guarantee. jitML's role split,
 receipt-bound settlement, redelivery, and semantic dedup paths are implemented.
-Its local Engine cardinality is still three in the checked-in renderer and will
-be reduced to one by the reopened Phase 42 → Phase 53 → Phase 69 chain. See
+Its local Engine cardinality is one, and Phase 69 made that count derive from
+the typed cluster profile throughout every render path. See
 [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
 Positive multi-worker profiles remain supported. With the current `Failover`

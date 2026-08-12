@@ -46,8 +46,6 @@ module JitML.Service.Workload
   , renderWorkloadEffectResult
   , renderSomeWorkloadEffect
   , renderSomeWorkloadOutcome
-  , renderCheckpointListResult
-  , renderCheckpointListResultWithSelectors
   , renderTranscriptReplayResult
   , seededDemoExperimentHashes
   , runWorkloadEffect
@@ -1451,30 +1449,6 @@ admittedCatalogueSummaryLine admittedRow =
     ]
  where
   row = BrowserCatalogue.admittedProductBrowserCatalogueRowCatalogueRow admittedRow
-
--- | Sprint 14.1 (Feature A) — the `CheckpointList` result frame. Each
--- `checkpoint-summary:` line carries one tab-separated manifest summary; the
--- browser panel splits them into a `CheckpointSummary` list.
-renderCheckpointListResult :: Text -> [Text] -> Text
-renderCheckpointListResult callId =
-  renderCheckpointListResultWithSelectors callId []
-
-renderCheckpointListResultWithSelectors :: Text -> [Text] -> [Text] -> Text
-renderCheckpointListResultWithSelectors callId selectors summaries =
-  Text.unlines $
-    [ "kind: CheckpointList"
-    , "call-id: " <> callId
-    , "panel: checkpoint-browse"
-    , "status: published"
-    , "count: " <> Text.pack (show (length summaries))
-    , "selector-state: " <> checkpointSelectorState summaries
-    ]
-      <> fmap ("row-selector: " <>) selectors
-      <> fmap ("checkpoint-summary: " <>) summaries
-
-checkpointSelectorState :: [Text] -> Text
-checkpointSelectorState [] = "fail-closed:no-inference-eligible-artifact"
-checkpointSelectorState _ = "ready"
 
 -- | Sprint 14.1 (Feature B) — transcript replay as an Engine job: read the
 -- persisted transcript record from the `jitml-transcripts` MinIO bucket keyed

@@ -32,14 +32,14 @@ platformReadinessSubprocesses =
     <> [minioBucketReadinessSubprocess, runtimeClassSubprocess]
 
 -- | Sprint 4.8 / Sprint 15.22 — the bootstrap rollout blocks on the
--- distributed MinIO @statefulset/minio@ rolling-update status here; the
+-- single-instance MinIO @deployment/minio@ rolling-update status here; the
 -- per-bucket existence check (formerly an
 -- embedded @sh -c@ retry loop) moves to typed Haskell IO
 -- ('runMinioBucketReadinessIO') called by 'JitML.Bootstrap.liveExecutePhasedRollout'
 -- between the pre-grant and grant phases.
 minioBootstrapReadinessSubprocesses :: [Subprocess]
 minioBootstrapReadinessSubprocesses =
-  [rolloutStatusSubprocess "statefulset/minio"]
+  [rolloutStatusSubprocess "deployment/minio"]
 
 rolloutTargets :: [Text]
 rolloutTargets =
@@ -49,7 +49,7 @@ rolloutTargets =
   , "deployment/harbor-registry"
   , "statefulset/harbor-redis"
   , "statefulset/harbor-trivy"
-  , "statefulset/minio"
+  , "deployment/minio"
   , "statefulset/pulsar-zookeeper"
   , "statefulset/pulsar-bookie"
   , "statefulset/pulsar-broker"
@@ -134,7 +134,7 @@ kubectlExecMc mcArgs =
       , "exec"
       , "-n"
       , "platform"
-      , "statefulset/minio"
+      , "deployment/minio"
       , "--"
       , "env"
       , "MC_HOST_jitml-minio=http://minio:minioadmin@minio.platform.svc.cluster.local:9000"

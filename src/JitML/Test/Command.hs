@@ -324,8 +324,11 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
               selectedTestSubstrate
               planned
           else do
+            let evidenceTargets
+                  | integrationFocusedWithoutProductScenario = []
+                  | otherwise = targets
             scenarioBatch <-
-              productScenarioBatchFor targets selectedTestSubstrate
+              productScenarioBatchFor evidenceTargets selectedTestSubstrate
             env <- ask
             (observed, verification) <-
               liftIO
@@ -342,7 +345,7 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
                           env
                       verification <-
                         verifyGreenProductScenarioJournal
-                          targets
+                          evidenceTargets
                           scenarioScope
                           observed
                       pure (observed, verification)
@@ -367,6 +370,11 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
             (firstObservedInvocationFailure journal)
             (exitWithError . observedProcessAppError)
  where
+  integrationFocusedWithoutProductScenario =
+    any
+      (`Text.isInfixOf` testCommandSelectedValue runtime "test-options" "" parsedOptions)
+      ["local-topology", "cardinality"]
+
   pairPlannedInvocations [] [] = Just []
   pairPlannedInvocations (target : remainingTargets) (args : remainingInvocations) =
     ((target, args) :) <$> pairPlannedInvocations remainingTargets remainingInvocations

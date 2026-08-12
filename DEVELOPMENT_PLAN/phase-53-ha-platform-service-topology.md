@@ -13,14 +13,14 @@
 
 ## Phase State
 
-⏸️ **Blocked** by Phase `42`, which owns the one-worker Kind shape and
-profile-driven manual-PV registry required by this rollout.
+✅ **Done** (2026-08-10). The one-worker Kind cluster completed the clean
+single-instance rollout in 135 live steps after the supported purge path
+removed the root-owned retained storage through the outer container.
 
-## Sprint 53.1: Single-Instance Local Platform Service Topology [⏸️ Blocked]
+## Sprint 53.1: Single-Instance Local Platform Service Topology [✅ Done]
 
-**Status**: Blocked (historical HA surface closed 2026-06-28; reopened
-2026-08-09 for the single-instance local target)
-**Blocked by**: Sprint `42.1` (Phase `42`)
+**Status**: Done (historical HA surface closed 2026-06-28; reopened and
+re-closed 2026-08-10 for the single-instance local target)
 **Implementation**: `chart/Chart.yaml`, `chart/values/*.yaml`,
 `chart/templates/*.yaml`, `src/JitML/Cluster/Helm.hs`,
 `src/JitML/Cluster/PostgresRegistry.hs`, `src/JitML/Cluster/Readiness.hs`
@@ -81,14 +81,11 @@ high availability.
 - `docker compose run --rm jitml jitml lint chart`
 - `docker compose run --rm jitml jitml check-code`
 
-### Remaining Work
+### Closure Evidence
 
-- Blocked until Phase `42` closes.
-- Change every count-bearing platform value, typed renderer, Haskell fallback,
-  runtime Helm input, readiness assertion, and topology test to the
-  single-instance target.
-- Prove the clean `linux-cpu` rollout and shared final gates above. No
-  multi-instance or failover run is required.
+- `local-topology`: **7 / 7** passed.
+- Clean `linux-cpu` rollout after purge: **135 / 135** live steps executed.
+- `jitml docs check`, `jitml lint chart`, and `jitml check-code`: ok.
 
 ## Documentation Requirements
 

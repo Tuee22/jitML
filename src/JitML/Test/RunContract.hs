@@ -920,6 +920,83 @@ productScenarioReportTests =
             ( expectedManifestSha
                 `Text.isInfixOf` Report.renderCompletedProductScenarioEvidence report
             )
+    , testCase "the committed lane fragment is issued from completed evidence, not transcribed" $
+        withAdmittedProductProjection $ \root row projection precondition addressed admitted -> do
+          let expectedManifestSha =
+                CheckpointStore.admittedCheckpointManifestSha
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
+          scenarioCompletion <-
+            expectRight
+              (Report.executedProductScenarioCompletion precondition projection addressed)
+          liveResult <-
+            runProductScenarioWorkflow
+              root
+              expectedManifestSha
+              projection
+              precondition
+              scenarioCompletion
+          evidence <-
+            expectRight
+              (Report.completedProductScenarioEvidence projection liveResult)
+          let batch = expectSuccess (ProductMatrix.projectProductRows LinuxCPU [row])
+          report <-
+            expectRight
+              (Report.projectCompletedProductScenarioReport batch [evidence])
+          let issued =
+                Report.renderProductLaneAttestationFragment
+                  report
+                  ProductMatrix.nonProductRows
+              rowIdentity = ProductMatrix.rowId row
+              deviceCell =
+                ProductMatrix.deviceEvidenceForClaim
+                  LinuxCPU
+                  (ProductMatrix.deviceClaim row)
+          -- An issuance agrees with itself, so any reported drift below is a
+          -- real difference rather than an artifact of the comparator.
+          Report.productLaneAttestationFragmentDrift issued issued @?= []
+          assertBool
+            "issued fragment omits the row's generated-matrix catalog cell"
+            ( ("generated-matrix:" <> ProductMatrix.productRowExperimentHash row)
+                `Text.isInfixOf` issued
+            )
+          assertBool
+            "issued fragment omits the claim-level device evidence"
+            (deviceCell `Text.isInfixOf` issued)
+          assertBool
+            "issued fragment omits the executing lane"
+            (("\t" <> renderSubstrate LinuxCPU) `Text.isInfixOf` issued)
+          -- A hand-edited cell is exactly what this phase exists to reject.
+          case Report.productLaneAttestationFragmentDrift
+            (Text.replace deviceCell "device:hand-edited" issued)
+            issued of
+            [] -> assertFailure "a hand-edited DeviceEvidence cell did not register as drift"
+            failures ->
+              assertBool
+                "drift does not name the DeviceEvidence column"
+                (any ("DeviceEvidence" `Text.isInfixOf`) failures)
+          let withoutRow =
+                Text.unlines
+                  [ line
+                  | line <- Text.lines issued
+                  , not ((rowIdentity <> "\t") `Text.isPrefixOf` Text.strip line)
+                  ]
+          case Report.productLaneAttestationFragmentDrift withoutRow issued of
+            [] -> assertFailure "a committed fragment missing an issued row did not register as drift"
+            failures ->
+              assertBool
+                "drift does not name the missing row"
+                (any (rowIdentity `Text.isInfixOf`) failures)
+          let withPhantomRow =
+                issued
+                  <> "phantom-row\tgenerated-matrix:phantom\tintegration\te2e\tnegative\tdevice\tlinux-cpu\n"
+          case Report.productLaneAttestationFragmentDrift withPhantomRow issued of
+            [] ->
+              assertFailure
+                "a committed fragment carrying an unissued row did not register as drift"
+            failures ->
+              assertBool
+                "drift does not name the unissued row"
+                (any ("phantom-row" `Text.isInfixOf`) failures)
     , testCase "physical checkpoint roots distinguish a retargeted symlink" $
         withSystemTempDirectory "jitml-report-physical-scope" $ \root ->
           withFirstProductProjection $ \_row projection -> do

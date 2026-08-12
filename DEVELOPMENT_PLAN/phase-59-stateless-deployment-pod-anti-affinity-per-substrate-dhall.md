@@ -13,9 +13,8 @@
 
 **Current topology note (2026-08-09):** the stateless Deployment, scoped
 anti-affinity, substrate Dhall, and rolling-update constraints remain Done.
-Reopened Phase `69` owns replacing the three-Engine Linux default with one
-profile-driven Engine; no Phase `59` closure claim is used as evidence for that
-new count.
+Phase `69` replaced the three-Engine Linux default with one profile-driven
+Engine; no Phase `59` closure claim is used as evidence for that new count.
 
 ## Sprint 59.1: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall [✅ Done]
 

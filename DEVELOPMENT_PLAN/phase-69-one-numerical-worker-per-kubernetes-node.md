@@ -9,14 +9,13 @@
 
 ## Phase State
 
-⏸️ **Blocked** by Phase `53`, which owns the single-instance platform inputs
-that the profile-driven Engine deployment consumes.
+✅ **Done** (2026-08-10). The typed resource profile now drives the root Engine
+Deployment and local Helm values, with validation rejecting Engine overcommit.
 
-## Sprint 69.1: One Numerical Worker per Kubernetes Node [⏸️ Blocked]
+## Sprint 69.1: One Numerical Worker per Kubernetes Node [✅ Done]
 
-**Status**: Blocked (historical cardinality surface closed 2026-06-28; reopened
-2026-08-09 for the profile-driven single-worker local target)
-**Blocked by**: Sprint `53.1` (Phase `53`)
+**Status**: Done (historical cardinality surface closed 2026-06-28; reopened and
+revalidated 2026-08-10 for the profile-driven single-worker local target)
 **Implementation**: `chart/local/jitml-service`, `src/JitML/Service/*`,
 `src/JitML/Cluster/Helm.hs`, `dhall/service/*`, daemon lifecycle/workload
 placement tests
@@ -69,16 +68,11 @@ continues to run zero clustered Engines and one host Engine.
 
 ### Remaining Work
 
-- Blocked until Phase `53` closes.
-- Thread the loaded resource profile through every Engine deployment/runtime
-  render path, remove the Linux literal `3`, align checked-in chart defaults,
-  and replace HA-specific cardinality assertions with the local one-worker
-  contract.
-- Pass the Validation block above. No multi-worker deployment or failover lane
-  is required.
-- On closure, return Phase `262` to Active ownership. That handoff restores
-  parity with the still-literal product status registry; the registry's eventual
-  removal remains Sprint `34.3` work in the legacy ledger.
+None. Closure evidence: the canonical image built successfully; the focused
+cardinality case passed **1 / 1**; daemon lifecycle passed **54 / 54**; docs
+check, chart lint, and `check-code` passed. Phase `262` is now Active. The
+still-literal product status registry remains Sprint `34.3` work in the legacy
+ledger.
 
 ## Documentation Requirements
 

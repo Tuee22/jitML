@@ -97,8 +97,11 @@ module JitML.Test.Report
   , productScenarioProjectionContractDigest
   , productRowReportCoverageFailures
   , productLaneAttestationFailures
+  , productLaneAttestationFragmentDrift
+  , productLaneAttestationInputs
   , renderReportCardWithKnobs
   , renderProductRowReportEvidence
+  , renderProductLaneAttestationFragment
   , renderCompletedProductScenarioEvidence
   , validateCompletedProductScenarioLiveAdmission
   , reportStanzas
@@ -2853,12 +2856,27 @@ renderProductRowEvidenceTable measurements =
   case measuredProductRowEvidence measurements of
     Nothing -> []
     Just report ->
-      "product_rows:"
-        : fmap
-          ("  " <>)
-          ( Text.lines
-              (renderCompletedProductScenarioEvidence report)
-          )
+      ( "product_rows:"
+          : fmap
+            ("  " <>)
+            ( Text.lines
+                (renderCompletedProductScenarioEvidence report)
+            )
+      )
+        -- The compact five-column block above stays the machine summary. The
+        -- issuable block below is the exact seven-column text a committed lane
+        -- attestation must contain, so a re-issuance is a copy of measured
+        -- evidence rather than a transcription.
+        <> ( "product_lane_fragment:"
+               : fmap
+                 ("  " <>)
+                 ( Text.lines
+                     ( renderProductLaneAttestationFragment
+                         report
+                         ProductMatrix.nonProductRows
+                     )
+                 )
+           )
 
 renderCompletedProductScenarioEvidence
   :: CompletedProductScenarioReport
@@ -2878,6 +2896,142 @@ renderCompletedProductScenarioEvidence (CompletedProductScenarioReport evidence)
       , completedProductScenarioManifestSha completed
       , "completed-scenario"
       ]
+
+-- | Issue the committed seven-column lane fragment from completed scenario
+-- evidence alone.
+--
+-- Every product cell is derived from the opaque 'CompletedProductScenarioReport',
+-- which only the in-process interpreter receipt or the cross-process journal
+-- re-mint can produce, so no prose table or hand-edited total can attest a row
+-- the live lane did not prove. There is deliberately no @MISSING@ branch:
+-- coverage, duplicates, orphans, plan identity, lane identity, and contract
+-- staleness are already fail-closed in 'projectCompletedProductScenarioReport',
+-- and the projection re-emits rows in canonical registry order. Non-product rows
+-- carry no scenario evidence by construction, so they remain declared literals.
+renderProductLaneAttestationFragment
+  :: CompletedProductScenarioReport
+  -> [ProductMatrix.NonProductRow]
+  -> Text
+renderProductLaneAttestationFragment report nonProductRows =
+  Text.unlines
+    ( productLaneAttestationHeader
+        : fmap renderCompletedRow (completedProductScenarioReportEntries report)
+          <> fmap renderNonProductRow nonProductRows
+    )
+ where
+  renderCompletedRow completed =
+    let contract = scenarioEvidenceContract completed
+        lane = scenarioEvidenceLane completed
+     in Text.intercalate
+          "\t"
+          [ scenarioEvidenceRowId completed
+          , "generated-matrix:" <> scenarioEvidenceExperimentHash completed
+          , productContractIntegrationTest contract
+          , productContractE2ETest contract
+          , negativeControlCell completed
+          , ProductMatrix.deviceEvidenceForClaim lane (productContractDeviceClaim contract)
+          , renderSubstrate lane
+          ]
+  -- The journal hard-gates this flag: a completed row whose pre-completion
+  -- inference rejection is absent never refines into evidence. Emitting a
+  -- distinct non-attesting token rather than the literal keeps the cell honest
+  -- if that gate is ever loosened upstream.
+  negativeControlCell completed
+    | scenarioEvidencePreconditionRejected completed = "checkpoint-required-fail-closed"
+    | otherwise = "negative-control-absent"
+  renderNonProductRow row =
+    Text.intercalate
+      "\t"
+      [ ProductMatrix.nonProductRowId row
+      , "non-product: " <> ProductMatrix.nonProductRowReason row
+      , "not-required"
+      , "not-required"
+      , "not-required"
+      , "not-required"
+      , "not-required"
+      ]
+
+productLaneAttestationHeader :: Text
+productLaneAttestationHeader =
+  "row_id\tCatalog\tIntegration\tE2E\tNegative\tDeviceEvidence\tLane"
+
+-- | Compare a committed lane attestation against the journal-derived issuance.
+--
+-- The committed document's table is extracted with the same predicate
+-- 'parseProductRowReportEvidenceTable' uses, so the comparator and the parser
+-- can never disagree about which lines are \"the table\". An empty result means
+-- the committed fragment is exactly what the live lane issued.
+productLaneAttestationFragmentDrift :: Text -> Text -> [Text]
+productLaneAttestationFragmentDrift committed issued =
+  headerFailures <> rowFailures
+ where
+  committedRows = attestationTableRows committed
+  issuedRows = attestationTableRows issued
+  headerFailures =
+    [ "committed lane attestation is missing the canonical seven-column header"
+    | not (any ((productLaneAttestationHeader ==) . Text.strip) (Text.lines committed))
+    ]
+  rowFailures =
+    [ failure
+    | rowId' <- orderedRowIds
+    , failure <- compareRow rowId'
+    ]
+  orderedRowIds =
+    fmap fst issuedRows
+      <> [rowId' | (rowId', _) <- committedRows, rowId' `notElem` fmap fst issuedRows]
+  compareRow rowId' =
+    case (lookup rowId' issuedRows, lookup rowId' committedRows) of
+      (Just _, Nothing) ->
+        ["committed lane attestation is missing issued row: " <> rowId']
+      (Nothing, Just _) ->
+        ["committed lane attestation carries a row the live lane did not issue: " <> rowId']
+      (Just issuedCells, Just committedCells) ->
+        [ "row "
+            <> rowId'
+            <> " column "
+            <> column
+            <> ": committed "
+            <> renderCell committedCell
+            <> " but the live lane issued "
+            <> renderCell issuedCell
+        | (column, issuedCell, committedCell) <-
+            zip3 productLaneAttestationColumns issuedCells committedCells
+        , issuedCell /= committedCell
+        ]
+          <> [ "row "
+                 <> rowId'
+                 <> ": committed cell count "
+                 <> showText (length committedCells)
+                 <> " does not match the issued cell count "
+                 <> showText (length issuedCells)
+             | length committedCells /= length issuedCells
+             ]
+      (Nothing, Nothing) -> []
+  renderCell cell
+    | Text.null cell = "<empty>"
+    | otherwise = cell
+
+productLaneAttestationColumns :: [Text]
+productLaneAttestationColumns =
+  ["Catalog", "Integration", "E2E", "Negative", "DeviceEvidence", "Lane"]
+
+-- | The tab-bearing product rows of a lane attestation, keyed by row id.
+--
+-- This mirrors 'parseProductRowReportEvidenceTable' exactly, including its
+-- non-product and header exclusions, so a document the parser accepts and a
+-- document the comparator inspects are the same set of lines.
+attestationTableRows :: Text -> [(Text, [Text])]
+attestationTableRows content =
+  [ (rowId', cells)
+  | line <- Text.lines content
+  , let stripped = Text.strip line
+  , not (Text.null stripped)
+  , "\t" `Text.isInfixOf` stripped
+  , not ("row_id\t" `Text.isPrefixOf` stripped)
+  , not ("non-product:" `Text.isInfixOf` stripped)
+  , not ("not-required" `Text.isInfixOf` stripped)
+  , rowId' : cells <- [Text.splitOn "\t" stripped]
+  ]
 
 -- | Validate the legacy seven-column lane-fragment shape only.  Passing this
 -- check is not completed-run evidence and cannot satisfy the live report path.

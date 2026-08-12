@@ -13,10 +13,9 @@
 ## Current Status
 
 The daemon roles, capability separation, at-least-once settlement, and Apple
-host/cluster split are implemented. The default Linux cardinality in this
-document is a target: the checked-in renderer still produces three clustered
-Engine replicas until the reopened Phase 42 → Phase 53 → Phase 69 topology
-chain closes. Phase 262 is blocked behind that chain. The authoritative status
+host/cluster split are implemented. The checked-in Kind topology now supplies
+one worker and Phase 53 closed the single-instance platform rollout. Phase 69
+closed the profile-driven Linux Engine count, and Phase 262 is Active. The authoritative status
 is [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
 The target local profile has one clustered Linux Engine, one clustered

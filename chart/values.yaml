@@ -43,8 +43,8 @@ harbor:
         storageClass: jitml-manual
 
 minio:
-  mode: distributed
-  replicas: 4
+  mode: standalone
+  replicas: 1
   image:
     registry: docker.io
     repository: bitnamilegacy/minio
@@ -68,19 +68,24 @@ minio:
 
 pulsar:
   zookeeper:
-    replicaCount: 3
+    replicaCount: 1
   bookkeeper:
-    replicaCount: 3
+    replicaCount: 1
   broker:
-    replicaCount: 3
+    replicaCount: 1
     restartPodsOnConfigMapChange: true
     configData:
       brokerDeleteInactiveTopicsEnabled: "false"
       webSocketServiceEnabled: "true"
+      managedLedgerDefaultEnsembleSize: "1"
+      managedLedgerDefaultWriteQuorum: "1"
+      managedLedgerDefaultAckQuorum: "1"
   proxy:
-    replicaCount: 3
+    replicaCount: 1
     service:
       type: ClusterIP
+  autorecovery:
+    replicaCount: 1
 
 kube-prometheus-stack:
   grafana:

@@ -33,16 +33,15 @@ The result is:
 
 ## Current Status
 
-As of 2026-08-09, Phase `42` is reopened and Active to replace the checked-in
-one-control-plane/three-worker local cluster with a one-control-plane/one-worker
-default. Phase `53` is Blocked by Phase `42`, Phase `69` is Blocked by Phase
-`53`, and the previously Active Phase `262` is Blocked by Phase `69`. The exact
-open chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280
+As of 2026-08-10, Phases `42`, `53`, and `69` are Done with the one-worker
+cluster, clean single-instance platform rollout, and profile-driven Engine
+count. Phase `262` is Active. The exact open chain is
+`262 → 263 → 268 → 272 → 275 → 277 → 279 → 280
 → 281 → 284 → 287 → 288`; intervening Done phases retain their completed
 non-topology surfaces.
 
-The current worktree still renders the former three-worker local cluster,
-distributed/replicated platform services, and three Linux Engine replicas.
+The current worktree renders the one-worker local Kind cluster,
+single-instance platform services, and one profile-driven Linux Engine.
 The target described below is one local worker, one instance of each platform
 role, and one Linux Engine replica. Positive multi-worker profiles remain
 supported by the renderer and Pulsar's at-least-once delivery contract, but
@@ -420,8 +419,8 @@ A reconciler that finds a missing prerequisite fails with exit code `2` (system 
 Per-substrate Kind configs live at `./kind/cluster-<substrate>.yaml`. The target
 local topology is one control-plane plus one worker node, a single user-facing
 Envoy socket, and scoped placement that permits at most one numerical ML compute
-worker of each scope per Kubernetes node. The checked-in configs still contain
-three workers until Phase 42 closes; see
+worker of each scope per Kubernetes node. The checked-in configs contain the
+one-worker Phase 42 shape; see
 [Current Status](#current-status) and the canonical
 [cluster-topology document](documents/engineering/cluster_topology.md).
 After `kind create`, the bootstrap reconciler caps materialized node containers'
@@ -560,10 +559,7 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
 
 Corresponding target PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookie-journal-pv-0`, `platform-pulsar-bookie-ledgers-pv-0`, etc.; StatefulSet PVs are bound to the chart-generated replica-zero PVC (for example `data-minio-0`, `pulsar-bookie-journal-pulsar-bookie-0`, `pulsar-bookie-ledgers-pulsar-bookie-0`, and `pulsar-zookeeper-data-pulsar-zookeeper-0`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
 
-The one-instance layout above is the target source of truth. Until Phase 53
-closes, the checked-in implementation still renders four distributed MinIO
-replicas, three ZooKeeper / BookKeeper / Broker / Proxy replicas, and three
-registered Percona Postgres instances plus the pgBackRest repo PV. Moving an
+The one-instance layout above is the implemented source of truth. Moving an
 existing local installation from distributed MinIO to standalone MinIO requires
 `./bootstrap/<substrate>.sh purge` before the first new `up`; `down` deliberately
 preserves `.data`, while `purge` removes the local cluster state and is
@@ -1372,7 +1368,7 @@ exercise this bounded join behavior against the actual threaded binary.
 
 # PostgreSQL
 
-Percona Kubernetes Operator manages the target single-instance local Postgres service. The local live path renders the registered `harbor-pg` `PerconaPGCluster` with pinned Percona component images, one manual data PV, and one pgBackRest repo PV. The checked-in CR and PV set remain at three Postgres instances until Phase 53 closes. Roles:
+Percona Kubernetes Operator manages the single-instance local Postgres service. The local live path renders the registered `harbor-pg` `PerconaPGCluster` with pinned Percona component images, one manual data PV, and one pgBackRest repo PV. Roles:
 
 - Harbor's metadata store.
 - (Optional, deployment-time) Grafana dashboard provisioning history when an operator wants persistence across pod restarts beyond what SQLite gives.
@@ -1828,8 +1824,8 @@ Tasty; the complete projection-ordered ProductRow run writes one authenticated
 version-`3` aggregate; and the parent verifies it before exact Store
 re-admission. Its closure gate passed integration **161 / 161**, including the
 **60 / 60** Phase `261` subtree and all **55 / 55** ordered ProductRow records,
-plus unit **772 / 772**, docs, and code quality. Phase `262` owns the distinct
-browser/Playwright consumption boundary but is Blocked by Phase `69`; lane, aggregation, and
+plus unit **772 / 772**, docs, and code quality. Phase `262` actively owns the
+distinct browser/Playwright consumption boundary; lane, aggregation, and
 status consumers remain in the numerically ordered downstream chain in
 [the development plan](DEVELOPMENT_PLAN/README.md#closure-status).
 

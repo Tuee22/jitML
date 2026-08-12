@@ -69,7 +69,7 @@ import System.Directory
   , renameFile
   )
 import System.Environment (lookupEnv)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 
 import JitML.Cluster.DockerImage
   ( dockerBuildAndKindLoadPlan
@@ -128,11 +128,14 @@ import JitML.Cluster.Resources
   , defaultClusterResources
   , loadClusterResourcesOrDefault
   , renderClusterResourcesDhall
+  , validateEngineTopology
+  , validateLocalPlatformTopology
   , workerCount
   )
 import JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
+  , manualPVsFor
   , pvLocalDataPath
   , pvNodeDataPath
   , renderManualPV
@@ -146,7 +149,12 @@ import JitML.Service.BootConfig
   , defaultBootConfig
   , renderBootConfigDhall
   )
-import JitML.Service.ConfigMap (renderServiceConfigMaps, renderServiceDeployment, renderServiceRBAC)
+import JitML.Service.ConfigMap
+  ( renderServiceConfigMaps
+  , renderServiceDeployment
+  , renderServiceRBAC
+  , renderServiceValues
+  )
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
 import JitML.Sub.Outcome
   ( ProcessFailure
@@ -208,6 +216,12 @@ materializeBootstrapFilesForPort root substrate edgePort = do
   createDirectoryIfMissing True clusterConfRoot
   createDirectoryIfMissing True hostConfRoot
   clusterResources <- loadClusterResourcesOrDefault root
+  case validateLocalPlatformTopology clusterResources of
+    Left reason -> ioError (userError (Text.unpack reason))
+    Right () -> pure ()
+  case validateEngineTopology clusterResources of
+    Left reason -> ioError (userError (Text.unpack reason))
+    Right () -> pure ()
   results <-
     sequence
       [ writeTextFileIfChanged
@@ -223,12 +237,13 @@ materializeBootstrapFilesForPort root substrate edgePort = do
       , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") $
           renderEnvoyProxy edgePort
       ]
-  pvResults <- traverse (materializePv chartTemplatesRoot) manualPVs
+  let configuredManualPVs = manualPVsFor clusterResources
+  pvResults <- traverse (materializePv chartTemplatesRoot) configuredManualPVs
   -- Sprint 3.2 (reopened): when the manualPVs list shrinks (e.g., MinIO
   -- distributed→standalone), any chart/templates/pv-*.yaml files that no longer
   -- correspond to a registered PV would lint-fail with "manual PV must declare
   -- claimRef". Sweep stale PV manifests on materialize.
-  stalePvResults <- sweepStalePvManifests chartTemplatesRoot manualPVs
+  stalePvResults <- sweepStalePvManifests chartTemplatesRoot configuredManualPVs
   routeResults <- traverse (writeRoute chartTemplatesRoot) routeRegistry
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
@@ -247,8 +262,10 @@ materializeBootstrapFilesForPort root substrate edgePort = do
       , writeTextFileIfChanged (chartTemplatesRoot </> "configmap-jitml-service.yaml") $
           renderServiceConfigMaps clusterBoot defaultLiveConfig
       , writeTextFileIfChanged (chartTemplatesRoot </> "deployment-jitml-service.yaml") $
-          renderServiceDeployment substrate
+          renderServiceDeployment clusterResources substrate
       , writeTextFileIfChanged (chartTemplatesRoot </> "rbac-jitml-service.yaml") renderServiceRBAC
+      , writeTextFileIfChanged (chartRoot </> "local/jitml-service/values.yaml") $
+          renderServiceValues clusterResources
       ]
   hostResults <- case substrate of
     AppleSilicon ->
@@ -2477,6 +2494,7 @@ writeTextFileIfChanged path expected = do
   if current == expected
     then pure False
     else do
+      createDirectoryIfMissing True (takeDirectory path)
       let tmpPath = path <> ".tmp"
       Text.IO.writeFile tmpPath expected
       renameFile tmpPath path

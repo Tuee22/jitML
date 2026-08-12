@@ -52,6 +52,7 @@ module JitML.Product.Matrix
   , productProjectionBatchSubstrate
   , productRowCount
   , productRowDeviceEvidenceForSubstrate
+  , deviceEvidenceForClaim
   , productExperimentConfigPath
   , productRowExperimentHash
   , productRowForExperimentHash
@@ -721,12 +722,23 @@ productRowForExperimentHash experimentHash =
 
 productRowDeviceEvidenceForSubstrate :: Substrate -> ProductRow state -> Text
 productRowDeviceEvidenceForSubstrate substrate row =
+  deviceEvidenceForClaim substrate (deviceClaim row)
+
+-- | The device-evidence cell derived from a lane and a 'DeviceClaim' alone.
+--
+-- Completed scenario evidence retains the claim and the lane it executed on, not
+-- the declared 'ProductRow', so issuing a lane fragment from that evidence needs
+-- the claim-level composer. Deriving the cell from a registry row instead would
+-- put a declaration lookup back inside an evidence-only render, which is exactly
+-- the substitution the fragment contract forbids.
+deviceEvidenceForClaim :: Substrate -> DeviceClaim -> Text
+deviceEvidenceForClaim substrate claim =
   Text.intercalate
     ":"
     [ "device"
     , renderSubstrate substrate
     , substrateDeviceRuntime substrate
-    , deviceClaimKernelSummary (deviceClaim row)
+    , deviceClaimKernelSummary claim
     ]
 
 substrateDeviceRuntime :: Substrate -> Text

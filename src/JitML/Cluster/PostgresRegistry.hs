@@ -37,10 +37,10 @@ postgresRegistry =
   [ PerconaPGCluster
       { perconaClusterName = "harbor-pg"
       , perconaNamespace = "platform"
-      , -- Sprint 4.10: HA service Postgres topology.
+      , -- Phase 53: single-instance local service Postgres topology.
         -- The dhall/cluster/ profile's `postgres.replicas` records the same
         -- target count for resource budgeting.
-        perconaReplicas = 3
+        perconaReplicas = 1
       , perconaStorageSize = "10Gi"
       , perconaDatabase = "harbor"
       , perconaSecretName = "harbor-pg-secrets"

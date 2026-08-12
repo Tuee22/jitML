@@ -12,8 +12,8 @@
 ✅ **Done**.
 
 **Current topology note (2026-08-09):** typed CPU/memory budgets, readiness
-loops, and profile decoding remain Done. Phase `42` owns the one-worker default,
-Phase `53` owns the single-instance platform counts, and Phase `69` owns the
+loops, and profile decoding remain Done. Phases `42`, `53`, and `69` closed the
+one-worker default, single-instance platform counts, and profile-driven
 one-Engine Linux default. The counts this phase previously validated are
 historical and do not reopen its retained resource-budget surface.
 

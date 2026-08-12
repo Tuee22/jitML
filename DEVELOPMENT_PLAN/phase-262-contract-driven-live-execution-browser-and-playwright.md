@@ -9,20 +9,19 @@
 
 ## Phase State
 
-⏸️ **Blocked** by Phase `69`. Phase 261 (Sprint 261.1) closed on 2026-08-01.
-Browser and Playwright evidence remains implemented against the authenticated
-completed-row journal through the staged producer/catalogue/reporter
-refinement. Its closure gate must run against the single-worker local topology
-owned by the reopened Phase 42 → Phase 53 → Phase 69 chain, so this phase is no
-longer the active execution owner. After Phase 69 closes, closure still requires
-the final aligned `jitml:local` image, live `linux-cpu` gate, unit,
-negative-control, and model-convergence standing gates, docs check, and
-container code-quality gate below.
+✅ **Done** (2026-08-11). Phase 261 (Sprint 261.1) closed on 2026-08-01. Browser
+and Playwright evidence is implemented against the authenticated completed-row
+journal through the staged producer/catalogue/reporter refinement, and its
+closure gate passed against the single-worker local topology owned by the
+now-closed Phase 42 → Phase 53 → Phase 69 chain. The aligned `jitml:local`
+image, the live `linux-cpu` gate, the unit, negative-control,
+model-convergence, and daemon-lifecycle standing gates, the docs check, and the
+container code-quality gate all passed from one source and image state on
+2026-08-11; see [Current Validation State](#current-validation-state).
 
-## Sprint 262.1: Contract-Driven Live Execution - Browser and Playwright [⏸️ Blocked]
+## Sprint 262.1: Contract-Driven Live Execution - Browser and Playwright [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `69.1` (Phase `69`)
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`,
@@ -340,7 +339,7 @@ own it.
 
 ### Validation
 
-After Phase 69 closes, build the final `jitml:local` image, bring up a matching
+Build the final `jitml:local` image, bring up a matching
 single-worker `linux-cpu` publication, and stage the exact 12 canonical dataset
 objects before the live gate. The topology prerequisite is one control-plane
 node, one numerical worker, one clustered Engine pod, and the single-instance
@@ -641,99 +640,72 @@ pagination, codec, recovery, and live broker tests still belong to the final
 aligned-image validation; this paragraph records current scope, not closure
 evidence or a completed removal.
 
-### Remaining Work
+### Closure Evidence
 
-- Remain blocked until Phase 69 closes the Phase 42 → Phase 53 → Phase 69
-  single-worker topology chain; then execute every closure gate below against
-  that aligned topology without adding an explicit multi-worker or platform-HA
-  acceptance lane.
-- The owned browser/e2e portions of Exit Definition obligations `24`, `31`,
-  `33`, and `34` remain unmet until the fresh full live gate and every standing
-  gate below pass from the same final source/image state.
-- Revalidate the four-hour operational envelope, BrowserCatalogue-owned
-  Store-admission assertion, deterministic scoped namespace and exact
-  experiment-scoped CAS-fence → per-attempt-marker →
-  attempt-independent-commit writer order, every writer crash/retry interval,
-  committed-only admission, protection from every leaked full reservation entry
-  or marker even beside a matching commit, cross-snapshot parent-manifest
-  overlap, complete
-  payload-object graph, intrinsic ProductRow roots, fresh pointer/catalogue/
-  reservation-marker/outbox revalidation, atomic writer registration plus
-  a writer/root-activity epoch bracket around the complete root view, exact-epoch
-  `Open`/`Cancelled` → `Planned`, bounded whole-view restart on epoch churn or
-  epoch-stable discovery and persistence of an absent exact durable intent,
-  converged-plan-only `kept`/no-op accounting with initial/fresh intent creation
-  counted as work, `Planned` → `Cancelling`, durable immutable
-  cancellation-record settlement without intent deletion,
-  `Cancelling` → complete `Cancelled`, `Planned` → `Executing` only with no overlap,
-  generation-incremented re-arm, helpable exact-`Executing` authorization through
-  the sole destructive `executeAuthorizedGcIntents` API with no raw plan/intent
-  execution compatibility export, fence-proven exact `Executing`/`Reaped`
-  recovery for an already-absent target with every other absent-target intent
-  cancelled,
-  permanent `Reaped`, whole-intent cancellation, stale-executor CAS exclusion,
-  descriptor reconstruction/snapshot-id re-derivation,
-  Store-owned Workload namespace rejection, exact continuation-token
-  echo/global ordering, one-snapshot/one-commit GC event keys, global
-  deletion barrier, idempotent retry, exact outcomes, permanent published
-  tombstone, stored-substrate replay, and strict protobuf-hex codec against the
-  final image; build that aligned
-  `jitml:local` image, publish the matching live `linux-cpu` cluster with the
-  exact dataset objects, and pass the prescribed fresh full live `jitml-e2e`
-  gate.
-- Validate the experiment fence through atomic byte-plus-ETag reads and CAS on
-  the real MinIO interpreter. Prove that a process-local lock or pre/post listing
-  cannot substitute for the durable transition, a writer rejects overlapping
-  `Executing`/`Reaped` before marker creation, marker deletion precedes entry
-  unregister, a leaked or marker-conflicted entry remains a root, an
-  already-registered exact reservation is not replaced or removed, writers
-  settle `Cancelling` before marker creation or payload mutation, re-arm waits
-  for complete `Cancelled` and a newly witnessed exact writer/root-activity
-  epoch, each reservation register/unregister advances that epoch, GC-only
-  sibling revisions do not invalidate a witness, delayed cancellation helpers
-  perform only byte-identical PUTs, and authorization never retires the stable
-  cancellation artifact or deletes the semantic intent. Prove the 4,096-attempt
-  convergence bound fails closed if it cannot stabilize, fresh intent persistence
-  restarts every component of the complete view before authorization, late
-  ready publication or published-transient cleanup also counts as work and
-  restarts the whole view, and only the converged plan determines `kept` and
-  exit `3`.
-- Validate the implemented zero-payload-object snapshot rule with focused
-  admission and GC cases: exact derivation from `jitml-snapshot-v1`, the exact
-  logical manifest, and the empty binding list; `committed.cbor` as the sole
-  GC-owned key and `reaped-objects=1`; exact-commit
-  admission/retention/GC eligibility before completion refinement; and a
-  commitless legacy empty manifest remaining protected, ineligible, and
-  decode/inspection-only.
-- In that live gate, stage the matching permanent `Reaped` decision in the
-  canonical `ExperimentGcFence` together with its exact durable ready record
-  before invoking the CLI. Prove `jitml internal gc` publishes the exact
-  protobuf-hex event on the record's stored-substrate Pulsar topic and, before
-  acknowledging broker success, re-reads that exact ready record and matching
-  permanent `Reaped` decision. It then persists the identical published
-  tombstone, removes transient ready/intent state only from that already-`Reaped`
-  terminal flow, and does not republish or recreate the timestamp on the
-  steady-state retry; an absent ready record is accepted only when the exact
-  published tombstone already exists.
-- Validate the shared-subscription co-tenancy invariant against the final
-  image. Prove that an unsatisfiable inference command is answered on its reply
-  topic as a call-id-keyed `InferenceFailure` carrying its exact absent
-  experiment hash and leaves no backlog; require five repeated unrelated
-  catalogue requests to return parsed topology-valid `CheckpointList` frames
-  promptly afterwards. Also prove that a request input outside the admitted
-  runtime's declared domain is classified terminal while a runner-side
-  execution failure stays retryable, and that a batch keeps dispatching its
-  remaining commands after one member fails.
-- Validate the implemented correlated reply cursor against the aligned image
-  and live broker. Confirm the exact admin subscription CREATE and
-  cursor-position body, bounded redirect/time behavior, `409` classification,
-  opaque-token-only correlated publication, cleanup on every scope exit, and
-  the absence of the retired readiness `MVar`, `ConsumerSessionConnected` gate,
-  and bare request/reply topic triple.
-- Pass the documentation checker and full container-only code-quality gate
-  plus the unit, negative-control, and model-convergence standing gates against
-  that same final source/image state, then record the exact closure evidence in
-  the canonical development-plan status surfaces.
+The 2026-08-10 attempt against image
+`jitml:local@sha256:821196e55011c0d61c68e9737b6c71a102c781560083c73449e4c660b0ad1301`
+executed the complete 55-row producer and failed closed at **3 of 196**
+integration cases in 37,225.50s, leaving Playwright correctly `NotRun`. All
+three were narrow defects rather than missing surface, and all three are closed:
+
+- `latestMessageIdJson` rendered the admin subscription CREATE body as
+  `{"ledgerId":-1,"entryId":-1,"partitionIndex":-1}`. That is Pulsar's
+  `MessageId.earliest`, not `MessageId.latest`, so every minted `ReplyCursor`
+  was planted at the head of its reply topic and replayed each message already
+  published there. Probing the live broker on a topic holding three messages
+  returned `msgBacklog=3` for that body and `msgBacklog=0` for
+  `MessageId.latest`. This supersedes the readiness-race diagnosis recorded
+  above as the cause of the lost browse replies: an `earliest` cursor must
+  replay a whole reply topic before reaching the correlated reply, so reply loss
+  grows with topic depth, which is what the 2026-08-09 browse timings showed.
+  The `ReplyCursor` design was correct; its message-id encoding was not.
+- The offline transport case asserted that same `-1,-1,-1` body, so it passed
+  **37 / 37** while the live case failed. It now pins the `MessageId.latest`
+  encoding and additionally rejects the `MessageId.earliest` sentinel, so the
+  offline case can no longer agree with a broken cursor.
+- `handleReplyDelivery` surfaced only `ifailError` from a terminal
+  `InferenceFailure` and discarded the frame's `ifailExperimentHash`, so the
+  diagnosis never named the operand it refused. The surfaced reason now carries
+  that exact hash.
+- `writeTextFileIfChanged` did not create parent directories, so materializing
+  the single-worker `chart/local/jitml-service/values.yaml` failed in a
+  temporary root. It now creates them, matching `JitML.Docs.Generate`.
+
+The 2026-08-11 closure run passed from one source and image state. Image
+`jitml:local@sha256:e36d6ca11f4cc75c231ac8ba2e7f238b1e1ce68623b550b55c94be075ad599e7`
+completed its baked container-only gate with `check-code: ok`. The cluster was
+purged and rebuilt to a fresh nine-component single-worker `linux-cpu`
+publication — one control-plane node, one numerical worker, one clustered Engine
+pod, and single-instance platform services — with cluster-publication file
+SHA-256 `6e57383cbcb8bd89b1ec08a6bd876651075e74707965f2fe31f0a1e3b28f1806`, edge
+port `9090` read from that publication, and the exact 12 SHA-verified canonical
+dataset objects staged before the gate.
+
+`jitml test jitml-e2e --live --linux-cpu` exited `0` in 39,301.38s:
+**3 passed / 0 failed / 0 NotRun**. `jitml-integration` passed **196 / 196** in
+39,185.49s, including the complete fresh 55-row producer and every Phase `261`
+aggregate-dependent and Phase `262` catalogue-dependent case. Playwright passed
+**77 / 77** in 37.8s with zero failed, zero flaky, and zero did-not-run,
+covering the whole `e2e.product.*` matrix across all 55 rows, the
+checkpoint-browse and transcript-replay panels, and the `CheckpointList`
+fail-closed contract fixtures. The Haskell `jitml-e2e` suite passed **30 / 30**.
+The retained transcript is the gitignored
+`.build/gate-logs/phase262-closure-gate.log`, SHA-256
+`a2bbabc1cb6558ccf7dde394a15a751b1cee17533abbe96af8df8c287e509be9`.
+
+Every standing gate passed against that same image and publication:
+`jitml-unit` **828 / 828**, `jitml-negative-controls` **3 / 3**,
+`jitml-model-convergence` **111 / 111**, `jitml-daemon-lifecycle` **54 / 54**,
+`jitml docs check` ok, and `jitml check-code` ok. The Rule-M enforcement scans
+report 0 dual-accelerator validation gates and 0 accelerator invocations across
+the linux-cpu-only validation blocks.
+
+One reproducibility note on the Validation sequence above: `docker compose build
+jitml` produces only the `jitml:local` tag, while the rollout's expected
+reconcile stamp inspects both `jitml:local` and `jitml-demo:local`. On a host
+that has just rebuilt the image, `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1` therefore
+fails until `jitml-demo:local` exists — the same retag the rollout's own
+`mirrorBuildSteps` performs.
 
 ## Documentation Requirements
 

@@ -12,15 +12,11 @@
 
 ## Current Status
 
-The target topology in this document is not yet the checked-in implementation.
-As of 2026-08-09, the worktree still renders one control-plane plus three Kind
-workers, four distributed MinIO replicas, three ZooKeeper / BookKeeper / Broker
-/ Proxy replicas, three Postgres instances, and three Linux Engine replicas.
-Phase 42 is reopened to reduce the Kind shape and make manual-PV rendering
-profile-driven, Phase 53 is Blocked by Phase 42 to reduce the platform services
-and materialized PV set, and Phase 69 is Blocked by Phase 53
-to reduce the Linux Engine default. Phase 262 and the later live-evidence chain
-are blocked behind Phase 69. See
+As of 2026-08-10, the checked-in Kind fixtures render one control-plane plus
+one worker, manual-PV cardinality is derived from the typed resource profile,
+and Phase 53's clean 135-step rollout proved the single-instance platform.
+Phases 42, 53, and 69 are Done. The Linux Engine count is profile-driven, and
+Phase 262 is the Active live-evidence owner. See
 [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status)
 for the authoritative status ledger.
 

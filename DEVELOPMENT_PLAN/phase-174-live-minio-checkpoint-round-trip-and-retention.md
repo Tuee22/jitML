@@ -29,7 +29,7 @@ the live MinIO cluster: blobs and manifests land under
 `jitml internal gc` reconciler runs against the live store, deletes
 unreferenced checkpoint objects, emits `GcReapedEvent` Pulsar events, and exits
 `3` on steady state. Phase `262` owns the remaining hardening of the retained
-reconciler but is currently Blocked by Phase `69`; its target contract is
+reconciler and is currently Active; its target contract is
 recorded below and in
 [checkpoint_format.md](../documents/engineering/checkpoint_format.md#retention-and-gc).
 

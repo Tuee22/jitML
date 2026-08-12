@@ -9,15 +9,14 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 263 (Sprint 263.1).
+📋 **Planned**. Phase 263 (Sprint 263.1) closed on 2026-08-12.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [⏸️ Blocked]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [📋 Planned]
 
-**Status**: Blocked
+**Status**: Planned
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
-**Blocked by**: Sprint `263.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,

@@ -83,7 +83,7 @@ strict persisted-artifact reload. At that historical audit boundary, the
 frozen V1 encoding was 134 bytes with SHA-256
 `30db4da59975960c71c1e694472eca7d6b577acc2127e6381ef15e4b4949bb4b`.
 
-The current strict forward chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phase `42` is the sole Active phase; Phase `53` is Blocked by `42`, Phase `69` is Blocked by `53`, and Phase `262` is Blocked by `69`. Intervening phases retain `Done` on their non-topology surfaces. Phase `235`
+The current strict forward chain is `268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phases `42`, `53`, `69`, `262`, and `263` are Done; no phase is Active, and Phase `268` is the sole Planned phase. Intervening phases retain `Done` on their non-topology surfaces. Phase `235`
 (One Self-Describing Checkpoint Envelope) closed `Done` on 2026-07-27 (jitml-unit
 771/771, check-code ok, docs check ok), and Phase `236` (Checkpoint Admission
 Single-Path — one classify-on-payload-variant admission path, dormant
@@ -91,7 +91,7 @@ Single-Path — one classify-on-payload-variant admission path, dormant
 Phases `237` (supervised serving on the IR) and `238` (supervised training on
 the IR) closed `Done` on 2026-07-28; Phase `239` (checkpoint construction from the
 trained graph) closed `Done` on 2026-07-28; Phases `240`–`246` (the coupled
-literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `252` passed RL canonicals **47 / 47**, unit **757 / 757**, model convergence **111 / 111**, integration-target build/link, docs check, and check-code. Phase `261` closed `Done` on 2026-08-01 against immutable image `jitml:local@sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`: integration passed **161 / 161**, including the Phase `261` subtree **60 / 60**; unit passed **772 / 772**; the parent authenticated the ordered version-`3` **55-row** aggregate and exactly Store-re-admitted every row; all **9** live components were Ready and the exact **12** dataset objects were present; and docs check plus check-code passed. The Phase `19`–`34` table records **57 Done / 0 Active / 0 Planned / 12 Blocked** because Phase `262` is Blocked by Phase `69`. The apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
+literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `252` passed RL canonicals **47 / 47**, unit **757 / 757**, model convergence **111 / 111**, integration-target build/link, docs check, and check-code. Phase `261` closed `Done` on 2026-08-01 against immutable image `jitml:local@sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`: integration passed **161 / 161**, including the Phase `261` subtree **60 / 60**; unit passed **772 / 772**; the parent authenticated the ordered version-`3` **55-row** aggregate and exactly Store-re-admitted every row; all **9** live components were Ready and the exact **12** dataset objects were present; and docs check plus check-code passed. Phase `262` (contract-driven live execution: browser and Playwright) closed `Done` on 2026-08-11 against immutable image `jitml:local@sha256:e36d6ca11f4cc75c231ac8ba2e7f238b1e1ce68623b550b55c94be075ad599e7`: the live `jitml-e2e` gate exited `0` with integration **196 / 196**, Playwright **77 / 77**, and the Haskell `jitml-e2e` suite **30 / 30**, alongside unit **828 / 828**, negative controls **3 / 3**, model convergence **111 / 111**, daemon lifecycle **54 / 54**, docs check, and check-code. Phase `263` (contract-driven live execution: fragment issuance) closed `Done` on 2026-08-12: `jitml test all --live --linux-cpu` passed **11 / 11 invocations, 0 failed, 0 NotRun** in 43,940.53s, including `jitml-integration` **197 / 197** with the standing case that re-mints the committed lane fragment from the persisted scenario journal and fails closed on drift. The Phase `19`–`34` table records **59 Done / 0 Active / 1 Planned / 9 Blocked**, with Phase `268` Planned. The apple-silicon wall at Phase `272` remains the hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
 Sprints `29.5` and `30.4` retain the real CUDA and Apple lane refreshes.
 
 The binding architecture is
@@ -284,8 +284,7 @@ and `gc/` prefixes before `HasMinIO`. Each GC event names exactly one snapshot a
 one `committed.cbor` plus its payload-object keys, so a zero-payload-object reap
 reports `reaped-objects=1`. ETags are used only for write CAS. Sprint
 `10.6`, `10.12`, and `19.4` are Done on `linux-cpu`; Phases `252` and `261` are
-Done, Phase `42` is Active, and Phase `262` is Blocked behind the target
-topology chain. The
+Done; Phases `42`, `53`, `69`, and `262` are Done. The
 live HTTP MinIO capability path remains implemented by
 `JitML.Service.MinIOSubprocess` and exercises write-once conflicts, pointer CAS,
 read, list, and delete. The frontend surface provides a
@@ -719,8 +718,7 @@ and the deletion ledger has no pending rows.
   journal: startup consumes and clears the private key-file
   capability before Tasty, all projected ProductRows must yield exact completed
   evidence, and the parent authenticates the aggregate before Store re-admission.
-  Browser/Playwright consumption is the Phase `262` successor, now Blocked by
-  Phase `69` behind the reopened topology chain.
+  Browser/Playwright consumption is the Active Phase `262` successor.
   Within-substrate apple-silicon reproducibility is validated host-native by
   Sprint `16.6`; no cross-substrate parity path remains. The seven doctrine
   test categories (Pure Logic, Parser, Property, Snapshot (pure-renderer
@@ -1138,7 +1136,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 39 | [Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener](phase-39-envoy-gateway-and-single-127-0-0-1-edge-port-listener.md) | ✅ Done | 3.3 |
 | 40 | [Typed Route Registry and Generated `HTTPRoute` Manifests](phase-40-typed-route-registry-and-generated-httproute-manifests.md) | ✅ Done | 3.4 |
 | 41 | [Cluster Lifecycle Reconciler and Phased Deploy](phase-41-cluster-lifecycle-reconciler-and-phased-deploy.md) | ✅ Done | 3.5 |
-| 42 | [Single-Worker Local Kind Node and Manual-PV Topology](phase-42-ha-kind-node-and-manual-pv-topology.md) | 🔄 Active | 3.6 |
+| 42 | [Single-Worker Local Kind Node and Manual-PV Topology](phase-42-ha-kind-node-and-manual-pv-topology.md) | ✅ Done | 3.6 |
 | 43 | [Live Cluster Lifecycle and Publication Truth](phase-43-live-cluster-lifecycle-and-publication-truth.md) | ✅ Done | 3.7 |
 | 44 | [Harbor Subchart and Bootstrap-Phase Install](phase-44-harbor-subchart-and-bootstrap-phase-install.md) | ✅ Done | 4.1 |
 | 45 | [Percona PG Operator and Patroni-Managed Service Postgres](phase-45-percona-pg-operator-and-patroni-managed-service-postgres.md) | ✅ Done | 4.2 |
@@ -1149,7 +1147,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 50 | [NVIDIA `RuntimeClass` for Linux CUDA](phase-50-nvidia-runtimeclass-for-linux-cuda.md) | ✅ Done | 4.7 |
 | 51 | [Per-Pod Resource Limits and Right-Sized Replicas from the `dhall/cluster/` Profile](phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md) | ✅ Done | 4.8 |
 | 52 | [Project the Durable-State `StoreRegistry` over MinIO Buckets](phase-52-project-the-durable-state-storeregistry-over-minio-buckets.md) | ✅ Done | 4.9 |
-| 53 | [Single-Instance Local Platform Service Topology](phase-53-ha-platform-service-topology.md) | ⏸️ Blocked | 4.10 |
+| 53 | [Single-Instance Local Platform Service Topology](phase-53-ha-platform-service-topology.md) | 🔄 Active | 4.10 |
 | 54 | [`jitml service` Entry Point and Lifecycle Summary](phase-54-jitml-service-entry-point-and-lifecycle-summary.md) | ✅ Done | 5.1 |
 | 55 | [`BootConfig` / `LiveConfig` Dhall and Hot-Reload Schema Surface](phase-55-bootconfig-liveconfig-dhall-and-hot-reload-schema-surface.md) | ✅ Done | 5.2 |
 | 56 | [`/healthz` / `/readyz` / `/metrics` and Structured Logging](phase-56-healthz-readyz-metrics-and-structured-logging.md) | ✅ Done | 5.3 |
@@ -1408,12 +1406,22 @@ event as proof of receivability; the same phase's note records that Phase `262`
 raised the compiler heap cap the `160` narrative had preserved. Neither phase
 reopens.
 
-The 2026-08-09 local-resource correction reopens Phase `42`, blocks Phase `53`
-on `42`, blocks Phase `69` on `53`, and blocks Phase `262` on `69`. The complete
-current chain is `42 → 53 → 69 → 262 → 263 → 268 → 272 → 275 → 277 → 279 →
+The 2026-08-11 fragment-issuance landing adds one further ownership transfer to
+that overlay under rule `M(a)`, and no dependency edges. Phase `263` retains the
+journal-derived `linux-cpu` lane-fragment issuance it validated, and transfers
+the harness half of the readiness contract — publishing a correlated request
+through an established reply cursor instead of the diagnostic
+`ConsumerSessionConnected` event — forward to Phase `281`, which owns run
+lifecycle coverage. Phase `262` already retired that shape on the production
+inference client; the residue is the `JitML.Test.LiveWorkflow` publish gate and
+two live integration observers, whose replacement is a transport redesign rather
+than a deletion. Neither phase reopens.
+
+The 2026-08-09 local-resource correction reopened and reclosed Phases `42`,
+`53`, and `69`. The complete current chain is `268 → 272 → 275 → 277 → 279 →
 280 → 281 → 284 → 287 → 288`. The Phase `19`–`34` product-sprint checkpoint is
-therefore **57 Done / 0 Active / 0 Planned / 12 Blocked**; the plan still has
-one Active owner overall in Phase `42`. The apple-silicon wall at Phase `272`
+therefore **59 Done / 0 Active / 1 Planned / 9 Blocked** after Phase `263`
+closed `Done` on 2026-08-12; Phase `268` is the next executable owner. The apple-silicon wall at Phase `272`
 remains the hard stop on non-Apple hosts. Prior Sprint `10.12` validation and
 pre-V2 publisher results remain historical evidence only.
 

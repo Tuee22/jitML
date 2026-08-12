@@ -267,11 +267,20 @@ handleReplyDelivery callId resultSignal match delivery =
       -- The reply topic is shared, so a failure frame only answers THIS request
       -- when its call id matches; another call's terminal failure must not be
       -- misattributed here.
+      -- The frame keys the diagnosis to the experiment it was attributed to, so
+      -- surface that hash alongside the error. A bare store-level reason ("P1
+      -- pointer read failed: ...") does not name the operand it refused, which
+      -- leaves the requester unable to tell which of its commands was answered.
       terminalFailure =
         case Inference.parseInferenceFailure payload of
           Just failure
             | Inference.ifailCallId failure == callId ->
-                Just (Inference.ifailError failure)
+                Just
+                  ( Inference.ifailError failure
+                      <> " (experiment-hash: "
+                      <> Inference.ifailExperimentHash failure
+                      <> ")"
+                  )
           _ -> Nothing
    in case terminalFailure of
         -- A terminal failure is a real answer. Complete the caller's wait with

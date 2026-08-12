@@ -33,7 +33,7 @@ defaultKindestNodeImage :: Text
 defaultKindestNodeImage = "kindest/node:v1.34.0"
 
 defaultKindWorkerCount :: Int
-defaultKindWorkerCount = 3
+defaultKindWorkerCount = 1
 
 kindConfigFor :: Substrate -> KindConfig
 kindConfigFor substrate =

@@ -17,6 +17,8 @@ module JitML.Cluster.Resources
   , defaultClusterResources
   , loadClusterResourcesOrDefault
   , renderClusterResourcesDhall
+  , validateEngineTopology
+  , validateLocalPlatformTopology
   , nodeMemoryBytes
   , clusterNodeCapSubprocess
   , clusterNodeCapSubprocesses
@@ -44,7 +46,7 @@ data ComponentBudget = ComponentBudget
   }
   deriving stock (Eq, Show)
 
--- | The whole-cluster resource profile. @workerCount@ sets the HA Kind worker
+-- | The whole-cluster resource profile. @workerCount@ sets the Kind worker
 -- node count. @nodeMemoryMiB@ / @nodeCpus@ bound each materialized Kind node
 -- container; the per-component budgets size the platform pods that schedule
 -- across those nodes.
@@ -96,24 +98,70 @@ clusterResourcesDecoder =
       <*> Dhall.field "tensorboard" componentBudgetDecoder
 
 -- | Fallback profile used when the source Dhall is absent and for the pure
--- plan/dry-run path. It represents the HA target: one control-plane plus three
--- workers, HA storage/broker/Postgres counts, and one Engine worker per node.
+-- plan/dry-run path. It represents the supported local target: one
+-- control-plane plus one worker and one instance of each platform service.
 defaultClusterResources :: ClusterResources
 defaultClusterResources =
   ClusterResources
     { nodeMemoryMiB = 12288
     , nodeCpus = "4"
-    , workerCount = 3
-    , harbor = ComponentBudget 2 "100m" "500m" "256Mi" "512Mi"
-    , minio = ComponentBudget 4 "100m" "500m" "512Mi" "1Gi"
-    , pulsar = ComponentBudget 3 "100m" "500m" "512Mi" "1Gi"
-    , postgres = ComponentBudget 3 "200m" "500m" "512Mi" "1Gi"
+    , workerCount = 1
+    , harbor = ComponentBudget 1 "100m" "500m" "256Mi" "512Mi"
+    , minio = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
+    , pulsar = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
+    , postgres = ComponentBudget 1 "200m" "500m" "512Mi" "1Gi"
     , prometheus = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , grafana = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
-    , jitmlService = ComponentBudget 3 "500m" "2" "1Gi" "2Gi"
+    , jitmlService = ComponentBudget 1 "500m" "2" "1Gi" "2Gi"
     , jitmlDemo = ComponentBudget 1 "250m" "2" "512Mi" "3Gi"
     , tensorboard = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
     }
+
+-- | Phase 53 drift guard for the repository-supported local rollout. The
+-- runtime materializer consumes this profile, so rejecting a count mismatch
+-- here prevents a Dhall/runtime overlay from silently restoring HA counts.
+-- Engine cardinality remains owned by Phase 69 and is intentionally excluded.
+validateLocalPlatformTopology :: ClusterResources -> Either Text ()
+validateLocalPlatformTopology resources =
+  case filter ((/= 1) . budgetReplicas . snd) platformBudgets of
+    [] -> Right ()
+    mismatches ->
+      Left
+        ( "local platform topology requires exactly one replica for: "
+            <> Text.intercalate ", " (fmap fst mismatches)
+        )
+ where
+  platformBudgets =
+    [ ("harbor", harbor resources)
+    , ("minio", minio resources)
+    , ("pulsar", pulsar resources)
+    , ("postgres", postgres resources)
+    , ("prometheus", prometheus resources)
+    , ("grafana", grafana resources)
+    , ("jitmlDemo", jitmlDemo resources)
+    , ("tensorboard", tensorboard resources)
+    ]
+
+-- | Phase 69 cardinality guard. A Linux Engine deployment must be positive,
+-- and required hostname anti-affinity means it cannot exceed the number of
+-- compute workers available in the same typed profile.
+validateEngineTopology :: ClusterResources -> Either Text ()
+validateEngineTopology resources
+  | workerCount resources < 1 =
+      Left "engine topology requires at least one compute worker"
+  | engineReplicas < 1 =
+      Left "engine topology requires at least one Linux Engine replica"
+  | engineReplicas > workerCount resources =
+      Left
+        ( "engine topology requires replicas <= workerCount ("
+            <> Text.pack (show engineReplicas)
+            <> " > "
+            <> Text.pack (show (workerCount resources))
+            <> ")"
+        )
+  | otherwise = Right ()
+ where
+  engineReplicas = budgetReplicas (jitmlService resources)
 
 -- | Load the source profile from @<repoRoot>/dhall/cluster/resources.dhall@,
 -- falling back to 'defaultClusterResources' when the file is absent.

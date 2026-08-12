@@ -3,6 +3,7 @@
 module JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
+  , manualPVsFor
   , pvLocalDataPath
   , pvNodeDataPath
   , renderManualPV
@@ -13,6 +14,15 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Cluster.Resources
+  ( ClusterResources
+  , budgetReplicas
+  , defaultClusterResources
+  , minio
+  , postgres
+  , pulsar
+  )
+
 data ManualPV = ManualPV
   { pvNamespace :: Text
   , pvStatefulSet :: Text
@@ -22,19 +32,28 @@ data ManualPV = ManualPV
   }
   deriving stock (Eq, Show)
 
--- | Sprint 3.6 — HA manual-PV layout. Replica counts match the target
--- `dhall/cluster/resources.dhall` profile and chart values: distributed MinIO,
--- Pulsar ZooKeeper/BookKeeper persistence, three Percona Postgres instances,
--- and one pgBackRest repository PV.
+-- | Manual-PV layout for the checked-in default resource profile.
 manualPVs :: [ManualPV]
-manualPVs =
+manualPVs = manualPVsFor defaultStorageResources
+
+-- | Derive stateful storage cardinality from the same typed replica profile
+-- that drives cluster materialization. BookKeeper and ZooKeeper share the
+-- Pulsar replica count; pgBackRest retains one repository per PG cluster.
+manualPVsFor :: ClusterResources -> [ManualPV]
+manualPVsFor resources =
   concat
-    [ statefulSetReplicas "platform" "minio" 4 "20Gi"
-    , pulsarBookieReplicas "platform" 3
-    , pulsarZookeeperReplicas "platform" 3 "10Gi"
-    , perconaReplicas "platform" "harbor-pg" 3 "10Gi"
+    [ minioReplicas "platform" (budgetReplicas (minio resources))
+    , pulsarBookieReplicas "platform" (budgetReplicas (pulsar resources))
+    , pulsarZookeeperReplicas "platform" (budgetReplicas (pulsar resources)) "10Gi"
+    , perconaReplicas "platform" "harbor-pg" (budgetReplicas (postgres resources)) "10Gi"
     , perconaReplicas "platform" "harbor-pg-repo1" 1 "10Gi"
     ]
+
+-- Avoid a module cycle through the loader while keeping the compatibility
+-- registry available to retained callers. Phase 53 will make its reduced
+-- profile the default and regenerate the manifest set.
+defaultStorageResources :: ClusterResources
+defaultStorageResources = defaultClusterResources
 
 renderStorageClass :: Text
 renderStorageClass =
@@ -106,14 +125,16 @@ claimRefLines pv =
       , "    name: " <> claimName
       ]
 
-statefulSetReplicas :: Text -> Text -> Int -> Text -> [ManualPV]
-statefulSetReplicas namespace statefulSet count size =
+-- Bitnami MinIO renders a Deployment with PVC @minio@ in standalone mode;
+-- distributed mode renders StatefulSet PVCs @data-minio-N@.
+minioReplicas :: Text -> Int -> [ManualPV]
+minioReplicas namespace count =
   [ ManualPV
       namespace
-      statefulSet
+      "minio"
       replica
-      size
-      (Just ("data-" <> statefulSet <> "-" <> Text.pack (show replica)))
+      "20Gi"
+      (Just (if count == 1 then "minio" else "data-minio-" <> Text.pack (show replica)))
   | replica <- [0 .. count - 1]
   ]
 
