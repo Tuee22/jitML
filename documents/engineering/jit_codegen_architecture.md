@@ -21,6 +21,15 @@
 has been removed. The `LayerGraphOneDnn` device path evaluates one example at a
 time.
 
+**`LayerGraphOneDnn` is the only layer-graph device path.** It pins the
+`linux-cpu` engine and cache, and the supervised training path routes any real
+substrate device to it, so `linux-cuda` and `apple-silicon` have no layer-graph
+device execution: they serve the typed graph through the pure host executor and
+train through these same oneDNN kernels. The per-substrate lowering is owned by
+Phase `79` (the substrate-generic seam),
+[Phase 264](../../DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md), and
+[Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md).
+
 **Target (Phase `234`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
 The oneDNN layer kernels gain a **batched** forward/backward path (Phase `234`).
 
@@ -234,8 +243,10 @@ scaffolding modules.
   `JitML.Engines.Loader`, `dlopen`s the produced `.so`, resolves
   `jitml_kernel`, `jitml_kernel_family_name`, and
   `jitml_kernel_output_count`, and executes local oneDNN reorder, reduction,
-  matmul, convolution, normalization, attention, and embedding primitives
-  through the Haskell FFI while checking that the loaded artifact reports the
+  matmul, convolution, and normalization primitives through the Haskell FFI. The
+  attention and embedding families are **fixtures rather than primitives** on this
+  renderer — they render an identity matmul and a reorder respectively, pending the
+  QKV tensor and table-index ABIs, as their generated source states while checking that the loaded artifact reports the
   expected family and output length. Its local toolchain fingerprint includes
   `artifact-abi=<os>-<arch>` and `reduction-block=256` so host-native Darwin
   builds, Linux container builds, and fixed reduction-block changes do not
@@ -264,8 +275,11 @@ scaffolding modules.
   The FFI carries each operator's true geometry and packed-parameter layout, and
   `deviceLayerGradient` dispatches on the node's `LayerOp` to the matching kernel.
   Each kernel is validated against the pure `backwardLayerGraph` oracle within
-  float32 tolerance in the backends lane; the pure gradient is never a runtime
-  fallback (the hardware-native determinism contract forbids it).
+  float32 tolerance in the backends lane; on this lane the pure gradient is never a
+  runtime fallback. The determinism contract forbids such a fallback on the
+  execution path, which is why the absence of a layer-graph device path on
+  `linux-cuda` and `apple-silicon` is a tracked defect rather than a design choice
+  (see [Current Status](#current-status)).
 - `src/JitML/Service/Runtime.hs` exposes
   `daemonWorkloadDispatcherWithInference`; the `jitml service` entrypoint
   selects the Linux CPU generated-kernel checkpoint runner for
@@ -443,10 +457,11 @@ scaffolding modules.
   atomically writing that `.metal.json` file. There is no per-kernel Swift
   package, SwiftPM invocation, Tart VM build, copied dylib, stable symlink, or
   Apple per-kernel `dlopen` path.
-- Phase `30` makes the product-family Metal renderer real rather than
-  copy-shaped: Dense2D, Conv2D, Conv3D, BatchNorm, LayerNorm,
-  MultiHeadAttention, Embedding, Reduction, and Identity render explicit MSL
-  bodies. Conv2D and Conv3D weighted kernels use windowed multi-tap
+- Phase `30` makes most of the product-family Metal renderer real rather than
+  copy-shaped: Dense2D, Conv2D, Conv3D, BatchNorm, LayerNorm, Embedding,
+  Reduction, and Identity render explicit MSL bodies. **MultiHeadAttention is not
+  yet real on the unweighted path**: it renders an elementwise square, which also
+  disagrees with the oneDNN renderer for the same family. Phase `269` owns it. Conv2D and Conv3D weighted kernels use windowed multi-tap
   neighbourhoods and the backend tests reject the old identity-copy and
   1x1-degenerate source markers before executing Metal output checks against
   host references.
@@ -472,9 +487,12 @@ scaffolding modules.
   `swiftc`, `xcrun metal`, SwiftPM, full Xcode, Tart, or login-keychain state.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
-- Phase `30` product-lane validation on 2026-07-05 records per-row
-  `device:apple-silicon:Metal:fixed-bridge:makeLibrary:dispatch:<kernel-summary>`
-  evidence for all **55 / 55** ProductRows in the committed Apple attestation.
+- The per-row `device:<substrate>:<runtime>:<kernel-summary>` cell is currently
+  composed from the declared substrate and the declared device claim, so it is not
+  a record of what executed. Phase `229` owns making it mintable only from an
+  execution witness. Dated per-lane counts are owned by the sprint whose gate
+  produced them and live in
+  [../../DEVELOPMENT_PLAN/](../../DEVELOPMENT_PLAN/README.md).
 
 The bridge is host-only process infrastructure. A Linux container cannot execute
 this path by mounting `./.build/host/apple-silicon/`, because the dylib targets

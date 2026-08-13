@@ -32,9 +32,12 @@ browser event cannot independently mint completion or inference eligibility.
 
 **Implemented today.** Supervised training, checkpointing, and serving use one
 finite-difference-validated typed `LayerGraph` IR. The literal Phase `242`–`244`
-graphs execute the Phase `241` device kernels, including spatial convolution,
-affine normalization, GeGLU, multi-head attention with `W_O`, and residual
-composition. The trained graph and its graph-ordered parameter vector enter the
+graphs execute the Phase `241` device kernels on `linux-cpu` — spatial
+convolution, affine normalization, GeGLU, multi-head attention with `W_O`, and
+residual composition. Those are the only layer-graph device kernels that exist:
+on `linux-cuda` and `apple-silicon` the same graphs execute these oneDNN kernels
+for training and the pure host executor for serving. Phases `264` and `269` own
+the per-lane kernels. The trained graph and its graph-ordered parameter vector enter the
 single checkpoint envelope and the Store-reloaded inference path. The former
 `[LayerSpec]` / `[LayerState]` executable and the served-operation ABI once
 embedded in the supervised payload are historical only. `LayerSpec` and
@@ -385,9 +388,11 @@ multi-head attention with `W_O`, GeGLU, patch embedding, pooling, and Dense
 operators directly from the admitted graph. The deleted `RuntimeOperations*`
 callback ABI, token-runtime executor, and per-substrate structural-operation
 tolerance bands are historical; no selected supervised engine can fall back to
-them. Training remains substrate-device-backed through oneDNN, CUDA, or the
-fixed Metal bridge, while supervised serving is a pure function of the admitted
-checkpoint and input.
+them. Supervised serving is a pure function of the admitted checkpoint and input on
+every substrate. Training is substrate-device-backed through the `MlpDevice` seam
+for the MLP-backed RL, tuning, and AlphaZero rows; supervised layer-graph
+training currently executes oneDNN kernels on every substrate rather than CUDA or
+the fixed Metal bridge.
 
 `src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips

@@ -9,11 +9,15 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: this sprint's deliverable requires the unweighted
+family bodies to render real per-operation MSL with no identity-class elementwise
+copy, and requires misleading comments to be corrected. The shipped unweighted
+multi-head-attention body renders an elementwise square, and comments still describe
+an explicit identity GEMM and a unit-centre filter.
 
-## Sprint 269.1: Real Metal Kernels [✅ Done]
+## Sprint 269.1: Real Metal Kernels [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalLocal.hs`, `src/JitML/Engines/MetalBridge.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/apple_silicon_metal_headless_builds.md`
 
@@ -63,7 +67,7 @@ ok`; the focused rendered-source guard passed **1 / 1**; the multi-tap Metal
 Conv2D/Conv3D runtime test passed **1 / 1**; and the full
 `apple-silicon` backend lane passed **20 / 20**.
 
-### Closure Evidence
+### Historical Validation
 
 - **Closed Exit-Definition obligation**: the generic Metal family bodies in
   `src/JitML/Codegen/Metal.hs` must be real per-operation MSL — windowed
@@ -79,6 +83,20 @@ Conv2D/Conv3D runtime test passed **1 / 1**; and the full
   and the Metal backend re-run must pass on the real lane via
   `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-options='-p apple-silicon'`
   — `apple-silicon` plus `linux-cpu` only, never `linux-cuda` in the same gate.
+
+### Remaining Work
+
+- Render the unweighted attention family against the shared semantics contract from
+  Sprint `84.1`; close the weighted-family wildcard.
+- Correct the remaining identity-class comments.
+- Implement the Metal arm of the total lowering so the typed layer graph executes on
+  the host GPU rather than through the pure executor.
+
+### Historical Phase State
+
+> ✅ **Done**.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

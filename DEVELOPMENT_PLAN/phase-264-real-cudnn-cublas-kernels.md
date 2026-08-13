@@ -9,11 +9,16 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: the weighted family renderer ends in a wildcard, and
+the unweighted multi-head-attention family renders an elementwise square that
+disagrees with the `linux-cpu` renderer for the same family. The generated CUDA
+family sources remain real; what is missing is a CUDA path for the typed layer
+graph, so the accelerator lane cannot execute the operators the product rows
+use.
 
-## Sprint 264.1: Real cuDNN/cuBLAS Kernels [✅ Done]
+## Sprint 264.1: Real cuDNN/cuBLAS Kernels [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -64,7 +69,7 @@ including real `cublasSgemm` / `cudnnConvolutionForward` execution,
 bit-deterministic device GEMM, nvcc + FFI compile/run, and the persistent MLP
 weight-buffer source guard.
 
-### Closure Evidence
+### Historical Validation
 
 - **Closed Exit-Definition obligation (real device cuBLAS/cuDNN kernels).** The
   Dense/MHA/Conv2D/Conv3D/BatchNorm/LayerNorm generated CUDA bodies must call
@@ -80,6 +85,20 @@ weight-buffer source guard.
   differential that rejects an identity-copy result as cuBLAS/cuDNN evidence, so
   a row cannot pass on rendered-source text alone. Validation stays single
   accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
+
+### Remaining Work
+
+- Close the weighted-family wildcard.
+- Render the unweighted attention family against the shared semantics contract from
+  Sprint `84.1`.
+- Implement the CUDA arm of the total lowering so every `LayerOp` executes on the
+  GPU rather than falling back to the pure executor.
+
+### Historical Phase State
+
+> ✅ **Done**.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

@@ -162,6 +162,12 @@ Production ML paths must satisfy all rules below:
    records which `MlpDevice` or equivalent substrate engine executed the
    update-critical operations. Host-only rollout helpers may exist, but they do
    not prove the substrate training claim.
+
+   **Current status.** The recorded device cell is composed from the declared
+   substrate and the declared device claim, not from an execution witness, so it
+   cannot presently discharge this requirement. Phase `229` owns minting it from
+   an execution witness; Phases `265` and `270` own re-minting the per-lane rows.
+   This paragraph states the contract; the cell does not yet satisfy it.
 4. **Dataset bytes are verified at the product boundary.** Every product fetch
    from MinIO or a local mirror verifies the pinned SHA before decoding. Upload
    time verification alone is insufficient.

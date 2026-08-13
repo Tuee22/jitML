@@ -9,11 +9,16 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: `renderRuntimeSource` is the only cross-substrate
+renderer seam, and the three renderers currently disagree on the semantics of the
+unweighted multi-head-attention family — two return an elementwise square, one
+returns the input unchanged. All three weighted paths end in wildcards, so a tenth
+family would silently render a passthrough on every substrate with no warning.
+Roughly 45% of the family renderers is scaffolding or repeated wrapper text.
 
-## Sprint 84.1: Haskell-Owned Runtime JIT Source Generation [✅ Done]
+## Sprint 84.1: Haskell-Owned Runtime JIT Source Generation [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/RuntimeSource.hs`,
 `src/JitML/Codegen/{Cuda,OneDnn,Metal,SourceFile}.hs`
@@ -92,6 +97,24 @@ runtime adapter path.
   the generated-source path validates.
 - [x] Move the default runtime-source placeholder ledger row to `Completed`
   once cache-key fixtures consume rendered `RuntimeSourcePayload`s.
+
+### Remaining Work
+
+- Define one semantics contract per kernel family that every substrate renderer must
+  satisfy, and check the rendered result against the pure reference for both the
+  weighted and unweighted ABI.
+- Close the three weighted-family wildcards.
+- Emit each signature once and supply the substrate-specific body as data, the shape
+  two of the three renderers already use; record the superseded repeated wrapper text
+  in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+- This sprint implements the doctrine section
+  `Generated Artifacts → The generated-section registry`.
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

@@ -9,11 +9,18 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened under standards rule `L`. The cross-type audit compares
+`Catalog.Layer` against `dhall/numerics/Layer.dhall` — two hand-maintained
+`List Text` name lists, neither of which reaches execution — while the executed
+`LayerOp` has no Dhall mirror and no audit. The project doctrine in
+[../README.md](../README.md) states that every layer is a first-class Dhall
+constructor and networks are composed as arbitrary DAGs over those primitives; the
+implemented experiment record carries four scalars and names a hardcoded Haskell
+architecture. That is a doctrine gap, and rule `L` forbids closing it silently.
 
-## Sprint 77.1: Dhall Schemas and Cross-Type Audit [✅ Done]
+## Sprint 77.1: Dhall Schemas and Cross-Type Audit [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Numerics/Catalog.hs`, `experiments/`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
@@ -39,6 +46,23 @@ the current catalog surface.
 2. The catalog is renderable through `renderNumericalCatalog`.
 3. `cabal test jitml-unit` validates the Dhall schema mirror.
 4. `jitml lint haskell` includes the Dhall numerical drift audit.
+
+### Remaining Work
+
+- Express the layer vocabulary as parameterised Dhall constructors reflected off the
+  real decoder with `Dhall.expected`, the pattern already proven for `BootConfig`
+  and `dhall/run/Schema.dhall`, so the schema and the Haskell type cannot drift.
+- Extend the cross-type audit to the executed `LayerOp`, not only `Catalog.Layer`.
+- Keep `substrate` out of the ML DSL: it is currently absent from every ML-describing
+  Dhall file and belongs on the CLI/plan seam.
+- This sprint implements the doctrine section
+  `Generated Artifacts → The generated-section registry`.
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

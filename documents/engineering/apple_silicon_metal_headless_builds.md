@@ -10,6 +10,23 @@
 > artifacts, and the rationale for avoiding Tart, keychain state, Xcode UI
 > flows, and per-cache-miss Swift builds.
 
+## Current Status
+
+**Implemented today.** The fixed host bridge, runtime MSL compilation through
+`MTLDevice.makeLibrary(source:options:)`, the content-addressed `<hash>.metal.json`
+source artifact, and host-resident execution for the `MlpDevice`-backed workload
+kinds (RL trainers, tuning trials, AlphaZero policy/value evaluation).
+
+**Not yet implemented.** Supervised training over the typed `LayerGraph` executes
+oneDNN kernels on every substrate, and supervised serving executes the pure host
+executor, so neither reaches the bridge on this lane. The Metal arm of the device
+lowering is owned by
+[Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md), and per-row
+Metal device evidence minted from an execution witness by
+[Phase 270](../../DEVELOPMENT_PLAN/phase-270-metal-row-device-evidence.md).
+Sections below describe the intended Apple boundary; where a statement is a target
+rather than current behaviour it says so.
+
 ## Summary
 
 The Apple Silicon JIT path compiles generated Metal Shading Language (MSL) at
@@ -137,16 +154,24 @@ The Haskell side owns:
 
 ### Host Residency
 
-Apple Metal execution is host-resident for every Metal-backed workload kind:
-inference, supervised training, RL trainers, tuning trials, and AlphaZero
-policy/value evaluation. The Kubernetes cluster remains responsible for Pulsar,
+Apple Metal execution is host-resident for the workload kinds that reach the
+bridge: RL trainers, tuning trials, and AlphaZero policy/value evaluation, which
+route through the `MlpDevice` seam.
+
+**Supervised training and supervised serving do not reach the bridge today.**
+Supervised training over the typed `LayerGraph` executes oneDNN kernels on every
+substrate, and supervised serving executes the pure host executor, so neither is
+Metal-backed on this lane. Phases `269` and `270` own closing that; see
+[Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md). The target
+below describes the intended Apple boundary, not current execution. The Kubernetes cluster remains responsible for Pulsar,
 MinIO, Harbor, public routing, and orchestration. Inference and
 daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
 typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
 including AlphaZero policy/value validation, executes host-native through the
 same fixed bridge. Phase `16` Sprint `16.10` validates the full Apple lane with
-no Metal-backed Linux worker Jobs; Phase `30` revalidates the product lane with
-row-complete fixed-bridge Metal device evidence.
+no Metal-backed Linux worker Jobs. Dated per-lane validation evidence is owned by
+the sprint whose gate produced it and lives in
+[../../DEVELOPMENT_PLAN/](../../DEVELOPMENT_PLAN/README.md), not here.
 Mounting the host build tree into a Linux pod does not make the bridge usable:
 the bridge dylib links macOS Foundation/Metal frameworks and requires a host
 `MTLDevice`.
@@ -193,9 +218,11 @@ package source to MSL source.
 ### Supervised Typed-Graph Boundary
 
 Supervised training and serving use the typed `LayerGraph`; there is no separate
-Metal structural-operation program or `RuntimeOperations*` ABI. Training updates
-the graph through the selected device-backed path, while the fixed bridge remains
-the Apple boundary for generated MSL kernels selected by that path.
+Metal structural-operation program or `RuntimeOperations*` ABI. The fixed bridge
+is the intended Apple boundary for generated MSL kernels selected by the
+supervised path. **That selection is not yet implemented**: the supervised graph
+path selects oneDNN kernels regardless of substrate, so no MSL kernel is chosen
+for it. Phase `269` owns the Metal arm of the device lowering.
 
 The supervised V2 checkpoint name remains a valid wire-format name. Its payload
 records the exact input/output transforms and trained graph metadata, and its one

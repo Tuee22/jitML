@@ -9,11 +9,17 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: the graph is not yet the sole representation of every
+supervised architecture. A literal builder that fails its smart-constructor shape
+checks falls back to the decorative dense graph, an unrecognised model string
+resolves to the dense family, and the claimed-feature table falls back to dense in
+the same case — so an architecture can silently degrade and still pass its own
+parity check. An unhandled operator additionally receives zero trainable
+parameters.
 
-## Sprint 233.1: Typed Layer IR + Reverse-Mode Autodiff [✅ Done]
+## Sprint 233.1: Typed Layer IR + Reverse-Mode Autodiff [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Numerics/LayerGraph.hs`, `src/JitML/Numerics/Autodiff.hs`, `src/JitML/Numerics/Mlp.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/SL/Architecture.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `src/JitML/Test/NegativeControls.hs`, `test/unit/Main.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/determinism_contract.md`
 
@@ -158,6 +164,21 @@ reran the unit and canonical-SL gates recorded in [Phase State](#phase-state).
 The cross-row mutation proof is now a separate downstream contract obligation
 owned by Phase `32`; it does not turn the retired dense alias into current
 Phase `23` state.
+
+### Remaining Work
+
+- Close the four fail-open sites so a failed literal builder, an unknown model, or an
+  unhandled operator fails closed rather than substituting a dense stand-in.
+- Adopt the single operator vocabulary Sprint `72.1` declares, so the node's kind tag
+  cannot disagree with its executed operator.
+- Consume the Dhall-described graph Sprint `77.1` lands, so architectures are data
+  rather than hardcoded builders.
+
+### Historical Phase State
+
+> ✅ **Done**.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

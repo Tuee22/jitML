@@ -9,11 +9,15 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: this sprint's own deliverable states that no decoder
+constructs a proof-bearing value directly, but `deviceEvidenceForClaim` is a total
+pure function from a declared substrate and a declared `DeviceClaim` to the device
+evidence string. It performs no execution, consults no journal, and cannot fail, so
+a row attests an engine that need never have run.
 
-## Sprint 229.1: Phase-Specific Product Evidence Payloads [✅ Done]
+## Sprint 229.1: Phase-Specific Product Evidence Payloads [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Product/Matrix.hs`,
 `src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`,
 `src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`,
@@ -60,7 +64,7 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Closure Evidence
+### Historical Validation
 
 Validated on `linux-cpu` on 2026-07-22 (the refactor is pure type-level with no
 runtime-path change, so it was validated from source without a cluster reload):
@@ -84,6 +88,22 @@ runtime-path change, so it was validated from source without a cluster reload):
   cluster image). `jitml docs check` and `jitml check-code` both exited `0`
   (the `-Werror` build is clean with the retained `ProductRow` phantom), and the
   phase-status parity test agrees with the typed registry.
+
+### Remaining Work
+
+- Make device evidence mintable only from an execution witness returned by the
+  interpreter: a hidden-constructor value carrying the engine, kernel hash, and
+  artifact path recorded after a successful call.
+- Remove every path that constructs device evidence from `(Substrate, DeviceClaim)`
+  alone.
+- Read the executed identity back from the artifact rather than asserting it; one
+  substrate currently fabricates the executed family name host-side.
+
+### Historical Phase State
+
+> ✅ **Done**.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

@@ -222,7 +222,7 @@ trainCommand =
         Nothing
         "substrate"
         False
-        "Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda)."
+        "Select the execution substrate (apple-silicon, linux-cpu, or linux-cuda)."
     , value "seed" Nothing "word64" False "Override the experiment Dhall's seed."
     , dryRunOption
     , planFileOption

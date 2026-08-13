@@ -9,11 +9,15 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened under standards rule `C`, for the same reason as
+Sprint `265.1`: the recorded Metal device evidence is composed from the declared
+substrate and claim, and supervised rows on this lane execute oneDNN kernels rather
+than the fixed bridge. Prior evidence stays historical for the surface it
+exercised.
 
-## Sprint 270.1: Metal Row Device Evidence [✅ Done]
+## Sprint 270.1: Metal Row Device Evidence [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Product/Matrix.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/apple_silicon_metal_headless_builds.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -52,7 +56,7 @@ windowed kernels compile and dispatch through the fixed bridge on the host GPU.
 The row-complete attestation is preserved as the Phase `30` lane fragment, but
 final product aggregation remains blocked by Phase `29`.
 
-### Closure Evidence
+### Historical Validation
 
 - **Closed Exit-Definition obligation**: every `apple-silicon`-supported product row
   must record real Metal device evidence for the row's real per-operation
@@ -70,6 +74,18 @@ final product aggregation remains blocked by Phase `29`.
   and `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`,
   before the Metal row evidence is re-minted on the `apple-silicon` lane
   (`apple-silicon` plus `linux-cpu` only, never `linux-cuda`).
+
+### Remaining Work
+
+- Re-mint per-row Metal device evidence from an execution witness once Sprints
+  `229.1` and `269.1` land.
+- Re-run the lane and record the measured result.
+
+### Historical Phase State
+
+> ✅ **Done**.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

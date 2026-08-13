@@ -9,11 +9,16 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: the weighted family renderer ends in a wildcard that
+silently discards the weights buffer and calls the unweighted kernel, and the
+unweighted multi-head-attention family renders an identity matmul while the CUDA and
+Metal renderers render an elementwise square for the same family. The three lanes
+therefore disagree on one family's semantics, and nothing detects it because the
+unweighted ABI is only smoke-asserted.
 
-## Sprint 80.1: Linux CPU Engine and oneDNN Codegen Driver [✅ Done]
+## Sprint 80.1: Linux CPU Engine and oneDNN Codegen Driver [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Engines/HasEngine.hs`, `src/JitML/Engines/Loader.hs`,
 `src/JitML/Engines/Local.hs`, `src/JitML/Engines/OneDnnRuntime.hs`,
@@ -137,10 +142,18 @@ behind the local production `HasEngine` execution surface.
 
 ### Remaining Work
 
-- No sprint-owned Phase `7.3` Remaining Work remains. Linux CPU tensor-parameter
-  payload growth for real model weights, embedding tables, and QKV tensors can
-  extend the same oneDNN primitive-launch ABI from later checkpoint/inference
-  work without reopening the Linux CPU engine/codegen closure.
+- Close the weighted-family wildcard so a new family fails closed rather than
+  degrading to a passthrough.
+- Fix the `linux-cpu` arm of the unweighted attention divergence against the shared
+  semantics contract Sprint `84.1` defines.
+- Extend the backends oracle to the unweighted ABI, whose absence is why the
+  divergence survived.
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

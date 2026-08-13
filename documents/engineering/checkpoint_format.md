@@ -1025,10 +1025,13 @@ as part of semantic `PlanId` identity: `3e-3` for `fashion-mnist-resnet`,
 `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the
 other eight rows.
 
-Because serving runs the same pure `LayerGraph.runLayerGraph` reference executor
-the training path uses, over the same frozen graph-ordered parameters, there is
-no separate structural-ABI reimplementation and thus no trained-versus-Store
-cross-implementation parity band to maintain.
+Serving runs the pure `LayerGraph.runLayerGraph` reference executor over the
+frozen graph-ordered parameters, so there is no structural-ABI reimplementation
+between the training-returned and Store-loaded serving paths. The
+trained-versus-served relationship — including the current device `float32`
+training path — is owned by
+[determinism_contract.md](determinism_contract.md#the-contract) and is not
+restated here.
 
 The pointer-selected loader reads `P1`, verifies the exact addressed manifest,
 reads `P2`, requires the exact commit and descriptor, and only then fetches and

@@ -13,20 +13,16 @@
 
 ## Phase State
 
-✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
-Every parameterised correct operator now trains on the oneDNN device: the
-generated kernel renders a real `dnnl` primitive per operator kind — spatial
-`ConvOp` (forward / backward-data / backward-weights), `NormOp`, `GeGLUOp`,
-multi-head `AttentionOp` with `W_O`, `PatchOp`, `ResidualOp`, and the
-BasicBlock/Bottleneck `BlockOp` composed from dense+norm device sub-kernels — and
-`deviceLayerGradient` dispatches on the layer's `LayerOp`. Each device kernel is
-validated against the pure `backwardLayerGraph` oracle within float32 tolerance
-in the backends lane (jitml-backends 35/35, incl. the BlockOp and strided-conv
-oracle cases).
+🔄 **Active** (2026-08-12). Reopened: the unified device-training entry ends in a
+`default: break`, so an unrecognised opcode returns untouched output and gradient
+buffers instead of failing. More consequentially, this sprint's objective forbids a
+pure fallback on the execution path, yet only `linux-cpu` has a layer-graph device
+path at all: the other two substrates serve the typed graph through the pure
+executor and train through these same oneDNN kernels.
 
-## Sprint 241.1: oneDNN Device Training Kernels for Correct Operators [✅ Done]
+## Sprint 241.1: oneDNN Device Training Kernels for Correct Operators [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -82,7 +78,7 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
-### Closure Evidence
+### Historical Validation
 
 Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
 jitml-backends 35/35 — including the BlockOp (BasicBlock/Bottleneck)
@@ -92,6 +88,29 @@ float32 tolerance and that cross-entropy decreases. jitml-unit passed with 0
 failures, `jitml check-code` ok, and `jitml docs check` ok; the full product run
 `jitml internal train-and-publish-product-rows --linux-cpu` exited 0 with 55/55
 admitted, training every literal graph on these device kernels.
+
+### Remaining Work
+
+- Fail closed on an unrecognised opcode rather than returning an untouched buffer.
+- Provide a total lowering from every `LayerOp` to a closed primitive set so the
+  selected substrate executes the operator, and the pure executor is the oracle
+  rather than the runtime path. The substrate-generic seam is Sprint `79.1`; the
+  per-lane kernels are Sprints `264.1` and `269.1`.
+
+### Historical Phase State
+
+> ✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
+> Every parameterised correct operator now trains on the oneDNN device: the
+> generated kernel renders a real `dnnl` primitive per operator kind — spatial
+> `ConvOp` (forward / backward-data / backward-weights), `NormOp`, `GeGLUOp`,
+> multi-head `AttentionOp` with `W_O`, `PatchOp`, `ResidualOp`, and the
+> BasicBlock/Bottleneck `BlockOp` composed from dense+norm device sub-kernels — and
+> `deviceLayerGradient` dispatches on the layer's `LayerOp`. Each device kernel is
+> validated against the pure `backwardLayerGraph` oracle within float32 tolerance
+> in the backends lane (jitml-backends 35/35, incl. the BlockOp and strided-conv
+> oracle cases).
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

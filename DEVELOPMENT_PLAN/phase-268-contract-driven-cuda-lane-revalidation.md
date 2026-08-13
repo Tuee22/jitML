@@ -9,11 +9,17 @@
 
 ## Phase State
 
-📋 **Planned**. Phase 263 (Sprint 263.1) closed on 2026-08-12.
+⏸️ **Blocked**. Blocked by Phase 263 (Sprint 263.1), which reopened on 2026-08-12
+because the committed lane fragment's device-evidence column is derived from the
+declared substrate and claim rather than from what executed. This lane's
+revalidation cannot be meaningful while supervised rows on it execute oneDNN
+kernels, so the CUDA lowering in Sprint `264.1` and the witness in Sprint `229.1`
+land first.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [📋 Planned]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [⏸️ Blocked]
 
-**Status**: Planned
+**Status**: Blocked
+**Blocked by**: Sprint `263.1`
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
@@ -57,10 +63,22 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `263.1` closes the contract-driven fragment-issuance path.
-- Execute the real CUDA lifecycle and regenerate the lane journal/attestation.
-- Reconfirm the existing strict per-row GPU-performance criterion before
-  returning this phase to Done.
+- Blocked until Sprints `229.1`, `264.1`, and `265.1` land the CUDA lowering and the
+  execution witness; a lane revalidation cannot attest kernels the lane does not run.
+- [Exit Definition](README.md#exit-definition) item `29` — every one of the 55 rows
+  strictly faster on `linux-cuda` than on `linux-cpu`, with no per-row exemptions —
+  is **not met and is presently unreachable**: the non-dense rows have no CUDA
+  layer-graph kernel and fall back to the pure host tape on this lane, so the GPU
+  lane executes host Haskell for that cohort. Sprint `264.1` makes the item
+  reachable; it is recorded here as unmet rather than weakened.
+- The 2026-08-12 attempt failed closed at row `PPO/mountain-car`
+  (`median_final_reward=-159.0` against `threshold=-155.0`). No `linux-cuda`
+  `median_final_reward` was ever committed for that row, and the bar moved to `-155`
+  on 2026-07-11, the day after the last CUDA lane run, so this is an unbaselined
+  substrate difference rather than a regression. Measure and record the value, then
+  use the existing per-substrate on-policy tuning knob if it reproduces; do not
+  modify the shared `cohortThresholds` table, which is documented as
+  substrate-invariant and is fenced by the frozen external-bar set.
 
 ## Documentation Requirements
 

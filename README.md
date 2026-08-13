@@ -13,7 +13,7 @@
 
 Unlike traditional ML frameworks that embed dynamic Python runtimes, opaque kernels, and nondeterministic execution paths, `jitML` treats *the entire training process* as a declarative, reproducible program.
 
-Models, optimizers, datasets, reinforcement learning environments, checkpoints, hardware backends, loss functions, training schedules, hyperparameter sweeps, and cluster topology are all described in `.dhall`.
+Cluster topology, durable state, daemon configuration, run plans, and hyperparameter sweeps are described in `.dhall` today. Models, optimizers, datasets, environments, checkpoints, loss functions, and training schedules are named in `.dhall` and resolved against typed Haskell catalogs; expressing them as composable Dhall constructors is the target owned by [Phase 77](DEVELOPMENT_PLAN/phase-77-dhall-schemas-and-cross-type-audit.md). Hardware substrate is deliberately *not* an experiment field — it is a CLI/plan argument, so one experiment runs unchanged on any substrate.
 
 `jitML` then compiles hardware-specific kernels on demand, builds optimized native binaries, and executes them through Haskell FFI bindings.
 
@@ -113,7 +113,10 @@ must have all of the following:
 1. an implementation matching the documented dataset/environment/model/algorithm;
 2. a checked-in or generated Dhall experiment config that runs that row;
 3. product training that verifies dataset bytes at read time before decode,
-   executes the selected substrate device for update-critical work, and records
+   executes the selected substrate device for update-critical work (see
+   [Phase 229](DEVELOPMENT_PLAN/phase-229-phase-specific-product-evidence-payloads.md)
+   — the recorded device cell is presently declaration-derived, not an execution
+   witness), and records
    that learned state changed from initialization;
 4. a completed checkpoint with `CompletedTraining` and convergence metrics;
 5. inference that accepts only an inference-eligible trained artifact;
@@ -1665,11 +1668,11 @@ Concrete invocations:
 ./bootstrap/apple-silicon.sh up              # stage-0 gates + build ./.build/jitml + delegates to jitml bootstrap --apple-silicon
 ./.build/jitml cluster status                # prints edge port and routes
 
-./.build/jitml train  experiments/mnist-mlp.dhall --substrate apple-silicon --seed 42
-./.build/jitml tune   experiments/mnist-mlp.dhall --sampler sobol --trials 64 --parallelism 8
-./.build/jitml tune   experiments/mnist-mlp.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
-./.build/jitml rl     train experiments/cartpole-ppo.dhall --substrate apple-silicon --seed 42
-./.build/jitml inference run experiments/mnist-mlp.dhall
+./.build/jitml train  experiments/mnist.dhall --substrate apple-silicon --seed 42
+./.build/jitml tune   experiments/mnist-tune.dhall --sampler sobol --trials 64 --parallelism 8
+./.build/jitml tune   experiments/mnist-tune.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
+./.build/jitml rl     train experiments/cartpole.dhall --substrate apple-silicon --seed 42
+./.build/jitml inference run experiments/mnist.dhall
 ./.build/jitml test   all
 ```
 
@@ -1935,13 +1938,25 @@ deletion status live only in
 
 ## Layer catalog
 
-`jitML` supports arbitrarily-shaped non-recurrent feedforward networks. Every
-layer is a first-class Dhall constructor; networks are composed as arbitrary
-DAGs over these primitives. The Phase `23` implementation adds the checked-in
-`JitML.Numerics.LayerGraph` IR plus `JitML.Numerics.Autodiff` pure
-reverse-mode tape for Dense, convolution, pooling, normalization, residual,
-attention, GeGLU, and patch-embedding nodes, with oneDNN training kernels and
-graph checkpoint/inference serialization complete on `linux-cpu`.
+`jitML` supports arbitrarily-shaped non-recurrent feedforward networks.
+
+**Implemented today.** The checked-in `JitML.Numerics.LayerGraph` IR plus
+`JitML.Numerics.Autodiff` pure reverse-mode tape cover Dense, convolution,
+pooling, normalization, residual, attention, GeGLU, and patch-embedding nodes,
+with oneDNN training kernels and graph checkpoint/inference serialization
+complete on `linux-cpu`.
+
+**Target.** Every layer is a first-class Dhall constructor and networks are
+composed as arbitrary DAGs over these primitives. The current Dhall surface is a
+constructor-*name* mirror (`dhall/numerics/Layer.dhall` is a list of strings), and
+an experiment record names a hardcoded Haskell architecture rather than composing
+one; the catalog below is therefore the target vocabulary, not the decodable
+surface. The composable schema is owned by
+[Phase 77](DEVELOPMENT_PLAN/phase-77-dhall-schemas-and-cross-type-audit.md) and its
+consumption by
+[Phase 233](DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md).
+The worked example under [Experiment configuration](#experiment-configuration)
+illustrates that target.
 
 - **Dense / Linear.** With or without bias; optional spectral norm.
 - **Convolution.** `Conv1D`, `Conv2D`, `Conv3D`. Variants: standard, transposed, depthwise / separable, dilated / atrous, grouped.
@@ -1996,8 +2011,15 @@ Loss functions are represented declaratively in Dhall: scalar losses, multi-head
 
 A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set — the **validation** partition drives model selection / early-stop, and `test` is measured once on the selected model, never seen during training or selection. The target invariant is that every inference input is an opaque Store `AdmittedCompletedCheckpoint` whose exact persisted supervised-graph envelope contains real trained values (no hardcoded/synthetic weights) and a real cross-entropy/MSE value, not `1 − accuracy`. The fixed `TrainingBudget` and `CompletedTraining` contract supplies the structural completion payload; exact Store admission supplies the persistence proof (see [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md)). The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
 
+The file below illustrates the **target** composable schema owned by
+[Phase 77](DEVELOPMENT_PLAN/phase-77-dhall-schemas-and-cross-type-audit.md); it and
+the `./types/*.dhall` modules it imports are not present in the tree today, and
+substrate is deliberately absent from it because substrate is a CLI/plan argument.
+The decodable experiment files today are `experiments/mnist.dhall`,
+`experiments/mnist-tune.dhall`, and `experiments/cartpole.dhall`.
+
 ```dhall
--- experiments/mnist-mlp.dhall
+-- experiments/mnist-mlp.dhall (target schema; not present in the tree)
 
 let Activation       = ./types/Activation.dhall
 let Layer            = ./types/Layer.dhall
@@ -2053,7 +2075,6 @@ in
     , bucket   = "jitml-checkpoints"
     , retain   = Checkpoint.Retention.LastN 5
     }
-, substrate = Substrate.AppleSilicon
 , seed = 42
 , tuning = None Tuning                        -- single-run; see Hyperparameter tuning for the Some shape
 }
@@ -2341,7 +2362,7 @@ the checkpoint boundary. The ResNet family (`fashion-mnist-resnet`,
 `Conv2D` behind a two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`,
 residual BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as compact
 proxies under the bounded product budget, with the 2-D convolution forward
-implemented as a tight unboxed kernel. All 55 product rows admit.
+implemented as a tight unboxed kernel. All 55 product rows admitted their checkpoints on `linux-cpu` at that date; admission is a checkpoint property, and per-model measured convergence and per-row device evidence remain owned by Phases `229`, `284`, and the per-lane phases.
 
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
@@ -2833,7 +2854,7 @@ learn ::
 
 ## Worked Dhall: PPO on CartPole
 
-A concrete PPO algorithm config in Dhall, decoded into the `AlgoSpec 'OnPolicy` + `OnPolicyLoop` pair. This is the canonical CartPole experiment file, `experiments/cartpole-ppo.dhall`.
+A concrete PPO algorithm config in Dhall, decoded into the `AlgoSpec 'OnPolicy` + `OnPolicyLoop` pair. This illustrates the **target** algorithm-config schema; the decodable CartPole experiment today is `experiments/cartpole.dhall`, a four-field record naming the environment and algorithm.
 
 ```dhall
 let Schedule   = ./types/Schedule.dhall
@@ -3322,7 +3343,7 @@ The CLI surface is the `Inference` constructor of the top-level `Command` (see
 [CLI command topology, typed](#cli-command-topology-typed)):
 
 ```bash
-jitml inference run experiments/mnist-mlp.dhall
+jitml inference run experiments/mnist.dhall
 jitml inference run --experiment-hash <experiment-hash>
 ```
 
@@ -3516,7 +3537,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): catalog properties, real-artifact SHA/parser coverage, selected live convergence, all-row staged-byte smoke, fixed-budget convergence, checkpoint reload, and inference eligibility — no committed numerical fixtures |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: catalog properties, run-to-run trajectory determinism, fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
+| `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is symmetric across all three backends for the family and MLP surfaces (see [unit_testing_policy.md](documents/engineering/unit_testing_policy.md) for the per-surface scope): generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-negative-controls` | Integration (project-specific) | `TestNegativeControls` | current lightweight gate-soundness controls apply pure gates to hand-built known-fakes and require rejection; production-path contract mutations are enumerated as pending rather than silently treated as covered, with Phases `279`–`281` owning that live evidence |
 | `jitml-model-convergence` | Integration (project-specific) | `TestModelConvergence` | current lightweight metadata/case-registry guard: one case per ProductRow, externally anchored bar metadata, named integration/e2e evidence, and a non-wall-clock performance-floor declaration; it does not train, reload, serve, or infer, and Phase `284` owns completed-run convergence/performance evidence |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | probe the actual production binary with `+RTS -N1`, spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
@@ -3805,17 +3826,17 @@ End-to-end walkthrough:
 # Apple Silicon
 ./bootstrap/apple-silicon.sh up                                 # stage-0 gates, builds ./.build/jitml, delegates bootstrap
 ./.build/jitml cluster status                                   # prints edge port
-./.build/jitml train experiments/mnist-mlp.dhall --substrate apple-silicon --seed 42
+./.build/jitml train experiments/mnist.dhall --substrate apple-silicon --seed 42
 
 # Linux CPU
 ./bootstrap/linux-cpu.sh up                                     # docker gate, then compose-run bootstrap
 docker compose run --rm jitml jitml train \
-  experiments/mnist-mlp.dhall --substrate linux-cpu --seed 42
+  experiments/mnist.dhall --substrate linux-cpu --seed 42
 
 # Linux CUDA
 ./bootstrap/linux-cuda.sh up                                    # docker + NVIDIA runtime/device gates, then compose-run bootstrap
 docker compose run --rm jitml jitml train \
-  experiments/cifar10-resnet.dhall --substrate linux-cuda --seed 42
+  experiments/mnist.dhall --substrate linux-cuda --seed 42
 ```
 
 After bootstrap, the full surface lives at one URL — `127.0.0.1:<edge-port>/` — with the demo at `/`, TensorBoard at `/tensorboard`, Grafana at `/grafana`, Prometheus at `/prometheus`, Harbor at `/harbor` plus Docker registry paths `/v2` and `/service`, MinIO at `/minio/console`, and Pulsar at `/pulsar/admin`.

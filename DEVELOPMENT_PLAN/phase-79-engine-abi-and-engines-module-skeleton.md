@@ -9,11 +9,18 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: the "engine metadata shared by every substrate" this
+sprint defined carries three `Text` fields, while roughly eighty substrate-branching
+sites live outside it and three near-identical driver modules (~1,162 lines, of
+which ~150-190 are genuinely substrate-specific) restate the same skeleton. The
+existing `MlpBackendSpec` precedent collapsed five operations across three backends
+into one body except for five `isMetalSpec` escapes, because the record lacked a
+launcher field — variation leaks back into branches exactly where the record is
+incomplete.
 
-## Sprint 79.1: Engine ABI and `Engines` Module Skeleton [✅ Done]
+## Sprint 79.1: Engine ABI and `Engines` Module Skeleton [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`
 
@@ -44,6 +51,27 @@ shapes, deterministic launch envelope, and renderable build plan.
 1. `cabal test jitml-cross-backend` verifies every substrate has
    deterministic flags.
 2. `jitml-unit` validates local engine envelope rendering.
+
+### Remaining Work
+
+- Widen the shared engine metadata into one `SubstrateProfile` record with a single
+  total `profileFor :: Substrate -> SubstrateProfile`, so adding a substrate means
+  filling one record and every consumer is total by construction. This depends on
+  Sprint `7.1` enabling `-Werror=incomplete-patterns`; without it a missing case is
+  a warning, not a build failure, and the totality claim is unbacked.
+- Give the backend record a `launch` field so the `dlopen`/`dlsym` and Metal-bridge
+  difference is a value rather than a branch inside otherwise-generic code.
+- Collapse the three per-substrate drivers into one parameterized driver; record the
+  superseded copies in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+- This sprint implements the doctrine section
+  `Architecture — Subprocesses as Typed Values`.
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

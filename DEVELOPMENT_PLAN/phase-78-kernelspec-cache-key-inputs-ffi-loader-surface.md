@@ -9,11 +9,18 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: the cache-key derivation this sprint locked is not
+total over `ToolchainFingerprint`. `buildToolchainFingerprint` gives every
+non-`linux-cpu` substrate one shared literal that names no compiler, no `sm_` target
+and no bridge ABI, so a CUDA or Metal toolchain change does not invalidate a
+`jitml build` artifact. The per-engine fingerprints are hand-written prose
+duplicated across seven sites; one already describes a C ABI its artifact does not
+export, and the Metal bridge-ABI token is interpolated in one site and hardcoded in
+another, so bumping it invalidates one lane and not the other.
 
-## Sprint 78.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface [✅ Done]
+## Sprint 78.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Cache/Key.hs`, `src/JitML/Engines/Engine.hs`,
 `src/JitML/Engines/Loader.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
@@ -55,6 +62,22 @@ surface; the local Linux CPU identity runner is owned by Sprint `7.3`.
 2. `jitml-unit` verifies changing the rendered runtime-source payload changes
    the cache key.
 3. `jitml-unit` verifies the typed cache-hit/cache-miss decision surface.
+
+### Remaining Work
+
+- Derive each fingerprint from the emitter/primitive set it covers instead of
+  restating C signatures in prose, so a renderer change invalidates its artifact
+  automatically.
+- Give every substrate a real fingerprint; delete the shared non-`linux-cpu` literal.
+- Assert every fingerprint in the unit lane — only one of the eight has a test today.
+- Record the duplicated fingerprint prose in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

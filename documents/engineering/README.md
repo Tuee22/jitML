@@ -1,6 +1,6 @@
 # Engineering Docs
 
-**Status**: Authoritative source
+**Status**: Supporting reference
 **Supersedes**: N/A
 **Referenced by**: ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, run_contract.md
 **Generated sections**: none
@@ -32,7 +32,7 @@ docs (which own their content outright with no doctrine overlap).
 | [daemon_architecture.md](daemon_architecture.md) | `jitml service` lifecycle, BootConfig / LiveConfig, hot reload, healthz/readyz/metrics, structured logging, recoverable vs fatal errors, at-least-once Pulsar consumer |
 | [run_contract.md](run_contract.md) | Raw-to-validated run planning, unit-indexed budgets, workload protocols, pure evidence reducers, placement/terminal lifecycle, receipt-bound delivery settlement, resource-safe live interpretation, evidence journals, and truthful reporting |
 | [durable_state_dsl.md](durable_state_dsl.md) | The closed self-validating `jitml.dhall` durable-state config: the store registry (MinIO buckets + Pulsar topics), typed retention, the closed `StoreId` selector + `contractOK` assert, `jitml project init`, and the runtime projections (`bucketNames`, topology anti-drift, registry-sourced GC retention) |
-| [jit_codegen_architecture.md](jit_codegen_architecture.md) | Content-addressed cache, per-substrate compilers (Metal/oneDNN/CUDA), local kernel handle/envelope surface, Linux CPU libdnnl-linked FFI and `HasEngine` execution, guarded CUDA FFI runner boundary, Apple Silicon fixed-bridge Metal JIT, hardware auto-tuning, and live Metal/CUDA validation boundary; on Apple Silicon jitML writes `.metal.json` source metadata, calls the fixed host bridge, and the bridge JIT-compiles MSL via `MTLDevice.makeLibrary(source:)` before executing on the host GPU |
+| [jit_codegen_architecture.md](jit_codegen_architecture.md) | Content-addressed cache, per-substrate compilers (Metal/oneDNN/CUDA) for the family and MLP surfaces, local kernel handle/envelope surface, Linux CPU libdnnl-linked FFI and `HasEngine` execution, guarded CUDA FFI runner boundary, Apple Silicon fixed-bridge Metal JIT, hardware auto-tuning, and live Metal/CUDA validation boundary; on Apple Silicon jitML writes `.metal.json` source metadata, calls the fixed host bridge, and the bridge JIT-compiles MSL via `MTLDevice.makeLibrary(source:)` before executing on the host GPU |
 | [apple_silicon_metal_headless_builds.md](apple_silicon_metal_headless_builds.md) | True-headless Apple Silicon Metal JIT architecture: fixed host bridge, runtime MSL compilation via `MTLDevice.makeLibrary(source:options:)`, host-resident Metal workload placement, source/metadata cache artifacts, optional Swift JIT lane, and rationale for rejecting Tart, full Xcode, offline `.metallib`, and per-cache-miss Swift builds |
 | [numerical_core.md](numerical_core.md) | Current local numerical catalog, Dhall mirrors, and cross-type audit |
 | [product_completion_contract.md](product_completion_contract.md) | The no-caveat model completion contract: typed product matrix, real-ML proof, type-state inference eligibility, all-model demo rendering, per-row integration/e2e evidence, and single-accelerator phase validation boundary |
@@ -44,5 +44,5 @@ docs (which own their content outright with no doctrine overlap).
 
 Each doc carries the standard `**Status**` / `**Supersedes**` / `**Referenced
 by**` / `**Generated sections**:` / `> **Purpose**:` block per
-[../documentation_standards.md → Required Header
-Metadata](../documentation_standards.md#3-required-header-metadata).
+[../documentation_standards.md → Metadata
+Block](../documentation_standards.md#1-metadata-block).

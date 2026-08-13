@@ -276,7 +276,7 @@ Usage:
 Options:
   <experiment-dhall>        Experiment Dhall file.
   --resume <checkpoint-id>  Checkpoint identifier to resume from.
-  --substrate <substrate>   Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda).
+  --substrate <substrate>   Select the execution substrate (apple-silicon, linux-cpu, or linux-cuda).
   --seed <word64>           Override the experiment Dhall's seed.
   --dry-run                 Print the plan without applying it.
   --plan-file <path>        Write the plan to a file.

@@ -25,11 +25,18 @@ jitML guarantees **same-substrate bit-equality** when the same numerical path is
 repeated on `<substrate>` against the same toolchain pin (every
 codegen-toolchain fingerprint from `cabal.project` plus the
 substrate-specific kernel-compiler version). Supervised reconstruction (Phase
-`239`) serves the reloaded typed `LayerGraph` through the same pure reference
-executor the training path uses, over the same frozen graph-ordered parameters,
-so the training-returned and Store-loaded serving paths are one implementation
-rather than two — there is no separate structural-ABI path-comparison band to
-maintain. Cross-substrate bit-equality is **not** guaranteed
+`239`) serves the reloaded typed `LayerGraph` through the pure reference
+executor, over the same frozen graph-ordered parameters, so the training-returned
+and Store-loaded *serving* paths are one implementation rather than two.
+
+**Training and serving are not the same implementation today.** Supervised
+training on a real substrate device executes oneDNN `float32` kernels, while
+serving executes the pure `Double` reference executor, so a `float32`-versus-
+`Double` skew exists between the trained result and the served result. Phases
+`233`, `241`, and `79` own closing this: see
+[Phase 241](../../DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md)
+for the device-lowering obligation. This paragraph states the current contract,
+not a target. Cross-substrate bit-equality is **not** guaranteed
 — RNG draws and float reduction order differ across substrates — and
 cross-substrate equivalence is **not asserted**: there is no cross-substrate
 numeric-parity check or tolerance band.
@@ -393,10 +400,12 @@ the final-weight SHA-256 to the completed-training witness. Its snapshot-scoped
 physical key is accepted only when it is the exact derivation of the canonical
 logical `blobKey(experiment, final-jmw1-sha)`; an arbitrary key under the same
 snapshot prefix is not equivalent. Because serving is a
-pure deterministic function of the reloaded graph and input, the training path
-and the Store-loaded serving path are the same reference executor over the same
-frozen parameters; there is no separate structural-ABI reimplementation and thus
-no cross-implementation parity band to maintain.
+pure deterministic function of the reloaded graph and input, the training-returned
+and Store-loaded *serving* paths are the same reference executor over the same
+frozen parameters, so there is no structural-ABI reimplementation between them.
+The training path itself runs device `float32` kernels rather than that executor;
+the resulting trained-versus-served skew is stated once in
+[The Contract](#the-contract) and is not restated here.
 
 ## RNG Split and Per-Experiment Seed Derivation
 

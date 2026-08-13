@@ -9,11 +9,16 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: the warning-clean build this sprint declared is
+gated only inside `jitml check-code`. `jitml.cabal` carries no `-Werror`, so an
+incomplete `case` over `Substrate` or `LayerOp` warns on an ordinary `cabal build`
+and then throws `Non-exhaustive patterns` at runtime. Totality is therefore a
+convention, not a build guarantee, which every downstream "total function over
+`Substrate`" depends on.
 
-## Sprint 7.1: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` [✅ Done]
+## Sprint 7.1: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `src/JitML/Lint/Stack.hs`,
 `src/JitML/Lint/ForbiddenPaths.hs`, `src/JitML/Lint/Chart.hs`,
 `src/JitML/Lint/Stack/Types.hs`, `src/JitML/Lint/Stack.hs`, `docker/Dockerfile`
@@ -112,7 +117,19 @@ runtime lint/check-code rejects host execution before linting.
 
 ### Remaining Work
 
-None.
+- Add `-Werror=incomplete-patterns` (at minimum) to the library and test stanzas in
+  `jitml.cabal` so a missing constructor is a build failure rather than a runtime
+  throw, and keep the existing `cabal build all --ghc-options=-Werror` gate in
+  `jitml check-code`.
+- Register a lint rule rejecting a new fail-open wildcard on an execution path
+  (`_ -> []`, `_ -> False`, `default: break`) so the class cannot silently return.
+- This sprint implements the doctrine section `Lint, Format, and Code-Quality Stack`.
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

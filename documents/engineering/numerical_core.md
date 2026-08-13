@@ -29,10 +29,19 @@ are current.
 
 ## Execution Boundary
 
-Training selects a substrate device and updates the typed graph through the
-device-backed classifier path. The pure `LayerGraph` forward/backward algebra is
-the correctness oracle; it is not a fallback for a failed selected-device
-operation. Checkpoint construction serializes the trained graph metadata and
+Training updates the typed graph through the device-backed classifier path, and
+the pure `LayerGraph` forward/backward algebra is the correctness oracle.
+
+**Current status.** Substrate selection is presently inert for graph training:
+the classifier path routes any real device to the oneDNN kernels, which pin the
+`linux-cpu` engine and cache. On `linux-cuda` and `apple-silicon` there is no
+layer-graph device path at all, so the pure executor is the *only* path for
+supervised serving rather than an oracle beside a device path. The target — one
+total lowering so the selected substrate executes every operator, with the pure
+algebra retained strictly as the oracle — is owned by
+[Phase 233](../../DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md),
+[Phase 241](../../DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md),
+and Phase `79`. Checkpoint construction serializes the trained graph metadata and
 its graph-ordered parameter vector.
 
 Serving reconstructs that graph from admitted checkpoint metadata, injects the
@@ -138,8 +147,9 @@ multi-head scaled-dot-product attention including the `W_O` output projection; a
 dense + norm device sub-kernels) run on their real packed parameter layouts.
 `deviceLayerGradient` dispatches on the node's `LayerOp` to the matching kernel,
 and each device kernel is validated against the pure `backwardLayerGraph` oracle
-within float32 tolerance in the backends lane; the pure gradient is the oracle
-only, never a runtime fallback.
+within float32 tolerance in the backends lane; on this lane the pure gradient is
+the oracle only, never a runtime fallback. That property holds for `linux-cpu`,
+which is the only substrate with a layer-graph device path today.
 
 Each supervised row binds to a literal graph on this surface.
 The ResNet family (small ResNet, ResNet-20, ResNet-56, WideResNet-28-10, and the

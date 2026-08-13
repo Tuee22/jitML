@@ -100,7 +100,7 @@ allProductPhaseStatuses =
       229
       "Phase-Specific Product Evidence Payloads"
       "DEVELOPMENT_PLAN/phase-229-phase-specific-product-evidence-payloads.md"
-      [ sprint "229.1" "Phase-Specific Product Evidence Payloads" Done
+      [ sprint "229.1" "Phase-Specific Product Evidence Payloads" Active
       ]
   , productPhase
       230
@@ -124,7 +124,7 @@ allProductPhaseStatuses =
       233
       "Typed Layer IR + Reverse-Mode Autodiff"
       "DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md"
-      [ sprint "233.1" "Typed Layer IR + Reverse-Mode Autodiff" Done
+      [ sprint "233.1" "Typed Layer IR + Reverse-Mode Autodiff" Active
       ]
   , productPhase
       234
@@ -172,7 +172,7 @@ allProductPhaseStatuses =
       241
       "oneDNN Device Training Kernels for Correct Operators"
       "DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md"
-      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Done
+      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Active
       ]
   , productPhase
       242
@@ -304,19 +304,19 @@ allProductPhaseStatuses =
       263
       "Contract-Driven Live Execution - Fragment Issuance"
       "DEVELOPMENT_PLAN/phase-263-contract-driven-live-execution-fragment-issuance.md"
-      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Done
+      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Active
       ]
   , productPhase
       264
       "Real cuDNN/cuBLAS Kernels"
       "DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md"
-      [ sprint "264.1" "Real cuDNN/cuBLAS Kernels" Done
+      [ sprint "264.1" "Real cuDNN/cuBLAS Kernels" Active
       ]
   , productPhase
       265
       "CUDA Row Device Evidence"
       "DEVELOPMENT_PLAN/phase-265-cuda-row-device-evidence.md"
-      [ sprint "265.1" "CUDA Row Device Evidence" Done
+      [ sprint "265.1" "CUDA Row Device Evidence" Active
       ]
   , productPhase
       266
@@ -334,19 +334,19 @@ allProductPhaseStatuses =
       268
       "Contract-Driven CUDA Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Planned
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Blocked
       ]
   , productPhase
       269
       "Real Metal Kernels"
       "DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md"
-      [ sprint "269.1" "Real Metal Kernels" Done
+      [ sprint "269.1" "Real Metal Kernels" Active
       ]
   , productPhase
       270
       "Metal Row Device Evidence"
       "DEVELOPMENT_PLAN/phase-270-metal-row-device-evidence.md"
-      [ sprint "270.1" "Metal Row Device Evidence" Done
+      [ sprint "270.1" "Metal Row Device Evidence" Active
       ]
   , productPhase
       271

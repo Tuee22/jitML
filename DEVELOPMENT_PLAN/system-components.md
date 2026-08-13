@@ -14,10 +14,11 @@
 ## Current Status
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. As of 2026-08-12, Phases `42`, `53`, `69`, `262`, and `263` are
-Done; no phase is Active. The Phase `19`–`34` product-sprint checkpoint is
-**59 Done / 0 Active / 1 Planned / 9 Blocked**, and the exact open chain is
-`268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
+checked-in implementation. As of 2026-08-12, Phases `42`, `53`, `69`, and `262` are Done. The
+execution-architecture reopen of 2026-08-12 returned eight registry phases to
+Active and moved Phase `268` to Blocked. The Phase `19`–`34` product-sprint
+checkpoint is **51 Done / 8 Active / 0 Planned / 10 Blocked**, and the exact open chain is
+`229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 
 The current worktree carries the one-worker Kind topology, single-instance
 platform, and profile-driven Engine count described in the affected rows below. The

@@ -9,11 +9,16 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened: `layerCatalog` is not the implementation source for
+the executed layer list. `Catalog.Layer` (16 constructors), `LayerKind` (12), and
+`LayerOp` (11) are three independent vocabularies, and the only bridge between the
+catalog and execution, `familyForLayer`, has no caller anywhere in `src/` or
+`test/`. The parity that is enforced relates two hand-maintained lists to each
+other.
 
-## Sprint 72.1: Layer Catalog [✅ Done]
+## Sprint 72.1: Layer Catalog [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Numerics/Catalog.hs`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
@@ -41,6 +46,20 @@ embedding, attention, rotary-position, and complex layer constructors.
 2. `renderNumericalCatalog` is deterministic for the current catalog.
 3. `jitml-unit` and `jitml lint haskell` validate the Dhall mirror against the
    Haskell catalog.
+
+### Remaining Work
+
+- Declare one operator vocabulary that the executed IR, the catalog, and the Dhall
+  surface all derive from, so a constructor cannot exist in one and not the others.
+- Retire the dead `familyForLayer` bridge; record it in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+- Sprint `77.1` extends the cross-type audit to the executed vocabulary.
+
+### Historical Validation
+
+Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+
+> ✅ **Done**.
 
 ## Documentation Requirements
 

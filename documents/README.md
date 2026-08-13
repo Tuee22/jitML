@@ -1,6 +1,6 @@
 # jitML Documentation
 
-**Status**: Authoritative source
+**Status**: Supporting reference
 **Supersedes**: N/A
 **Referenced by**: [root README](../README.md), [documentation standards](documentation_standards.md), [engineering index](engineering/README.md)
 **Generated sections**: none

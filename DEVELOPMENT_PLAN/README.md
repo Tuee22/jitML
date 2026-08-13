@@ -20,12 +20,24 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**📋 Planned (2026-08-12).** Phase `263` closed `Done` on 2026-08-12, so no
-phase is Active; Phase `268` is the sole Planned phase and the next executable
-owner. The Phase `19`–`34` product registry is
-**59 Done / 0 Active / 1 Planned / 9 Blocked**.
-The numerically ordered open chain is `268 → 272 → 275 → 277 → 279 → 280 →
-281 → 284 → 287 → 288`. Phases `43`–`52` and `54`–`68` retain `Done` on
+**🔄 Active (2026-08-12).** An execution-architecture audit reopened fifteen phases
+under standards rules `C` and `L`. The typed `LayerGraph` IR executes on the oneDNN
+engine only — `linux-cuda` and `apple-silicon` serve it through the pure host
+executor and train through those same oneDNN kernels — and per-row device evidence
+is composed from the declared substrate and declared claim rather than from an
+execution witness. Evidence gathered before the 2026-07-30 IR landing remains
+historical evidence for the surface it exercised and cannot close the changed
+obligation.
+
+**Phase `7` is the first executable owner** (`linux-cpu`, closes on any Docker host):
+it enables `-Werror=incomplete-patterns`, without which every "total function over
+`Substrate`" is a convention rather than a build guarantee. Phases `72`, `77`, `78`,
+`79`, `80`, and `84` follow on the same lane; they sit outside the Phase `19`–`34`
+registry and so do not appear in the tally below.
+
+The Phase `19`–`34` product registry is
+**51 Done / 8 Active / 0 Planned / 10 Blocked**.
+The numerically ordered open chain is `229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `272` remains the hard Apple-Silicon host boundary.
 
@@ -2508,11 +2520,11 @@ blocks) are tracked in
 ## Current Plan Status
 
 The authoritative current state is [Closure Status](#closure-status) above and
-the [Phase Overview](00-overview.md). No phase is Active; Phase `268` is the sole
-Planned phase. The
-Phase `19`–`34` registry is **59 Done / 0 Active / 1 Planned / 9 Blocked**.
-The complete open chain is `268 → 272 → 275 → 277 → 279 → 280 →
-281 → 284 → 287 → 288`, with every Blocked phase naming its predecessor.
+the [Phase Overview](00-overview.md). Eight registry phases are Active after the
+2026-08-12 execution-architecture reopen, and Phase `7` is the first executable
+owner overall. The
+Phase `19`–`34` registry is **51 Done / 8 Active / 0 Planned / 10 Blocked**.
+The complete open chain is `229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`, with every Blocked phase naming its predecessor.
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3304,7 +3316,7 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`268 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
+`229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252` and `261` are

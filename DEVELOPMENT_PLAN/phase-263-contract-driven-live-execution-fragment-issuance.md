@@ -9,13 +9,16 @@
 
 ## Phase State
 
-✅ **Done** (2026-08-12). The committed `linux-cpu` lane fragment is issued only
-from the completed scenario journal, and a standing live case fails closed on any
-drift between the committed table and that issuance.
+🔄 **Active** (2026-08-12). Reopened: the committed fragment is issued from the completed
+scenario journal, but its `DeviceEvidence` column is derived from the declared
+substrate and the declared claim rather than from what executed. The standing drift
+gate therefore compares a declaration against itself, and passes on a lane where the
+claim is false. The 2026-08-12 issuance remains valid evidence for the surface it
+exercised — row identity, plan identity, and cross-process journal re-mint.
 
-## Sprint 263.1: Contract-Driven Live Execution - Fragment Issuance [✅ Done]
+## Sprint 263.1: Contract-Driven Live Execution - Fragment Issuance [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/Product/Matrix.hs`,
 `src/JitML/Service/Workload.hs`, `src/JitML/Test/RunContract.hs`,
 `test/integration/Main.hs`, `test/unit/Main.hs`,
@@ -43,7 +46,7 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Closure Evidence
+### Historical Validation
 
 `jitml test all --live --linux-cpu` passed **11 / 11 invocations, 0 failed,
 0 NotRun** in 43,940.53s on 2026-08-12 against image
@@ -105,6 +108,21 @@ transport redesign rather than a deletion: `establishReplyCursor` admits only a
 cross-lane round-trip tests are deliberately retained for Phase `275`, which owns
 retiring them; changing the fragment's wire shape here would strand the
 `linux-cuda` and `apple-silicon` lanes behind the Phase `272` hardware boundary.
+
+### Remaining Work
+
+- Re-issue the committed `linux-cpu` fragment from witness-minted device evidence
+  once Sprint `229.1` lands the witness type.
+- Re-run the full live gate so the drift comparison is measurement against
+  commitment rather than declaration against declaration.
+
+### Historical Phase State
+
+> ✅ **Done** (2026-08-12). The committed `linux-cpu` lane fragment is issued only
+> from the completed scenario journal, and a standing live case fails closed on any
+> drift between the committed table and that issuance.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 

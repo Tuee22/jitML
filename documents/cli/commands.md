@@ -204,7 +204,7 @@ jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrat
 |--------|------|----------|-------------|
 | `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
 | `--resume <checkpoint-id>` | value | no | Checkpoint identifier to resume from. |
-| `--substrate <substrate>` | value | no | Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--substrate <substrate>` | value | no | Select the execution substrate (apple-silicon, linux-cpu, or linux-cuda). |
 | `--seed <word64>` | value | no | Override the experiment Dhall's seed. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |

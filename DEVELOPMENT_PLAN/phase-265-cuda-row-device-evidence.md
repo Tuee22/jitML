@@ -9,11 +9,16 @@
 
 ## Phase State
 
-✅ **Done**.
+🔄 **Active** (2026-08-12). Reopened under standards rule `C`. This sprint's evidence is
+dated 2026-07-10, three weeks before the 2026-07-30 landing that made the typed
+`LayerGraph` the owner of supervised training and pinned that path to the oneDNN
+engine. That evidence remains historical evidence for the surface it exercised; it
+cannot close the per-row device-witness obligation for the current source, in which
+supervised rows on this lane execute oneDNN kernels.
 
-## Sprint 265.1: CUDA Row Device Evidence [✅ Done]
+## Sprint 265.1: CUDA Row Device Evidence [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/App.hs`, `test/backends/Main.hs`, `test/integration/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/unit_testing_policy.md`
 
@@ -66,7 +71,7 @@ pointers passed with **56 / 56** tests using:
 docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda --test-options '-p ProductRow --hide-successes --color=never'
 ```
 
-### Closure Evidence
+### Historical Validation
 
 - **Closed Exit-Definition obligation (real per-row CUDA device evidence).** Every
   CUDA-supported product row must record real `linux-cuda` device evidence backed
@@ -83,6 +88,18 @@ docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda --t
   case that trains the CUDA-supported row from a real random init through the
   production path. Validation stays single accelerator: `linux-cuda` plus
   `linux-cpu`, never `apple-silicon`.
+
+### Remaining Work
+
+- Re-mint per-row CUDA device evidence from an execution witness once Sprints `229.1`
+  and `264.1` land, so the recorded engine is the engine that ran.
+- Re-run the lane and record the measured result.
+
+### Historical Phase State
+
+> ✅ **Done**.
+
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
 ## Documentation Requirements
 
