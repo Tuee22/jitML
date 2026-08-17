@@ -45,6 +45,7 @@ module JitML.Checkpoint.Store
   , admittedCheckpointManifestSha
   , admittedCheckpointWeights
   , admittedCompletedCheckpoint
+  , admittedCompletedDeviceWitness
   , admittedCompletedTraining
   , applyRetentionPolicy
   , buildGcPlan
@@ -207,6 +208,7 @@ import JitML.Checkpoint.Format
 import JitML.Checkpoint.WeightCodec (encodeJmw1, jmw1ContentSha)
 import JitML.Inference.Decode (DecodedInference, decodeManifestOutput)
 import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Product.DeviceWitness (DeviceExecutionWitness)
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Service.Capabilities
@@ -219,6 +221,7 @@ import JitML.Service.Capabilities
 import JitML.Service.Retry (ServiceError (..), serviceErrorPermanent)
 import JitML.Training.Budget
   ( CompletedTraining
+  , completedTrainingDeviceWitness
   , completedTrainingFinalWeightHash
   )
 
@@ -237,6 +240,10 @@ data AdmittedCheckpoint = AdmittedCheckpoint
 data AdmittedCompletedCheckpoint = AdmittedCompletedCheckpoint
   { admittedCompletedCheckpointInternal :: AdmittedCheckpoint
   , admittedCompletionValidationInternal :: ValidatedCheckpointCompletion
+  , admittedCompletionDeviceWitnessInternal :: DeviceExecutionWitness
+  -- ^ The artifact that produced this completion.  Admission refuses a
+  -- completion without one, so downstream renderers read it totally rather
+  -- than carrying a no-evidence branch.
   }
   deriving stock (Eq, Show)
 
@@ -3243,12 +3250,46 @@ requireAdmittedCompletedCheckpoint admitted = do
         ( AdmissionCompletionInvalid
             (renderCheckpointCompletionValidationError err)
         )
-    Right validation ->
+    Right validation -> do
+      witness <-
+        requireCompletedDeviceExecutionWitness
+          (validatedCheckpointCompletedTraining validation)
       Right
         AdmittedCompletedCheckpoint
           { admittedCompletedCheckpointInternal = admitted
           , admittedCompletionValidationInternal = validation
+          , admittedCompletionDeviceWitnessInternal = witness
           }
+
+-- | An admitted completion must name the artifact that produced it.
+--
+-- The product lane fragment mints each row's @DeviceEvidence@ cell from this
+-- witness, so admitting an unwitnessed completion would reintroduce the very
+-- substitution the fragment contract forbids: a cell composed from the row's
+-- declared substrate and declared claim, which no execution had to justify.
+requireCompletedDeviceExecutionWitness
+  :: CompletedTraining -> Either CheckpointAdmissionError DeviceExecutionWitness
+requireCompletedDeviceExecutionWitness completed =
+  case completedTrainingDeviceWitness completed of
+    Left err ->
+      Left
+        ( AdmissionCompletionInvalid
+            ("completed training carries an unrefinable device execution witness: " <> err)
+        )
+    Right Nothing ->
+      Left
+        ( AdmissionCompletionInvalid
+            "completed training carries no device execution witness"
+        )
+    Right (Just witness) -> Right witness
+
+-- | The artifact witness bound to an admitted completion.
+--
+-- Total by construction: 'requireAdmittedCompletedCheckpoint' is the only way
+-- to inhabit 'AdmittedCompletedCheckpoint' and it rejects an unwitnessed
+-- completion.
+admittedCompletedDeviceWitness :: AdmittedCompletedCheckpoint -> DeviceExecutionWitness
+admittedCompletedDeviceWitness = admittedCompletionDeviceWitnessInternal
 
 -- | V1 remains the canonical completed wire format for the non-supervised
 -- ProductRow writers (RL, AlphaZero, and tuning). Exact Store admission may

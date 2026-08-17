@@ -172,6 +172,7 @@ completedSupervisedRuntimeForTraining plan problem metrics experimentHash metric
       metricRows
       (WeightCodec.jmw1ContentSha (tmInitialJmw1Bytes metrics))
       (WeightCodec.jmw1ContentSha (tmFinalJmw1Bytes metrics))
+      (tmDeviceWitness metrics)
   validateCompletedSupervisedBindings
     completed
     (RuntimeArtifact.trainingArtifactPayload artifact)
@@ -230,6 +231,7 @@ attemptGenericSupervisedRuntimeForTraining plan problem metrics experimentHash m
       metricRows
       (WeightCodec.jmw1ContentSha (tmInitialJmw1Bytes metrics))
       (WeightCodec.jmw1ContentSha (tmFinalJmw1Bytes metrics))
+      (tmDeviceWitness metrics)
   case attempt of
     ProductCompletion.SupervisedCompletionMiss observations ->
       Right (SupervisedRuntimeCompletionMiss observations)

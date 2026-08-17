@@ -31,6 +31,7 @@ module JitML.Training.Budget
   , completedTraining
   , completedTrainingBudget
   , completedTrainingDatasetShaAtRead
+  , completedTrainingDeviceWitness
   , completedTrainingEvidence
   , completedTrainingFinalWeightHash
   , completedTrainingInitialWeightHash
@@ -107,9 +108,12 @@ import JitML.Plan.Plan
   , planIdText
   , refinePlanIdText
   )
+import JitML.Product.DeviceWitness (DeviceExecutionWitness)
 import JitML.Product.Evidence
   ( TrainingEvidence
+  , attachDeviceExecutionWitness
   , evidenceDatasetShaAtRead
+  , evidenceDeviceWitness
   , evidenceFinalWeightHash
   , evidenceInitialWeightHash
   , evidenceUpdateCount
@@ -785,6 +789,14 @@ completedTrainingDatasetShaAtRead :: CompletedTraining -> Text
 completedTrainingDatasetShaAtRead =
   evidenceDatasetShaAtRead . completedTrainingEvidence
 
+-- | The device execution witness bound to this completion, if the training run
+-- dispatched to a device.  'completedTraining' has already revalidated it, so a
+-- 'Left' here cannot survive into an admitted checkpoint.
+completedTrainingDeviceWitness
+  :: CompletedTraining -> Either Text (Maybe DeviceExecutionWitness)
+completedTrainingDeviceWitness =
+  evidenceDeviceWitness . completedTrainingEvidence
+
 completedTraining
   :: PlanId
   -> TrainingBudget
@@ -967,13 +979,20 @@ validateBudget budget observedKind observedUnits observedUnit = do
           <> Text.pack (show (tbTargetUnits budget))
       )
 
+-- | Re-run every observation check the evidence smart constructor enforces, and
+-- carry the bound device execution witness across.  A stored witness that no
+-- longer refines fails the revalidation rather than silently dropping to an
+-- unwitnessed completion.
 revalidateEvidence :: TrainingEvidence -> Either Text TrainingEvidence
-revalidateEvidence evidence =
-  mkTrainingEvidence
-    (evidenceInitialWeightHash evidence)
-    (evidenceFinalWeightHash evidence)
-    (evidenceUpdateCount evidence)
-    (evidenceDatasetShaAtRead evidence)
+revalidateEvidence evidence = do
+  base <-
+    mkTrainingEvidence
+      (evidenceInitialWeightHash evidence)
+      (evidenceFinalWeightHash evidence)
+      (evidenceUpdateCount evidence)
+      (evidenceDatasetShaAtRead evidence)
+  witness <- evidenceDeviceWitness evidence
+  maybe (Right base) (`attachDeviceExecutionWitness` base) witness
 
 ensureFinite :: Text -> Double -> Either Text ()
 ensureFinite label value

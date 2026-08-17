@@ -9,19 +9,26 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: this sprint's own deliverable states that no decoder
-constructs a proof-bearing value directly, but `deviceEvidenceForClaim` is a total
-pure function from a declared substrate and a declared `DeviceClaim` to the device
-evidence string. It performs no execution, consults no journal, and cannot fail, so
-a row attests an engine that need never have run.
+✅ **Done** (closed 2026-08-15). Every artifact a witness reads exports the
+executed identity it is asked for, the persisted-evidence migration is stated in
+the decoder itself, and the MLP device path is validated on the lane that
+exercises it — `jitml test jitml-sl-canonicals --linux-cpu` **36 / 36**,
+including `all eleven trained canonical programs equal Store-loaded V2 inference
+on the same substrate`.
 
-## Sprint 229.1: Phase-Specific Product Evidence Payloads [🔄 Active]
+## Sprint 229.1: Phase-Specific Product Evidence Payloads [✅ Done]
 
-**Status**: Active
-**Implementation**: `src/JitML/Product/Matrix.hs`,
-`src/JitML/Product/Pipeline.hs`, `src/JitML/Product/Evidence.hs`,
+**Status**: Done
+**Implementation**: `src/JitML/Product/DeviceWitness.hs`,
+`src/JitML/Product/Matrix.hs`, `src/JitML/Product/Pipeline.hs`,
+`src/JitML/Product/Evidence.hs`, `src/JitML/Product/Completion.hs`,
+`src/JitML/Product/Publisher/Runtime.hs`,
+`src/JitML/Product/Publisher/{Supervised,RL,AlphaZero,Tuning}.hs`,
+`src/JitML/Numerics/MlpDevice.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`,
+`src/JitML/SL/Architecture.hs`, `src/JitML/SL/TrainingExecution.hs`,
 `src/JitML/Training/Budget.hs`, `src/JitML/Checkpoint/Format.hs`,
-`test/unit/Main.hs`
+`src/JitML/Checkpoint/Store.hs`, `src/JitML/Test/Report.hs`,
+`src/JitML/Test/DeviceWitnessFixture.hs`, `test/unit/Main.hs`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/checkpoint_format.md`,
@@ -59,10 +66,62 @@ The binding design is
 ```bash
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu
 docker compose run --rm jitml jitml test jitml-integration --linux-cpu
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
+
+Measured on `linux-cpu` on 2026-08-15 in the `jitml:local` container against the
+live nine-component publication (retained transcript
+`.build/gate-logs/phase229-241-263-gate.log`, SHA-256
+`2cfca808b1c33ef6e4e03928f7b5d180443315a8c7a7ec2ca8470e8aeb2cae25`):
+
+| Gate | Result |
+|------|--------|
+| `jitml lint haskell` | exit `0` |
+| `jitml docs check` | exit `0` |
+| `jitml test jitml-unit --linux-cpu` | **887 / 887** (46.48s) |
+| `jitml test jitml-backends --linux-cpu` | **36 / 36** (1.54s) |
+| `jitml test jitml-negative-controls --linux-cpu` | **3 / 3** |
+| `jitml test jitml-sl-canonicals --linux-cpu` | **36 / 36** (7,769.90s) |
+| `jitml check-code` | exit `0` |
+
+`jitml test jitml-integration --linux-cpu` is recorded with Sprint `263.1`,
+which owns the lane re-issue this sprint's evidence depends on: the same run
+that measured the witnesses above reported them as drift against a committed
+fragment that predated them. That fragment is re-issued and re-measured in
+Sprint `263.1`'s gate.
+
+### Completed in the 2026-08-15 closure
+
+- **The MLP artifact exports the identity the witness reads.**
+  `JitML.Codegen.MlpOneDnn` and `JitML.Codegen.MlpCuda` emit
+  `jitml_kernel_family_name`, returning the shared MLP program tag
+  `mlp-forward-backward-tanh-linear` — the same string the Apple metadata's
+  `family` field already carried. `Fingerprint.mlpHostEntryPoints` names the
+  symbol, so Sprint `78.1`'s standing case (every named entry point exists in
+  the source its lane renders) fails closed if a renderer drops it again.
+  Before this, `mlpDeviceExecutionWitness` resolved a symbol only the
+  family-kernel renderer emitted, so every MLP-path witness failed at `dlsym`
+  and `california-housing-mlp` could not produce one at all. It now does: the
+  measured lane fragment records
+  `device:linux-cpu:onednn:mlp-forward-backward-tanh-linear:ef7ebe1dc3f02cbb`
+  for that row.
+- **The persisted-evidence migration is in the decoder.** The hand-written
+  `Serialise TrainingEvidence` instance accepts the pre-witness five-field
+  shape and fills the witness with `Nothing`. That does not weaken the
+  contract: a witnessless evidence value is exactly what checkpoint admission
+  rejects, so a pre-witness checkpoint now fails at the admission gate naming
+  the missing device witness rather than at CBOR with
+  `Wrong number of fields: expected=6 got=5`. The re-issue of the live
+  `linux-cpu` store is Sprint `263.1`'s under rule `M(a)`.
+- **Validated on the lane that exercises the MLP device path.**
+  `jitml test jitml-sl-canonicals --linux-cpu` passed **36 / 36** in 7,769.90s,
+  including both `all eleven trained canonical programs equal Store-loaded V2
+  inference on the same substrate (Sprint 10.6)` and `all eleven live
+  supervised latest pointers load exact V2 runtime identity (Sprint 10.6
+  Live)`.
 
 ### Historical Validation
 
@@ -89,21 +148,57 @@ runtime-path change, so it was validated from source without a cluster reload):
   (the `-Werror` build is clean with the retained `ProductRow` phantom), and the
   phase-status parity test agrees with the typed registry.
 
-### Remaining Work
+### Completed before the 2026-08-14 reopen
 
-- Make device evidence mintable only from an execution witness returned by the
-  interpreter: a hidden-constructor value carrying the engine, kernel hash, and
-  artifact path recorded after a successful call.
-- Remove every path that constructs device evidence from `(Substrate, DeviceClaim)`
-  alone.
-- Read the executed identity back from the artifact rather than asserting it; one
-  substrate currently fabricates the executed family name host-side.
+- **`DeviceExecutionWitness` is unconstructible without an artifact.**
+  `JitML.Product.DeviceWitness` exports the type opaquely and offers exactly one
+  mint, `witnessDeviceExecution`, which runs in `IO`. It fails closed on an
+  absent or unreadable artifact, a non-hex cache key, or a blank backend /
+  executed identity, and records the SHA-256 of the bytes it read. Values off the
+  wire re-enter through `refineRawDeviceExecutionWitness`, which re-checks every
+  property that survives serialization, so a hand-authored journal row does not
+  refine.
+- **The executed identity is read back, not asserted.** The layer-graph oneDNN
+  witness asks the loaded artifact for `jitml_layer_training_backend` and
+  `jitml_layer_forward_primitive`; `mlpDeviceExecutionWitness` resolves
+  `jitml_kernel_family_name` from the loadable backends. The `apple-silicon`
+  path previously attributed a run to `familyNameText family` — the value the
+  host had just asked for, which could not disagree with itself — and now parses
+  the `family` field out of the `<hash>.metal.json` artifact the renderer wrote.
+- **Every product family records a witness after its loop returns.**
+  Supervised training threads it through `SlRunMetrics.slmDeviceWitness` →
+  `TrainingMetrics.tmDeviceWitness` → `SupervisedPublishRun`; the RL, AlphaZero,
+  and tuning publishers (and the matching CLI/daemon paths) mint from
+  `mlpdExecutionWitness` once their training call has succeeded. The pure
+  reference device compiles nothing and yields `Right Nothing`, an honest
+  absence rather than a fabricated claim.
+- **The witness is part of being admitted.**
+  `TrainingEvidence` carries it across `revalidateEvidence`, and
+  `requireAdmittedCompletedCheckpoint` refuses a completion without one. The
+  witness is therefore a field of `AdmittedCompletedCheckpoint`, so
+  `admittedCompletedDeviceWitness` and
+  `Report.completedProductScenarioDeviceWitness` are total and
+  `renderProductLaneAttestationFragment` renders the cell with no no-evidence
+  branch.
+- **The declaration-derived path is deleted.**
+  `deviceEvidenceForClaim`, `productRowDeviceEvidenceForSubstrate`,
+  `substrateDeviceRuntime`, and `deviceClaimKernelSummary` are removed from
+  `JitML.Product.Matrix` with their exports. The unit case that pinned the two
+  composers against each other is replaced by four cases that pin the witness
+  contract: the rendered cell names the lane, the artifact's backend, the
+  executed identity and the artifact digest; two lanes cannot share a cell; the
+  mint fails closed on an absent artifact; and a tampered wire witness fails
+  refinement.
+- **Manifest cross-check compares observations.** The checkpoint manifest stores
+  the four observations but not the witness, so
+  `validateCheckpointCompletion` compares `evidenceObservationsMatch` rather
+  than whole evidence records.
 
 ### Historical Phase State
 
 > ✅ **Done**.
 
-*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
+*(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen, which this 2026-08-13 closure resolves.)*
 
 ## Documentation Requirements
 

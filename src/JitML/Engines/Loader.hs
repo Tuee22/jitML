@@ -4,7 +4,9 @@ module JitML.Engines.Loader
   ( KernelArtifact (..)
   , KernelArtifactError (..)
   , ensureKernelArtifact
+  , executedArtifactIdentity
   , loadKernelLibrary
+  , metalArtifactFamily
   , renderKernelArtifactError
   , withKernelSymbol
   )
@@ -16,6 +18,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Foreign.C.String (CString, peekCString)
 import Foreign.Ptr (FunPtr)
 import System.Directory
   ( createDirectoryIfMissing
@@ -43,7 +46,12 @@ import JitML.Env.Env (Env (..))
 import JitML.Sub.Outcome (ProcessFailure, ProcessOutcome (..), renderProcessFailure)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate
+  ( ArtifactFill (..)
+  , KernelLaunch (..)
+  , SubstrateProfile (..)
+  , profileFor
+  )
 
 data KernelArtifact = KernelArtifact
   { kernelArtifactHandle :: KernelHandle
@@ -71,8 +79,11 @@ ensureKernelArtifact env engine source hash = do
       pure (Right (artifactFor hitHandle hit False))
     miss@(JitCacheMiss missedHandle command) -> do
       createDirectoryIfMissing True (takeDirectory artifactPath)
-      case engineSubstrate engine of
-        AppleSilicon -> do
+      -- Sprint `79.1`: dispatch on the profile's `ArtifactFill` value rather
+      -- than on a wildcard over `Substrate`. A fourth substrate now fails the
+      -- build in `profileFor` instead of silently taking the compile arm.
+      case profileArtifactFill (profileFor (engineSubstrate engine)) of
+        SourceMetadataWriteFill -> do
           written <- writeAppleMetalMetadata source artifactPath
           pure $
             case written of
@@ -86,7 +97,7 @@ ensureKernelArtifact env engine source hash = do
                           <> err
                       )
                   )
-        _ -> do
+        CompileSubprocessFill -> do
           _sourceDirectory <- materializeRuntimeSource env source hash
           outcome <- runStreaming defaultSubprocessEnv command
           case outcome of
@@ -142,6 +153,53 @@ withKernelSymbol artifactPath symbolName useSymbol = do
   dynamicLibrary <- cachedKernelLibrary artifactPath
   symbol <- dlsym dynamicLibrary symbolName
   useSymbol symbol
+
+foreign import ccall "dynamic"
+  mkKernelFamilyNameFun :: FunPtr (IO CString) -> IO CString
+
+-- | Ask a compiled artifact which kernel family it implements.
+--
+-- Sprint `79.1` made this the one identity read for both launch kinds, keyed by
+-- the profile's 'KernelLaunch' rather than by an @isMetal@ branch. It is the
+-- difference between evidence and a tautology: before this, the Apple family
+-- driver reported the family the /host had asked for/, so
+-- 'JitML.Engines.HasEngine.toMetalEngineRun''s mismatch guard compared a value
+-- with itself and could never reject anything.
+executedArtifactIdentity :: KernelLaunch -> FilePath -> IO (Either Text Text)
+executedArtifactIdentity launch artifactPath =
+  case launch of
+    LoadableSymbolLaunch -> do
+      resolved <-
+        tryAny
+          ( withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
+              Text.pack <$> (mkKernelFamilyNameFun familySymbol >>= peekCString)
+          )
+      pure $
+        case resolved of
+          Left err ->
+            Left ("loaded artifact family name unreadable: " <> Text.pack (displayException err))
+          Right familyName -> Right familyName
+    FixedBridgeLaunch -> metalArtifactFamily artifactPath
+
+-- | Recover the family the Apple Metal source-metadata artifact declares.
+--
+-- The artifact is the exact document the renderer wrote, so its @family@ field
+-- is the identity of the shader the fixed bridge compiles and dispatches.
+metalArtifactFamily :: FilePath -> IO (Either Text Text)
+metalArtifactFamily artifactPath = do
+  readResult <- tryAny (Text.IO.readFile artifactPath)
+  pure $
+    case readResult of
+      Left err ->
+        Left ("Metal source-metadata artifact unreadable: " <> Text.pack (displayException err))
+      Right contents ->
+        case [line | line <- Text.lines contents, "\"family\":" `Text.isInfixOf` line] of
+          [] -> Left "Metal source-metadata artifact declares no family"
+          line : _ ->
+            case Text.splitOn "\"" (Text.drop 1 (Text.dropWhile (/= ':') line)) of
+              _ : value : _
+                | not (Text.null value) -> Right value
+              _ -> Left "Metal source-metadata artifact has a malformed family field"
 
 -- | Load an already-built shared artifact without resolving a symbol.  This
 -- gives callers a distinct exception boundary for @dlopen@ versus @dlsym@.

@@ -13,6 +13,7 @@ import Data.Text qualified as Text
 
 import JitML.Env.Env (App)
 import JitML.Experiment.Product qualified as ProductExperiment
+import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Plan
   ( RunKind (..)
@@ -122,6 +123,14 @@ trainAndPublishTuningProductRow invocation runtime row projection experiment =
                     case resultsE of
                       Left err -> pure (productPublishError projection err)
                       Right trialResults -> do
+                        -- Recorded after the whole trial sweep returned: the
+                        -- promoted trial's device-evidence cell is minted from
+                        -- the artifact the sweep executed through.
+                        witnessE <-
+                          liftIO
+                            ( mlpdExecutionWitness
+                                (mlpDeviceForSubstrate (runPlanSubstrate runPlan) env)
+                            )
                         let observedTrials = fromIntegral (length trialResults)
                         if observedTrials /= trialsWord
                           then
@@ -165,6 +174,7 @@ trainAndPublishTuningProductRow invocation runtime row projection experiment =
                                         trialsCompleted = observedTrials
                                         metricRows = [("best_objective", Tune.trialResultObjective best)]
                                         completedTraining = do
+                                          deviceWitness <- witnessE
                                           trainingUpdateCount <-
                                             checkedPositiveWord64FromInt
                                               "tuning best-trial optimizer update evidence"
@@ -183,6 +193,7 @@ trainAndPublishTuningProductRow invocation runtime row projection experiment =
                                               metricRows
                                               (Tune.trialResultInitialWeights best)
                                               (Tune.trialResultWeights best)
+                                              deviceWitness
                                           validateProductCompletedTrainingPlanId projection completed
                                           bindProductScenarioCompletion invocation projection completed
                                     case completedTraining of

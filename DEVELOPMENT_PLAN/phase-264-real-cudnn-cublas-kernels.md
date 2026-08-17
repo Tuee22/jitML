@@ -9,16 +9,14 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: the weighted family renderer ends in a wildcard, and
-the unweighted multi-head-attention family renders an elementwise square that
-disagrees with the `linux-cpu` renderer for the same family. The generated CUDA
-family sources remain real; what is missing is a CUDA path for the typed layer
-graph, so the accelerator lane cannot execute the operators the product rows
-use.
+✅ **Done** (closed 2026-08-16). The typed layer graph has a CUDA arm: the
+accelerator lane executes every declared `LayerOp` through cuBLAS/cuDNN
+primitives under the same total lowering `linux-cpu` uses, rather than falling
+back to the pure host executor.
 
-## Sprint 264.1: Real cuDNN/cuBLAS Kernels [🔄 Active]
+## Sprint 264.1: Real cuDNN/cuBLAS Kernels [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`, `src/JitML/Engines/CublasBindings.hs`, `src/JitML/Engines/CudnnBindings.hs`, `test/backends/Main.hs`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/numerical_core.md`
 
@@ -86,13 +84,76 @@ weight-buffer source guard.
   a row cannot pass on rendered-source text alone. Validation stays single
   accelerator: `linux-cuda` plus `linux-cpu`, never `apple-silicon`.
 
-### Remaining Work
+### Closure Evidence
 
-- Close the weighted-family wildcard.
-- Render the unweighted attention family against the shared semantics contract from
-  Sprint `84.1`.
-- Implement the CUDA arm of the total lowering so every `LayerOp` executes on the
-  GPU rather than falling back to the pure executor.
+The three reopened obligations are closed. The weighted-family wildcard and the
+unweighted multi-head-attention divergence were closed by Sprint `84.1`:
+`weightedFamilyImpl` in `src/JitML/Codegen/Cuda.hs` enumerates every
+`KernelFamily` with no wildcard arm, and `assertUnweightedMatchesContract` holds
+each lane's unweighted body to the weighted reference evaluated at
+`FamilyReference.defaultFamilyWeights`, so the three renderers cannot disagree
+for one family.
+
+The third — a CUDA arm for the typed layer graph — is this sprint's work.
+`JitML.Codegen.LayerTraining` owns the backend-agnostic operator layer (kind
+dispatch, GeGLU, normalization, patch embedding, multi-head attention, residual,
+and the unified `jitml_op_train` opcode entry), and each lane supplies only its
+*primitive* layer: `JitML.Codegen.OneDnn` renders `dnnl` matmul/convolution/
+pooling, `JitML.Codegen.CudaLayerTraining` renders cuBLAS `CUBLAS_PEDANTIC_MATH`
+GEMM plus deterministic cuDNN algorithms with Nd descriptors for 2-D and 3-D.
+Because the operator bodies are one shared string rather than a per-lane copy,
+two lanes cannot drift in operator semantics.
+
+`JitML.Numerics.LayerGraphOneDnn` is renamed `LayerGraphDevice` and
+parameterised on `Substrate`. A narrower `LayerTrainingBackend`
+(`OneDnnLayerTraining` / `CudaLayerTraining`) makes every function behind it
+total, and `layerTrainingBackendFor` is the single boundary where a substrate
+becomes a backend. `apple-silicon` has no layer-graph training kernel, so it
+fails closed naming Sprint `269.1` rather than silently executing the
+`linux-cpu` artifact and attributing the run to hardware that did not execute
+it. The execution witness is minted from `layerTrainingBackendSubstrate` — the
+substrate the backend *is*, read off what executed, not the one requested.
+
+**The `linux-cpu` rendered text is byte-identical**, which is a hard requirement
+rather than a nicety: Sprint `263.1` pins `Text.take 16` of this artifact's
+SHA-256 into the committed lane fragment, so appending the shared layer after
+the primitives would relocate the kind-dispatch block (measured: 941 rendered
+lines become 943, with 228 relocated) and restamp an attested `linux-cpu` digest
+for a CUDA-only feature. The shared layer is therefore split into three
+positional chunks that each backend splices at its own offsets. Rendered
+`kernel.cc` SHA-256 is
+`42f20f9acfe24021a1298a299b09fa43c1344bc9deb837b54b45b7dcd163c407` before and
+after the split, and the `jitml-unit` case `the linux-cpu lane keeps its
+attested emission order` pins six anchor offsets so the mistake is a failing
+unit case rather than a failed twelve-hour live gate.
+
+Validation on 2026-08-16 against image
+`jitml:local@sha256:7c83829d1fa4f67e5ea06e85082290339ea0689ccde2d45b890e9aeaf890a90b`:
+`jitml test jitml-backends --linux-cuda` passed **25 / 25** on the attached RTX
+5090, including `linux-cuda LayerGraph training kernels match the pure oracle and
+record device evidence`, `linux-cuda real 3-D convolution executes its own cuDNN
+device kernel`, and `linux-cuda LayerGraph classification training reduces
+cross-entropy loss`; `jitml test jitml-unit --linux-cpu` passed **891 / 891**,
+including the four-case `Layer-graph training lanes (Phase 264)` group;
+`jitml lint haskell`, `jitml docs check`, and `jitml check-code` all passed, so
+every stanza builds at `-Werror` both with and without `-fcuda`. The retained
+transcript is the gitignored `.build/gate-logs/phase264-closure-gate.log`,
+SHA-256 `d182e11379844cf6fd2a66db4442d66a00ac1b526035541f39b040d7f38cdf0c`.
+
+Two defects in the arm were found and fixed by validating it rather than
+trusting it. The shared layer was first appended after the primitives, which
+relocated 228 lines of `linux-cpu` text and would have restamped that lane's
+attested digest — caught by rendering both trees and diffing, and now prevented
+by the positional split plus the emission-order unit case, which is
+mutation-verified to fail on the naive concatenation. Separately, the CUDA
+classification-training case trained over the one-node-per-declared-kind
+gradient fixture, whose `PoolGlobal` collapses the width-4 activation to a
+single value; its output is uniform and its parameter gradient vanishes, so the
+assertion was unsatisfiable on any backend. Running the identical fixture and
+hyperparameters through the oneDNN arm returned bit-identical
+`before = after = 5.545177444479562` (4 × ln 4), proving the CUDA arm correct and
+the assertion wrong, so the case now mirrors the `linux-cpu` `mixed-correct-op`
+graph, which learns.
 
 ### Historical Phase State
 

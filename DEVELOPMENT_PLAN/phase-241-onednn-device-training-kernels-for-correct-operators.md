@@ -13,16 +13,15 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: the unified device-training entry ends in a
-`default: break`, so an unrecognised opcode returns untouched output and gradient
-buffers instead of failing. More consequentially, this sprint's objective forbids a
-pure fallback on the execution path, yet only `linux-cpu` has a layer-graph device
-path at all: the other two substrates serve the typed graph through the pure
-executor and train through these same oneDNN kernels.
+✅ **Done** (closed 2026-08-15). The operator lowering is total over `LayerOp`,
+every declared operator executes a device kernel on `linux-cpu`, and the unified
+device entry fails closed on an opcode it does not implement. The per-lane
+kernels that give `linux-cuda` and `apple-silicon` their own arm behind the same
+total lowering are Sprints `264.1` and `269.1`, per rule `M(a)`.
 
-## Sprint 241.1: oneDNN Device Training Kernels for Correct Operators [🔄 Active]
+## Sprint 241.1: oneDNN Device Training Kernels for Correct Operators [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/jit_codegen_architecture.md`
 
@@ -78,6 +77,19 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+Measured on `linux-cpu` on 2026-08-15 in the `jitml:local` container (retained
+transcript `.build/gate-logs/phase229-241-263-gate.log`, SHA-256
+`2cfca808b1c33ef6e4e03928f7b5d180443315a8c7a7ec2ca8470e8aeb2cae25`):
+
+| Gate | Result |
+|------|--------|
+| `jitml test jitml-backends --linux-cpu` | **36 / 36** (1.54s) |
+| `jitml test jitml-unit --linux-cpu` | **887 / 887** (46.48s) |
+| `jitml check-code` | exit `0` |
+
+The backends count rose from the historical **35** to **36** with the real 3-D
+convolution case that replaced the fail-closed rejection.
+
 ### Historical Validation
 
 Validated 2026-07-30 (container `jitml:local`, live linux-cpu cluster):
@@ -89,13 +101,38 @@ failures, `jitml check-code` ok, and `jitml docs check` ok; the full product run
 `jitml internal train-and-publish-product-rows --linux-cpu` exited 0 with 55/55
 admitted, training every literal graph on these device kernels.
 
-### Remaining Work
+### Completed in the 2026-08-15 closure
 
-- Fail closed on an unrecognised opcode rather than returning an untouched buffer.
-- Provide a total lowering from every `LayerOp` to a closed primitive set so the
-  selected substrate executes the operator, and the pure executor is the oracle
-  rather than the runtime path. The substrate-generic seam is Sprint `79.1`; the
-  per-lane kernels are Sprints `264.1` and `269.1`.
+- **The unified device entry fails closed.** `jitml_op_train` returns an
+  executed-opcode status instead of `void`: `0` when this artifact ran the
+  requested operator, non-zero when it did not, and `runDeviceOpPlan` turns a
+  non-zero status into a typed error naming the opcode. The previous
+  `default: break` returned the caller's untouched output and gradient buffers,
+  which is indistinguishable from a kernel that ran and wrote zeros.
+- **The lowering is total.** `lowerLayerOp` maps every `LayerOp` onto
+  `LowerDenseAffine | LowerSpatialConv | LowerBlockComposition | LowerOpTrain`
+  with no wildcard arm, so a twelfth operator is a compile error under
+  `-Werror=incomplete-patterns` rather than a silent host fallback. Both the
+  single-example and batched dispatch sites route through it, and the residual
+  `(lowered, parameters, gradient)` mismatch arm yields `Left`, not a buffer.
+- **Every declared operator executes on the device.** 3-D convolution runs its
+  own `ncdhw`/`oidhw` oneDNN primitive triple rather than failing closed naming
+  `Conv3D`; pooling runs the `dnnl` pooling primitive whose algorithm is its own
+  `PoolSpec`; identity and dropout run one scale kernel reading the shared
+  `dropoutScale`. Parameterless nodes now take their input gradient from the
+  device rather than from the pure oracle.
+- **The pure executor is the oracle, not the runtime path.** The backends lane
+  compares the device gradient for a graph built from every declared kind
+  against `backwardLayerGraph` within float32 tolerance, and the 3-D convolution
+  case that previously asserted a fail-closed rejection now asserts real
+  execution plus the `onednn_convolution_*_3d` primitive names read back from
+  the artifact.
+- **The fail-open ledger for this sprint is empty.** `failOpenPendingRegistry`
+  held exactly three sites, all owned by `241.1` — the rendered
+  `default: break;` and the `_ -> False` / `_ -> 0` wildcards that decided
+  whether an operator had a device kernel and which evidence code it reported.
+  All three are closed and the registry is now `[]`, so Sprint `7.1`'s
+  execution-path scan is zero-tolerance.
 
 ### Historical Phase State
 

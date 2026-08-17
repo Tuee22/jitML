@@ -234,7 +234,7 @@ conv2dNotDenseFailures =
   input = VU.fromList [1.0, 2.0, -1.0, 0.5, 0.3, -0.7, 1.1, -0.2, 0.9]
   n = VU.length input
   denseParams = LayerGraph.deterministicParameters 99 n n
-  denseOutput = runOne LayerGraph.DenseLayer denseParams input
+  denseOutput = runOne denseParams input
   convSpec =
     LayerGraph.ConvSpec
       { LayerGraph.convIn = 1
@@ -272,15 +272,13 @@ runConv spec params input = do
   Right (LayerGraph.layerTapeOutput tape)
 
 runOne
-  :: LayerGraph.LayerKind
-  -> LayerGraph.LayerParameters
+  :: LayerGraph.LayerParameters
   -> VU.Vector Double
   -> Either Text (VU.Vector Double)
-runOne kind params input = do
+runOne params input = do
   node <-
     LayerGraph.mkAffineLayer
       "negative-control"
-      kind
       (VU.length input)
       (VU.length input)
       LayerGraph.LinearActivation

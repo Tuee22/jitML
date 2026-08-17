@@ -16,7 +16,7 @@ import Data.Vector.Unboxed qualified as VU
 
 import JitML.Env.Env (App)
 import JitML.Numerics.Mlp (AdamState)
-import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..), probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Plan
   ( RunKind (..)
@@ -148,6 +148,10 @@ trainAndPublishAlphaZeroProductRow invocation runtime row projection =
                           )
                     | null samples -> pure (productPublishError projection "AlphaZero self-play produced no samples")
                     | otherwise -> do
+                        -- Recorded after self-play and arena evaluation
+                        -- returned: the row attests the artifact the
+                        -- policy/value updates executed through.
+                        azWitnessE <- liftIO (mlpdExecutionWitness device)
                         let winRate =
                               PolicyValueNet.arenaWinRateAgainstUniformFrom
                                 initialState
@@ -170,6 +174,7 @@ trainAndPublishAlphaZeroProductRow invocation runtime row projection =
                             finalWeights = PolicyValueNet.policyValueNetToFlat trainedNet
                             sampleDigest = PolicyValueNet.policyValueTrainingSamplesSha256 samples
                             completedTraining = do
+                              deviceWitness <- azWitnessE
                               updatesPerGeneration <-
                                 checkedPositiveWord64FromInt
                                   "AlphaZero optimizer updates per generation"
@@ -191,6 +196,7 @@ trainAndPublishAlphaZeroProductRow invocation runtime row projection =
                                   metrics
                                   initialWeights
                                   finalWeights
+                                  deviceWitness
                               validateProductCompletedTrainingPlanId projection completed
                               bindProductScenarioCompletion invocation projection completed
                         case completedTraining of

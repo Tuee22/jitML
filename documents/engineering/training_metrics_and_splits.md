@@ -9,6 +9,25 @@
 > train/test/validation split discipline and convergence/performance metric
 > definitions for SL, RL, AlphaZero, and tuning.
 
+## Current Status
+
+The bar discipline above is the contract; two parts of it are not yet enforced,
+so this section states the boundary rather than letting the target read as
+implemented.
+
+- **The no-self-referential-threshold invariant is only half enforced.**
+  `ExternalBars.barIsSelfReferential` currently tests slack positivity and
+  discards its measured-value argument, so a positive-slack bar set equal to the
+  value it grades is accepted, and the frozen-anchor test matches any cohort's
+  anchor rather than the observation's own.
+- **Positive slack does not by itself make a bar meaningful.** Some committed
+  cohorts carry slack wide enough that the resulting bar is not a real assertion
+  against its environment.
+
+Both are owned by
+[Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md),
+which is where the current status and the closing work are tracked.
+
 ## Invariants
 
 - **No hardcoded weights.** Every model — including checkpoints exposed by demo
@@ -19,14 +38,17 @@
 - **Real losses.** The published training loss is a real cross-entropy (classification) or
   MSE (regression) value computed from the model output — never `1 − accuracy`, and the
   validation loss is a real held-out measurement, not the final training loss.
-- **Measured metrics, frozen external bars.** The convergence and performance
+- **Measured metrics, externally anchored bars.** The convergence and performance
   *metrics* are measured from real training runs, never literature-target
-  placeholders. The *bar* each metric is graded against is the opposite: a **frozen
-  external literature constant** held in `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)) and
-  never derived from, or set equal to, the measured value. A row passes only when its
-  measured metric clears that independent external bar; keeping the two structurally
-  distinct is what forbids a self-referential `threshold = measured` gate.
+  placeholders. The *bar* each metric is graded against is structurally distinct
+  from the measurement, and that separation is what forbids a self-referential
+  `threshold = measured` gate. The bar is **externally anchored rather than wholly
+  external**: it is `literatureTarget − slack`, where `literatureTarget` is an
+  external published constant and `slack` is a project-calibrated per-cohort
+  tolerance. `JitML.Product.ExternalBars`
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md))
+  owns the anchoring invariant; the target and slack tables live in
+  `JitML.SL.ConvergenceThresholds` and `JitML.RL.ConvergenceThresholds`.
 - **Fixed terminating budgets.** A model is not trained "until converged."
   Each canonical model has a pure, reproducible, finite, unit-indexed training
   plan declared before execution. Training must perform exactly that budget
@@ -202,10 +224,11 @@ closure evidence subsequently closed through Phases `240`–`246`.
 ## SL metrics (R3)
 
 - **Convergence** — a cohort converges when the median held-out **test** accuracy
-  over the fixed seed cohort clears its `literatureTarget − slack` bar. That bar is a
-  **frozen external literature constant** — owned by `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)) and
-  mirrored in the in-code `JitML.SL.ConvergenceThresholds` — and is **never derived
+  over the fixed seed cohort clears its `literatureTarget − slack` bar. The
+  anchoring invariant is owned by `JitML.Product.ExternalBars`
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md))
+  and the target/slack table by `JitML.SL.ConvergenceThresholds`; the target is an
+  external constant, the slack is project-calibrated, and neither is **derived
   from, or set equal to, the measured accuracy**. Regression rows use the declared
   regression metric rather than accuracy. Cross-entropy / MSE training loss and
   held-out validation loss are reported per run. The ProductScenario integration
@@ -246,11 +269,12 @@ closure evidence subsequently closed through Phases `240`–`246`.
 ## RL metrics (R3 / R5)
 
 - **Convergence** — a cohort converges when the **real measured-median** episode
-  return over `k` seeds clears its per-cohort return threshold. That threshold is a
-  **frozen external literature constant** (`JitML.Product.ExternalBars`,
-  [Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md);
-  mirrored by `JitML.RL.ConvergenceThresholds`), never derived from the measured
-  return. The measured return is a **trained-policy rollout** — the learned policy
+  return over `k` seeds clears its per-cohort return threshold. That threshold is
+  `literatureTarget − slack` — an external published target less a
+  project-calibrated slack — anchored by `JitML.Product.ExternalBars`
+  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md))
+  and tabulated by `JitML.RL.ConvergenceThresholds`, never derived from the
+  measured return. The measured return is a **trained-policy rollout** — the learned policy
   acting in the environment — not a scripted expert controller. Current
   ProductScenario execution records the trained-policy result; Phase `284`
   migrates the per-model `jitml-model-convergence` cases from metadata checks to

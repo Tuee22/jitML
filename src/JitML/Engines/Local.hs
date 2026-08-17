@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Engines.Local
@@ -8,26 +7,22 @@ module JitML.Engines.Local
   , linuxCpuFamilyRuntimeSource
   , linuxCpuIdentityHash
   , linuxCpuIdentityRuntimeSource
-  , linuxCpuToolchainFingerprint
   , flattenLoadedWeights
   , runLinuxCpuCheckpointInference
   , runLinuxCpuFamilyKernel
+  , runLinuxCpuFamilyKernelWithProbe
   , runLinuxCpuIdentityKernel
   , runLinuxCpuKernel
   , runLinuxCpuWeightedCheckpointInference
   , runLinuxCpuWeightedFamilyKernel
+  , runLinuxCpuWeightedFamilyKernelWithProbe
   , runLinuxCpuWeightedKernel
   )
 where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Vector.Unboxed qualified as VU
-import Foreign.C.String (CString, peekCString)
-import Foreign.C.Types (CFloat (..), CSize (..))
-import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
-import Foreign.Ptr (FunPtr, Ptr)
-import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format
@@ -37,7 +32,7 @@ import JitML.Checkpoint.Format
   )
 import JitML.Checkpoint.Store
   ( LoadedWeightTensor (..)
-  , reconstructSupervisedGraphFromCheckpoint
+  , runSupervisedGraphCheckpointInference
   )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
@@ -50,46 +45,21 @@ import JitML.Engines.Engine
   ( KernelHandle (..)
   , engineForSubstrate
   )
+import JitML.Engines.Fingerprint qualified as Fingerprint
+import JitML.Engines.LoadableKernel (loadAndRun, loadAndRunWeighted)
 import JitML.Engines.Loader
   ( ensureKernelArtifact
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
   , renderKernelArtifactError
-  , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
+import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Env.Env (Env)
-import JitML.Numerics.LayerGraph (refineReloadedLayerGraph)
 import JitML.Numerics.MlpOneDnn (mlpForwardOneDnn)
-import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
+import JitML.Sub.Render (renderBool)
 import JitML.Substrate (Substrate (..))
-
-type KernelFunction =
-  Ptr CFloat -> Ptr CFloat -> CSize -> IO ()
-
--- Sprint 13.11 — weighted ABI: caller supplies a flat row-major weights
--- buffer alongside the input. Output, input, input_count, weights,
--- weights_count.
-type WeightedKernelFunction =
-  Ptr CFloat -> Ptr CFloat -> CSize -> Ptr CFloat -> CSize -> IO ()
-
-type KernelFamilyFunction =
-  IO CString
-
-type KernelOutputCountFunction =
-  CSize -> IO CSize
-
-foreign import ccall "dynamic" mkKernelFunction :: FunPtr KernelFunction -> KernelFunction
-
-foreign import ccall "dynamic"
-  mkWeightedKernelFunction :: FunPtr WeightedKernelFunction -> WeightedKernelFunction
-
-foreign import ccall "dynamic"
-  mkKernelFamilyFunction :: FunPtr KernelFamilyFunction -> KernelFamilyFunction
-
-foreign import ccall "dynamic"
-  mkKernelOutputCountFunction :: FunPtr KernelOutputCountFunction -> KernelOutputCountFunction
 
 data LinuxCpuKernelRun = LinuxCpuKernelRun
   { linuxCpuKernelHandle :: KernelHandle
@@ -125,7 +95,7 @@ linuxCpuIdentityHash =
     linuxCpuIdentityKernel
     Cache.Inference
     Cache.LinuxCPU
-    linuxCpuToolchainFingerprint
+    (Fingerprint.engineFamilyToolchainFingerprint LinuxCPU)
     (runtimeSourcePayload linuxCpuIdentityRuntimeSource)
     Cache.defaultTuningChoice
 
@@ -153,13 +123,39 @@ linuxCpuFamilyHash family =
     (kernelFamilyKernelSpec family)
     Cache.Inference
     Cache.LinuxCPU
-    linuxCpuToolchainFingerprint
+    (Fingerprint.engineFamilyToolchainFingerprint LinuxCPU)
     (runtimeSourcePayload (linuxCpuFamilyRuntimeSource family))
     Cache.defaultTuningChoice
 
 runLinuxCpuFamilyKernel :: Env -> KernelFamily -> [Float] -> IO (Either Text LinuxCpuKernelRun)
-runLinuxCpuFamilyKernel env family =
-  runLinuxCpuKernel env (linuxCpuFamilyRuntimeSource family) (linuxCpuFamilyHash family)
+runLinuxCpuFamilyKernel =
+  runLinuxCpuFamilyKernelWithProbe OneDnnRuntime.probeOneDnnRuntime
+
+-- | Probe-gated family entry, mirroring the CUDA and Metal drivers. Sprint
+-- `79.1` added it: this lane was the only one that went straight to @dlopen@
+-- with no availability probe at all, even though `probeOneDnnRuntime` already
+-- existed. A missing oneDNN now fails closed with a summary instead of
+-- surfacing as a dynamic-linker exception.
+runLinuxCpuFamilyKernelWithProbe
+  :: IO OneDnnRuntime.OneDnnRuntimeProbe
+  -> Env
+  -> KernelFamily
+  -> [Float]
+  -> IO (Either Text LinuxCpuKernelRun)
+runLinuxCpuFamilyKernelWithProbe probeRuntime env family input = do
+  probe <- probeRuntime
+  if OneDnnRuntime.oneDnnRuntimeAvailable probe
+    then runLinuxCpuKernel env (linuxCpuFamilyRuntimeSource family) (linuxCpuFamilyHash family) input
+    else pure (Left ("linux-cpu oneDNN runtime unavailable: " <> renderOneDnnUnavailableSummary probe))
+
+renderOneDnnUnavailableSummary :: OneDnnRuntime.OneDnnRuntimeProbe -> Text
+renderOneDnnUnavailableSummary probe =
+  Text.intercalate
+    " "
+    [ "pkg_config=" <> fromMaybe "missing" (OneDnnRuntime.oneDnnRuntimePkgConfigName probe)
+    , "header=" <> fromMaybe "missing" (OneDnnRuntime.oneDnnRuntimeHeaderPath probe)
+    , "libdnnl=" <> renderBool (OneDnnRuntime.oneDnnRuntimeLibraryVisible probe)
+    ]
 
 runLinuxCpuCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
 runLinuxCpuCheckpointInference env manifest input =
@@ -203,7 +199,7 @@ runLinuxCpuWeightedCheckpointInference env manifest weights input = do
       -- no fallback graph on the supervised path. Weight-only manifests (no
       -- supervised runtime and no layer graph) take the MLP/kernel fallback.
       | Just _ <- architectureLayerGraph (manifestArchitecture manifest) ->
-          runSupervisedGraphDeviceInference env manifest weights input
+          runSupervisedGraphCheckpointInference manifest weights input
       | otherwise -> mlpFallback
  where
   mlpFallback = do
@@ -223,37 +219,6 @@ runLinuxCpuWeightedCheckpointInference env manifest weights input = do
             Left err -> Left err
             Right kernelRun ->
               Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
-
--- | Phase 240 — linux-cpu supervised-graph serving read path. Reload the single
--- trained 'LayerGraph' envelope from the checkpoint (reconstruct + inject the
--- persisted parameters), gate it with 'refineReloadedLayerGraph' so a tampered
--- or structurally malformed graph fails closed, then serve it through the PURE
--- reference executor 'RuntimeArtifact.executeSupervisedGraphRuntime' (which
--- applies the exact input transform, runs 'LayerGraph.runLayerGraph', and applies
--- the exact output transform, all OUTSIDE the graph). Serving is a
--- substrate-independent pure function of the checkpoint and input — bit-identical
--- to 'runSupervisedGraphCheckpointInference', which the linux-cuda and
--- apple-silicon engines share — so it no longer routes through the dense-only
--- oneDNN device forward. The graph is the sole topology and parameter owner;
--- there is no SupervisedRuntime executor and no fallback graph. Training stays on
--- the oneDNN device; only serving is pure.
-runSupervisedGraphDeviceInference
-  :: Env
-  -> CheckpointManifest
-  -> [LoadedWeightTensor]
-  -> [Double]
-  -> IO (Either Text [Double])
-runSupervisedGraphDeviceInference _env manifest weights input =
-  pure $
-    case reconstructSupervisedGraphFromCheckpoint manifest weights of
-      Left err -> Left err
-      Right (payload, reloadedGraph) ->
-        case refineReloadedLayerGraph reloadedGraph of
-          Left err -> Left ("reloaded supervised graph refinement failed: " <> err)
-          Right graph ->
-            fmap
-              VU.toList
-              (RuntimeArtifact.executeSupervisedGraphRuntime payload graph (VU.fromList input))
 
 -- | Flatten a list of `LoadedWeightTensor` into a row-major Float
 -- buffer suitable for the `jitml_weighted_kernel` ABI. Tensors are
@@ -301,11 +266,27 @@ runLinuxCpuWeightedFamilyKernel
   -> [Float]
   -> [Float]
   -> IO (Either Text LinuxCpuWeightedKernelRun)
-runLinuxCpuWeightedFamilyKernel env family =
-  runLinuxCpuWeightedKernel
-    env
-    (linuxCpuFamilyRuntimeSource family)
-    (linuxCpuFamilyHash family)
+runLinuxCpuWeightedFamilyKernel =
+  runLinuxCpuWeightedFamilyKernelWithProbe OneDnnRuntime.probeOneDnnRuntime
+
+runLinuxCpuWeightedFamilyKernelWithProbe
+  :: IO OneDnnRuntime.OneDnnRuntimeProbe
+  -> Env
+  -> KernelFamily
+  -> [Float]
+  -> [Float]
+  -> IO (Either Text LinuxCpuWeightedKernelRun)
+runLinuxCpuWeightedFamilyKernelWithProbe probeRuntime env family input weights = do
+  probe <- probeRuntime
+  if OneDnnRuntime.oneDnnRuntimeAvailable probe
+    then
+      runLinuxCpuWeightedKernel
+        env
+        (linuxCpuFamilyRuntimeSource family)
+        (linuxCpuFamilyHash family)
+        input
+        weights
+    else pure (Left ("linux-cpu oneDNN runtime unavailable: " <> renderOneDnnUnavailableSummary probe))
 
 -- | Generic weighted-kernel driver: ensure the artifact, look up the
 -- three core symbols + the new `jitml_weighted_kernel` symbol, marshal
@@ -343,78 +324,6 @@ runLinuxCpuWeightedKernel env source hash input weights = do
  where
   engine = engineForSubstrate LinuxCPU
 
-loadAndRun :: FilePath -> [Float] -> IO (Text, [Float])
-loadAndRun artifactPath input =
-  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
-    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
-      withKernelSymbol artifactPath "jitml_kernel" $ \kernelSymbol -> do
-        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
-        let kernel = mkKernelFunction kernelSymbol
-            outputCount = mkKernelOutputCountFunction outputCountSymbol
-            cInput = fmap CFloat input
-            inputCount = length input
-        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
-        output <-
-          withArray cInput $ \inputPtr ->
-            allocaArray outputLength $ \outputPtr -> do
-              kernel outputPtr inputPtr (fromIntegral inputCount)
-              fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
-        pure (reportedFamily, output)
-
--- | Sprint 13.11 — weighted variant of `loadAndRun`. Resolves the same
--- three metadata symbols, plus `jitml_weighted_kernel`, and threads the
--- input + weights buffers across the FFI.
-loadAndRunWeighted :: FilePath -> [Float] -> [Float] -> IO (Text, [Float])
-loadAndRunWeighted artifactPath input weights =
-  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
-    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
-      withKernelSymbol artifactPath "jitml_weighted_kernel" $ \kernelSymbol -> do
-        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
-        let kernel = mkWeightedKernelFunction kernelSymbol
-            outputCount = mkKernelOutputCountFunction outputCountSymbol
-            cInput = fmap CFloat input
-            cWeights = fmap CFloat weights
-            inputCount = length input
-            weightsCount = length weights
-        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
-        output <-
-          withArray cInput $ \inputPtr ->
-            withArray cWeights $ \weightsPtr ->
-              allocaArray outputLength $ \outputPtr -> do
-                kernel
-                  outputPtr
-                  inputPtr
-                  (fromIntegral inputCount)
-                  weightsPtr
-                  (fromIntegral weightsCount)
-                fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
-        pure (reportedFamily, output)
-
 linuxCpuIdentityKernel :: Cache.KernelSpec
 linuxCpuIdentityKernel =
   Cache.KernelSpec "jitml-linux-cpu:identity"
-
-linuxCpuToolchainFingerprint :: Cache.ToolchainFingerprint
-linuxCpuToolchainFingerprint =
-  Cache.ToolchainFingerprint
-    ( Text.intercalate
-        ";"
-        [ "g++-shared"
-        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "reduction-block=256"
-        , "abi=extern-c"
-        , "jitml_kernel(float*,const float*,size_t)"
-        , "jitml_kernel_family_name(void)"
-        , "jitml_kernel_output_count(size_t)"
-        , -- Sprint 13.11: weighted kernel ABI accepting a flat row-major
-          -- weights buffer alongside the input. Dense2D / Conv2D / Conv3D /
-          -- BatchNorm / LayerNorm / MHA / Embedding now drive real oneDNN
-          -- primitive paths (full set landed 2026-05-27). The fingerprint
-          -- entry below invalidates pre-13.11 cache entries; the
-          -- "all-families" tag bumps invalidation again when the per-
-          -- family bodies land so the cache picks up the real weighted
-          -- primitives instead of the prior unweighted fall-through.
-          "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
-        , "weighted-bodies=all-families"
-        ]
-    )

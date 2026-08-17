@@ -37,6 +37,8 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word8)
 import GHC.Generics (Generic)
 
+import JitML.Substrate (Substrate (..), renderSubstrate)
+
 newtype KernelSpec = KernelSpec
   { kernelSpecPayload :: Text
   }
@@ -46,13 +48,6 @@ newtype KernelSpec = KernelSpec
 data Kind
   = Training
   | Inference
-  deriving stock (Eq, Ord, Show, Generic)
-  deriving anyclass (Serialise)
-
-data Substrate
-  = AppleSilicon
-  | LinuxCPU
-  | LinuxCUDA
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (Serialise)
 
@@ -129,10 +124,10 @@ kindText :: Kind -> Text
 kindText Training = "training"
 kindText Inference = "inference"
 
+-- | The one substrate renderer (Sprint `78.1`). The cache key names a
+-- substrate exactly as the CLI and the cluster do.
 substrateText :: Substrate -> Text
-substrateText AppleSilicon = "apple-silicon"
-substrateText LinuxCPU = "linux-cpu"
-substrateText LinuxCUDA = "linux-cuda"
+substrateText = renderSubstrate
 
 extensionFileSuffix :: Extension -> Text
 extensionFileSuffix (Extension extension)
@@ -173,18 +168,6 @@ instance FromJSON Kind where
         "training" -> pure Training
         "inference" -> pure Inference
         _ -> fail ("unknown kernel kind: " <> Text.unpack value)
-
-instance ToJSON Substrate where
-  toJSON = String . substrateText
-
-instance FromJSON Substrate where
-  parseJSON =
-    withText "Substrate" $ \value ->
-      case value of
-        "apple-silicon" -> pure AppleSilicon
-        "linux-cpu" -> pure LinuxCPU
-        "linux-cuda" -> pure LinuxCUDA
-        _ -> fail ("unknown substrate: " <> Text.unpack value)
 
 instance ToJSON ToolchainFingerprint where
   toJSON = String . unToolchainFingerprint

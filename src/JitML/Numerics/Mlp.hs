@@ -169,7 +169,6 @@ mlpLayerGraph params = do
     mapLeft Text.unpack $
       LayerGraph.mkAffineLayer
         "mlp-hidden"
-        LayerGraph.DenseLayer
         (mlpInputs shape)
         (mlpHidden shape)
         LayerGraph.TanhActivation
@@ -182,7 +181,6 @@ mlpLayerGraph params = do
     mapLeft Text.unpack $
       LayerGraph.mkAffineLayer
         "mlp-output"
-        LayerGraph.DenseLayer
         (mlpHidden shape)
         (mlpOutputs shape)
         LayerGraph.LinearActivation

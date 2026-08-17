@@ -269,7 +269,15 @@ backwardKernels =
 forwardWrapper :: Text
 forwardWrapper =
   Text.unlines
-    [ "extern \"C\" void jitml_mlp_forward("
+    [ "// Sprint 229.1 — the artifact declares its own executed identity, so the"
+    , "// device-execution witness reads what ran instead of inferring it. The MLP"
+    , "// ABI has no per-family kernel; its identity is the shared MLP program tag,"
+    , "// which is the same string the Apple metadata's `family` field carries."
+    , "static const char *jitml_mlp_family = \"mlp-forward-backward-tanh-linear\";"
+    , ""
+    , "extern \"C\" const char *jitml_kernel_family_name(void) { return jitml_mlp_family; }"
+    , ""
+    , "extern \"C\" void jitml_mlp_forward("
     , "    float *hidden_pre, float *hidden_act, float *output,"
     , "    const float *input, const float *w1, const float *b1,"
     , "    const float *w2, const float *b2,"

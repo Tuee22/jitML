@@ -56,8 +56,8 @@ supervisedTrainingSeedTests =
         problem <- requireCanonicalProblem "mnist-shallow-mlp"
         let canonicalConfig = classifierConfig (SL.problemSeed problem)
             genericConfig = classifierConfig 1729
-            canonicalSpec = Architecture.architectureSpecForProblem canonicalConfig problem
-            genericSpec = Architecture.architectureSpecForProblem genericConfig problem
+            canonicalSpec = expectSpecRight (Architecture.architectureSpecForProblem canonicalConfig problem)
+            genericSpec = expectSpecRight (Architecture.architectureSpecForProblem genericConfig problem)
         assertBool
           "distinct exact execution seeds reused the same initialization graph"
           (Architecture.archLayerGraph canonicalSpec /= Architecture.archLayerGraph genericSpec)
@@ -156,3 +156,9 @@ requireProductRow identity =
   case find ((== identity) . Product.rowId) Product.allProductRows of
     Nothing -> assertFailure ("missing ProductRow " <> Text.unpack identity) >> fail "unreachable"
     Just row -> pure row
+
+-- | Unwrap a canonical row's architecture spec. Sprint `233.1` made the builder
+-- fail closed, and a canonical row that cannot be built is a test failure, not
+-- a spec to substitute for.
+expectSpecRight :: Either Text.Text a -> a
+expectSpecRight = either (Prelude.error . Text.unpack) id

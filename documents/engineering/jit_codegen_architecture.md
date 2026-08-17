@@ -18,14 +18,20 @@
 **Implemented today.** The supervised served path reconstructs the reloaded typed
 `LayerGraph` from checkpoint metadata and executes it directly through
 `LayerGraph.runLayerGraph` (Phases `237`–`239`); the V2 structural-operation ABI
-has been removed. The `LayerGraphOneDnn` device path evaluates one example at a
+has been removed. The `LayerGraphDevice` device path evaluates one example at a
 time.
 
-**`LayerGraphOneDnn` is the only layer-graph device path.** It pins the
-`linux-cpu` engine and cache, and the supervised training path routes any real
-substrate device to it, so `linux-cuda` and `apple-silicon` have no layer-graph
-device execution: they serve the typed graph through the pure host executor and
-train through these same oneDNN kernels. The per-substrate lowering is owned by
+**`LayerGraphDevice` is the one layer-graph device path, with a per-lane arm
+behind it.** Sprint `264.1` parameterised it on `Substrate`: a narrower
+`LayerTrainingBackend` (`OneDnnLayerTraining` / `CudaLayerTraining`) makes every
+function behind it total, and `layerTrainingBackendFor` is the single boundary
+where a substrate becomes a backend. `linux-cpu` renders oneDNN primitives and
+`linux-cuda` renders cuBLAS/cuDNN primitives, both splicing the same shared
+operator layer, so the two lanes cannot drift in operator semantics.
+`apple-silicon` has no layer-graph training kernel and therefore fails closed
+naming Sprint `269.1`, rather than silently executing the `linux-cpu` artifact
+and attributing the run to hardware that did not execute it. The per-substrate
+lowering is owned by
 Phase `79` (the substrate-generic seam),
 [Phase 264](../../DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md), and
 [Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md).
@@ -124,11 +130,25 @@ where:
   choices) plus the optimizer + loss when `kind = Training`.
 - `kind ∈ Training | Inference`.
 - `substrate ∈ apple-silicon | linux-cpu | linux-cuda`.
-- `toolchain-fingerprint` is the hash of the active codegen toolchain identity:
-  the GHC/cabal baseline and `cabal.project` toolchain comments, LLVM and oneDNN
-  package/runtime probes, Docker-pinned CUDA/NVCC/cuDNN package families, the
-  host OS Metal runtime plus fixed bridge ABI, and loader-relevant ABI facts for
-  local FFI paths.
+- `toolchain-fingerprint` is a rendering of `ToolchainFacts`
+  (`src/JitML/Engines/Fingerprint.hs`), and every field of it is *derived* from
+  the surface it describes rather than restated beside it: the compiler name,
+  its hash-free compile flags, and its link line come from
+  `Engine.engineCompiler` / `engineCompileFlags` / `engineLinkFlags` — the same
+  lists `compileSubprocess` passes, so a flag or link-line edit moves the
+  command and the fingerprint together; the determinism knobs come from
+  `deterministicFlags`; the ABI is a typed `AbiKind`, so the Metal bridge token
+  is interpolated from `metalBridgeAbiVersion` at every site by construction;
+  the numeric knobs come from the renderers' own constants
+  (`oneDnnFixedReductionBlock`, `threadgroupSizeFor`); the entry points come
+  from one shared list per ABI; and the emitter set comes from the vocabulary
+  the artifact covers (`kernelFamilies` for family kernels,
+  `allLayerKinds` for the layer-graph training kernel), so widening either
+  vocabulary invalidates the artifacts that execute it. `buildToolchainFingerprint`
+  is total over `Substrate` and equals the per-substrate family fingerprint, so
+  the build path and the benchmark-tuning candidate runners cannot key one
+  artifact two ways. Rendered kernel bodies are deliberately not restated here —
+  they already reach the key through `rendered-source-payload`.
 - `rendered-source-payload` is the canonical payload emitted by
   `renderRuntimeSource`.
 - `tuning-choice` is the selected `TuningChoice`.
@@ -184,6 +204,35 @@ live daemon extends that capability with real graph-kernel launch and
 parameter-commit effects. `EngineEnvelope` is already the local
 reproducibility witness surface; see
 [determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
+
+### One substrate profile
+
+Every fact that varies by substrate lives in one `SubstrateProfile` record with
+a single total `profileFor` (`src/JitML/Substrate.hs`) — backend name, artifact
+extension, determinism knobs, `KernelLaunch`, `ArtifactFill`, cluster-compute,
+edge port, and runtime class. `Engine.engineForSubstrate` and
+`deterministicFlags` are projections of it, so the engine record cannot
+disagree with the profile, and `profileFor` has one equation per constructor
+with no wildcard, so a fourth substrate is a build failure rather than a silent
+default.
+
+Two of those fields replace branches that used to sit inside otherwise-generic
+code. `ArtifactFill` decides whether a cache miss runs the typed compile
+`Subprocess` or writes `<hash>.metal.json` in-process, so
+`Loader.ensureKernelArtifact` dispatches on a value instead of a wildcard over
+`Substrate`. `KernelLaunch` decides whether a kernel is entered by `dlopen` /
+`dlsym` or through the fixed Metal bridge; `MlpBackendSpec` carries it, and
+`Loader.executedArtifactIdentity` uses it to ask an artifact what it actually
+implements — reading `jitml_kernel_family_name` out of a loaded object, or the
+`family` field out of the written Metal source metadata. That read is what makes
+the engine-boundary family check evidence rather than a tautology: the Apple
+family driver previously reported the family the host had *requested*, so the
+comparison could never reject anything.
+
+The `dlopen`/`dlsym` half of the ABI — the FFI type aliases, the dynamic
+imports, and the `loadAndRun` / `loadAndRunWeighted` helpers — is owned once by
+`JitML.Engines.LoadableKernel` and shared by every substrate whose profile
+carries `LoadableSymbolLaunch`.
 
 ### Supervised serving through the trained graph
 
@@ -248,9 +297,10 @@ scaffolding modules.
   renderer — they render an identity matmul and a reorder respectively, pending the
   QKV tensor and table-index ABIs, as their generated source states while checking that the loaded artifact reports the
   expected family and output length. Its local toolchain fingerprint includes
-  `artifact-abi=<os>-<arch>` and `reduction-block=256` so host-native Darwin
-  builds, Linux container builds, and fixed reduction-block changes do not
-  collide in the shared `.build/jit/linux-cpu/` cache.
+  `artifact-abi=<os>-<arch>` and the `reduction-block=` knob read off
+  `oneDnnFixedReductionBlock` so host-native Darwin builds, Linux container
+  builds, and fixed reduction-block changes do not collide in the shared
+  `.build/jit/linux-cpu/` cache.
 - `src/JitML/Engines/HasEngine.hs` wraps the generated-family Linux CPU runner
   in the local `HasEngine` capability, preserving the family metadata check at
   the engine boundary.
@@ -258,7 +308,7 @@ scaffolding modules.
   same cache and loader path. `renderOneDnnLayerTrainingSource` emits
   `jitml_layer_forward`, `jitml_layer_backward_data`, and
   `jitml_layer_backward_weights` plus primitive-name evidence functions.
-  `JitML.Numerics.LayerGraphOneDnn` resolves those symbols with
+  `JitML.Numerics.LayerGraphDevice` resolves those symbols with
   `withKernelSymbol`, dispatches parameterized `LayerGraph` nodes to oneDNN, and
   returns per-node evidence naming the backend, artifact, and primitive. Dense
   and other affine graph nodes execute oneDNN matmul; `Conv2D` and `Conv3D`
@@ -280,6 +330,27 @@ scaffolding modules.
   execution path, which is why the absence of a layer-graph device path on
   `linux-cuda` and `apple-silicon` is a tracked defect rather than a design choice
   (see [Current Status](#current-status)).
+- That per-operator dispatch is a **total lowering**. `LayerGraphDevice.lowerLayerOp`
+  maps every declared `LayerOp` onto the closed primitive set
+  `LowerDenseAffine | LowerSpatialConv | LowerBlockComposition | LowerOpTrain`,
+  with no wildcard arm: a twelfth operator is a compile error under
+  `-Werror=incomplete-patterns` rather than a silent host fallback. Three
+  consequences of totality are visible on the lane. A real three-dimensional
+  `ConvOp` executes `jitml_conv3d_spatial_{forward,backward_data,backward_weights}`
+  (`ncdhw`/`oidhw`) instead of failing closed. `PoolOp` runs the `dnnl` pooling
+  primitive whose algorithm is its own `PoolSpec` — max,
+  average-excluding-padding, or average-including-padding, with global average
+  pooling the exclude-padding case over the full spatial extent — so its
+  gradient routing is device work rather than oracle work. `IdentityOp` and
+  `DropoutOp` lower to one scale kernel (identity is the unit scale, dropout's
+  scale is the shared `dropoutScale`), so "no trainable parameters" no longer
+  means "not executed": every node emits device evidence naming the primitive
+  the artifact reports.
+- `jitml_op_train` returns an executed-opcode status rather than `void`. An
+  unrecognised opcode previously fell through a `default: break`, leaving the
+  caller's output and gradient buffers untouched — indistinguishable from a
+  kernel that ran and produced zeros. The host now reads the status and fails
+  closed with a typed error naming the opcode.
 - `src/JitML/Service/Runtime.hs` exposes
   `daemonWorkloadDispatcherWithInference`; the `jitml service` entrypoint
   selects the Linux CPU generated-kernel checkpoint runner for
@@ -297,10 +368,11 @@ scaffolding modules.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
 - The local Linux CPU `ToolchainFingerprint` includes the host artifact ABI
-  (`artifact-abi=<os>-<arch>`) and fixed reduction block
-  (`reduction-block=256`) because the same repository `.build/` tree can be
-  mounted by both the host and `jitml:local`, and reduction-block changes alter
-  deterministic kernel semantics.
+  (`artifact-abi=<os>-<arch>`) and the fixed reduction block read off
+  `JitML.Codegen.OneDnn.oneDnnFixedReductionBlock` — the same constant the
+  renderer emits into the generated source — because the same repository
+  `.build/` tree can be mounted by both the host and `jitml:local`, and
+  reduction-block changes alter deterministic kernel semantics.
 - The current local engine envelope names the `.so` artifact path and compile
   command. The local Linux CPU ABI includes
   `jitml_kernel(float*, const float*, size_t)` and
@@ -313,17 +385,23 @@ scaffolding modules.
 - `src/JitML/Codegen/Cuda.hs` renders the generated CUDA compiler input under
   `./.build/jit-src/linux-cuda/<hash>/`.
 - NVCC is invoked through the typed `Subprocess` boundary against the generated
-  directory with the doctrine-pinned `--use_fast_math=false` and baseline
-  `sm_70`.
+  directory with the doctrine-pinned determinism flags and baseline `sm_70`.
+  Fast math is disabled by **omission** — `--use_fast_math` is never passed,
+  because modern nvcc rejects the `=false` spelling — and `--fmad=false` is
+  passed explicitly to suppress FMA contraction.
 - The produced `.so` is written atomically to
   `./.build/jit/linux-cuda/<hash>.so`.
-- The generated reduction kernel uses warp-shuffle reduction and writes one
-  deterministic partial per warp; it does not use device-side `atomicAdd`.
+- The generated **family** reduction kernel uses warp-shuffle reduction and
+  writes one deterministic partial per warp; it does not use device-side
+  `atomicAdd`. The trainer MLP kernel does not use this pattern — see the MLP
+  seam below.
   `src/JitML/Engines/CudaRuntime.hs` mirrors the generated block/warp geometry,
   computes the expected partial count, validates the partial vector length, and
   folds those partials in canonical index order.
-- cuBLAS / cuDNN are pinned to deterministic algorithm selections via
-  `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning.
+- Where cuBLAS / cuDNN are called — the family kernels and the Sprint `264.1`
+  layer-graph arm — they are pinned to deterministic algorithm selections via
+  `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning. The trainer
+  MLP kernel calls neither.
 - `src/JitML/Engines/Rng.hs` implements the host SplitMix64 stream. Generated
   CUDA source records `host-splitmix64-no-curand`, so the no-curand RNG policy
   is part of the rendered source payload and cache key.
@@ -371,7 +449,7 @@ scaffolding modules.
   family/output-count symbols as the Linux CPU local runner. It fails closed
   before compile when the CUDA runtime probe is unavailable.
 - The CUDA compile plan renders the typed
-  `nvcc --shared --compiler-options=-fPIC --use_fast_math=false -arch=sm_70
+  `nvcc --shared --compiler-options=-fPIC --fmad=false -arch=sm_70
   -DJITML_USE_CUBLAS=1 -DJITML_USE_CUDNN=1 -o <artifact> <generated>/kernel.cu
   -lcudart -lcublas -lcudnn` command so the produced `.so` carries DT_NEEDED
   entries for the CUDA runtime, cuBLAS, and cuDNN; the dynamic linker
@@ -602,7 +680,8 @@ current primitive fixtures and wiring measured-choice selection more deeply into
 first-cache-miss execution.
 
 The cuDNN algorithm-id selection is restricted to the deterministic-only set.
-The `--use_fast_math=false` invariant is preserved.
+The no-fast-math invariant is preserved by omitting `--use_fast_math`, and
+`--fmad=false` is passed explicitly.
 
 ## FFI Boundary
 

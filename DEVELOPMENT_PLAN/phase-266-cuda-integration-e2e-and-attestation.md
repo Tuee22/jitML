@@ -9,11 +9,18 @@
 
 ## Phase State
 
-✅ **Done**.
+⏸️ **Blocked** (reopened 2026-08-16 under standards rule `C`). This phase attests
+a row-complete `linux-cuda` lane, and its own `### Historical Validation` already
+records the `55 / 55` and `71 / 71` counts as **withdrawn**. The 2026-08-16
+measured lane run reported `rows: 55`, `eligible: 50`, `unsupported: 0`,
+`errors: 5`, so the lane is not row-complete and this phase cannot hold `Done`
+on that obligation. The 2026-07-10 evidence remains historical evidence for the
+surface it exercised.
 
-## Sprint 266.1: CUDA Integration, E2E, and Attestation [✅ Done]
+## Sprint 266.1: CUDA Integration, E2E, and Attestation [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Sprint `265.1`
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 

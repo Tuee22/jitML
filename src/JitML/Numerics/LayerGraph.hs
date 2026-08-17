@@ -39,6 +39,16 @@ module JitML.Numerics.LayerGraph
   , layerKindName
   , allLayerKinds
 
+    -- * One operator vocabulary (Sprint 72.1)
+  , opKind
+  , opLayer
+  , layerOpName
+  , layerOpTemplate
+  , layerKindWitnessOp
+  , poolKindOf
+  , normKindOf
+  , blockIsBottleneck
+
     -- * Operator geometry (Tier-2 specs)
   , ConvSpec (..)
   , SpatialShape (..)
@@ -55,10 +65,12 @@ module JitML.Numerics.LayerGraph
   , PatchSpec (..)
   , LayerOp (..)
   , convOutDim
+  , dropoutScale
 
     -- * Parameters, nodes, graph
   , LayerParameters (..)
   , LayerNode (..)
+  , layerNodeKind
   , LayerGraph (..)
   , LayerForward (..)
   , LayerGraphTape (..)
@@ -125,6 +137,8 @@ import Data.Vector.Unboxed.Mutable qualified as VUM
 import GHC.Generics (Generic)
 import System.Random qualified as Random
 
+import JitML.Numerics.Catalog qualified as Catalog
+
 -- ---------------------------------------------------------------------------
 -- Shapes
 -- ---------------------------------------------------------------------------
@@ -173,8 +187,10 @@ data NormKind
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
--- | Stable node identity tag. The real per-node geometry lives in 'LayerOp';
--- this enum remains the checkpoint-metadata / oneDNN switch key.
+-- | Stable node identity tag, /derived/ from the node's 'LayerOp' by 'opKind'
+-- (Sprint `72.1`). It is never stored beside the operator, so a node cannot
+-- claim a kind it did not execute. The real per-node geometry lives in
+-- 'LayerOp'; this enum remains the checkpoint-metadata / oneDNN switch key.
 data LayerKind
   = DenseLayer
   | Conv2DLayer
@@ -188,6 +204,7 @@ data LayerKind
   | MultiHeadAttentionLayer Int
   | GeGLULayer
   | PatchEmbedLayer
+  | IdentityLayer
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (Serialise)
 
@@ -208,10 +225,12 @@ layerKindName (BottleneckBlockLayer _) = "BottleneckBlock"
 layerKindName (MultiHeadAttentionLayer heads) = "MultiHeadAttention(" <> Text.pack (show heads) <> ")"
 layerKindName GeGLULayer = "GeGLU"
 layerKindName PatchEmbedLayer = "PatchEmbed"
+layerKindName IdentityLayer = "Identity"
 
 allLayerKinds :: [LayerKind]
 allLayerKinds =
   [ DenseLayer
+  , IdentityLayer
   , Conv2DLayer
   , Conv3DLayer
   , PoolLayer MaxPool
@@ -228,6 +247,190 @@ allLayerKinds =
   , GeGLULayer
   , PatchEmbedLayer
   ]
+
+-- ---------------------------------------------------------------------------
+-- One operator vocabulary (Sprint 72.1)
+--
+-- 'LayerOp' is the single root. The node identity tag ('LayerKind') and the
+-- catalog / Dhall surface ('Catalog.Layer') are both /derived/ from it by the
+-- total functions below, so a constructor cannot exist in one vocabulary and
+-- not the others: adding a 'LayerOp' constructor fails
+-- @-Werror=incomplete-patterns@ in both 'opKind' and 'opLayer', and adding a
+-- 'Catalog.Layer' constructor fails it in 'layerOpTemplate'.
+-- ---------------------------------------------------------------------------
+
+-- | The node identity tag implied by an executed operator.
+opKind :: LayerOp -> LayerKind
+opKind op =
+  case op of
+    DenseOp -> DenseLayer
+    IdentityOp -> IdentityLayer
+    DropoutOp rate -> DropoutLayer rate
+    ConvOp spec ->
+      if length (convInputDims spec) == 3 then Conv3DLayer else Conv2DLayer
+    PoolOp _ poolSpec -> PoolLayer (poolKindOf poolSpec)
+    NormOp spec -> normKindOf spec
+    AttentionOp spec -> MultiHeadAttentionLayer (attnNumHeads spec)
+    GeGLUOp _ -> GeGLULayer
+    PatchOp _ -> PatchEmbedLayer
+    ResidualOp _ _ scale _ -> ResidualLayer scale
+    BlockOp spec ->
+      if blockIsBottleneck spec
+        then BottleneckBlockLayer (blScale spec)
+        else BasicBlockLayer (blScale spec)
+
+-- | The catalog constructor an executed operator belongs to.
+opLayer :: LayerOp -> Catalog.Layer
+opLayer op =
+  case op of
+    DenseOp -> Catalog.Dense
+    IdentityOp -> Catalog.Identity
+    DropoutOp _ -> Catalog.Dropout
+    ConvOp _ -> Catalog.Convolution
+    PoolOp _ _ -> Catalog.Pooling
+    NormOp _ -> Catalog.Normalization
+    AttentionOp _ -> Catalog.MultiHeadAttention
+    GeGLUOp _ -> Catalog.GeGLU
+    PatchOp _ -> Catalog.PatchEmbedding
+    ResidualOp {} -> Catalog.Residual
+    BlockOp _ -> Catalog.ResidualBlock
+
+-- | The constructor name of an executed operator, and therefore the Dhall union
+-- alternative that describes it (Sprint `77.1`). Total over 'LayerOp', so a new
+-- constructor fails @-Werror=incomplete-patterns@ here exactly as it does in
+-- 'opKind' and 'opLayer', and the parameterised Dhall vocabulary in
+-- @JitML.Numerics.LayerDhall@ cannot fall behind the executed operator set.
+layerOpName :: LayerOp -> Text
+layerOpName op =
+  case op of
+    DenseOp -> "DenseOp"
+    IdentityOp -> "IdentityOp"
+    DropoutOp _ -> "DropoutOp"
+    ConvOp _ -> "ConvOp"
+    PoolOp _ _ -> "PoolOp"
+    NormOp _ -> "NormOp"
+    AttentionOp _ -> "AttentionOp"
+    GeGLUOp _ -> "GeGLUOp"
+    PatchOp _ -> "PatchOp"
+    ResidualOp {} -> "ResidualOp"
+    BlockOp _ -> "BlockOp"
+
+-- | A minimal well-formed operator for each catalog constructor. Total over
+-- 'Catalog.Layer', so the catalog cannot name a layer the IR cannot build;
+-- @opLayer . layerOpTemplate@ is the identity on 'Catalog.layerCatalog'.
+layerOpTemplate :: Catalog.Layer -> LayerOp
+layerOpTemplate layer =
+  case layer of
+    Catalog.Dense -> DenseOp
+    Catalog.Identity -> IdentityOp
+    Catalog.Dropout -> DropoutOp 0.1
+    Catalog.Convolution -> ConvOp templateConvSpec
+    Catalog.Pooling -> PoolOp (SpatialShape 1 2 2) PoolGlobal
+    Catalog.Normalization -> NormOp (NormSpec NormLayerWise 2 1 1.0e-5)
+    Catalog.MultiHeadAttention -> AttentionOp (AttentionSpec 2 2 1 False)
+    Catalog.GeGLU -> GeGLUOp (GeGLUSpec 2 2 2)
+    Catalog.PatchEmbedding -> PatchOp (PatchSpec 1 2 2 2 2 2)
+    Catalog.Residual ->
+      ResidualOp (AffineSpec 2 2) IdentityShortcut 1.0 LinearActivation
+    Catalog.ResidualBlock ->
+      BlockOp
+        ( BlockSpec
+            [ BlockStage (AffineSpec 2 2) Nothing ReluActivation
+            , BlockStage (AffineSpec 2 2) Nothing ReluActivation
+            ]
+            IdentityShortcut
+            1.0
+            ReluActivation
+        )
+
+templateConvSpec :: ConvSpec
+templateConvSpec = spatialConvSpec [2, 2]
+
+spatialConvSpec :: [Int] -> ConvSpec
+spatialConvSpec dims =
+  ConvSpec
+    { convIn = 1
+    , convOut = 1
+    , convInputDims = dims
+    , convKernelDims = fmap (const 1) dims
+    , convStride = fmap (const 1) dims
+    , convPadding = fmap (const 0) dims
+    }
+
+-- | An operator that executes the given kind, preserving the kind's payload.
+-- Total over 'LayerKind', so a kind cannot exist without an operator that
+-- produces it; @'opKind' . 'layerKindWitnessOp'@ is the identity, asserted over
+-- 'allLayerKinds' in the unit lane.
+layerKindWitnessOp :: LayerKind -> LayerOp
+layerKindWitnessOp kind =
+  case kind of
+    DenseLayer -> DenseOp
+    IdentityLayer -> IdentityOp
+    Conv2DLayer -> ConvOp (spatialConvSpec [2, 2])
+    Conv3DLayer -> ConvOp (spatialConvSpec [2, 2, 2])
+    PoolLayer MaxPool -> PoolOp witnessSpatialShape (PoolMax witnessPoolWindow)
+    PoolLayer AvgPool -> PoolOp witnessSpatialShape (PoolAvg witnessPoolWindow)
+    PoolLayer GlobalAvgPool -> PoolOp witnessSpatialShape PoolGlobal
+    NormLayer BatchNorm -> NormOp (NormSpec NormBatch 2 1 witnessEps)
+    NormLayer LayerNorm -> NormOp (NormSpec NormLayerWise 2 1 witnessEps)
+    NormLayer (GroupNorm groups) ->
+      NormOp (NormSpec (NormGroup groups) (2 * max 1 groups) 1 witnessEps)
+    DropoutLayer rate -> DropoutOp rate
+    ResidualLayer scale ->
+      ResidualOp (AffineSpec 2 2) IdentityShortcut scale LinearActivation
+    BasicBlockLayer scale -> BlockOp (witnessBlockSpec False scale)
+    BottleneckBlockLayer scale -> BlockOp (witnessBlockSpec True scale)
+    MultiHeadAttentionLayer heads ->
+      AttentionOp (AttentionSpec 2 (2 * max 1 heads) (max 1 heads) False)
+    GeGLULayer -> GeGLUOp (GeGLUSpec 2 2 2)
+    PatchEmbedLayer -> PatchOp (PatchSpec 1 2 2 2 2 2)
+
+witnessSpatialShape :: SpatialShape
+witnessSpatialShape = SpatialShape 1 2 2
+
+witnessPoolWindow :: PoolWindow
+witnessPoolWindow = PoolWindow 2 2 1 1 0 0 False
+
+witnessEps :: Double
+witnessEps = 1.0e-5
+
+witnessBlockSpec :: Bool -> Double -> BlockSpec
+witnessBlockSpec bottleneck scale =
+  BlockSpec
+    (if bottleneck then bottleneckStages else basicStages)
+    IdentityShortcut
+    scale
+    ReluActivation
+ where
+  basicStages =
+    [ BlockStage (AffineSpec 4 4) Nothing ReluActivation
+    , BlockStage (AffineSpec 4 4) Nothing ReluActivation
+    ]
+  bottleneckStages =
+    [ BlockStage (AffineSpec 4 2) Nothing ReluActivation
+    , BlockStage (AffineSpec 2 4) Nothing ReluActivation
+    ]
+
+-- | The pooling tag implied by a pooling spec.
+poolKindOf :: PoolSpec -> PoolKind
+poolKindOf spec =
+  case spec of
+    PoolMax _ -> MaxPool
+    PoolAvg _ -> AvgPool
+    PoolGlobal -> GlobalAvgPool
+
+-- | A residual block is a bottleneck when it narrows internally — some stage
+-- produces fewer features than the block's input width — which is exactly the
+-- ResNet bottleneck topology. A basic block keeps the width across every
+-- stage. The distinction is therefore read off the executed 'BlockSpec' rather
+-- than supplied beside it.
+blockIsBottleneck :: BlockSpec -> Bool
+blockIsBottleneck spec =
+  case blStages spec of
+    [] -> False
+    (firstStage : _) ->
+      let inputWidth = asIn (bsAffine firstStage)
+       in any (\stage -> asOut (bsAffine stage) < inputWidth) (blStages spec)
 
 -- ---------------------------------------------------------------------------
 -- Operator geometry (Tier-2 specs). Specs carry dimensions only; the parameter
@@ -395,7 +598,6 @@ data LayerParameters = LayerParameters
 
 data LayerNode = LayerNode
   { layerNodeName :: !Text
-  , layerNodeKind :: !LayerKind
   , layerNodeOp :: !LayerOp
   , layerInputShape :: !TensorShape
   , layerOutputShape :: !TensorShape
@@ -404,6 +606,12 @@ data LayerNode = LayerNode
   , layerParameters :: !(Maybe LayerParameters)
   }
   deriving stock (Eq, Show)
+
+-- | The node's identity tag, derived from the operator it executes. Sprint
+-- `72.1` replaced the stored @layerNodeKind@ field with this projection, so a
+-- node can no longer claim a kind it did not run.
+layerNodeKind :: LayerNode -> LayerKind
+layerNodeKind = opKind . layerNodeOp
 
 data LayerGraph = LayerGraph
   { layerGraphName :: !Text
@@ -579,7 +787,14 @@ weightPlan op =
       (asOut inner * asIn inner, asIn inner, asOut inner, False) : shortcutWeightPlan sc
     BlockOp b ->
       concatMap stageWeightPlan (blStages b) <> shortcutWeightPlan (blShortcut b)
-    _ -> []
+    -- Sprint `233.1` — the operators that genuinely carry no weight tensor of
+    -- their own, named explicitly. The former `_ -> []` wildcard gave a NEW
+    -- operator zero trainable parameters silently: it would appear in the graph,
+    -- execute, and train nothing.
+    DenseOp -> [] -- filled at construction from the node's declared widths
+    IdentityOp -> []
+    DropoutOp _ -> []
+    PoolOp _ _ -> []
  where
   stageWeightPlan st =
     let a = bsAffine st
@@ -604,7 +819,6 @@ validatePositive label value
 
 nodeWith
   :: Text
-  -> LayerKind
   -> LayerOp
   -> TensorShape
   -> TensorShape
@@ -612,10 +826,9 @@ nodeWith
   -> LayerActivation
   -> Maybe LayerParameters
   -> LayerNode
-nodeWith name kind op inShape outShape mode act params =
+nodeWith name op inShape outShape mode act params =
   LayerNode
     { layerNodeName = name
-    , layerNodeKind = kind
     , layerNodeOp = op
     , layerInputShape = inShape
     , layerOutputShape = outShape
@@ -646,18 +859,17 @@ checkParams name op params = do
           <> tshow (VU.length (layerBias params))
       )
 
--- | Tier-1 dense affine node. The @kind@ tag is stored for serialization
--- identity; the executed operator is always a plain affine ('DenseOp').
+-- | Tier-1 dense affine node. The executed operator is a plain affine
+-- ('DenseOp'), and the node's kind is derived from it by 'opKind'.
 mkAffineLayer
   :: Text
-  -> LayerKind
   -> Int
   -> Int
   -> LayerActivation
   -> LayerMode
   -> LayerParameters
   -> Either Text LayerNode
-mkAffineLayer name kind inputWidth outputWidth activation mode params = do
+mkAffineLayer name inputWidth outputWidth activation mode params = do
   validatePositive "inputWidth" inputWidth
   validatePositive "outputWidth" outputWidth
   let expectedWeights = inputWidth * outputWidth
@@ -680,7 +892,6 @@ mkAffineLayer name kind inputWidth outputWidth activation mode params = do
   pure
     ( nodeWith
         name
-        kind
         DenseOp
         (TensorShape [inputWidth])
         (TensorShape [outputWidth])
@@ -690,13 +901,12 @@ mkAffineLayer name kind inputWidth outputWidth activation mode params = do
     )
 
 -- | Tier-1 parameterless identity passthrough.
-mkIdentityLayer :: Text -> LayerKind -> Int -> LayerMode -> Either Text LayerNode
-mkIdentityLayer name kind width mode = do
+mkIdentityLayer :: Text -> Int -> LayerMode -> Either Text LayerNode
+mkIdentityLayer name width mode = do
   validatePositive "width" width
   pure
     ( nodeWith
         name
-        kind
         IdentityOp
         (TensorShape [width])
         (TensorShape [width])
@@ -712,7 +922,6 @@ mkDropoutLayer name rate width mode = do
   pure
     ( nodeWith
         name
-        (DropoutLayer rate)
         (DropoutOp rate)
         (TensorShape [width])
         (TensorShape [width])
@@ -728,23 +937,22 @@ convOutDim n k st pd = (n + 2 * pd - k) `div` st + 1
 -- @[C_out, C_in, Kh, Kw]@; bias @[C_out]@; output @[C_out, H_out, W_out]@.
 mkConvLayer
   :: Text -> ConvSpec -> LayerActivation -> LayerMode -> LayerParameters -> Either Text LayerNode
-mkConvLayer name = mkConvGeneric name Conv2DLayer 2
+mkConvLayer name = mkConvGeneric name 2
 
 -- | 3-D convolution node. Input @[C_in, D, H, W]@; kernel @[C_out, C_in, Kd, Kh, Kw]@.
 mkConv3DLayer
   :: Text -> ConvSpec -> LayerActivation -> LayerMode -> LayerParameters -> Either Text LayerNode
-mkConv3DLayer name = mkConvGeneric name Conv3DLayer 3
+mkConv3DLayer name = mkConvGeneric name 3
 
 mkConvGeneric
   :: Text
-  -> LayerKind
   -> Int
   -> ConvSpec
   -> LayerActivation
   -> LayerMode
   -> LayerParameters
   -> Either Text LayerNode
-mkConvGeneric name kind nd spec activation mode params = do
+mkConvGeneric name nd spec activation mode params = do
   unless (length (convInputDims spec) == nd) $
     Left (name <> ": convInputDims must have " <> tshow nd <> " entries")
   unless (length (convKernelDims spec) == nd) $
@@ -764,7 +972,6 @@ mkConvGeneric name kind nd spec activation mode params = do
   pure
     ( nodeWith
         name
-        kind
         op
         (TensorShape (convIn spec : convInputDims spec))
         (TensorShape (convOut spec : outDims))
@@ -779,15 +986,14 @@ mkPoolLayer name sp poolSpec mode = do
   validatePositive "channels" (spC sp)
   validatePositive "height" (spH sp)
   validatePositive "width" (spW sp)
-  (kind, outShape) <-
+  outShape <-
     case poolSpec of
-      PoolGlobal -> Right (PoolLayer GlobalAvgPool, TensorShape [spC sp])
-      PoolMax win -> poolShape MaxPool win
-      PoolAvg win -> poolShape AvgPool win
+      PoolGlobal -> Right (TensorShape [spC sp])
+      PoolMax win -> poolShape win
+      PoolAvg win -> poolShape win
   pure
     ( nodeWith
         name
-        kind
         (PoolOp sp poolSpec)
         (TensorShape [spC sp, spH sp, spW sp])
         outShape
@@ -796,11 +1002,11 @@ mkPoolLayer name sp poolSpec mode = do
         Nothing
     )
  where
-  poolShape pk win =
+  poolShape win =
     let hO = convOutDim (spH sp) (pwKh win) (pwSh win) (pwPh win)
         wO = convOutDim (spW sp) (pwKw win) (pwSw win) (pwPw win)
      in if hO > 0 && wO > 0
-          then Right (PoolLayer pk, TensorShape [spC sp, hO, wO])
+          then Right (TensorShape [spC sp, hO, wO])
           else Left (name <> ": pooling output must be positive")
 
 -- | Normalization node (Batch / Layer / Group). gamma/beta per channel.
@@ -814,8 +1020,7 @@ mkNormLayer name spec mode params = do
       when (nChannels spec `mod` g /= 0) $
         Left (name <> ": channels " <> tshow (nChannels spec) <> " not divisible by groups " <> tshow g)
     _ -> Right ()
-  let kind = normKindOf spec
-      op = NormOp spec
+  let op = NormOp spec
       -- For 'NormBatch', @nSpatial@ is the batch size, so the flat width is
       -- @batch * channels@ (sample-major); for Layer/Group it is the spatial
       -- extent per channel.
@@ -824,7 +1029,6 @@ mkNormLayer name spec mode params = do
   pure
     ( nodeWith
         name
-        kind
         op
         (TensorShape [width])
         (TensorShape [width])
@@ -861,7 +1065,6 @@ mkAttentionLayer name spec mode params = do
   pure
     ( nodeWith
         name
-        (MultiHeadAttentionLayer (attnNumHeads spec))
         op
         (TensorShape [width])
         (TensorShape [width])
@@ -881,7 +1084,6 @@ mkGeGLULayer name spec mode params = do
   pure
     ( nodeWith
         name
-        GeGLULayer
         op
         (TensorShape [ggIn spec])
         (TensorShape [ggOut spec])
@@ -908,7 +1110,6 @@ mkPatchEmbedLayer name spec mode params = do
   pure
     ( nodeWith
         name
-        PatchEmbedLayer
         op
         (TensorShape [peC spec, peH spec, peW spec])
         (TensorShape [n, peD spec])
@@ -937,7 +1138,6 @@ mkResidualNode name inner shortcut scale innerAct finalAct mode params = do
   pure
     ( nodeWith
         name
-        (ResidualLayer scale)
         op
         (TensorShape [asIn inner])
         (TensorShape [dOut])
@@ -974,17 +1174,25 @@ residualOutWidth name inner shortcut =
                 <> ")"
             )
 
--- | Basic residual block (two affine→norm stages with a skip).
+-- | Basic residual block (width-preserving affine→norm stages with a skip).
+-- The requested variant must match the spec's topology, because the node's
+-- kind is derived from that topology by 'opKind'.
 mkBasicBlock :: Text -> BlockSpec -> LayerMode -> LayerParameters -> Either Text LayerNode
-mkBasicBlock = mkBlockNode BasicBlockLayer
+mkBasicBlock name spec mode params = do
+  when (blockIsBottleneck spec) $
+    Left (name <> ": basic block must not narrow internally; use mkBottleneck")
+  mkBlockNode name spec mode params
 
--- | Bottleneck residual block (three affine→norm stages with a reduced middle).
+-- | Bottleneck residual block (affine→norm stages with a reduced middle).
 mkBottleneck :: Text -> BlockSpec -> LayerMode -> LayerParameters -> Either Text LayerNode
-mkBottleneck = mkBlockNode BottleneckBlockLayer
+mkBottleneck name spec mode params = do
+  unless (blockIsBottleneck spec) $
+    Left (name <> ": bottleneck block must narrow internally; use mkBasicBlock")
+  mkBlockNode name spec mode params
 
 mkBlockNode
-  :: (Double -> LayerKind) -> Text -> BlockSpec -> LayerMode -> LayerParameters -> Either Text LayerNode
-mkBlockNode mkKind name spec mode params = do
+  :: Text -> BlockSpec -> LayerMode -> LayerParameters -> Either Text LayerNode
+mkBlockNode name spec mode params = do
   when (null (blStages spec)) $ Left (name <> ": block must have at least one stage")
   dIn <- case blStages spec of
     (st : _) -> Right (asIn (bsAffine st))
@@ -996,7 +1204,6 @@ mkBlockNode mkKind name spec mode params = do
   pure
     ( nodeWith
         name
-        (mkKind (blScale spec))
         op
         (TensorShape [dIn])
         (TensorShape [dOut])
@@ -1509,7 +1716,7 @@ trainLayerGraphClassifierEpochPure classes batchSize learningRate st0 dataset =
 -- 'LayerGraph' through the CPU reverse-mode autodiff
 -- ('layerGraphClassifierCrossEntropyGradient' / 'backwardLayerGraph'). This is
 -- the pure-reference counterpart of the oneDNN device trainer
--- @JitML.Numerics.LayerGraphOneDnn.trainLayerGraphClassifierOneDnn@ used by
+-- @JitML.Numerics.LayerGraphDevice.trainLayerGraphClassifierDevice@ used by
 -- explicitly pure callers (the offline hyperparameter-tuning objective, which is
 -- referentially transparent): it performs no IO and no JIT. The Adam schedule
 -- (shared 'graphAdamBatchStep', moments threaded across every mini-batch of every

@@ -33,12 +33,15 @@ The result is:
 
 ## Current Status
 
-As of 2026-08-10, Phases `42`, `53`, and `69` are Done with the one-worker
+As of 2026-08-16, Phases `42`, `53`, and `69` are Done with the one-worker
 cluster, clean single-instance platform rollout, and profile-driven Engine
-count. Phase `262` is Active. The exact open chain is
-`262 → 263 → 268 → 272 → 275 → 277 → 279 → 280
+count. Phase `263` closed `Done` on 2026-08-16 once the committed `linux-cpu`
+lane fragment was confirmed by a run that read it after issuance, so Phase `265`
+is the first executable owner. The exact open chain is
+`265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280
 → 281 → 284 → 287 → 288`; intervening Done phases retain their completed
-non-topology surfaces.
+non-topology surfaces. The `apple-silicon` phases `269`, `270`, and `272` close
+on the Mac host under standards rule `M(d)`.
 
 The current worktree renders the one-worker local Kind cluster,
 single-instance platform services, and one profile-driven Linux Engine.
@@ -142,9 +145,14 @@ The remediation phases follow the single-accelerator rule. Phases `19`–`28` ar
 committed per-lane evidence. No phase requires switching between Apple and CUDA
 hardware during validation.
 
-**Exit Definition obligation #29 (STRICT, every-row), owned by Phase `29`.**
-Every one of the 55 product rows' `linux-cuda` wall-clock is strictly less than
-its `linux-cpu` wall-clock, with no per-row exemptions — enforced by persistent
+**Exit Definition obligation #29 (STRICT, every-row), owned by Phase `29` — not
+met.** The target is that every one of the 55 product rows' `linux-cuda`
+wall-clock is strictly less than its `linux-cpu` wall-clock, with no per-row
+exemptions. It is currently unmet and the committed timing table behind it is
+withdrawn; see
+[DEVELOPMENT_PLAN/README.md → Exit Definition](DEVELOPMENT_PLAN/README.md#exit-definition)
+and [Phase 268](DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md).
+The mechanism it depends on is persistent
 CUDA device weight buffers (weights upload once per fixed-parameter phase and are
 reused across every batch and vectorized-env step, hoisting the per-call
 `cudaMalloc` + host-to-device weight copy out of the per-batch kernel path) plus
@@ -174,7 +182,7 @@ toolchain assumptions but does not pin their package versions.
 | GHC | `9.12.4` | `.cabal` (`tested-with`) and `cabal.project` (`with-compiler`) |
 | Cabal | `3.16.1.0` | `docker/Dockerfile` (`ARG CABAL_VERSION`) and the host prerequisite DAG (`toolchain.cabal-3.16.1.0`) |
 | LLVM / Clang | Ubuntu 24.04 `llvm` + `clang` packages in `jitml:local`; host LLVM/Clang come from the host toolchain used to build `jitml` | `docker/Dockerfile` installs `llvm` and `clang`; `cabal.project` does not pin an LLVM package version |
-| NVCC / CUDA | CUDA package family `12-8`, cuDNN 9 for CUDA 12, deterministic JIT flags (`--use_fast_math=false`, baseline `sm_70`) | `docker/Dockerfile` (`CUDA_TOOLKIT_PACKAGE`, `CUDNN_PACKAGE`) and Haskell CUDA source renderers |
+| NVCC / CUDA | CUDA package family `12-8`, cuDNN 9 for CUDA 12, deterministic JIT flags (`--fmad=false`, no `--use_fast_math`, baseline `sm_70`) | `docker/Dockerfile` (`CUDA_TOOLKIT_PACKAGE`, `CUDNN_PACKAGE`) and Haskell CUDA source renderers |
 | Metal (Apple) | host OS Metal runtime + fixed jitML Metal bridge; core cache misses render MSL and call `MTLDevice.makeLibrary(source:options:)`; no Tart, no keychain, no SwiftPM, no full Xcode, no offline `metal` in the core path | bridge ABI + Metal runtime policy in the Apple cache metadata |
 | oneDNN | Ubuntu 24.04 `libdnnl-dev` package in `jitml:local`; AVX2 baseline, AVX-512 detected at JIT time | `docker/Dockerfile` installs `libdnnl-dev`; runtime probes verify headers/linker visibility |
 | `kindest/node` | pinned | `./kind/cluster-<substrate>.yaml` (canonical); mirrored as a comment in `cabal.project` for the toolchain-truth record |
@@ -215,7 +223,7 @@ Each substrate carries its own determinism contract:
 
 - **`apple-silicon`** — Metal compute kernels execute on the host GPU; float-accumulation order is fixed by the kernel's reduction tree (no fast-math); RNG state lives in the host daemon; kernel-launch ordering is single-stream by default. *Tradeoff: single-stream launch forfeits the multi-stream concurrency that hides launch latency at small batch sizes — the throughput cost is real and is the price of the bit-determinism contract.*
 - **`linux-cpu`** — oneDNN dispatches to a per-host vector ISA detected at JIT time; reductions are blocked with a fixed block size so the accumulation tree is host-independent; RNG state lives in the clustered service pod.
-- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns deterministic launch, synchronization, and output copyback over **persistent device weight buffers** reused across a fixed-parameter phase rather than re-allocated per call — for the trainer's MLP seam the hand-written `jitml_mlp_forward` / `_batch` / `_grad` kernels in `src/JitML/Codegen/MlpCuda.hs` launch against resident weight buffers uploaded once per fixed-parameter phase, hoisting the per-call `cudaMalloc` + host-to-device weight copy out of the per-batch path; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
+- **`linux-cuda`** — CUDA kernels are compiled with `--fmad=false` and without `--use_fast_math` (omitted, not passed as `=false`); the generated *family* reduction kernel uses a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, while the trainer MLP kernel reduces sequentially per thread, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns deterministic launch, synchronization, and output copyback over **persistent device weight buffers** reused across a fixed-parameter phase rather than re-allocated per call — for the trainer's MLP seam the hand-written `jitml_mlp_forward` / `_batch` / `_grad` kernels in `src/JitML/Codegen/MlpCuda.hs` launch against resident weight buffers uploaded once per fixed-parameter phase, hoisting the per-call `cudaMalloc` + host-to-device weight copy out of the per-batch path; where cuBLAS and cuDNN are called (the family kernels and the Sprint `264.1` layer-graph arm, not the trainer MLP kernel) they are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
 *Within a substrate, equality is guaranteed bit-for-bit* (see [Bit-determinism contract](#bit-determinism-contract)). **Across substrates, equivalence is not guaranteed and is not asserted — there is no tolerance band.** RNG draws and float reduction order differ between vendor BLAS/DNN libraries: float reductions reassociate and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so cross-substrate numeric equivalence is explicitly out of contract. *Performance*, by contrast, is held to a strict cross-substrate bar: with the persistent device weight buffers above plus vectorized environments, the `linux-cuda` lane is targeted to outperform `linux-cpu` on every product row (Exit Definition obligation #29). That is a wall-clock target only — it asserts nothing about numeric equivalence and does not reintroduce a tolerance band.
 
@@ -2975,8 +2983,9 @@ read a committed numerical fixture:
    terminating `TrainingBudget`. Train each seed for exactly the budgeted
    timesteps. Assertion:
    `median(final_reward) ≥ literature_target − slack`, where `slack`
-   is a per-(env, algo) constant declared in code — never a
-   per-substrate empirical fixture. Regression detection is by
+   is a per-(env, algo) constant declared in code and calibrated to this
+   implementation — never a per-substrate empirical fixture, and not itself
+   an external literature quantity. Regression detection is by
    threshold violation; if a substrate's median falls below the threshold, the
    test fails loudly rather than silently re-baselining or continuing training
    until convergence happens.
@@ -3809,7 +3818,7 @@ The clock is `Data.Time.Clock.getMonotonicTimeNSec`, started just before the fir
 Per-target codegen stack:
 
 - **GHC:** 9.12.4, Cabal 3.16.1.0, `-O2 -fllvm -funbox-strict-fields -fspecialise-aggressively -fexpose-all-unfoldings`, RTS `-A64m -n4m -qg1 -qb -T`.
-- **CUDA codegen:** pinned NVCC, `-O3 --use_fast_math=false` (bit-determinism), `--gpu-architecture=sm_70` baseline + per-host detection at JIT time.
+- **CUDA codegen:** pinned NVCC, `--fmad=false` with `--use_fast_math` omitted (bit-determinism), `-arch=sm_70` baseline + per-host detection at JIT time.
 - **Metal codegen:** Haskell-rendered MSL source metadata + fixed host Metal bridge runtime `MTLDevice.makeLibrary(source:options:)`, `MTLCompileOptions.fastMathEnabled = false` or equivalent safe math mode.
 - **CPU oneDNN:** Ubuntu `libdnnl-dev` from the `jitml:local` image, AVX2 baseline + AVX-512 detection at JIT time.
 - **LLVM:** GHC builds with `-fllvm`; the LLVM toolchain comes from the host or `jitml:local` Ubuntu package set and is recorded by runtime probes/cache fingerprints instead of a Cabal project pin.

@@ -9,16 +9,23 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: `renderRuntimeSource` is the only cross-substrate
-renderer seam, and the three renderers currently disagree on the semantics of the
-unweighted multi-head-attention family — two return an elementwise square, one
-returns the input unchanged. All three weighted paths end in wildcards, so a tenth
-family would silently render a passthrough on every substrate with no warning.
-Roughly 45% of the family renderers is scaffolding or repeated wrapper text.
+✅ **Done** (closed 2026-08-14). Every `KernelFamily` wildcard in all three
+renderers is closed, so a tenth family is a build failure rather than a
+silently-rendered passthrough on every substrate. The unweighted semantics are
+pinned by one contract — `FamilyReference.defaultFamilyWeights` plus
+`unweightedFamilyReference`, the weighted reference at those canonical no-op
+weights — and all three renderers are checked against it. The oneDNN and Metal renderers now
+emit their kernel signature once and take the family-specific part as data; the
+CUDA renderer still hand-writes its per-family wrappers, so that collapse is
+one of three rather than three of three.
+That decomposition is what made a real defect expressible and then fixable: the
+Metal weighted reduction wrote `out[id]` for every `id < n` into a buffer sized
+`ceil(n / 32)`, because the shared wrapper forced every family through the same
+`id >= n` prologue and the wildcard body had nowhere else to go.
 
-## Sprint 84.1: Haskell-Owned Runtime JIT Source Generation [🔄 Active]
+## Sprint 84.1: Haskell-Owned Runtime JIT Source Generation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/RuntimeSource.hs`,
 `src/JitML/Codegen/{Cuda,OneDnn,Metal,SourceFile}.hs`
@@ -98,17 +105,49 @@ runtime adapter path.
 - [x] Move the default runtime-source placeholder ledger row to `Completed`
   once cache-key fixtures consume rendered `RuntimeSourcePayload`s.
 
-### Remaining Work
+### Closure Evidence
 
-- Define one semantics contract per kernel family that every substrate renderer must
-  satisfy, and check the rendered result against the pure reference for both the
-  weighted and unweighted ABI.
-- Close the three weighted-family wildcards.
-- Emit each signature once and supply the substrate-specific body as data, the shape
-  two of the three renderers already use; record the superseded repeated wrapper text
-  in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
-- This sprint implements the doctrine section
-  `Generated Artifacts → The generated-section registry`.
+Closed 2026-08-14 from one source state, inside `jitml:local`:
+
+- `jitml lint haskell` → `ok`.
+- `jitml docs check` → `ok`.
+- `jitml test jitml-unit --linux-cpu` → **877 / 877 passed**, including the
+  four-case "Cross-renderer family contract (Phase 84)" group.
+- `jitml test jitml-backends --linux-cpu` → the unweighted ABI checked against
+  the contract on the real oneDNN device.
+- `jitml check-code` → `ok`.
+
+### Completed in this sprint
+
+- **Every `KernelFamily` wildcard closed.** CUDA: `weightedFamilyImpl`,
+  `cudnnDeterministicAlgorithm`, `kernelOutputCountFunction`. Metal:
+  `weightedFamilyCompute`, `metalOutputCountFor`, `metalOutputCountKind`.
+  oneDNN's two closed in Sprint `80.1`.
+- **Signature once, body as data.** `OneDnn.familyImpl` collapsed nine copies of
+  one `extern "C"` wrapper; `Metal.unweightedBody` collapsed nine copies of one
+  six-line signature block. The Metal weighted path gained the same shape.
+- **A real out-of-bounds write fixed.** `weightedFamilyCompute` fell through to
+  `out[id] = input[id]` for `Reduction`, whose output buffer
+  `metalOutputCountFor` sizes at `ceil(n / 32)`. The weighted reduction now
+  mirrors the unweighted one exactly — simdgroup partials, padding lanes
+  contributing zero — which required per-family control of the bounds prologue,
+  since a reduction must not take the shared `id >= n` early return.
+- `test/snapshots/cache/kernel-key.txt` regenerated. The golden hashes the
+  rendered Apple runtime source, which this sprint legitimately changed; a
+  renderer change invalidating its cache key is the contract working, not a
+  regression.
+
+### Deferred with a named owner
+
+The unweighted `Reduction` **output shape** still differs across lanes by
+design: one scalar on oneDNN, `ceil(n/256)*8` warp partials on CUDA,
+`ceil(n/32)` simdgroup partials on Metal. Each lane's renderer, host sizing, and
+declared kind now agree internally, and the unit lane asserts that agreement.
+Reconciling the three into one host-finalized scalar needs
+`CudaRuntime.finalizeCudaReductionPartials` — which exists but has no caller
+outside tests — wired onto the CUDA and Metal run paths, and Metal has no
+finalizer at all. That is per-lane device work owned by Sprints `264.1` and
+`269.1`, not renderer work.
 
 ### Historical Validation
 

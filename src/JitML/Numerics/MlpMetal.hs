@@ -14,7 +14,6 @@
 module JitML.Numerics.MlpMetal
   ( mlpMetalHash
   , mlpMetalRuntimeSource
-  , mlpMetalToolchainFingerprint
   , metalMlpSpec
   , metalMlpDevice
   , mlpForwardMetal
@@ -27,14 +26,13 @@ module JitML.Numerics.MlpMetal
 where
 
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
-import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.MlpMetal (mlpMetalKernelSpec, renderMlpMetalSource)
 import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine (engineForSubstrate)
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( MlpForward
@@ -53,7 +51,7 @@ import JitML.Numerics.MlpDevice
   , mlpForwardWith
   , mlpInputGradientBatchWith
   )
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (KernelLaunch (..), Substrate (..))
 
 mlpMetalRuntimeSource :: RuntimeSource
 mlpMetalRuntimeSource =
@@ -65,39 +63,13 @@ mlpMetalRuntimeSource =
     , runtimeSourceFiles = renderMlpMetalSource
     }
 
--- | Toolchain fingerprint for the MLP Metal kernel. Records the fixed-bridge
--- MSL runtime-compile intent; combined with the AppleSilicon substrate this
--- keeps the artifact in its own JIT-cache slot.
-mlpMetalToolchainFingerprint :: Cache.ToolchainFingerprint
-mlpMetalToolchainFingerprint =
-  Cache.ToolchainFingerprint
-    ( Text.intercalate
-        ";"
-        [ "fixed-metal-bridge"
-        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "artifact=metal-source-metadata"
-        , "bridge-abi=jitml-metal-bridge-v1"
-        , "msl-makeLibrary-runtime"
-        , "mathMode=safe(fast-math-off)"
-        , "single-stream-launch-order"
-        , "threadgroup-size=128"
-        , "abi=cdecl-host-buffers"
-        , "reductions=sequential-fixed-order"
-        , "jitml_mlp_forward(float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int)"
-        , "jitml_mlp_backward(float*,float*,float*,float*,const float*,const float*,const float*,const float*,int,int,int)"
-        , "jitml_mlp_batch_gradient(float*,float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        , "jitml_mlp_forward_batch(float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        , "jitml_mlp_input_gradient_batch(float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        ]
-    )
-
 mlpMetalHash :: Cache.Hash
 mlpMetalHash =
   Cache.cacheKey
     mlpMetalKernelSpec
     Cache.Inference
     Cache.AppleSilicon
-    mlpMetalToolchainFingerprint
+    (Fingerprint.mlpToolchainFingerprint AppleSilicon)
     (runtimeSourcePayload mlpMetalRuntimeSource)
     Cache.defaultTuningChoice
 
@@ -106,9 +78,11 @@ metalMlpSpec :: MlpBackendSpec
 metalMlpSpec =
   MlpBackendSpec
     { mbsTag = "mlp-metal"
+    , mbsSubstrate = AppleSilicon
     , mbsEngine = engineForSubstrate AppleSilicon
     , mbsRuntimeSource = mlpMetalRuntimeSource
     , mbsHash = mlpMetalHash
+    , mbsLaunch = FixedBridgeLaunch
     }
 
 -- | The Metal MLP operations bundled for injection into the RL trainers.

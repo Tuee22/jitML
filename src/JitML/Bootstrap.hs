@@ -172,7 +172,13 @@ import JitML.Sub.Subprocess
   , subprocessPath
   , subprocessWithStdin
   )
-import JitML.Substrate (Substrate (..), renderSubstrate, substrateClusterName, substrateEdgePort)
+import JitML.Substrate
+  ( Substrate (..)
+  , renderSubstrate
+  , substrateClusterName
+  , substrateEdgePort
+  , substrateHasClusterCompute
+  )
 
 bootstrapPlanSteps :: Substrate -> [Text]
 bootstrapPlanSteps substrate =
@@ -888,10 +894,9 @@ repoAppImageSpecs substrate =
        ]
  where
   engineSpec =
-    case substrate of
-      AppleSilicon -> []
-      LinuxCPU -> [RepoAppImageSpec "jitml-service" "jitml-service" "jitml:local"]
-      LinuxCUDA -> [RepoAppImageSpec "jitml-service" "jitml-service" "jitml:local"]
+    [ RepoAppImageSpec "jitml-service" "jitml-service" "jitml:local"
+    | substrateHasClusterCompute substrate
+    ]
 
 newtype AppPodList = AppPodList [AppPodObservation]
 
@@ -2398,10 +2403,7 @@ publicationHealthChecks publication =
        ]
  where
   engineHealthChecks =
-    case publicationSubstrate publication of
-      AppleSilicon -> []
-      LinuxCPU -> [engineHealthCheck]
-      LinuxCUDA -> [engineHealthCheck]
+    [engineHealthCheck | substrateHasClusterCompute (publicationSubstrate publication)]
   engineHealthCheck =
     SubprocessPublicationHealthCheck
       "jitml-engine"

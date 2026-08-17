@@ -61,10 +61,15 @@ tune; this section names the obligation and the plan owns the implementation.
    Phases `279`–`281` own contract-journal mutation and mandatory per-row
    registration. A gate that cannot reject its own known-fake is a failure, not
    a pass.
-2. **The convergence bar is a frozen external literature constant.** The row's
-   `convergenceBar` is an external, checked-in literature target that is **never**
-   derived from, tuned to, or set equal to the measured value it checks. No
-   threshold may be a function of the value it grades.
+2. **The convergence bar is externally anchored and structurally independent of
+   the measurement.** The row's `convergenceBar` is `literatureTarget − slack`:
+   an external, checked-in published target less a project-calibrated per-cohort
+   slack. It is **never** derived from, tuned to, or set equal to the measured
+   value it checks — no threshold may be a function of the value it grades. The
+   slack is the calibrated part and is not itself an external constant, so
+   "externally anchored" is the precise claim rather than "wholly external"; see
+   [training_metrics_and_splits.md](training_metrics_and_splits.md#current-status)
+   for the enforcement boundary.
 3. **The reported metric is recomputed at read time from the served artifact
    (provenance binding).** Every convergence or inference number shown for the row
    is recomputed at read time from the served checkpoint bytes, not read back from
@@ -163,11 +168,21 @@ Production ML paths must satisfy all rules below:
    update-critical operations. Host-only rollout helpers may exist, but they do
    not prove the substrate training claim.
 
-   **Current status.** The recorded device cell is composed from the declared
-   substrate and the declared device claim, not from an execution witness, so it
-   cannot presently discharge this requirement. Phase `229` owns minting it from
-   an execution witness; Phases `265` and `270` own re-minting the per-lane rows.
-   This paragraph states the contract; the cell does not yet satisfy it.
+   The recorded device cell is minted from a `DeviceExecutionWitness`
+   (`JitML.Product.DeviceWitness`). That type has no exported constructor and no
+   pure smart constructor: `witnessDeviceExecution` runs in `IO`, requires the
+   compiled artifact the engine reported to be present at the path the engine
+   reported, digests its bytes, and records the backend and executed identity
+   read back *out of that artifact* — `jitml_layer_training_backend` /
+   `jitml_kernel_family_name` for the loadable backends, and the `family` field
+   of the `<hash>.metal.json` source-metadata document on `apple-silicon`. The
+   witness is recorded after the training loop returns successfully, bound to
+   the run's `TrainingEvidence`, and carried into the completion; checkpoint
+   admission (`requireAdmittedCompletedCheckpoint`) rejects a completion that
+   carries none, so `AdmittedCompletedCheckpoint` exposes the witness totally
+   and the lane fragment renders it with no no-evidence branch. There is no
+   remaining path that composes the cell from a declared substrate and a
+   declared claim.
 4. **Dataset bytes are verified at the product boundary.** Every product fetch
    from MinIO or a local mirror verifies the pinned SHA before decoding. Upload
    time verification alone is insufficient.

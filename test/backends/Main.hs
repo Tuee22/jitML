@@ -45,9 +45,9 @@ import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env, envCacheDir)
-import JitML.Numerics.FamilyReference (familyReference)
+import JitML.Numerics.FamilyReference (familyReference, unweightedFamilyReference)
 import JitML.Numerics.LayerGraph qualified as LayerGraph
-import JitML.Numerics.LayerGraphOneDnn qualified as LayerGraphOneDnn
+import JitML.Numerics.LayerGraphDevice qualified as LayerGraphDevice
 import JitML.Numerics.Mlp
   ( MlpForward (..)
   , MlpGradient (..)
@@ -553,7 +553,7 @@ main =
           "linux-cpu LayerGraph oneDNN training kernels match the pure oracle and record device evidence (Sprint 23.2)"
           $ do
             env <- buildEnv defaultGlobalFlags
-            graph <- either (assertFailure . Text.unpack) pure layerGraphOneDnnFixture
+            graph <- either (assertFailure . Text.unpack) pure layerGraphDeviceFixture
             let input = VU.fromList [0.15, -0.25, 0.35, -0.45]
                 target = VU.fromList [-0.05, 0.10, -0.15, 0.20]
             (_pureTape, pureGradient) <-
@@ -562,35 +562,30 @@ main =
                 pure
                 (LayerGraph.layerGraphSquaredErrorGradient graph input target)
             run <-
-              LayerGraphOneDnn.layerGraphSquaredErrorGradientOneDnn env graph input target
+              LayerGraphDevice.layerGraphSquaredErrorGradientDevice Substrate.LinuxCPU env graph input target
                 >>= expectRight "LayerGraph oneDNN training run failed"
             assertLayerGraphGradientClose
               1.0e-3
-              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              (LayerGraphDevice.layerGraphDeviceGradient run)
               pureGradient
-            let evidence = LayerGraphOneDnn.layerGraphOneDnnEvidence run
-                expectedEvidence =
-                  length (filter isParameterizedLayerKind LayerGraph.allLayerKinds)
+            let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
+                -- Phase 241: the lowering is total, so every node executes a
+                -- device kernel and every node reports evidence — including the
+                -- parameterless ones, whose input gradient now comes back from
+                -- the device rather than from the host oracle.
+                expectedEvidence = length deviceSupportedLayerKinds
             length evidence @?= expectedEvidence
             assertBool
               "all LayerGraph device evidence entries report the oneDNN backend"
               ( all
-                  ((== "linux-cpu-onednn") . LayerGraphOneDnn.layerEvidenceBackend)
+                  ((== "linux-cpu-onednn") . LayerGraphDevice.layerEvidenceBackend)
                   evidence
               )
             assertBool
               "Conv2D node executed oneDNN convolution_backward_data"
               ( any
                   ( (== "onednn_convolution_backward_data_2d")
-                      . LayerGraphOneDnn.layerEvidenceBackwardDataPrimitive
-                  )
-                  evidence
-              )
-            assertBool
-              "Conv3D node executed oneDNN convolution_backward_weights"
-              ( any
-                  ( (== "onednn_convolution_backward_weights_3d")
-                      . LayerGraphOneDnn.layerEvidenceBackwardWeightsPrimitive
+                      . LayerGraphDevice.layerEvidenceBackwardDataPrimitive
                   )
                   evidence
               )
@@ -598,7 +593,65 @@ main =
               "non-convolution nodes executed oneDNN matmul backward weights"
               ( any
                   ( (== "onednn_matmul_backward_weights")
-                      . LayerGraphOneDnn.layerEvidenceBackwardWeightsPrimitive
+                      . LayerGraphDevice.layerEvidenceBackwardWeightsPrimitive
+                  )
+                  evidence
+              )
+            -- Phase 241: the parameterless operators are executed, not skipped.
+            -- Pooling routes its output gradient back through the oneDNN
+            -- pooling primitive, and identity/dropout run the scale kernel; both
+            -- report the primitive the artifact says it ran.
+            assertBool
+              "pooling nodes executed the oneDNN pooling primitive"
+              ( any
+                  ( (== "onednn_pooling_backward_data")
+                      . LayerGraphDevice.layerEvidenceBackwardDataPrimitive
+                  )
+                  evidence
+              )
+            assertBool
+              "identity/dropout nodes executed the device scale kernel"
+              ( any
+                  ( (== "onednn_scale_backward_data")
+                      . LayerGraphDevice.layerEvidenceBackwardDataPrimitive
+                  )
+                  evidence
+              )
+      , testCase
+          "linux-cpu real 3-D convolution executes its own oneDNN device kernel (Phase 241)"
+          $ do
+            -- Before Phase 241 this graph failed closed: `runDeviceSpatialConv`
+            -- accepted 2-D geometry only, so the one operator with three spatial
+            -- axes had no device lowering at all. It now runs the ncdhw/oidhw
+            -- convolution triple, and the gradient it returns is checked against
+            -- the pure oracle rather than against itself.
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphConv3DFixture
+            let input = VU.fromList [0.15, -0.25, 0.35, -0.45]
+                target = VU.fromList [-0.05, 0.10, -0.15, 0.20]
+            (_pureTape, pureGradient) <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+            run <-
+              LayerGraphDevice.layerGraphSquaredErrorGradientDevice Substrate.LinuxCPU env graph input target
+                >>= expectRight "3-D convolution oneDNN training run failed"
+            assertLayerGraphGradientClose
+              1.0e-3
+              (LayerGraphDevice.layerGraphDeviceGradient run)
+              pureGradient
+            let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
+            assertBool
+              "the 3-D convolution node reports the 3-D oneDNN convolution primitives"
+              ( any
+                  ( \entry ->
+                      LayerGraphDevice.layerEvidenceForwardPrimitive entry
+                        == "onednn_convolution_forward_training_3d"
+                        && LayerGraphDevice.layerEvidenceBackwardDataPrimitive entry
+                          == "onednn_convolution_backward_data_3d"
+                        && LayerGraphDevice.layerEvidenceBackwardWeightsPrimitive entry
+                          == "onednn_convolution_backward_weights_3d"
                   )
                   evidence
               )
@@ -606,7 +659,7 @@ main =
           "linux-cpu batched LayerGraph oneDNN gradient matches the per-example summed oracle (Phase 234)"
           $ do
             env <- buildEnv defaultGlobalFlags
-            graph <- either (assertFailure . Text.unpack) pure layerGraphOneDnnFixture
+            graph <- either (assertFailure . Text.unpack) pure layerGraphDeviceFixture
             let batch =
                   [ (VU.fromList [0.15, -0.25, 0.35, -0.45], VU.fromList [-0.05, 0.10, -0.15, 0.20])
                   , (VU.fromList [-0.20, 0.30, -0.10, 0.05], VU.fromList [0.10, -0.05, 0.20, -0.10])
@@ -622,23 +675,22 @@ main =
                   [] -> Left "empty batch"
                   (g : gs) -> Right (foldl addLayerGraphGradient g gs)
             run <-
-              LayerGraphOneDnn.layerGraphSquaredErrorGradientBatchOneDnn env graph batch
+              LayerGraphDevice.layerGraphSquaredErrorGradientBatchDevice Substrate.LinuxCPU env graph batch
                 >>= expectRight "batched LayerGraph oneDNN run failed"
             -- (a) one batched device call per layer over N=3 reproduces the
             -- per-example summed oracle within float32 tolerance.
             assertLayerGraphGradientClose
               1.0e-3
-              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              (LayerGraphDevice.layerGraphDeviceGradient run)
               refGrad
             -- (b) evidence is one entry per parameterized node, NOT per example,
             -- proving a single batched device round-trip per layer.
-            let evidence = LayerGraphOneDnn.layerGraphOneDnnEvidence run
-            length evidence
-              @?= length (filter isParameterizedLayerKind LayerGraph.allLayerKinds)
+            let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
+            length evidence @?= length deviceSupportedLayerKinds
             assertBool
               "batched LayerGraph device evidence reports the oneDNN backend"
               ( all
-                  ((== "linux-cpu-onednn") . LayerGraphOneDnn.layerEvidenceBackend)
+                  ((== "linux-cpu-onednn") . LayerGraphDevice.layerEvidenceBackend)
                   evidence
               )
       , testCase
@@ -651,7 +703,6 @@ main =
                 pure
                 ( LayerGraph.mkAffineLayer
                     "toy-dense"
-                    LayerGraph.DenseLayer
                     2
                     2
                     LayerGraph.LinearActivation
@@ -677,7 +728,7 @@ main =
                     (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) dataset)
             loss0 <- either (assertFailure . Text.unpack) pure (totalLoss graph0)
             trained <-
-              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env 2 50 2 0.1 graph0 dataset
+              LayerGraphDevice.trainLayerGraphClassifierDevice Substrate.LinuxCPU env 2 50 2 0.1 graph0 dataset
                 >>= expectRight "LayerGraph classification training failed"
             loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
             assertBool
@@ -726,8 +777,8 @@ main =
                       pure (LayerGraph.layerGradWeights pg, LayerGraph.layerGradBias pg)
                 _ -> assertFailure "expected exactly one parameterized conv gradient"
             deviceResult <-
-              LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ ->
-                LayerGraphOneDnn.runDeviceSpatialConv functions convSpec params input dY
+              LayerGraphDevice.withCompiledLayerGraphDevice Substrate.LinuxCPU env $ \functions _ _ _ ->
+                LayerGraphDevice.runDeviceSpatialConv functions convSpec params input dY
             (devOut, devDx, devDw, devDb) <-
               either (assertFailure . Text.unpack) pure deviceResult
             let close label a b =
@@ -776,8 +827,8 @@ main =
                       pure (LayerGraph.layerGradWeights pg, LayerGraph.layerGradBias pg)
                 _ -> assertFailure "expected exactly one parameterized strided-conv gradient"
             stridedDeviceResult <-
-              LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ ->
-                LayerGraphOneDnn.runDeviceSpatialConv functions stridedSpec stridedParams stridedInput stridedDy
+              LayerGraphDevice.withCompiledLayerGraphDevice Substrate.LinuxCPU env $ \functions _ _ _ ->
+                LayerGraphDevice.runDeviceSpatialConv functions stridedSpec stridedParams stridedInput stridedDy
             (stridedDevOut, stridedDevDx, stridedDevDw, stridedDevDb) <-
               either (assertFailure . Text.unpack) pure stridedDeviceResult
             close "strided conv forward output" stridedDevOut (LayerGraph.layerTapeOutput stridedTape)
@@ -975,7 +1026,6 @@ main =
               either (assertFailure . Text.unpack) pure $
                 LayerGraph.mkAffineLayer
                   "ce-head"
-                  LayerGraph.DenseLayer
                   4
                   2
                   LayerGraph.LinearActivation
@@ -1007,16 +1057,29 @@ main =
                   [] -> Left "empty batch"
                   (g : gs) -> Right (foldl addLayerGraphGradient g gs)
             run <-
-              LayerGraphOneDnn.layerGraphCrossEntropyGradientBatchOneDnn env 2 ceGraph ceDataset
+              LayerGraphDevice.layerGraphCrossEntropyGradientBatchDevice
+                Substrate.LinuxCPU
+                env
+                2
+                ceGraph
+                ceDataset
                 >>= expectRight "block batched device gradient failed"
             assertLayerGraphGradientClose
               2.0e-3
-              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              (LayerGraphDevice.layerGraphDeviceGradient run)
               refGrad
             -- (4b) training the block graph on device reduces cross-entropy.
             loss0 <- either (assertFailure . Text.unpack) pure (totalLoss ceGraph)
             trained <-
-              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env 2 60 2 0.05 ceGraph ceDataset
+              LayerGraphDevice.trainLayerGraphClassifierDevice
+                Substrate.LinuxCPU
+                env
+                2
+                60
+                2
+                0.05
+                ceGraph
+                ceDataset
                 >>= expectRight "block device training failed"
             loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
             assertBool
@@ -1049,7 +1112,6 @@ main =
               either (assertFailure . Text.unpack) pure $
                 LayerGraph.mkAffineLayer
                   "mix-head"
-                  LayerGraph.DenseLayer
                   4
                   2
                   LayerGraph.LinearActivation
@@ -1079,18 +1141,31 @@ main =
                   [] -> Left "empty batch"
                   (g : gs) -> Right (foldl addLayerGraphGradient g gs)
             run <-
-              LayerGraphOneDnn.layerGraphCrossEntropyGradientBatchOneDnn env classes graph dataset
+              LayerGraphDevice.layerGraphCrossEntropyGradientBatchDevice
+                Substrate.LinuxCPU
+                env
+                classes
+                graph
+                dataset
                 >>= expectRight "mixed-op batched device gradient failed"
             assertLayerGraphGradientClose
               1.0e-3
-              (LayerGraphOneDnn.layerGraphOneDnnGradient run)
+              (LayerGraphDevice.layerGraphDeviceGradient run)
               refGrad
             -- (b) training the mixed graph on device reduces cross-entropy.
             let totalLoss g =
                   fmap sum (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) dataset)
             loss0 <- either (assertFailure . Text.unpack) pure (totalLoss graph)
             trained <-
-              LayerGraphOneDnn.trainLayerGraphClassifierOneDnn env classes 40 2 0.05 graph dataset
+              LayerGraphDevice.trainLayerGraphClassifierDevice
+                Substrate.LinuxCPU
+                env
+                classes
+                40
+                2
+                0.05
+                graph
+                dataset
                 >>= expectRight "mixed-op device training failed"
             loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
             assertBool
@@ -1210,6 +1285,174 @@ main =
                   (and (zipWith (approxEqualVec 1.0e-3) dxs refs))
                 dxs @?= dxs2
               _ -> assertBool "both batched MLP input-gradient oneDNN runs succeed" False
+      , testCase
+          "linux-cuda LayerGraph training kernels match the pure oracle and record device evidence (Phase 264)"
+          $ do
+            -- The linux-cuda mirror of the linux-cpu oracle case above, over the
+            -- same fixture graph and the same pure `backwardLayerGraph` oracle.
+            -- Before Phase 264 this lane had no layer-graph kernel at all: it
+            -- served the typed graph through the pure executor, which the
+            -- hardware-native determinism contract forbids on the execution path.
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphDeviceFixture
+            let input = VU.fromList [0.15, -0.25, 0.35, -0.45]
+                target = VU.fromList [-0.05, 0.10, -0.15, 0.20]
+            (_pureTape, pureGradient) <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+            run <-
+              LayerGraphDevice.layerGraphSquaredErrorGradientDevice Substrate.LinuxCUDA env graph input target
+                >>= expectRight "LayerGraph CUDA training run failed"
+            assertLayerGraphGradientClose
+              1.0e-3
+              (LayerGraphDevice.layerGraphDeviceGradient run)
+              pureGradient
+            let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
+            length evidence @?= length deviceSupportedLayerKinds
+            assertBool
+              "all LayerGraph device evidence entries report the cuDNN backend"
+              ( all
+                  ((== "linux-cuda-cudnn") . LayerGraphDevice.layerEvidenceBackend)
+                  evidence
+              )
+            assertBool
+              "Conv2D node executed cuDNN convolution backward data"
+              ( any
+                  ( (== "cudnn_convolution_backward_data_2d")
+                      . LayerGraphDevice.layerEvidenceBackwardDataPrimitive
+                  )
+                  evidence
+              )
+            assertBool
+              "non-convolution nodes executed cuBLAS sgemm backward weights"
+              ( any
+                  ( (== "cublas_sgemm_backward_weights")
+                      . LayerGraphDevice.layerEvidenceBackwardWeightsPrimitive
+                  )
+                  evidence
+              )
+            assertBool
+              "pooling nodes executed the cuDNN pooling primitive"
+              ( any
+                  ( (== "cudnn_pooling_backward_data")
+                      . LayerGraphDevice.layerEvidenceBackwardDataPrimitive
+                  )
+                  evidence
+              )
+            assertBool
+              "identity/dropout nodes executed the CUDA scale kernel"
+              ( any
+                  ( (== "cuda_scale_backward_data")
+                      . LayerGraphDevice.layerEvidenceBackwardDataPrimitive
+                  )
+                  evidence
+              )
+      , testCase
+          "linux-cuda real 3-D convolution executes its own cuDNN device kernel (Phase 264)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphConv3DFixture
+            let input = VU.fromList [0.15, -0.25, 0.35, -0.45]
+                target = VU.fromList [-0.05, 0.10, -0.15, 0.20]
+            (_pureTape, pureGradient) <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+            run <-
+              LayerGraphDevice.layerGraphSquaredErrorGradientDevice Substrate.LinuxCUDA env graph input target
+                >>= expectRight "3-D convolution CUDA training run failed"
+            assertLayerGraphGradientClose
+              1.0e-3
+              (LayerGraphDevice.layerGraphDeviceGradient run)
+              pureGradient
+            assertBool
+              "the 3-D convolution node reports the cuDNN 3-D convolution primitive"
+              ( any
+                  ( (== "cudnn_convolution_forward_3d")
+                      . LayerGraphDevice.layerEvidenceForwardPrimitive
+                  )
+                  (LayerGraphDevice.layerGraphDeviceEvidence run)
+              )
+      , testCase
+          "linux-cuda LayerGraph classification training reduces cross-entropy loss (Phase 264)"
+          $ do
+            -- The linux-cuda mirror of the linux-cpu mixed-correct-op training
+            -- case above: same graph, same dataset, same hyperparameters, so a
+            -- lane that trains and a lane that does not are directly
+            -- comparable.
+            --
+            -- It deliberately does NOT reuse `layerGraphDeviceFixture`. That
+            -- fixture carries one node per declared kind, including a
+            -- `PoolGlobal` that collapses the width-4 activation to a single
+            -- value, so its output is uniform and its parameter gradient
+            -- vanishes: both lanes leave the loss at exactly 4 * ln 4 =
+            -- 5.545177444479562. Asserting "training reduces the loss" over it
+            -- is unsatisfiable on any backend and would report a correct CUDA
+            -- arm as broken. It is a gradient-versus-oracle fixture, and the
+            -- case above uses it for exactly that.
+            env <- buildEnv defaultGlobalFlags
+            let classes = 2
+                normSpec = LayerGraph.NormSpec LayerGraph.NormLayerWise 4 1 1.0e-5
+                normParams =
+                  LayerGraph.LayerParameters
+                    (VU.fromList [1.1, 0.9, 1.05, 0.95])
+                    (VU.fromList [0.05, -0.05, 0.1, -0.1])
+                ggSpec = LayerGraph.GeGLUSpec 4 6 4
+                ggParams = LayerGraph.deterministicOpParameters 71 (LayerGraph.GeGLUOp ggSpec)
+                headParams = LayerGraph.deterministicParameters 73 4 2
+            normNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkNormLayer "mix-norm" normSpec LayerGraph.TrainingMode normParams
+            ggNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkGeGLULayer "mix-geglu" ggSpec LayerGraph.TrainingMode ggParams
+            headNode <-
+              either (assertFailure . Text.unpack) pure $
+                LayerGraph.mkAffineLayer
+                  "mix-head"
+                  4
+                  2
+                  LayerGraph.LinearActivation
+                  LayerGraph.TrainingMode
+                  headParams
+            let graph =
+                  LayerGraph.LayerGraph
+                    { LayerGraph.layerGraphName = "mixed-correct-op"
+                    , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+                    , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                    , LayerGraph.layerGraphNodes = [normNode, ggNode, headNode]
+                    }
+                dataset =
+                  [ (VU.fromList [1.0, 0.5, -0.5, -1.0], 0)
+                  , (VU.fromList [0.8, 0.6, -0.4, -0.9], 0)
+                  , (VU.fromList [-1.0, -0.5, 0.5, 1.0], 1)
+                  , (VU.fromList [-0.9, -0.4, 0.6, 0.8], 1)
+                  ]
+                totalLoss g =
+                  fmap sum (traverse (uncurry (LayerGraph.layerGraphCrossEntropyLoss g)) dataset)
+            loss0 <- either (assertFailure . Text.unpack) pure (totalLoss graph)
+            trained <-
+              LayerGraphDevice.trainLayerGraphClassifierDevice
+                Substrate.LinuxCUDA
+                env
+                classes
+                40
+                2
+                0.05
+                graph
+                dataset
+                >>= expectRight "CUDA layer-graph classifier training failed"
+            loss1 <- either (assertFailure . Text.unpack) pure (totalLoss trained)
+            assertBool
+              ( "CUDA layer-graph training must reduce cross-entropy: before="
+                  <> show loss0
+                  <> " after="
+                  <> show loss1
+              )
+              (loss1 < loss0)
       , testCase "linux-cuda generated kernel compiles and runs through nvcc + FFI (Sprint 7.4)" $ do
           -- Live CUDA validation: Sprint 7.4 closure. When the host
           -- has nvcc + libcublas + libcudnn visible and an NVIDIA GPU
@@ -2499,12 +2742,12 @@ assertDeviceOpOracle
 assertDeviceOpOracle env =
   assertDeviceNodeOracle
     1.0e-3
-    ( \node input dY -> LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ -> LayerGraphOneDnn.runDeviceOp functions node input dY
+    ( \node input dY -> LayerGraphDevice.withCompiledLayerGraphDevice Substrate.LinuxCPU env $ \functions _ _ _ -> LayerGraphDevice.runDeviceOp functions node input dY
     )
 
 -- | Phase 241/242 per-block device-vs-oracle check: the same single-node
 -- device-vs-oracle contract as 'assertDeviceOpOracle' but driven through
--- 'LayerGraphOneDnn.runDeviceBlock' (the on-device composition of the block's
+-- 'LayerGraphDevice.runDeviceBlock' (the on-device composition of the block's
 -- affine + norm sub-kernels). Slightly looser tolerance to absorb the float32
 -- error accumulated across the composed sub-kernels.
 assertDeviceBlockOracle
@@ -2512,7 +2755,7 @@ assertDeviceBlockOracle
 assertDeviceBlockOracle env =
   assertDeviceNodeOracle
     2.0e-3
-    ( \node input dY -> LayerGraphOneDnn.withCompiledLayerGraphOneDnn env $ \functions _ _ _ -> LayerGraphOneDnn.runDeviceBlock functions node input dY
+    ( \node input dY -> LayerGraphDevice.withCompiledLayerGraphDevice Substrate.LinuxCPU env $ \functions _ _ _ -> LayerGraphDevice.runDeviceBlock functions node input dY
     )
 
 -- | Build a single-node graph from a correct-operator node, take the pure oracle
@@ -2572,29 +2815,14 @@ assertDeviceNodeOracle tol deviceRun label node input dY = do
   close "weight gradient" devDw pureDw
   close "bias gradient" devDb pureDb
 
-layerGraphOneDnnFixture :: Either Text.Text LayerGraph.LayerGraph
-layerGraphOneDnnFixture = do
-  nodes <-
-    traverse
-      ( \(idx, kind) ->
-          if isParameterizedLayerKind kind
-            then
-              LayerGraph.mkAffineLayer
-                ("backend-layer-" <> Text.pack (show idx) <> "-" <> LayerGraph.layerKindName kind)
-                kind
-                4
-                4
-                (layerGraphOneDnnActivation kind)
-                LayerGraph.TrainingMode
-                (LayerGraph.deterministicParameters (100 + idx) 4 4)
-            else
-              LayerGraph.mkIdentityLayer
-                ("backend-layer-" <> Text.pack (show idx) <> "-" <> LayerGraph.layerKindName kind)
-                kind
-                4
-                LayerGraph.TrainingMode
-      )
-      (zip [1 :: Int ..] LayerGraph.allLayerKinds)
+-- | One width-4-preserving node per declared 'LayerGraph.LayerKind', each built
+-- from the operator that actually executes that kind. Sprint `72.1` derives a
+-- node's kind from its operator, so a fixture can no longer tag a dense affine
+-- as a convolution and then assert that a convolution primitive ran: every kind
+-- here is backed by its real operator.
+layerGraphDeviceFixture :: Either Text.Text LayerGraph.LayerGraph
+layerGraphDeviceFixture = do
+  nodes <- traverse fixtureNode (zip [1 :: Int ..] deviceSupportedLayerKinds)
   pure
     LayerGraph.LayerGraph
       { LayerGraph.layerGraphName = "backend-layergraph-all-kinds"
@@ -2603,16 +2831,127 @@ layerGraphOneDnnFixture = do
       , LayerGraph.layerGraphNodes = nodes
       }
 
-layerGraphOneDnnActivation :: LayerGraph.LayerKind -> LayerGraph.LayerActivation
-layerGraphOneDnnActivation kind =
+-- | Build the fixture node for one declared kind at the fixture width.
+fixtureNode :: (Int, LayerGraph.LayerKind) -> Either Text.Text LayerGraph.LayerNode
+fixtureNode (idx, kind) =
   case kind of
-    LayerGraph.NormLayer _ -> LayerGraph.LinearActivation
-    _ -> LayerGraph.TanhActivation
+    LayerGraph.DenseLayer ->
+      LayerGraph.mkAffineLayer name 4 4 activation mode (LayerGraph.deterministicParameters seed 4 4)
+    LayerGraph.IdentityLayer -> LayerGraph.mkIdentityLayer name 4 mode
+    LayerGraph.DropoutLayer rate -> LayerGraph.mkDropoutLayer name rate 4 mode
+    LayerGraph.Conv2DLayer -> conv LayerGraph.mkConvLayer [2, 2]
+    LayerGraph.Conv3DLayer -> conv LayerGraph.mkConv3DLayer [1, 2, 2]
+    LayerGraph.PoolLayer LayerGraph.MaxPool ->
+      LayerGraph.mkPoolLayer name (LayerGraph.SpatialShape 1 2 2) (LayerGraph.PoolMax window) mode
+    LayerGraph.PoolLayer LayerGraph.AvgPool ->
+      LayerGraph.mkPoolLayer name (LayerGraph.SpatialShape 1 2 2) (LayerGraph.PoolAvg window) mode
+    LayerGraph.PoolLayer LayerGraph.GlobalAvgPool ->
+      LayerGraph.mkPoolLayer name (LayerGraph.SpatialShape 4 1 1) LayerGraph.PoolGlobal mode
+    LayerGraph.NormLayer LayerGraph.BatchNorm -> norm LayerGraph.NormBatch
+    LayerGraph.NormLayer LayerGraph.LayerNorm -> norm LayerGraph.NormLayerWise
+    LayerGraph.NormLayer (LayerGraph.GroupNorm groups) -> norm (LayerGraph.NormGroup groups)
+    LayerGraph.MultiHeadAttentionLayer heads ->
+      let spec = LayerGraph.AttentionSpec 2 2 (max 1 (min 2 heads)) False
+       in LayerGraph.mkAttentionLayer name spec mode (opParams (LayerGraph.AttentionOp spec))
+    LayerGraph.GeGLULayer ->
+      let spec = LayerGraph.GeGLUSpec 4 4 4
+       in LayerGraph.mkGeGLULayer name spec mode (opParams (LayerGraph.GeGLUOp spec))
+    LayerGraph.PatchEmbedLayer ->
+      let spec = LayerGraph.PatchSpec 1 2 2 1 1 1
+       in LayerGraph.mkPatchEmbedLayer name spec mode (opParams (LayerGraph.PatchOp spec))
+    LayerGraph.ResidualLayer scale ->
+      let inner = LayerGraph.AffineSpec 4 4
+          op =
+            LayerGraph.ResidualOp
+              inner
+              LayerGraph.IdentityShortcut
+              scale
+              LayerGraph.TanhActivation
+       in LayerGraph.mkResidualNode
+            name
+            inner
+            LayerGraph.IdentityShortcut
+            scale
+            LayerGraph.TanhActivation
+            activation
+            mode
+            (opParams op)
+    LayerGraph.BasicBlockLayer scale -> block LayerGraph.mkBasicBlock False scale
+    LayerGraph.BottleneckBlockLayer scale -> block LayerGraph.mkBottleneck True scale
+ where
+  seed = 100 + idx
+  mode = LayerGraph.TrainingMode
+  activation = layerGraphDeviceActivation kind
+  name = "backend-layer-" <> Text.pack (show idx) <> "-" <> LayerGraph.layerKindName kind
+  window = LayerGraph.PoolWindow 1 1 1 1 0 0 False
+  opParams = LayerGraph.deterministicOpParameters seed
+  conv build dims =
+    let spec = fixtureConvSpec dims
+     in build name spec activation mode (opParams (LayerGraph.ConvOp spec))
+  norm flavor =
+    let spec = LayerGraph.NormSpec flavor 4 1 1.0e-5
+     in LayerGraph.mkNormLayer name spec mode (opParams (LayerGraph.NormOp spec))
+  block build bottleneck scale =
+    let spec = fixtureBlockSpec bottleneck scale
+     in build name spec mode (opParams (LayerGraph.BlockOp spec))
 
-isParameterizedLayerKind :: LayerGraph.LayerKind -> Bool
-isParameterizedLayerKind (LayerGraph.PoolLayer _) = False
-isParameterizedLayerKind (LayerGraph.DropoutLayer _) = False
-isParameterizedLayerKind _ = True
+fixtureConvSpec :: [Int] -> LayerGraph.ConvSpec
+fixtureConvSpec dims =
+  LayerGraph.ConvSpec
+    { LayerGraph.convIn = 1
+    , LayerGraph.convOut = 1
+    , LayerGraph.convInputDims = dims
+    , LayerGraph.convKernelDims = fmap (const 1) dims
+    , LayerGraph.convStride = fmap (const 1) dims
+    , LayerGraph.convPadding = fmap (const 0) dims
+    }
+
+fixtureBlockSpec :: Bool -> Double -> LayerGraph.BlockSpec
+fixtureBlockSpec bottleneck scale =
+  LayerGraph.BlockSpec
+    ( if bottleneck
+        then
+          [ LayerGraph.BlockStage (LayerGraph.AffineSpec 4 2) Nothing LayerGraph.ReluActivation
+          , LayerGraph.BlockStage (LayerGraph.AffineSpec 2 4) Nothing LayerGraph.ReluActivation
+          ]
+        else
+          [ LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) Nothing LayerGraph.ReluActivation
+          , LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) Nothing LayerGraph.ReluActivation
+          ]
+    )
+    LayerGraph.IdentityShortcut
+    scale
+    LayerGraph.ReluActivation
+
+layerGraphDeviceActivation :: LayerGraph.LayerKind -> LayerGraph.LayerActivation
+layerGraphDeviceActivation kind =
+  case kind of
+    LayerGraph.DenseLayer -> LayerGraph.TanhActivation
+    LayerGraph.Conv2DLayer -> LayerGraph.TanhActivation
+    LayerGraph.Conv3DLayer -> LayerGraph.TanhActivation
+    _ -> LayerGraph.LinearActivation
+
+-- | The declared kinds the layer-graph oneDNN path has a real device kernel
+-- for. Phase `241` made the lowering total, so this is the whole declared
+-- vocabulary: 3-D convolution gained its own oneDNN primitive triple, and the
+-- parameterless operators (pooling, dropout, identity) execute on the device
+-- instead of falling back to the pure executor that is supposed to be their
+-- oracle.
+deviceSupportedLayerKinds :: [LayerGraph.LayerKind]
+deviceSupportedLayerKinds = LayerGraph.allLayerKinds
+
+-- | A single-node graph holding a real 3-D convolution, used to prove the
+-- device path rejects it instead of silently running another primitive.
+layerGraphConv3DFixture :: Either Text.Text LayerGraph.LayerGraph
+layerGraphConv3DFixture = do
+  node <- fixtureNode (1, LayerGraph.Conv3DLayer)
+  pure
+    LayerGraph.LayerGraph
+      { LayerGraph.layerGraphName = "backend-layergraph-conv3d"
+      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [4]
+      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [4]
+      , LayerGraph.layerGraphNodes = [node]
+      }
 
 assertFamilySmoke :: Env -> KernelFamily -> IO ()
 assertFamilySmoke env family = do
@@ -2627,12 +2966,19 @@ assertFamilySmoke env family = do
       assertBool
         ("linux-cpu family output is nonempty for " <> show (familyName family))
         (not (null (linuxCpuKernelOutput kernelRun)))
-      case family of
-        Reduction -> linuxCpuKernelOutput kernelRun @?= [6.0]
-        _ -> length (linuxCpuKernelOutput kernelRun) @?= 4
       assertBool
         ("linux-cpu family output is finite for " <> show (familyName family))
         (all finiteFloat (linuxCpuKernelOutput kernelRun))
+      -- Sprint 80.1 — the unweighted ABI is checked against the semantics
+      -- contract (the weighted reference at the family's canonical no-op
+      -- weights), not merely smoke-asserted. The absence of this check is why
+      -- the linux-cpu attention body was able to disagree with the other two
+      -- lanes for as long as it did.
+      assertUnweightedMatchesContract
+        "linux-cpu unweighted"
+        family
+        [4.0, -2.0, 1.0, 3.0]
+        (linuxCpuKernelOutput kernelRun)
 
 finiteFloat :: Float -> Bool
 finiteFloat value =
@@ -2681,6 +3027,29 @@ weightedFamilyFixtures =
 -- computed in Double; the kernel runs in Float, so agreement is asserted within
 -- 1e-3 (the same band the MLP device tests use). This is a within-lane
 -- backend-vs-oracle correctness check — not a cross-substrate parity assertion.
+-- | The unweighted ABI's oracle: a lane's unweighted kernel must equal the
+-- weighted reference evaluated at the family's canonical no-op weights.
+assertUnweightedMatchesContract :: Text.Text -> KernelFamily -> [Float] -> [Float] -> IO ()
+assertUnweightedMatchesContract label family input actual =
+  assertBool
+    ( Text.unpack label
+        <> ": "
+        <> show family
+        <> " unweighted output "
+        <> show actual
+        <> " must match the semantics contract "
+        <> show expected
+        <> " within 1e-3"
+    )
+    ( length actual == length expected
+        && approxEqualVec
+          1.0e-3
+          (VU.fromList (map realToFrac actual))
+          (VU.fromList (map realToFrac expected))
+    )
+ where
+  expected = unweightedFamilyReference family input
+
 assertWeightedMatchesReference
   :: Text.Text -> KernelFamily -> [Float] -> [Float] -> [Float] -> IO ()
 assertWeightedMatchesReference label family input weights actual =

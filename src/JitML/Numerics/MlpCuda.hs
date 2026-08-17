@@ -13,7 +13,6 @@
 module JitML.Numerics.MlpCuda
   ( mlpCudaHash
   , mlpCudaRuntimeSource
-  , mlpCudaToolchainFingerprint
   , cudaMlpSpec
   , cudaMlpDevice
   , mlpForwardCuda
@@ -26,14 +25,13 @@ module JitML.Numerics.MlpCuda
 where
 
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
-import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.MlpCuda (mlpCudaKernelSpec, renderMlpCudaSource)
 import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine (engineForSubstrate)
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( MlpForward
@@ -52,7 +50,7 @@ import JitML.Numerics.MlpDevice
   , mlpForwardWith
   , mlpInputGradientBatchWith
   )
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (KernelLaunch (..), Substrate (..))
 
 mlpCudaRuntimeSource :: RuntimeSource
 mlpCudaRuntimeSource =
@@ -63,38 +61,13 @@ mlpCudaRuntimeSource =
     , runtimeSourceFiles = renderMlpCudaSource
     }
 
--- | Toolchain fingerprint for the MLP CUDA kernel. Distinct symbol names keep
--- this artifact in its own JIT-cache slot, separate from the
--- per-'JitML.Codegen.KernelFamily.KernelFamily' kernels.
-mlpCudaToolchainFingerprint :: Cache.ToolchainFingerprint
-mlpCudaToolchainFingerprint =
-  Cache.ToolchainFingerprint
-    ( Text.intercalate
-        ";"
-        [ "nvcc-shared"
-        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "sm=70"
-        , "--use_fast_math=false"
-        , "--fmad=false"
-        , "tf32=disabled"
-        , "abi=extern-c-host-wrapper"
-        , "reductions=per-thread-sequential"
-        , "persistent-weight-cache=fnv64-evict-on-oom-v3-parallel-weight-gradient"
-        , "jitml_mlp_forward(float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int)"
-        , "jitml_mlp_backward(float*,float*,float*,float*,const float*,const float*,const float*,const float*,int,int,int)"
-        , "jitml_mlp_batch_gradient(float*,float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        , "jitml_mlp_forward_batch(float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        , "jitml_mlp_input_gradient_batch(float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        ]
-    )
-
 mlpCudaHash :: Cache.Hash
 mlpCudaHash =
   Cache.cacheKey
     mlpCudaKernelSpec
     Cache.Inference
     Cache.LinuxCUDA
-    mlpCudaToolchainFingerprint
+    (Fingerprint.mlpToolchainFingerprint LinuxCUDA)
     (runtimeSourcePayload mlpCudaRuntimeSource)
     Cache.defaultTuningChoice
 
@@ -103,9 +76,11 @@ cudaMlpSpec :: MlpBackendSpec
 cudaMlpSpec =
   MlpBackendSpec
     { mbsTag = "mlp-cuda"
+    , mbsSubstrate = LinuxCUDA
     , mbsEngine = engineForSubstrate LinuxCUDA
     , mbsRuntimeSource = mlpCudaRuntimeSource
     , mbsHash = mlpCudaHash
+    , mbsLaunch = LoadableSymbolLaunch
     }
 
 -- | The CUDA MLP operations bundled for injection into the RL trainers.

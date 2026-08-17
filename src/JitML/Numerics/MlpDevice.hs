@@ -19,7 +19,9 @@
 -- hard-coding one — the seam the device-parity trainers route through.
 module JitML.Numerics.MlpDevice
   ( MlpBackendSpec (..)
+  , MlpDeviceExecution (..)
   , MlpDevice (..)
+  , mlpDeviceExecutionWitness
   , mlpDeviceFromSpec
   , pureReferenceMlpDevice
   , probeMlpDevice
@@ -45,6 +47,7 @@ import JitML.Codegen.RuntimeSource (RuntimeSource)
 import JitML.Engines.Engine (Engine (..), KernelHandle (..))
 import JitML.Engines.Loader
   ( ensureKernelArtifact
+  , executedArtifactIdentity
   , kernelArtifactHandle
   , renderKernelArtifactError
   , withKernelSymbol
@@ -62,19 +65,34 @@ import JitML.Numerics.Mlp
   , mlpInputGradient
   , mlpZeroGradient
   )
-import JitML.Substrate (Substrate (..))
+import JitML.Product.DeviceWitness
+  ( DeviceExecutionWitness
+  , witnessDeviceExecution
+  )
+import JitML.Substrate (KernelLaunch (..), Substrate (..))
 
 -- | A backend's compile/load coordinates. The MLP ABI is identical across
 -- backends; only these values differ (plus a human-readable error tag).
 data MlpBackendSpec = MlpBackendSpec
   { mbsTag :: Text
   -- ^ error-message prefix, e.g. @"mlp-onednn"@
+  , mbsSubstrate :: Substrate
+  -- ^ the lane this backend /is/ (Sprint `264.1`). Carried here rather than
+  -- rediscovered by the caller so a device and the substrate it runs on cannot
+  -- disagree: everything downstream that needs the lane — the layer-graph
+  -- training kernel selection, the execution witness — reads it off the spec
+  -- that compiled the artifact.
   , mbsEngine :: Engine
   -- ^ engine that compiles/loads the artifact
   , mbsRuntimeSource :: RuntimeSource
   -- ^ the generated kernel source for this backend
   , mbsHash :: Cache.Hash
   -- ^ content-addressed JIT-cache key for the artifact
+  , mbsLaunch :: KernelLaunch
+  -- ^ how this backend enters its artifact (Sprint `79.1`). The
+  -- @dlopen@/@dlsym@ versus fixed-Metal-bridge difference is this value, not an
+  -- @isMetalSpec@ branch inside otherwise-generic code, and it is what
+  -- 'mlpDeviceExecutionWitness' asks for the executed identity.
   }
 
 -- | The five MLP device operations bundled behind one record, each already
@@ -94,16 +112,36 @@ data MlpDevice = MlpDevice
       :: MlpParams
       -> [(VU.Vector Double, VU.Vector Double)]
       -> IO (Either Text [VU.Vector Double])
-  , mlpdEnv :: Maybe Env
-  -- ^ The device's execution environment when it is backed by a real JIT
-  -- substrate (@Just@ from 'mlpDeviceFromSpec'), or @Nothing@ for the pure
-  -- reference device. Supervised classifier training on the typed layer graph
-  -- dispatches on this: @Just env@ trains through the oneDNN device loop
-  -- (@JitML.Numerics.LayerGraphOneDnn.trainLayerGraphClassifierEpochOneDnn@) and
+  , mlpdExecutionWitness :: IO (Either Text (Maybe DeviceExecutionWitness))
+  -- ^ Mint the execution witness for this device's compiled artifact.
+  --
+  -- @Right Nothing@ is returned only by 'pureReferenceMlpDevice', which
+  -- compiles nothing and therefore honestly attests nothing. A real backend
+  -- ensures its artifact, reads the family identity back /out of that
+  -- artifact/, and digests the compiled bytes, so the witness names the code
+  -- that ran rather than the substrate that was requested. Callers record it
+  -- after their training loop has returned successfully.
+  , mlpdExecution :: Maybe MlpDeviceExecution
+  -- ^ The device's execution context when it is backed by a real JIT substrate
+  -- (@Just@ from 'mlpDeviceFromSpec'), or @Nothing@ for the pure reference
+  -- device. Supervised classifier training on the typed layer graph dispatches
+  -- on this: @Just@ trains through that lane's device loop
+  -- (@JitML.Numerics.LayerGraphDevice.trainLayerGraphClassifierEpochDevice@) and
   -- @Nothing@ trains through the pure CPU-autodiff loop
   -- (@JitML.Numerics.LayerGraph.trainLayerGraphClassifierEpochPure@), keeping the
   -- toolchain-free callers (the offline tuning objective) referentially
   -- transparent.
+  --
+  -- Sprint `264.1` made this one 'Maybe' over a pair rather than a @Maybe Env@
+  -- beside a @Maybe Substrate@: a device cannot be half-resolved, so the lane and
+  -- the environment cannot disagree about which substrate is executing.
+  }
+
+-- | A real JIT substrate's execution context: the lane and the environment that
+-- compiles and loads its artifacts.
+data MlpDeviceExecution = MlpDeviceExecution
+  { mlpxSubstrate :: Substrate
+  , mlpxEnv :: Env
   }
 
 -- | Sprint 8.11 — verify the device's JIT kernel actually compiles, loads,
@@ -128,7 +166,9 @@ mlpDeviceFromSpec spec env =
     , mlpdForwardBatch = mlpForwardBatchWith spec env
     , mlpdBatchGradient = mlpBatchGradientWith spec env
     , mlpdInputGradientBatch = mlpInputGradientBatchWith spec env
-    , mlpdEnv = Just env
+    , mlpdExecutionWitness = fmap (fmap Just) (mlpDeviceExecutionWitness spec env)
+    , mlpdExecution =
+        Just MlpDeviceExecution {mlpxSubstrate = mbsSubstrate spec, mlpxEnv = env}
     }
 
 -- | A pure-Haskell reference 'MlpDevice' backed by the pure
@@ -171,7 +211,8 @@ pureReferenceMlpDevice =
           if batchShapeMismatch params batch
             then Left pureShapeMismatch
             else Right [mlpInputGradient params (mlpForward params i) dy | (i, dy) <- batch]
-    , mlpdEnv = Nothing
+    , mlpdExecutionWitness = pure (Right Nothing)
+    , mlpdExecution = Nothing
     }
  where
   shapeInputs params = mlpInputs (paramShape params)
@@ -292,73 +333,75 @@ mlpForwardWith
 mlpForwardWith spec env params input
   | VU.length input /= inputs =
       pure (Left (mbsTag spec <> ": input shape mismatch against the network"))
-  | isMetalSpec spec = do
-      metadataResult <- ensureMlpMetadata spec env
-      case metadataResult of
-        Left err -> pure (Left err)
-        Right () -> do
-          result <-
-            MetalBridge.runMetalMlpForward
-              renderMlpMetalProgram
-              inputs
-              hidden
-              outputs
-              (toFloatList (VU.toList input))
-              (toFloatList (VU.toList (paramW1 params)))
-              (toFloatList (VU.toList (paramB1 params)))
-              (toFloatList (VU.toList (paramW2 params)))
-              (toFloatList (VU.toList (paramB2 params)))
-          pure $
-            case result of
-              Left err -> Left (mbsTag spec <> " run failed: " <> err)
-              Right (hiddenPre, hiddenAct, output) ->
-                Right
-                  MlpForward
-                    { forwardInput = input
-                    , forwardHiddenPre = VU.fromList (fromFloatList hiddenPre)
-                    , forwardHiddenAct = VU.fromList (fromFloatList hiddenAct)
-                    , forwardOutput = VU.fromList (fromFloatList output)
-                    }
-  | otherwise = do
-      artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
-      case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
-        Right artifact -> do
-          let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
-          withKernelSymbol path "jitml_mlp_forward" $ \symbol -> do
-            let forwardFun = mkMlpForwardFun symbol
-            withArray (toC (VU.toList input)) $ \pInput ->
-              withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
-                withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
-                  withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
-                    withArray (toC (VU.toList (paramB2 params))) $ \pB2 ->
-                      allocaArray hidden $ \pHiddenPre ->
-                        allocaArray hidden $ \pHiddenAct ->
-                          allocaArray outputs $ \pOutput -> do
-                            forwardFun
-                              pHiddenPre
-                              pHiddenAct
-                              pOutput
-                              pInput
-                              pW1
-                              pB1
-                              pW2
-                              pB2
-                              (fromIntegral inputs)
-                              (fromIntegral hidden)
-                              (fromIntegral outputs)
-                            hiddenPre <- peekFloats hidden pHiddenPre
-                            hiddenAct <- peekFloats hidden pHiddenAct
-                            output <- peekFloats outputs pOutput
-                            pure
-                              ( Right
-                                  MlpForward
-                                    { forwardInput = input
-                                    , forwardHiddenPre = VU.fromList hiddenPre
-                                    , forwardHiddenAct = VU.fromList hiddenAct
-                                    , forwardOutput = VU.fromList output
-                                    }
-                              )
+  | otherwise =
+      case mbsLaunch spec of
+        FixedBridgeLaunch -> do
+          metadataResult <- ensureMlpMetadata spec env
+          case metadataResult of
+            Left err -> pure (Left err)
+            Right () -> do
+              result <-
+                MetalBridge.runMetalMlpForward
+                  renderMlpMetalProgram
+                  inputs
+                  hidden
+                  outputs
+                  (toFloatList (VU.toList input))
+                  (toFloatList (VU.toList (paramW1 params)))
+                  (toFloatList (VU.toList (paramB1 params)))
+                  (toFloatList (VU.toList (paramW2 params)))
+                  (toFloatList (VU.toList (paramB2 params)))
+              pure $
+                case result of
+                  Left err -> Left (mbsTag spec <> " run failed: " <> err)
+                  Right (hiddenPre, hiddenAct, output) ->
+                    Right
+                      MlpForward
+                        { forwardInput = input
+                        , forwardHiddenPre = VU.fromList (fromFloatList hiddenPre)
+                        , forwardHiddenAct = VU.fromList (fromFloatList hiddenAct)
+                        , forwardOutput = VU.fromList (fromFloatList output)
+                        }
+        LoadableSymbolLaunch -> do
+          artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+          case artifactResult of
+            Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
+            Right artifact -> do
+              let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+              withKernelSymbol path "jitml_mlp_forward" $ \symbol -> do
+                let forwardFun = mkMlpForwardFun symbol
+                withArray (toC (VU.toList input)) $ \pInput ->
+                  withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
+                    withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
+                      withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
+                        withArray (toC (VU.toList (paramB2 params))) $ \pB2 ->
+                          allocaArray hidden $ \pHiddenPre ->
+                            allocaArray hidden $ \pHiddenAct ->
+                              allocaArray outputs $ \pOutput -> do
+                                forwardFun
+                                  pHiddenPre
+                                  pHiddenAct
+                                  pOutput
+                                  pInput
+                                  pW1
+                                  pB1
+                                  pW2
+                                  pB2
+                                  (fromIntegral inputs)
+                                  (fromIntegral hidden)
+                                  (fromIntegral outputs)
+                                hiddenPre <- peekFloats hidden pHiddenPre
+                                hiddenAct <- peekFloats hidden pHiddenAct
+                                output <- peekFloats outputs pOutput
+                                pure
+                                  ( Right
+                                      MlpForward
+                                        { forwardInput = input
+                                        , forwardHiddenPre = VU.fromList hiddenPre
+                                        , forwardHiddenAct = VU.fromList hiddenAct
+                                        , forwardOutput = VU.fromList output
+                                        }
+                                  )
  where
   shape = paramShape params
   inputs = mlpInputs shape
@@ -375,8 +418,8 @@ mlpBackwardWith
   -> VU.Vector Double
   -> IO (Either Text MlpGradient)
 mlpBackwardWith spec env params fwd dLdy = do
-  if isMetalSpec spec
-    then do
+  case mbsLaunch spec of
+    FixedBridgeLaunch -> do
       metadataResult <- ensureMlpMetadata spec env
       case metadataResult of
         Left err -> pure (Left err)
@@ -392,7 +435,7 @@ mlpBackwardWith spec env params fwd dLdy = do
               (toFloatList (VU.toList (forwardHiddenAct fwd)))
               (toFloatList (VU.toList (paramW2 params)))
           pure (mlpGradientFromBridgeResult spec result)
-    else do
+    LoadableSymbolLaunch -> do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
         Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
@@ -453,57 +496,59 @@ mlpForwardBatchWith spec env params inputs
   | null inputs = pure (Right [])
   | any (\i -> VU.length i /= inputCount) inputs =
       pure (Left (mbsTag spec <> ": input shape mismatch against the network"))
-  | isMetalSpec spec = do
-      metadataResult <- ensureMlpMetadata spec env
-      case metadataResult of
-        Left err -> pure (Left err)
-        Right () -> do
-          let batchN = length inputs
-          result <-
-            MetalBridge.runMetalMlpForwardBatch
-              renderMlpMetalProgram
-              inputCount
-              hidden
-              outputs
-              batchN
-              (toFloatList (concatMap VU.toList inputs))
-              (toFloatList (VU.toList (paramW1 params)))
-              (toFloatList (VU.toList (paramB1 params)))
-              (toFloatList (VU.toList (paramW2 params)))
-              (toFloatList (VU.toList (paramB2 params)))
-          pure $
-            case result of
-              Left err -> Left (mbsTag spec <> " run failed: " <> err)
-              Right flat -> Right (chunksOf outputs (VU.fromList (fromFloatList flat)))
-  | otherwise = do
-      artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
-      case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
-        Right artifact -> do
-          let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
-          withKernelSymbol path "jitml_mlp_forward_batch" $ \symbol -> do
-            let forwardFun = mkMlpForwardBatchFun symbol
-                inputFlat = toC (concatMap VU.toList inputs)
-                batchN = length inputs
-            withArray inputFlat $ \pInput ->
-              withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
-                withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
-                  withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
-                    withArray (toC (VU.toList (paramB2 params))) $ \pB2 ->
-                      allocaArray (batchN * outputs) $ \pOutput -> do
-                        forwardFun
-                          pOutput
-                          pInput
-                          pW1
-                          pB1
-                          pW2
-                          pB2
-                          (fromIntegral inputCount)
-                          (fromIntegral hidden)
-                          (fromIntegral outputs)
-                          (fromIntegral batchN)
-                        flat <- peekFloats (batchN * outputs) pOutput
-                        pure (Right (chunksOf outputs (VU.fromList flat)))
+  | otherwise =
+      case mbsLaunch spec of
+        FixedBridgeLaunch -> do
+          metadataResult <- ensureMlpMetadata spec env
+          case metadataResult of
+            Left err -> pure (Left err)
+            Right () -> do
+              let batchN = length inputs
+              result <-
+                MetalBridge.runMetalMlpForwardBatch
+                  renderMlpMetalProgram
+                  inputCount
+                  hidden
+                  outputs
+                  batchN
+                  (toFloatList (concatMap VU.toList inputs))
+                  (toFloatList (VU.toList (paramW1 params)))
+                  (toFloatList (VU.toList (paramB1 params)))
+                  (toFloatList (VU.toList (paramW2 params)))
+                  (toFloatList (VU.toList (paramB2 params)))
+              pure $
+                case result of
+                  Left err -> Left (mbsTag spec <> " run failed: " <> err)
+                  Right flat -> Right (chunksOf outputs (VU.fromList (fromFloatList flat)))
+        LoadableSymbolLaunch -> do
+          artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+          case artifactResult of
+            Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
+            Right artifact -> do
+              let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+              withKernelSymbol path "jitml_mlp_forward_batch" $ \symbol -> do
+                let forwardFun = mkMlpForwardBatchFun symbol
+                    inputFlat = toC (concatMap VU.toList inputs)
+                    batchN = length inputs
+                withArray inputFlat $ \pInput ->
+                  withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
+                    withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
+                      withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
+                        withArray (toC (VU.toList (paramB2 params))) $ \pB2 ->
+                          allocaArray (batchN * outputs) $ \pOutput -> do
+                            forwardFun
+                              pOutput
+                              pInput
+                              pW1
+                              pB1
+                              pW2
+                              pB2
+                              (fromIntegral inputCount)
+                              (fromIntegral hidden)
+                              (fromIntegral outputs)
+                              (fromIntegral batchN)
+                            flat <- peekFloats (batchN * outputs) pOutput
+                            pure (Right (chunksOf outputs (VU.fromList flat)))
  where
   shape = paramShape params
   inputCount = mlpInputs shape
@@ -522,72 +567,74 @@ mlpBatchGradientWith spec env params batch
   | null batch = pure (Right (mlpZeroGradient shape))
   | any (\(i, dy) -> VU.length i /= inputs || VU.length dy /= outputs) batch =
       pure (Left (mbsTag spec <> ": input/dLdy shape mismatch against the network"))
-  | isMetalSpec spec = do
-      metadataResult <- ensureMlpMetadata spec env
-      case metadataResult of
-        Left err -> pure (Left err)
-        Right () -> do
-          let batchN = length batch
-          result <-
-            MetalBridge.runMetalMlpBatchGradient
-              renderMlpMetalProgram
-              inputs
-              hidden
-              outputs
-              batchN
-              (toFloatList (concatMap (VU.toList . fst) batch))
-              (toFloatList (concatMap (VU.toList . snd) batch))
-              (toFloatList (VU.toList (paramW1 params)))
-              (toFloatList (VU.toList (paramB1 params)))
-              (toFloatList (VU.toList (paramW2 params)))
-          pure (mlpGradientFromBridgeResult spec result)
-  | otherwise = do
-      artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
-      case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
-        Right artifact -> do
-          let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
-          withKernelSymbol path "jitml_mlp_batch_gradient" $ \symbol -> do
-            let gradientFun = mkMlpBatchGradientFun symbol
-                inputFlat = toC (concatMap (VU.toList . fst) batch)
-                dyFlat = toC (concatMap (VU.toList . snd) batch)
-                batchN = length batch
-            withArray inputFlat $ \pInput ->
-              withArray dyFlat $ \pDy ->
-                withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
-                  withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
-                    withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
-                      allocaArray w1n $ \pGW1 ->
-                        allocaArray hidden $ \pGB1 ->
-                          allocaArray w2n $ \pGW2 ->
-                            allocaArray outputs $ \pGB2 -> do
-                              gradientFun
-                                pGW1
-                                pGB1
-                                pGW2
-                                pGB2
-                                pInput
-                                pDy
-                                pW1
-                                pB1
-                                pW2
-                                (fromIntegral inputs)
-                                (fromIntegral hidden)
-                                (fromIntegral outputs)
-                                (fromIntegral batchN)
-                              gW1 <- peekFloats w1n pGW1
-                              gB1 <- peekFloats hidden pGB1
-                              gW2 <- peekFloats w2n pGW2
-                              gB2 <- peekFloats outputs pGB2
-                              pure
-                                ( Right
-                                    MlpGradient
-                                      { gradW1 = VU.fromList gW1
-                                      , gradB1 = VU.fromList gB1
-                                      , gradW2 = VU.fromList gW2
-                                      , gradB2 = VU.fromList gB2
-                                      }
-                                )
+  | otherwise =
+      case mbsLaunch spec of
+        FixedBridgeLaunch -> do
+          metadataResult <- ensureMlpMetadata spec env
+          case metadataResult of
+            Left err -> pure (Left err)
+            Right () -> do
+              let batchN = length batch
+              result <-
+                MetalBridge.runMetalMlpBatchGradient
+                  renderMlpMetalProgram
+                  inputs
+                  hidden
+                  outputs
+                  batchN
+                  (toFloatList (concatMap (VU.toList . fst) batch))
+                  (toFloatList (concatMap (VU.toList . snd) batch))
+                  (toFloatList (VU.toList (paramW1 params)))
+                  (toFloatList (VU.toList (paramB1 params)))
+                  (toFloatList (VU.toList (paramW2 params)))
+              pure (mlpGradientFromBridgeResult spec result)
+        LoadableSymbolLaunch -> do
+          artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+          case artifactResult of
+            Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
+            Right artifact -> do
+              let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+              withKernelSymbol path "jitml_mlp_batch_gradient" $ \symbol -> do
+                let gradientFun = mkMlpBatchGradientFun symbol
+                    inputFlat = toC (concatMap (VU.toList . fst) batch)
+                    dyFlat = toC (concatMap (VU.toList . snd) batch)
+                    batchN = length batch
+                withArray inputFlat $ \pInput ->
+                  withArray dyFlat $ \pDy ->
+                    withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
+                      withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
+                        withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
+                          allocaArray w1n $ \pGW1 ->
+                            allocaArray hidden $ \pGB1 ->
+                              allocaArray w2n $ \pGW2 ->
+                                allocaArray outputs $ \pGB2 -> do
+                                  gradientFun
+                                    pGW1
+                                    pGB1
+                                    pGW2
+                                    pGB2
+                                    pInput
+                                    pDy
+                                    pW1
+                                    pB1
+                                    pW2
+                                    (fromIntegral inputs)
+                                    (fromIntegral hidden)
+                                    (fromIntegral outputs)
+                                    (fromIntegral batchN)
+                                  gW1 <- peekFloats w1n pGW1
+                                  gB1 <- peekFloats hidden pGB1
+                                  gW2 <- peekFloats w2n pGW2
+                                  gB2 <- peekFloats outputs pGB2
+                                  pure
+                                    ( Right
+                                        MlpGradient
+                                          { gradW1 = VU.fromList gW1
+                                          , gradB1 = VU.fromList gB1
+                                          , gradW2 = VU.fromList gW2
+                                          , gradB2 = VU.fromList gB2
+                                          }
+                                    )
  where
   shape = paramShape params
   inputs = mlpInputs shape
@@ -607,70 +654,97 @@ mlpInputGradientBatchWith spec env params batch
   | null batch = pure (Right [])
   | any (\(i, dy) -> VU.length i /= inputs || VU.length dy /= outputs) batch =
       pure (Left (mbsTag spec <> ": input/dLdy shape mismatch against the network"))
-  | isMetalSpec spec = do
-      metadataResult <- ensureMlpMetadata spec env
-      case metadataResult of
-        Left err -> pure (Left err)
-        Right () -> do
-          let batchN = length batch
-          result <-
-            MetalBridge.runMetalMlpInputGradientBatch
-              renderMlpMetalProgram
-              inputs
-              hidden
-              outputs
-              batchN
-              (toFloatList (concatMap (VU.toList . fst) batch))
-              (toFloatList (concatMap (VU.toList . snd) batch))
-              (toFloatList (VU.toList (paramW1 params)))
-              (toFloatList (VU.toList (paramB1 params)))
-              (toFloatList (VU.toList (paramW2 params)))
-          pure $
-            case result of
-              Left err -> Left (mbsTag spec <> " run failed: " <> err)
-              Right flat -> Right (chunksOf inputs (VU.fromList (fromFloatList flat)))
-  | otherwise = do
-      artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
-      case artifactResult of
-        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
-        Right artifact -> do
-          let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
-          withKernelSymbol path "jitml_mlp_input_gradient_batch" $ \symbol -> do
-            let gradFun = mkMlpInputGradientBatchFun symbol
-                inputFlat = toC (concatMap (VU.toList . fst) batch)
-                dyFlat = toC (concatMap (VU.toList . snd) batch)
-                batchN = length batch
-            withArray inputFlat $ \pInput ->
-              withArray dyFlat $ \pDy ->
-                withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
-                  withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
-                    withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
-                      allocaArray (batchN * inputs) $ \pDx -> do
-                        gradFun
-                          pDx
-                          pInput
-                          pDy
-                          pW1
-                          pB1
-                          pW2
-                          (fromIntegral inputs)
-                          (fromIntegral hidden)
-                          (fromIntegral outputs)
-                          (fromIntegral batchN)
-                        flat <- peekFloats (batchN * inputs) pDx
-                        pure (Right (chunksOf inputs (VU.fromList flat)))
+  | otherwise =
+      case mbsLaunch spec of
+        FixedBridgeLaunch -> do
+          metadataResult <- ensureMlpMetadata spec env
+          case metadataResult of
+            Left err -> pure (Left err)
+            Right () -> do
+              let batchN = length batch
+              result <-
+                MetalBridge.runMetalMlpInputGradientBatch
+                  renderMlpMetalProgram
+                  inputs
+                  hidden
+                  outputs
+                  batchN
+                  (toFloatList (concatMap (VU.toList . fst) batch))
+                  (toFloatList (concatMap (VU.toList . snd) batch))
+                  (toFloatList (VU.toList (paramW1 params)))
+                  (toFloatList (VU.toList (paramB1 params)))
+                  (toFloatList (VU.toList (paramW2 params)))
+              pure $
+                case result of
+                  Left err -> Left (mbsTag spec <> " run failed: " <> err)
+                  Right flat -> Right (chunksOf inputs (VU.fromList (fromFloatList flat)))
+        LoadableSymbolLaunch -> do
+          artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+          case artifactResult of
+            Left err -> pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
+            Right artifact -> do
+              let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+              withKernelSymbol path "jitml_mlp_input_gradient_batch" $ \symbol -> do
+                let gradFun = mkMlpInputGradientBatchFun symbol
+                    inputFlat = toC (concatMap (VU.toList . fst) batch)
+                    dyFlat = toC (concatMap (VU.toList . snd) batch)
+                    batchN = length batch
+                withArray inputFlat $ \pInput ->
+                  withArray dyFlat $ \pDy ->
+                    withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
+                      withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
+                        withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
+                          allocaArray (batchN * inputs) $ \pDx -> do
+                            gradFun
+                              pDx
+                              pInput
+                              pDy
+                              pW1
+                              pB1
+                              pW2
+                              (fromIntegral inputs)
+                              (fromIntegral hidden)
+                              (fromIntegral outputs)
+                              (fromIntegral batchN)
+                            flat <- peekFloats (batchN * inputs) pDx
+                            pure (Right (chunksOf inputs (VU.fromList flat)))
  where
   shape = paramShape params
   inputs = mlpInputs shape
   hidden = mlpHidden shape
   outputs = mlpOutputs shape
 
+-- | Mint the execution witness for a backend's compiled MLP artifact.
+--
+-- The executed identity is read back /out of the artifact/ rather than asserted
+-- by the host: the loadable backends resolve @jitml_kernel_family_name@ from the
+-- artifact they just ran, and the Apple Metal artifact — a @<hash>.metal.json@
+-- source-metadata document rather than a shared object — is parsed for the
+-- @family@ field the renderer wrote. Previously the Metal path attributed a run
+-- to @familyNameText family@, the value the host had asked for, which could not
+-- disagree with itself.
+mlpDeviceExecutionWitness
+  :: MlpBackendSpec -> Env -> IO (Either Text DeviceExecutionWitness)
+mlpDeviceExecutionWitness spec env = do
+  artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+  case artifactResult of
+    Left err ->
+      pure (Left (mbsTag spec <> " compile failed: " <> renderKernelArtifactError err))
+    Right artifact -> do
+      let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+      identityResult <- executedArtifactIdentity (mbsLaunch spec) path
+      case identityResult of
+        Left err -> pure (Left (mbsTag spec <> ": " <> err))
+        Right executedIdentity ->
+          witnessDeviceExecution
+            (engineSubstrate (mbsEngine spec))
+            (engineBackend (mbsEngine spec))
+            (Cache.hashHex (mbsHash spec))
+            path
+            executedIdentity
+
 toC :: [Double] -> [CFloat]
 toC = fmap (CFloat . realToFrac)
-
-isMetalSpec :: MlpBackendSpec -> Bool
-isMetalSpec spec =
-  engineSubstrate (mbsEngine spec) == AppleSilicon
 
 ensureMlpMetadata :: MlpBackendSpec -> Env -> IO (Either Text ())
 ensureMlpMetadata spec env = do

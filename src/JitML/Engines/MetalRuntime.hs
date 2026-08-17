@@ -23,7 +23,7 @@ import JitML.Sub.Outcome
   , ProcessTranscript (..)
   , renderProcessFailure
   )
-import JitML.Sub.Render (renderSubprocess)
+import JitML.Sub.Render (renderBool, renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 
@@ -133,10 +133,6 @@ renderSystemProfilerProbeResult (Right output) =
     <> renderBool (metalDeviceVisibleFromSystemProfiler output)
 renderSystemProfilerProbeResult (Left err) =
   renderSubprocess (subprocess "system_profiler" ["SPDisplaysDataType"]) <> ": " <> err
-
-renderBool :: Bool -> Text
-renderBool True = "yes"
-renderBool False = "no"
 
 renderOptionalProbeValue :: Maybe Text -> Text
 renderOptionalProbeValue = fromMaybe "not_probed"

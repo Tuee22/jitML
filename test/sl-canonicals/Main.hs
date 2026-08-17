@@ -225,7 +225,7 @@ main =
                   , clfHidden = 8
                   , clfClasses = 3
                   }
-              specs = Architecture.allCanonicalArchitectureSpecs config
+              specs = expectSpecRight (Architecture.allCanonicalArchitectureSpecs config)
           fmap (problemName . Architecture.archProblem) specs @?= fmap problemName canonicalProblems
       , testCase "canonical epoch permutation is seeded, exact, and sample-preserving (Sprint 10.6)" $ do
           let examples =
@@ -271,7 +271,7 @@ main =
                         "refine exact compact CIFAR ViT runtime"
                         (RuntimeArtifact.refineSupervisedRuntime runtime)
                     RuntimeArtifact.supervisedRuntimeToRaw refined @?= runtime
-                    let spec = Architecture.architectureSpecForProblem config problem
+                    let spec = expectSpecRight (Architecture.architectureSpecForProblem config problem)
                         graph = Architecture.archLayerGraph spec
                         graphParameterCount =
                           VU.length (LayerGraph.graphParameterVector graph)
@@ -289,7 +289,7 @@ main =
                   , clfHidden = 8
                   , clfClasses = 3
                   }
-              specs = Architecture.allCanonicalArchitectureSpecs config
+              specs = expectSpecRight (Architecture.allCanonicalArchitectureSpecs config)
               supervisedRows =
                 [ row
                 | row <- ProductMatrix.allProductRows
@@ -323,7 +323,7 @@ main =
                   , clfHidden = 8
                   , clfClasses = 3
                   }
-              specs = Architecture.allCanonicalArchitectureSpecs config
+              specs = expectSpecRight (Architecture.allCanonicalArchitectureSpecs config)
               specNamed name =
                 List.find ((== name) . problemName . Architecture.archProblem) specs
               countNodes name predicate =
@@ -405,7 +405,7 @@ main =
                   , clfHidden = 8
                   , clfClasses = 3
                   }
-              specs = Architecture.allCanonicalArchitectureSpecs config
+              specs = expectSpecRight (Architecture.allCanonicalArchitectureSpecs config)
               rows = ProductMatrix.allProductRows
               denseSpec =
                 List.find ((== "mnist-shallow-mlp") . problemName . Architecture.archProblem) specs
@@ -875,8 +875,8 @@ main =
               denseProblem =
                 case filter ((== "Dense") . SL.problemModel) canonicalProblems of
                   (p : _) -> p
-                  [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
-              spec = Architecture.architectureSpecForProblem config denseProblem
+                  [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" SL.DenseFamily 1001
+              spec = expectSpecRight (Architecture.architectureSpecForProblem config denseProblem)
               examples = syntheticDataset
               valCount = max 1 (length examples `div` 6)
               trainCount = length examples - valCount
@@ -929,7 +929,7 @@ main =
             let denseProblem =
                   case filter ((== "Dense") . SL.problemModel) canonicalProblems of
                     (problem : _) -> problem
-                    [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
+                    [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" SL.DenseFamily 1001
                 config =
                   defaultClassifierConfig
                     { clfSeed = SL.problemSeed denseProblem
@@ -940,7 +940,7 @@ main =
                     , clfBatchSize = 7
                     , clfLearningRate = 1.0e-2
                     }
-                spec = Architecture.architectureSpecForProblem config denseProblem
+                spec = expectSpecRight (Architecture.architectureSpecForProblem config denseProblem)
                 trainSet = take 50 syntheticDataset
                 validationSet = drop 50 syntheticDataset
                 expectedUpdates =
@@ -1015,8 +1015,8 @@ main =
                 denseProblem =
                   case filter ((== "Dense") . SL.problemModel) canonicalProblems of
                     (p : _) -> p
-                    [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
-                spec = Architecture.architectureSpecForProblem config denseProblem
+                    [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" SL.DenseFamily 1001
+                spec = expectSpecRight (Architecture.architectureSpecForProblem config denseProblem)
                 (trainSet, validationSet, testSet) = architectureEvidenceSplits
             threshold <-
               case slCohortThreshold (problemName denseProblem) of
@@ -1146,7 +1146,7 @@ main =
                     , clfLearningRate = 5.0e-3
                     }
             forM_ canonicalProblems $ \problem -> do
-              let spec = Architecture.architectureSpecForProblem config problem
+              let spec = expectSpecRight (Architecture.architectureSpecForProblem config problem)
               result <-
                 Architecture.trainArchitectureWithDevice
                   device
@@ -1435,7 +1435,7 @@ main =
                         (Dataset.maybeGunzip (Dataset.fetchedArtifactPayload tl)) of
                         Left err -> assertFailure ("live MNIST training failed: " <> err)
                         Right (configForData, trainSet) -> do
-                          let spec = Architecture.architectureSpecForProblem configForData problem
+                          let spec = expectSpecRight (Architecture.architectureSpecForProblem configForData problem)
                           trainedE <- Architecture.trainArchitectureWithDevice device spec configForData trainSet
                           case trainedE of
                             Left err ->
@@ -2308,7 +2308,7 @@ trainLiveClassifierDataset
   -> Dataset
   -> IO (Either String ())
 trainLiveClassifierDataset device problem config minimumTrainAccuracy trainSet testSet = do
-  let spec = Architecture.architectureSpecForProblem config problem
+  let spec = expectSpecRight (Architecture.architectureSpecForProblem config problem)
   trainedE <- Architecture.trainArchitectureWithDevice device spec config trainSet
   case trainedE of
     Left err ->
@@ -2642,3 +2642,9 @@ firstSyntheticProblem =
               (Dataset.datasetSplit ref)
           )
       Nothing -> False
+
+-- | Unwrap a canonical row's architecture spec. Sprint `233.1` made the builder
+-- fail closed, and a canonical row that cannot be built is a test failure, not
+-- a spec to substitute for.
+expectSpecRight :: Either Text.Text a -> a
+expectSpecRight = either (Prelude.error . Text.unpack) id

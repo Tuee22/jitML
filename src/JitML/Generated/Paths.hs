@@ -17,6 +17,7 @@ import JitML.Docs.Render
   , renderMarkdownReference
   , renderZshCompletion
   )
+import JitML.Numerics.LayerDhall qualified as LayerDhall
 import JitML.Observability.Grafana qualified as Grafana
 import JitML.Observability.Prometheus (renderPrometheusScrapeConfig)
 import JitML.Routes qualified as Routes
@@ -68,6 +69,16 @@ trackingGeneratedPaths =
            , trackedPath = "web/src/Generated/AdminPortals.purs"
            , trackedRendered = renderPureScriptAdminPortals
            }
+       ]
+    <> [ TrackedGeneratedPath
+           { trackedKey = "numerics." <> key
+           , trackedPath = path
+           , trackedRendered = rendered
+           }
+       | (key, path, rendered) <-
+           [ ("layer-op.schema", LayerDhall.layerOpSchemaPath, LayerDhall.layerOpSchema)
+           , ("layer-graph.schema", LayerDhall.layerGraphSchemaPath, LayerDhall.layerGraphSchema)
+           ]
        ]
     <> fmap trackedRoute Routes.routeRegistry
     <> fmap trackedDashboard Grafana.dashboards

@@ -18,6 +18,7 @@ import JitML.Env.Env (App)
 import JitML.Numerics.LayerGraphMetadata (LayerGraphMetadata)
 import JitML.Numerics.MlpDevice (MlpDevice)
 import JitML.Plan.Plan (PlanId)
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
@@ -58,6 +59,7 @@ data ProductPublisherRuntime = ProductPublisherRuntime
       -> [(Text, Double)]
       -> [Double]
       -> [Double]
+      -> Maybe DeviceWitness.DeviceExecutionWitness
       -> Either Text TrainingBudget.CompletedTraining
   , publisherCompleteSupervisedProductRowWithWeightHashes
       :: PlanId
@@ -70,6 +72,7 @@ data ProductPublisherRuntime = ProductPublisherRuntime
       -> [(Text, Double)]
       -> Text
       -> Text
+      -> Maybe DeviceWitness.DeviceExecutionWitness
       -> Either Text TrainingBudget.CompletedTraining
   , publisherRlCompletionMetrics
       :: Text
@@ -102,6 +105,7 @@ data ProductPublisherRuntime = ProductPublisherRuntime
       -> [(Text, Double)]
       -> [Double]
       -> [Double]
+      -> Maybe DeviceWitness.DeviceExecutionWitness
       -> Either Text TrainingBudget.CompletedTraining
   , publisherWriteCompletedWeightCheckpoint
       :: TrainingBudget.CompletedTraining
@@ -152,6 +156,10 @@ data SupervisedPublishRun = SupervisedPublishRun
   , supervisedPublishInitialJmw1Bytes :: !LazyByteString.ByteString
   , supervisedPublishFinalJmw1Bytes :: !LazyByteString.ByteString
   , supervisedPublishVerifiedDatasetShaAtRead :: !Text
+  , supervisedPublishDeviceWitness :: !(Maybe DeviceWitness.DeviceExecutionWitness)
+  -- ^ The execution witness the supervised training device recorded.  Carried
+  -- to the completion boundary so the published row's device-evidence cell is
+  -- minted from the artifact that trained it.
   , -- Transitional projections are retained for callers which still display
     -- lists.  The publisher never reconstructs V2 identity from them; when a
     -- projection is present it must agree exactly with the canonical bytes.

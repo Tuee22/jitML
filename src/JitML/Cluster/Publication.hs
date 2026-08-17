@@ -19,7 +19,13 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.Cluster.EdgePort (EdgePortLease (..))
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
+import JitML.Substrate
+  ( Substrate (..)
+  , parseSubstrate
+  , renderSubstrate
+  , substrateEdgePort
+  , substrateHasClusterCompute
+  )
 
 data ClusterPublication = ClusterPublication
   { publicationSubstrate :: Substrate
@@ -101,11 +107,7 @@ requiredPublicationComponents substrate =
        , "edge"
        ]
  where
-  engineComponents =
-    case substrate of
-      AppleSilicon -> []
-      LinuxCPU -> ["jitml-engine"]
-      LinuxCUDA -> ["jitml-engine"]
+  engineComponents = ["jitml-engine" | substrateHasClusterCompute substrate]
 
 -- | Require one and only one ready row for every required component, with no
 -- legacy, duplicate, or unexpected rows. This is intentionally stricter than

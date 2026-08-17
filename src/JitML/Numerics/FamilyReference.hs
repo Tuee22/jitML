@@ -22,13 +22,72 @@
 -- source of truth for the family semantics that previously lived only inside
 -- the per-backend emitters.
 module JitML.Numerics.FamilyReference
-  ( familyReference
+  ( defaultFamilyWeights
+  , familyReference
   , familyReferenceVec
+  , unweightedFamilyReference
+  , unweightedFamilyReferenceVec
   ) where
 
 import Data.Vector.Unboxed qualified as VU
 
 import JitML.Codegen.KernelFamily (KernelFamily (..))
+
+-- | The canonical no-op weights for a family at input length @n@ — the values
+-- that make the weighted kernel compute exactly what the unweighted kernel is
+-- supposed to compute.
+--
+-- This is the __semantics contract__ (Sprint `80.1`, enforced across all three
+-- renderers by Sprint `84.1`). Before it, each substrate's unweighted body was
+-- written independently and they disagreed: for multi-head attention the CUDA
+-- and Metal renderers produced an elementwise square while the oneDNN renderer
+-- returned the input unchanged, and nothing detected it because the unweighted
+-- ABI was only smoke-asserted. Defining the unweighted arm /as/ the weighted
+-- arm at these defaults makes that class of divergence unrepresentable.
+--
+-- Total over 'KernelFamily': a new family fails
+-- @-Werror=incomplete-patterns@ here rather than silently acquiring whatever
+-- an unweighted body happened to do.
+defaultFamilyWeights :: KernelFamily -> Int -> VU.Vector Double
+defaultFamilyWeights family n =
+  case family of
+    -- No weight parameter at all; the unweighted body is the whole semantics.
+    Identity -> VU.empty
+    Reduction -> VU.empty
+    -- An empty table passes indices through.
+    EmbeddingKernel -> VU.empty
+    -- out = input · I
+    Dense2D -> identityMatrix
+    -- Unit-centre filter: the identity convolution.
+    Conv2DKernel -> unitCentre 9 4
+    Conv3DKernel -> unitCentre 27 13
+    -- scale 1, shift 0, mean 0, var 1
+    BatchNormKernel ->
+      VU.concat [VU.replicate n 1, VU.replicate n 0, VU.replicate n 0, VU.replicate n 1]
+    -- scale 1, shift 0
+    LayerNormKernel -> VU.concat [VU.replicate n 1, VU.replicate n 0]
+    -- Wq = Wk = Wv = I, which degenerates the attention algebra to
+    -- @out[i] = input[i]^2@.
+    MultiHeadAttentionKernel -> VU.concat [identityMatrix, identityMatrix, identityMatrix]
+ where
+  identityMatrix =
+    VU.generate (n * n) (\i -> if i `div` max 1 n == i `mod` max 1 n then 1 else 0)
+  unitCentre taps centre =
+    VU.generate taps (\i -> if i == centre then 1 else 0)
+
+-- | The unweighted kernel's expected output: the weighted reference evaluated
+-- at the family's canonical no-op weights. The unweighted ABI has no separate
+-- definition, so a renderer cannot drift from it without failing the oracle.
+unweightedFamilyReferenceVec :: KernelFamily -> VU.Vector Double -> VU.Vector Double
+unweightedFamilyReferenceVec family input =
+  familyReferenceVec family input (defaultFamilyWeights family (VU.length input))
+
+-- | 'unweightedFamilyReferenceVec' in the flat @[Float]@ ABI the runners use.
+unweightedFamilyReference :: KernelFamily -> [Float] -> [Float]
+unweightedFamilyReference family inputF =
+  map realToFrac (VU.toList (unweightedFamilyReferenceVec family input))
+ where
+  input = VU.fromList (map realToFrac inputF) :: VU.Vector Double
 
 -- | Expected output for @family@ given the flat @input@ and @weights@ buffers,
 -- in the same @[Float]@ shape the kernel runners return.

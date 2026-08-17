@@ -121,7 +121,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import JitML.Numerics.MlpDevice (MlpDevice, pureReferenceMlpDevice)
 import JitML.SL.Architecture qualified as Architecture
-import JitML.SL.Canonicals (CanonicalProblem (..))
+import JitML.SL.Canonicals (ArchitectureFamily (..), CanonicalProblem (..))
 import JitML.SL.Classifier qualified as Classifier
 
 data Sampler
@@ -951,10 +951,11 @@ initialiseExactTrial runSeed spec problem baseConfig trainSet validationSet hist
           , Classifier.clfBatchSize = trialBatchSize hyperparameters
           , Classifier.clfLearningRate = trialLearningRate hyperparameters
           }
-      architectureSpec = Architecture.architectureSpecForProblem config problem
-  case architectureOptimizer (trialOptimizer hyperparameters) of
+  case (,)
+    <$> Architecture.architectureSpecForProblem config problem
+    <*> architectureOptimizer (trialOptimizer hyperparameters) of
     Left err -> pure (Left err)
-    Right optimizer -> do
+    Right (architectureSpec, optimizer) -> do
       trainingE <-
         Architecture.initialiseExactArchitectureTraining
           architectureSpec
@@ -1785,23 +1786,25 @@ legacyTrialHyperparameters config =
 trainTuningObjective
   :: MlpDevice -> Classifier.ClassifierConfig -> IO (Either Text (Double, [Double], [Double]))
 trainTuningObjective device config = do
-  let spec = Architecture.architectureSpecForProblem config tuningObjectiveProblem
-  result <-
-    Architecture.trainArchitectureWithDeviceSelected
-      device
-      spec
-      config
-      tuningObjectiveDataset
-      tuningObjectiveDataset
-  pure $
-    fmap
-      ( \(trained, metrics) ->
-          ( Architecture.slmTrainAccuracy metrics
-          , Architecture.slmInitialWeights metrics
-          , Architecture.trainedArchitectureWeights trained
+  case Architecture.architectureSpecForProblem config tuningObjectiveProblem of
+    Left err -> pure (Left err)
+    Right spec -> do
+      result <-
+        Architecture.trainArchitectureWithDeviceSelected
+          device
+          spec
+          config
+          tuningObjectiveDataset
+          tuningObjectiveDataset
+      pure $
+        fmap
+          ( \(trained, metrics) ->
+              ( Architecture.slmTrainAccuracy metrics
+              , Architecture.slmInitialWeights metrics
+              , Architecture.trainedArchitectureWeights trained
+              )
           )
-      )
-      result
+          result
 
 -- | The pure-reference-device evaluation of 'trainTuningObjective' — the
 -- toolchain-free objective used by the offline sweep ('deterministicTrials').
@@ -1815,7 +1818,7 @@ pureTuningObjective config =
 -- | The fixed Dense canonical problem the tuning objective trains: a small
 -- single-hidden-layer MLP sized from each sampled 'ClassifierConfig'.
 tuningObjectiveProblem :: CanonicalProblem
-tuningObjectiveProblem = CanonicalProblem "tune-dense" "synthetic" "Dense" 0
+tuningObjectiveProblem = CanonicalProblem "tune-dense" "synthetic" "Dense" DenseFamily 0
 
 -- | Deterministic hyperparameter sample for one trial. Startup trials cover the
 -- search space directly; TPE and the evolutionary samplers condition later

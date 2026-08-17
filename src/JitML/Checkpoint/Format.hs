@@ -125,6 +125,7 @@ import JitML.Plan.Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Evidence
   ( TrainingEvidence
+  , evidenceObservationsMatch
   , evidenceUpdateCount
   , mkTrainingEvidence
   )
@@ -565,7 +566,11 @@ validateCheckpointCompletion manifest =
             case manifestTrainingEvidence manifest of
               Left err -> Left err
               Right evidence
-                | evidence /= completedTrainingEvidence completed ->
+                | not
+                    ( evidenceObservationsMatch
+                        evidence
+                        (completedTrainingEvidence completed)
+                    ) ->
                     Left CompletedTrainingEvidenceMismatch
                 | otherwise ->
                     let supervisedShapeLayoutErrors =

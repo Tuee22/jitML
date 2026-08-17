@@ -94,10 +94,10 @@ import JitML.Engines.Engine
   , kernelHandleArtifactPath
   , renderBuildPlan
   )
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Engines.Loader qualified as EngineLoader
 import JitML.Engines.Local
   ( linuxCpuKernelOutput
-  , linuxCpuToolchainFingerprint
   , runLinuxCpuKernel
   )
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
@@ -654,7 +654,7 @@ runBuild parsedOptions =
       let engine = engineForSubstrate substrate
           kernelSpec = Cache.KernelSpec "jitml-build:identity"
           kind = Cache.Training
-          fingerprint = buildToolchainFingerprint substrate
+          fingerprint = Fingerprint.buildToolchainFingerprint substrate
       tuningPlanResult <-
         liftIO $
           TuningCache.selectTuningCachePlan
@@ -770,12 +770,6 @@ runBuild parsedOptions =
       Left err ->
         exitWithError (JitCacheMiss (EngineLoader.renderKernelArtifactError err))
       Right artifact -> pure artifact
-
-buildToolchainFingerprint :: Substrate -> Cache.ToolchainFingerprint
-buildToolchainFingerprint LinuxCPU =
-  linuxCpuToolchainFingerprint
-buildToolchainFingerprint _ =
-  Cache.ToolchainFingerprint "jitml-build;compiler-pins=cabal.project"
 
 runTrain :: [ParsedOption] -> App ()
 runTrain parsedOptions = do
@@ -2012,6 +2006,7 @@ supervisedPublishRunFromTrainingMetrics metrics =
     , ProductPublisher.supervisedPublishFinalJmw1Bytes = tmFinalJmw1Bytes metrics
     , ProductPublisher.supervisedPublishVerifiedDatasetShaAtRead =
         tmVerifiedDatasetShaAtRead metrics
+    , ProductPublisher.supervisedPublishDeviceWitness = tmDeviceWitness metrics
     , ProductPublisher.supervisedPublishInitialWeights = tmInitialCheckpointWeights metrics
     , ProductPublisher.supervisedPublishCheckpointWeights = tmCheckpointWeights metrics
     , ProductPublisher.supervisedPublishDatasetShaAtRead = tmDatasetShaAtRead metrics

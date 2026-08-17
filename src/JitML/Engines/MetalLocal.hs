@@ -12,7 +12,6 @@ module JitML.Engines.MetalLocal
   , MetalWeightedKernelRun (..)
   , metalFamilyHash
   , metalFamilyRuntimeSource
-  , metalToolchainFingerprint
   , runMetalCheckpointInference
   , runMetalFamilyKernel
   , runMetalFamilyKernelWithProbe
@@ -26,7 +25,6 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format
@@ -40,8 +38,7 @@ import JitML.Checkpoint.Store
   )
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.Metal
-  ( metalBridgeAbiVersion
-  , metalOutputCountFor
+  ( metalOutputCountFor
   , renderMetalFamilyMetadata
   , renderMetalFamilySource
   , threadgroupSizeFor
@@ -51,8 +48,10 @@ import JitML.Engines.Engine
   ( KernelHandle (..)
   , engineForSubstrate
   )
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Engines.Loader
   ( ensureKernelArtifact
+  , executedArtifactIdentity
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
@@ -63,7 +62,8 @@ import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
 import JitML.Env.Env (Env)
 import JitML.Numerics.MlpMetal (mlpForwardMetal)
-import JitML.Substrate (Substrate (..))
+import JitML.Sub.Render (renderBool)
+import JitML.Substrate (Substrate (..), SubstrateProfile (..), profileFor)
 
 data MetalKernelRun = MetalKernelRun
   { metalKernelHandle :: KernelHandle
@@ -109,7 +109,7 @@ metalFamilyHash family =
     (kernelFamilyKernelSpec family)
     Cache.Inference
     Cache.AppleSilicon
-    metalToolchainFingerprint
+    (Fingerprint.engineFamilyToolchainFingerprint AppleSilicon)
     (runtimeSourcePayload (metalFamilyRuntimeSource family))
     Cache.defaultTuningChoice
 
@@ -243,17 +243,25 @@ runMetalWeightedKernel env source hash input weights = do
               input
               (Just weights)
               (metalOutputCountFor family (length input))
+          -- Sprint 79.1: the reported family is read back out of the artifact
+          -- the loader just wrote, not restated from the request, so the
+          -- mismatch guard in `HasEngine` can actually reject.
+          reportedResult <-
+            executedArtifactIdentity
+              (profileLaunch (profileFor AppleSilicon))
+              (Text.unpack (kernelHandleArtifactPath handle))
           pure $
-            case outputResult of
-              Left err -> Left ("apple-silicon weighted bridge dispatch failed: " <> err)
-              Right output ->
+            case (outputResult, reportedResult) of
+              (Left err, _) -> Left ("apple-silicon weighted bridge dispatch failed: " <> err)
+              (_, Left err) -> Left ("apple-silicon weighted artifact identity unreadable: " <> err)
+              (Right output, Right reportedFamily) ->
                 Right
                   MetalWeightedKernelRun
                     { metalWeightedKernelHandle = handle
                     , metalWeightedKernelInput = input
                     , metalWeightedKernelOutput = output
                     , metalWeightedKernelWeights = weights
-                    , metalWeightedKernelReportedFamily = familyNameText family
+                    , metalWeightedKernelReportedFamily = reportedFamily
                     , metalWeightedKernelCompileCommand = kernelArtifactCompileCommand artifact
                     , metalWeightedKernelCompiled = kernelArtifactCompiled artifact
                     }
@@ -281,16 +289,21 @@ runMetalKernel env source hash input = do
               input
               Nothing
               (metalOutputCountFor family (length input))
+          reportedResult <-
+            executedArtifactIdentity
+              (profileLaunch (profileFor AppleSilicon))
+              (Text.unpack (kernelHandleArtifactPath handle))
           pure $
-            case outputResult of
-              Left err -> Left ("apple-silicon bridge dispatch failed: " <> err)
-              Right output ->
+            case (outputResult, reportedResult) of
+              (Left err, _) -> Left ("apple-silicon bridge dispatch failed: " <> err)
+              (_, Left err) -> Left ("apple-silicon artifact identity unreadable: " <> err)
+              (Right output, Right reportedFamily) ->
                 Right
                   MetalKernelRun
                     { metalKernelHandle = handle
                     , metalKernelInput = input
                     , metalKernelOutput = output
-                    , metalKernelReportedFamily = familyNameText family
+                    , metalKernelReportedFamily = reportedFamily
                     , metalKernelCompileCommand = kernelArtifactCompileCommand artifact
                     , metalKernelCompiled = kernelArtifactCompiled artifact
                     }
@@ -301,47 +314,9 @@ runtimeSourceMetalFamily :: RuntimeSource -> Maybe KernelFamily
 runtimeSourceMetalFamily GeneratedMetalSourceMetadata {runtimeSourceKernelFamily = Just family} = Just family
 runtimeSourceMetalFamily _ = Nothing
 
-familyNameText :: KernelFamily -> Text
-familyNameText Identity = "identity"
-familyNameText Reduction = "reduction"
-familyNameText Dense2D = "dense"
-familyNameText Conv2DKernel = "conv2d"
-familyNameText Conv3DKernel = "conv3d"
-familyNameText BatchNormKernel = "batchnorm"
-familyNameText LayerNormKernel = "layernorm"
-familyNameText MultiHeadAttentionKernel = "mha"
-familyNameText EmbeddingKernel = "embedding"
-
-metalToolchainFingerprint :: Cache.ToolchainFingerprint
-metalToolchainFingerprint =
-  Cache.ToolchainFingerprint
-    ( Text.intercalate
-        ";"
-        [ "fixed-metal-bridge"
-        , "bridge-abi=" <> metalBridgeAbiVersion
-        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "artifact=metal-source-metadata"
-        , "metal-runtime-makelibrary"
-        , "single-stream-launch-order"
-        , "simd-aligned-threadgroups"
-        , "abi=fixed-bridge-host-buffers"
-        , "jitml_kernel(float*,const float*,size_t)"
-        , "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
-        , -- Sprint 14.5 — per-family weighted Metal bodies (Dense2D / Conv2D /
-          -- Conv3D / BatchNorm / LayerNorm / MHA / Embedding) mirror the CUDA
-          -- `weightedFamilyImpl` math. The "all-families" tag invalidates any
-          -- pre-2026-05-30 Dense2D-baseline cache entries.
-          "weighted-bodies=all-families"
-        ]
-    )
-
 renderMetalUnavailableSummary :: MetalRuntime.MetalRuntimeProbe -> Text
 renderMetalUnavailableSummary probe =
   Text.intercalate
     " "
     [ "device_visible=" <> renderBool (MetalRuntime.metalRuntimeDeviceVisible probe)
     ]
-
-renderBool :: Bool -> Text
-renderBool True = "yes"
-renderBool False = "no"

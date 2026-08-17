@@ -62,7 +62,7 @@ import JitML.Plan.Workload
 import JitML.Proto.Rl (StartAlphaZeroRun (..))
 import JitML.Proto.Training (StartTraining (..))
 import JitML.Proto.Tune (StartSweep (..))
-import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Substrate (Substrate (..), renderSubstrate, substrateHasClusterCompute)
 import JitML.Tune.Catalog (TuningExecutionSpec)
 
 prepareStartTraining
@@ -278,10 +278,12 @@ rawAlphaZeroPlanForCommand command =
     , rawAlphaZeroGame = sazGame command
     }
 
+-- | Where a substrate's numerical work runs, read off the one profile rather
+-- than restated per substrate (Sprint `79.1`).
 placementFor :: Substrate -> RunPlacement
-placementFor AppleSilicon = HostRun
-placementFor LinuxCPU = ClusterRun
-placementFor LinuxCUDA = ClusterRun
+placementFor substrate
+  | substrateHasClusterCompute substrate = ClusterRun
+  | otherwise = HostRun
 
 commandTopic :: Text -> Substrate -> Text
 commandTopic domain substrate =

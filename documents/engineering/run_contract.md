@@ -258,7 +258,18 @@ ProductScenario invocation. The exact V1 tuple decodes and re-refines as a
 completion with no invocation, preserving checkpoint inspection and nested
 protocol compatibility; it cannot close a Phase `261` scenario because that
 boundary requires the admitted completion to carry the exact current
-invocation. Decoding always re-runs refinement. `TrainingBudget`,
+invocation. Decoding always re-runs refinement.
+
+`TrainingEvidence` additionally carries the `DeviceExecutionWitness` the run's
+device call left behind, as a forgeable `RawDeviceExecutionWitness` on the wire
+that `refineRawDeviceExecutionWitness` re-checks on the way back in — known
+substrate, non-blank backend and executed identity, hex cache key, and a
+64-character SHA-256 artifact digest. Revalidation carries the bound witness
+across rather than dropping it, and a stored witness that no longer refines
+fails the revalidation instead of degrading to an unwitnessed completion.
+Product-row checkpoint admission requires the witness to be present, so the
+lane fragment's `DeviceEvidence` column is a measurement of the artifact that
+executed rather than a rendering of the row's declared substrate and claim. `TrainingBudget`,
 `MetricCriterion`, `FiniteMeasurement`, `PassedMeasurement`, and
 `CompletedTraining` hide their constructors. Criterion rules are typed as
 at-least, at-most, or at-least-with-an-excluded-value; every threshold,

@@ -9,16 +9,14 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: the committed fragment is issued from the completed
-scenario journal, but its `DeviceEvidence` column is derived from the declared
-substrate and the declared claim rather than from what executed. The standing drift
-gate therefore compares a declaration against itself, and passes on a lane where the
-claim is false. The 2026-08-12 issuance remains valid evidence for the surface it
-exercised — row identity, plan identity, and cross-process journal re-mint.
+✅ **Done** (closed 2026-08-16). The committed `linux-cpu` lane fragment is issued
+only from the completed scenario journal, its `DeviceEvidence` column is the 55
+measured device witnesses rather than a declaration, and a run that read the
+fragment *after* issuance confirmed it with zero drift.
 
-## Sprint 263.1: Contract-Driven Live Execution - Fragment Issuance [🔄 Active]
+## Sprint 263.1: Contract-Driven Live Execution - Fragment Issuance [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/Product/Matrix.hs`,
 `src/JitML/Service/Workload.hs`, `src/JitML/Test/RunContract.hs`,
 `test/integration/Main.hs`, `test/unit/Main.hs`,
@@ -109,12 +107,58 @@ cross-lane round-trip tests are deliberately retained for Phase `275`, which own
 retiring them; changing the fragment's wire shape here would strand the
 `linux-cuda` and `apple-silicon` lanes behind the Phase `272` hardware boundary.
 
-### Remaining Work
+### Closure Evidence
 
-- Re-issue the committed `linux-cpu` fragment from witness-minted device evidence
-  once Sprint `229.1` lands the witness type.
-- Re-run the full live gate so the drift comparison is measurement against
-  commitment rather than declaration against declaration.
+`jitml test all --live --linux-cpu` passed **11 / 11 invocations, 0 failed,
+0 NotRun** in 46,414.96s on 2026-08-16 against image
+`jitml:local@sha256:7c83829d1fa4f67e5ea06e85082290339ea0689ccde2d45b890e9aeaf890a90b`
+and a nine-component single-worker `linux-cpu` publication with
+`evidence: live-readiness`: `jitml-integration` **197 / 197**, Playwright
+**77 passed**, `jitml-e2e` **30 / 30**, `jitml-unit` **887 / 887**,
+`jitml-sl-canonicals` **36 / 36**, `jitml-rl-canonicals` **47 / 47**,
+`jitml-hyperparameter` **26 / 26**, `jitml-backends` **36 / 36**,
+`jitml-daemon-lifecycle` **54 / 54**, `jitml-negative-controls` **3 / 3**, and
+`jitml-model-convergence` **111 / 111**. `jitml docs check` and
+`jitml check-code` passed on the same source state. The retained transcript is
+the gitignored `.build/gate-logs/phase263-confirm-gate.log`, SHA-256
+`d3ca4497aae5817716138855b30c73ca62576c07ae3ab2dd02260d032bc15d5a`.
+
+The obligation this run closed is the one the 2026-08-12 issuance could not: a
+fragment is proved by a run that reads it **after** issuance. The standing live
+case `Phase 263 issues the committed lane fragment from the completed scenario
+journal` re-mints the committed table from the persisted HMAC-bound journal in a
+separate process and reports drift per row and per column; on 2026-08-15 it
+reported all 55 rows' `DeviceEvidence` cells as drift, which was the
+measurement, and on this run it reported **zero drift** against the re-issued
+fragment, which is the proof.
+
+The `DeviceEvidence` column is now measured rather than declared. The ten
+layer-graph supervised rows carry
+`device:linux-cpu:linux-cpu-onednn:onednn_matmul_forward_training:7a7009a55176f879`,
+and `california-housing-mlp` plus the 44 RL / HER / AlphaZero / tuning rows
+carry `device:linux-cpu:onednn:mlp-forward-backward-tanh-linear:ef7ebe1dc3f02cbb`
+— two lanes of execution with different backends, executed identities, and
+artifact digests, where the retired declaration-derived cell was one constant
+string per row class.
+
+Refreshing the in-cluster image for this run required rebuilding the lane. The
+Kind nodes' `extraMounts` for `./.build` and `./.data` pointed at deleted
+inodes, so the platform PVs (`/jitml/.data/platform/minio`,
+`.../pulsar-bookie-*`, `.../pulsar-zookeeper-data`) existed only inside orphaned
+directories and `jitml-service` could not mount `/opt/build` at all. A cluster
+whose state is unreachable from the host cannot attest anything, so the lane was
+purged and re-bootstrapped from `jitml bootstrap --linux-cpu` (111 steps, nine
+components Ready) and the twelve canonical dataset objects were re-staged.
+
+> **Note for Sprint `264.1`** — the re-issued cells pin
+> `Text.take 16` of the compiled artifact's SHA-256, so any change to the
+> rendered `kernel.cc` text re-breaks this drift gate. A shared operator layer
+> that concatenates as `primitives <> operators` does **not** reproduce the
+> current interleaved emission order (measured: 941 literals become 943, with
+> 228 relocated) and would silently restamp this lane's attested digest for a
+> CUDA-only feature. Sprint `264.1` splits the shared layer into positional
+> chunks each backend splices at its own offsets, keeping the `linux-cpu` text
+> byte-identical.
 
 ### Historical Phase State
 

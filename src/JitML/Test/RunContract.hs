@@ -66,6 +66,7 @@ import JitML.Plan.Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl qualified as Rl
@@ -947,10 +948,11 @@ productScenarioReportTests =
                   report
                   ProductMatrix.nonProductRows
               rowIdentity = ProductMatrix.rowId row
+              -- Minted from the artifact the scenario executed through, not
+              -- composed from the row's declared substrate and claim.
               deviceCell =
-                ProductMatrix.deviceEvidenceForClaim
-                  LinuxCPU
-                  (ProductMatrix.deviceClaim row)
+                DeviceWitness.renderDeviceExecutionWitness
+                  (Report.completedProductScenarioDeviceWitness evidence)
           -- An issuance agrees with itself, so any reported drift below is a
           -- real difference rather than an artifact of the comparator.
           Report.productLaneAttestationFragmentDrift issued issued @?= []
@@ -960,7 +962,7 @@ productScenarioReportTests =
                 `Text.isInfixOf` issued
             )
           assertBool
-            "issued fragment omits the claim-level device evidence"
+            "issued fragment omits the witness-minted device evidence"
             (deviceCell `Text.isInfixOf` issued)
           assertBool
             "issued fragment omits the executing lane"
@@ -1612,23 +1614,24 @@ persistAndAdmitProductCompletionWithInvocation
   -> IO CheckpointStore.AdmittedCompletedCheckpoint
 persistAndAdmitProductCompletionWithInvocation root row problem projection invocation = do
   datasetSha <- expectRight (Dataset.canonicalDatasetReadShaForProblem problem)
+  fixtureSpec <-
+    expectRight
+      ( Architecture.architectureSpecForProblem
+          Classifier.defaultClassifierConfig
+            { Classifier.clfInputs = 784
+            , Classifier.clfClasses = 10
+            , Classifier.clfSeed = SL.problemSeed problem
+            }
+          problem
+      )
   let plan =
         case ProductMatrix.productProjectionResolvedPlan projection of
           ProductMatrix.ResolvedSupervisedProductPlan resolved -> resolved
       -- Phase 239: the fixture checkpoint is the trained dense mnist-shallow-mlp
       -- graph.  Its graph-ordered parameter count anchors the synthetic weight
       -- blobs, the flat weight layout, and admission.
-      fixtureConfig =
-        Classifier.defaultClassifierConfig
-          { Classifier.clfInputs = 784
-          , Classifier.clfClasses = 10
-          , Classifier.clfSeed = SL.problemSeed problem
-          }
       graphMeta =
-        layerGraphMetadataFromGraph
-          ( Architecture.archLayerGraph
-              (Architecture.architectureSpecForProblem fixtureConfig problem)
-          )
+        layerGraphMetadataFromGraph (Architecture.archLayerGraph fixtureSpec)
       parameterCount = layerGraphMetadataParameterCount graphMeta
       initialBytes = WeightCodec.encodeJmw1 (replicate parameterCount 0.0)
       finalBytes =
@@ -1666,6 +1669,7 @@ persistAndAdmitProductCompletionWithInvocation root row problem projection invoc
       )
   metadata <-
     expectRight (Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload)
+  fixtureWitness <- reportFixtureDeviceWitness
   unboundCompleted <-
     expectRight
       ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
@@ -1679,6 +1683,7 @@ persistAndAdmitProductCompletionWithInvocation root row problem projection invoc
           metrics
           initialSha
           finalSha
+          (Just fixtureWitness)
       )
   completed <- case invocation of
     Nothing -> pure unboundCompleted
@@ -2061,6 +2066,26 @@ ingestAll contract = go (initialProgress contract)
   go progress (event : rest) = do
     next <- expectRight (ingestEvent contract progress event)
     go next rest
+
+-- | A fixture device execution witness minted over a real on-disk artifact.
+--
+-- 'DeviceWitness.witnessDeviceExecution' exposes no pure constructor, so even a
+-- fixture cannot conjure a witness: it has to materialise an artifact and let
+-- the mint read and digest it. That is deliberate — it keeps the fixture path
+-- and the production path agreeing about what a witness costs.
+reportFixtureDeviceWitness :: IO DeviceWitness.DeviceExecutionWitness
+reportFixtureDeviceWitness =
+  withSystemTempDirectory "jitml-fixture-artifact" $ \dir -> do
+    let artifact = dir </> "kernel.so"
+    ByteString.writeFile artifact "jitml-report-fixture-artifact"
+    minted <-
+      DeviceWitness.witnessDeviceExecution
+        LinuxCPU
+        "onednn"
+        (Text.replicate 64 "0")
+        artifact
+        "jitml_matmul_forward"
+    expectRight minted
 
 expectRight :: (Show error) => Either error value -> IO value
 expectRight result =

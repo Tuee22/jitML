@@ -9,19 +9,24 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: the warning-clean build this sprint declared is
-gated only inside `jitml check-code`. `jitml.cabal` carries no `-Werror`, so an
-incomplete `case` over `Substrate` or `LayerOp` warns on an ordinary `cabal build`
-and then throws `Non-exhaustive patterns` at runtime. Totality is therefore a
-convention, not a build guarantee, which every downstream "total function over
-`Substrate`" depends on.
+✅ **Done** (closed 2026-08-13). Totality is a build guarantee, not a convention:
+every `jitml.cabal` stanza carries `-Werror=incomplete-patterns`, so an incomplete
+`case` over `Substrate` or `LayerOp` fails an ordinary `cabal build` rather than
+warning and then throwing `Non-exhaustive patterns` at runtime. The complementary
+`src/JitML/Lint/FailOpen.hs` rule rejects a new fail-open catch-all on the
+execution path — `_ -> []`, `_ -> False`, `_ -> 0`, `_ -> mempty`, `_ -> pure ()`,
+and a rendered `switch` `default:` whose only statement is `break;` — over
+`src/JitML/Codegen`, `src/JitML/Engines`, and `src/JitML/Numerics`, with the four
+pre-existing sites held in an exact `failOpenPendingRegistry` that names the sprint
+owning each fix.
 
-## Sprint 7.1: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` [🔄 Active]
+## Sprint 7.1: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` [✅ Done]
 
-**Status**: Active
-**Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `src/JitML/Lint/Stack.hs`,
+**Status**: Done
+**Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `jitml.cabal`,
+`src/JitML/Lint/Stack.hs`, `src/JitML/Lint/FailOpen.hs`,
 `src/JitML/Lint/ForbiddenPaths.hs`, `src/JitML/Lint/Chart.hs`,
-`src/JitML/Lint/Stack/Types.hs`, `src/JitML/Lint/Stack.hs`, `docker/Dockerfile`
+`src/JitML/Lint/Stack/Types.hs`, `test/unit/Main.hs`, `docker/Dockerfile`
 **Docs to update**: `README.md`, `DEVELOPMENT_PLAN/README.md`,
 `DEVELOPMENT_PLAN/00-overview.md`, `DEVELOPMENT_PLAN/system-components.md`,
 `README.md`, `documents/engineering/code_quality.md`,
@@ -77,6 +82,23 @@ runtime lint/check-code rejects host execution before linting.
   rebuilding and entering `jitml:local`.
 - `jitml check-code` delegates to `jitml lint all` and adds the warning-clean
   build gate (`cabal build all --ghc-options=-Werror`).
+- Every `jitml.cabal` stanza — the library, the `jitml` executable, and all ten
+  test suites — carries `-Werror=incomplete-patterns`, so a missing constructor
+  is a build failure on an ordinary `cabal build`, not only under the
+  `jitml check-code` gate.
+- `src/JitML/Lint/FailOpen.hs` rejects a new fail-open catch-all on the
+  execution path. The rejected forms are `_ -> []`, `_ -> False`, `_ -> 0`,
+  `_ -> mempty`, `_ -> pure ()`, and a rendered native `switch` `default:`
+  label whose only statement is `break;`. The scanned roots
+  (`executionPathRoots`) are `src/JitML/Codegen`, `src/JitML/Engines`, and
+  `src/JitML/Numerics`. `failOpenPendingRegistry` holds the exact
+  `(path, form, count)` of the four sites that predate the rule together with
+  the sprint that owns each fix — Sprint `233.1` for
+  `src/JitML/Numerics/LayerGraph.hs`, Sprint `241.1` for
+  `src/JitML/Numerics/LayerGraphOneDnn.hs` and `src/JitML/Codegen/OneDnn.hs`.
+  The registry is exact in both directions: a count above it is
+  `execution.fail-open.*`, and a closed site left registered is
+  `execution.fail-open.stale-registration`.
 
 ### Validation
 
@@ -88,7 +110,12 @@ runtime lint/check-code rejects host execution before linting.
 4. `jitml check-code` exits `0` on the present tree inside `jitml:local`.
 5. Validation catches forbidden repository paths, tracked generated-doc drift,
    missing lint config, forbidden subprocess/terminal primitives, external
-   formatter/HLint/cabal-format drift, and warning-clean build failures.
+   formatter/HLint/cabal-format drift, execution-path fail-open catch-alls, and
+   warning-clean build failures.
+6. `jitml test jitml-unit --linux-cpu` passes, including the
+   "Execution-path fail-open lint (Phase 7)" group that asserts the per-stanza
+   `-Werror=incomplete-patterns` flag, the scanner's accept/reject behaviour,
+   and a worktree free of unregistered fail-open sites.
 
 ### Closure Checklist
 
@@ -114,20 +141,33 @@ runtime lint/check-code rejects host execution before linting.
 - [x] Remove the `jitml lint haskell` path that bootstraps missing style tools
   through host `ghcup`; replace it with a container-domain check and
   image-rebuild diagnostic.
-
-### Remaining Work
-
-- Add `-Werror=incomplete-patterns` (at minimum) to the library and test stanzas in
-  `jitml.cabal` so a missing constructor is a build failure rather than a runtime
-  throw, and keep the existing `cabal build all --ghc-options=-Werror` gate in
+- [x] Add `-Werror=incomplete-patterns` to every `jitml.cabal` stanza so a
+  missing constructor is a build failure rather than a runtime throw, keeping
+  the existing `cabal build all --ghc-options=-Werror` gate in
   `jitml check-code`.
-- Register a lint rule rejecting a new fail-open wildcard on an execution path
-  (`_ -> []`, `_ -> False`, `default: break`) so the class cannot silently return.
-- This sprint implements the doctrine section `Lint, Format, and Code-Quality Stack`.
+- [x] Register the execution-path fail-open lint rejecting a new
+  `_ -> []` / `_ -> False` / `default: break` catch-all, with an exact pending
+  registry naming the sprint that owns each pre-existing site.
+
+### Completed in this sprint
+
+- `jitml.cabal`: all twelve stanzas carry `-Werror=incomplete-patterns`.
+- `src/JitML/Lint/FailOpen.hs`: the typed `FailOpenForm` / `FailOpenSite` /
+  `PendingFailOpen` surface, the pure `scanFailOpenSites` scanner, the
+  `executionPathRoots` scope, and `checkFailOpenWildcards` reconciling the scan
+  against `failOpenPendingRegistry` in both directions.
+- `src/JitML/Lint/Stack.hs`: the scan runs inside `checkHaskellLint`, so
+  `jitml lint haskell`, `jitml lint all`, and `jitml check-code` all enforce it.
+- `test/unit/Main.hs`: the "Execution-path fail-open lint (Phase 7)" group
+  (7 cases).
+- `../documents/engineering/code_quality.md`: the
+  `Execution-Path Fail-Open Lint` rule and the per-stanza totality guarantee.
+
+This sprint implements the doctrine section `Lint, Format, and Code-Quality Stack`.
 
 ### Historical Validation
 
-Evidence for the surface this sprint actually exercised before the 2026-08-12 reopen:
+Evidence for the surface this sprint exercised before the 2026-08-12 reopen:
 
 > ✅ **Done**.
 
@@ -135,7 +175,9 @@ Evidence for the surface this sprint actually exercised before the 2026-08-12 re
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/code_quality.md` — the `Execution-Path Fail-Open
+  Lint` rule (scope, rejected forms, pending registry) and the per-stanza
+  `-Werror=incomplete-patterns` totality guarantee.
 
 **Product docs to create/update:**
 

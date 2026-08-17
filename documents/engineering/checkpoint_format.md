@@ -702,6 +702,26 @@ count must agree with that single origin-bound plan.
 `RawCompletedTraining` itself is versioned and re-refines its budget kind,
 target, observed kind/count/unit, typed finite criteria, non-empty passing
 measurements, and training evidence while retaining the TensorBoard metadata.
+Training evidence now includes the run's `DeviceExecutionWitness` — the
+substrate, the backend and executed identity read back out of the compiled
+artifact, the content-addressed cache key, the artifact path, and the SHA-256 of
+the artifact bytes. The manifest stores only the four observations
+(initial/final weight hash, update count, dataset SHA at read), so the
+manifest-versus-completion cross-check compares observations
+(`evidenceObservationsMatch`) rather than whole evidence records; the witness
+travels inside the embedded completion. `requireAdmittedCompletedCheckpoint`
+rejects a completion carrying no witness, making
+`admittedCompletedDeviceWitness` total.
+That witness field is a wire migration, and the decoder states it rather than
+assuming it. Training evidence persisted before the witness existed carries five
+fields where the current shape carries six; the decoder accepts that pre-witness
+shape and fills the witness with `Nothing`. This does not weaken the contract —
+witnessless evidence is exactly what admission rejects — so a checkpoint written
+before the witness fails at the admission gate naming the missing device
+execution witness rather than at CBOR with a field count that says nothing about
+why the artifact is inadmissible. Reading such a checkpoint is therefore
+possible; admitting it is not, and the live store must be re-issued from a
+witnessed run before its rows can become inference-eligible again.
 The current encoder emits V2, whose optional ProductScenario invocation binds
 one exact command-owned run, row, plan, substrate, canonical checkpoint scope,
 executable digest, and fresh challenge. The exact V1 nine-field tuple remains

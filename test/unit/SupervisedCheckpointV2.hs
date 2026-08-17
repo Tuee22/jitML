@@ -10,7 +10,9 @@ module SupervisedCheckpointV2
   )
 where
 
-import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
+import Codec.CBOR.Encoding qualified as CborEncoding
+import Codec.CBOR.Write qualified as CborWrite
+import Codec.Serialise (Serialise, deserialiseOrFail, encode, serialise)
 import Control.Concurrent
   ( forkFinally
   , newEmptyMVar
@@ -54,7 +56,10 @@ import JitML.Numerics.Mlp (MlpShape (..), mlpInit, mlpLayerGraph)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Completion qualified as ProductCompletion
+import System.IO.Unsafe (unsafePerformIO)
+
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Publisher qualified as ProductPublisher
@@ -71,6 +76,7 @@ import JitML.Service.Capabilities
   )
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Substrate qualified as Substrate
+import JitML.Test.DeviceWitnessFixture qualified as DeviceWitnessFixture
 import JitML.Training.Budget qualified as TrainingBudget
 
 supervisedCheckpointV2Tests :: TestTree
@@ -78,7 +84,7 @@ supervisedCheckpointV2Tests =
   testGroup
     "SupervisedCheckpointV2"
     [ testCase "canonical V2 retains exact addressed outer and body identities" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         addressed <-
           expectRight
             (Checkpoint.decodeAddressedManifestCbor (fixtureBytes fixture))
@@ -109,7 +115,7 @@ supervisedCheckpointV2Tests =
         Just (Checkpoint.validatedCheckpointCompletedTraining completion)
           @?= Checkpoint.manifestCompletedTraining (fixtureManifest fixture)
     , testCase "CompletedTraining V1 remains readable inside an exact supervised-graph checkpoint" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
         currentCompletion <-
@@ -164,7 +170,7 @@ supervisedCheckpointV2Tests =
                     @?= Just digest
           )
           SL.canonicalProblems
-        productFixture <- expectRight makeFixture
+        productFixture <- expectRight =<< makeFixture
         (genericFixture, _) <- expectRight makeGenericFixture
         mapM_
           ( \fixture -> do
@@ -182,7 +188,7 @@ supervisedCheckpointV2Tests =
           )
           [productFixture, genericFixture]
     , testCase "synchronized forged dataset digest is rejected for Product and generic V2" $ do
-        productFixture <- expectRight makeFixture
+        productFixture <- expectRight =<< makeFixture
         (genericFixture, _) <- expectRight makeGenericFixture
         mapM_
           ( \fixture -> do
@@ -198,7 +204,7 @@ supervisedCheckpointV2Tests =
           )
           [productFixture, genericFixture]
     , testCase "V2 uses one physical tensor and a graph-ordered flat layout" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let manifest = fixtureManifest fixture
         Checkpoint.manifestTensors manifest
           @?= [ Checkpoint.TensorBlob
@@ -214,7 +220,7 @@ supervisedCheckpointV2Tests =
             (supervisedWeightsLayout (fixtureParameterCount fixture))
         Checkpoint.validateSupervisedManifestShapeLayout manifest @?= []
     , testCase "canonical runtime metadata carries exact transforms and semantic decoder" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let manifest = fixtureManifest fixture
         Checkpoint.architectureInputs (Checkpoint.manifestArchitecture manifest)
           @?= [Checkpoint.TensorSpec "input" [784] "F64"]
@@ -262,7 +268,7 @@ supervisedCheckpointV2Tests =
     , testCase
         "supervised-graph payload round-trips and is never mis-decoded as weight-only (Sprint 235.1)"
         $ do
-          fixture <- expectRight makeFixture
+          fixture <- expectRight =<< makeFixture
           addressed <-
             expectRight
               (Checkpoint.decodeAddressedManifestCbor (fixtureBytes fixture))
@@ -305,7 +311,7 @@ supervisedCheckpointV2Tests =
                 /= Checkpoint.addressedManifestWireVersion addressed
             )
     , testCase "historical supervised ProductRow V1 fails completion refinement" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let historical =
               (fixtureManifest fixture)
                 { Checkpoint.manifestModelFamily = Checkpoint.GenericModelFamily
@@ -325,7 +331,7 @@ supervisedCheckpointV2Tests =
           (Checkpoint.addressedManifest addressed)
           @?= Left Checkpoint.SupervisedRuntimeArtifactMissing
     , testCase "a supervised completion budget makes generic V1 inspection-only" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let historical =
               (fixtureManifest fixture)
                 { Checkpoint.manifestExperiment = "unknown-supervised-v1"
@@ -342,7 +348,7 @@ supervisedCheckpointV2Tests =
           (Checkpoint.addressedManifest addressed)
           @?= Left Checkpoint.SupervisedRuntimeArtifactMissing
     , testCase "supervised architecture metadata alone makes generic V1 inspection-only" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let historical =
               (fixtureManifest fixture)
                 { Checkpoint.manifestExperiment = "unknown-supervised-architecture-v1"
@@ -358,7 +364,7 @@ supervisedCheckpointV2Tests =
           (Checkpoint.addressedManifest addressed)
           @?= Left Checkpoint.SupervisedRuntimeArtifactMissing
     , testCase "outer address is derived from exact bytes rather than a caller label" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         addressed <-
           expectRight
             (Checkpoint.decodeAddressedManifestCbor (fixtureBytes fixture))
@@ -368,7 +374,7 @@ supervisedCheckpointV2Tests =
           "decoded address accepted a substituted caller label"
           (Checkpoint.addressedManifestSha addressed /= Text.replicate 64 "0")
     , testCase "body digest and exact body bytes are independently checked" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let outer = fixtureOuter fixture
             badDigest =
               serialise
@@ -391,7 +397,7 @@ supervisedCheckpointV2Tests =
           "invalid checkpoint body"
           (Checkpoint.decodeAddressedManifestCbor badBody)
     , testCase "noncanonical V2 base ordering is rejected without fallback" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
             noncanonical =
@@ -408,7 +414,7 @@ supervisedCheckpointV2Tests =
           "not in canonical value order"
           (Checkpoint.decodeAddressedManifestCbor (wrapBody noncanonical))
     , testCase "virtual-slice substitution is rejected" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
             substitutedLayout =
@@ -432,7 +438,7 @@ supervisedCheckpointV2Tests =
           "FlatWeightLayout does not equal the graph-ordered virtual slices"
           (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
     , testCase "physical tensor substitution is rejected" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
             substituted =
@@ -492,7 +498,7 @@ supervisedCheckpointV2Tests =
             ]
         )
     , testCase "canonical PlanId uniquely derives and binds the selected substrate" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         Checkpoint.validateSupervisedRuntimePlanForSubstrate
           Substrate.LinuxCPU
           (fixturePayload fixture)
@@ -504,7 +510,7 @@ supervisedCheckpointV2Tests =
               (fixturePayload fixture)
           )
     , testCase "internally synchronized but noncanonical PlanId is rejected" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             bogusPlanId = Text.replicate 64 "f"
             payload = Checkpoint.rawCheckpointV2SupervisedRuntime body
@@ -533,7 +539,7 @@ supervisedCheckpointV2Tests =
           "runtime PlanId does not equal any authoritative ProductRow substrate projection"
           (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
     , testCase "synchronized completion budget and manifest step substitution is rejected" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
             substitutedUnits = Checkpoint.rawManifestStep rawManifest + 1
@@ -564,7 +570,7 @@ supervisedCheckpointV2Tests =
           "completed training budget target does not match the authoritative ProductRow training budget"
           (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
     , testCase "synchronized evidence and manifest update-count substitution is rejected" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
         completed <-
@@ -606,7 +612,7 @@ supervisedCheckpointV2Tests =
           "completed-training evidence update count does not match the authoritative SupervisedPlan optimizer-update count"
           (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
     , testCase "manifest convergence metric is exactly bound to completed training" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
             substituted =
@@ -621,7 +627,7 @@ supervisedCheckpointV2Tests =
           "manifest metric differs from completed training"
           (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
     , testCase "duplicate manifest convergence metric is rejected" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let body = fixtureBody fixture
             rawManifest = Checkpoint.rawCheckpointV2Manifest body
             duplicate = (fixtureMetricName fixture, 1.0)
@@ -694,7 +700,7 @@ supervisedCheckpointV2Tests =
             "output-decoder metadata does not equal the exact runtime projection"
         ]
     , testCase "runtime row and manifest experiment cannot be independently substituted" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         row <-
           maybe
             (assertFailure "missing authoritative fashion-mnist-mlp ProductRow")
@@ -855,7 +861,7 @@ supervisedCheckpointV2Tests =
               (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
         , testCase "generic V2 manifest cannot occupy a ProductRow experiment hash" $ do
             (genericFixture, _) <- expectRight makeGenericFixture
-            productFixture <- expectRight makeFixture
+            productFixture <- expectRight =<< makeFixture
             let genericBody = fixtureBody genericFixture
                 genericManifest = Checkpoint.rawCheckpointV2Manifest genericBody
                 productExperiment =
@@ -872,7 +878,7 @@ supervisedCheckpointV2Tests =
               "generic supervised V2 manifest cannot occupy an authoritative ProductRow experiment hash"
               (Checkpoint.decodeAddressedManifestCbor (wrapBody substituted))
         , testCase "ProductRow payload cannot substitute generic origin" $ do
-            fixture <- expectRight makeFixture
+            fixture <- expectRight =<< makeFixture
             (plan, _, _, _, _) <- expectRight makeTrainingCompletionFixture
             let body = fixtureBody fixture
                 payload = Checkpoint.rawCheckpointV2SupervisedRuntime body
@@ -974,7 +980,7 @@ supervisedCheckpointV2Tests =
                   (Just "supervised-runtime-v2/destandardize/means=[100.0]/scales=[5.0]")
               ]
     , testCase "generic V1 writer rejects supervised identities and permits non-supervised families" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         assertLeftContaining
           "cannot emit authoritative supervised ProductRow"
           ( CheckpointWriter.validateGenericV1CandidateWriterRequest
@@ -1349,7 +1355,7 @@ supervisedCheckpointV2Tests =
         capturedRate <- readIORef observedRate
         capturedRate @?= Just 1.1e-3
     , testCase "a structurally selected supervised-graph error never falls back" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         let unsupported =
               serialise
                 (fixtureOuter fixture)
@@ -1369,7 +1375,7 @@ checkpointStoreAdmissionTests =
     "persisted Store admission"
     [ testCase "local stable exact pointer, manifest, and blob admit completed checkpoint" $
         withSystemTempDirectory "jitml-v2-local-admission" $ \root -> do
-          fixture <- expectRight makeFixture
+          fixture <- expectRight =<< makeFixture
           graph <- expectRight (fixtureAdmissionObjectGraph fixture)
           written <-
             expectRight
@@ -1416,7 +1422,7 @@ checkpointStoreAdmissionTests =
             @?= [admissionBlobBytes graph]
     , testCase "legacy unscoped V2 is readable for inspection but cannot satisfy admission" $
         withSystemTempDirectory "jitml-v2-legacy-unscoped" $ \root -> do
-          fixture <- expectRight makeFixture
+          fixture <- expectRight =<< makeFixture
           let manifest = fixtureManifest fixture
               experiment = Checkpoint.manifestExperiment manifest
               manifestSha = Checkpoint.manifestContentSha manifest
@@ -1453,7 +1459,7 @@ checkpointStoreAdmissionTests =
         "supervised-graph checkpoint carrying a companion pointer is admission-rejected (Sprint 236.1)"
         $ withSystemTempDirectory "jitml-supervised-companion-reject"
         $ \root -> do
-          fixture <- expectRight makeFixture
+          fixture <- expectRight =<< makeFixture
           let experiment = Checkpoint.manifestExperiment (fixtureManifest fixture)
               companionPayload = "stray supervised companion transcript"
               companionSha = exactSha (LazyByteString.toStrict companionPayload)
@@ -1506,8 +1512,87 @@ checkpointStoreAdmissionTests =
                     <> " admission path, got "
                     <> show other
                 )
+    , testCase
+        "a checkpoint persisted before the device witness decodes and is admission-rejected (Phase 229)"
+        $ withSystemTempDirectory "jitml-pre-witness-evidence"
+        $ \root -> do
+          -- Sprint `229.1` added `trainingDeviceWitnessValue` to the serialised
+          -- `TrainingEvidence`. Everything already in the live store was written
+          -- one field short, so the migration has to be stated rather than
+          -- assumed: the pre-witness shape decodes, and what rejects it is the
+          -- admission gate naming the missing witness — not a CBOR field count
+          -- that says nothing about why the artifact is inadmissible.
+          fixture <- expectRight =<< makeFixture
+          completed <-
+            case Checkpoint.manifestCompletedTraining (fixtureManifest fixture) of
+              Just value -> pure value
+              Nothing ->
+                assertFailure "fixture manifest carries no completed training"
+                  >> error "unreachable"
+          let witnessedEvidence = TrainingBudget.completedTrainingEvidence completed
+          legacyEvidence <-
+            case deserialiseOrFail (preWitnessEvidenceBytes witnessedEvidence) of
+              Left err ->
+                assertFailure
+                  ("pre-witness training evidence failed to decode: " <> show err)
+                  >> error "unreachable"
+              Right value -> pure value
+          assertBool
+            "the pre-witness decode lost an observation"
+            (ProductEvidence.evidenceObservationsMatch witnessedEvidence legacyEvidence)
+          ProductEvidence.evidenceDeviceWitness legacyEvidence @?= Right Nothing
+          -- The completion re-encodes and re-decodes around that evidence, so
+          -- the migration holds at the persisted boundary rather than only at
+          -- the evidence record.
+          legacyCompleted <-
+            expectRight
+              ( TrainingBudget.decodeCompletedTraining
+                  ( TrainingBudget.encodeRawCompletedTraining
+                      ( (TrainingBudget.completedTrainingToRaw completed)
+                          { TrainingBudget.rawCompletedTrainingEvidence = legacyEvidence
+                          }
+                      )
+                  )
+              )
+          TrainingBudget.completedTrainingDeviceWitness legacyCompleted @?= Right Nothing
+          let manifest =
+                (fixtureManifest fixture)
+                  { Checkpoint.manifestCompletedTraining = Just legacyCompleted
+                  }
+              experiment = Checkpoint.manifestExperiment manifest
+          tensor <-
+            case Checkpoint.manifestTensors manifest of
+              [value] -> pure value
+              tensors ->
+                assertFailure
+                  ("expected one supervised tensor, got " <> show (length tensors))
+                  >> error "unreachable"
+          prepared <-
+            expectRight
+              ( CheckpointStore.prepareCheckpointSnapshot
+                  CheckpointStore.WriterCompletedSnapshot
+                  ( CheckpointStore.WriterLatestPointerIntent
+                      (Checkpoint.latestPointerKey experiment)
+                  )
+                  manifest
+                  [(Checkpoint.tensorBlobKey tensor, fixtureFinalBytes fixture)]
+              )
+          stagePreparedCommittedSnapshotLocal root prepared
+          admittedCheckpoint <-
+            expectRight
+              =<< CheckpointStore.admitLocalLatestCheckpoint root experiment
+          case CheckpointStore.requireAdmittedCompletedCheckpoint admittedCheckpoint of
+            Left (CheckpointStore.AdmissionCompletionInvalid reason) ->
+              assertBool
+                ("unexpected pre-witness rejection reason: " <> Text.unpack reason)
+                ("carries no device execution witness" `Text.isInfixOf` reason)
+            other ->
+              assertFailure
+                ( "expected a pre-witness completion to be admission-rejected, got "
+                    <> show other
+                )
     , testCase "stable exact P1 -> manifest -> P2 -> commit -> blob admits completed checkpoint" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         (outcome, operationLog) <-
           runScriptedMinIO
@@ -1533,7 +1618,7 @@ checkpointStoreAdmissionTests =
           @?= [admissionBlobBytes graph]
         operationLog @?= stableAdmissionOperationLog graph
     , testCase "exact P1/P2 body change is retryable and performs no blob read" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let p1 = admissionPointerBody graph
             p2Sha = alternateManifestSha (admissionManifestSha graph)
@@ -1560,7 +1645,7 @@ checkpointStoreAdmissionTests =
               , ScriptedRead (admissionPointerRef graph)
               ]
     , testCase "known-address admission performs no pointer reads" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let readsScript =
               [ (admissionManifestRef graph, [admissionManifestBytes graph])
@@ -1584,7 +1669,7 @@ checkpointStoreAdmissionTests =
               , ScriptedRead (admissionBlobRef graph)
               ]
     , testCase "non-canonical known address is rejected before any object read" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let malformedAddress = Text.replicate 64 "A"
         (outcome, operationLog) <-
@@ -1603,13 +1688,14 @@ checkpointStoreAdmissionTests =
         operationLog @?= []
     , testCase "two concurrent local completed CAS writers have exactly one winner" $
         withSystemTempDirectory "jitml-v2-local-cas-race" $ \root -> do
-          firstFixture <- expectRight makeFixture
+          firstFixture <- expectRight =<< makeFixture
           secondFixture <-
             expectRight
-              ( makeFixtureWithFinalBytes $ \parameterCount ->
-                  WeightCodec.encodeJmw1
-                    (0.5 : replicate (parameterCount - 1) 0.0)
-              )
+              =<< makeFixtureWithFinalBytes
+                ( \parameterCount ->
+                    WeightCodec.encodeJmw1
+                      (0.5 : replicate (parameterCount - 1) 0.0)
+                )
           firstGraph <- expectRight (fixtureAdmissionObjectGraph firstFixture)
           secondGraph <- expectRight (fixtureAdmissionObjectGraph secondFixture)
           admissionExperiment firstGraph @?= admissionExperiment secondGraph
@@ -1672,7 +1758,7 @@ checkpointStoreAdmissionTests =
           pointer
             @?= Right (Just (CheckpointStore.storedManifestSha winningStored))
     , testCase "commit-bound malformed replacement fails exact blob identity before JMW1 decode" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let malformed = "not-jmw1"
         (outcome, operationLog) <-
@@ -1683,7 +1769,7 @@ checkpointStoreAdmissionTests =
         assertAdmissionBlobFailureContaining "writer-commit SHA-256 mismatch" outcome
         operationLog @?= stableAdmissionOperationLog graph
     , testCase "substituted valid JMW1 bytes fail blob identity before completion" $ do
-        fixture <- expectRight makeFixture
+        fixture <- expectRight =<< makeFixture
         graph <- expectRight (fixtureAdmissionObjectGraph fixture)
         let substituted =
               LazyByteString.toStrict
@@ -2095,6 +2181,7 @@ makeTrainingCompletionFixture = do
           , TrainingExecution.tmDatasetShaAtRead = Just datasetSha
           , TrainingExecution.tmSupervisedRuntimeProgram = rawRuntime
           , TrainingExecution.tmTrainedLayerGraphMetadata = Just fixtureGraphMetadata
+          , TrainingExecution.tmDeviceWitness = Just fixtureDeviceWitness
           , TrainingExecution.tmInitialJmw1Bytes = initialBytes
           , TrainingExecution.tmFinalJmw1Bytes = finalBytes
           , TrainingExecution.tmVerifiedDatasetShaAtRead = datasetSha
@@ -2255,12 +2342,27 @@ genericSupervisedPlanFrom experiment sourcePlan =
             }
       }
 
+-- | The witness these offline fixtures bind their completions to.
+--
+-- A witness cannot be built purely, so the fixture materialises a real artifact
+-- once for the process rather than pretending a completion can exist without a
+-- device having run.
+fixtureDeviceWitness :: DeviceWitness.DeviceExecutionWitness
+fixtureDeviceWitness =
+  unsafePerformIO
+    ( either (error . Text.unpack) id
+        <$> DeviceWitnessFixture.fixtureDeviceExecutionWitness
+    )
+{-# NOINLINE fixtureDeviceWitness #-}
+
 supervisedPublishRunFixture
   :: TrainingExecution.TrainingMetrics
   -> ProductPublisher.SupervisedPublishRun
 supervisedPublishRunFixture metrics =
   ProductPublisher.SupervisedPublishRun
-    { ProductPublisher.supervisedPublishTrainLoss =
+    { ProductPublisher.supervisedPublishDeviceWitness =
+        TrainingExecution.tmDeviceWitness metrics
+    , ProductPublisher.supervisedPublishTrainLoss =
         TrainingExecution.tmTrainLoss metrics
     , ProductPublisher.supervisedPublishValidationLoss =
         TrainingExecution.tmValidationLoss metrics
@@ -2325,7 +2427,7 @@ substitutedSupervisedPublisherRuntime run =
         \_ -> pure Nothing
     }
 
-makeFixture :: Either Text Fixture
+makeFixture :: IO (Either Text Fixture)
 makeFixture =
   makeFixtureWithFinalBytes
     ( \parameterCount ->
@@ -2333,10 +2435,21 @@ makeFixture =
           (0.25 : replicate (parameterCount - 1) 0.0)
     )
 
+-- | The completed ProductRow fixture now needs a device execution witness, and
+-- a witness has no pure constructor, so the fixture mints one over a real
+-- on-disk artifact before assembling the manifest.
 makeFixtureWithFinalBytes
   :: (Int -> LazyByteString.ByteString)
-  -> Either Text Fixture
+  -> IO (Either Text Fixture)
 makeFixtureWithFinalBytes finalBytesFor = do
+  witnessResult <- DeviceWitnessFixture.fixtureDeviceExecutionWitness
+  pure (witnessResult >>= \witness -> makeFixtureWithFinalBytesFor witness finalBytesFor)
+
+makeFixtureWithFinalBytesFor
+  :: DeviceWitness.DeviceExecutionWitness
+  -> (Int -> LazyByteString.ByteString)
+  -> Either Text Fixture
+makeFixtureWithFinalBytesFor fixtureWitness finalBytesFor = do
   row <-
     maybe
       (Left "missing authoritative mnist-shallow-mlp ProductRow")
@@ -2387,6 +2500,7 @@ makeFixtureWithFinalBytes finalBytesFor = do
       metrics
       initialSha
       finalSha
+      (Just fixtureWitness)
   let tensor =
         Checkpoint.TensorBlob
           "supervised.weights"
@@ -2446,13 +2560,14 @@ fixtureGraphMetadata :: LayerGraphMetadata.LayerGraphMetadata
 fixtureGraphMetadata =
   LayerGraphMetadata.layerGraphMetadataFromGraph
     ( Architecture.archLayerGraph
-        ( Architecture.architectureSpecForProblem
-            ( Classifier.defaultClassifierConfig
-                { Classifier.clfInputs = 784
-                , Classifier.clfClasses = 10
-                }
+        ( expectSpecRight
+            ( Architecture.architectureSpecForProblem
+                Classifier.defaultClassifierConfig
+                  { Classifier.clfInputs = 784
+                  , Classifier.clfClasses = 10
+                  }
+                mnistShallowMlpProblem
             )
-            mnistShallowMlpProblem
         )
     )
 
@@ -2556,7 +2671,7 @@ bindingSubstitutionTest
   -> TestTree
 bindingSubstitutionTest (label, substitute, expectedError) =
   testCase (label <> " substitution is rejected") $ do
-    fixture <- expectRight makeFixture
+    fixture <- expectRight =<< makeFixture
     let body = fixtureBody fixture
         substituted =
           body
@@ -2574,7 +2689,7 @@ manifestSubstitutionTest
   -> TestTree
 manifestSubstitutionTest label substitute expectedError =
   testCase (label <> " substitution is rejected") $ do
-    fixture <- expectRight makeFixture
+    fixture <- expectRight =<< makeFixture
     let body = fixtureBody fixture
         substituted =
           body
@@ -2592,7 +2707,7 @@ tensorBoardSubstitutionTest
   -> TestTree
 tensorBoardSubstitutionTest label substitute expectedError =
   testCase (label <> " substitution is rejected") $ do
-    fixture <- expectRight makeFixture
+    fixture <- expectRight =<< makeFixture
     let body = fixtureBody fixture
         rawManifest = Checkpoint.rawCheckpointV2Manifest body
     completed <-
@@ -2701,6 +2816,24 @@ decodeSerialised bytes =
     Left failure -> Left (Text.pack (show failure))
     Right value -> Right value
 
+-- | Re-encode training evidence in the shape persisted before Sprint `229.1`
+-- bound the device execution witness to it: the same tag and the same four
+-- observations, one field short.
+--
+-- Written here rather than exposed from the production module because nothing
+-- in the product path may emit the pre-witness shape; only the decoder has to
+-- keep understanding it.
+preWitnessEvidenceBytes :: ProductEvidence.TrainingEvidence -> LazyByteString.ByteString
+preWitnessEvidenceBytes evidence =
+  CborWrite.toLazyByteString
+    ( CborEncoding.encodeListLen 5
+        <> CborEncoding.encodeWord 0
+        <> encode (ProductEvidence.evidenceInitialWeightHash evidence)
+        <> encode (ProductEvidence.evidenceFinalWeightHash evidence)
+        <> encode (ProductEvidence.evidenceUpdateCount evidence)
+        <> encode (ProductEvidence.evidenceDatasetShaAtRead evidence)
+    )
+
 expectRight :: (Show error) => Either error value -> IO value
 expectRight result =
   case result of
@@ -2747,3 +2880,9 @@ assertLeftDirectV2 expected result =
             <> ", got success: "
             <> show value
         )
+
+-- | Unwrap a canonical row's architecture spec. Sprint `233.1` made the builder
+-- fail closed, and a canonical row that cannot be built is a test failure, not
+-- a spec to substitute for.
+expectSpecRight :: Either Text.Text a -> a
+expectSpecRight = either (Prelude.error . Text.unpack) id

@@ -775,7 +775,13 @@ assertTinyExactMedianPrunerRun = do
       maxBudget = 4 :: Int
       checkpoint = 2 :: Int
       runSeed = 29 :: Int
-      problem = Canonicals.CanonicalProblem "tiny-exact-median" "MNIST" "DeepDense" runSeed
+      problem =
+        Canonicals.CanonicalProblem
+          "tiny-exact-median"
+          "MNIST"
+          "DeepDense"
+          Canonicals.DeepDenseFamily
+          runSeed
       config =
         Classifier.defaultClassifierConfig
           { Classifier.clfSeed = runSeed
@@ -868,7 +874,8 @@ assertTinyExactAshaRun = do
   let trialCount = 6 :: Int
       maxBudget = 4 :: Int
       runSeed = 17 :: Int
-      problem = Canonicals.CanonicalProblem "tiny-exact-asha" "MNIST" "DeepDense" runSeed
+      problem =
+        Canonicals.CanonicalProblem "tiny-exact-asha" "MNIST" "DeepDense" Canonicals.DeepDenseFamily runSeed
       config =
         Classifier.defaultClassifierConfig
           { Classifier.clfSeed = runSeed

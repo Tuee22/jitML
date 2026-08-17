@@ -45,10 +45,11 @@ import JitML.Numerics.Mlp
   , mlpLayerGraph
   , mlpParamsToFlat
   )
-import JitML.Numerics.MlpDevice (MlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Plan (quantityValue, runPlanSeeds, seedCohortValues)
 import JitML.Plan.Workload qualified as WorkloadPlan
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -142,6 +143,12 @@ data TrainingMetrics = TrainingMetrics
   -- and before decoder label/unit interpretation).  This mandatory pair lets
   -- the V2 parity gate compare training and Store-loaded inference without
   -- reconstructing a model or inventing a synthetic probe.
+  , tmDeviceWitness :: !(Maybe DeviceWitness.DeviceExecutionWitness)
+  -- ^ The execution witness the training device recorded after its loop
+  -- returned successfully.  Carried verbatim from
+  -- 'Architecture.slmDeviceWitness'; product-row completion binds it to the
+  -- training evidence so the row's device-evidence cell is a measurement of the
+  -- artifact that ran rather than a rendering of the row's declared substrate.
   , tmTrainedLayerGraphMetadata :: !(Maybe LayerGraphMetadata)
   -- ^ Phase 237/239: the trained typed 'LayerGraph.LayerGraph' projected into
   -- its serialisable checkpoint description.  This rides through the supervised
@@ -366,6 +373,7 @@ trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metr
       , tmParityProbeInput = VU.toList probeInput
       , tmParityProbeOutput = VU.toList probeOutput
       , tmTrainedLayerGraphMetadata = Just graphMeta
+      , tmDeviceWitness = Architecture.slmDeviceWitness metrics
       }
 
 validateTrainingParityProbe
@@ -583,60 +591,62 @@ runDeviceMnistTrainingWithSeedAndLimitsAndLearningRate runtime substrate problem
                   case decodedE of
                     Left err -> pure (Left err)
                     Right (configForData, dataset) -> do
-                      let spec = Architecture.architectureSpecForProblem configForData problem
-                          trainSet = take trainLimit dataset
+                      let trainSet = take trainLimit dataset
                           validationSet = drop trainLimit dataset
-                      if length trainSet /= trainLimit || null validationSet
-                        then pure (Left "supervised dataset cannot satisfy exact training/validation example budgets")
-                        else do
-                          trainedE <-
-                            liftIO
-                              ( Architecture.trainCanonicalArchitectureWithDeviceSelected
-                                  device
-                                  spec
-                                  configForData
-                                  trainSet
-                                  validationSet
-                              )
-                          case trainedE of
-                            Left err -> pure (Left ("substrate training failed: " <> err))
-                            Right (trained, metrics) -> do
-                              testAccE <-
-                                evaluateTestSplitDevice
-                                  device
-                                  minioSettings
-                                  trainRef
-                                  trained
-                                  testLimit
-                              case testAccE of
-                                Left err -> pure (Left err)
-                                Right (testAcc, testArtifacts, probeInput, probeOutput) ->
-                                  let datasetShaAtRead =
-                                        Dataset.datasetReadShaForArtifacts
-                                          ([imgArtifact, lblArtifact] <> testArtifacts)
-                                   in case trainingMetricsFor
-                                        epochs
-                                        datasetShaAtRead
-                                        trained
-                                        metrics
-                                        testAcc
-                                        "test_accuracy"
-                                        probeInput
-                                        probeOutput of
-                                        Left err -> pure (Left err)
-                                        Right trainingMetrics -> do
-                                          writeText
-                                            ( renderTrainingMetricsLine
-                                                substrate
-                                                problem
-                                                Nothing
-                                                trainLimit
-                                                epochs
-                                                metrics
-                                                testAcc
-                                                "test_accuracy"
-                                            )
-                                          pure (Right trainingMetrics)
+                      case Architecture.architectureSpecForProblem configForData problem of
+                        Left specErr -> pure (Left specErr)
+                        Right spec ->
+                          if length trainSet /= trainLimit || null validationSet
+                            then pure (Left "supervised dataset cannot satisfy exact training/validation example budgets")
+                            else do
+                              trainedE <-
+                                liftIO
+                                  ( Architecture.trainCanonicalArchitectureWithDeviceSelected
+                                      device
+                                      spec
+                                      configForData
+                                      trainSet
+                                      validationSet
+                                  )
+                              case trainedE of
+                                Left err -> pure (Left ("substrate training failed: " <> err))
+                                Right (trained, metrics) -> do
+                                  testAccE <-
+                                    evaluateTestSplitDevice
+                                      device
+                                      minioSettings
+                                      trainRef
+                                      trained
+                                      testLimit
+                                  case testAccE of
+                                    Left err -> pure (Left err)
+                                    Right (testAcc, testArtifacts, probeInput, probeOutput) ->
+                                      let datasetShaAtRead =
+                                            Dataset.datasetReadShaForArtifacts
+                                              ([imgArtifact, lblArtifact] <> testArtifacts)
+                                       in case trainingMetricsFor
+                                            epochs
+                                            datasetShaAtRead
+                                            trained
+                                            metrics
+                                            testAcc
+                                            "test_accuracy"
+                                            probeInput
+                                            probeOutput of
+                                            Left err -> pure (Left err)
+                                            Right trainingMetrics -> do
+                                              writeText
+                                                ( renderTrainingMetricsLine
+                                                    substrate
+                                                    problem
+                                                    Nothing
+                                                    trainLimit
+                                                    epochs
+                                                    metrics
+                                                    testAcc
+                                                    "test_accuracy"
+                                                )
+                                              pure (Right trainingMetrics)
                 _ ->
                   pure
                     ( Left
@@ -761,89 +771,91 @@ runDeviceArchiveClassifierTraining substrate problem executionSeed trainRef trai
                 archiveBytes of
                 Left err -> pure (Left (Text.pack err))
                 Right (configForData, dataset) -> do
-                  let spec = Architecture.architectureSpecForProblem configForData problem
-                      rawTrainSet = take trainLimit dataset
+                  let rawTrainSet = take trainLimit dataset
                       rawValidationSet = drop trainLimit dataset
-                  if length rawTrainSet /= trainLimit || null rawValidationSet
-                    then pure (Left "supervised archive cannot satisfy exact training/validation example budgets")
-                    else case archiveClassifierTrainingInput
-                      problem
-                      rawTrainSet
-                      rawValidationSet of
-                      Left err -> pure (Left err)
-                      Right (inputTransform, trainSet, validationSet) -> do
-                        trainedE <-
-                          liftIO
-                            ( Architecture.trainCanonicalArchitectureWithDeviceSelected
-                                device
-                                spec
-                                configForData
-                                trainSet
-                                validationSet
-                            )
-                        case trainedE of
-                          Left err -> pure (Left ("substrate archive training failed: " <> err))
-                          Right (unboundTrained, metrics) ->
-                            case bindArchiveClassifierInputTransform inputTransform unboundTrained of
-                              Left err -> pure (Left err)
-                              Right trained ->
-                                case decodeArchive configForData Dataset.TestSplit (Just testLimit) archiveBytes of
-                                  Left err -> pure (Left (Text.pack err))
-                                  Right (_, rawTestSet)
-                                    | length rawTestSet /= testLimit ->
-                                        pure (Left "supervised archive cannot satisfy exact evaluation-example budget")
-                                    | otherwise ->
-                                        case applyArchiveClassifierInputTransform inputTransform rawTestSet of
-                                          Left err -> pure (Left err)
-                                          Right testSet -> do
-                                            testAccE <-
-                                              liftIO
-                                                (Architecture.accuracyArchitectureWithDevice device trained testSet)
-                                            case (rawTestSet, testSet) of
-                                              ([], _) -> pure (Left "supervised archive produced no parity probe")
-                                              (_, []) -> pure (Left "supervised archive produced no parity probe")
-                                              (rawProbe : _, probe : _) -> do
-                                                predictionE <-
+                  case Architecture.architectureSpecForProblem configForData problem of
+                    Left specErr -> pure (Left specErr)
+                    Right spec ->
+                      if length rawTrainSet /= trainLimit || null rawValidationSet
+                        then pure (Left "supervised archive cannot satisfy exact training/validation example budgets")
+                        else case archiveClassifierTrainingInput
+                          problem
+                          rawTrainSet
+                          rawValidationSet of
+                          Left err -> pure (Left err)
+                          Right (inputTransform, trainSet, validationSet) -> do
+                            trainedE <-
+                              liftIO
+                                ( Architecture.trainCanonicalArchitectureWithDeviceSelected
+                                    device
+                                    spec
+                                    configForData
+                                    trainSet
+                                    validationSet
+                                )
+                            case trainedE of
+                              Left err -> pure (Left ("substrate archive training failed: " <> err))
+                              Right (unboundTrained, metrics) ->
+                                case bindArchiveClassifierInputTransform inputTransform unboundTrained of
+                                  Left err -> pure (Left err)
+                                  Right trained ->
+                                    case decodeArchive configForData Dataset.TestSplit (Just testLimit) archiveBytes of
+                                      Left err -> pure (Left (Text.pack err))
+                                      Right (_, rawTestSet)
+                                        | length rawTestSet /= testLimit ->
+                                            pure (Left "supervised archive cannot satisfy exact evaluation-example budget")
+                                        | otherwise ->
+                                            case applyArchiveClassifierInputTransform inputTransform rawTestSet of
+                                              Left err -> pure (Left err)
+                                              Right testSet -> do
+                                                testAccE <-
                                                   liftIO
-                                                    ( Architecture.predictArchitectureWithDevice
-                                                        device
-                                                        trained
-                                                        (Classifier.exampleFeatures probe)
-                                                    )
-                                                case (testAccE, predictionE) of
-                                                  (Left err, _) -> pure (Left err)
-                                                  (_, Left err) -> pure (Left err)
-                                                  (Right testAcc, Right rawPrediction) ->
-                                                    let semanticWidth = Classifier.clfClasses configForData
-                                                     in if VU.length rawPrediction < semanticWidth
-                                                          then
-                                                            pure
-                                                              ( Left
-                                                                  "training-returned archive classifier output is narrower than its semantic class width"
-                                                              )
-                                                          else case trainingMetricsFor
-                                                            epochs
-                                                            datasetShaAtRead
+                                                    (Architecture.accuracyArchitectureWithDevice device trained testSet)
+                                                case (rawTestSet, testSet) of
+                                                  ([], _) -> pure (Left "supervised archive produced no parity probe")
+                                                  (_, []) -> pure (Left "supervised archive produced no parity probe")
+                                                  (rawProbe : _, probe : _) -> do
+                                                    predictionE <-
+                                                      liftIO
+                                                        ( Architecture.predictArchitectureWithDevice
+                                                            device
                                                             trained
-                                                            metrics
-                                                            (Just testAcc)
-                                                            "test_accuracy"
-                                                            (Classifier.exampleFeatures rawProbe)
-                                                            (VU.take semanticWidth rawPrediction) of
-                                                            Left err -> pure (Left err)
-                                                            Right trainingMetrics -> do
-                                                              writeText
-                                                                ( renderTrainingMetricsLine
-                                                                    substrate
-                                                                    problem
-                                                                    (Just (Dataset.datasetName trainRef))
-                                                                    trainLimit
-                                                                    epochs
-                                                                    metrics
-                                                                    (Just testAcc)
-                                                                    "test_accuracy"
-                                                                )
-                                                              pure (Right trainingMetrics)
+                                                            (Classifier.exampleFeatures probe)
+                                                        )
+                                                    case (testAccE, predictionE) of
+                                                      (Left err, _) -> pure (Left err)
+                                                      (_, Left err) -> pure (Left err)
+                                                      (Right testAcc, Right rawPrediction) ->
+                                                        let semanticWidth = Classifier.clfClasses configForData
+                                                         in if VU.length rawPrediction < semanticWidth
+                                                              then
+                                                                pure
+                                                                  ( Left
+                                                                      "training-returned archive classifier output is narrower than its semantic class width"
+                                                                  )
+                                                              else case trainingMetricsFor
+                                                                epochs
+                                                                datasetShaAtRead
+                                                                trained
+                                                                metrics
+                                                                (Just testAcc)
+                                                                "test_accuracy"
+                                                                (Classifier.exampleFeatures rawProbe)
+                                                                (VU.take semanticWidth rawPrediction) of
+                                                                Left err -> pure (Left err)
+                                                                Right trainingMetrics -> do
+                                                                  writeText
+                                                                    ( renderTrainingMetricsLine
+                                                                        substrate
+                                                                        problem
+                                                                        (Just (Dataset.datasetName trainRef))
+                                                                        trainLimit
+                                                                        epochs
+                                                                        metrics
+                                                                        (Just testAcc)
+                                                                        "test_accuracy"
+                                                                    )
+                                                                  pure (Right trainingMetrics)
 
 archiveClassifierTrainingInput
   :: SL.CanonicalProblem
@@ -998,9 +1010,14 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                                     rawValidationSet
                                     validationSet
                                 )
-                            case probeE of
+                            -- Recorded after the regression training and both
+                            -- evaluation passes returned, from the artifact the
+                            -- run executed through. Without it a regression
+                            -- ProductRow could not be admitted.
+                            regressionWitnessE <- liftIO (mlpdExecutionWitness device)
+                            case (,) <$> probeE <*> regressionWitnessE of
                               Left err -> pure (Left err)
-                              Right (probeInput, probeOutput) ->
+                              Right ((probeInput, probeOutput), regressionWitness) ->
                                 let examplesProcessed = length trainSet * epochs
                                     initialShape =
                                       MlpShape
@@ -1067,6 +1084,7 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                                                               ( mlpLayerGraph
                                                                   (Regression.trainedRegressorParams trained)
                                                               )
+                                                        , tmDeviceWitness = regressionWitness
                                                         }
                                                   )
 

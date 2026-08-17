@@ -30,7 +30,7 @@ import JitML.Sub.Outcome
   , ProcessTranscript (..)
   , renderProcessFailure
   )
-import JitML.Sub.Render (renderSubprocess)
+import JitML.Sub.Render (renderBool, renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 
@@ -254,10 +254,6 @@ renderLdconfigProbeResult (Left err) =
 renderDevices :: [Text] -> [Text]
 renderDevices [] = ["    - none"]
 renderDevices devices = fmap ("    - " <>) devices
-
-renderBool :: Bool -> Text
-renderBool True = "yes"
-renderBool False = "no"
 
 emptyCudaLibraryVisibility :: CudaLibraryVisibility
 emptyCudaLibraryVisibility =

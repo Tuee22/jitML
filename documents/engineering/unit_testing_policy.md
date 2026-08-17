@@ -344,7 +344,7 @@ drivers. The current `test/model-convergence/Main.hs` (backed by
 `src/JitML/Test/ModelConvergence.hs`) is a lightweight registry guard: it owns
 one case per `ProductRow`, enumerated from
 `JitML.Product.Matrix.allProductRows`, and validates coverage, row identity,
-named integration/e2e handles, externally anchored bar metadata, and positive
+named integration/e2e handles, externally anchored bar metadata (anchored in the sense of `literatureTarget - slack`; the slack is project-calibrated), and positive
 non-wall-clock performance floors. No current case trains, reloads a completed
 artifact, recomputes its served metric, or performs inference. Phase `284`
 owns that completed-run-evidence migration and its validation record.

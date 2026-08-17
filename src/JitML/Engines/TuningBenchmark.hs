@@ -39,6 +39,7 @@ import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Engine (engineForSubstrate)
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Engines.Loader (KernelArtifact, KernelArtifactError (..), ensureKernelArtifact)
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.MetalLocal qualified as MetalLocal
@@ -61,6 +62,7 @@ import JitML.Engines.TuningStore
   , persistSelectedMeasuredTuning
   )
 import JitML.Env.Env (Env (..))
+import JitML.Sub.Render (renderBool)
 import JitML.Substrate (Substrate (..), renderSubstrate)
 
 data BenchmarkObservation = BenchmarkObservation
@@ -162,7 +164,7 @@ cudaBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input can
       kernelSpec
       kind
       Cache.LinuxCUDA
-      CudaLocal.cudaToolchainFingerprint
+      (Fingerprint.engineFamilyToolchainFingerprint LinuxCUDA)
       (runtimeSourcePayload source)
       tuningChoice
 
@@ -234,7 +236,7 @@ metalBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input ca
       kernelSpec
       kind
       Cache.AppleSilicon
-      MetalLocal.metalToolchainFingerprint
+      (Fingerprint.engineFamilyToolchainFingerprint AppleSilicon)
       (runtimeSourcePayload source)
       tuningChoice
 
@@ -419,7 +421,7 @@ linuxCpuBenchmarkCandidateRunner env kernelSpec kind input candidate
       kernelSpec
       kind
       Cache.LinuxCPU
-      Local.linuxCpuToolchainFingerprint
+      (Fingerprint.engineFamilyToolchainFingerprint LinuxCPU)
       (runtimeSourcePayload source)
       tuningChoice
 
@@ -475,7 +477,7 @@ linuxCpuWeightedBenchmarkCandidateRunner env kernelSpec kind input weights candi
       kernelSpec
       kind
       Cache.LinuxCPU
-      Local.linuxCpuToolchainFingerprint
+      (Fingerprint.engineFamilyToolchainFingerprint LinuxCPU)
       (runtimeSourcePayload source)
       tuningChoice
 
@@ -566,10 +568,6 @@ renderCudaBenchmarkProbeSummary probe =
 renderMetalBenchmarkProbeSummary :: MetalRuntime.MetalRuntimeProbe -> Text
 renderMetalBenchmarkProbeSummary probe =
   "device=" <> renderBool (MetalRuntime.metalRuntimeDeviceVisible probe)
-
-renderBool :: Bool -> Text
-renderBool True = "yes"
-renderBool False = "no"
 
 renderMaybePresence :: Maybe a -> Text
 renderMaybePresence Nothing = "missing"

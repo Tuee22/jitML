@@ -51,8 +51,6 @@ module JitML.Product.Matrix
   , productProjectionBatchRowIds
   , productProjectionBatchSubstrate
   , productRowCount
-  , productRowDeviceEvidenceForSubstrate
-  , deviceEvidenceForClaim
   , productExperimentConfigPath
   , productRowExperimentHash
   , productRowForExperimentHash
@@ -719,44 +717,6 @@ productRowExperimentHash row =
 productRowForExperimentHash :: Text -> Maybe (ProductRow 'Declared)
 productRowForExperimentHash experimentHash =
   List.find ((== experimentHash) . productRowExperimentHash) allProductRows
-
-productRowDeviceEvidenceForSubstrate :: Substrate -> ProductRow state -> Text
-productRowDeviceEvidenceForSubstrate substrate row =
-  deviceEvidenceForClaim substrate (deviceClaim row)
-
--- | The device-evidence cell derived from a lane and a 'DeviceClaim' alone.
---
--- Completed scenario evidence retains the claim and the lane it executed on, not
--- the declared 'ProductRow', so issuing a lane fragment from that evidence needs
--- the claim-level composer. Deriving the cell from a registry row instead would
--- put a declaration lookup back inside an evidence-only render, which is exactly
--- the substitution the fragment contract forbids.
-deviceEvidenceForClaim :: Substrate -> DeviceClaim -> Text
-deviceEvidenceForClaim substrate claim =
-  Text.intercalate
-    ":"
-    [ "device"
-    , renderSubstrate substrate
-    , substrateDeviceRuntime substrate
-    , deviceClaimKernelSummary claim
-    ]
-
-substrateDeviceRuntime :: Substrate -> Text
-substrateDeviceRuntime AppleSilicon = "Metal:fixed-bridge:makeLibrary:dispatch"
-substrateDeviceRuntime LinuxCPU = "oneDNN:ffi:dispatch"
-substrateDeviceRuntime LinuxCUDA = "cuBLAS-cuDNN:ffi:dispatch"
-
-deviceClaimKernelSummary :: DeviceClaim -> Text
-deviceClaimKernelSummary SubstrateBackedANN =
-  "dense-conv-norm-attention-update-critical"
-deviceClaimKernelSummary SubstrateBackedPolicy =
-  "policy-mlp-update-critical"
-deviceClaimKernelSummary GoalConditionedPolicy =
-  "goal-policy-mlp-update-critical"
-deviceClaimKernelSummary SelfPlayPolicyValueNetwork =
-  "policy-value-mlp-update-critical"
-deviceClaimKernelSummary TuningPromotedTraining =
-  "tuning-promoted-mlp-update-critical"
 
 supervisedRows :: [ProductRow 'Declared]
 supervisedRows = fmap supervisedRow SL.trainableCanonicalCohort

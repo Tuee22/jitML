@@ -80,7 +80,7 @@ import JitML.Engines.MetalRuntime (metalRuntimeAvailable, probeMetalRuntime)
 import JitML.Env.Env (App, Env)
 import JitML.Inference.Command qualified as InferenceCommand
 import JitML.Numerics.Mlp (AdamState)
-import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..), probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Command qualified as PlanCommand
 import JitML.Plan.Plan
@@ -1826,16 +1826,18 @@ runHostAppleTune env start
                       Left err -> pure (Left (SETransient ("host Apple tune failed: " <> err)))
                       Right executions ->
                         publishHostTuneEvents
+                          env
                           plan
                           Tune.syntheticTuningDatasetSha256
                           executions
 
 publishHostTuneEvents
-  :: WorkloadPlan.TuningPlan
+  :: Env
+  -> WorkloadPlan.TuningPlan
   -> Text
   -> [Tune.TrialExecution]
   -> ServiceClients.EngineServiceClient (Either ServiceError ())
-publishHostTuneEvents plan datasetShaAtRead trialResults = do
+publishHostTuneEvents env plan datasetShaAtRead trialResults = do
   baseSeed <- case word64ToIntService
     "host Apple tuning seed"
     (NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.tuningPlanRunPlan plan)))) of
@@ -1877,12 +1879,15 @@ publishHostTuneEvents plan datasetShaAtRead trialResults = do
                     , ProtoTune.sfTrialsPromoted = fromIntegral promotedCount
                     , ProtoTune.sfBestObjective = bestObjective
                     }
-            case ProductCompletion.tuneSweepCompletedTraining
-              plan
-              experimentHash
-              datasetShaAtRead
-              completed
-              bestResult of
+            tuneWitnessE <-
+              liftIO (mlpdExecutionWitness (mlpDeviceForSubstrate AppleSilicon env))
+            case tuneWitnessE
+              >>= ProductCompletion.tuneSweepCompletedTraining
+                plan
+                experimentHash
+                datasetShaAtRead
+                completed
+                bestResult of
               Left err -> pure (Left (SETransient ("host Apple tuning completion failed: " <> err)))
               Right completedTraining ->
                 case ProtoTune.completeSweep finished completedTraining of
@@ -2068,6 +2073,8 @@ runHostAppleAlphaZero env start
                 case trained of
                   Left err -> pure (Left err)
                   Right (trainedNet, samples) -> do
+                    -- Recorded after the self-play/update loop returned.
+                    azDeviceWitnessE <- liftIO (mlpdExecutionWitness device)
                     let winRate =
                           PolicyValueNet.arenaWinRateAgainstUniformFrom
                             initialState
@@ -2092,6 +2099,7 @@ runHostAppleAlphaZero env start
                         finalWeights = PolicyValueNet.policyValueNetToFlat trainedNet
                         completed =
                           do
+                            deviceWitness <- eitherToMaybe azDeviceWitnessE
                             budget <- eitherToMaybe (ProductCompletion.alphaZeroCompletionBudget plan)
                             updatesPerGeneration <-
                               eitherToMaybe
@@ -2117,6 +2125,7 @@ runHostAppleAlphaZero env start
                                   metrics
                                   initialWeights
                                   finalWeights
+                                  deviceWitness
                               )
                     checkpoint <-
                       case completed of

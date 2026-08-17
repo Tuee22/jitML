@@ -100,7 +100,7 @@ allProductPhaseStatuses =
       229
       "Phase-Specific Product Evidence Payloads"
       "DEVELOPMENT_PLAN/phase-229-phase-specific-product-evidence-payloads.md"
-      [ sprint "229.1" "Phase-Specific Product Evidence Payloads" Active
+      [ sprint "229.1" "Phase-Specific Product Evidence Payloads" Done
       ]
   , productPhase
       230
@@ -124,7 +124,7 @@ allProductPhaseStatuses =
       233
       "Typed Layer IR + Reverse-Mode Autodiff"
       "DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md"
-      [ sprint "233.1" "Typed Layer IR + Reverse-Mode Autodiff" Active
+      [ sprint "233.1" "Typed Layer IR + Reverse-Mode Autodiff" Done
       ]
   , productPhase
       234
@@ -172,7 +172,7 @@ allProductPhaseStatuses =
       241
       "oneDNN Device Training Kernels for Correct Operators"
       "DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md"
-      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Active
+      [ sprint "241.1" "oneDNN Device Training Kernels for Correct Operators" Done
       ]
   , productPhase
       242
@@ -304,13 +304,13 @@ allProductPhaseStatuses =
       263
       "Contract-Driven Live Execution - Fragment Issuance"
       "DEVELOPMENT_PLAN/phase-263-contract-driven-live-execution-fragment-issuance.md"
-      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Active
+      [ sprint "263.1" "Contract-Driven Live Execution - Fragment Issuance" Done
       ]
   , productPhase
       264
       "Real cuDNN/cuBLAS Kernels"
       "DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md"
-      [ sprint "264.1" "Real cuDNN/cuBLAS Kernels" Active
+      [ sprint "264.1" "Real cuDNN/cuBLAS Kernels" Done
       ]
   , productPhase
       265
@@ -322,13 +322,13 @@ allProductPhaseStatuses =
       266
       "CUDA Integration, E2E, and Attestation"
       "DEVELOPMENT_PLAN/phase-266-cuda-integration-e2e-and-attestation.md"
-      [ sprint "266.1" "CUDA Integration, E2E, and Attestation" Done
+      [ sprint "266.1" "CUDA Integration, E2E, and Attestation" Blocked
       ]
   , productPhase
       267
       "GPU Performance and Persistent Device Buffers"
       "DEVELOPMENT_PLAN/phase-267-gpu-performance-and-persistent-device-buffers.md"
-      [ sprint "267.1" "GPU Performance and Persistent Device Buffers" Done
+      [ sprint "267.1" "GPU Performance and Persistent Device Buffers" Blocked
       ]
   , productPhase
       268
@@ -352,7 +352,7 @@ allProductPhaseStatuses =
       271
       "Apple Integration, E2E, and Attestation"
       "DEVELOPMENT_PLAN/phase-271-apple-integration-e2e-and-attestation.md"
-      [ sprint "271.1" "Apple Integration, E2E, and Attestation" Done
+      [ sprint "271.1" "Apple Integration, E2E, and Attestation" Blocked
       ]
   , productPhase
       272

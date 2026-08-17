@@ -12,7 +12,6 @@
 module JitML.Numerics.MlpOneDnn
   ( mlpOneDnnHash
   , mlpOneDnnRuntimeSource
-  , mlpOneDnnToolchainFingerprint
   , oneDnnMlpSpec
   , oneDnnMlpDevice
   , mlpForwardOneDnn
@@ -25,14 +24,13 @@ module JitML.Numerics.MlpOneDnn
 where
 
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
-import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.MlpOneDnn (mlpOneDnnKernelSpec, renderMlpOneDnnSource)
 import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine (engineForSubstrate)
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( MlpForward
@@ -51,7 +49,7 @@ import JitML.Numerics.MlpDevice
   , mlpForwardWith
   , mlpInputGradientBatchWith
   )
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (KernelLaunch (..), Substrate (..))
 
 mlpOneDnnRuntimeSource :: RuntimeSource
 mlpOneDnnRuntimeSource =
@@ -62,34 +60,13 @@ mlpOneDnnRuntimeSource =
     , runtimeSourceFiles = renderMlpOneDnnSource
     }
 
--- | Toolchain fingerprint for the MLP oneDNN kernel. Records the g++ compile
--- intent + the @extern "C"@ ABI; combined with the LinuxCPU substrate this
--- keeps the artifact in its own JIT-cache slot.
-mlpOneDnnToolchainFingerprint :: Cache.ToolchainFingerprint
-mlpOneDnnToolchainFingerprint =
-  Cache.ToolchainFingerprint
-    ( Text.intercalate
-        ";"
-        [ "g++-shared-c++20-O2-fPIC"
-        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "-DJITML_DETERMINISTIC_REDUCTIONS=1"
-        , "abi=extern-c-host-direct"
-        , "reductions=sequential-fixed-order"
-        , "jitml_mlp_forward(float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int)"
-        , "jitml_mlp_backward(float*,float*,float*,float*,const float*,const float*,const float*,const float*,int,int,int)"
-        , "jitml_mlp_batch_gradient(float*,float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        , "jitml_mlp_forward_batch(float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        , "jitml_mlp_input_gradient_batch(float*,const float*,const float*,const float*,const float*,const float*,int,int,int,int)"
-        ]
-    )
-
 mlpOneDnnHash :: Cache.Hash
 mlpOneDnnHash =
   Cache.cacheKey
     mlpOneDnnKernelSpec
     Cache.Inference
     Cache.LinuxCPU
-    mlpOneDnnToolchainFingerprint
+    (Fingerprint.mlpToolchainFingerprint LinuxCPU)
     (runtimeSourcePayload mlpOneDnnRuntimeSource)
     Cache.defaultTuningChoice
 
@@ -98,9 +75,11 @@ oneDnnMlpSpec :: MlpBackendSpec
 oneDnnMlpSpec =
   MlpBackendSpec
     { mbsTag = "mlp-onednn"
+    , mbsSubstrate = LinuxCPU
     , mbsEngine = engineForSubstrate LinuxCPU
     , mbsRuntimeSource = mlpOneDnnRuntimeSource
     , mbsHash = mlpOneDnnHash
+    , mbsLaunch = LoadableSymbolLaunch
     }
 
 -- | The oneDNN MLP operations bundled for injection into the RL trainers.

@@ -9,11 +9,20 @@
 
 ## Phase State
 
-✅ **Done**.
+⏸️ **Blocked** (reopened 2026-08-16 under standards rule `C`). This phase attests
+that `jitml test all --apple-silicon` runs every Apple-supported product row for
+real. It does not: supervised rows on this lane execute the `linux-cpu` oneDNN
+layer-training artifact, which is the same defect that reopened Phases `269` and
+`270` on 2026-08-12 and which the audit did not carry through to this phase.
+Sprint `264.1` makes it visible rather than silent — `layerTrainingBackendFor`
+now fails closed on `apple-silicon` naming Sprint `269.1` instead of executing
+another lane's kernels and attributing the run to Apple hardware. The 2026-07-06
+evidence remains historical evidence for the surface it exercised.
 
-## Sprint 271.1: Apple Integration, E2E, and Attestation [✅ Done]
+## Sprint 271.1: Apple Integration, E2E, and Attestation [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Sprints `269.1`, `270.1`
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`
 

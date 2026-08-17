@@ -70,7 +70,7 @@ productExperimentExactnessTests =
               parityFailures =
                 [ SL.problemName problem <> " -> " <> failure
                 | problem <- SL.canonicalProblems
-                , let spec = Architecture.architectureSpecForProblem config problem
+                , let spec = expectSpecRight (Architecture.architectureSpecForProblem config problem)
                 , failure <-
                     Architecture.validateArchitectureFeatureParity
                       spec
@@ -403,7 +403,6 @@ productExperimentExactnessTests =
           either (assertFailure . Text.unpack) pure $
             LayerGraph.mkAffineLayer
               "exact-normalization"
-              LayerGraph.DenseLayer
               2
               2
               LayerGraph.LinearActivation
@@ -885,7 +884,8 @@ assertProjectionRejectedWith row expected =
 
 assertArchitectureSeedHeadroomTopology :: SL.CanonicalProblem -> IO ()
 assertArchitectureSeedHeadroomTopology problem = do
-  let spec = Architecture.architectureSpecForProblem Classifier.defaultClassifierConfig problem
+  let spec =
+        expectSpecRight (Architecture.architectureSpecForProblem Classifier.defaultClassifierConfig problem)
       layerOffset =
         max 0 (toInteger (length (Architecture.archLayers spec)) - 1) * 1009
       graphOffset =
@@ -1025,3 +1025,9 @@ expectRight result =
   case result of
     Left err -> assertFailure (Text.unpack err)
     Right value -> pure value
+
+-- | Unwrap a canonical row's architecture spec. Sprint `233.1` made the builder
+-- fail closed, and a canonical row that cannot be built is a test failure, not
+-- a spec to substitute for.
+expectSpecRight :: Either Text.Text a -> a
+expectSpecRight = either (Prelude.error . Text.unpack) id

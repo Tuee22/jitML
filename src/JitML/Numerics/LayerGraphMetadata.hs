@@ -61,6 +61,7 @@ data LayerGraphKindMetadata
   | LayerGraphMultiHeadAttentionLayer Int
   | LayerGraphGeGLULayer
   | LayerGraphPatchEmbedLayer
+  | LayerGraphIdentityLayer
   deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
 
@@ -92,6 +93,11 @@ data LayerGraphMetadata = LayerGraphMetadata
   deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
 
+-- | Project a trained graph into checkpoint metadata. Sprint `72.1`:
+-- @layerGraphNodeKind@ is written from 'LayerGraph.opKind', so the wire field
+-- is a checksum on the one operator vocabulary rather than a second
+-- vocabulary; 'layerGraphFromMetadata' rejects a persisted kind that disagrees
+-- with the persisted operator.
 layerGraphMetadataFromGraph :: LayerGraph.LayerGraph -> LayerGraphMetadata
 layerGraphMetadataFromGraph graph =
   LayerGraphMetadata
@@ -143,6 +149,7 @@ layerKindMetadata (LayerGraph.BottleneckBlockLayer scale) = LayerGraphBottleneck
 layerKindMetadata (LayerGraph.MultiHeadAttentionLayer heads) = LayerGraphMultiHeadAttentionLayer heads
 layerKindMetadata LayerGraph.GeGLULayer = LayerGraphGeGLULayer
 layerKindMetadata LayerGraph.PatchEmbedLayer = LayerGraphPatchEmbedLayer
+layerKindMetadata LayerGraph.IdentityLayer = LayerGraphIdentityLayer
 
 -- ---------------------------------------------------------------------------
 -- Phase 239 — reverse converters: reconstruct a served dense 'LayerGraph' from
@@ -184,6 +191,7 @@ metadataLayerKind (LayerGraphBottleneckBlockLayer scale) = LayerGraph.Bottleneck
 metadataLayerKind (LayerGraphMultiHeadAttentionLayer heads) = LayerGraph.MultiHeadAttentionLayer heads
 metadataLayerKind LayerGraphGeGLULayer = LayerGraph.GeGLULayer
 metadataLayerKind LayerGraphPatchEmbedLayer = LayerGraph.PatchEmbedLayer
+metadataLayerKind LayerGraphIdentityLayer = LayerGraph.IdentityLayer
 
 -- | The trained graph's total parameter count derived from each node's real
 -- operator geometry: a dense affine contributes @inputWidth * outputWidth@
@@ -247,14 +255,25 @@ layerGraphFromMetadata meta = do
                   { LayerGraph.layerWeights = VU.replicate wLen 0.0
                   , LayerGraph.layerBias = VU.replicate bLen 0.0
                   }
-     in Right
-          LayerGraph.LayerNode
-            { LayerGraph.layerNodeName = layerGraphNodeName node
-            , LayerGraph.layerNodeKind = metadataLayerKind (layerGraphNodeKind node)
-            , LayerGraph.layerNodeOp = op
-            , LayerGraph.layerInputShape = LayerGraph.TensorShape (layerGraphNodeInputShape node)
-            , LayerGraph.layerOutputShape = LayerGraph.TensorShape (layerGraphNodeOutputShape node)
-            , LayerGraph.layerMode = metadataLayerMode (layerGraphNodeMode node)
-            , LayerGraph.layerActivation = metadataLayerActivation (layerGraphNodeActivation node)
-            , LayerGraph.layerParameters = parameters
-            }
+        storedKind = metadataLayerKind (layerGraphNodeKind node)
+        derivedKind = LayerGraph.opKind op
+     in if storedKind /= derivedKind
+          then
+            Left
+              ( layerGraphNodeName node
+                  <> ": checkpoint kind "
+                  <> LayerGraph.layerKindName storedKind
+                  <> " disagrees with the executed operator's kind "
+                  <> LayerGraph.layerKindName derivedKind
+              )
+          else
+            Right
+              LayerGraph.LayerNode
+                { LayerGraph.layerNodeName = layerGraphNodeName node
+                , LayerGraph.layerNodeOp = op
+                , LayerGraph.layerInputShape = LayerGraph.TensorShape (layerGraphNodeInputShape node)
+                , LayerGraph.layerOutputShape = LayerGraph.TensorShape (layerGraphNodeOutputShape node)
+                , LayerGraph.layerMode = metadataLayerMode (layerGraphNodeMode node)
+                , LayerGraph.layerActivation = metadataLayerActivation (layerGraphNodeActivation node)
+                , LayerGraph.layerParameters = parameters
+                }

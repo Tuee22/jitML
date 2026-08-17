@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.SL.Canonicals
-  ( CanonicalProblem (..)
+  ( ArchitectureFamily (..)
+  , CanonicalProblem (..)
   , canonicalProblems
   , trainableCanonicalCohort
   , isTrainableCanonicalProblem
@@ -16,27 +17,45 @@ import Data.Text qualified as Text
 import Dhall qualified
 import Numeric.Natural (Natural)
 
+-- | The executable architecture vocabulary. Sprint `233.1` moved it here, to
+-- the module that owns the canonical rows, so a 'CanonicalProblem' can carry
+-- its family directly instead of having it re-derived by matching
+-- 'problemModel' against a string table with a dense fallback.
+data ArchitectureFamily
+  = DenseFamily
+  | DeepDenseFamily
+  | Conv2DLeNetFamily
+  | ResidualFamily Int
+  | WideResidualFamily Int
+  | VisionTransformerFamily
+  deriving stock (Eq, Show)
+
 data CanonicalProblem = CanonicalProblem
   { problemName :: Text
   , problemDataset :: Text
   , problemModel :: Text
+  -- ^ the wire-facing model name, compared against raw experiment records
+  , problemFamily :: ArchitectureFamily
+  -- ^ the executed architecture family. Closed and total: the graph builder
+  -- reads this rather than re-parsing 'problemModel', so an unrecognised model
+  -- string can no longer resolve to the dense family (Sprint `233.1`).
   , problemSeed :: Int
   }
   deriving stock (Eq, Show)
 
 canonicalProblems :: [CanonicalProblem]
 canonicalProblems =
-  [ CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
-  , CanonicalProblem "mnist-deep-mlp" "MNIST" "DeepDense" 1002
-  , CanonicalProblem "mnist-lenet" "MNIST" "Conv2D" 1003
-  , CanonicalProblem "fashion-mnist-mlp" "Fashion-MNIST" "Dense" 1004
-  , CanonicalProblem "fashion-mnist-resnet" "Fashion-MNIST" "ResidualBlock" 1005
-  , CanonicalProblem "cifar10-resnet20" "CIFAR-10" "ResidualBlock20" 1006
-  , CanonicalProblem "cifar10-resnet56" "CIFAR-10" "ResidualBlock56" 1007
-  , CanonicalProblem "cifar100-wide-resnet" "CIFAR-100" "WideResidualBlock" 1008
-  , CanonicalProblem "cifar10-vit" "CIFAR-10" "VisionTransformer" 1009
-  , CanonicalProblem "tiny-imagenet-resnet50" "Tiny ImageNet" "ResidualBlock50" 1010
-  , CanonicalProblem "california-housing-mlp" "California Housing" "Dense" 1011
+  [ CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" DenseFamily 1001
+  , CanonicalProblem "mnist-deep-mlp" "MNIST" "DeepDense" DeepDenseFamily 1002
+  , CanonicalProblem "mnist-lenet" "MNIST" "Conv2D" Conv2DLeNetFamily 1003
+  , CanonicalProblem "fashion-mnist-mlp" "Fashion-MNIST" "Dense" DenseFamily 1004
+  , CanonicalProblem "fashion-mnist-resnet" "Fashion-MNIST" "ResidualBlock" (ResidualFamily 2) 1005
+  , CanonicalProblem "cifar10-resnet20" "CIFAR-10" "ResidualBlock20" (ResidualFamily 20) 1006
+  , CanonicalProblem "cifar10-resnet56" "CIFAR-10" "ResidualBlock56" (ResidualFamily 56) 1007
+  , CanonicalProblem "cifar100-wide-resnet" "CIFAR-100" "WideResidualBlock" (WideResidualFamily 12) 1008
+  , CanonicalProblem "cifar10-vit" "CIFAR-10" "VisionTransformer" VisionTransformerFamily 1009
+  , CanonicalProblem "tiny-imagenet-resnet50" "Tiny ImageNet" "ResidualBlock50" (ResidualFamily 50) 1010
+  , CanonicalProblem "california-housing-mlp" "California Housing" "Dense" DenseFamily 1011
   ]
 
 -- | Sprint 8.12 — the canonical SL rows that the product surface treats as

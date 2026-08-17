@@ -9,16 +9,22 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: the weighted family renderer ends in a wildcard that
-silently discards the weights buffer and calls the unweighted kernel, and the
-unweighted multi-head-attention family renders an identity matmul while the CUDA and
-Metal renderers render an elementwise square for the same family. The three lanes
-therefore disagree on one family's semantics, and nothing detects it because the
-unweighted ABI is only smoke-asserted.
+✅ **Done** (closed 2026-08-14). The weighted-family renderer is total: a tenth
+`KernelFamily` fails the build rather than rendering a weights-discarding
+passthrough, and `Identity` / `Reduction` are named explicitly because their
+canonical no-op weight buffer is genuinely empty. The unweighted multi-head
+attention divergence is resolved in favour of the algebra the contract implies:
+`JitML.Numerics.FamilyReference.defaultFamilyWeights` defines each family's
+canonical no-op weights, the unweighted reference is the weighted reference
+evaluated at them, and at `Wq = Wk = Wv = I` the attention algebra degenerates
+to `out[i] = input[i]^2` — which is what `linux-cuda` and `apple-silicon`
+already rendered and what `linux-cpu` did not. The backends lane now checks the
+unweighted ABI against that contract for every family instead of smoke-asserting
+it, which is the gap that let the divergence survive.
 
-## Sprint 80.1: Linux CPU Engine and oneDNN Codegen Driver [🔄 Active]
+## Sprint 80.1: Linux CPU Engine and oneDNN Codegen Driver [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Engines/HasEngine.hs`, `src/JitML/Engines/Loader.hs`,
 `src/JitML/Engines/Local.hs`, `src/JitML/Engines/OneDnnRuntime.hs`,
@@ -140,14 +146,43 @@ behind the local production `HasEngine` execution surface.
     convolution primitive launches, plus repeated same-host bit equality under
     the local Linux CPU `HasEngine` path.
 
-### Remaining Work
+### Closure Evidence
 
-- Close the weighted-family wildcard so a new family fails closed rather than
-  degrading to a passthrough.
-- Fix the `linux-cpu` arm of the unweighted attention divergence against the shared
-  semantics contract Sprint `84.1` defines.
-- Extend the backends oracle to the unweighted ABI, whose absence is why the
-  divergence survived.
+Closed 2026-08-14 from one source state, inside `jitml:local`:
+
+- `jitml lint haskell` → `ok`.
+- `jitml docs check` → `ok`.
+- `jitml test jitml-unit --linux-cpu` → **873 / 873 passed**, including the
+  three-case "Kernel-family semantics contract (Phase 80)" group.
+- `jitml test jitml-backends --linux-cpu` → the unweighted ABI checked against
+  the contract for all nine families through the real oneDNN kernels.
+- `jitml check-code` → `ok`.
+
+### Completed in this sprint
+
+- `src/JitML/Numerics/FamilyReference.hs`: `defaultFamilyWeights` — the
+  canonical no-op weights per family, total over `KernelFamily` — plus
+  `unweightedFamilyReference`, which is *defined* as the weighted reference at
+  those defaults. The unweighted ABI therefore has no independent definition to
+  drift from. This is the shared semantics contract Sprint `84.1` enforces
+  across all three renderers; it lands here because Sprint `80.1` cannot fix its
+  own arm without it.
+- `src/JitML/Codegen/OneDnn.hs`: `familyImpl MultiHeadAttentionKernel` rendered
+  `jitml_onednn_dense_identity` — the input unchanged. It now calls a new
+  `jitml_onednn_mha_unit`, which builds identity `Wq`/`Wk`/`Wv` and delegates to
+  `jitml_onednn_mha_weighted`, so the generated source expresses the same
+  "unweighted is weighted at no-op weights" law the oracle does and cannot drift
+  from it either.
+- `weightedFamilyCall`'s `_` wildcard and `kernelOutputCountFunction`'s `_`
+  wildcard are both replaced by explicit per-family arms.
+- `test/backends/Main.hs`: `assertFamilySmoke`'s length/finiteness check is
+  replaced by `assertUnweightedMatchesContract` against the contract, for every
+  family on the real device.
+
+The matching wildcards on the CUDA and Metal renderers, and the second
+divergence the contract exposes — the unweighted `Reduction` output shape, one
+scalar on oneDNN versus unsummed partials on CUDA and Metal — are Sprint
+`84.1`'s to close across all three lanes.
 
 ### Historical Validation
 

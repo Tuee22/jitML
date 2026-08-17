@@ -185,6 +185,7 @@ import JitML.Substrate
   ( Substrate (..)
   , parseSubstrate
   , renderSubstrate
+  , substrateHasClusterCompute
   , substrateRuntimeClass
   )
 
@@ -610,7 +611,7 @@ trainingCommandEffects residency substrate command =
       placement <- planWorkloadPlacement residency (ResolvedTrainingLaunch start plan)
       pure (placementEffect placement :| [])
     TrainingStop stop
-      | residency == Cluster && substrate == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute substrate) ->
           (:| []) . placementEffect . WorkloadHostCommand
             <$> mkHostCommandSpec TrainingHostCommandRoute AppleSilicon (TrainingStop stop)
       | otherwise ->
@@ -637,7 +638,7 @@ tuneCommandEffects residency substrate command =
       placement <- planWorkloadPlacement residency (TuneLaunch start plan)
       pure (placementEffect placement :| [])
     TuneStop stop
-      | residency == Cluster && substrate == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute substrate) ->
           (:| []) . placementEffect . WorkloadHostCommand
             <$> mkHostCommandSpec TuneHostCommandRoute AppleSilicon (TuneStop stop)
       | otherwise ->
@@ -667,7 +668,7 @@ rlCommandEffects residency substrate command =
       placement <- planWorkloadPlacement residency (AlphaZeroLaunch start plan)
       pure (placementEffect placement :| [])
     RlStop stop
-      | residency == Cluster && substrate == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute substrate) ->
           (:| []) . placementEffect . WorkloadHostCommand
             <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStop stop)
       | otherwise ->
@@ -790,7 +791,7 @@ planWorkloadPlacement residency launch =
       plan <- firstPlanError (PlanCommand.validateStartTraining start)
       planWorkloadPlacement residency (ResolvedTrainingLaunch start plan)
     ResolvedTrainingLaunch start plan
-      | residency == Cluster && stSubstrate start == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute (stSubstrate start)) ->
           WorkloadHostCommand
             <$> mkHostCommandSpec TrainingHostCommandRoute AppleSilicon (TrainingStart start)
       | otherwise ->
@@ -803,7 +804,7 @@ planWorkloadPlacement residency launch =
                   }
             )
     TuneLaunch start plan
-      | residency == Cluster && ssSubstrate start == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute (ssSubstrate start)) ->
           WorkloadHostCommand
             <$> mkHostCommandSpec TuneHostCommandRoute AppleSilicon (TuneStart start)
       | otherwise ->
@@ -816,7 +817,7 @@ planWorkloadPlacement residency launch =
                   }
             )
     RlLaunch start
-      | residency == Cluster && srlSubstrate start == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute (srlSubstrate start)) ->
           WorkloadHostCommand
             <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStart start)
       | otherwise ->
@@ -830,7 +831,7 @@ planWorkloadPlacement residency launch =
                     }
               )
     AlphaZeroLaunch start plan
-      | residency == Cluster && sazSubstrate start == AppleSilicon ->
+      | residency == Cluster && not (substrateHasClusterCompute (sazSubstrate start)) ->
           WorkloadHostCommand
             <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStartAlphaZero start)
       | otherwise ->
@@ -1652,11 +1653,6 @@ renderRuntimeClassLines substrate =
     Nothing -> []
     Just runtimeClass ->
       ["      runtimeClassName: " <> runtimeClass]
-
-substrateHasClusterCompute :: Substrate -> Bool
-substrateHasClusterCompute AppleSilicon = False
-substrateHasClusterCompute LinuxCPU = True
-substrateHasClusterCompute LinuxCUDA = True
 
 yamlLabelBool :: Bool -> Text
 yamlLabelBool True = "\"true\""

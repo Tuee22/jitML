@@ -9731,7 +9731,6 @@ phase240Graph = do
   nodeA <-
     LayerGraph.mkAffineLayer
       "phase240-dense-a"
-      LayerGraph.DenseLayer
       3
       4
       LayerGraph.LinearActivation
@@ -9740,7 +9739,6 @@ phase240Graph = do
   nodeB <-
     LayerGraph.mkAffineLayer
       "phase240-dense-b"
-      LayerGraph.DenseLayer
       4
       2
       LayerGraph.LinearActivation
@@ -9824,7 +9822,6 @@ layerGraphCheckpointFixture = do
   node <-
     LayerGraph.mkAffineLayer
       "graph-dense"
-      LayerGraph.DenseLayer
       3
       2
       LayerGraph.LinearActivation
@@ -9844,7 +9841,7 @@ layerGraphCheckpointFixture = do
 supervisedCompletedManifestFor :: Text -> SL.CanonicalProblem -> Checkpoint.CheckpointManifest
 supervisedCompletedManifestFor experimentHash problem =
   let config = supervisedManifestConfig problem
-      spec = SLArchitecture.architectureSpecForProblem config problem
+      spec = expectSpecRight (SLArchitecture.architectureSpecForProblem config problem)
       graph = SLArchitecture.archLayerGraph spec
       graphMetadata = Checkpoint.layerGraphMetadataFromGraph graph
       tensors = supervisedLayerGraphTensors experimentHash graph
@@ -11691,3 +11688,9 @@ searchForBinary (arch : rest) = do
   if exists
     then Just <$> makeAbsolute path
     else searchForBinary rest
+
+-- | Unwrap a canonical row's architecture spec. Sprint `233.1` made the builder
+-- fail closed, and a canonical row that cannot be built is a test failure, not
+-- a spec to substitute for.
+expectSpecRight :: Either Text.Text a -> a
+expectSpecRight = either (Prelude.error . Text.unpack) id

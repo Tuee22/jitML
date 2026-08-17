@@ -31,6 +31,7 @@ import JitML.Docs.Check qualified as DocsCheck
 import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
+import JitML.Lint.FailOpen (checkFailOpenWildcards)
 import JitML.Lint.ForbiddenPaths (ForbiddenPathRule (..), matchForbiddenPath)
 import JitML.Lint.ProductTruth (checkProductTruth)
 import JitML.Lint.Stack.Types (LintFinding (..), LintMode (..), LintTarget (..))
@@ -349,6 +350,7 @@ checkHaskellLint mode = do
   fourmoluFindings <- checkRequiredConfig "fourmolu.yaml" requiredFourmoluKeys
   hlintExists <- doesFileExist ".hlint.yaml"
   primitiveFindings <- forbiddenPrimitiveFindings
+  failOpenFindings <- checkFailOpenWildcards
   dhallNumericsFindings <- checkDhallNumerics
   dhallRLFindings <- checkDhallRL
   externalFindings <- checkExternalHaskellStyle mode
@@ -364,6 +366,7 @@ checkHaskellLint mode = do
     ( fourmoluFindings
         <> hlintFindings
         <> primitiveFindings
+        <> failOpenFindings
         <> dhallNumericsFindings
         <> dhallRLFindings
         <> externalFindings

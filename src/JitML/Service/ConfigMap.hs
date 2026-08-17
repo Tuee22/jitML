@@ -23,7 +23,12 @@ import JitML.Service.BootConfig
   , renderBootConfigDhall
   )
 import JitML.Service.LiveConfig (LiveConfig, renderLiveConfigDhall)
-import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
+import JitML.Substrate
+  ( Substrate (..)
+  , renderSubstrate
+  , substrateHasClusterCompute
+  , substrateRuntimeClass
+  )
 
 renderServiceConfigMap :: BootConfig -> LiveConfig -> Text
 renderServiceConfigMap bootConfig liveConfig =
@@ -229,11 +234,6 @@ renderServiceValues resources =
     , "  repository: jitml"
     , "  tag: local"
     ]
-
-substrateHasClusterCompute :: Substrate -> Bool
-substrateHasClusterCompute AppleSilicon = False
-substrateHasClusterCompute LinuxCPU = True
-substrateHasClusterCompute LinuxCUDA = True
 
 yamlLabelBool :: Bool -> Text
 yamlLabelBool True = "\"true\""

@@ -28,6 +28,8 @@ module JitML.SL.Architecture
   , architectureClaimedFeaturesForProblem
   , architectureImplementedFeatures
   , canonicalEpochPermutation
+  , familyForModel
+  , layerCountForFamily
   , advanceExactArchitectureTraining
   , exactArchitectureInitialWeights
   , exactArchitectureTrainedWeights
@@ -57,7 +59,7 @@ module JitML.SL.Architecture
 where
 
 import Control.Monad (foldM)
-import Data.Either (fromRight)
+import Data.Bifunctor (first)
 import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -67,7 +69,7 @@ import Data.Word (Word64)
 
 import JitML.Engines.Rng qualified as Rng
 import JitML.Numerics.LayerGraph qualified as LayerGraph
-import JitML.Numerics.LayerGraphOneDnn qualified as LayerGraphOneDnn
+import JitML.Numerics.LayerGraphDevice qualified as LayerGraphDevice
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
@@ -78,27 +80,19 @@ import JitML.Numerics.Mlp
   , mlpInit
   , softmax
   )
-import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpDevice (MlpDevice (..), MlpDeviceExecution (..))
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.SL.Canonicals
-  ( CanonicalProblem (..)
+  ( ArchitectureFamily (..)
+  , CanonicalProblem (..)
   , canonicalProblems
   )
 import JitML.SL.Classifier
   ( ClassifierConfig (..)
   , Dataset
   , LabeledExample (..)
-  , defaultClassifierConfig
   )
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
-
-data ArchitectureFamily
-  = DenseFamily
-  | DeepDenseFamily
-  | Conv2DLeNetFamily
-  | ResidualFamily Int
-  | WideResidualFamily Int
-  | VisionTransformerFamily
-  deriving stock (Eq, Show)
 
 data ArchitectureFeature
   = FeatureDense
@@ -204,8 +198,33 @@ data SlRunMetrics = SlRunMetrics
   -- ^ Flat parameter vector from the real initialized layers before the first
   --   optimizer step. Checkpoint witnesses use this to prove movement from the
   --   actual random initialization rather than an all-zero placeholder.
+  , slmDeviceWitness :: !(Maybe DeviceWitness.DeviceExecutionWitness)
+  -- ^ The execution witness minted from the artifact this run trained through,
+  --   recorded only after the training loop returned successfully. 'Nothing'
+  --   exactly when the injected device is the pure reference device, which
+  --   compiles no artifact; product-row admission rejects that case.
   }
   deriving stock (Eq, Show)
+
+-- | Mint the training execution witness for a device-backed run.
+--
+-- The pure reference device ('JitML.Numerics.MlpDevice.pureReferenceMlpDevice')
+-- carries no 'Env' and compiles no artifact, so it yields @Right Nothing@ — an
+-- honest absence rather than a fabricated device claim. A real device that
+-- cannot produce its witness is a hard failure: the artifact it just executed
+-- through must still be present and readable.
+deviceExecutionWitnessFor
+  :: MlpDevice -> IO (Either Text (Maybe DeviceWitness.DeviceExecutionWitness))
+deviceExecutionWitnessFor device =
+  case mlpdExecution device of
+    Nothing -> pure (Right Nothing)
+    Just execution ->
+      fmap
+        (fmap Just)
+        ( LayerGraphDevice.layerGraphDeviceExecutionWitness
+            (mlpxSubstrate execution)
+            (mlpxEnv execution)
+        )
 
 data LayerSpec
   = DenseSpec
@@ -301,31 +320,42 @@ data AttentionToken = AttentionToken
   }
   deriving stock (Eq, Show)
 
+-- | Sprint `72.1`: a plan names the node and its shape only. The node's kind is
+-- derived from the operator the builder actually emits ('LayerGraph.opKind'),
+-- so a plan cannot decorate a dense affine with a convolution or block tag.
 data GraphLayerPlan
-  = GraphAffine !Text !LayerGraph.LayerKind !Int !LayerGraph.LayerActivation
-  | GraphIdentity !Text !LayerGraph.LayerKind
+  = GraphAffine !Text !Int !LayerGraph.LayerActivation
+  | GraphIdentity !Text
 
 -- | Architecture row for every canonical SL problem. The specs are sized from
 -- the concrete training config, so the same row works for small tests and for
 -- real IDX image widths.
-architectureSpecForProblem :: ClassifierConfig -> CanonicalProblem -> ArchitectureSpec
-architectureSpecForProblem config problem =
-  let family = familyForModel (problemModel problem)
+-- Sprint `233.1` — fails closed. A canonical row whose literal graph cannot be
+-- built is an error naming the row, not a spec carrying a dense stand-in.
+architectureSpecForProblem
+  :: ClassifierConfig -> CanonicalProblem -> Either Text ArchitectureSpec
+architectureSpecForProblem config problem = do
+  let family = problemFamily problem
       layers = layersForFamily family
-   in ArchitectureSpec
-        { archProblem = problem
-        , archFamily = family
-        , archLayers = layers
-        , archLayerGraph =
-            architectureLayerGraphForFamily
-              family
-              (problemName problem)
-              inputs
-              outputs
-              (clfSeed config)
-              latent
-              wideLatent
-        }
+  graph <-
+    first
+      (\err -> problemName problem <> ": " <> err)
+      ( architectureLayerGraphForFamily
+          family
+          (problemName problem)
+          inputs
+          outputs
+          (clfSeed config)
+          latent
+          wideLatent
+      )
+  Right
+    ArchitectureSpec
+      { archProblem = problem
+      , archFamily = family
+      , archLayers = layers
+      , archLayerGraph = graph
+      }
  where
   inputs = clfInputs config
   outputs = clfClasses config + 1
@@ -440,10 +470,9 @@ architectureSeedHeadroomForProblem :: CanonicalProblem -> Integer
 architectureSeedHeadroomForProblem problem =
   max layerInitialisationOffset graphInitialisationOffset
  where
-  family = familyForModel (problemModel problem)
-  exactSpec = architectureSpecForProblem defaultClassifierConfig problem
+  family = problemFamily problem
   layerInitialisationOffset =
-    max 0 (toInteger (length (archLayers exactSpec)) - 1) * 1009
+    max 0 (toInteger (layerCountForFamily family) - 1) * 1009
   graphInitialisationOffset =
     maximum
       ( 0
@@ -461,17 +490,20 @@ architectureLayerGraphForFamily
   -> Int
   -> Int
   -> Int
-  -> LayerGraph.LayerGraph
+  -> Either Text LayerGraph.LayerGraph
 -- Phases 242–244 — the @archLayerGraph@ is the LITERAL correct-operator graph the
 -- architecture trains, serves, validates for feature parity, and checkpoints: no
 -- decorative kind ever sits on a 'LayerGraph.DenseOp'. The flat 'DenseFamily'
 -- keeps the single trained affine (its trained graph is the 'denseChainGraph'
 -- expansion of the freshly initialised @[LayerState]@); every other family is
 -- built from real ConvOp/NormOp/PoolOp/BlockOp/AttentionOp/GeGLUOp/PatchOp/
--- DropoutOp nodes whose widths chain exactly. A builder that fails its
--- smart-constructor shape checks falls back to the legacy decorative graph so the
--- pure signature holds; the feature-parity and named-block-count tests catch any
--- such regression.
+-- DropoutOp nodes whose widths chain exactly.
+--
+-- Sprint `233.1` — a builder that fails its smart-constructor shape checks now
+-- fails closed. It previously fell back to the legacy decorative graph "so the
+-- pure signature holds", which is exactly the silent degradation the phase
+-- forbids: the architecture kept its name and its claimed features while
+-- executing a dense stand-in.
 architectureLayerGraphForFamily family name inputWidth outputWidth seed latent wideLatent =
   case family of
     DenseFamily -> legacyGraph
@@ -486,36 +518,38 @@ architectureLayerGraphForFamily family name inputWidth outputWidth seed latent w
     WideResidualFamily _ ->
       literal (correctOpsResNetGraph wideResNetShape name inputWidth outputWidth seed wideLatent)
  where
-  legacyGraph =
-    LayerGraph.LayerGraph
-      { LayerGraph.layerGraphName = name
-      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [inputWidth]
-      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputWidth]
-      , LayerGraph.layerGraphNodes =
-          graphNodes seed inputWidth (graphPlansForFamily family outputWidth latent wideLatent)
-      }
-  literal = fromRight legacyGraph
+  legacyGraph = do
+    nodes <-
+      graphNodes seed inputWidth (graphPlansForFamily family outputWidth latent wideLatent)
+    Right
+      LayerGraph.LayerGraph
+        { LayerGraph.layerGraphName = name
+        , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [inputWidth]
+        , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [outputWidth]
+        , LayerGraph.layerGraphNodes = nodes
+        }
+  literal = id
 
 graphPlansForFamily :: ArchitectureFamily -> Int -> Int -> Int -> [GraphLayerPlan]
 graphPlansForFamily family outputWidth latent wideLatent =
   case family of
     DenseFamily ->
-      [GraphAffine "dense-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation]
+      [GraphAffine "dense-classifier" outputWidth LayerGraph.LinearActivation]
     DeepDenseFamily ->
-      [ GraphAffine "deep-dense-1" LayerGraph.DenseLayer latent LayerGraph.ReluActivation
-      , GraphIdentity "deep-dense-1-batchnorm" (LayerGraph.NormLayer LayerGraph.BatchNorm)
-      , GraphIdentity "deep-dense-1-dropout" (LayerGraph.DropoutLayer 0.1)
-      , GraphAffine "deep-dense-2" LayerGraph.DenseLayer latent LayerGraph.ReluActivation
-      , GraphIdentity "deep-dense-2-batchnorm" (LayerGraph.NormLayer LayerGraph.BatchNorm)
-      , GraphIdentity "deep-dense-2-dropout" (LayerGraph.DropoutLayer 0.1)
-      , GraphAffine "deep-dense-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+      [ GraphAffine "deep-dense-1" latent LayerGraph.ReluActivation
+      , GraphIdentity "deep-dense-1-batchnorm"
+      , GraphIdentity "deep-dense-1-dropout"
+      , GraphAffine "deep-dense-2" latent LayerGraph.ReluActivation
+      , GraphIdentity "deep-dense-2-batchnorm"
+      , GraphIdentity "deep-dense-2-dropout"
+      , GraphAffine "deep-dense-classifier" outputWidth LayerGraph.LinearActivation
       ]
     Conv2DLeNetFamily ->
-      [ GraphAffine "lenet-conv1" LayerGraph.Conv2DLayer latent LayerGraph.ReluActivation
-      , GraphIdentity "lenet-pool1" (LayerGraph.PoolLayer LayerGraph.MaxPool)
-      , GraphAffine "lenet-conv2" LayerGraph.Conv2DLayer latent LayerGraph.ReluActivation
-      , GraphIdentity "lenet-global-avg-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
-      , GraphAffine "lenet-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+      [ GraphAffine "lenet-conv1" latent LayerGraph.ReluActivation
+      , GraphIdentity "lenet-pool1"
+      , GraphAffine "lenet-conv2" latent LayerGraph.ReluActivation
+      , GraphIdentity "lenet-global-avg-pool"
+      , GraphAffine "lenet-classifier" outputWidth LayerGraph.LinearActivation
       ]
     ResidualFamily depth
       | depth == 50 ->
@@ -529,165 +563,176 @@ graphPlansForFamily family outputWidth latent wideLatent =
             <> mixerGraphBlock "resnet" latent
             <> residualHead "resnet" outputWidth
     WideResidualFamily depth ->
-      [ GraphAffine "wide-resnet-conv-stem" LayerGraph.Conv2DLayer wideLatent LayerGraph.ReluActivation
-      , GraphIdentity "wide-resnet-groupnorm-stem" (LayerGraph.NormLayer (LayerGraph.GroupNorm 4))
+      [ GraphAffine "wide-resnet-conv-stem" wideLatent LayerGraph.ReluActivation
+      , GraphIdentity "wide-resnet-groupnorm-stem"
       ]
         <> concatMap (wideBasicBlock wideLatent) [1 .. depth]
         <> mixerGraphBlock "wide-resnet" wideLatent
-        <> [ GraphIdentity "wide-resnet-global-avg-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
-           , GraphAffine "wide-resnet-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+        <> [ GraphIdentity "wide-resnet-global-avg-pool"
+           , GraphAffine "wide-resnet-classifier" outputWidth LayerGraph.LinearActivation
            ]
     VisionTransformerFamily ->
-      [ GraphAffine "vit-patch-embedding" LayerGraph.PatchEmbedLayer latent LayerGraph.ReluActivation
-      , GraphIdentity "vit-layernorm-1" (LayerGraph.NormLayer LayerGraph.LayerNorm)
-      , GraphAffine "vit-token-mixing-mlp" LayerGraph.GeGLULayer latent LayerGraph.TanhActivation
-      , GraphIdentity "vit-layernorm-mixer" (LayerGraph.NormLayer LayerGraph.LayerNorm)
+      [ GraphAffine "vit-patch-embedding" latent LayerGraph.ReluActivation
+      , GraphIdentity "vit-layernorm-1"
+      , GraphAffine "vit-token-mixing-mlp" latent LayerGraph.TanhActivation
+      , GraphIdentity "vit-layernorm-mixer"
       , GraphAffine
           "vit-self-attention"
-          (LayerGraph.MultiHeadAttentionLayer 2)
           latent
           LayerGraph.TanhActivation
-      , GraphIdentity "vit-layernorm-2" (LayerGraph.NormLayer LayerGraph.LayerNorm)
-      , GraphAffine "vit-geglu-mlp" LayerGraph.GeGLULayer latent LayerGraph.TanhActivation
-      , GraphIdentity "vit-token-mean-pool" (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
-      , GraphAffine "vit-classifier" LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+      , GraphIdentity "vit-layernorm-2"
+      , GraphAffine "vit-geglu-mlp" latent LayerGraph.TanhActivation
+      , GraphIdentity "vit-token-mean-pool"
+      , GraphAffine "vit-classifier" outputWidth LayerGraph.LinearActivation
       ]
 
 mixerGraphBlock :: Text -> Int -> [GraphLayerPlan]
 mixerGraphBlock prefix width =
-  [ GraphIdentity (prefix <> "-pre-mixer-layernorm") (LayerGraph.NormLayer LayerGraph.LayerNorm)
-  , GraphAffine (prefix <> "-token-mixing-mlp") LayerGraph.GeGLULayer width LayerGraph.TanhActivation
-  , GraphIdentity (prefix <> "-post-mixer-layernorm") (LayerGraph.NormLayer LayerGraph.LayerNorm)
+  [ GraphIdentity (prefix <> "-pre-mixer-layernorm")
+  , GraphAffine (prefix <> "-token-mixing-mlp") width LayerGraph.TanhActivation
+  , GraphIdentity (prefix <> "-post-mixer-layernorm")
   , GraphAffine
       (prefix <> "-token-attention")
-      (LayerGraph.MultiHeadAttentionLayer 2)
       width
       LayerGraph.TanhActivation
   ]
 
 residualStem :: Text -> Int -> [GraphLayerPlan]
 residualStem prefix width =
-  [ GraphAffine (prefix <> "-conv-stem") LayerGraph.Conv2DLayer width LayerGraph.ReluActivation
-  , GraphIdentity (prefix <> "-stem-batchnorm") (LayerGraph.NormLayer LayerGraph.BatchNorm)
+  [ GraphAffine (prefix <> "-conv-stem") width LayerGraph.ReluActivation
+  , GraphIdentity (prefix <> "-stem-batchnorm")
   ]
 
 residualHead :: Text -> Int -> [GraphLayerPlan]
 residualHead prefix outputWidth =
-  [ GraphIdentity (prefix <> "-global-avg-pool") (LayerGraph.PoolLayer LayerGraph.GlobalAvgPool)
-  , GraphAffine (prefix <> "-classifier") LayerGraph.DenseLayer outputWidth LayerGraph.LinearActivation
+  [ GraphIdentity (prefix <> "-global-avg-pool")
+  , GraphAffine (prefix <> "-classifier") outputWidth LayerGraph.LinearActivation
   ]
 
 basicBlock :: Text -> Int -> Int -> [GraphLayerPlan]
 basicBlock prefix width idx =
   [ GraphAffine
       (prefix <> "-basic-block-" <> Text.pack (show idx))
-      (LayerGraph.BasicBlockLayer 0.1)
       width
       LayerGraph.ReluActivation
   , GraphIdentity
       (prefix <> "-basic-block-" <> Text.pack (show idx) <> "-batchnorm")
-      (LayerGraph.NormLayer LayerGraph.BatchNorm)
   ]
 
 bottleneckBlock :: Text -> Int -> Int -> [GraphLayerPlan]
 bottleneckBlock prefix width idx =
   [ GraphAffine
       (prefix <> "-bottleneck-block-" <> Text.pack (show idx))
-      (LayerGraph.BottleneckBlockLayer 0.1)
       width
       LayerGraph.ReluActivation
   , GraphIdentity
       (prefix <> "-bottleneck-block-" <> Text.pack (show idx) <> "-batchnorm")
-      (LayerGraph.NormLayer LayerGraph.BatchNorm)
   ]
 
 wideBasicBlock :: Int -> Int -> [GraphLayerPlan]
 wideBasicBlock width idx =
   [ GraphAffine
       ("wide-resnet-basic-block-" <> Text.pack (show idx))
-      (LayerGraph.BasicBlockLayer 0.1)
       width
       LayerGraph.ReluActivation
   , GraphIdentity
       ("wide-resnet-basic-block-" <> Text.pack (show idx) <> "-groupnorm")
-      (LayerGraph.NormLayer (LayerGraph.GroupNorm 4))
   ]
 
-graphNodes :: Int -> Int -> [GraphLayerPlan] -> [LayerGraph.LayerNode]
+-- | Sprint `233.1` — a node whose smart constructor rejects its shape is an
+-- error, not an identity stand-in. The former @fallbackIdentity@ substituted a
+-- parameterless `IdentityOp` for any rejected node, which trains nothing and
+-- silently changes the architecture.
+graphNodes
+  :: Int -> Int -> [GraphLayerPlan] -> Either Text [LayerGraph.LayerNode]
 graphNodes seed inputWidth plans =
-  snd (List.mapAccumL step (inputWidth, 0 :: Int) plans)
+  fmap snd (List.foldl' step (Right ((inputWidth, 0 :: Int), [])) plans)
  where
-  step (currentWidth, idx) plan =
+  step acc plan = do
+    ((currentWidth, idx), built) <- acc
     case plan of
-      GraphAffine name kind outputWidth activation ->
-        let node =
-              fromRight (fallbackIdentity name currentWidth) $
-                LayerGraph.mkAffineLayer
-                  name
-                  kind
-                  currentWidth
-                  outputWidth
-                  activation
-                  LayerGraph.TrainingMode
-                  (LayerGraph.deterministicParameters (seed + idx) currentWidth outputWidth)
-         in ((outputWidth, idx + 1), node)
-      GraphIdentity name kind ->
-        let node =
-              fromRight (fallbackIdentity name currentWidth) $
-                LayerGraph.mkIdentityLayer
-                  name
-                  kind
-                  currentWidth
-                  LayerGraph.TrainingMode
-         in ((currentWidth, idx + 1), node)
-  fallbackIdentity name' width =
-    LayerGraph.LayerNode
-      { LayerGraph.layerNodeName = name'
-      , LayerGraph.layerNodeKind = LayerGraph.DenseLayer
-      , LayerGraph.layerNodeOp = LayerGraph.IdentityOp
-      , LayerGraph.layerInputShape = LayerGraph.TensorShape [max 1 width]
-      , LayerGraph.layerOutputShape = LayerGraph.TensorShape [max 1 width]
-      , LayerGraph.layerMode = LayerGraph.TrainingMode
-      , LayerGraph.layerActivation = LayerGraph.LinearActivation
-      , LayerGraph.layerParameters = Nothing
-      }
+      GraphAffine name outputWidth activation -> do
+        node <-
+          LayerGraph.mkAffineLayer
+            name
+            currentWidth
+            outputWidth
+            activation
+            LayerGraph.TrainingMode
+            (LayerGraph.deterministicParameters (seed + idx) currentWidth outputWidth)
+        Right ((outputWidth, idx + 1), built <> [node])
+      GraphIdentity name -> do
+        node <-
+          LayerGraph.mkIdentityLayer
+            name
+            currentWidth
+            LayerGraph.TrainingMode
+        Right ((currentWidth, idx + 1), built <> [node])
 
-allCanonicalArchitectureSpecs :: ClassifierConfig -> [ArchitectureSpec]
+-- | Every canonical row's spec, or the first row that cannot be built.
+allCanonicalArchitectureSpecs :: ClassifierConfig -> Either Text [ArchitectureSpec]
 allCanonicalArchitectureSpecs config =
-  fmap (architectureSpecForProblem config) canonicalProblems
+  traverse (architectureSpecForProblem config) canonicalProblems
 
-familyForModel :: Text -> ArchitectureFamily
-familyForModel "Dense" = DenseFamily
-familyForModel "DeepDense" = DeepDenseFamily
-familyForModel "Conv2D" = Conv2DLeNetFamily
-familyForModel "ResidualBlock" = ResidualFamily 2
-familyForModel "ResidualBlock20" = ResidualFamily 20
-familyForModel "ResidualBlock56" = ResidualFamily 56
-familyForModel "WideResidualBlock" = WideResidualFamily 12
-familyForModel "VisionTransformer" = VisionTransformerFamily
-familyForModel "ResidualBlock50" = ResidualFamily 50
-familyForModel _ = DenseFamily
+-- | How many @[LayerSpec]@ entries a family's topology has.
+--
+-- Total over 'ArchitectureFamily', so a new family fails the build here. The
+-- unit lane asserts it equals @length (archLayers spec)@ for every canonical
+-- row, so it cannot drift from the topology it counts.
+layerCountForFamily :: ArchitectureFamily -> Int
+layerCountForFamily family =
+  case family of
+    DenseFamily -> 1
+    DeepDenseFamily -> 3
+    Conv2DLeNetFamily -> 3
+    VisionTransformerFamily -> 7
+    -- stem + depth blocks + 3 mixer entries + attention + pool + classifier
+    ResidualFamily depth
+      | depth == 50 -> 23
+      | otherwise -> depth + 7
+    WideResidualFamily depth -> depth + 7
+
+-- | Resolve a raw wire model name to an executable family.
+--
+-- Sprint `233.1` — this returns 'Nothing' for an unrecognised name instead of
+-- silently answering 'DenseFamily'. The executed path no longer calls it at
+-- all: a 'CanonicalProblem' carries its 'problemFamily' directly. It survives
+-- only as the wire-boundary parser, where an unknown model must fail closed.
+familyForModel :: Text -> Maybe ArchitectureFamily
+familyForModel "Dense" = Just DenseFamily
+familyForModel "DeepDense" = Just DeepDenseFamily
+familyForModel "Conv2D" = Just Conv2DLeNetFamily
+familyForModel "ResidualBlock" = Just (ResidualFamily 2)
+familyForModel "ResidualBlock20" = Just (ResidualFamily 20)
+familyForModel "ResidualBlock56" = Just (ResidualFamily 56)
+familyForModel "WideResidualBlock" = Just (WideResidualFamily 12)
+familyForModel "VisionTransformer" = Just VisionTransformerFamily
+familyForModel "ResidualBlock50" = Just (ResidualFamily 50)
+familyForModel _ = Nothing
 
 architectureClaimedFeatures :: ArchitectureSpec -> [ArchitectureFeature]
 architectureClaimedFeatures =
   architectureClaimedFeaturesForProblem . archProblem
 
+-- | The features a canonical row's architecture claims to implement.
+--
+-- Sprint `233.1` switches on the row's closed 'problemFamily' rather than
+-- matching its model string with a `_ -> [FeatureDense]` fallback. That
+-- fallback was half of a conspiracy: an unrecognised model resolved to the
+-- dense family AND claimed only dense features, so the feature-parity check
+-- held vacuously and a silently-degraded architecture passed its own gate.
 architectureClaimedFeaturesForProblem :: CanonicalProblem -> [ArchitectureFeature]
 architectureClaimedFeaturesForProblem problem =
-  case problemModel problem of
-    "Dense" ->
+  case problemFamily problem of
+    DenseFamily ->
       [FeatureDense]
-    "DeepDense" ->
+    DeepDenseFamily ->
       [FeatureDense, FeatureBatchNorm, FeatureDropout]
-    "Conv2D" ->
+    Conv2DLeNetFamily ->
       [FeatureDense, FeatureConv2D, FeaturePooling]
-    "ResidualBlock" ->
-      mixerResNetFeatures FeatureBasicBlock
-    "ResidualBlock20" ->
-      mixerResNetFeatures FeatureBasicBlock
-    "ResidualBlock56" ->
-      mixerResNetFeatures FeatureBasicBlock
-    "WideResidualBlock" ->
+    VisionTransformerFamily ->
+      [FeatureDense, FeaturePatchEmbedding, FeatureLayerNorm, FeatureAttention, FeatureGeGLU]
+    WideResidualFamily _ ->
       [ FeatureDense
       , FeatureConv2D
       , FeatureGroupNorm
@@ -697,12 +742,9 @@ architectureClaimedFeaturesForProblem problem =
       , FeatureAttention
       , FeatureGeGLU
       ]
-    "VisionTransformer" ->
-      [FeatureDense, FeaturePatchEmbedding, FeatureLayerNorm, FeatureAttention, FeatureGeGLU]
-    "ResidualBlock50" ->
-      mixerResNetFeatures FeatureBottleneckBlock
-    _ ->
-      [FeatureDense]
+    ResidualFamily depth
+      | depth == 50 -> mixerResNetFeatures FeatureBottleneckBlock
+      | otherwise -> mixerResNetFeatures FeatureBasicBlock
  where
   mixerResNetFeatures blockFeature =
     [ FeatureDense
@@ -769,6 +811,7 @@ featuresForKind kind =
     LayerGraph.MultiHeadAttentionLayer _ -> [FeatureAttention]
     LayerGraph.GeGLULayer -> [FeatureGeGLU]
     LayerGraph.PatchEmbedLayer -> [FeaturePatchEmbedding]
+    LayerGraph.IdentityLayer -> []
 
 -- | Train a canonical architecture through the substrate device. The loss is
 -- mean softmax cross entropy over the semantic-prefix classes. Sprint 238.1: the
@@ -873,11 +916,18 @@ trainClassifierGraphEpoch
   -> [(Vector Double, Int)]
   -> IO (Either Text LayerGraph.GraphClassifierAdam)
 trainClassifierGraphEpoch device classes batchSize lr st examples =
-  case mlpdEnv device of
+  case mlpdExecution device of
     Nothing ->
       pure (LayerGraph.trainLayerGraphClassifierEpochPure classes batchSize lr st examples)
-    Just env ->
-      LayerGraphOneDnn.trainLayerGraphClassifierEpochOneDnn env classes batchSize lr st examples
+    Just execution ->
+      LayerGraphDevice.trainLayerGraphClassifierEpochDevice
+        (mlpxSubstrate execution)
+        (mlpxEnv execution)
+        classes
+        batchSize
+        lr
+        st
+        examples
 
 -- | Batch-summed classification cross-entropy parameter gradient through the
 -- architecture's device: CPU autodiff for the pure reference device, oneDNN for a
@@ -889,9 +939,15 @@ classifierGraphBatchGradient
   -> [(Vector Double, Int)]
   -> IO (Either Text (Vector Double))
 classifierGraphBatchGradient device classes graph batch =
-  case mlpdEnv device of
+  case mlpdExecution device of
     Nothing -> pure (LayerGraph.pureClassifierBatchGradient classes graph batch)
-    Just env -> LayerGraphOneDnn.classifierBatchGradientOneDnn env classes graph batch
+    Just execution ->
+      LayerGraphDevice.classifierBatchGradientDevice
+        (mlpxSubstrate execution)
+        (mlpxEnv execution)
+        classes
+        graph
+        batch
 
 -- | Apply one optimizer update (Adam or plain SGD) to the graph parameters from a
 -- batch-summed gradient. Adam reuses the shared 'LayerGraph.graphAdamBatchStep'
@@ -993,7 +1049,6 @@ denseChainGraph graphName states =
     hidden <-
       LayerGraph.mkAffineLayer
         (prefix <> "-hidden")
-        LayerGraph.DenseLayer
         (mlpInputs shape)
         (mlpHidden shape)
         LayerGraph.TanhActivation
@@ -1005,7 +1060,6 @@ denseChainGraph graphName states =
     output <-
       LayerGraph.mkAffineLayer
         (prefix <> "-output")
-        LayerGraph.DenseLayer
         (mlpHidden shape)
         (mlpOutputs shape)
         LayerGraph.LinearActivation
@@ -1057,7 +1111,7 @@ serveClassifierGraphCrossEntropy classes graph dataset = do
 -- multi-head self-attention node (carrying @W_O@ and the transformer residual),
 -- a GeGLU collapse over the flattened tokens, and a linear classifier. Every
 -- shape chains @C*H*W -> N*D -> N*D -> N*D -> D -> outputs@, so
--- 'LayerGraph.runLayerGraph' serves (and 'LayerGraphOneDnn.trainLayerGraphClassifierOneDnn'
+-- 'LayerGraph.runLayerGraph' serves (and 'LayerGraphDevice.trainLayerGraphClassifierDevice'
 -- trains) the true transformer math rather than a stack of plain affines. The
 -- embedding width is forced even so the two attention heads divide it.
 correctOpsVitGraph
@@ -1119,7 +1173,6 @@ correctOpsVitGraph name inputs outputs seed latentHint = do
   headNode <-
     LayerGraph.mkAffineLayer
       (name <> "-classifier")
-      LayerGraph.DenseLayer
       embedD
       outputs
       LayerGraph.LinearActivation
@@ -1211,7 +1264,6 @@ correctOpsConvLeNetGraph name inputs outputs seed channelHint = do
   headNode <-
     LayerGraph.mkAffineLayer
       (name <> "-classifier")
-      LayerGraph.DenseLayer
       featDim
       outputs
       LayerGraph.LinearActivation
@@ -1256,7 +1308,6 @@ correctOpsDeepDenseGraph name inputs outputs seed latentHint = do
   dense1 <-
     LayerGraph.mkAffineLayer
       (name <> "-dense-1")
-      LayerGraph.DenseLayer
       inputs
       hidden
       LayerGraph.ReluActivation
@@ -1272,7 +1323,6 @@ correctOpsDeepDenseGraph name inputs outputs seed latentHint = do
   dense2 <-
     LayerGraph.mkAffineLayer
       (name <> "-dense-2")
-      LayerGraph.DenseLayer
       hidden
       hidden
       LayerGraph.ReluActivation
@@ -1288,7 +1338,6 @@ correctOpsDeepDenseGraph name inputs outputs seed latentHint = do
   headNode <-
     LayerGraph.mkAffineLayer
       (name <> "-classifier")
-      LayerGraph.DenseLayer
       hidden
       outputs
       LayerGraph.LinearActivation
@@ -1423,7 +1472,6 @@ correctOpsResNetGraph shape name inputs outputs seed widthHint = do
   projNode <-
     LayerGraph.mkAffineLayer
       (name <> "-feature-projection")
-      LayerGraph.DenseLayer
       featDim
       width
       LayerGraph.ReluActivation
@@ -1451,7 +1499,6 @@ correctOpsResNetGraph shape name inputs outputs seed widthHint = do
   headNode <-
     LayerGraph.mkAffineLayer
       (name <> "-classifier")
-      LayerGraph.DenseLayer
       width
       outputs
       LayerGraph.LinearActivation
@@ -1812,9 +1859,15 @@ trainArchitectureWithDeviceSelectedWithEpochOrder epochOrder device spec config 
               let trained = mkTrained bestGraph
               trainLossE <- crossEntropyArchitectureWithDevice device trained trainSet
               trainAccE <- accuracyArchitectureWithDevice device trained trainSet
+              -- Recorded only here, after every epoch and both evaluation passes
+              -- have returned successfully, so the witness attests the training
+              -- that just happened. A pure-reference device has no artifact and
+              -- therefore mints nothing.
+              witnessE <- deviceExecutionWitnessFor device
               pure $ do
                 trainLoss <- trainLossE
                 trainAcc <- trainAccE
+                witness <- witnessE
                 Right
                   ( trained
                   , SlRunMetrics
@@ -1824,6 +1877,7 @@ trainArchitectureWithDeviceSelectedWithEpochOrder epochOrder device spec config 
                       , slmExamplesProcessed = length trainSet * epochs
                       , slmOptimizerUpdatesExecuted = updatesExecuted
                       , slmInitialWeights = initialWeights
+                      , slmDeviceWitness = witness
                       }
                   )
 
@@ -1976,10 +2030,12 @@ exactArchitectureMetrics device training = do
   trainLossE <- crossEntropyArchitectureWithDevice device trained (exactTrainingTrainSet training)
   validationE <- measureExactArchitectureValidation device training
   trainAccuracyE <- accuracyArchitectureWithDevice device trained (exactTrainingTrainSet training)
+  witnessE <- deviceExecutionWitnessFor device
   pure $ do
     trainLoss <- trainLossE
     (validationLoss, _validationAccuracy) <- validationE
     trainAccuracy <- trainAccuracyE
+    witness <- witnessE
     updatesExecuted <- checkedExactOptimizerUpdates (exactTrainingUpdates training)
     Right
       ( trained
@@ -1989,6 +2045,7 @@ exactArchitectureMetrics device training = do
           , slmTrainAccuracy = trainAccuracy
           , slmExamplesProcessed = exactTrainingExamplesProcessed training
           , slmOptimizerUpdatesExecuted = updatesExecuted
+          , slmDeviceWitness = witness
           , slmInitialWeights = exactTrainingInitialWeights training
           }
       )

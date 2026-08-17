@@ -65,6 +65,35 @@ docker compose run --rm jitml jitml check-code
 - Recompute the external-bar measurement from the exact admitted manifest and
   served weight bytes, then add substitution controls that retain matching
   metadata while changing either byte object.
+- **Restore the self-reference check this sprint owns.**
+  [Exit Definition](README.md#exit-definition) item `26` requires that no
+  threshold be a function of the value it checks, and
+  `src/JitML/Product/ExternalBars.hs` still promises exactly that in its module
+  comment. The predicate no longer implements it:
+  `barIsSelfReferential bar _measuredValue = convergenceSlack bar <= 0.0`
+  discards the measured value, so a positive-slack bar set equal to the measured
+  value passes. Only the slack-positivity half of item `26` is enforced today.
+- **Make the frozen-bar membership check cohort-specific.**
+  `frozenRlRewardThresholds` is a flat list of every cohort's
+  `literatureTarget - slack`, and the assertion is list membership, so an
+  observation carrying a *different* cohort's anchor is accepted as externally
+  anchored.
+- **Retire the vacuous bars.** Three rows are unfalsifiable or near it against
+  their own environments: `PPO/key-door-grid` and `A2C/key-door-grid` carry bars
+  of `-2.8` and `-3.3` on an environment whose success reward is `1.0`, so a
+  policy scoring below zero "converges"; `TRPO/cartpole` carries a bar of `185`
+  against literature target `475`. Positive slack alone does not make a bar
+  external, which is the same defect class item `26` was written to prevent.
+- **State the bars' real provenance in code.** The `literatureTarget` values are
+  external constants, but `slack` is project-calibrated —
+  `src/JitML/RL/ConvergenceThresholds.hs` says so itself ("Some rows use wider
+  slack where the deterministic jitML implementation is materially weaker than
+  the external reference"). The governed docs are corrected to match; the
+  in-code assertion that these are "fixed product bars" should follow.
+- **Fix the module's broken references.** `ExternalBars.hs` links resolve one
+  directory too high, and it cites
+  `DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md`, which no
+  longer exists — the 2026-07-24 renumber renamed it to this document.
 
 ## Documentation Requirements
 

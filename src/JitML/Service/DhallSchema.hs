@@ -28,15 +28,11 @@ module JitML.Service.DhallSchema
   )
 where
 
-import Data.Either.Validation (Validation (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Dhall qualified
-import Dhall.Core (Expr, Import)
-import Dhall.Core qualified as Core
-import Dhall.Parser qualified as Parser
-import Dhall.Src (Src)
 
+import JitML.Dhall.Reflect (canonicalDhallType, reflectedSchemaText)
+import JitML.Numerics.LayerDhall qualified as LayerDhall
 import JitML.Service.BootConfig (rawBootConfigDecoder)
 import JitML.Service.LiveConfig (liveConfigDecoder)
 import JitML.Service.RunConfig
@@ -48,25 +44,6 @@ import JitML.Service.RunConfig
   , trainingRunConfigDecoder
   , tuneRunConfigDecoder
   )
-
--- | Pretty-print the Dhall /type/ a decoder accepts. Because the type is read
--- back off the live decoder, it is structurally identical to what the loader
--- will accept — the schema cannot drift from the code.
-reflectedSchemaText :: Dhall.Decoder a -> Text
-reflectedSchemaText decoder =
-  case Dhall.expected decoder of
-    Success expr -> Core.pretty expr
-    Failure errs -> "-- unable to reflect schema: " <> Text.pack (show errs)
-
--- | Canonicalise a checked-in Dhall /type/ file through the same pretty-printer
--- the reflected schema uses, with source notes stripped, so a parity assertion
--- between the file and 'reflectedSchemaText' is a plain text comparison.
--- Schema files reference no imports, so parsing is pure.
-canonicalDhallType :: Text -> Either Text Text
-canonicalDhallType src =
-  case Parser.exprFromText "<dhall-schema>" src of
-    Left err -> Left (Text.pack (show err))
-    Right expr -> Right (Core.pretty (Core.denote expr :: Expr Src Import))
 
 bootConfigSchema :: Text
 bootConfigSchema = reflectedSchemaText rawBootConfigDecoder
@@ -127,8 +104,11 @@ runSchemaDhall =
     , "\n    }\n"
     ]
 
--- | Every reflected config surface, keyed by the name used on the
--- @jitml internal dhall-schema@ CLI leaf and in the parity check.
+-- | Every reflected schema surface, keyed by the name used on the
+-- @jitml internal dhall-schema@ CLI leaf and in the parity check. The
+-- @LayerOp@ / @LayerGraph@ entries are the numerical ML DSL (Sprint `77.1`):
+-- the layer vocabulary as parameterised Dhall constructors, reflected off the
+-- same decoder the architecture loader uses.
 configSchemas :: [(Text, Text)]
 configSchemas =
   [ ("BootConfig", bootConfigSchema)
@@ -139,3 +119,4 @@ configSchemas =
   , ("RlRunConfig", rlRunConfigSchema)
   , ("InferenceSelector", inferenceSelectorConfigSchema)
   ]
+    <> LayerDhall.numericsTypeSchemas

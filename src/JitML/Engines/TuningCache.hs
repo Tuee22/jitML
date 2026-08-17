@@ -2,7 +2,6 @@
 
 module JitML.Engines.TuningCache
   ( TuningCachePlan (..)
-  , cacheSubstrateFor
   , defaultTuningCachePlan
   , selectTuningCachePlan
   , tuningCacheSelectionSource
@@ -61,7 +60,7 @@ defaultTuningCachePlan kernelSpec kind substrate fingerprint =
         renderRuntimeSource
           kernelSpec
           kind
-          (cacheSubstrateFor substrate)
+          substrate
           Cache.defaultTuningChoice
       hash =
         tuningCacheHashFor
@@ -94,7 +93,7 @@ planWithPersistedSelection kernelSpec kind fingerprint basePlan persistedSelecti
         renderRuntimeSource
           kernelSpec
           kind
-          (cacheSubstrateFor substrate)
+          substrate
           tuningChoice
       hash =
         tuningCacheHashFor
@@ -123,7 +122,7 @@ tuningCacheHashFor kernelSpec kind substrate fingerprint source =
   Cache.cacheKey
     kernelSpec
     kind
-    (cacheSubstrateFor substrate)
+    substrate
     fingerprint
     (runtimeSourcePayload source)
 
@@ -132,8 +131,3 @@ tuningCacheSelectionSource plan =
   case tuningCachePersistedSelection plan of
     Just _ -> "persisted"
     Nothing -> "default"
-
-cacheSubstrateFor :: Substrate -> Cache.Substrate
-cacheSubstrateFor AppleSilicon = Cache.AppleSilicon
-cacheSubstrateFor LinuxCPU = Cache.LinuxCPU
-cacheSubstrateFor LinuxCUDA = Cache.LinuxCUDA

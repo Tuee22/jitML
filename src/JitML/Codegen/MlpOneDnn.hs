@@ -61,7 +61,15 @@ mlpOneDnnSource =
 forwardWrapper :: Text
 forwardWrapper =
   Text.unlines
-    [ "// hidden_pre[i] = b1[i] + sum_j W1[i*inputs+j]*input[j];"
+    [ "// Sprint 229.1 — the artifact declares its own executed identity, so the"
+    , "// device-execution witness reads what ran instead of inferring it. The MLP"
+    , "// ABI has no per-family kernel; its identity is the shared MLP program tag,"
+    , "// which is the same string the Apple metadata's `family` field carries."
+    , "static const char *jitml_mlp_family = \"mlp-forward-backward-tanh-linear\";"
+    , ""
+    , "extern \"C\" const char *jitml_kernel_family_name(void) { return jitml_mlp_family; }"
+    , ""
+    , "// hidden_pre[i] = b1[i] + sum_j W1[i*inputs+j]*input[j];"
     , "// hidden_act[i] = tanh(hidden_pre[i]);"
     , "// output[k] = b2[k] + sum_i W2[k*hidden+i]*hidden_act[i]."
     , "extern \"C\" void jitml_mlp_forward("

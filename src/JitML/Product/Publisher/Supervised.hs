@@ -172,6 +172,7 @@ trainAndPublishSupervisedProductRow invocation runtime row projection experiment
                           metricRows
                           initialSha
                           finalSha
+                          (supervisedPublishDeviceWitness run)
                       validateProductCompletedTrainingPlanId projection completed
                       if TrainingBudget.completedTrainingUpdateCount completed
                         == supervisedPublishOptimizerUpdatesExecuted run

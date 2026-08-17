@@ -36,6 +36,7 @@ import JitML.Plan.Plan
   )
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
@@ -80,6 +81,7 @@ completedTrainingForProductRow
   -> [(Text, Double)]
   -> [Double]
   -> [Double]
+  -> Maybe DeviceWitness.DeviceExecutionWitness
   -> Either Text TrainingBudget.CompletedTraining
 completedTrainingForProductRow planId budget row datasetShaAtRead experimentHash _tensorName observedBudgetUnits trainingUpdateCount metrics initialWeights finalWeights =
   completedTrainingForProductRowWithWeightHashes
@@ -110,8 +112,9 @@ completedTrainingForProductRowWithWeightHashes
   -> [(Text, Double)]
   -> Text
   -> Text
+  -> Maybe DeviceWitness.DeviceExecutionWitness
   -> Either Text TrainingBudget.CompletedTraining
-completedTrainingForProductRowWithWeightHashes planId budget row datasetShaAtRead experimentHash observedBudgetUnits trainingUpdateCount metrics initialWeightHash finalWeightHash = do
+completedTrainingForProductRowWithWeightHashes planId budget row datasetShaAtRead experimentHash observedBudgetUnits trainingUpdateCount metrics initialWeightHash finalWeightHash deviceWitness = do
   attempt <-
     attemptCompletedTrainingForProductRowWithWeightHashes
       planId
@@ -124,6 +127,7 @@ completedTrainingForProductRowWithWeightHashes planId budget row datasetShaAtRea
       metrics
       initialWeightHash
       finalWeightHash
+      deviceWitness
   case attempt of
     SupervisedCompletionPassed completed -> Right completed
     SupervisedCompletionMiss observations ->
@@ -155,8 +159,9 @@ attemptCompletedTrainingForProductRowWithWeightHashes
   -> [(Text, Double)]
   -> Text
   -> Text
+  -> Maybe DeviceWitness.DeviceExecutionWitness
   -> Either Text SupervisedCompletionAttempt
-attemptCompletedTrainingForProductRowWithWeightHashes planId budget row datasetShaAtRead experimentHash observedBudgetUnits trainingUpdateCount metrics initialWeightHash finalWeightHash = do
+attemptCompletedTrainingForProductRowWithWeightHashes planId budget row datasetShaAtRead experimentHash observedBudgetUnits trainingUpdateCount metrics initialWeightHash finalWeightHash deviceWitness = do
   canonicalInitialHash <- requireCanonicalJmw1Sha256 "initial weight" initialWeightHash
   canonicalFinalHash <- requireCanonicalJmw1Sha256 "final weight" finalWeightHash
   if observedBudgetUnits == TrainingBudget.trainingBudgetTargetUnits budget
@@ -169,12 +174,23 @@ attemptCompletedTrainingForProductRowWithWeightHashes planId budget row datasetS
             <> Text.pack (show (TrainingBudget.trainingBudgetTargetUnits budget))
             <> ")"
         )
-  evidence <-
+  baseEvidence <-
     ProductEvidence.mkTrainingEvidence
       canonicalInitialHash
       canonicalFinalHash
       trainingUpdateCount
       datasetShaAtRead
+  -- A ProductRow completion has no unwitnessed form: the row's device-evidence
+  -- cell is minted from this witness, so a training run that produced none
+  -- cannot be completed as a product row.
+  witness <-
+    maybe
+      ( Left
+          "supervised ProductRow completion requires a device execution witness from the training run"
+      )
+      Right
+      deviceWitness
+  evidence <- ProductEvidence.attachDeviceExecutionWitness witness baseEvidence
   observations <- convergenceObservationsForProductRow row metrics
   nonEmptyObservations <-
     maybe
@@ -219,8 +235,9 @@ tuneSweepCompletedTraining
   -> Text
   -> Word32
   -> Tune.TrialObjectiveResult
+  -> Maybe DeviceWitness.DeviceExecutionWitness
   -> Either Text TrainingBudget.CompletedTraining
-tuneSweepCompletedTraining plan experimentHash datasetShaAtRead trialsCompleted bestResult =
+tuneSweepCompletedTraining plan experimentHash datasetShaAtRead trialsCompleted bestResult deviceWitness =
   let observed = fromIntegral trialsCompleted
       planned = quantityValue (WorkloadPlan.tuningPlanTrials plan)
       seed = NonEmpty.head (seedCohortValues (runPlanSeeds (WorkloadPlan.tuningPlanRunPlan plan)))
@@ -242,12 +259,18 @@ tuneSweepCompletedTraining plan experimentHash datasetShaAtRead trialsCompleted 
             TrainingBudget.TuningTrialBudget
             planned
             (Just seed)
-        evidence <-
+        baseEvidence <-
           ProductEvidence.mkTrainingEvidence
             (jmw1WeightListSha (Tune.trialResultInitialWeights bestResult))
             (jmw1WeightListSha (Tune.trialResultWeights bestResult))
             updateCount
             datasetShaAtRead
+        witness <-
+          maybe
+            (Left "tuning completion requires a device execution witness from the trial sweep")
+            Right
+            deviceWitness
+        evidence <- ProductEvidence.attachDeviceExecutionWitness witness baseEvidence
         observations <- convergenceObservationsForMetrics metrics
         TrainingBudget.completedTraining
           (WorkloadPlan.tuningPlanId plan)
@@ -271,14 +294,21 @@ alphaZeroCompletedTraining
   -> [(Text, Double)]
   -> [Double]
   -> [Double]
+  -> Maybe DeviceWitness.DeviceExecutionWitness
   -> Either Text TrainingBudget.CompletedTraining
-alphaZeroCompletedTraining planId budget experimentHash generationCount optimizerUpdateCount sampleDigest metrics initialWeights finalWeights = do
-  evidence <-
+alphaZeroCompletedTraining planId budget experimentHash generationCount optimizerUpdateCount sampleDigest metrics initialWeights finalWeights deviceWitness = do
+  baseEvidence <-
     ProductEvidence.mkTrainingEvidence
       (jmw1WeightListSha initialWeights)
       (jmw1WeightListSha finalWeights)
       optimizerUpdateCount
       sampleDigest
+  witness <-
+    maybe
+      (Left "AlphaZero ProductRow completion requires a device execution witness from the training run")
+      Right
+      deviceWitness
+  evidence <- ProductEvidence.attachDeviceExecutionWitness witness baseEvidence
   observations <- alphaZeroConvergenceObservations metrics
   TrainingBudget.completedTraining
     planId

@@ -20,24 +20,28 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+-- | The single layer-operator vocabulary (Sprint `72.1`).
+--
+-- Every constructor names exactly one executed operator of the typed
+-- @LayerGraph@ IR: @JitML.Numerics.LayerGraph.opLayer@ is a total map from
+-- @LayerOp@ onto this type, and @layerOpTemplate@ is a total map back, so a
+-- constructor cannot exist here without an executable operator or vice versa.
+-- The documentation table and @dhall/numerics/Layer.dhall@ are both projections
+-- of 'layerCatalog', which is itself derived from the type rather than
+-- hand-listed.
 data Layer
   = Dense
-  | Embedding
-  | Conv1D
-  | Conv2D
-  | Conv3D
-  | ConvTranspose
-  | ComplexDense
-  | ComplexConv2D
-  | BatchNorm
-  | LayerNorm
-  | GroupNorm
+  | Identity
   | Dropout
-  | ResidualBlock
-  | ScaledDotProductAttention
+  | Convolution
+  | Pooling
+  | Normalization
   | MultiHeadAttention
-  | RotaryPositionalEmbedding
-  deriving stock (Eq, Ord, Show)
+  | GeGLU
+  | PatchEmbedding
+  | Residual
+  | ResidualBlock
+  deriving stock (Bounded, Enum, Eq, Ord, Show)
 
 data Activation
   = Relu
@@ -107,25 +111,11 @@ data Loss
   | Contrastive
   deriving stock (Eq, Ord, Show)
 
+-- | Derived from the 'Layer' type itself, so the list cannot drift from the
+-- vocabulary. Every downstream projection — the generated documentation table,
+-- @dhall/numerics/Layer.dhall@, and the cross-type audit — reads this list.
 layerCatalog :: [Layer]
-layerCatalog =
-  [ Dense
-  , Embedding
-  , Conv1D
-  , Conv2D
-  , Conv3D
-  , ConvTranspose
-  , ComplexDense
-  , ComplexConv2D
-  , BatchNorm
-  , LayerNorm
-  , GroupNorm
-  , Dropout
-  , ResidualBlock
-  , ScaledDotProductAttention
-  , MultiHeadAttention
-  , RotaryPositionalEmbedding
-  ]
+layerCatalog = [minBound .. maxBound]
 
 activationCatalog :: [Activation]
 activationCatalog =

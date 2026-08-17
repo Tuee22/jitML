@@ -547,7 +547,13 @@ tuningArchitectureSeedHeadroom spec =
           && tuningExecutionModel spec == "Dense" ->
           Right
             ( Architecture.architectureSeedHeadroomForProblem
-                (Canonicals.CanonicalProblem "legacy-tune-dense" "synthetic" "Dense" 0)
+                ( Canonicals.CanonicalProblem
+                    "legacy-tune-dense"
+                    "synthetic"
+                    "Dense"
+                    Canonicals.DenseFamily
+                    0
+                )
             )
       | otherwise ->
           Left

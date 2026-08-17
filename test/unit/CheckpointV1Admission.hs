@@ -35,9 +35,11 @@ import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Plan.Plan qualified as Plan
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Publisher qualified as ProductPublisher
 import JitML.Substrate (Substrate (LinuxCPU))
+import JitML.Test.DeviceWitnessFixture qualified as DeviceWitnessFixture
 import JitML.Training.Budget qualified as TrainingBudget
 
 checkpointV1AdmissionTests :: TestTree
@@ -46,7 +48,7 @@ checkpointV1AdmissionTests =
     "canonical ProductRow V1 admission"
     [ testCase "non-supervised Product V1 binds transcript bytes and re-admits its exact stored address" $
         withSystemTempDirectory "jitml-product-v1-admission" $ \cacheRoot -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           env <-
             buildEnv
               defaultGlobalFlags
@@ -129,7 +131,7 @@ checkpointV1AdmissionTests =
         withSystemTempDirectory "jitml-non-product-v1-admission" $ \root -> do
           fixture <-
             expectRight
-              (makeV1Fixture "DQN/cartpole" (Just "non-product-v1-experiment"))
+              =<< makeV1Fixture "DQN/cartpole" (Just "non-product-v1-experiment")
           manifestSha <- stageAddressedV1 root fixture
           admitted <-
             expectRight
@@ -146,7 +148,7 @@ checkpointV1AdmissionTests =
         "canonical non-supervised Product V1 without its companion cannot refine to completed evidence"
         $ withSystemTempDirectory "jitml-product-v1-missing-companion"
         $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           manifestSha <- stageAddressedV1 root fixture
           admitted <-
             expectRight
@@ -161,7 +163,7 @@ checkpointV1AdmissionTests =
         "generic completed V1 writer cannot create an admitted ProductRow completion without a companion"
         $ withSystemTempDirectory "jitml-product-v1-generic-writer"
         $ \cacheRoot -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           env <-
             buildEnv
               defaultGlobalFlags
@@ -190,7 +192,7 @@ checkpointV1AdmissionTests =
             outcome
     , testCase "wrong-family Product V1 companion kind is completion-rejected" $
         withSystemTempDirectory "jitml-product-v1-wrong-companion-kind" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let (pointer, artifactPayload) =
                 v1Artifact (v1Experiment fixture) "tune-trials" "wrong family companion"
               manifest =
@@ -210,7 +212,7 @@ checkpointV1AdmissionTests =
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "Product V1 manifest model family must match its canonical row family" $
         withSystemTempDirectory "jitml-product-v1-wrong-manifest-family" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let (pointer, artifactPayload) =
                 v1Artifact (v1Experiment fixture) "rl-trajectory" "exact trajectory"
               manifest =
@@ -232,7 +234,7 @@ checkpointV1AdmissionTests =
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "Product V1 architecture family must match its canonical row family" $
         withSystemTempDirectory "jitml-product-v1-wrong-architecture-family" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let (pointer, artifactPayload) =
                 v1Artifact (v1Experiment fixture) "rl-trajectory" "exact trajectory"
               manifest =
@@ -257,7 +259,7 @@ checkpointV1AdmissionTests =
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "multiple distinct Product V1 companion pointers are completion-rejected" $
         withSystemTempDirectory "jitml-product-v1-extra-companion" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let (pointerA, artifactPayloadA) =
                 v1Artifact (v1Experiment fixture) "rl-trajectory" "first trajectory"
               (pointerB, artifactPayloadB) =
@@ -283,7 +285,7 @@ checkpointV1AdmissionTests =
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "duplicate Product V1 companion pointers fail before persistence" $
         withSystemTempDirectory "jitml-product-v1-duplicate-companion" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let (pointer, artifactPayload) =
                 v1Artifact (v1Experiment fixture) "rl-trajectory" "duplicate trajectory"
               manifest =
@@ -307,7 +309,7 @@ checkpointV1AdmissionTests =
                 ("duplicate companion pointers unexpectedly persisted: " <> show other)
     , testCase "Product V1 rejects replay-pointer residue in addition to its exact companion" $
         withSystemTempDirectory "jitml-product-v1-replay-pointer" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let (trajectoryPointer, trajectoryPayload) =
                 v1Artifact (v1Experiment fixture) "rl-trajectory" "exact trajectory"
               (replayPointer, replayPayload) =
@@ -334,7 +336,7 @@ checkpointV1AdmissionTests =
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "Product V1 rejects a snapshot-scoped companion derived from a substituted original key" $
         withSystemTempDirectory "jitml-product-v1-substituted-companion-key" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           let payload = "substituted trajectory address"
               (canonicalPointer, _) =
                 v1Artifact (v1Experiment fixture) "rl-trajectory" payload
@@ -369,7 +371,7 @@ checkpointV1AdmissionTests =
             (CheckpointStore.requireAdmittedCompletedCheckpoint admitted)
     , testCase "historical supervised ProductRow V1 is exact-inspectable but completion-rejected" $
         withSystemTempDirectory "jitml-supervised-v1-inspection" $ \root -> do
-          fixture <- expectRight (makeV1Fixture "mnist-shallow-mlp" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "mnist-shallow-mlp" Nothing
           manifestSha <- stageAddressedV1 root fixture
           addressed <-
             expectRight
@@ -391,7 +393,7 @@ checkpointV1AdmissionTests =
         withSystemTempDirectory "jitml-v1-legacy-unscoped-inspection" $ \root -> do
           fixture <-
             expectRight
-              (makeV1Fixture "DQN/cartpole" (Just "legacy-unscoped-v1-experiment"))
+              =<< makeV1Fixture "DQN/cartpole" (Just "legacy-unscoped-v1-experiment")
           let manifest = v1Manifest fixture
               manifestSha = Checkpoint.manifestContentSha manifest
               manifestKey =
@@ -425,7 +427,7 @@ checkpointV1AdmissionTests =
             admission
     , testCase "tampered transcript bytes violate commit-bound Product V1 re-admission" $
         withSystemTempDirectory "jitml-product-v1-transcript-tamper" $ \cacheRoot -> do
-          fixture <- expectRight (makeV1Fixture "DQN/cartpole" Nothing)
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
           env <-
             buildEnv
               defaultGlobalFlags
@@ -508,8 +510,22 @@ data V1Fixture = V1Fixture
   , v1Manifest :: !Checkpoint.CheckpointManifest
   }
 
-makeV1Fixture :: Text -> Maybe Text -> Either Text V1Fixture
+-- | Build the V1 admission fixture.
+--
+-- The completion now requires a device execution witness, and a witness cannot
+-- be constructed purely, so the fixture mints one over a real on-disk artifact
+-- before assembling the manifest.
+makeV1Fixture :: Text -> Maybe Text -> IO (Either Text V1Fixture)
 makeV1Fixture rowId experimentOverride = do
+  witnessResult <- DeviceWitnessFixture.fixtureDeviceExecutionWitness
+  pure (witnessResult >>= \deviceWitness -> makeV1FixtureWith deviceWitness rowId experimentOverride)
+
+makeV1FixtureWith
+  :: DeviceWitness.DeviceExecutionWitness
+  -> Text
+  -> Maybe Text
+  -> Either Text V1Fixture
+makeV1FixtureWith deviceWitness rowId experimentOverride = do
   row <-
     maybe
       (Left ("missing canonical ProductRow " <> rowId))
@@ -551,6 +567,7 @@ makeV1Fixture rowId experimentOverride = do
       metrics
       (WeightCodec.jmw1ContentSha initialBytes)
       finalSha
+      (Just deviceWitness)
   let tensor = Checkpoint.TensorBlob tensorName [length finalWeights] blobKey
       modelFamily = checkpointFamilyForRow row
       manifest =

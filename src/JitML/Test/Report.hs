@@ -42,6 +42,7 @@ module JitML.Test.Report
   , completedProductScenarioRowId
   , completedProductScenarioRunId
   , completedProductScenarioCommand
+  , completedProductScenarioDeviceWitness
   , completedProductScenarioCheckpointScopeDigest
   , completedProductScenarioContractDigest
   , completedProductScenarioExecutablePath
@@ -156,6 +157,7 @@ import JitML.Product.Convergence
   , convergenceMetricName
   , convergenceThreshold
   )
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.SL.Architecture (ArchitectureFeature)
@@ -1275,6 +1277,15 @@ completedProductScenarioExperimentHash = scenarioEvidenceExperimentHash
 
 completedProductScenarioCommand :: CompletedProductScenarioEvidence -> Text
 completedProductScenarioCommand = scenarioEvidenceCommand
+
+-- | The artifact witness the scenario's admitted completion carries.
+--
+-- Total: admission rejects an unwitnessed completion, so the lane fragment has
+-- no no-evidence branch to render.
+completedProductScenarioDeviceWitness
+  :: CompletedProductScenarioEvidence -> DeviceWitness.DeviceExecutionWitness
+completedProductScenarioDeviceWitness =
+  CheckpointStore.admittedCompletedDeviceWitness . scenarioEvidenceAdmittedCompletion
 
 completedProductScenarioExecutablePath :: CompletedProductScenarioEvidence -> FilePath
 completedProductScenarioExecutablePath = scenarioEvidenceExecutablePath
@@ -2929,7 +2940,8 @@ renderProductLaneAttestationFragment report nonProductRows =
           , productContractIntegrationTest contract
           , productContractE2ETest contract
           , negativeControlCell completed
-          , ProductMatrix.deviceEvidenceForClaim lane (productContractDeviceClaim contract)
+          , DeviceWitness.renderDeviceExecutionWitness
+              (completedProductScenarioDeviceWitness completed)
           , renderSubstrate lane
           ]
   -- The journal hard-gates this flag: a completed row whose pre-completion

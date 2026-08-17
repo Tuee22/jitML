@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Engines.CudaLocal
@@ -6,7 +5,6 @@ module JitML.Engines.CudaLocal
   , CudaWeightedKernelRun (..)
   , cudaFamilyHash
   , cudaFamilyRuntimeSource
-  , cudaToolchainFingerprint
   , runCudaCheckpointInference
   , runCudaFamilyKernel
   , runCudaFamilyKernelWithProbe
@@ -20,11 +18,6 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Foreign.C.String (CString, peekCString)
-import Foreign.C.Types (CFloat (..), CSize (..))
-import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
-import Foreign.Ptr (FunPtr, Ptr)
-import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format
@@ -44,43 +37,20 @@ import JitML.Engines.Engine
   ( KernelHandle (..)
   , engineForSubstrate
   )
+import JitML.Engines.Fingerprint qualified as Fingerprint
+import JitML.Engines.LoadableKernel (loadAndRun, loadAndRunWeighted)
 import JitML.Engines.Loader
   ( ensureKernelArtifact
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
   , renderKernelArtifactError
-  , withKernelSymbol
   )
 import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
 import JitML.Env.Env (Env)
 import JitML.Numerics.MlpCuda (mlpForwardCuda)
+import JitML.Sub.Render (renderBool)
 import JitML.Substrate (Substrate (..))
-
-type KernelFunction =
-  Ptr CFloat -> Ptr CFloat -> CSize -> IO ()
-
--- Sprint 13.11 — CUDA weighted ABI mirrors the Linux CPU shape: output,
--- input, input_count, weights, weights_count.
-type WeightedKernelFunction =
-  Ptr CFloat -> Ptr CFloat -> CSize -> Ptr CFloat -> CSize -> IO ()
-
-type KernelFamilyFunction =
-  IO CString
-
-type KernelOutputCountFunction =
-  CSize -> IO CSize
-
-foreign import ccall "dynamic" mkKernelFunction :: FunPtr KernelFunction -> KernelFunction
-
-foreign import ccall "dynamic"
-  mkWeightedKernelFunction :: FunPtr WeightedKernelFunction -> WeightedKernelFunction
-
-foreign import ccall "dynamic"
-  mkKernelFamilyFunction :: FunPtr KernelFamilyFunction -> KernelFamilyFunction
-
-foreign import ccall "dynamic"
-  mkKernelOutputCountFunction :: FunPtr KernelOutputCountFunction -> KernelOutputCountFunction
 
 data CudaKernelRun = CudaKernelRun
   { cudaKernelHandle :: KernelHandle
@@ -126,7 +96,7 @@ cudaFamilyHash family =
     (kernelFamilyKernelSpec family)
     Cache.Inference
     Cache.LinuxCUDA
-    cudaToolchainFingerprint
+    (Fingerprint.engineFamilyToolchainFingerprint LinuxCUDA)
     (runtimeSourcePayload (cudaFamilyRuntimeSource family))
     Cache.defaultTuningChoice
 
@@ -291,82 +261,6 @@ runCudaKernel env source hash input = do
  where
   engine = engineForSubstrate LinuxCUDA
 
-loadAndRun :: FilePath -> [Float] -> IO (Text, [Float])
-loadAndRun artifactPath input =
-  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
-    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
-      withKernelSymbol artifactPath "jitml_kernel" $ \kernelSymbol -> do
-        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
-        let kernel = mkKernelFunction kernelSymbol
-            outputCount = mkKernelOutputCountFunction outputCountSymbol
-            cInput = fmap CFloat input
-            inputCount = length input
-        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
-        output <-
-          withArray cInput $ \inputPtr ->
-            allocaArray outputLength $ \outputPtr -> do
-              kernel outputPtr inputPtr (fromIntegral inputCount)
-              fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
-        pure (reportedFamily, output)
-
--- | Sprint 13.11 — weighted variant of `loadAndRun`. Resolves the same
--- three metadata symbols, plus `jitml_weighted_kernel`, and threads the
--- input + weights buffers across the FFI to the device-side helper.
-loadAndRunWeighted :: FilePath -> [Float] -> [Float] -> IO (Text, [Float])
-loadAndRunWeighted artifactPath input weights =
-  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
-    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
-      withKernelSymbol artifactPath "jitml_weighted_kernel" $ \kernelSymbol -> do
-        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
-        let kernel = mkWeightedKernelFunction kernelSymbol
-            outputCount = mkKernelOutputCountFunction outputCountSymbol
-            cInput = fmap CFloat input
-            cWeights = fmap CFloat weights
-            inputCount = length input
-            weightsCount = length weights
-        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
-        output <-
-          withArray cInput $ \inputPtr ->
-            withArray cWeights $ \weightsPtr ->
-              allocaArray outputLength $ \outputPtr -> do
-                kernel
-                  outputPtr
-                  inputPtr
-                  (fromIntegral inputCount)
-                  weightsPtr
-                  (fromIntegral weightsCount)
-                fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
-        pure (reportedFamily, output)
-
-cudaToolchainFingerprint :: Cache.ToolchainFingerprint
-cudaToolchainFingerprint =
-  Cache.ToolchainFingerprint
-    ( Text.intercalate
-        ";"
-        [ "nvcc-shared"
-        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "sm=70"
-        , "--use_fast_math=false"
-        , "--fmad=false"
-        , "tf32=disabled"
-        , "abi=extern-c-host-wrapper"
-        , "link=-lcudart,-lcublas,-lcudnn"
-        , "cublas=v2-deterministic-gemm"
-        , "cudnn=algo-implicit-precomp-gemm"
-        , "jitml_kernel(float*,const float*,size_t)"
-        , "jitml_kernel_family_name(void)"
-        , "jitml_kernel_output_count(size_t)"
-        , -- Sprint 13.11: weighted CUDA ABI. Dense2D / Conv2D / Conv3D /
-          -- BatchNorm / LayerNorm / MHA / Embedding now drive generated
-          -- device kernels. The Phase 29 tag below bumps cache invalidation
-          -- so the JIT cache picks up the cuBLAS/cuDNN-backed renderer
-          -- instead of the prior identity/custom placeholder bodies.
-          "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
-        , "weighted-bodies=all-families"
-        , "phase29-real-cublas-cudnn-windowed-v2"
-        ]
-    )
-
 renderCudaUnavailableSummary :: CudaRuntime.CudaRuntimeProbe -> Text
 renderCudaUnavailableSummary probe =
   Text.intercalate
@@ -389,7 +283,3 @@ renderCudaUnavailableSummary probe =
               (CudaRuntime.cudaRuntimeLibraryVisibility probe)
           )
     ]
-
-renderBool :: Bool -> Text
-renderBool True = "yes"
-renderBool False = "no"

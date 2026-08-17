@@ -25,7 +25,7 @@ import JitML.Env.Env (App)
 import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Experiment.Product qualified as ProductExperiment
 import JitML.Numerics.Mlp (AdamState)
-import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..), probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Command qualified as PlanCommand
 import JitML.Plan.Plan
@@ -205,6 +205,8 @@ runResolvedAlphaZeroPlan runtime requireLiveContext plan = do
           maxPlies
           updates
           seed
+      -- Recorded after the self-play/update loop returned successfully.
+      azDeviceWitnessE <- liftIO (mlpdExecutionWitness device)
       let winRate =
             PolicyValueNet.arenaWinRateAgainstUniformFrom
               initialState
@@ -227,6 +229,7 @@ runResolvedAlphaZeroPlan runtime requireLiveContext plan = do
           alphaZeroWeights = PolicyValueNet.policyValueNetToFlat trainedNet
           alphaZeroCompleted =
             do
+              deviceWitness <- eitherToMaybe azDeviceWitnessE
               budget <- eitherToMaybe (ProductCompletion.alphaZeroCompletionBudget plan)
               updatesPerGeneration <-
                 eitherToMaybe
@@ -252,6 +255,7 @@ runResolvedAlphaZeroPlan runtime requireLiveContext plan = do
                     alphaZeroMetrics
                     initialAlphaZeroWeights
                     alphaZeroWeights
+                    deviceWitness
                 )
       stored <-
         case alphaZeroCompleted of

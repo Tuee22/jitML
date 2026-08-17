@@ -13,8 +13,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.Env.Env (App)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Plan (RunKind (..), runPlanExperimentId)
+import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Publisher.Audit
   ( ProductPublishResult
@@ -83,6 +85,11 @@ trainAndPublishRlProductRow invocation runtime row projection =
                               "product RL training returned evaluation-only evidence"
                           )
                       Right (TrainerExecution.Trained artifact) -> do
+                        -- Recorded after the trainer returned: the row's
+                        -- device-evidence cell is minted from the artifact the
+                        -- rollout/update loop executed through.
+                        witnessE <-
+                          liftIO (mlpdExecutionWitness (rlDeviceForSubstrate substrate env))
                         let counters = TrainerExecution.trainedArtifactCounters artifact
                             evaluationSet =
                               TrainerExecution.trainedArtifactEvaluationSet artifact
@@ -102,6 +109,14 @@ trainAndPublishRlProductRow invocation runtime row projection =
                           Right metrics -> do
                             let checkpointStep = observedTransitions
                                 completedTraining = do
+                                  deviceWitness <- witnessE
+                                  witnessedEvidence <-
+                                    maybe
+                                      ( Left
+                                          "product RL row requires a device execution witness from the training run"
+                                      )
+                                      (`ProductEvidence.attachDeviceExecutionWitness` evidence)
+                                      deviceWitness
                                   completed <-
                                     maybe
                                       ( Left
@@ -123,7 +138,7 @@ trainAndPublishRlProductRow invocation runtime row projection =
                                           tensorName
                                           checkpointStep
                                           metrics
-                                          evidence
+                                          witnessedEvidence
                                       )
                                   validateProductCompletedTrainingPlanId projection completed
                                   bindProductScenarioCompletion invocation projection completed

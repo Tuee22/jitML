@@ -29,15 +29,161 @@ execution witness. Evidence gathered before the 2026-07-30 IR landing remains
 historical evidence for the surface it exercised and cannot close the changed
 obligation.
 
-**Phase `7` is the first executable owner** (`linux-cpu`, closes on any Docker host):
-it enables `-Werror=incomplete-patterns`, without which every "total function over
-`Substrate`" is a convention rather than a build guarantee. Phases `72`, `77`, `78`,
-`79`, `80`, and `84` follow on the same lane; they sit outside the Phase `19`–`34`
-registry and so do not appear in the tally below.
+**Phase `229` closed `Done` on 2026-08-15.** Every artifact a witness reads now
+exports the executed identity it is asked for: `JitML.Codegen.MlpOneDnn` and
+`JitML.Codegen.MlpCuda` emit `jitml_kernel_family_name`, and
+`Fingerprint.mlpHostEntryPoints` names it so Sprint `78.1`'s standing
+entry-point case guards it. The persisted-evidence migration is stated in the
+decoder itself — the hand-written `Serialise TrainingEvidence` accepts the
+pre-witness five-field shape, so a legacy checkpoint fails at the admission gate
+naming the missing device witness instead of at CBOR with a field count. It was
+validated on the lane that exercises the MLP device path:
+`jitml test jitml-sl-canonicals --linux-cpu` **36 / 36**, including `all eleven
+trained canonical programs equal Store-loaded V2 inference on the same
+substrate`. `california-housing-mlp` now mints a witness where it previously
+could not. See
+[Phase 229 → Completed in the 2026-08-15 closure](phase-229-phase-specific-product-evidence-payloads.md#completed-in-the-2026-08-15-closure).
+
+Phase `241` closed `Done` the same day: the operator lowering is total over
+`LayerOp` — `lowerLayerOp` has no wildcard arm, so a twelfth operator is a
+compile error rather than a silent host fallback — every declared operator
+executes a device kernel on `linux-cpu` including a real 3-D convolution over
+its own `ncdhw`/`oidhw` oneDNN primitive triple, and `jitml_op_train` returns an
+executed-opcode status so an unrecognised opcode fails closed instead of
+returning the caller's untouched buffers. `failOpenPendingRegistry` held exactly
+three sites, all owned by `241.1`; all three are closed and the registry is now
+`[]`. See
+[Phase 241 → Completed in the 2026-08-15 closure](phase-241-onednn-device-training-kernels-for-correct-operators.md#completed-in-the-2026-08-15-closure).
+
+**Phase `263` closed `Done` on 2026-08-16.** The committed `DeviceEvidence`
+column is the 55 measured device witnesses rather than one declaration-derived
+string per row class, and the confirming run read the fragment *after* issuance
+and reported zero drift: `jitml test all --live --linux-cpu` passed
+**11 / 11 invocations, 0 failed, 0 NotRun** in 46,414.96s, including
+`jitml-integration` **197 / 197**, `jitml-unit` **887 / 887**,
+`jitml-sl-canonicals` **36 / 36**, and Playwright **77 passed**, with
+`jitml docs check` and `jitml check-code` green on the same source state. See
+[Phase 263 → Closure Evidence](phase-263-contract-driven-live-execution-fragment-issuance.md#closure-evidence).
+
+**Phase `264` closed `Done` on 2026-08-16.** The typed layer graph has a CUDA
+arm: `JitML.Codegen.LayerTraining` owns the operator layer both Linux lanes
+splice, each lane supplies only its primitive layer (oneDNN `dnnl` versus cuBLAS
+`CUBLAS_PEDANTIC_MATH` plus deterministic cuDNN), and
+`JitML.Numerics.LayerGraphDevice` is parameterised on `Substrate` behind a
+narrower `LayerTrainingBackend` that makes every function behind it total. The
+`linux-cpu` rendered kernel is byte-identical
+(`42f20f9acfe24021a1298a299b09fa43c1344bc9deb837b54b45b7dcd163c407`), which
+Sprint `263.1` requires because its committed fragment pins a prefix of that
+artifact's SHA-256. Validated on the attached RTX 5090:
+`jitml test jitml-backends --linux-cuda` **25 / 25**. See
+[Phase 264 → Closure Evidence](phase-264-real-cudnn-cublas-kernels.md#closure-evidence).
+
+**Phase `271` reopened `Blocked` on 2026-08-16 under rule `C`.** It attests that
+`jitml test all --apple-silicon` runs every Apple-supported row for real, but
+Apple supervised rows execute the `linux-cpu` oneDNN layer-training artifact —
+the same defect that reopened Phases `269` and `270` on 2026-08-12, not carried
+through to this phase at the time. Sprint `264.1` makes it fail closed instead of
+silently mis-attributing the run. It is blocked by Sprints `269.1` and `270.1`,
+both lower-numbered, so the dependency edge stays forward-only.
+
+**Phases `266`, `267`, and `78` reopened on 2026-08-16 under rule `C`.** Phase
+`266` attested a row-complete `linux-cuda` lane on counts its own historical
+section calls withdrawn; Phase `267` owns the every-row wall-clock obligation
+([Exit Definition](#exit-definition) item `29`) whose evidence rests on those
+same counts and which Phase `268` records as presently unreachable. Both are now
+`Blocked` by Sprint `265.1` — forward-only, since `265` precedes both. Phase `78`
+reopened `Active`: `profileDeterminism` advertises an nvcc flag the compile line
+does not pass and cuDNN/warp-shuffle choices the executed trainer MLP kernel does
+not use, and that list feeds the toolchain fingerprint. Phase `265` remains the
+first executable owner.
+
+**Phase `265` remains `Active`.** Its witness obligation is met — an admitted
+row's persisted manifest now carries `linux-cuda` / `linux-cuda-cudnn` and the
+CUDA artifact's own digest and executed primitive, so the recorded engine is the
+engine that ran — and the measured lane run reported `rows: 55`, `eligible: 50`,
+`unsupported: 0`, `errors: 5`, with all eleven supervised and all four AlphaZero
+rows admitted. Five RL rows miss their cohort bars on this lane
+(`PPO/mountain-car`, `A2C/mountain-car`, `QR-DQN/mountain-car`,
+`MaskablePPO/key-door-grid`, `CrossQ/lunar-lander`). It is not a Sprint `264.1`
+regression: `jitml-rl-canonicals --linux-cuda` passes **47 / 47** and
+`jitml-model-convergence` **111 / 111** on the same source. See
+[Phase 265 → Remaining Work](phase-265-cuda-row-device-evidence.md#remaining-work).
+
+Phase `7` closed `Done` on 2026-08-13: every `jitml.cabal` stanza carries
+`-Werror=incomplete-patterns`, so a missing constructor is a build failure rather
+than a runtime throw and every "total function over `Substrate`" is a build
+guarantee; and `src/JitML/Lint/FailOpen.hs` rejects a new fail-open catch-all on
+the execution path, holding the four pre-existing sites in an exact registry that
+names the sprint owning each fix. See
+[Phase 7 → Completed in this sprint](phase-7-lint-stack-fourmolu-hlint-cabal-format-forbiddenpathregistry.md#completed-in-this-sprint).
+
+Phase `72` closed `Done` the same day: `LayerOp` is the single layer vocabulary,
+the node identity tag is the `opKind` projection rather than a stored field, and
+the catalog plus `dhall/numerics/Layer.dhall` are projections of it. The dead
+`familyForLayer` bridge is deleted. See
+[Phase 72 → Completed in this sprint](phase-72-layer-catalog.md#completed-in-this-sprint).
+
+Phase `77` closed `Done` on 2026-08-14: the layer vocabulary is a parameterised
+Dhall union reflected off the real decoder, so `dhall/numerics/LayerOp.dhall`
+and `dhall/numerics/LayerGraph.dhall` carry each operator's real geometry and
+are tracked generated paths rather than hand-maintained name lists. The
+cross-type audit now covers the executed `LayerOp`, `decode . render` is the
+identity over every operator witness, an architecture is describable as data
+(`LayerGraphDescription`) and realised fail-closed, and a standing lint rule
+keeps `substrate` out of the ML DSL. See
+[Phase 77 → Completed in this sprint](phase-77-dhall-schemas-and-cross-type-audit.md#completed-in-this-sprint).
+
+Phase `78` closed `Done` the same day: every toolchain fingerprint is derived
+from the surface it describes — compiler, flags, and link line off the same
+lists `compileSubprocess` passes, determinism off `deterministicFlags`, the ABI
+off a typed `AbiKind` carrying `metalBridgeAbiVersion`, the knobs off the
+renderers' own constants, and the emitter set off the vocabulary the artifact
+covers. `buildToolchainFingerprint` is total over `Substrate`, closing the split
+where `jitml build` installed at one cache key while the benchmark runners
+measured at another; the duplicate `Substrate` ADT is deleted. See
+[Phase 78 → Completed in this sprint](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md#completed-in-this-sprint).
+
+Phase `79` closed `Done` the same day: `SubstrateProfile` plus a total
+`profileFor` own every substrate-varying fact, the `dlopen`/`dlsym` versus
+fixed-bridge difference is a `KernelLaunch` value rather than six `isMetalSpec`
+branches, and the shared driver halves are single-source. Two fail-open defects
+closed with it — the Apple family driver reported the family the host had
+requested, so its mismatch guard could never fire, and `linux-cpu` launched
+without probing its oneDNN runtime at all. See
+[Phase 79 → Completed in this sprint](phase-79-engine-abi-and-engines-module-skeleton.md#completed-in-this-sprint).
+
+Phase `80` closed `Done` the same day: the weighted-family renderer is total,
+and the unweighted multi-head-attention divergence is resolved against a shared
+semantics contract — `defaultFamilyWeights` names each family's canonical no-op
+weights and the unweighted reference *is* the weighted reference at them, so at
+`Wq = Wk = Wv = I` attention degenerates to an elementwise square. `linux-cpu`
+had been returning the input unchanged. The backends lane now checks the
+unweighted ABI against that contract instead of smoke-asserting it. See
+[Phase 80 → Completed in this sprint](phase-80-linux-cpu-engine-and-onednn-codegen-driver.md#completed-in-this-sprint).
+
+Phase `84` closed `Done` the same day: every `KernelFamily` wildcard in all
+three renderers is closed, each renderer emits its kernel signature once and
+takes the family-specific part as data, and all three are checked against the
+one unweighted-semantics contract. That decomposition exposed and fixed a real
+out-of-bounds write — the Metal weighted reduction wrote `n` outputs into a
+buffer sized `ceil(n / 32)`. See
+[Phase 84 → Completed in this sprint](phase-84-haskell-owned-runtime-jit-source-generation.md#completed-in-this-sprint).
+
+Phase `233` closed `Done` the same day: every path to a supervised architecture
+fails closed. A canonical row carries its executed family, so an unknown model
+cannot resolve to dense; the claimed-feature table follows that family rather
+than re-matching the model string; a failed literal builder propagates instead
+of substituting the legacy decorative graph; and no operator can receive zero
+trainable parameters. The first two were one conspiracy — an unknown model
+resolved to dense *and* claimed only dense features, so feature parity held
+vacuously. See
+[Phase 233 → Completed in this sprint](phase-233-typed-layer-ir-reverse-mode-autodiff.md#completed-in-this-sprint).
+
+**Phase `265` is the first executable owner.**
 
 The Phase `19`–`34` product registry is
-**51 Done / 8 Active / 0 Planned / 10 Blocked**.
-The numerically ordered open chain is `229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phases `43`–`52` and `54`–`68` retain `Done` on
+**53 Done / 3 Active / 0 Planned / 13 Blocked**.
+The numerically ordered open chain is `265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `272` remains the hard Apple-Silicon host boundary.
 
@@ -2520,11 +2666,11 @@ blocks) are tracked in
 ## Current Plan Status
 
 The authoritative current state is [Closure Status](#closure-status) above and
-the [Phase Overview](00-overview.md). Eight registry phases are Active after the
-2026-08-12 execution-architecture reopen, and Phase `7` is the first executable
-owner overall. The
-Phase `19`–`34` registry is **51 Done / 8 Active / 0 Planned / 10 Blocked**.
-The complete open chain is `229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`, with every Blocked phase naming its predecessor.
+the [Phase Overview](00-overview.md). Seven registry phases are Active after the
+2026-08-12 execution-architecture reopen plus the 2026-08-14 Phase `229` reopen,
+and Phase `265` is the first executable owner overall. The
+Phase `19`–`34` registry is **53 Done / 3 Active / 0 Planned / 13 Blocked**.
+The complete open chain is `265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`, with every Blocked phase naming its predecessor.
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3316,13 +3462,15 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`229 → 233 → 241 → 263 → 264 → 265 → 268 → 269 → 270 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
+`265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252` and `261` are
-Done; Phases `42`, `53`, `69`, `262`, and `263` are Done; Phase `268` is the sole
-Planned phase, and every later phase
-in the chain is Blocked by its immediate predecessor.
+Done; Phases `42`, `53`, `69`, `229`, and `262` are Done; Phases `268`, `272`,
+`275`, `277`, `279`–`281`, `284`, `287`, and `288` are Blocked by their
+immediate predecessor in the chain. Outside the registry range, Phases `7` and
+`72` re-closed `Done` on 2026-08-13; Phases `77`, `78`, `79`, `80`, and `84`
+remain Active on the same `linux-cpu` lane.
 
 Every edge points forward. Sprints `29.5` and `30.4` validate one accelerator
 each; Sprint `31.3` consumes their committed journals on `linux-cpu` and invokes
@@ -3602,6 +3750,22 @@ truth the implementer cannot author or tune, and they are owned by Phases `32`�
     independent evaluator (not a stored boolean), and the served weights hash to the
     checkpoint. RL reward is a rollout of the trained policy, never a scripted
     controller. (Phases `19`, `21`, `25`, `32`.)
+
+    **Not met as of 2026-08-16.** Only the slack-positivity half is enforced.
+    `barIsSelfReferential bar _measuredValue = convergenceSlack bar <= 0.0` in
+    `src/JitML/Product/ExternalBars.hs` discards the measured value, so a
+    positive-slack bar set equal to the value it grades passes; and the
+    frozen-anchor test is list membership across *all* cohorts rather than the
+    observation's own cohort. Three bars are unfalsifiable against their
+    environments on that basis (`PPO/key-door-grid` `-2.8` and
+    `A2C/key-door-grid` `-3.3` where the success reward is `1.0`;
+    `TRPO/cartpole` `185` against literature target `475`). Separately, the bar
+    is not wholly external: `literatureTarget` is an external constant but
+    `slack` is project-calibrated, as `src/JitML/RL/ConvergenceThresholds.hs`
+    itself records. The implementing sprint is `277.1`, which is `Blocked` by
+    `275.1`; Phases `19`, `21`, and `25` retain `Done` on their other owned
+    surfaces under rule `M(a)`. See
+    [Phase 277 → Remaining Work](phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
 27. **Evidence-derived status, typed real/declared split.** `jitml docs check`'s
     closure guard recomputes phase/sprint status from machine-checkable evidence, not
     from a hand-edited `PhaseStatus.hs`; a stand-in is typed `Declared` (distinct from
@@ -3627,6 +3791,18 @@ added Phase `29` Sprint `29.4`. It is owned by Phase `29`:
     from the determinism contract** (item 6's non-wall-clock per-model metric, which
     excludes wall-clock): it asserts only relative timing, never cross-substrate
     numeric equivalence, and introduces no tolerance band. (Phase `29`.)
+
+    **Not met as of 2026-08-16.** Phase
+    [268](phase-268-contract-driven-cuda-lane-revalidation.md) records this item
+    as "not met and is presently unreachable" while the non-dense rows fall back
+    to the pure host tape on the CUDA lane. The committed per-row table this item
+    points at, in
+    [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md),
+    carries withdrawn 2026-07-10 counts and is no longer evidence for it; the
+    2026-08-16 measured lane run reported `eligible: 50`, `errors: 5`, so there
+    is no row-complete cohort to time. Sprint `264.1` made the item reachable by
+    giving the lane a CUDA layer-graph arm; it is recorded here as unmet rather
+    than weakened.
 
 ### Typed-run-contract closure criteria (2026-07-12 reopen)
 

@@ -9,11 +9,21 @@
 
 ## Phase State
 
-✅ **Done**.
+⏸️ **Blocked** (reopened 2026-08-16 under standards rule `C`). The persistent
+device weight buffers this phase built are real and retained. What it cannot
+hold is the every-row performance obligation it owns: its evidence rests on a
+`55 / 55` publisher run whose counts Phase `266` records as withdrawn, and
+[Phase 268](phase-268-contract-driven-cuda-lane-revalidation.md) states
+[Exit Definition](README.md#exit-definition) item `29` is "not met and is
+presently unreachable" because the non-dense rows fall back to the pure host
+tape on this lane. The 2026-08-16 measured run reported `eligible: 50`,
+`errors: 5`, so there is no row-complete cohort to time. The 2026-07-10 timing
+table remains historical evidence for the surface it exercised.
 
-## Sprint 267.1: GPU Performance and Persistent Device Buffers [✅ Done]
+## Sprint 267.1: GPU Performance and Persistent Device Buffers [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
+**Blocked by**: Sprint `265.1`
 **Implementation**: `src/JitML/Codegen/MlpCuda.hs`, `src/JitML/Numerics/MlpCuda.hs`, `src/JitML/App.hs`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 **Docs updated**: `../documents/engineering/jit_codegen_architecture.md`,
 `../documents/engineering/numerical_core.md`

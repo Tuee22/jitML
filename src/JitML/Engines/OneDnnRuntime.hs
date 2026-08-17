@@ -20,7 +20,7 @@ import JitML.Sub.Outcome
   , ProcessTranscript (..)
   , renderProcessFailure
   )
-import JitML.Sub.Render (renderSubprocess)
+import JitML.Sub.Render (renderBool, renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 
@@ -167,7 +167,3 @@ renderPkgConfigProbeResult (_packageName, _version, message) =
 renderHeaderProbeResult :: (Text, Bool, Text) -> Text
 renderHeaderProbeResult (_headerPath, _visible, message) =
   message
-
-renderBool :: Bool -> Text
-renderBool True = "yes"
-renderBool False = "no"

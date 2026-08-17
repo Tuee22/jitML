@@ -1,23 +1,53 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | The one closed substrate set, its one renderer, and its one wire codec.
+--
+-- Sprint `78.1` folded the structurally identical second copy that lived in
+-- 'JitML.Cache.Key' into this module: the cache key needs a serialisable
+-- substrate, but it needs /this/ substrate, not a parallel type with a parallel
+-- renderer and codec. 'JitML.Cache.Key' now re-exports this type and defines
+-- @substrateText = renderSubstrate@, so the on-disk cache layout and the CLI
+-- cannot disagree about what a substrate is called.
 module JitML.Substrate
-  ( Substrate (..)
+  ( ArtifactFill (..)
+  , KernelLaunch (..)
+  , Substrate (..)
+  , SubstrateProfile (..)
   , allSubstrates
+  , profileFor
   , parseSubstrate
   , renderSubstrate
   , substrateClusterName
   , substrateEdgePort
+  , substrateHasClusterCompute
   , substrateRuntimeClass
   )
 where
 
+import Codec.Serialise (Serialise)
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), withText)
 import Data.Text (Text)
+import Data.Text qualified as Text
+import GHC.Generics (Generic)
 
 data Substrate
   = AppleSilicon
   | LinuxCPU
   | LinuxCUDA
-  deriving stock (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
+  deriving anyclass (Serialise)
+
+instance ToJSON Substrate where
+  toJSON = String . renderSubstrate
+
+instance FromJSON Substrate where
+  parseJSON =
+    withText "Substrate" $ \value ->
+      case parseSubstrate value of
+        Just substrate -> pure substrate
+        Nothing -> fail ("unknown substrate: " <> Text.unpack value)
 
 allSubstrates :: [Substrate]
 allSubstrates = [minBound .. maxBound]
@@ -36,11 +66,101 @@ parseSubstrate _ = Nothing
 substrateClusterName :: Substrate -> Text
 substrateClusterName substrate = "jitml-" <> renderSubstrate substrate
 
+-- | How a substrate's cache miss fills its artifact. A total two-arm choice, so
+-- the loader dispatches on a value rather than on a wildcard over 'Substrate'.
+data ArtifactFill
+  = -- | Materialize the generated source and run the typed compile 'Subprocess'.
+    CompileSubprocessFill
+  | -- | Write @\<hash\>.metal.json@ source metadata in-process.
+    SourceMetadataWriteFill
+  deriving stock (Eq, Show)
+
+-- | How a substrate enters a compiled artifact. The @dlopen@/@dlsym@ versus
+-- fixed-Metal-bridge difference is a value here rather than a branch inside
+-- otherwise-generic code (Sprint `79.1`).
+data KernelLaunch
+  = -- | Resolve a symbol out of the loaded shared object.
+    LoadableSymbolLaunch
+  | -- | Dispatch through the fixed host Metal bridge.
+    FixedBridgeLaunch
+  deriving stock (Eq, Show)
+
+-- | Every fact that varies by substrate, in one record.
+--
+-- Sprint `79.1` replaced the scattered @case substrate of@ sites that restated
+-- the same fact with reads off this record. Adding a substrate means filling
+-- one more 'profileFor' equation, and every consumer stays total by
+-- construction: 'profileFor' has one equation per constructor and no wildcard,
+-- so a fourth substrate is a build failure under
+-- @-Werror=incomplete-patterns@ rather than a silent default.
+data SubstrateProfile = SubstrateProfile
+  { profileSubstrate :: !Substrate
+  , profileBackend :: !Text
+  , profileArtifactExtension :: !Text
+  , profileDeterminism :: ![Text]
+  , profileLaunch :: !KernelLaunch
+  , profileArtifactFill :: !ArtifactFill
+  , profileHasClusterCompute :: !Bool
+  , profileEdgePort :: !Int
+  , profileRuntimeClass :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show)
+
+profileFor :: Substrate -> SubstrateProfile
+profileFor AppleSilicon =
+  SubstrateProfile
+    { profileSubstrate = AppleSilicon
+    , profileBackend = "metal"
+    , profileArtifactExtension = "metal.json"
+    , profileDeterminism =
+        ["single-stream-launch-order", "fixed-metal-bridge", "source-metadata-cache"]
+    , profileLaunch = FixedBridgeLaunch
+    , profileArtifactFill = SourceMetadataWriteFill
+    , profileHasClusterCompute = False
+    , profileEdgePort = 9090
+    , profileRuntimeClass = Nothing
+    }
+profileFor LinuxCPU =
+  SubstrateProfile
+    { profileSubstrate = LinuxCPU
+    , profileBackend = "onednn"
+    , profileArtifactExtension = "so"
+    , profileDeterminism = ["onednn-fixed-block-reduction", "avx2-baseline"]
+    , profileLaunch = LoadableSymbolLaunch
+    , profileArtifactFill = CompileSubprocessFill
+    , profileHasClusterCompute = True
+    , profileEdgePort = 9091
+    , profileRuntimeClass = Nothing
+    }
+profileFor LinuxCUDA =
+  SubstrateProfile
+    { profileSubstrate = LinuxCUDA
+    , profileBackend = "cuda"
+    , profileArtifactExtension = "so"
+    , profileDeterminism =
+        [ "--use_fast_math=false"
+        , "--fmad=false"
+        , "cudnn-explicit-algorithm-id"
+        , "warp-shuffle-deterministic"
+        ]
+    , profileLaunch = LoadableSymbolLaunch
+    , profileArtifactFill = CompileSubprocessFill
+    , profileHasClusterCompute = True
+    , profileEdgePort = 9092
+    , profileRuntimeClass = Just "nvidia"
+    }
+
+-- | Projections of the one profile. The former per-function @case substrate of@
+-- equations are gone, and with them the @_ -> Nothing@ wildcard that let a new
+-- substrate silently inherit "no runtime class".
 substrateEdgePort :: Substrate -> Int
-substrateEdgePort AppleSilicon = 9090
-substrateEdgePort LinuxCPU = 9091
-substrateEdgePort LinuxCUDA = 9092
+substrateEdgePort = profileEdgePort . profileFor
 
 substrateRuntimeClass :: Substrate -> Maybe Text
-substrateRuntimeClass LinuxCUDA = Just "nvidia"
-substrateRuntimeClass _ = Nothing
+substrateRuntimeClass = profileRuntimeClass . profileFor
+
+-- | Whether a substrate runs numerical work inside the Kubernetes cluster.
+-- @apple-silicon@ does not: its Metal work is host-resident. This was restated
+-- in five shapes across four modules before Sprint `79.1`.
+substrateHasClusterCompute :: Substrate -> Bool
+substrateHasClusterCompute = profileHasClusterCompute . profileFor

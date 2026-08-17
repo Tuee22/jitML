@@ -59,7 +59,10 @@ import JitML.Coordinator.Topology
 import JitML.Plan.Command qualified as PlanCommand
 import JitML.Plan.Plan (Validation (..))
 import JitML.Product.Completion qualified as ProductCompletion
+import System.IO.Unsafe (unsafePerformIO)
+
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as Rl
@@ -191,6 +194,7 @@ import JitML.Service.Workload
   , workloadOutcomeError
   )
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Test.DeviceWitnessFixture qualified as DeviceWitnessFixture
 import JitML.Test.Pulsar
   ( ObservedDecision (..)
   , ObservedDisposition (..)
@@ -2340,6 +2344,19 @@ syntheticInferenceFixture :: SyntheticInferenceFixture
 syntheticInferenceFixture =
   either (error . Text.unpack) id buildSyntheticInferenceFixture
 
+-- | The witness the synthetic completion is bound to.
+--
+-- 'DeviceWitness.witnessDeviceExecution' must read a real artifact, so this
+-- fixture materialises one once for the process rather than pretending a
+-- completion can exist without a device having run.
+syntheticInferenceDeviceWitness :: DeviceWitness.DeviceExecutionWitness
+syntheticInferenceDeviceWitness =
+  unsafePerformIO
+    ( either (error . Text.unpack) id
+        <$> DeviceWitnessFixture.fixtureDeviceExecutionWitness
+    )
+{-# NOINLINE syntheticInferenceDeviceWitness #-}
+
 buildSyntheticInferenceFixture :: Either Text SyntheticInferenceFixture
 buildSyntheticInferenceFixture = do
   row <-
@@ -2382,6 +2399,7 @@ buildSyntheticInferenceFixture = do
       convergenceMetrics
       (WeightCodec.jmw1ContentSha initialBytes)
       finalSha
+      (Just syntheticInferenceDeviceWitness)
   let companionPayload = LazyByteString.fromStrict (ByteString.pack "exact product transcript")
       companionSha = WeightCodec.jmw1ContentSha companionPayload
       companionKey =

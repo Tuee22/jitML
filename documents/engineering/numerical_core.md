@@ -32,13 +32,14 @@ are current.
 Training updates the typed graph through the device-backed classifier path, and
 the pure `LayerGraph` forward/backward algebra is the correctness oracle.
 
-**Current status.** Substrate selection is presently inert for graph training:
-the classifier path routes any real device to the oneDNN kernels, which pin the
-`linux-cpu` engine and cache. On `linux-cuda` and `apple-silicon` there is no
-layer-graph device path at all, so the pure executor is the *only* path for
-supervised serving rather than an oracle beside a device path. The target — one
-total lowering so the selected substrate executes every operator, with the pure
-algebra retained strictly as the oracle — is owned by
+**Current status.** Substrate selection drives graph training on the two Linux
+lanes. Sprint `264.1` parameterised the classifier path on `Substrate` behind a
+`LayerTrainingBackend`, so `linux-cpu` executes oneDNN primitives and
+`linux-cuda` executes cuBLAS/cuDNN primitives, both under one total lowering and
+one shared operator layer. `apple-silicon` has no layer-graph training kernel and
+fails closed naming Sprint `269.1` instead of executing another lane's artifact.
+The remaining target — the Metal arm, so every supported substrate executes every
+operator with the pure algebra retained strictly as the oracle — is owned by
 [Phase 233](../../DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md),
 [Phase 241](../../DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md),
 and Phase `79`. Checkpoint construction serializes the trained graph metadata and
@@ -73,10 +74,69 @@ metadata surface. The implementation source is
 `activationCatalog`, `spectralCatalog`, `optimizerCatalog`,
 `schedulerCatalog`, `lossCatalog`, and `renderNumericalCatalog`.
 
-The current schema mirror is a constructor-name audit, not a full parameterized
-model schema. Future schema extensions should keep the same ownership model and
-add richer parameterized constructors and typed records for layer shapes,
-optimizer hyperparameters, scheduler parameters, and loss parameters.
+The constructor-name leaves under `dhall/numerics/` are Dhall *values*: they name
+the vocabulary but carry no geometry, so on their own they cannot describe an
+architecture. The parameterized half is the reflected operator schema below.
+
+## Kernel-Family Semantics Contract
+
+`JitML.Numerics.FamilyReference.defaultFamilyWeights` names each kernel
+family's *canonical no-op weights* — the weight buffer that makes the weighted
+kernel compute exactly what the unweighted kernel is supposed to compute: the
+identity matrix for `Dense2D`, a unit-centre filter for `Conv2D`/`Conv3D`,
+scale-1/shift-0/mean-0/var-1 for `BatchNorm`, scale-1/shift-0 for `LayerNorm`,
+`Wq = Wk = Wv = I` for multi-head attention, and an empty buffer for `Identity`,
+`Reduction`, and `Embedding`, which have no weight parameter at all.
+
+The unweighted reference is then *defined* as the weighted reference at those
+defaults, so the unweighted ABI has no independent definition to drift from. At
+`Wq = Wk = Wv = I` the attention algebra degenerates to `out[i] = input[i]^2`;
+the `linux-cuda` and `apple-silicon` renderers already emitted that, while the
+`linux-cpu` renderer returned the input unchanged. The oneDNN renderer now
+emits `jitml_onednn_mha_unit`, which builds identity projections and delegates
+to the weighted routine, so the generated C++ expresses the same law the oracle
+does.
+
+The backends lane checks each lane's unweighted output against this contract for
+every family. Before Sprint `80.1` the unweighted ABI was only smoke-asserted —
+non-empty, finite, right length — which is why the divergence survived.
+
+## Parameterized Layer Vocabulary
+
+`src/JitML/Numerics/LayerDhall.hs` expresses the executed operator `LayerOp` as a
+parameterized Dhall union, with each alternative carrying that operator's real
+geometry — convolution input/kernel/stride/padding dimensions, pooling windows,
+normalization flavor and channel counts, attention sequence length, embedding
+width and head count, GeGLU and patch-embedding widths, residual and block
+topology. The checked-in `dhall/numerics/LayerOp.dhall` and
+`dhall/numerics/LayerGraph.dhall` are not hand-written: they are read back off
+the live `Dhall.Decoder` with `Dhall.expected` through
+`JitML.Dhall.Reflect.reflectedSchemaText`, the same reflection the daemon config
+surfaces use, and they are tracked generated paths (`numerics.layer-op.schema`,
+`numerics.layer-graph.schema`) so `jitml docs check` fails on drift. The schema
+therefore cannot fall behind the Haskell type, because it *is* the Haskell type.
+
+`LayerGraphDescription` lifts the vocabulary to a whole architecture — named
+nodes, declared shapes, mode, activation, plus the seed that fixes deterministic
+initialization — so a network is data rather than a hardcoded Haskell builder.
+`buildLayerGraph` realizes a description through the correctness-checked smart
+constructors and **fails closed**: a declared shape that disagrees with the
+geometry its operator actually produces, a pair of nodes that do not chain, or a
+graph whose own input/output shapes do not match its ends is rejected rather
+than adjusted.
+
+The cross-type audit run by `jitml lint haskell`
+(`src/JitML/Lint/DhallNumerics.hs`) covers four rules: the catalog leaves match
+the Haskell catalog; the reflected union's alternatives are exactly the executed
+`LayerOp` constructors and each projects onto exactly one `Catalog.Layer`; each
+checked-in reflected type file equals what the live decoder reflects; and no
+ML-describing Dhall file names a `substrate`. That last rule is deliberate — an
+architecture is substrate-independent, and substrate selection belongs on the
+CLI/plan seam, not in the ML DSL.
+
+The unit lane additionally asserts `decode . render == id` over every operator
+witness, so the writer (`renderLayerOp`) and the decoder cannot drift apart
+without failing a test.
 
 ## Typed Layer Graph and Autodiff
 
@@ -103,7 +163,39 @@ from `opWeightSegments` / `opBiasSegments`, so `graphParameterVector`,
 `replaceGraphParameterVector`, and the gradient flatten stay operator-agnostic.
 The catalog covers Dense, Conv2D, Conv3D, MaxPool, AvgPool, GlobalAvgPool,
 BatchNorm, LayerNorm, GroupNorm, Dropout, Residual, BasicBlock, Bottleneck,
-MultiHeadAttention, GeGLU, and patch-embed.
+MultiHeadAttention, GeGLU, patch-embed, and Identity.
+
+### One operator vocabulary
+
+`LayerOp` is the single layer vocabulary (Sprint `72.1`). Everything else is a
+projection of it by a total function, so a constructor cannot exist in one
+surface and not the others:
+
+- `opKind :: LayerOp -> LayerKind` gives the node identity tag. `LayerNode` no
+  longer stores a kind beside its operator — `layerNodeKind` is that projection
+  — so a node cannot claim an operator it did not execute, and the oneDNN
+  switch key is the executed operator by construction. Kinds that refine one
+  operator by its spec (Conv2D vs Conv3D, the three pooling flavours, the three
+  normalization flavours, basic vs bottleneck block) are read off the spec:
+  a block is a bottleneck exactly when it narrows internally, and
+  `mkBasicBlock` / `mkBottleneck` reject a spec of the other topology rather
+  than tagging it.
+- `opLayer :: LayerOp -> Catalog.Layer` gives the catalog constructor, and
+  `layerOpTemplate :: Catalog.Layer -> LayerOp` gives a minimal executable
+  operator for each catalog entry. Both are total, so
+  `-Werror=incomplete-patterns` (Sprint `7.1`) fails the build when either
+  vocabulary gains a constructor the other lacks.
+- `layerKindWitnessOp :: LayerKind -> LayerOp` is total over `LayerKind`, and
+  `opKind . layerKindWitnessOp` is the identity over `allLayerKinds`, so a
+  declared kind cannot exist without an operator that executes it.
+- `Catalog.layerCatalog` is `[minBound .. maxBound]` over `Catalog.Layer`, and
+  `dhall/numerics/Layer.dhall` mirrors that list under the cross-type audit, so
+  the documentation table and the Dhall surface are projections rather than
+  parallel hand-maintained lists.
+- The checkpoint DTO's `layerGraphNodeKind` is written from `opKind` and
+  verified against it on read: `layerGraphFromMetadata` rejects a persisted kind
+  that disagrees with the persisted operator, making that wire field a checksum
+  on the one vocabulary rather than a second one.
 
 Each node has a correct forward and a correct reverse-mode backward that
 produces both the input gradient (`backward_data`) and per-node parameter
@@ -117,7 +209,11 @@ shared projection and col2im input routing; GeGLU with exact-erf GELU; and
 residual/basic/bottleneck blocks with a typed identity-or-projection shortcut.
 The backward pass recomputes forward internals from the stored node input, so
 the tape needs no per-node state and gradients are deterministic for a fixed
-seed. The smart constructors return `Left` on shape/operation mismatch
+seed. This whole reverse-mode implementation is the **oracle** the device
+kernels are checked against on the substrate lane, not a runtime path they fall
+back to: the `linux-cpu` operator lowering is total over `LayerOp`, so pooling,
+dropout, and identity execute their own device kernels rather than borrowing
+their gradient from here. The smart constructors return `Left` on shape/operation mismatch
 (identity shortcut on differing widths, channels not divisible by groups,
 embed dim not divisible by heads, non-composing block stages) rather than
 silently collapsing. `JitML.Numerics.Mlp` remains the two-layer special case:
@@ -193,21 +289,16 @@ evidence that fails the convergence bar.
 | Constructor | Current scope |
 |-------------|---------------|
 | `Dense` | Generated from current Haskell catalog |
-| `Embedding` | Generated from current Haskell catalog |
-| `Conv1D` | Generated from current Haskell catalog |
-| `Conv2D` | Generated from current Haskell catalog |
-| `Conv3D` | Generated from current Haskell catalog |
-| `ConvTranspose` | Generated from current Haskell catalog |
-| `ComplexDense` | Generated from current Haskell catalog |
-| `ComplexConv2D` | Generated from current Haskell catalog |
-| `BatchNorm` | Generated from current Haskell catalog |
-| `LayerNorm` | Generated from current Haskell catalog |
-| `GroupNorm` | Generated from current Haskell catalog |
+| `Identity` | Generated from current Haskell catalog |
 | `Dropout` | Generated from current Haskell catalog |
-| `ResidualBlock` | Generated from current Haskell catalog |
-| `ScaledDotProductAttention` | Generated from current Haskell catalog |
+| `Convolution` | Generated from current Haskell catalog |
+| `Pooling` | Generated from current Haskell catalog |
+| `Normalization` | Generated from current Haskell catalog |
 | `MultiHeadAttention` | Generated from current Haskell catalog |
-| `RotaryPositionalEmbedding` | Generated from current Haskell catalog |
+| `GeGLU` | Generated from current Haskell catalog |
+| `PatchEmbedding` | Generated from current Haskell catalog |
+| `Residual` | Generated from current Haskell catalog |
+| `ResidualBlock` | Generated from current Haskell catalog |
 <!-- jitml:numerics.layers:end -->
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:

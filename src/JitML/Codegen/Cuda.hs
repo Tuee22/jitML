@@ -354,9 +354,16 @@ weightedFamilyImpl MultiHeadAttentionKernel =
     , "      jitml_kernel_output_count(n), jitml_launch_mha_weighted);"
     , "}"
     ]
-weightedFamilyImpl _ =
-  -- Identity / Reduction kernels keep the unweighted body — they have
-  -- no natural weight parameter.
+-- Sprint 84.1 — `Identity` and `Reduction` are named explicitly rather than
+-- caught by a wildcard. Their canonical no-op weight buffer is empty
+-- (`FamilyReference.defaultFamilyWeights`), so delegating to the unweighted
+-- body IS their weighted semantics; a tenth family must fail the build here
+-- instead of silently inheriting a weights-discarding passthrough.
+weightedFamilyImpl Identity = weightlessWeightedImpl
+weightedFamilyImpl Reduction = weightlessWeightedImpl
+
+weightlessWeightedImpl :: Text
+weightlessWeightedImpl =
   Text.unlines
     [ "extern \"C\" void jitml_weighted_kernel("
     , "    float *out, const float *input, std::size_t n,"
@@ -769,7 +776,10 @@ cudnnDeterministicAlgorithm Conv3DKernel = "CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_
 cudnnDeterministicAlgorithm BatchNormKernel = "CUDNN_BATCHNORM_SPATIAL_PERSISTENT"
 cudnnDeterministicAlgorithm LayerNormKernel = "CUDNN_BATCHNORM_SPATIAL_PERSISTENT"
 cudnnDeterministicAlgorithm MultiHeadAttentionKernel = "deterministic-cublas-gemm"
-cudnnDeterministicAlgorithm _ = "none"
+cudnnDeterministicAlgorithm Identity = "none"
+cudnnDeterministicAlgorithm Reduction = "none"
+cudnnDeterministicAlgorithm Dense2D = "none"
+cudnnDeterministicAlgorithm EmbeddingKernel = "none"
 
 cString :: Text -> Text
 cString value =
@@ -785,7 +795,17 @@ kernelOutputCountFunction Reduction =
     , "  return ((n + block - 1) / block) * warpsPerBlock;"
     , "}"
     ]
-kernelOutputCountFunction _ =
+kernelOutputCountFunction Identity = sameAsInputCount
+kernelOutputCountFunction Dense2D = sameAsInputCount
+kernelOutputCountFunction Conv2DKernel = sameAsInputCount
+kernelOutputCountFunction Conv3DKernel = sameAsInputCount
+kernelOutputCountFunction BatchNormKernel = sameAsInputCount
+kernelOutputCountFunction LayerNormKernel = sameAsInputCount
+kernelOutputCountFunction MultiHeadAttentionKernel = sameAsInputCount
+kernelOutputCountFunction EmbeddingKernel = sameAsInputCount
+
+sameAsInputCount :: Text
+sameAsInputCount =
   "extern \"C\" std::size_t jitml_kernel_output_count(std::size_t n) { return n; }"
 
 escape :: Char -> Text

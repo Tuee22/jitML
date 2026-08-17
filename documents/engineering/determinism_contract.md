@@ -19,6 +19,21 @@ self-describing `RawCheckpointEnvelope`; its typed body is either weight-only
 or supervised-graph. The frozen V1 and parallel V2/V3 checkpoint wires are
 retired.
 
+**Target, not yet true — cross-lane MLP agreement.** The contract below
+guarantees *same-substrate* bit-equality and deliberately asserts no
+cross-substrate numeric equivalence. The two **Linux** lanes are a narrower case
+where agreement *is* the design: `src/JitML/Codegen/MlpOneDnn.hs` declares its
+batched parameter-gradient reduction "matches the CUDA batch-grad reduction
+order", and `src/JitML/Engines/Engine.hs` passes `--fmad=false` to nvcc solely to
+stop FMA contraction rounding differently from the oneDNN lane. They do not
+currently agree: the accumulation loops match, but the activation does not —
+oneDNN evaluates `std::tanh` and CUDA evaluates `tanhf`, two implementations of
+one function, so the gradients differ at fp32 ulp scale. Aligning them is an
+owned deliverable of
+[Phase 265](../../DEVELOPMENT_PLAN/phase-265-cuda-row-device-evidence.md), which
+also adds the standing cross-lane bit-identity assertion; the `apple-silicon`
+lane remains outside any cross-substrate numeric claim.
+
 ## The Contract
 
 jitML guarantees **same-substrate bit-equality** when the same numerical path is
@@ -341,15 +356,23 @@ own floating-point determinism contract.
 - The oneDNN runtime/link availability probe checks `pkg-config` package
   metadata, readable oneDNN headers, and dynamic-linker `libdnnl` visibility.
 - Reductions are blocked with a fixed block size so the accumulation tree is
-  host-independent. The block size is part of `ToolchainFingerprint`; a
-  block-size change invalidates the cache key.
+  host-independent. The size is one constant,
+  `JitML.Codegen.OneDnn.oneDnnFixedReductionBlock`: the renderer emits it into
+  the generated source and the fingerprint reads it, so a block-size change
+  invalidates the cache key by construction rather than by convention.
 - RNG state lives in the clustered service pod.
 
 ### `linux-cuda` (CUDA C + cuBLAS / cuDNN)
 
-- CUDA kernels disable `--use_fast_math`.
-- Per-block reductions use a deterministic warp-shuffle pattern. Generated CUDA
-  reduction source emits one partial per warp and avoids device-side atomics;
+- CUDA kernels are compiled without `--use_fast_math`: the flag is **omitted**
+  rather than passed with a `false` value, because modern nvcc rejects that
+  spelling and absence is off. `--fmad=false` *is* passed explicitly, which
+  suppresses FMA contraction so a multiply-add rounds twice as the oneDNN lane
+  does; without it the sub-ULP skew changes RL convergence materially.
+- Per-block reductions in the generated **family** reduction kernel use a
+  deterministic warp-shuffle pattern, emitting one partial per warp and avoiding
+  device-side atomics; the trainer MLP kernel instead reduces sequentially
+  per thread, as described in the cuBLAS/cuDNN bullet below;
   `JitML.Engines.CudaRuntime` validates the expected partial count and
   accumulates partials on the host in canonical index order.
 - Generated CUDA artifacts expose a host-callable
@@ -371,7 +394,9 @@ own floating-point determinism contract.
   in the rendered source payload.
 - **Tradeoff**: cuDNN's deterministic convolution algorithms are typically
   20–50% slower than the non-deterministic defaults on training workloads;
-  this is the price of the bit-determinism contract.
+  this is the price of the bit-determinism contract. It is paid only on the
+  surfaces that call cuDNN — the family kernels and the Sprint `264.1`
+  layer-graph arm — not on the trainer MLP path.
 
 ## Supervised Serving via the Reloaded Graph
 
@@ -460,17 +485,22 @@ where:
   step kernel; inference is forward-only with frozen-weight constant folding
   enabled.
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
-- `toolchain-fingerprint` is the hash of the active codegen toolchain identity:
-  the GHC/cabal baseline and `cabal.project` toolchain comments, LLVM and oneDNN
-  package/runtime probes, Docker-pinned CUDA/NVCC/cuDNN package families, the
-  host OS Metal runtime plus fixed bridge ABI, and loader-relevant ABI facts for
-  local FFI artifacts. The Apple
-  fingerprint includes the fixed bridge ABI/version, host artifact ABI, runtime
-  `makeLibrary` policy, safe math mode, launch policy, rendered MSL payload, and
-  tuning choice. The current Linux CPU local
-  fingerprint carries
-  `artifact-abi=<os>-<arch>` so Darwin host artifacts and Linux container
-  artifacts do not share a cache key.
+- `toolchain-fingerprint` is a rendering of `ToolchainFacts`
+  (`src/JitML/Engines/Fingerprint.hs`) whose every field is derived from the
+  surface it describes: the compiler, its hash-free compile flags, and its link
+  line come from `Engine.engineCompiler` / `engineCompileFlags` /
+  `engineLinkFlags` — the same lists the compile command passes; the determinism
+  knobs from `deterministicFlags`; the ABI from a typed `AbiKind` carrying
+  `metalBridgeAbiVersion` on Apple; the numeric knobs from the renderers' own
+  constants; the entry points from one shared list per ABI; and the emitter set
+  from the vocabulary the artifact covers. A flag, link-line, bridge-ABI,
+  reduction-block, threadgroup-size, or operator-vocabulary change therefore
+  invalidates the artifact automatically, rather than depending on someone
+  re-syncing prose. Every fingerprint carries `artifact-abi=<os>-<arch>`, so
+  Darwin host artifacts and Linux container artifacts never share a cache key.
+  The Apple fingerprint declares the fixed-bridge ABI and names the MSL kernels
+  its `.metal.json` artifact defines; it does not claim a host C ABI, because
+  the artifact is source metadata and exports no C symbols.
 - `rendered-source-payload` is the canonical Haskell-rendered source bundle
   produced by `renderRuntimeSource`.
 - `tuning-choice` is the selected auto-tuning choice.

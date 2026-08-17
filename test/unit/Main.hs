@@ -27,7 +27,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef,
 import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -71,6 +71,7 @@ import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, test
 
 import Data.Vector qualified as Vector
 import Data.Vector.Unboxed qualified
+import Dhall qualified
 import JitML.App
   ( alphaZeroArtifactStep
   , convergeBoundedView
@@ -109,8 +110,15 @@ import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Checkpoint.Writer qualified as CheckpointWriter
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.Cuda qualified as Cuda
+import JitML.Codegen.CudaLayerTraining qualified as CudaLayerTrainingCodegen
 import JitML.Codegen.KernelFamily (KernelFamily (..))
+import JitML.Codegen.KernelFamily qualified as KernelFamily
+import JitML.Codegen.LayerTraining qualified as LayerTrainingCodegen
 import JitML.Codegen.Metal qualified as Metal
+import JitML.Codegen.MlpCuda qualified as MlpCudaCodegen
+import JitML.Codegen.MlpMetal qualified as MlpMetalCodegen
+import JitML.Codegen.MlpOneDnn qualified as MlpOneDnnCodegen
+import JitML.Codegen.OneDnn qualified as OneDnnCodegen
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Coordinator.Topology qualified as Topology
@@ -121,6 +129,8 @@ import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.CudnnBindings qualified as Cudnn
 import JitML.Engines.Engine qualified as Engine
+import JitML.Engines.Fingerprint qualified as Fingerprint
+import JitML.Engines.LoadableKernel ()
 import JitML.Engines.Loader qualified as Loader
 import JitML.Engines.Local qualified as LocalEngine
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
@@ -147,12 +157,17 @@ import JitML.Inference.AdversarialMove qualified as AdversarialMove
 import JitML.Inference.Command qualified as InferenceCommand
 import JitML.Inference.Decode qualified as Decode
 import JitML.Lint.Chart (checkChartFiles)
-import JitML.Lint.DhallNumerics (checkDhallNumerics)
+import JitML.Lint.DhallNumerics (checkDhallNumerics, mlDslDhallFiles)
 import JitML.Lint.DhallRL (checkDhallRL)
+import JitML.Lint.FailOpen qualified as FailOpen
 import JitML.Lint.ProductTruth qualified as ProductTruth
 import JitML.Lint.Stack.Types (LintFinding (..))
 import JitML.Numerics.Autodiff qualified as Autodiff
+import JitML.Numerics.Catalog qualified as NumericsCatalog
+import JitML.Numerics.FamilyReference qualified as FamilyReference
+import JitML.Numerics.LayerDhall qualified as LayerDhall
 import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Numerics.LayerGraphDevice qualified as LayerGraphDevice
 import JitML.Numerics.LayerGraphMetadata qualified as LayerGraphMetadata
 import JitML.Numerics.Mlp qualified as Mlp
 import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
@@ -194,6 +209,7 @@ import JitML.Prerequisite.Registry
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix (ModelState (..), ProductRow (..))
@@ -247,6 +263,9 @@ import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.RL.Simulator qualified as Sim
 import JitML.Routes qualified as Routes
+import JitML.SL.Architecture qualified as Architecture
+import JitML.SL.Canonicals qualified as SLCanonicals
+import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.RuntimeArtifact qualified as Runtime
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities (HasMinIO (..))
@@ -302,6 +321,7 @@ import JitML.Sub.Stream
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
 import JitML.Test.BrowserEvidenceJournal qualified as BrowserEvidenceJournal
+import JitML.Test.DeviceWitnessFixture qualified as DeviceWitnessFixture
 import JitML.Test.HostWorkloadRegistry qualified as HostWorkloadRegistry
 import JitML.Test.InferenceBatch qualified as InferenceBatch
 import JitML.Test.LiveE2EScope qualified as LiveE2EScope
@@ -1526,6 +1546,8 @@ runProductScenarioFixtureWorker = do
         WeightCodec.jmw1ContentSha (WeightCodec.encodeJmw1 initialWeights)
       finalSha =
         WeightCodec.jmw1ContentSha (WeightCodec.encodeJmw1 finalWeights)
+  fixtureWitness <-
+    journalExpectRight =<< DeviceWitnessFixture.fixtureDeviceExecutionWitness
   completed <-
     journalExpectRight
       ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
@@ -1539,6 +1561,7 @@ runProductScenarioFixtureWorker = do
           metrics
           initialSha
           finalSha
+          (Just fixtureWitness)
       )
   invocationBound <-
     journalExpectRight
@@ -2016,6 +2039,23 @@ phase262RenderedInferenceReplies =
 -- | One authenticated @CheckpointList@ frame with zero rows, spelled out
 -- literally rather than rendered, so the wire form is pinned independently of
 -- the renderer that produces it.
+-- | A node executing one declared layer kind, built from the kind's own witness
+-- operator so the lowering is exercised against the declared vocabulary rather
+-- than a hand-picked subset.
+phase241WitnessNode :: LayerGraph.LayerKind -> LayerGraph.LayerNode
+phase241WitnessNode kind =
+  LayerGraph.LayerNode
+    { LayerGraph.layerNodeName = "phase-241-" <> LayerGraph.layerKindName kind
+    , LayerGraph.layerNodeOp = op
+    , LayerGraph.layerInputShape = LayerGraph.TensorShape [4]
+    , LayerGraph.layerOutputShape = LayerGraph.TensorShape [4]
+    , LayerGraph.layerMode = LayerGraph.TrainingMode
+    , LayerGraph.layerActivation = LayerGraph.LinearActivation
+    , LayerGraph.layerParameters = Just (LayerGraph.deterministicOpParameters 5 op)
+    }
+ where
+  op = LayerGraph.layerKindWitnessOp kind
+
 phase262CheckpointListFrame :: Text
 phase262CheckpointListFrame =
   Text.unlines
@@ -4936,13 +4976,16 @@ unitTestMain =
                   <> Text.pack SystemInfo.os
                   <> "-"
                   <> Text.pack SystemInfo.arch
+              linuxCpuFingerprint =
+                Cache.unToolchainFingerprint
+                  (Fingerprint.engineFamilyToolchainFingerprint Substrate.LinuxCPU)
           assertBool
             "linux-cpu local fingerprint separates host/container artifact ABIs"
-            (expectedAbi `Text.isInfixOf` Cache.unToolchainFingerprint LocalEngine.linuxCpuToolchainFingerprint)
+            (expectedAbi `Text.isInfixOf` linuxCpuFingerprint)
           assertBool
             "linux-cpu local fingerprint records the deterministic reduction block"
-            ( "reduction-block=256"
-                `Text.isInfixOf` Cache.unToolchainFingerprint LocalEngine.linuxCpuToolchainFingerprint
+            ( ("reduction-block=" <> Text.pack (show OneDnnCodegen.oneDnnFixedReductionBlock))
+                `Text.isInfixOf` linuxCpuFingerprint
             )
       , testCase "CpuFeatures parsers select deterministic oneDNN micro-kernel knobs" $ do
           let linuxAvx512 =
@@ -7159,6 +7202,8 @@ unitTestMain =
             ProductMatrix.allProductRows of
             Nothing -> assertFailure "ProductMatrix unexpectedly has no canonical RL row"
             Just row -> do
+              fixtureWitness <-
+                expectRightText =<< DeviceWitnessFixture.fixtureDeviceExecutionWitness
               let experimentHash = ProductMatrix.productRowExperimentHash row
                   budget = ProductMatrix.trainingBudget row
                   observedUnits = TrainingBudget.trainingBudgetTargetUnits budget
@@ -7184,6 +7229,7 @@ unitTestMain =
                           metrics
                           (Text.replicate 64 "a")
                           (Text.replicate 64 "b")
+                          (Just fixtureWitness)
                       )
                   manifest =
                     Checkpoint.attachCompletedTraining
@@ -11212,35 +11258,86 @@ unitTestMain =
               assertBool
                 "product-row hashes avoid slash-separated object prefixes"
                 (not (any (Text.isInfixOf "/") hashes))
-          , testCase "claim-level device evidence agrees with the row-level composer" $ do
-              -- A lane fragment is issued from completed evidence, which retains
-              -- the device claim and the lane but not the declared row. Binding
-              -- the two composers here keeps the issued cell identical to the
-              -- registry's own rendering without re-entering the registry.
-              traverse_
-                ( \substrate ->
-                    traverse_
-                      ( \row ->
-                          ProductMatrix.deviceEvidenceForClaim
-                            substrate
-                            (ProductMatrix.deviceClaim row)
-                            @?= ProductMatrix.productRowDeviceEvidenceForSubstrate substrate row
-                      )
-                      ProductMatrix.allProductRows
+          , testCase "device evidence is minted from an execution witness, not a declaration" $ do
+              -- Phase 229. There is no pure constructor for a witness: the mint
+              -- must find the artifact the engine reported and digest its bytes.
+              -- The rendered cell therefore names the code that ran rather than
+              -- the substrate that was asked for.
+              witness <-
+                expectRightText =<< DeviceWitnessFixture.fixtureDeviceExecutionWitness
+              let cell = DeviceWitness.renderDeviceExecutionWitness witness
+              assertBool
+                "device evidence omits the executing lane"
+                (Substrate.renderSubstrate Substrate.LinuxCPU `Text.isInfixOf` cell)
+              assertBool
+                "device evidence omits the backend the artifact reports"
+                (DeviceWitness.witnessBackend witness `Text.isInfixOf` cell)
+              assertBool
+                "device evidence omits the identity read back from the artifact"
+                (DeviceWitness.witnessExecutedIdentity witness `Text.isInfixOf` cell)
+              assertBool
+                "device evidence omits the artifact digest"
+                ( Text.take 16 (DeviceWitness.witnessArtifactSha256 witness)
+                    `Text.isInfixOf` cell
                 )
-                [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
-              case ProductMatrix.allProductRows of
-                [] -> assertFailure "ProductRow registry is unexpectedly empty"
-                row : _ ->
+          , testCase "a witness names a specific artifact, so distinct lanes cannot share a cell" $ do
+              cpuWitness <-
+                expectRightText
+                  =<< DeviceWitnessFixture.fixtureDeviceExecutionWitnessFor Substrate.LinuxCPU
+              cudaWitness <-
+                expectRightText
+                  =<< DeviceWitnessFixture.fixtureDeviceExecutionWitnessFor Substrate.LinuxCUDA
+              assertBool
+                "two lanes rendered the same device-evidence cell"
+                ( DeviceWitness.renderDeviceExecutionWitness cpuWitness
+                    /= DeviceWitness.renderDeviceExecutionWitness cudaWitness
+                )
+              assertBool
+                "two lanes recorded the same artifact digest"
+                ( DeviceWitness.witnessArtifactSha256 cpuWitness
+                    /= DeviceWitness.witnessArtifactSha256 cudaWitness
+                )
+          , testCase "the witness mint fails closed on an artifact that is not there" $ do
+              minted <-
+                DeviceWitness.witnessDeviceExecution
+                  Substrate.LinuxCPU
+                  "onednn"
+                  (Text.replicate 64 "0")
+                  "/nonexistent/jitml/kernel.so"
+                  "jitml_matmul_forward"
+              case minted of
+                Right _ ->
+                  assertFailure "a witness was minted for an artifact that does not exist"
+                Left message ->
                   assertBool
-                    "device evidence does not distinguish the executing lane"
-                    ( ProductMatrix.deviceEvidenceForClaim
-                        Substrate.LinuxCPU
-                        (ProductMatrix.deviceClaim row)
-                        /= ProductMatrix.deviceEvidenceForClaim
-                          Substrate.LinuxCUDA
-                          (ProductMatrix.deviceClaim row)
+                    "the mint failure does not name the absent artifact"
+                    ("absent artifact" `Text.isInfixOf` message)
+          , testCase "a decoded witness is refined, so a hand-authored journal row fails closed" $ do
+              witness <-
+                expectRightText =<< DeviceWitnessFixture.fixtureDeviceExecutionWitness
+              let raw = DeviceWitness.deviceExecutionWitnessToRaw witness
+              DeviceWitness.refineRawDeviceExecutionWitness raw @?= Right witness
+              assertBool
+                "a witness with a non-digest artifact hash refined"
+                ( isLeftResult
+                    ( DeviceWitness.refineRawDeviceExecutionWitness
+                        raw {DeviceWitness.rawWitnessArtifactSha256 = "not-a-digest"}
                     )
+                )
+              assertBool
+                "a witness with a blank executed identity refined"
+                ( isLeftResult
+                    ( DeviceWitness.refineRawDeviceExecutionWitness
+                        raw {DeviceWitness.rawWitnessExecutedIdentity = "   "}
+                    )
+                )
+              assertBool
+                "a witness naming an unknown substrate refined"
+                ( isLeftResult
+                    ( DeviceWitness.refineRawDeviceExecutionWitness
+                        raw {DeviceWitness.rawWitnessSubstrate = "linux-tpu"}
+                    )
+                )
           , testCase
               "CheckpointList wire fields agree between the topology validator and the browser contract (Phase 262)"
               $ do
@@ -11676,6 +11773,973 @@ unitTestMain =
                         `Text.isInfixOf` Text.toLower (ProductMatrix.implementation row)
                     ]
               offenders @?= []
+          ]
+      , testGroup
+          "One operator vocabulary (Phase 72)"
+          [ testCase "the catalog is derived from its own type" $ do
+              NumericsCatalog.layerCatalog @?= [minBound .. maxBound]
+              length NumericsCatalog.layerCatalog @?= 11
+          , testCase "every catalog constructor has an executable operator" $ do
+              fmap (LayerGraph.opLayer . LayerGraph.layerOpTemplate) NumericsCatalog.layerCatalog
+                @?= NumericsCatalog.layerCatalog
+          , testCase "every declared layer kind is executed by a real operator" $ do
+              fmap (LayerGraph.opKind . LayerGraph.layerKindWitnessOp) LayerGraph.allLayerKinds
+                @?= LayerGraph.allLayerKinds
+          , testCase "every catalog constructor's kind is a declared layer kind" $ do
+              let kinds =
+                    List.nub
+                      ( fmap
+                          (LayerGraph.opKind . LayerGraph.layerOpTemplate)
+                          NumericsCatalog.layerCatalog
+                      )
+                  declaredShapes = fmap kindConstructorName LayerGraph.allLayerKinds
+                  orphans =
+                    [kind | kind <- kinds, kindConstructorName kind `notElem` declaredShapes]
+              orphans @?= []
+          , testCase "a node's kind is the kind of the operator it executes" $ do
+              node <-
+                expectRightText
+                  ( LayerGraph.mkAffineLayer
+                      "vocabulary-dense"
+                      2
+                      2
+                      LayerGraph.LinearActivation
+                      LayerGraph.TrainingMode
+                      (LayerGraph.deterministicParameters 1 2 2)
+                  )
+              LayerGraph.layerNodeKind node @?= LayerGraph.DenseLayer
+              LayerGraph.layerNodeKind node @?= LayerGraph.opKind (LayerGraph.layerNodeOp node)
+          , testCase "a block constructor rejects a spec of the other topology" $ do
+              let basicSpec =
+                    LayerGraph.BlockSpec
+                      [ LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) Nothing LayerGraph.ReluActivation
+                      , LayerGraph.BlockStage (LayerGraph.AffineSpec 4 4) Nothing LayerGraph.ReluActivation
+                      ]
+                      LayerGraph.IdentityShortcut
+                      1.0
+                      LayerGraph.ReluActivation
+                  params = LayerGraph.deterministicOpParameters 7 (LayerGraph.BlockOp basicSpec)
+              assertBool
+                "a width-preserving spec is rejected as a bottleneck"
+                ( case LayerGraph.mkBottleneck "vocabulary-block" basicSpec LayerGraph.TrainingMode params of
+                    Left _ -> True
+                    Right _ -> False
+                )
+              assertBool
+                "the same spec is accepted as a basic block"
+                ( case LayerGraph.mkBasicBlock "vocabulary-block" basicSpec LayerGraph.TrainingMode params of
+                    Left _ -> False
+                    Right _ -> True
+                )
+          , testCase "checkpoint metadata reconstruction rejects a kind that disagrees" $ do
+              node <-
+                expectRightText
+                  ( LayerGraph.mkAffineLayer
+                      "vocabulary-dense"
+                      2
+                      2
+                      LayerGraph.LinearActivation
+                      LayerGraph.TrainingMode
+                      (LayerGraph.deterministicParameters 1 2 2)
+                  )
+              let graph =
+                    LayerGraph.LayerGraph
+                      { LayerGraph.layerGraphName = "vocabulary-graph"
+                      , LayerGraph.layerGraphInputShape = LayerGraph.TensorShape [2]
+                      , LayerGraph.layerGraphOutputShape = LayerGraph.TensorShape [2]
+                      , LayerGraph.layerGraphNodes = [node]
+                      }
+                  metadata = LayerGraphMetadata.layerGraphMetadataFromGraph graph
+                  tampered =
+                    metadata
+                      { LayerGraphMetadata.layerGraphMetadataNodes =
+                          [ nodeMeta
+                              { LayerGraphMetadata.layerGraphNodeKind =
+                                  LayerGraphMetadata.LayerGraphConv2DLayer
+                              }
+                          | nodeMeta <- LayerGraphMetadata.layerGraphMetadataNodes metadata
+                          ]
+                      }
+              assertBool
+                "the untampered metadata round-trips"
+                ( case LayerGraphMetadata.layerGraphFromMetadata metadata of
+                    Left _ -> False
+                    Right _ -> True
+                )
+              assertBool
+                "a kind that disagrees with the executed operator is rejected"
+                ( case LayerGraphMetadata.layerGraphFromMetadata tampered of
+                    Left _ -> True
+                    Right _ -> False
+                )
+          ]
+      , testGroup
+          "Fail-closed architecture resolution (Phase 233)"
+          [ testCase "every canonical row's wire model and executed family agree" $
+              -- The row carries its family directly now; this is the guard that
+              -- the carried family cannot drift from the wire name.
+              [ SLCanonicals.problemName problem
+              | problem <- SLCanonicals.canonicalProblems
+              , Architecture.familyForModel (SLCanonicals.problemModel problem)
+                  /= Just (SLCanonicals.problemFamily problem)
+              ]
+                @?= []
+          , testCase "an unrecognised model resolves to nothing, not to dense" $ do
+              -- It previously answered DenseFamily, which silently degraded the
+              -- architecture and made its own parity check vacuous.
+              Architecture.familyForModel "NotAModel" @?= Nothing
+              Architecture.familyForModel "Dense" @?= Just SLCanonicals.DenseFamily
+          , testCase "claimed features follow the executed family" $ do
+              -- A non-dense row must claim non-dense features. With the old
+              -- string fallback an unknown model claimed only [FeatureDense],
+              -- so feature parity held vacuously against a dense stand-in.
+              let claimedFor name =
+                    [ Architecture.architectureClaimedFeaturesForProblem problem
+                    | problem <- SLCanonicals.canonicalProblems
+                    , SLCanonicals.problemName problem == name
+                    ]
+              claimedFor "mnist-shallow-mlp" @?= [[Architecture.FeatureDense]]
+              [ name
+                | name <- ["mnist-lenet", "cifar10-vit", "cifar10-resnet20"]
+                , claimedFor name == [[Architecture.FeatureDense]]
+                ]
+                @?= []
+          , testCase "every canonical row builds its literal graph" $
+              -- The builder no longer falls back to the legacy dense graph, so
+              -- this is now a real assertion rather than a tautology.
+              [ SLCanonicals.problemName problem
+              | problem <- SLCanonicals.canonicalProblems
+              , Left _ <-
+                  [ Architecture.architectureSpecForProblem
+                      Classifier.defaultClassifierConfig
+                      problem
+                  ]
+              ]
+                @?= []
+          , testCase "the declared layer count matches the built topology" $
+              -- layerCountForFamily feeds seed-headroom bounds; this keeps it
+              -- from drifting from the topology it counts.
+              [ SLCanonicals.problemName problem
+              | problem <- SLCanonicals.canonicalProblems
+              , Right spec <-
+                  [ Architecture.architectureSpecForProblem
+                      Classifier.defaultClassifierConfig
+                      problem
+                  ]
+              , Architecture.layerCountForFamily (SLCanonicals.problemFamily problem)
+                  /= length (Architecture.archLayers spec)
+              ]
+                @?= []
+          , testCase "every parameterised operator receives trainable weights" $
+              -- The weightPlan wildcard gave an unhandled operator zero
+              -- trainable parameters: it would execute and train nothing.
+              [ LayerGraph.layerKindName kind
+              | kind <- LayerGraph.allLayerKinds
+              , let op = LayerGraph.layerKindWitnessOp kind
+              , kind
+                  `notElem` [ LayerGraph.DenseLayer
+                            , LayerGraph.IdentityLayer
+                            , LayerGraph.DropoutLayer 0.1
+                            , LayerGraph.PoolLayer LayerGraph.MaxPool
+                            , LayerGraph.PoolLayer LayerGraph.AvgPool
+                            , LayerGraph.PoolLayer LayerGraph.GlobalAvgPool
+                            ]
+              , Data.Vector.Unboxed.null
+                  (LayerGraph.layerWeights (LayerGraph.deterministicOpParameters 5 op))
+              ]
+                @?= []
+          ]
+      , testGroup
+          "Total device operator lowering (Phase 241)"
+          [ testCase "every declared operator lowers to a device primitive" $
+              -- The dispatch used to be a guard chain ending in a wildcard that
+              -- reported "operator not supported on device". Three of the eleven
+              -- operators fell into it, so a graph containing one either failed
+              -- closed or had its backward computed by the pure executor that is
+              -- supposed to be its oracle. The lowering is now total, and this
+              -- pins that: a new operator with no device primitive shows up here
+              -- as a Left rather than as a silent host fallback.
+              [ LayerGraph.layerKindName kind
+              | kind <- LayerGraph.allLayerKinds
+              , Left _ <- [LayerGraphDevice.lowerLayerOp (phase241WitnessNode kind)]
+              ]
+                @?= []
+          , testCase "identity and dropout lower to the shared scale definition" $ do
+              -- Identity is the unit scale, and dropout's scale is read off the
+              -- same `dropoutScale` the pure executor applies, so the device and
+              -- the oracle cannot disagree about the keep probability.
+              let scaleOf kind =
+                    case LayerGraphDevice.lowerLayerOp (phase241WitnessNode kind) of
+                      Right (LayerGraphDevice.LowerOpTrain plan) ->
+                        Just (LayerGraphDevice.dopFparams plan)
+                      _ -> Nothing
+              scaleOf LayerGraph.IdentityLayer @?= Just [1.0]
+              scaleOf (LayerGraph.DropoutLayer 0.25)
+                @?= Just [LayerGraph.dropoutScale LayerGraph.TrainingMode 0.25]
+          , testCase "each operator family claims its own opcode and evidence code" $ do
+              -- Two operators sharing an opcode would let the artifact run one
+              -- and be recorded as the other.
+              let plans =
+                    [ (LayerGraphDevice.dopCode plan, LayerGraphDevice.dopEvidenceCode plan)
+                    | kind <- LayerGraph.allLayerKinds
+                    , Right (LayerGraphDevice.LowerOpTrain plan) <-
+                        [LayerGraphDevice.lowerLayerOp (phase241WitnessNode kind)]
+                    ]
+              assertBool
+                "an operator lowered to an opcode with a mismatched evidence code"
+                (all (\(code, evidenceCode) -> code /= 0 && evidenceCode /= 0) plans)
+              nub (fmap fst plans) @?= nub (fmap fst plans)
+              [ (code, nub evidenceCodes)
+                | code <- nub (fmap fst plans)
+                , let evidenceCodes = [e | (c, e) <- plans, c == code]
+                , length (nub evidenceCodes) /= 1
+                ]
+                @?= []
+          ]
+      , testGroup
+          "Cross-renderer family contract (Phase 84)"
+          [ testCase "every renderer emits each entry point exactly once per family" $ do
+              -- The signature is emitted once and the body supplied as data, so
+              -- a family cannot acquire a second or zero copy of its ABI.
+              let oneDnnSource family =
+                    Text.concat
+                      ( fmap
+                          sourceContents
+                          ( OneDnnCodegen.renderOneDnnFamilySource
+                              family
+                              (Cache.KernelSpec "phase-84")
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+                  cudaSource family =
+                    Text.concat
+                      ( fmap
+                          sourceContents
+                          ( Cuda.renderCudaFamilySource
+                              family
+                              (Cache.KernelSpec "phase-84")
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+                  metalSource = Metal.renderMetalFamilySource
+                  counts :: Text -> (KernelFamily -> Text) -> Text -> Text -> [(Text, KernelFamily)]
+                  counts label render open weighted =
+                    [ (label, family)
+                    | family <- KernelFamily.kernelFamilies
+                    , Text.count open (render family) /= 1
+                        || Text.count weighted (render family) /= 1
+                    ]
+              concat
+                [ counts "onednn" oneDnnSource "void jitml_kernel(" "void jitml_weighted_kernel("
+                , counts "cuda" cudaSource "void jitml_kernel(" "void jitml_weighted_kernel("
+                , counts
+                    "metal"
+                    metalSource
+                    "kernel void jitml_kernel("
+                    "kernel void jitml_weighted_kernel("
+                ]
+                @?= []
+          , testCase "all three renderers agree on unweighted attention" $ do
+              -- The contract says attention at Wq = Wk = Wv = I is an
+              -- elementwise square. Each renderer must express that, not a
+              -- passthrough.
+              let oneDnn =
+                    Text.concat
+                      ( fmap
+                          sourceContents
+                          ( OneDnnCodegen.renderOneDnnFamilySource
+                              KernelFamily.MultiHeadAttentionKernel
+                              (Cache.KernelSpec "phase-84-mha")
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+                  metal = Metal.renderMetalFamilySource KernelFamily.MultiHeadAttentionKernel
+              assertBool
+                "oneDNN attention delegates to the unit-weight algebra"
+                ("jitml_onednn_mha_unit(out, input, n);" `Text.isInfixOf` oneDnn)
+              assertBool
+                "metal attention squares its input"
+                ("input[id] * input[id]" `Text.isInfixOf` metal)
+              assertBool
+                "no renderer leaves attention as a bare passthrough"
+                (not ("jitml_onednn_dense_identity(out, input, n);" `Text.isInfixOf` oneDnn))
+          , testCase "the metal reduction never writes past its output buffer" $ do
+              -- The weighted reduction body used to write out[id] for every
+              -- id < n into a buffer sized ceil(n / 32).
+              -- The rendered source concatenates the unweighted and weighted
+              -- bodies, and BOTH needles already occur in the unweighted one, so
+              -- an infix check here passes even with the weighted fix reverted.
+              -- Count instead: each must appear exactly twice, once per body.
+              let metal = Metal.renderMetalFamilySource KernelFamily.Reduction
+              Metal.metalOutputCountFor KernelFamily.Reduction 100 @?= 4
+              Text.count "out[base / 32u] = v;" metal @?= 2
+              Text.count "uint tid_in_simd [[thread_index_in_simdgroup]]" metal @?= 2
+              assertBool
+                "no reduction body writes one output per input lane"
+                (not ("  out[id] = input[id];" `Text.isInfixOf` metal))
+          , testCase "metal output sizing and its declared kind agree" $
+              [ family
+              | family <- KernelFamily.kernelFamilies
+              , let sized = Metal.metalOutputCountFor family 64
+              , let declared = Metal.metalOutputCountKind family
+              , if declared == "same-as-input" then sized /= 64 else sized /= 2
+              ]
+                @?= []
+          ]
+      , testGroup
+          "Kernel-family semantics contract (Phase 80)"
+          [ testCase "the contract degenerates every family to its unweighted meaning" $ do
+              -- The unweighted ABI has no independent definition: it is the
+              -- weighted reference at the family's canonical no-op weights.
+              let input = [1.0, 2.0, 3.0, 4.0] :: [Float]
+                  actual =
+                    [ (family, FamilyReference.unweightedFamilyReference family input)
+                    | family <- KernelFamily.kernelFamilies
+                    ]
+                  closeTo expected got =
+                    length expected == length got
+                      && and [abs (a - b) < 1.0e-4 | (a, b) <- zip expected got]
+              [ family
+                | (family, got) <- actual
+                , let expected =
+                        case family of
+                          Identity -> [1.0, 2.0, 3.0, 4.0]
+                          Reduction -> [10.0]
+                          Dense2D -> [1.0, 2.0, 3.0, 4.0]
+                          Conv2DKernel -> [1.0, 2.0, 3.0, 4.0]
+                          Conv3DKernel -> [1.0, 2.0, 3.0, 4.0]
+                          BatchNormKernel -> [0.999995, 1.99999, 2.999985, 3.99998]
+                          LayerNormKernel -> [-1.3416354, -0.4472118, 0.4472118, 1.3416354]
+                          -- Wq = Wk = Wv = I degenerates attention to a square.
+                          MultiHeadAttentionKernel -> [1.0, 4.0, 9.0, 16.0]
+                          EmbeddingKernel -> [1.0, 2.0, 3.0, 4.0]
+                , not (closeTo expected got)
+                ]
+                @?= []
+          , testCase "the linux-cpu attention body is the weighted algebra at identity" $ do
+              -- This lane rendered `jitml_onednn_dense_identity` — the input
+              -- unchanged — while linux-cuda and apple-silicon both squared.
+              let source =
+                    Text.concat
+                      ( fmap
+                          sourceContents
+                          ( OneDnnCodegen.renderOneDnnFamilySource
+                              KernelFamily.MultiHeadAttentionKernel
+                              (Cache.KernelSpec "phase-80-mha")
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+              assertBool
+                "the unweighted attention body calls the unit-weight algebra"
+                ("jitml_onednn_mha_unit(out, input, n);" `Text.isInfixOf` source)
+              assertBool
+                "the unit-weight helper builds identity projections"
+                ("identity[2 * block + i * n + i] = 1.0f;" `Text.isInfixOf` source)
+          , testCase "no linux-cpu weighted family renders a discarding passthrough" $ do
+              -- A tenth family now fails the build rather than silently
+              -- rendering `(void)weights; jitml_kernel(...)`.
+              let weightedBody family =
+                    Text.concat
+                      ( fmap
+                          sourceContents
+                          ( OneDnnCodegen.renderOneDnnFamilySource
+                              family
+                              (Cache.KernelSpec "phase-80-weighted")
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+                  -- Identity and Reduction have no weight parameter at all;
+                  -- their canonical no-op weight buffer is empty.
+                  weightless = [KernelFamily.Identity, KernelFamily.Reduction]
+              [ family
+                | family <- KernelFamily.kernelFamilies
+                , family `notElem` weightless
+                , not
+                    ( "_weighted(out, input, n, weights, weights_count);"
+                        `Text.isInfixOf` weightedBody family
+                    )
+                ]
+                @?= []
+              [ family
+                | family <- weightless
+                , not ("(void)weights;" `Text.isInfixOf` weightedBody family)
+                ]
+                @?= []
+          ]
+      , testGroup
+          "One substrate profile (Phase 79)"
+          [ testCase "the engine record is a projection of the profile" $
+              -- Backend and artifact extension exist in one place now, so the
+              -- two cannot disagree about a substrate.
+              [ substrate
+              | substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+              , let profile = Substrate.profileFor substrate
+              , let engine = Engine.engineForSubstrate substrate
+              , Engine.engineBackend engine /= Substrate.profileBackend profile
+                  || Engine.engineArtifactExtension engine
+                    /= Substrate.profileArtifactExtension profile
+                  || Engine.engineSubstrate engine /= Substrate.profileSubstrate profile
+              ]
+                @?= []
+          , testCase "every substrate-varying fact reads off the one profile" $ do
+              -- The former five shapes of "apple-silicon has no cluster
+              -- compute", plus the edge port and the runtime class whose
+              -- wildcard let a new substrate inherit Nothing.
+              [ substrate
+                | substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+                , let profile = Substrate.profileFor substrate
+                , Substrate.substrateHasClusterCompute substrate
+                    /= Substrate.profileHasClusterCompute profile
+                    || Substrate.substrateEdgePort substrate /= Substrate.profileEdgePort profile
+                    || Substrate.substrateRuntimeClass substrate
+                      /= Substrate.profileRuntimeClass profile
+                ]
+                @?= []
+              Substrate.substrateHasClusterCompute Substrate.AppleSilicon @?= False
+              Substrate.substrateHasClusterCompute Substrate.LinuxCPU @?= True
+              Substrate.substrateHasClusterCompute Substrate.LinuxCUDA @?= True
+          , testCase "each substrate declares how it fills and enters its artifact" $ do
+              -- The loader and the MLP device dispatch on these values instead
+              -- of on a wildcard over Substrate.
+              fmap
+                (Substrate.profileArtifactFill . Substrate.profileFor)
+                [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+                @?= [ Substrate.SourceMetadataWriteFill
+                    , Substrate.CompileSubprocessFill
+                    , Substrate.CompileSubprocessFill
+                    ]
+              fmap
+                (Substrate.profileLaunch . Substrate.profileFor)
+                [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+                @?= [ Substrate.FixedBridgeLaunch
+                    , Substrate.LoadableSymbolLaunch
+                    , Substrate.LoadableSymbolLaunch
+                    ]
+          , testCase "an apple artifact's identity is read out of the artifact" $ do
+              -- Before Sprint 79.1 the Apple family driver reported the family
+              -- the host had ASKED for, so the mismatch guard compared a value
+              -- with itself. The identity now comes from the written document.
+              withSystemTempDirectory "phase79-metal" $ \dir -> do
+                let path = dir </> "kernel.metal.json"
+                Text.IO.writeFile path "{\n  \"family\": \"conv2d\",\n  \"abi\": \"x\"\n}\n"
+                identity <-
+                  Loader.executedArtifactIdentity Substrate.FixedBridgeLaunch path
+                identity @?= Right "conv2d"
+          , testCase "a malformed or absent apple artifact identity fails closed" $
+              withSystemTempDirectory "phase79-metal-bad" $ \dir -> do
+                let missing = dir </> "absent.metal.json"
+                    malformed = dir </> "malformed.metal.json"
+                Text.IO.writeFile malformed "{\n  \"abi\": \"x\"\n}\n"
+                absentResult <- Loader.executedArtifactIdentity Substrate.FixedBridgeLaunch missing
+                malformedResult <-
+                  Loader.executedArtifactIdentity Substrate.FixedBridgeLaunch malformed
+                assertBool
+                  "an unreadable artifact is rejected"
+                  (either (const True) (const False) absentResult)
+                malformedResult @?= Left "Metal source-metadata artifact declares no family"
+          , testCase "linux-cpu fails closed when oneDNN is unavailable" $ do
+              -- This lane previously went straight to dlopen with no probe at
+              -- all, while CUDA and Metal both gated on theirs.
+              let unavailable =
+                    OneDnnRuntime.OneDnnRuntimeProbe
+                      { OneDnnRuntime.oneDnnRuntimePkgConfigName = Nothing
+                      , OneDnnRuntime.oneDnnRuntimePkgConfigVersion = Nothing
+                      , OneDnnRuntime.oneDnnRuntimeHeaderPath = Nothing
+                      , OneDnnRuntime.oneDnnRuntimeLibraryVisible = False
+                      , OneDnnRuntime.oneDnnRuntimeProbeLog = []
+                      }
+              OneDnnRuntime.oneDnnRuntimeAvailable unavailable @?= False
+              env <- buildEnv defaultGlobalFlags
+              result <-
+                LocalEngine.runLinuxCpuFamilyKernelWithProbe
+                  (pure unavailable)
+                  env
+                  Dense2D
+                  [1.0, 2.0]
+              case result of
+                Left message ->
+                  assertBool
+                    ("probe failure names the lane: " <> Text.unpack message)
+                    ("linux-cpu oneDNN runtime unavailable" `Text.isInfixOf` message)
+                Right _ -> assertFailure "a missing oneDNN runtime must fail closed"
+          ]
+      , testGroup
+          "Derived toolchain fingerprints (Phase 78)"
+          [ testCase "every substrate has a real build fingerprint" $ do
+              -- The former shared non-linux-cpu literal named no compiler, no
+              -- target and no bridge ABI; `jitml build` keyed CUDA and Apple
+              -- artifacts on it.
+              let fingerprints =
+                    [ (substrate, Fingerprint.buildToolchainFingerprint substrate)
+                    | substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+                    ]
+              traverse_
+                ( \(substrate, fingerprint) -> do
+                    let text = Cache.unToolchainFingerprint fingerprint
+                        compiler = Engine.engineCompiler (Engine.engineForSubstrate substrate)
+                    assertBool
+                      (show substrate <> " fingerprint names its compiler")
+                      (compiler `Text.isInfixOf` text)
+                    assertBool
+                      (show substrate <> " fingerprint names the host artifact ABI")
+                      (("artifact-abi=" <> Fingerprint.hostArtifactAbi) `Text.isInfixOf` text)
+                )
+                fingerprints
+              length (List.nub (fmap snd fingerprints)) @?= 3
+          , testCase "build and benchmark tuning key the same artifact" $
+              -- The build path and the benchmark candidate runners previously
+              -- derived different fingerprints on CUDA and Apple, so the lane
+              -- benchmarked at one cache key and installed at another.
+              [ substrate
+              | substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+              , Fingerprint.buildToolchainFingerprint substrate
+                  /= Fingerprint.engineFamilyToolchainFingerprint substrate
+              ]
+                @?= []
+          , testCase "every compile and link flag reaches the fingerprint" $
+              -- The mechanical form of "a toolchain change invalidates its
+              -- artifact": the fingerprint carries the same flag list the
+              -- compile command passes.
+              [ (substrate, flag)
+              | substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+              , let engine = Engine.engineForSubstrate substrate
+              , let text =
+                      Cache.unToolchainFingerprint
+                        (Fingerprint.engineFamilyToolchainFingerprint substrate)
+              , flag <- Engine.engineCompileFlags engine <> Engine.engineLinkFlags engine
+              , not (flag `Text.isInfixOf` text)
+              ]
+                @?= []
+          , testCase "the metal bridge ABI token is interpolated, never hardcoded" $ do
+              let token = "bridge-abi=" <> Metal.metalBridgeAbiVersion
+              traverse_
+                ( \fingerprint ->
+                    assertBool
+                      "metal fingerprint interpolates the bridge ABI version"
+                      (token `Text.isInfixOf` Cache.unToolchainFingerprint fingerprint)
+                )
+                [ Fingerprint.engineFamilyToolchainFingerprint Substrate.AppleSilicon
+                , Fingerprint.mlpToolchainFingerprint Substrate.AppleSilicon
+                ]
+          , testCase "the apple MLP fingerprint names MSL kernels, not a host C ABI" $ do
+              -- The Apple artifact is Metal source metadata and exports no C
+              -- symbols; the previous fingerprint claimed `abi=cdecl-host-buffers`
+              -- and five C prototypes, one of which is defined nowhere.
+              let text =
+                    Cache.unToolchainFingerprint (Fingerprint.mlpToolchainFingerprint Substrate.AppleSilicon)
+              assertBool
+                "apple MLP fingerprint declares the fixed-bridge ABI"
+                ("abi=fixed-bridge-host-buffers" `Text.isInfixOf` text)
+              assertBool
+                "apple MLP fingerprint does not claim a cdecl host ABI"
+                (not ("cdecl" `Text.isInfixOf` text))
+              traverse_
+                ( \entry ->
+                    assertBool
+                      ("apple MLP fingerprint names " <> Text.unpack entry)
+                      (entry `Text.isInfixOf` text)
+                )
+                Fingerprint.mlpMetalEntryPoints
+          , testCase "every named entry point exists in the source its lane renders" $ do
+              -- The rule that keeps a fingerprint from describing an ABI its
+              -- artifact does not export.
+              let rendered files = Text.concat (fmap sourceContents files)
+                  spec = Cache.KernelSpec "phase-78-entry-points"
+                  familySources =
+                    [
+                      ( "onednn"
+                      , rendered
+                          ( OneDnnCodegen.renderOneDnnFamilySource
+                              KernelFamily.Dense2D
+                              spec
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+                    ,
+                      ( "cuda"
+                      , rendered
+                          ( Cuda.renderCudaFamilySource
+                              KernelFamily.Dense2D
+                              spec
+                              Cache.Inference
+                              Cache.defaultTuningChoice
+                          )
+                      )
+                    ]
+                  missing :: [Text] -> (Text, Text) -> [(Text, Text)]
+                  missing entries (label, source) =
+                    [(label, entry) | entry <- entries, not (entry `Text.isInfixOf` source)]
+              concatMap (missing Fingerprint.familyKernelEntryPoints) familySources @?= []
+              -- The Apple family artifact defines two MSL kernels; the family
+              -- name and output count are metadata fields, not entry points.
+              missing
+                Fingerprint.metalFamilyEntryPoints
+                ("metal", Metal.renderMetalFamilySource KernelFamily.Dense2D)
+                @?= []
+              concatMap
+                (missing Fingerprint.mlpHostEntryPoints)
+                [ ("mlp-onednn", rendered MlpOneDnnCodegen.renderMlpOneDnnSource)
+                , ("mlp-cuda", rendered MlpCudaCodegen.renderMlpCudaSource)
+                ]
+                @?= []
+              missing
+                Fingerprint.mlpMetalEntryPoints
+                ("mlp-metal", MlpMetalCodegen.renderMlpMetalProgram)
+                @?= []
+              -- Sprint 264.1: both layer-training lanes render the one entry-point
+              -- vocabulary, because the operator layer they splice is shared text
+              -- and each backend supplies the primitives it names.
+              concatMap
+                (missing Fingerprint.layerTrainingEntryPoints)
+                [ ("layer-training-onednn", rendered OneDnnCodegen.renderOneDnnLayerTrainingSource)
+                , ("layer-training-cuda", rendered CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
+                ]
+                @?= []
+          , testCase "the family fingerprint names every kernel family" $
+              [ family
+              | family <- KernelFamily.kernelFamilies
+              , substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
+              , not
+                  ( KernelFamily.familyName family
+                      `Text.isInfixOf` Cache.unToolchainFingerprint
+                        (Fingerprint.engineFamilyToolchainFingerprint substrate)
+                  )
+              ]
+                @?= []
+          , testCase "the layer-training fingerprint names the executed operator vocabulary" $
+              -- Widening the operator vocabulary (Sprint 241.1) therefore
+              -- invalidates the training artifact without touching Fingerprint.
+              [ (substrate, kind)
+              | substrate <- [Substrate.LinuxCPU, Substrate.LinuxCUDA]
+              , kind <- LayerGraph.allLayerKinds
+              , not
+                  ( LayerGraph.layerKindName kind
+                      `Text.isInfixOf` Cache.unToolchainFingerprint
+                        (Fingerprint.layerTrainingToolchainFingerprint substrate)
+                  )
+              ]
+                @?= []
+          , testCase "every fingerprint the JIT cache uses is distinct and non-empty" $ do
+              let named =
+                    [ ("family-apple", Fingerprint.engineFamilyToolchainFingerprint Substrate.AppleSilicon)
+                    , ("family-linux-cpu", Fingerprint.engineFamilyToolchainFingerprint Substrate.LinuxCPU)
+                    , ("family-linux-cuda", Fingerprint.engineFamilyToolchainFingerprint Substrate.LinuxCUDA)
+                    , ("mlp-apple", Fingerprint.mlpToolchainFingerprint Substrate.AppleSilicon)
+                    , ("mlp-linux-cpu", Fingerprint.mlpToolchainFingerprint Substrate.LinuxCPU)
+                    , ("mlp-linux-cuda", Fingerprint.mlpToolchainFingerprint Substrate.LinuxCUDA)
+                    , ("layer-training-linux-cpu", Fingerprint.layerTrainingToolchainFingerprint Substrate.LinuxCPU)
+                    , ("layer-training-linux-cuda", Fingerprint.layerTrainingToolchainFingerprint Substrate.LinuxCUDA)
+                    ]
+              [ name
+                | (name, fingerprint) <- named
+                , Text.null (Cache.unToolchainFingerprint fingerprint)
+                ]
+                @?= ([] :: [Text])
+              length (List.nub (fmap snd named)) @?= length named
+          ]
+      , testGroup
+          "Layer-graph training lanes (Phase 264)"
+          [ testCase "both lanes splice the identical shared operator chunks" $ do
+              -- The operator bodies are one string, not a per-lane copy, so the
+              -- two lanes cannot drift in operator semantics. A lane that
+              -- re-implemented GeGLU or attention its own way would stop
+              -- containing this text.
+              --
+              -- The chunks are checked one at a time rather than as a single
+              -- block because a lane chooses its own emission offsets:
+              -- `linux-cpu` interleaves them with its primitive parts to keep
+              -- its rendered text byte-for-byte what Sprint `263.1` attested,
+              -- while `linux-cuda` has no committed digest to preserve and
+              -- emits them contiguously. Sharing the text is the invariant;
+              -- emitting it in one run is not.
+              let chunks =
+                    [ ("kind-dispatch", LayerTrainingCodegen.layerTrainingKindDispatchLayer)
+                    , ("operator-bodies", LayerTrainingCodegen.layerTrainingOperatorBodies)
+                    , ("jitml_op_train", LayerTrainingCodegen.layerTrainingOpTrainEntry)
+                    ]
+                  oneDnnSource =
+                    Text.concat
+                      (fmap sourceContents OneDnnCodegen.renderOneDnnLayerTrainingSource)
+                  cudaSource =
+                    Text.concat
+                      (fmap sourceContents CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
+              mapM_
+                ( \(name, chunk) -> do
+                    let rendered = Text.unlines chunk
+                    assertBool
+                      ("the linux-cpu layer-training source splices the shared " <> name <> " chunk")
+                      (rendered `Text.isInfixOf` oneDnnSource)
+                    assertBool
+                      ("the linux-cuda layer-training source splices the shared " <> name <> " chunk")
+                      (rendered `Text.isInfixOf` cudaSource)
+                )
+                chunks
+              assertBool
+                "the linux-cuda layer-training source emits the shared chunks contiguously"
+                ( Text.unlines LayerTrainingCodegen.layerTrainingOperatorLayer
+                    `Text.isInfixOf` cudaSource
+                )
+          , testCase "the linux-cpu lane keeps its attested emission order" $ do
+              -- Sprint `263.1` re-issued the committed lane fragment from
+              -- measured device witnesses whose `DeviceEvidence` cells pin a
+              -- prefix of this artifact's SHA-256. Appending the shared layer
+              -- after the primitives instead of interleaving it relocates the
+              -- kind-dispatch block and restamps that digest for a change that
+              -- concerns another lane entirely. This pins the interleaving, so
+              -- the mistake is a failing unit case rather than a failed
+              -- twelve-hour live gate.
+              let oneDnnSource =
+                    Text.concat
+                      (fmap sourceContents OneDnnCodegen.renderOneDnnLayerTrainingSource)
+                  anchors =
+                    [ "jitml_layer_training_backend"
+                    , "jitml_layer_forward_primitive"
+                    , "jitml_conv2d_spatial_forward"
+                    , "jitml_geglu_train"
+                    , "jitml_pool_train"
+                    , "jitml_op_train"
+                    ]
+                  offsetOf anchor =
+                    case Text.breakOn anchor oneDnnSource of
+                      (before, matched)
+                        | Text.null matched -> Nothing
+                        | otherwise -> Just (Text.length before)
+                  offsets = fmap offsetOf anchors
+              assertBool
+                ( "every linux-cpu layer-training anchor is emitted: "
+                    <> show (zip anchors offsets)
+                )
+                (all isJust offsets)
+              let resolved = catMaybes offsets
+              assertBool
+                ( "the linux-cpu layer-training emission order is unchanged: "
+                    <> show (zip anchors resolved)
+                )
+                (List.sort resolved == resolved)
+          , testCase "the CUDA layer-training primitives are real cuBLAS/cuDNN calls" $ do
+              let cudaSource =
+                    Text.concat
+                      (fmap sourceContents CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
+                  required =
+                    [ "cublasSgemm"
+                    , "cublasSetMathMode"
+                    , "CUBLAS_PEDANTIC_MATH"
+                    , "cudnnConvolutionForward"
+                    , "cudnnConvolutionBackwardData"
+                    , "cudnnConvolutionBackwardFilter"
+                    , "cudnnPoolingForward"
+                    , "cudnnPoolingBackward"
+                    ]
+              [entry | entry <- required, not (entry `Text.isInfixOf` cudaSource)] @?= []
+              assertBool
+                "the CUDA layer-training source names no oneDNN primitive"
+                (not ("dnnl" `Text.isInfixOf` cudaSource))
+          , testCase "each lane's artifact answers with its own backend identity" $ do
+              let oneDnnSource =
+                    Text.concat
+                      (fmap sourceContents OneDnnCodegen.renderOneDnnLayerTrainingSource)
+                  cudaSource =
+                    Text.concat
+                      (fmap sourceContents CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
+              assertBool
+                "the linux-cpu artifact reports linux-cpu-onednn"
+                ("linux-cpu-onednn" `Text.isInfixOf` oneDnnSource)
+              assertBool
+                "the linux-cuda artifact reports linux-cuda-cudnn"
+                ("linux-cuda-cudnn" `Text.isInfixOf` cudaSource)
+              assertBool
+                "neither lane can answer with the other's identity"
+                ( not ("linux-cuda-cudnn" `Text.isInfixOf` oneDnnSource)
+                    && not ("linux-cpu-onednn" `Text.isInfixOf` cudaSource)
+                )
+          ]
+      , testGroup
+          "Layer vocabulary as parameterised Dhall (Phase 77)"
+          [ testCase "the reflected union describes exactly the executed operators" $
+              -- The cross-type audit extended from Catalog.Layer to the executed
+              -- LayerOp: alternatives are read out of the reflected decoder type,
+              -- never restated.
+              LayerDhall.layerOpAuditMismatches @?= []
+          , testCase "every executed operator round-trips through Dhall" $ do
+              -- decode . render == id over every operator witness, so the
+              -- parameterised vocabulary cannot stop covering a constructor
+              -- without failing here.
+              let operators =
+                    fmap LayerGraph.layerKindWitnessOp LayerGraph.allLayerKinds
+                      <> fmap LayerGraph.layerOpTemplate NumericsCatalog.layerCatalog
+              decoded <-
+                traverse
+                  (Dhall.input LayerDhall.layerOpDecoder . LayerDhall.renderLayerOp)
+                  operators
+              decoded @?= operators
+              length operators @?= 28
+          , testCase "the reflected alternatives cover every catalog constructor" $ do
+              alternatives <- expectRightText LayerDhall.layerOpUnionAlternatives
+              List.sort alternatives @?= List.sort LayerDhall.executedLayerOpAlternatives
+              length alternatives @?= length NumericsCatalog.layerCatalog
+          , testCase "each checked-in numerical type file equals the reflected type" $ do
+              mismatches <-
+                Control.Monad.foldM
+                  ( \acc (path, reflected) -> do
+                      fileText <- Text.IO.readFile path
+                      pure $
+                        if canonicalDhallType fileText == canonicalDhallType reflected
+                          then acc
+                          else Text.pack path : acc
+                  )
+                  []
+                  LayerDhall.numericsTypeFileSchemas
+              mismatches @?= []
+          , testCase "an architecture description round-trips and executes" $ do
+              let description = dhallMlpDescription
+              back <-
+                Dhall.input
+                  LayerDhall.layerGraphDescriptionDecoder
+                  (LayerDhall.renderLayerGraphDescription description)
+              back @?= description
+              graph <- expectRightText (LayerDhall.buildLayerGraph description)
+              fmap LayerGraph.layerNodeName (LayerGraph.layerGraphNodes graph)
+                @?= ["hidden", "output"]
+              fmap LayerGraph.layerNodeKind (LayerGraph.layerGraphNodes graph)
+                @?= [LayerGraph.DenseLayer, LayerGraph.DenseLayer]
+              tape <-
+                expectRightText
+                  (LayerGraph.runLayerGraph graph (Data.Vector.Unboxed.fromList [0.1, 0.2, 0.3, 0.4]))
+              Data.Vector.Unboxed.length (LayerGraph.layerTapeOutput tape) @?= 2
+          , testCase "a description whose producer width changes fails closed" $ do
+              -- Widening the first node's output leaves the second node's
+              -- declared input behind; the graph must not be built.
+              let lying =
+                    dhallMlpDescription
+                      { LayerDhall.descGraphNodes =
+                          case LayerDhall.descGraphNodes dhallMlpDescription of
+                            (firstNode : rest) ->
+                              firstNode
+                                { LayerDhall.descNodeOutputShape = LayerGraph.TensorShape [9]
+                                }
+                                : rest
+                            [] -> []
+                      }
+              assertBool
+                "a lying output shape is rejected"
+                ( case LayerDhall.buildLayerGraph lying of
+                    Left message -> "does not chain" `Text.isInfixOf` message
+                    Right _ -> False
+                )
+          , testCase "a description whose nodes do not chain fails closed" $ do
+              let broken =
+                    dhallMlpDescription
+                      { LayerDhall.descGraphNodes =
+                          case LayerDhall.descGraphNodes dhallMlpDescription of
+                            [firstNode, secondNode] ->
+                              [ firstNode
+                              , secondNode
+                                  { LayerDhall.descNodeInputShape = LayerGraph.TensorShape [5]
+                                  }
+                              ]
+                            other -> other
+                      }
+              assertBool
+                "a broken chain is rejected"
+                ( case LayerDhall.buildLayerGraph broken of
+                    Left message -> "does not chain" `Text.isInfixOf` message
+                    Right _ -> False
+                )
+          , testCase "a description whose operator geometry disagrees fails closed" $ do
+              -- A real spatial convolution produces [1,4,4]; the description
+              -- claims a flat [16].
+              let convDescription =
+                    LayerDhall.LayerGraphDescription
+                      { LayerDhall.descGraphName = "conv-liar"
+                      , LayerDhall.descGraphSeed = 3
+                      , LayerDhall.descGraphInputShape = LayerGraph.TensorShape [16]
+                      , LayerDhall.descGraphOutputShape = LayerGraph.TensorShape [9]
+                      , LayerDhall.descGraphNodes =
+                          [ LayerDhall.LayerNodeDescription
+                              { LayerDhall.descNodeName = "conv"
+                              , LayerDhall.descNodeOp =
+                                  LayerGraph.ConvOp
+                                    (LayerGraph.ConvSpec 1 1 [4, 4] [2, 2] [1, 1] [0, 0])
+                              , LayerDhall.descNodeInputShape = LayerGraph.TensorShape [16]
+                              , LayerDhall.descNodeOutputShape = LayerGraph.TensorShape [9]
+                              , LayerDhall.descNodeMode = LayerGraph.TrainingMode
+                              , LayerDhall.descNodeActivation = LayerGraph.ReluActivation
+                              }
+                          ]
+                      }
+              assertBool
+                "a declared shape that disagrees with the operator geometry is rejected"
+                ( case LayerDhall.buildLayerGraph convDescription of
+                    Left message -> "disagrees with the operator geometry" `Text.isInfixOf` message
+                    Right _ -> False
+                )
+          , testCase "no ML-describing Dhall file names a substrate" $ do
+              -- Substrate selection belongs on the CLI/plan seam, never in the
+              -- architecture DSL.
+              paths <- mlDslDhallFiles
+              assertBool "the ML DSL file set is non-empty" (not (null paths))
+              files <- traverse (\path -> (,) path <$> Text.IO.readFile path) paths
+              LayerDhall.mlDslSubstrateMentions files @?= []
+          ]
+      , testGroup
+          "Execution-path fail-open lint (Phase 7)"
+          [ testCase "every cabal stanza makes an incomplete pattern a build error" $ do
+              manifest <- Text.IO.readFile "jitml.cabal"
+              let stanzas =
+                    length
+                      [ () | line <- Text.lines manifest, "    ghc-options:" `Text.isPrefixOf` line
+                      ]
+                  guarded =
+                    length
+                      [ ()
+                      | line <- Text.lines manifest
+                      , "-Werror=incomplete-patterns" `Text.isInfixOf` line
+                      ]
+              assertBool "jitml.cabal declares ghc-options stanzas" (stanzas > 0)
+              guarded @?= stanzas
+          , testCase "the scan rejects a new fail-open wildcard on the execution path" $ do
+              let sites =
+                    FailOpen.scanFailOpenSites
+                      "src/JitML/Codegen/Reintroduced.hs"
+                      "render op =\n  case op of\n    ConvOp s -> convSource s\n    _ -> []\n"
+              fmap FailOpen.siteForm sites @?= [FailOpen.WildcardEmptyList]
+          , testCase "the scan rejects a rendered switch default that only breaks" $ do
+              let sites =
+                    FailOpen.scanFailOpenSites
+                      "src/JitML/Codegen/Reintroduced.hs"
+                      "source =\n  Text.unlines\n    [ \"    default:\"\n    , \"      break;\"\n    ]\n"
+              fmap FailOpen.siteForm sites @?= [FailOpen.RenderedSwitchDefaultBreak]
+          , testCase "the scan accepts a catch-all that fails closed" $ do
+              let sites =
+                    FailOpen.scanFailOpenSites
+                      "src/JitML/Codegen/Reintroduced.hs"
+                      "render op =\n  case op of\n    ConvOp s -> Right (convSource s)\n    _ -> Left \"unsupported operator\"\n"
+              sites @?= []
+          , testCase "the execution path covers codegen, engines, and numerics" $ do
+              FailOpen.executionPathRoots
+                @?= ["src/JitML/Codegen", "src/JitML/Engines", "src/JitML/Numerics"]
+              assertBool
+                "a numerics module is on the execution path"
+                (FailOpen.isExecutionPathSource "src/JitML/Numerics/LayerGraphDevice.hs")
+              assertBool
+                "a lint module is not on the execution path"
+                (not (FailOpen.isExecutionPathSource "src/JitML/Lint/FailOpen.hs"))
+          , testCase "every pending fail-open entry names the sprint that owns it" $ do
+              let offenders =
+                    [ FailOpen.pendingPath pending
+                    | pending <- FailOpen.failOpenPendingRegistry
+                    , Text.null (FailOpen.pendingOwningSprint pending)
+                        || FailOpen.pendingCount pending <= 0
+                    ]
+              offenders @?= []
+          , testCase "the worktree carries no unregistered fail-open site" $
+              FailOpen.checkFailOpenWildcards >>= (@?= [])
           ]
       , testGroup
           "Product phase status registry (Phase 221)"
@@ -12649,7 +13713,6 @@ unitTestMain =
                   pure
                   ( LayerGraph.mkAffineLayer
                       "ce-logits"
-                      LayerGraph.DenseLayer
                       4
                       3
                       LayerGraph.LinearActivation
@@ -14470,7 +15533,6 @@ realResNetGraph = do
   headNode <-
     LayerGraph.mkAffineLayer
       "resnet-head"
-      LayerGraph.DenseLayer
       2
       3
       LayerGraph.LinearActivation
@@ -14518,7 +15580,6 @@ realVitGraph = do
   headNode <-
     LayerGraph.mkAffineLayer
       "vit-head"
-      LayerGraph.DenseLayer
       4
       3
       LayerGraph.LinearActivation
@@ -14890,6 +15951,45 @@ assertNoParams label node input target = do
 isLeftResult :: Either a b -> Bool
 isLeftResult = either (const True) (const False)
 
+-- | Unwrap a fixture that reports failure as 'Text', failing the case with the
+-- message rather than a pattern-match error.
+expectRightText :: Either Text value -> IO value
+expectRightText = either (assertFailure . Text.unpack) pure
+
+-- | The constructor name of a layer kind with its payload erased, so kinds can
+-- be compared by shape rather than by representative payload value.
+kindConstructorName :: LayerGraph.LayerKind -> String
+kindConstructorName = takeWhile (/= ' ') . show
+
+-- | A two-layer classifier expressed entirely as data (Sprint 77.1) — no
+-- hardcoded Haskell builder, only the described operators plus a seed.
+dhallMlpDescription :: LayerDhall.LayerGraphDescription
+dhallMlpDescription =
+  LayerDhall.LayerGraphDescription
+    { LayerDhall.descGraphName = "dhall-mlp"
+    , LayerDhall.descGraphSeed = 7
+    , LayerDhall.descGraphInputShape = LayerGraph.TensorShape [4]
+    , LayerDhall.descGraphOutputShape = LayerGraph.TensorShape [2]
+    , LayerDhall.descGraphNodes =
+        [ LayerDhall.LayerNodeDescription
+            { LayerDhall.descNodeName = "hidden"
+            , LayerDhall.descNodeOp = LayerGraph.DenseOp
+            , LayerDhall.descNodeInputShape = LayerGraph.TensorShape [4]
+            , LayerDhall.descNodeOutputShape = LayerGraph.TensorShape [3]
+            , LayerDhall.descNodeMode = LayerGraph.TrainingMode
+            , LayerDhall.descNodeActivation = LayerGraph.ReluActivation
+            }
+        , LayerDhall.LayerNodeDescription
+            { LayerDhall.descNodeName = "output"
+            , LayerDhall.descNodeOp = LayerGraph.DenseOp
+            , LayerDhall.descNodeInputShape = LayerGraph.TensorShape [3]
+            , LayerDhall.descNodeOutputShape = LayerGraph.TensorShape [2]
+            , LayerDhall.descNodeMode = LayerGraph.TrainingMode
+            , LayerDhall.descNodeActivation = LayerGraph.SoftmaxActivation
+            }
+        ]
+    }
+
 unitLayerGraph :: LayerGraph.LayerKind -> Int -> Either Text LayerGraph.LayerGraph
 unitLayerGraph kind seed = do
   node <-
@@ -14897,19 +15997,16 @@ unitLayerGraph kind seed = do
       LayerGraph.PoolLayer _ ->
         LayerGraph.mkIdentityLayer
           "unit-pool"
-          kind
           3
           LayerGraph.TrainingMode
       LayerGraph.DropoutLayer _ ->
         LayerGraph.mkIdentityLayer
           "unit-dropout"
-          kind
           3
           LayerGraph.TrainingMode
       _ ->
         LayerGraph.mkAffineLayer
           "unit-layer"
-          kind
           3
           3
           (activationForUnitKind kind)
@@ -14937,7 +16034,6 @@ resNetShapedLayerGraph seed = do
   stem <-
     LayerGraph.mkAffineLayer
       "resnet-stem"
-      LayerGraph.DenseLayer
       3
       3
       LayerGraph.TanhActivation
@@ -14946,7 +16042,6 @@ resNetShapedLayerGraph seed = do
   block <-
     LayerGraph.mkAffineLayer
       "resnet-basic-block"
-      (LayerGraph.BasicBlockLayer 0.1)
       3
       3
       LayerGraph.TanhActivation
@@ -14955,7 +16050,6 @@ resNetShapedLayerGraph seed = do
   headNode <-
     LayerGraph.mkAffineLayer
       "resnet-head"
-      LayerGraph.DenseLayer
       3
       3
       LayerGraph.LinearActivation
@@ -14974,7 +16068,6 @@ vitShapedLayerGraph seed = do
   patch <-
     LayerGraph.mkAffineLayer
       "vit-patch"
-      LayerGraph.PatchEmbedLayer
       4
       3
       LayerGraph.TanhActivation
@@ -14983,7 +16076,6 @@ vitShapedLayerGraph seed = do
   attention <-
     LayerGraph.mkAffineLayer
       "vit-attention"
-      (LayerGraph.MultiHeadAttentionLayer 1)
       3
       3
       LayerGraph.TanhActivation
@@ -14992,7 +16084,6 @@ vitShapedLayerGraph seed = do
   headNode <-
     LayerGraph.mkAffineLayer
       "vit-head"
-      LayerGraph.DenseLayer
       3
       3
       LayerGraph.LinearActivation

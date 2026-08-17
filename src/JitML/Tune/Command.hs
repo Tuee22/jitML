@@ -25,6 +25,7 @@ import JitML.CLI.Parser (ParsedOption (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Env.Env (App)
 import JitML.Experiment.Overrides qualified as Overrides
+import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Command qualified as PlanCommand
@@ -500,13 +501,22 @@ publishWorkerTuneEvent runtime plan = do
           , ProtoTune.sfTrialsPromoted = fromIntegral promotedCount
           , ProtoTune.sfBestObjective = bestObjective
           }
+  -- Recorded after the sweep returned: the promoted trial attests the
+  -- artifact its optimizer updates executed through.
+  tuneWitnessE <- liftIO (mlpdExecutionWitness device)
+  tuneWitness <-
+    case tuneWitnessE of
+      Left err ->
+        exitWithError (InvalidConfig ("tuning device execution witness failed: " <> err))
+      Right value -> pure value
   completedTraining <-
     case ProductCompletion.tuneSweepCompletedTraining
       plan
       experimentHash
       datasetShaAtRead
       completed
-      bestResult of
+      bestResult
+      tuneWitness of
       Left err -> exitWithError (InvalidConfig ("tuning completion proof failed: " <> err))
       Right value -> pure value
   envelope <-

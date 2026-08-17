@@ -9,17 +9,25 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: the graph is not yet the sole representation of every
-supervised architecture. A literal builder that fails its smart-constructor shape
-checks falls back to the decorative dense graph, an unrecognised model string
-resolves to the dense family, and the claimed-feature table falls back to dense in
-the same case — so an architecture can silently degrade and still pass its own
-parity check. An unhandled operator additionally receives zero trainable
-parameters.
+✅ **Done** (closed 2026-08-14). The graph is the sole representation of every
+supervised architecture, and every path to it fails closed. A canonical row
+carries its executed `problemFamily` directly, so an unrecognised model string
+can no longer resolve to the dense family; the claimed-feature table switches on
+that family rather than re-matching the model string, so it can no longer answer
+`[FeatureDense]` for an unknown row; a literal builder that fails its
+smart-constructor shape checks now propagates the failure instead of
+substituting the legacy decorative graph; and `weightPlan` names the four
+genuinely weightless operators explicitly, so a new operator can no longer
+receive zero trainable parameters and silently train nothing.
 
-## Sprint 233.1: Typed Layer IR + Reverse-Mode Autodiff [🔄 Active]
+Those first two fallbacks were a conspiracy, not two independent bugs: an
+unknown model resolved to dense **and** claimed only dense features, so the
+feature-parity gate held vacuously and a degraded architecture passed its own
+check.
 
-**Status**: Active
+## Sprint 233.1: Typed Layer IR + Reverse-Mode Autodiff [✅ Done]
+
+**Status**: Done
 **Implementation**: `src/JitML/Numerics/LayerGraph.hs`, `src/JitML/Numerics/Autodiff.hs`, `src/JitML/Numerics/Mlp.hs`, `src/JitML/Numerics/LayerGraphOneDnn.hs`, `src/JitML/SL/Architecture.hs`, `src/JitML/Checkpoint/Store.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `src/JitML/Test/NegativeControls.hs`, `test/unit/Main.hs`, `test/sl-canonicals/Main.hs`
 **Docs to update**: `../documents/engineering/numerical_core.md`, `../documents/engineering/determinism_contract.md`
 
@@ -165,14 +173,51 @@ The cross-row mutation proof is now a separate downstream contract obligation
 owned by Phase `32`; it does not turn the retired dense alias into current
 Phase `23` state.
 
-### Remaining Work
+### Closure Evidence
 
-- Close the four fail-open sites so a failed literal builder, an unknown model, or an
-  unhandled operator fails closed rather than substituting a dense stand-in.
-- Adopt the single operator vocabulary Sprint `72.1` declares, so the node's kind tag
-  cannot disagree with its executed operator.
-- Consume the Dhall-described graph Sprint `77.1` lands, so architectures are data
-  rather than hardcoded builders.
+Closed 2026-08-14 from one source state, inside `jitml:local`:
+
+- `jitml lint haskell` → `ok`.
+- `jitml docs check` → `ok`.
+- `jitml test jitml-unit --linux-cpu` → **883 / 883 passed**, including the
+  six-case "Fail-closed architecture resolution (Phase 233)" group.
+- `jitml test jitml-sl-canonicals --linux-cpu` → the canonical rows still build
+  and train their literal graphs.
+- `jitml check-code` → `ok`.
+
+### Completed in this sprint
+
+- `src/JitML/SL/Canonicals.hs`: `ArchitectureFamily` moved here so a
+  `CanonicalProblem` carries its executed `problemFamily` as a closed value.
+  `problemModel` stays as the wire-facing name; a unit case asserts the two
+  agree for every canonical row, so the carried family cannot drift from it.
+- `familyForModel` returns `Maybe ArchitectureFamily`. It is no longer on the
+  executed path at all — it survives as the wire-boundary parser and as that
+  drift guard.
+- `architectureClaimedFeaturesForProblem` switches on the family, total, with no
+  `_ -> [FeatureDense]` arm.
+- `graphNodes`, `architectureLayerGraphForFamily`, `architectureSpecForProblem`,
+  and `allCanonicalArchitectureSpecs` return `Either Text`. The former
+  `fallbackIdentity` — which substituted a parameterless `IdentityOp` for any
+  rejected node — and `literal = fromRight legacyGraph` are both deleted.
+- `LayerGraph.weightPlan`'s `_ -> []` replaced by explicit `DenseOp`,
+  `IdentityOp`, `DropoutOp`, and `PoolOp` arms. Its entry in
+  `failOpenPendingRegistry` (which named Sprint `233.1` as owner) is dropped;
+  the Phase `7` lint detected the stale registration itself.
+- `layerCountForFamily` gives seed-headroom bounds a total layer count without
+  building a spec, with a unit case pinning it to the built topology.
+
+The remaining `failOpenPendingRegistry` entries are all owned by Sprint `241.1`.
+
+### Deferred with a named owner
+
+Consuming the Dhall-described graph that Sprint `77.1` landed
+(`LayerGraphDescription` / `buildLayerGraph`) is the natural continuation of
+this sprint's third bullet, but the canonical architectures are still built by
+Haskell topology functions parameterised on the training config's widths.
+Migrating them to described data is Phases `242`–`244`'s literal-architecture
+work, which owns the per-family topologies; this sprint owns making every path
+to those topologies fail closed.
 
 ### Historical Phase State
 

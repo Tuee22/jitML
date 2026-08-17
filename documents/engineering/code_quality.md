@@ -106,6 +106,38 @@ weights and degenerate Metal convolution scaffolds. Those future entries are
 exposed as `nonProductScaffolding` so the unit suite can prove no `ProductRow`
 implementation names them before their owning phases remove the source paths.
 
+### Execution-Path Fail-Open Lint (`jitml lint haskell`)
+
+Owned by `src/JitML/Lint/FailOpen.hs` (Sprint `7.1`). A *fail-open wildcard* is
+a catch-all branch on the execution path whose right-hand side is a vacuously
+successful value — `_ -> []`, `_ -> False`, `_ -> 0`, `_ -> mempty`,
+`_ -> pure ()` — or, in rendered native source, a `switch` `default:` label
+whose only statement is `break;`. Such a branch turns an unhandled operator
+into a silent no-op instead of a typed failure, which the hardware-native
+determinism contract forbids on the execution path.
+
+The scan is scoped to `executionPathRoots` — `src/JitML/Codegen`,
+`src/JitML/Engines`, and `src/JitML/Numerics`, that is the JIT source
+renderers, the engine dispatch surface, and the numerical execution modules.
+It is zero-tolerance for *new* sites: `failOpenPendingRegistry` enumerates the
+exact `(path, form, count)` of every site that predates the rule together with
+the sprint that owns closing it, and a count above the registered one is a
+`execution.fail-open.*` finding. The registry is exact in both directions, so
+closing a site without deleting its entry raises
+`execution.fail-open.stale-registration` — the owning sprint cannot close its
+fix and leave the registry stale. The registered sites are primary unmet
+obligations of their owning sprints' `### Remaining Work` under development-plan
+standards rule `C`, not deletion-ledger rows; the registry is the machine-checked
+form of those obligations.
+
+The complementary build-level guarantee is `-Werror=incomplete-patterns` in
+every `jitml.cabal` stanza (Sprint `7.1`): a missing constructor is a build
+failure on an ordinary `cabal build`, not only under the
+`cabal build all --ghc-options=-Werror` gate, so every "total function over
+`Substrate`" or `LayerOp` is a build guarantee rather than a convention. The
+`jitml-unit` group "Execution-path fail-open lint (Phase 7)" asserts both the
+per-stanza flag and a worktree free of unregistered fail-open sites.
+
 ### Chart-Shape Lint (`jitml lint chart`)
 
 Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). The current implementation
@@ -222,12 +254,15 @@ the full target stack:
 2. `hlint --with-group=default --with-group=extra --hint .hlint.yaml` over
    the same.
 3. `cabal format` temp-file round-trip byte-equality on `jitml.cabal`.
-4. `cabal build all --ghc-options=-Werror` (warning-clean build gate).
+4. `cabal build all --ghc-options=-Werror` (warning-clean build gate). Every
+   `jitml.cabal` stanza additionally carries `-Werror=incomplete-patterns`, so
+   a missing constructor fails an ordinary `cabal build` too.
 5. `jitml lint files` (`forbiddenPathRegistry`, tracked-generated-paths,
    static-JIT artifact rejection, and ProductTruth scaffold/reachability lint).
 6. `jitml lint docs` (metadata, relative links, forbidden stale commands).
 7. `jitml lint chart`.
-8. `jitml lint haskell` (forbidden subprocess and IO primitives).
+8. `jitml lint haskell` (forbidden subprocess and IO primitives, and the
+   execution-path fail-open scan).
 9. `jitml docs check` (generated-section drift).
 10. `jitml lint purescript` / `spago test` keep the PureScript smoke suite on
     the `spec-node` runner rather than the deprecated generic `runSpec` alias.

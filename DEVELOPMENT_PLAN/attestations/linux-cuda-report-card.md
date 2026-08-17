@@ -1,4 +1,4 @@
-# Current `linux-cuda` Per-Lane Attestation (Phase 29)
+# `linux-cuda` Per-Lane Attestation (Phase 29) — Withdrawn Counts
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,11 +9,40 @@
 [../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
 **Generated sections**: none
 
-> **Purpose**: The current `linux-cuda` per-lane report-card fragment for Phase
-> `29`. This fragment records the fresh current-source CUDA publisher,
-> integration/e2e, live Playwright, and performance evidence consumed by Phase
-> `31` aggregation. Sprints `15.20`-`15.22` remain historical CUDA HA/runtime
-> evidence for the earlier product baseline.
+> **Purpose**: The `linux-cuda` per-lane report-card fragment for Phase `29`.
+> Its 2026-07-10 row-complete counts are **withdrawn** and are retained below as
+> dated historical evidence only; see `## Current Status`. Sprints
+> `15.20`-`15.22` remain historical CUDA HA/runtime evidence for the earlier
+> product baseline.
+
+## Current Status
+
+*(Dated historical, 2026-07-10 — the row-complete counts below are since
+WITHDRAWN.)*
+
+Every `55 / 55`, `71 / 71` and `27 / 27` count in this file, and the 55-row
+`linux-cpu`-vs-`linux-cuda` speedup table, are withdrawn dated evidence. They
+are retained verbatim because they are the record of what the 2026-07-10 run
+actually exercised, not because they describe the lane today.
+
+Two independent reasons:
+
+- Phase [266](../phase-266-cuda-integration-e2e-and-attestation.md) records the
+  `55 / 55` and `71 / 71` counts as withdrawn, and Phase
+  [260](../phase-260-linux-cpu-report-card.md) records that in that era the RL
+  `median_final_reward` was the expert-controller heuristic rather than a
+  trained-policy rollout — so those counts never certified learning.
+- The 2026-08-16 measured lane run reported `rows: 55`, `eligible: 50`,
+  `unsupported: 0`, `errors: 5`. Five RL rows miss their cohort bars; see
+  [Phase 265 → Remaining Work](../phase-265-cuda-row-device-evidence.md#remaining-work).
+
+[Exit Definition](../README.md#exit-definition) item `29` (every row strictly
+faster on `linux-cuda`) is therefore **not met**: Phase
+[268](../phase-268-contract-driven-cuda-lane-revalidation.md) records it as
+presently unreachable while non-dense rows fall back to the pure host tape on
+this lane, and there is no row-complete cohort to time. The replacement fragment
+is issued by Sprint `268.1` from a completed scenario journal, in the same way
+Sprint `263.1` re-issued the `linux-cpu` fragment.
 
 ## Topology Scope
 
