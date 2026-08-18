@@ -316,7 +316,7 @@ allProductPhaseStatuses =
       265
       "CUDA Row Device Evidence"
       "DEVELOPMENT_PLAN/phase-265-cuda-row-device-evidence.md"
-      [ sprint "265.1" "CUDA Row Device Evidence" Active
+      [ sprint "265.1" "CUDA Row Device Evidence" Done
       ]
   , productPhase
       266

@@ -31,7 +31,7 @@ import JitML.Checkpoint.Store
   )
 import JitML.Codegen.Cuda (renderCudaFamilySource)
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
-import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Engine
   ( KernelHandle (..)
@@ -82,6 +82,7 @@ cudaFamilyRuntimeSource family =
     { runtimeSourceKernel = kernelFamilyKernelSpec family
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceProgramKind = FamilyProgram
     , runtimeSourceFiles =
         renderCudaFamilySource
           family

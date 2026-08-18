@@ -1943,6 +1943,81 @@ main =
                 gradW2 g @?= gradW2 g2
               _ -> assertBool "both batched MLP gradient runs succeed" False
       , testCase
+          "linux-cuda batched MLP gradient is bit-identical to the oneDNN lane (Phase 265)"
+          $ do
+            -- Phase 265 — cross-lane bit-identity, not tolerance. The name
+            -- deliberately says "oneDNN lane" rather than naming both lanes:
+            -- `jitml test jitml-backends --<substrate>` selects cases by tasty
+            -- substring, so a name carrying both tokens is pulled into the
+            -- GPU-less `linux-cpu` lane as well and dies in `cudaMalloc`.
+            --
+            -- The two Linux
+            -- lanes are the one place jitML claims numeric agreement *between*
+            -- substrates: `MlpOneDnn` declares its parameter-gradient loop
+            -- "matches the CUDA batch-grad reduction order" and `Engine` passes
+            -- `--fmad=false` solely so a device multiply-add rounds twice the
+            -- way the oneDNN lane's separate multiply-then-add does. Agreement
+            -- is therefore the stated design and divergence is a defect.
+            --
+            -- It was a defect: every accumulation order already matched, but
+            -- the lanes evaluated two implementations of one function —
+            -- `std::tanh` (glibc flt-32) against CUDA's libdevice `tanhf` —
+            -- which disagree on 3.03% of all floats and drove the batched
+            -- gradient apart by 9.54e-7 absolute. Sprint 265.1 renders glibc's
+            -- own algorithm on this lane so the activation agrees exactly.
+            --
+            -- The per-lane oracle cases above compare against the pure
+            -- reference at 1.0e-3, four orders too loose to observe this, so it
+            -- needs its own standing assertion. The shape is deliberately wider
+            -- than those fixtures: 32 x 64 = 2048 hidden activations, enough
+            -- that the ~3% divergence rate would light up dozens of elements
+            -- rather than getting lucky on six.
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 16, mlpHidden = 64, mlpOutputs = 8}
+                params = mlpInit shape 11
+                sample b =
+                  ( VU.generate 16 $ \j ->
+                      sin (fromIntegral (b * 16 + j) * 0.37) * 1.5
+                  , VU.generate 8 $ \k ->
+                      cos (fromIntegral (b * 8 + k) * 0.21) * 0.5
+                  )
+                batch = [sample b | b <- [0 .. 31 :: Int]]
+            cpu <- mlpBatchGradientOneDnn env params batch
+            cuda <- mlpBatchGradientCuda env params batch
+            case (cpu, cuda) of
+              (Right c, Right g) -> do
+                gradW1 g @?= gradW1 c
+                gradB1 g @?= gradB1 c
+                gradW2 g @?= gradW2 c
+                gradB2 g @?= gradB2 c
+              (Left message, _) ->
+                assertFailure ("linux-cpu batched gradient failed: " <> Text.unpack message)
+              (_, Left message) ->
+                assertFailure ("linux-cuda batched gradient failed: " <> Text.unpack message)
+      , testCase
+          "linux-cuda MLP source renders the lane-aligned activation (Phase 265)"
+          $ do
+            -- The source guard for the case above: the rendered kernels must
+            -- call the aligned activation, and CUDA's own `tanhf` must not
+            -- survive at a call site. A regression here is a one-line edit that
+            -- would otherwise only surface as a drifting gradient.
+            let rendered =
+                  Text.concat
+                    [ contents
+                    | SourceFile _ contents <- MlpCudaCodegen.renderMlpCudaSource
+                    ]
+            assertBool
+              "the MLP CUDA source defines the aligned activation"
+              ( ("__device__ __forceinline__ float " <> MlpCudaCodegen.mlpCudaActivation)
+                  `Text.isInfixOf` rendered
+              )
+            assertBool
+              "the MLP CUDA source calls the aligned activation"
+              ((MlpCudaCodegen.mlpCudaActivation <> "(acc)") `Text.isInfixOf` rendered)
+            assertBool
+              "no MLP CUDA call site uses CUDA's own tanhf"
+              (not ("= tanhf(" `Text.isInfixOf` rendered))
+      , testCase
           "linux-cuda batched MLP forward matches the pure per-sample forward (Sprint 13.8)"
           $ do
             -- Sprint 13.8 — the batched forward (one device call for the whole

@@ -28,7 +28,7 @@ import Data.Vector.Unboxed qualified as VU
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.MlpOneDnn (mlpOneDnnKernelSpec, renderMlpOneDnnSource)
-import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine (engineForSubstrate)
 import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Env.Env (Env)
@@ -57,6 +57,7 @@ mlpOneDnnRuntimeSource =
     { runtimeSourceKernel = mlpOneDnnKernelSpec
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceProgramKind = MlpProgram
     , runtimeSourceFiles = renderMlpOneDnnSource
     }
 

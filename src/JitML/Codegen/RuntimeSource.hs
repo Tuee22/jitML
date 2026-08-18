@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Codegen.RuntimeSource
-  ( RuntimeSource (..)
+  ( KernelProgram (..)
+  , RuntimeSource (..)
   , SourceFile (..)
   , materializeRuntimeSource
   , renderRuntimeSource
   , runtimeSourceDirectory
   , runtimeSourcePayload
+  , runtimeSourceProgram
   , runtimeSourceRelativeDirectory
   )
 where
@@ -36,17 +38,41 @@ import JitML.Codegen.OneDnn (renderOneDnnSource)
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Env.Env (Env (..))
 
+-- | Which generated program an artifact is.
+--
+-- Sprint `265.1` — the CUDA libraries an artifact links follow from this rather
+-- than from its substrate. The family and layer-training programs really call
+-- cuBLAS and cuDNN; the MLP program is hand-written elementwise CUDA that calls
+-- neither, so linking them onto its @.so@ made the artifact depend on two
+-- libraries it never enters and over-constrained its cache key.
+data KernelProgram
+  = -- | The per-'KernelFamily' kernels.
+    FamilyProgram
+  | -- | The shared MLP forward/backward program.
+    MlpProgram
+  | -- | The layer-graph training program.
+    LayerTrainingProgram
+  deriving stock (Bounded, Enum, Eq, Ord, Show)
+
+-- | The program a rendered source belongs to.
+runtimeSourceProgram :: RuntimeSource -> KernelProgram
+runtimeSourceProgram GeneratedCudaSource {runtimeSourceProgramKind = program} = program
+runtimeSourceProgram GeneratedOneDnnSource {runtimeSourceProgramKind = program} = program
+runtimeSourceProgram GeneratedMetalSourceMetadata {runtimeSourceProgramKind = program} = program
+
 data RuntimeSource
   = GeneratedCudaSource
       { runtimeSourceKernel :: KernelSpec
       , runtimeSourceKind :: Kind
       , runtimeSourceTuning :: TuningChoice
+      , runtimeSourceProgramKind :: KernelProgram
       , runtimeSourceFiles :: [SourceFile]
       }
   | GeneratedOneDnnSource
       { runtimeSourceKernel :: KernelSpec
       , runtimeSourceKind :: Kind
       , runtimeSourceTuning :: TuningChoice
+      , runtimeSourceProgramKind :: KernelProgram
       , runtimeSourceFiles :: [SourceFile]
       }
   | GeneratedMetalSourceMetadata
@@ -54,6 +80,7 @@ data RuntimeSource
       , runtimeSourceKind :: Kind
       , runtimeSourceTuning :: TuningChoice
       , runtimeSourceKernelFamily :: Maybe KernelFamily
+      , runtimeSourceProgramKind :: KernelProgram
       , runtimeSourceFiles :: [SourceFile]
       }
   deriving stock (Eq, Show)
@@ -67,11 +94,22 @@ renderRuntimeSource kernelSpec kind substrate tuningChoice =
         kind
         tuningChoice
         (Just Identity)
+        FamilyProgram
         (renderMetalMetadata kernelSpec kind tuningChoice)
     LinuxCPU ->
-      GeneratedOneDnnSource kernelSpec kind tuningChoice (renderOneDnnSource kernelSpec kind tuningChoice)
+      GeneratedOneDnnSource
+        kernelSpec
+        kind
+        tuningChoice
+        FamilyProgram
+        (renderOneDnnSource kernelSpec kind tuningChoice)
     LinuxCUDA ->
-      GeneratedCudaSource kernelSpec kind tuningChoice (renderCudaSource kernelSpec kind tuningChoice)
+      GeneratedCudaSource
+        kernelSpec
+        kind
+        tuningChoice
+        FamilyProgram
+        (renderCudaSource kernelSpec kind tuningChoice)
 
 runtimeSourcePayload :: RuntimeSource -> RuntimeSourcePayload
 runtimeSourcePayload source =

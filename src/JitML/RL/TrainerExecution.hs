@@ -432,7 +432,7 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
       Just simEnv@(RLSim.SomeSimulatedEnvironment environment) ->
         case scheduleMaybe of
           Just schedule@ProductBudget.OnPolicyTrainingSchedule {} -> do
-            let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
+            let (epochsPerUpdate, learningRate) = onPolicyTuning
                 config =
                   PpoTrainer.defaultPpoTrainConfig
                     { PpoTrainer.ppoSeed = seed
@@ -493,14 +493,18 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                           initialWeights
                           finalWeights
           _ -> pure (Left ("internal RL schedule kind mismatch for " <> trainerKind))
-  -- One on-policy tuning across substrates: the cuBLAS (linux-cuda) and oneDNN
-  -- (linux-cpu) GEMM paths are numerically close, so the same (epochs, lr) that
-  -- converges cartpole/lunar on linux-cpu must be used on linux-cuda rather than
-  -- a more aggressive (fewer-epochs, higher-lr) pair that left PPO/MaskablePPO
-  -- cartpole stuck at ~210 on the CUDA lane.
-  onPolicyTuning LinuxCPU = (10, 5.0e-4)
-  onPolicyTuning LinuxCUDA = (10, 5.0e-4)
-  onPolicyTuning AppleSilicon = (10, 5.0e-4)
+  -- One on-policy tuning, substrate-independent by construction.
+  --
+  -- Sprint `265.1` collapsed a three-arm fan-out whose arms all returned this
+  -- pair. The shape retained no behaviour and invited exactly the per-substrate
+  -- retune its own comment warned against: a more aggressive
+  -- fewer-epochs/higher-learning-rate CUDA pair previously left PPO and
+  -- MaskablePPO cartpole stuck at ~210. Diverging an RL hyperparameter per lane
+  -- now means deliberately replacing this constant, not editing one arm — and
+  -- there is no numerical reason to: the two Linux lanes' MLP kernels agree
+  -- bit-for-bit (see 'JitML.Codegen.MlpCuda.mlpCudaActivation').
+  onPolicyTuning :: (Int, Double)
+  onPolicyTuning = (10, 5.0e-4)
   -- TRPO performs one natural-gradient actor step and its own isolated
   -- value-head fitting passes per rollout. PPO's repeated gradient-epoch field
   -- is deliberately ignored; the TRPO critic count and learning rate are

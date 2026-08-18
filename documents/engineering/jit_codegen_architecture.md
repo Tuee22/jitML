@@ -136,8 +136,20 @@ where:
   its hash-free compile flags, and its link line come from
   `Engine.engineCompiler` / `engineCompileFlags` / `engineLinkFlags` — the same
   lists `compileSubprocess` passes, so a flag or link-line edit moves the
-  command and the fingerprint together; the determinism knobs come from
-  `deterministicFlags`; the ABI is a typed `AbiKind`, so the Metal bridge token
+  command and the fingerprint together; the determinism facts come from
+  `deterministicFlags`, which is itself two halves that are each read off their
+  own surface. `compileLineDeterminism` projects the `DeterminismFlag`-roled
+  arguments straight out of `engineCompileFlagSpecs` — the one list
+  `compileSubprocess` renders — and derives the `fast-math=absent` entry from
+  the absence of any fast-math argument in that same list, so the key flips the
+  moment one is added and can never advertise an argument no compiler is given.
+  `profileDeterminism` supplies the rest: the substrate *runtime* properties no
+  compile line establishes. Kernel-body properties (which reduction a kernel
+  performs, which cuDNN algorithm it selects) are not substrate-wide facts and
+  are not stated there — a body reaches the key through
+  `rendered-source-payload`, and where a library-level choice must also be
+  keyed it is a per-artifact knob read off the renderer that emits it
+  (`cudaLayerTrainingDeterminismChoices`); the ABI is a typed `AbiKind`, so the Metal bridge token
   is interpolated from `metalBridgeAbiVersion` at every site by construction;
   the numeric knobs come from the renderers' own constants
   (`oneDnnFixedReductionBlock`, `threadgroupSizeFor`); the entry points come

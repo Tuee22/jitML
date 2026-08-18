@@ -19,20 +19,40 @@ self-describing `RawCheckpointEnvelope`; its typed body is either weight-only
 or supervised-graph. The frozen V1 and parallel V2/V3 checkpoint wires are
 retired.
 
-**Target, not yet true — cross-lane MLP agreement.** The contract below
-guarantees *same-substrate* bit-equality and deliberately asserts no
-cross-substrate numeric equivalence. The two **Linux** lanes are a narrower case
-where agreement *is* the design: `src/JitML/Codegen/MlpOneDnn.hs` declares its
-batched parameter-gradient reduction "matches the CUDA batch-grad reduction
-order", and `src/JitML/Engines/Engine.hs` passes `--fmad=false` to nvcc solely to
-stop FMA contraction rounding differently from the oneDNN lane. They do not
-currently agree: the accumulation loops match, but the activation does not —
-oneDNN evaluates `std::tanh` and CUDA evaluates `tanhf`, two implementations of
-one function, so the gradients differ at fp32 ulp scale. Aligning them is an
-owned deliverable of
-[Phase 265](../../DEVELOPMENT_PLAN/phase-265-cuda-row-device-evidence.md), which
-also adds the standing cross-lane bit-identity assertion; the `apple-silicon`
-lane remains outside any cross-substrate numeric claim.
+**Cross-lane MLP agreement — held, and asserted.** The contract below guarantees
+*same-substrate* bit-equality and deliberately asserts no cross-substrate numeric
+equivalence. The two **Linux** lanes are a narrower case where agreement *is* the
+design: `src/JitML/Codegen/MlpOneDnn.hs` declares its batched parameter-gradient
+reduction "matches the CUDA batch-grad reduction order", and
+`src/JitML/Engines/Engine.hs` passes `--fmad=false` to nvcc solely to stop FMA
+contraction rounding differently from the oneDNN lane.
+
+They now agree **bit for bit** on the batched parameter gradient. The
+accumulation loops always matched; the activation did not — oneDNN evaluates
+`std::tanh`, which on a `float` argument is glibc's `sysdeps/ieee754/flt-32`
+`tanhf`, while CUDA evaluated its own libdevice `tanhf`. Two implementations of
+one function disagree on 3.03% of all floats, which drove the gradients apart by
+9.54e-7 absolute even though each lane sat only 4.19e-7 from a float64 oracle.
+
+Sprint `265.1` closed it by rendering glibc's own algorithm — the `expm1f`-based
+reduction, coefficients and all — as CUDA device functions
+(`JitML.Codegen.MlpCuda.mlpCudaActivation`). Reproducing glibc's *output* would
+not have sufficed: glibc's `tanhf` is not correctly rounded, differing from a
+correctly-rounded reference on 118,674,314 of 4,278,190,080 floats and on 44.4%
+of those in `[0.1, 1]`, so only reproducing its operation *sequence* matches.
+That reproduction is exact because nvcc is given no fast-math argument,
+`--fmad=false`, and default correctly-rounded division, so each device float
+operation rounds exactly as the host's does. Verified exhaustively over every
+finite float, twice — in pure C under `-ffp-contract=off` and on the device under
+this lane's own compile arguments — at **0 mismatches out of 4,278,190,080**,
+against 129,743,420 for CUDA's native `tanhf`.
+
+Only the CUDA renderer moved: Sprint `263.1` pins the `linux-cpu` artifact's
+SHA-256 in 45 of the 55 committed lane-fragment rows, so that lane's rendered
+text is byte-identical. A standing `jitml-backends --linux-cuda` case asserts the
+two lanes' four parameter gradients are exactly equal, and fails closed if they
+drift apart again. The `apple-silicon` lane remains outside any cross-substrate
+numeric claim.
 
 ## The Contract
 
@@ -369,6 +389,24 @@ own floating-point determinism contract.
   spelling and absence is off. `--fmad=false` *is* passed explicitly, which
   suppresses FMA contraction so a multiply-add rounds twice as the oneDNN lane
   does; without it the sub-ULP skew changes RL convergence materially.
+- The determinism facts a CUDA artifact's cache key advertises are **read off
+  that compile line**, not restated beside it. `Engine.engineCompileFlagSpecs`
+  tags each argument with the role it plays, `Engine.compileLineDeterminism`
+  projects the determinism-roled ones, and the `fast-math=absent` entry is
+  derived from the absence of any fast-math argument in the same list — so the
+  contract cannot claim a flag the compiler is never given, and adding one
+  invalidates every artifact on the lane. Kernel-level properties are not
+  advertised substrate-wide: a kernel body reaches the cache key through the
+  rendered-source payload, and the library-level choices the layer-training
+  artifact makes (the pinned cuBLAS math mode and the three deterministic cuDNN
+  convolution algorithms) are named once in
+  `JitML.Codegen.CudaLayerTraining.cudaLayerTrainingDeterminismChoices`, spliced
+  into the generated source, and read from there by the artifact's own
+  fingerprint knobs. Before Sprint `78.1` the substrate-wide list advertised
+  `--use_fast_math=false`, `cudnn-explicit-algorithm-id`, and
+  `warp-shuffle-deterministic` for every CUDA artifact, including the trainer
+  MLP kernel, which passes no such flag and uses neither cuDNN nor warp
+  shuffles.
 - Per-block reductions in the generated **family** reduction kernel use a
   deterministic warp-shuffle pattern, emitting one partial per warp and avoiding
   device-side atomics; the trainer MLP kernel instead reduces sequentially

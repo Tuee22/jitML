@@ -25,8 +25,11 @@
 -- 'JitML.Engines.Engine.engineCompileFlags' /
 -- 'JitML.Engines.Engine.engineLinkFlags' — the same lists
 -- 'JitML.Engines.Engine.compileSubprocess' passes, so a flag edit moves the
--- command and the fingerprint together; the determinism knobs come from
--- 'JitML.Engines.Engine.deterministicFlags'; the ABI is a typed 'AbiKind', so
+-- command and the fingerprint together; the determinism facts come from
+-- 'JitML.Engines.Engine.deterministicFlags', itself a projection of that same
+-- argument list plus the substrate's runtime properties, so no fingerprint can
+-- advertise a determinism argument its compile line does not pass; the ABI is a
+-- typed 'AbiKind', so
 -- the Metal bridge token is interpolated from
 -- 'JitML.Codegen.Metal.metalBridgeAbiVersion' at every site by construction;
 -- the numeric knobs come from the renderers' own constants
@@ -73,9 +76,11 @@ import Data.Text qualified as Text
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
+import JitML.Codegen.CudaLayerTraining (cudaLayerTrainingDeterminismChoices)
 import JitML.Codegen.KernelFamily (familyName, kernelFamilies)
 import JitML.Codegen.Metal (metalBridgeAbiVersion, threadgroupSizeFor)
 import JitML.Codegen.OneDnn (oneDnnFixedReductionBlock)
+import JitML.Codegen.RuntimeSource (KernelProgram (..))
 import JitML.Engines.Engine
   ( deterministicFlags
   , engineCompileFlags
@@ -261,8 +266,8 @@ engineFamilyToolchainFingerprint substrate =
   toolchainFingerprint
     ToolchainFacts
       { factsCompiler = engineCompiler engine
-      , factsCompileFlags = engineCompileFlags engine
-      , factsLinkFlags = engineLinkFlags engine
+      , factsCompileFlags = engineCompileFlags engine FamilyProgram
+      , factsLinkFlags = engineLinkFlags engine FamilyProgram
       , factsDeterminism = deterministicFlags engine
       , factsKnobs = familyKnobs substrate
       , factsAbi = abiFor substrate
@@ -284,8 +289,8 @@ mlpToolchainFingerprint substrate =
   toolchainFingerprint
     ToolchainFacts
       { factsCompiler = engineCompiler engine
-      , factsCompileFlags = engineCompileFlags engine
-      , factsLinkFlags = engineLinkFlags engine
+      , factsCompileFlags = engineCompileFlags engine MlpProgram
+      , factsLinkFlags = engineLinkFlags engine MlpProgram
       , factsDeterminism = deterministicFlags engine
       , factsKnobs = mlpKnobs
       , factsAbi = abiFor substrate
@@ -317,8 +322,8 @@ layerTrainingToolchainFingerprint substrate =
   toolchainFingerprint
     ToolchainFacts
       { factsCompiler = engineCompiler engine
-      , factsCompileFlags = engineCompileFlags engine
-      , factsLinkFlags = engineLinkFlags engine
+      , factsCompileFlags = engineCompileFlags engine LayerTrainingProgram
+      , factsLinkFlags = engineLinkFlags engine LayerTrainingProgram
       , factsDeterminism = deterministicFlags engine
       , factsKnobs = layerTrainingKnobs substrate
       , factsAbi = ExternCLayerGraphTraining
@@ -332,17 +337,18 @@ layerTrainingToolchainFingerprint substrate =
 -- artifact reduces in the pinned oneDNN block; the CUDA artifact pins its math
 -- mode and its deterministic cuDNN algorithm choices instead, so the two lanes
 -- key on different constants and cannot collide in the cache.
+--
+-- Both sides are read off the renderer that emits them —
+-- 'JitML.Codegen.OneDnn.oneDnnFixedReductionBlock' and
+-- 'JitML.Codegen.CudaLayerTraining.cudaLayerTrainingDeterminismChoices' — so a
+-- lane cannot be addressed by an algorithm choice its source stopped making
+-- (Sprint `78.1`).
 layerTrainingKnobs :: Substrate -> [Text]
 layerTrainingKnobs substrate =
   case substrate of
     AppleSilicon -> []
     LinuxCPU -> ["reduction-block=" <> tshow oneDnnFixedReductionBlock]
-    LinuxCUDA ->
-      [ "cublas-math-mode=pedantic"
-      , "cudnn-fwd-algo=implicit-gemm"
-      , "cudnn-bwd-data-algo=1"
-      , "cudnn-bwd-filter-algo=1"
-      ]
+    LinuxCUDA -> cudaLayerTrainingDeterminismChoices
 
 -- | The fingerprint @jitml build@ keys its artifact on. Total over 'Substrate',
 -- and equal to the per-substrate family fingerprint, so the build path and the

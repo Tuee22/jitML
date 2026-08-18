@@ -12,14 +12,17 @@
 -- primitives execute the linear algebra and in the primitive names the artifact
 -- reports back.
 --
--- Determinism: the cuBLAS handle is pinned to 'CUBLAS_PEDANTIC_MATH' so no TF32
--- tensor-core rounding is used, the cuDNN algorithms are the deterministic
--- @IMPLICIT_GEMM@ / @BWD_DATA_ALGO_1@ / @BWD_FILTER_ALGO_1@ choices, and the
--- bias reduction runs one thread per output column with a sequential loop rather
--- than atomics, so the summation order is fixed.
+-- Determinism: the library-level choices live in
+-- 'cudaLayerTrainingDeterminismChoices' — the pinned cuBLAS math mode that keeps
+-- TF32 tensor-core rounding out of the GEMM, and the three deterministic cuDNN
+-- convolution algorithms — and are spliced into the rendered source from there
+-- rather than written twice. The bias reduction runs one thread per output
+-- column with a sequential loop rather than atomics, so the summation order is
+-- fixed.
 module JitML.Codegen.CudaLayerTraining
   ( renderCudaLayerTrainingSource
   , cudaLayerTrainingSource
+  , cudaLayerTrainingDeterminismChoices
   )
 where
 
@@ -32,6 +35,39 @@ import JitML.Codegen.SourceFile (SourceFile (..))
 renderCudaLayerTrainingSource :: [SourceFile]
 renderCudaLayerTrainingSource =
   [SourceFile "kernel.cu" cudaLayerTrainingSource]
+
+-- | The library-level choices that make this artifact's arithmetic
+-- reproducible, named once and spliced into the rendered source below.
+--
+-- Sprint `78.1` — the cache key's per-artifact knobs read this list and the
+-- generated @kernel.cu@ is written from the same tokens, so switching a cuDNN
+-- algorithm or relaxing the cuBLAS math mode changes what executes and what the
+-- artifact is addressed by in one edit. Restating them beside the renderer, as
+-- the fingerprint previously did, let the cache key advertise algorithm choices
+-- the source no longer made.
+cudaLayerTrainingDeterminismChoices :: [Text]
+cudaLayerTrainingDeterminismChoices =
+  [ cublasMathMode
+  , convolutionForwardAlgorithm
+  , convolutionBackwardDataAlgorithm
+  , convolutionBackwardFilterAlgorithm
+  ]
+
+-- | The pinned cuBLAS math mode: no TF32 tensor-core rounding.
+cublasMathMode :: Text
+cublasMathMode = "CUBLAS_PEDANTIC_MATH"
+
+-- | The deterministic cuDNN forward convolution algorithm.
+convolutionForwardAlgorithm :: Text
+convolutionForwardAlgorithm = "CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM"
+
+-- | The deterministic cuDNN data-gradient convolution algorithm.
+convolutionBackwardDataAlgorithm :: Text
+convolutionBackwardDataAlgorithm = "CUDNN_CONVOLUTION_BWD_DATA_ALGO_1"
+
+-- | The deterministic cuDNN filter-gradient convolution algorithm.
+convolutionBackwardFilterAlgorithm :: Text
+convolutionBackwardFilterAlgorithm = "CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1"
 
 -- | The CUDA primitive layer followed by the shared operator layer.
 cudaLayerTrainingSource :: Text
@@ -81,7 +117,9 @@ cudaLayerTrainingPrimitiveLayer =
   , "    jitml_cublas_check(cublasCreate(&handle), \"cublasCreate\");"
   , "    // Pinned math mode: no TF32 tensor-core rounding, so the GEMM is the"
   , "    // fp32 arithmetic the determinism contract describes."
-  , "    jitml_cublas_check(cublasSetMathMode(handle, CUBLAS_PEDANTIC_MATH), \"cublasSetMathMode\");"
+  , "    jitml_cublas_check(cublasSetMathMode(handle, "
+      <> cublasMathMode
+      <> "), \"cublasSetMathMode\");"
   , "  }"
   , "  return handle;"
   , "}"
@@ -331,7 +369,7 @@ cudaLayerTrainingPrimitiveLayer =
   , "  jitml_cudnn_check("
   , "      cudnnGetConvolutionForwardWorkspaceSize("
   , "          jitml_cudnn_handle(), plan.src, plan.filter, plan.conv, plan.dst,"
-  , "          CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM, &workspaceBytes),"
+  , "          " <> convolutionForwardAlgorithm <> ", &workspaceBytes),"
   , "      \"cudnnGetConvolutionForwardWorkspaceSize\");"
   , "  void *workspace = nullptr;"
   , "  if (workspaceBytes > 0) {"
@@ -340,7 +378,7 @@ cudaLayerTrainingPrimitiveLayer =
   , "  jitml_cudnn_check("
   , "      cudnnConvolutionForward("
   , "          jitml_cudnn_handle(), &alpha, plan.src, d_input, plan.filter, d_weights, plan.conv,"
-  , "          CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM, workspace, workspaceBytes,"
+  , "          " <> convolutionForwardAlgorithm <> ", workspace, workspaceBytes,"
   , "          &beta, plan.dst, d_out),"
   , "      \"cudnnConvolutionForward\");"
   , "  const float one = 1.0f;"
@@ -370,7 +408,7 @@ cudaLayerTrainingPrimitiveLayer =
   , "  jitml_cudnn_check("
   , "      cudnnGetConvolutionBackwardDataWorkspaceSize("
   , "          jitml_cudnn_handle(), plan.filter, plan.dst, plan.conv, plan.src,"
-  , "          CUDNN_CONVOLUTION_BWD_DATA_ALGO_1, &workspaceBytes),"
+  , "          " <> convolutionBackwardDataAlgorithm <> ", &workspaceBytes),"
   , "      \"cudnnGetConvolutionBackwardDataWorkspaceSize\");"
   , "  void *workspace = nullptr;"
   , "  if (workspaceBytes > 0) {"
@@ -379,7 +417,7 @@ cudaLayerTrainingPrimitiveLayer =
   , "  jitml_cudnn_check("
   , "      cudnnConvolutionBackwardData("
   , "          jitml_cudnn_handle(), &alpha, plan.filter, d_weights, plan.dst, d_dpre, plan.conv,"
-  , "          CUDNN_CONVOLUTION_BWD_DATA_ALGO_1, workspace, workspaceBytes,"
+  , "          " <> convolutionBackwardDataAlgorithm <> ", workspace, workspaceBytes,"
   , "          &beta, plan.src, d_dx),"
   , "      \"cudnnConvolutionBackwardData\");"
   , "  jitml_from_device(dx, d_dx, plan.srcCount, \"conv bwd data result\");"
@@ -405,7 +443,7 @@ cudaLayerTrainingPrimitiveLayer =
   , "  jitml_cudnn_check("
   , "      cudnnGetConvolutionBackwardFilterWorkspaceSize("
   , "          jitml_cudnn_handle(), plan.src, plan.dst, plan.conv, plan.filter,"
-  , "          CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1, &workspaceBytes),"
+  , "          " <> convolutionBackwardFilterAlgorithm <> ", &workspaceBytes),"
   , "      \"cudnnGetConvolutionBackwardFilterWorkspaceSize\");"
   , "  void *workspace = nullptr;"
   , "  if (workspaceBytes > 0) {"
@@ -414,7 +452,7 @@ cudaLayerTrainingPrimitiveLayer =
   , "  jitml_cudnn_check("
   , "      cudnnConvolutionBackwardFilter("
   , "          jitml_cudnn_handle(), &alpha, plan.src, d_input, plan.dst, d_dpre, plan.conv,"
-  , "          CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1, workspace, workspaceBytes,"
+  , "          " <> convolutionBackwardFilterAlgorithm <> ", workspace, workspaceBytes,"
   , "          &beta, plan.filter, d_gw),"
   , "      \"cudnnConvolutionBackwardFilter\");"
   , "  jitml_cudnn_check("

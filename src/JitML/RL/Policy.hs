@@ -16,7 +16,6 @@ import Data.Text qualified as Text
 
 import JitML.Cache.Key (ModelId (..))
 import JitML.RL.Framework (ActionDistribution (..))
-import JitML.Substrate (Substrate (..))
 
 newtype ParamRef = ParamRef
   { unParamRef :: Text
@@ -35,13 +34,16 @@ data Policy = Policy
   { policyName :: Text
   , policyShape :: PolicyShape
   , policyParams :: [ParamRef]
-  , policySubstrate :: Substrate
   , policyKernelModelId :: ModelId
   }
   deriving stock (Eq, Show)
 
-defaultPolicy :: Text -> Int -> Int -> Substrate -> Policy
-defaultPolicy name obsSize actionCount substrate =
+-- | Sprint `265.1` — a policy carries no substrate. The field was set here and
+-- read nowhere, so it implied a per-substrate policy distinction the codebase
+-- does not have; where a policy executes is a property of the run, not of the
+-- policy.
+defaultPolicy :: Text -> Int -> Int -> Policy
+defaultPolicy name obsSize actionCount =
   Policy
     { policyName = name
     , policyShape =
@@ -53,7 +55,6 @@ defaultPolicy name obsSize actionCount substrate =
               if actionCount > 0 then Categorical else DeterministicPolicy
           }
     , policyParams = [ParamRef "actor.fc1", ParamRef "actor.fc2", ParamRef "value.fc"]
-    , policySubstrate = substrate
     , policyKernelModelId = ModelId name
     }
 

@@ -92,22 +92,55 @@ section calls withdrawn; Phase `267` owns the every-row wall-clock obligation
 ([Exit Definition](#exit-definition) item `29`) whose evidence rests on those
 same counts and which Phase `268` records as presently unreachable. Both are now
 `Blocked` by Sprint `265.1` — forward-only, since `265` precedes both. Phase `78`
-reopened `Active`: `profileDeterminism` advertises an nvcc flag the compile line
-does not pass and cuDNN/warp-shuffle choices the executed trainer MLP kernel does
-not use, and that list feeds the toolchain fingerprint. Phase `265` remains the
-first executable owner.
+reopened `Active` the same day (`profileDeterminism` advertised an nvcc flag the
+compile line does not pass and cuDNN/warp-shuffle choices the executed trainer
+MLP kernel does not use, and that list feeds the toolchain fingerprint) and
+re-closed `Done` on 2026-08-17 — see below. Phase `265` remains the first
+executable owner of the open chain.
 
-**Phase `265` remains `Active`.** Its witness obligation is met — an admitted
-row's persisted manifest now carries `linux-cuda` / `linux-cuda-cudnn` and the
-CUDA artifact's own digest and executed primitive, so the recorded engine is the
-engine that ran — and the measured lane run reported `rows: 55`, `eligible: 50`,
-`unsupported: 0`, `errors: 5`, with all eleven supervised and all four AlphaZero
-rows admitted. Five RL rows miss their cohort bars on this lane
-(`PPO/mountain-car`, `A2C/mountain-car`, `QR-DQN/mountain-car`,
-`MaskablePPO/key-door-grid`, `CrossQ/lunar-lander`). It is not a Sprint `264.1`
-regression: `jitml-rl-canonicals --linux-cuda` passes **47 / 47** and
-`jitml-model-convergence` **111 / 111** on the same source. See
-[Phase 265 → Remaining Work](phase-265-cuda-row-device-evidence.md#remaining-work).
+**Phase `78` re-closed `Done` on 2026-08-17.** The last fingerprint input that
+was restated rather than derived is derived: `Engine.engineCompileFlagSpecs` tags
+each compile argument with its role, so what nvcc is given and what the cache key
+advertises about that invocation are two projections of one list, and the
+`fast-math=absent` fact is read off the absence of a fast-math argument in it
+rather than naming `--use_fast_math=false`, which no compile line passes. The two
+substrate-wide kernel claims are gone — a kernel body already reaches the key
+through the rendered-source payload — and the layer-training artifact's cuBLAS
+math mode and three cuDNN algorithm ids are named once in
+`CudaLayerTraining.cudaLayerTrainingDeterminismChoices`, spliced into the
+generated source, and read from there. See
+[Phase 78 → Closure Evidence](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md#closure-evidence).
+
+**Phase `265` closed `Done` on 2026-08-17.** Its witness obligation is met — an
+admitted row's persisted manifest carries `linux-cuda` / `linux-cuda-cudnn` and
+the CUDA artifact's own digest and executed primitive, so the recorded engine is
+the engine that ran — and the closing lane run reported **`rows: 55`,
+`eligible: 55`, `unsupported: 0`, `errors: 0`** against a live cluster with the
+twelve canonical datasets staged. All five RL rows that missed their cohort bars
+on the pre-alignment source now admit; the publisher turns a missed bar into an
+`error`, so `errors: 0` is those bars being met. No threshold moved.
+
+Its cross-lane bit-identity deliverable closed on 2026-08-17. The two Linux
+lanes' batched MLP parameter gradients now agree **bit for bit**: every
+element-wise accumulation order already matched, and the activation — the whole
+remaining gap — is aligned by rendering glibc's own flt-32 `expm1f`/`tanhf`
+algorithm as CUDA device functions, since glibc's `tanhf` is not correctly
+rounded and only reproducing its operation sequence matches it. Verified
+exhaustively at **0 mismatches out of 4,278,190,080 finite floats** on the RTX
+5090 under the lane's own compile arguments, negative-controlled, and held by a
+standing `jitml-backends --linux-cuda` case. The sprint's three legacy-ledger
+rows are cleared with it.
+
+The measurement settled the open question. The 2026-08-16 run, predating the
+alignment, reported `eligible: 50` / `errors: 5` with five RL rows short of their
+bars (`PPO/mountain-car`, `A2C/mountain-car`, `QR-DQN/mountain-car`,
+`MaskablePPO/key-door-grid`, `CrossQ/lunar-lander`) — three of them
+`mountain-car`, a sparse-reward environment where two arithmetics diverge into
+different trajectories. With the lanes' MLP kernels made bit-identical and the
+rest of each trainer already running in host `Double`, the re-run admits all 55.
+One mechanism, not five tuning problems: `cohortThresholds` is untouched and the
+per-substrate on-policy knob was collapsed rather than diverged. See
+[Phase 265 → Landed Evidence](phase-265-cuda-row-device-evidence.md#landed-evidence-2026-08-17).
 
 Phase `7` closed `Done` on 2026-08-13: every `jitml.cabal` stanza carries
 `-Werror=incomplete-patterns`, so a missing constructor is a build failure rather

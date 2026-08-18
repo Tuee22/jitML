@@ -98,6 +98,12 @@ data SubstrateProfile = SubstrateProfile
   , profileBackend :: !Text
   , profileArtifactExtension :: !Text
   , profileDeterminism :: ![Text]
+  -- ^ The determinism properties this substrate's __runtime__ establishes,
+  -- which no compile line and no kernel body states. Compile-line facts are
+  -- derived from the compile arguments by
+  -- 'JitML.Engines.Engine.compileLineDeterminism', and kernel-body facts are
+  -- already keyed through the rendered-source cache-key input, so neither is
+  -- restated here (Sprint `78.1`).
   , profileLaunch :: !KernelLaunch
   , profileArtifactFill :: !ArtifactFill
   , profileHasClusterCompute :: !Bool
@@ -137,12 +143,17 @@ profileFor LinuxCUDA =
     { profileSubstrate = LinuxCUDA
     , profileBackend = "cuda"
     , profileArtifactExtension = "so"
-    , profileDeterminism =
-        [ "--use_fast_math=false"
-        , "--fmad=false"
-        , "cudnn-explicit-algorithm-id"
-        , "warp-shuffle-deterministic"
-        ]
+    , -- Every determinism fact this lane can state is established either by the
+      -- compile line, which 'JitML.Engines.Engine.compileLineDeterminism'
+      -- derives, or by a kernel body, which the rendered-source payload already
+      -- keys. Sprint `78.1` removed the four entries that used to sit here:
+      -- `--use_fast_math=false` is passed by no compile line, `--fmad=false` is
+      -- now read off the compile arguments themselves, and
+      -- `cudnn-explicit-algorithm-id` / `warp-shuffle-deterministic` described
+      -- the family and layer-training kernels rather than every CUDA artifact —
+      -- the trainer MLP kernel uses neither cuDNN nor warp shuffles, yet keyed
+      -- on both.
+      profileDeterminism = []
     , profileLaunch = LoadableSymbolLaunch
     , profileArtifactFill = CompileSubprocessFill
     , profileHasClusterCompute = True

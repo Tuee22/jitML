@@ -51,7 +51,7 @@ import Foreign.Ptr (FunPtr, Ptr)
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.CudaLayerTraining (renderCudaLayerTrainingSource)
 import JitML.Codegen.OneDnn (renderOneDnnLayerTrainingSource)
-import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine
   ( KernelHandle (..)
   , engineForSubstrate
@@ -399,6 +399,7 @@ layerGraphDeviceRuntimeSource backend =
         { runtimeSourceKernel = layerGraphDeviceKernelSpec backend
         , runtimeSourceKind = Cache.Training
         , runtimeSourceTuning = Cache.defaultTuningChoice
+        , runtimeSourceProgramKind = LayerTrainingProgram
         , runtimeSourceFiles = renderOneDnnLayerTrainingSource
         }
     CudaLayerTraining ->
@@ -406,6 +407,7 @@ layerGraphDeviceRuntimeSource backend =
         { runtimeSourceKernel = layerGraphDeviceKernelSpec backend
         , runtimeSourceKind = Cache.Training
         , runtimeSourceTuning = Cache.defaultTuningChoice
+        , runtimeSourceProgramKind = LayerTrainingProgram
         , runtimeSourceFiles = renderCudaLayerTrainingSource
         }
 

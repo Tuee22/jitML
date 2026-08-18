@@ -9,18 +9,23 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-08-16 under standards rule `C`). Most of this
-phase's surface holds: `JitML.Engines.Fingerprint` still derives the compiler,
-compile flags, link line, ABI, numeric knobs and emitter set from the surfaces
-they describe. One input does not. `profileDeterminism` for `linux-cuda`
-(`src/JitML/Substrate.hs`) advertises `--use_fast_math=false`, which
-`Engine.compileSubprocess` deliberately does **not** pass, and names
-`cudnn-explicit-algorithm-id` and `warp-shuffle-deterministic`, which the
-executed trainer MLP kernel does not use — it reduces per-thread sequentially
-with no cuDNN and no warp shuffles. Because that list feeds the toolchain
-fingerprint, the cache key currently attests determinism properties of a
-different kernel. The rest of the 2026-08-14 closure stands as historical
-evidence for the surface it exercised.
+✅ **Done** (re-closed 2026-08-17). Every toolchain fingerprint input is derived
+from the surface it describes, including the last one that was not. The
+`linux-cuda` determinism facts are read off the compile arguments themselves:
+`Engine.engineCompileFlagSpecs` tags each argument with the role it plays, so
+`engineCompileFlags` — what nvcc is given — and `Engine.compileLineDeterminism` —
+what the cache key advertises about that invocation — are two projections of one
+list, and the `fast-math=absent` entry is derived from the absence of a fast-math
+argument in it rather than restating `--use_fast_math=false`, which no compile
+line passes. `cudnn-explicit-algorithm-id` and `warp-shuffle-deterministic` were
+substrate-wide claims about two specific kernels, so the trainer MLP artifact
+keyed on both while reducing per thread with neither; they are gone, because a
+kernel body already reaches the cache key through the rendered-source payload.
+The one library-level choice that must also be keyed —  the layer-training
+artifact's pinned cuBLAS math mode and three deterministic cuDNN convolution
+algorithms — is `CudaLayerTraining.cudaLayerTrainingDeterminismChoices`, named
+once, spliced into the generated source, and read from there by that artifact's
+own fingerprint knobs.
 
 Retained from the 2026-08-14 closure: every toolchain fingerprint is __derived__
 from the surface it describes. `JitML.Engines.Fingerprint` renders one
@@ -36,12 +41,12 @@ equals the per-substrate family fingerprint, so `jitml build` can no longer
 install at a different cache key than the one the benchmark candidate runners
 measure at.
 
-## Sprint 78.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface [🔄 Active]
+## Sprint 78.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Engines/Fingerprint.hs`,
 `src/JitML/Engines/Engine.hs`, `src/JitML/Cache/Key.hs`, `src/JitML/Substrate.hs`,
-`src/JitML/Codegen/OneDnn.hs`, `src/JitML/Engines/{Local,CudaLocal,MetalLocal,TuningBenchmark,TuningCache}.hs`,
+`src/JitML/Codegen/{OneDnn,Cuda,MlpCuda,CudaLayerTraining}.hs`, `src/JitML/Engines/{Local,CudaLocal,MetalLocal,TuningBenchmark,TuningCache}.hs`,
 `src/JitML/Numerics/{MlpOneDnn,MlpCuda,MlpMetal,LayerGraphOneDnn}.hs`,
 `src/JitML/App.hs`, `test/unit/Main.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
@@ -93,6 +98,21 @@ surface; the local Linux CPU identity runner is owned by Sprint `7.3`.
 - `JitML.Codegen.OneDnn.oneDnnFixedReductionBlock` is the one reduction-block
   constant: the renderer emits it into the generated source and the fingerprint
   reads it.
+- `Engine.engineCompileFlagSpecs` is the one compile-argument list, each argument
+  tagged `BuildFlag` or `DeterminismFlag`. `engineCompileFlags` and
+  `Engine.compileLineDeterminism` are projections of it, so the arguments the
+  compiler is given and the determinism facts the cache key advertises cannot
+  drift apart, and the `fast-math=absent` fact is derived from that list rather
+  than naming a flag no compile line passes.
+- `JitML.Substrate.profileDeterminism` holds only the runtime determinism
+  properties no compile line establishes. Kernel-body properties are not stated
+  there: a body reaches the cache key through the rendered-source payload.
+- `JitML.Codegen.CudaLayerTraining.cudaLayerTrainingDeterminismChoices` is the
+  one place the CUDA layer-training artifact's pinned cuBLAS math mode and its
+  three deterministic cuDNN convolution algorithms are written; the generated
+  `kernel.cu` splices them and `layerTrainingKnobs` reads them.
+- The generated CUDA `// determinism:` comments state what their own bodies
+  establish. They no longer restate `--use_fast_math=false`.
 
 ### Validation
 
@@ -109,29 +129,38 @@ surface; the local Linux CPU identity runner is owned by Sprint `7.3`.
 
 ### Remaining Work
 
-- Derive `profileDeterminism` for `linux-cuda` from the surface it describes, as
-  every other fingerprint input already is. Today
-  `src/JitML/Substrate.hs` lists `--use_fast_math=false`, which
-  `Engine.compileSubprocess` intentionally omits (modern nvcc rejects the
-  `=false` spelling, and absence is off), and lists
-  `cudnn-explicit-algorithm-id` / `warp-shuffle-deterministic`, which describe
-  the family kernel rather than the executed trainer MLP kernel — the latter
-  uses per-thread sequential reductions with no cuDNN and no warp shuffles.
-  `--fmad=false`, which *is* passed and is load-bearing for cross-lane
-  agreement, is the only entry that currently reflects the real compile line.
-- Because this list is an input to `buildToolchainFingerprint`, the artifact
-  cache key attests properties of a kernel other than the one it addresses;
-  closing this means the advertised determinism facts and the rendered compile
-  line come from one source.
-
-Validation for both:
-
-```bash
-docker compose run --rm jitml jitml test jitml-unit --linux-cpu
-docker compose run --rm jitml jitml check-code
-```
+- None.
 
 ### Closure Evidence
+
+Re-closed 2026-08-17 from one source state, inside `jitml:local`:
+
+- `jitml lint haskell` → `ok`.
+- `jitml docs check` → `ok`.
+- `jitml test jitml-unit --linux-cpu` → **896 / 896 passed**, including the
+  fourteen-case "Derived toolchain fingerprints (Phase 78)" group. Four cases
+  are new and each fails on the reopened defect: *no advertised determinism
+  argument is absent from the compile line* rejects any fact shaped like a
+  compiler argument that `engineCompileFlags` does not contain; *every
+  determinism-roled compile argument is advertised* closes the other direction;
+  *the fast-math fact is read off the compile line* pins the derivation to the
+  argument list; and *no CUDA determinism fact describes a kernel the artifact
+  does not run* pins the removal of the cuDNN and warp-shuffle claims against
+  the rendered MLP source. A fifth, *the CUDA layer-training knobs are the
+  choices its source makes*, holds the layer-training knobs to the tokens the
+  generated `kernel.cu` splices.
+- `jitml check-code` → `ok`.
+
+Every `linux-cuda` and `linux-cpu` JIT cache key changes with this landing, by
+design: the determinism facts are inputs to `buildToolchainFingerprint`, so the
+first run on each Linux lane recompiles its kernels once. No compiled artifact's
+bytes change on `linux-cpu` — the rendered `kernel.cc` text is untouched — so the
+`linux-cpu` lane fragment's `DeviceEvidence` digests, which pin the bytes that
+ran rather than the address they were cached at, are unmoved. The two generated
+CUDA sources do change, so the `linux-cuda` MLP and family artifact digests move;
+that lane's fragment is reissued by Sprint `268.1`.
+
+### Historical Closure Evidence
 
 Closed 2026-08-14 from one source state, inside `jitml:local`:
 

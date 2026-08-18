@@ -37,7 +37,8 @@ import JitML.Checkpoint.Store
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
 import JitML.Codegen.RuntimeSource
-  ( RuntimeSource (..)
+  ( KernelProgram (..)
+  , RuntimeSource (..)
   , renderRuntimeSource
   , runtimeSourcePayload
   )
@@ -109,6 +110,7 @@ linuxCpuFamilyRuntimeSource family =
     { runtimeSourceKernel = kernelFamilyKernelSpec family
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceProgramKind = FamilyProgram
     , runtimeSourceFiles =
         renderOneDnnFamilySource
           family

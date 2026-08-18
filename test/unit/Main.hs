@@ -120,6 +120,7 @@ import JitML.Codegen.MlpMetal qualified as MlpMetalCodegen
 import JitML.Codegen.MlpOneDnn qualified as MlpOneDnnCodegen
 import JitML.Codegen.OneDnn qualified as OneDnnCodegen
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource qualified as RuntimeSource
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Coordinator.Topology qualified as Topology
 import JitML.Docs.Check qualified as DocsCheck
@@ -12303,17 +12304,54 @@ unitTestMain =
                 @?= []
           , testCase "every compile and link flag reaches the fingerprint" $
               -- The mechanical form of "a toolchain change invalidates its
-              -- artifact": the fingerprint carries the same flag list the
-              -- compile command passes.
-              [ (substrate, flag)
+              -- artifact": each artifact's fingerprint carries the same flag
+              -- list its own compile command passes. Sprint 265.1 made the
+              -- library arguments follow the program, so this is checked per
+              -- (substrate, program) pair rather than once per substrate.
+              [ (substrate, program, flag)
               | substrate <- [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
               , let engine = Engine.engineForSubstrate substrate
-              , let text =
-                      Cache.unToolchainFingerprint
-                        (Fingerprint.engineFamilyToolchainFingerprint substrate)
-              , flag <- Engine.engineCompileFlags engine <> Engine.engineLinkFlags engine
+              , (program, fingerprint) <-
+                  [ (RuntimeSource.FamilyProgram, Fingerprint.engineFamilyToolchainFingerprint substrate)
+                  , (RuntimeSource.MlpProgram, Fingerprint.mlpToolchainFingerprint substrate)
+                  , (RuntimeSource.LayerTrainingProgram, Fingerprint.layerTrainingToolchainFingerprint substrate)
+                  ]
+              , let text = Cache.unToolchainFingerprint fingerprint
+              , flag <-
+                  Engine.engineCompileFlags engine program
+                    <> Engine.engineLinkFlags engine program
               , not (flag `Text.isInfixOf` text)
               ]
+                @?= []
+          , testCase "only the programs that call cuBLAS/cuDNN link them" $ do
+              -- Sprint 265.1 — the MLP artifact is hand-written elementwise
+              -- CUDA including only `cuda_runtime.h`; it used to be compiled
+              -- with `-DJITML_USE_CUBLAS=1 -DJITML_USE_CUDNN=1` and linked
+              -- against both libraries anyway, so its `.so` carried DT_NEEDED
+              -- entries it never enters and its cache key named two libraries
+              -- it does not use. The family and layer-training programs do call
+              -- them and must keep them.
+              let cudaEngine = Engine.engineForSubstrate Substrate.LinuxCUDA
+                  argumentsFor program =
+                    Engine.engineCompileFlags cudaEngine program
+                      <> Engine.engineLinkFlags cudaEngine program
+                  mentions program needle = any (needle `Text.isInfixOf`) (argumentsFor program)
+              [ (program, needle)
+                | program <- [RuntimeSource.FamilyProgram, RuntimeSource.LayerTrainingProgram]
+                , needle <- ["cublas", "cudnn", "CUBLAS", "CUDNN"]
+                , not (mentions program needle)
+                ]
+                @?= []
+              [ needle
+                | needle <- ["cublas", "cudnn", "CUBLAS", "CUDNN"]
+                , mentions RuntimeSource.MlpProgram needle
+                ]
+                @?= []
+              -- Every program still links the CUDA runtime itself.
+              [ program
+                | program <- [minBound .. maxBound] :: [RuntimeSource.KernelProgram]
+                , not (mentions program "-lcudart")
+                ]
                 @?= []
           , testCase "the metal bridge ABI token is interpolated, never hardcoded" $ do
               let token = "bridge-abi=" <> Metal.metalBridgeAbiVersion
@@ -12442,6 +12480,93 @@ unitTestMain =
                 ]
                 @?= ([] :: [Text])
               length (List.nub (fmap snd named)) @?= length named
+          , testCase "no advertised determinism argument is absent from the compile line" $
+              -- The defect that reopened Phase 78: `profileDeterminism` for
+              -- `linux-cuda` advertised `--use_fast_math=false`, which
+              -- `compileSubprocess` deliberately never passes (modern nvcc
+              -- rejects the `=false` spelling). Because the list feeds the
+              -- toolchain fingerprint, the cache key attested a compile line
+              -- that was never run. Anything shaped like a compiler argument
+              -- must therefore be an argument the compiler is given.
+              [ (substrate, fact)
+              | substrate <- Substrate.allSubstrates
+              , let engine = Engine.engineForSubstrate substrate
+              , fact <- Engine.deterministicFlags engine
+              , "-" `Text.isPrefixOf` fact
+              , fact `notElem` fmap Engine.compileFlagText (Engine.engineCompileFlagSpecs engine)
+              ]
+                @?= []
+          , testCase "every determinism-roled compile argument is advertised" $
+              -- The other direction: a determinism argument added to the
+              -- compile line reaches the cache key without a second edit.
+              [ (substrate, Engine.compileFlagText flag)
+              | substrate <- Substrate.allSubstrates
+              , let engine = Engine.engineForSubstrate substrate
+              , flag <- Engine.engineCompileFlagSpecs engine
+              , Engine.compileFlagRole flag == Engine.DeterminismFlag
+              , Engine.compileFlagText flag `notElem` Engine.deterministicFlags engine
+              ]
+                @?= []
+          , testCase "the fast-math fact is read off the compile line" $ do
+              -- Fast math is off by omission on both compiled lanes, and the
+              -- fact says so rather than naming a flag no compiler is given.
+              -- Adding one flips the fact and invalidates every artifact on
+              -- that lane.
+              let factsFor = Engine.compileLineDeterminism . Engine.engineForSubstrate
+                  mentionsFastMath =
+                    any
+                      ( (\flag -> "fast-math" `Text.isInfixOf` flag || "fast_math" `Text.isInfixOf` flag)
+                          . Engine.compileFlagText
+                      )
+                      . Engine.engineCompileFlagSpecs
+                      . Engine.engineForSubstrate
+              -- The Apple artifact is a metadata write, not a compile
+              -- subprocess, so it advertises no compile-line facts at all.
+              factsFor Substrate.AppleSilicon @?= []
+              [ substrate
+                | substrate <- [Substrate.LinuxCPU, Substrate.LinuxCUDA]
+                , mentionsFastMath substrate || "fast-math=absent" `notElem` factsFor substrate
+                ]
+                @?= []
+          , testCase "no CUDA determinism fact describes a kernel the artifact does not run" $ do
+              -- `cudnn-explicit-algorithm-id` and `warp-shuffle-deterministic`
+              -- were substrate-wide, so the trainer MLP artifact keyed on both
+              -- while its rendered source reduces per thread with neither. The
+              -- determinism facts are now the compile line's own, which no
+              -- kernel can contradict; the artifact's *link line* still carries
+              -- cuBLAS/cuDNN for every CUDA artifact, which is the separate
+              -- per-artifact-flag item Sprint `265.1` owns.
+              let facts =
+                    Engine.deterministicFlags (Engine.engineForSubstrate Substrate.LinuxCUDA)
+                  source = Text.concat (fmap sourceContents MlpCudaCodegen.renderMlpCudaSource)
+              traverse_
+                ( \claim -> do
+                    assertBool
+                      ("the MLP CUDA source does not use " <> Text.unpack claim)
+                      (not (claim `Text.isInfixOf` Text.toLower source))
+                    assertBool
+                      ("the CUDA determinism facts do not claim " <> Text.unpack claim)
+                      (not (any (Text.isInfixOf claim . Text.toLower) facts))
+                )
+                ["cudnn", "shfl", "warp-shuffle"]
+          , testCase "the CUDA layer-training knobs are the choices its source makes" $ do
+              -- The cuDNN algorithm ids and the cuBLAS math mode are named once
+              -- and spliced into the rendered source, so the cache key cannot
+              -- address the artifact by an algorithm it stopped selecting.
+              let text =
+                    Cache.unToolchainFingerprint
+                      (Fingerprint.layerTrainingToolchainFingerprint Substrate.LinuxCUDA)
+                  source =
+                    Text.concat
+                      (fmap sourceContents CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
+              assertBool
+                "the CUDA layer-training artifact declares determinism choices"
+                (not (null CudaLayerTrainingCodegen.cudaLayerTrainingDeterminismChoices))
+              [ choice
+                | choice <- CudaLayerTrainingCodegen.cudaLayerTrainingDeterminismChoices
+                , not (choice `Text.isInfixOf` source && choice `Text.isInfixOf` text)
+                ]
+                @?= []
           ]
       , testGroup
           "Layer-graph training lanes (Phase 264)"

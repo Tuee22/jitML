@@ -387,7 +387,6 @@ main =
                       "ppo-cartpole"
                       (environmentObservationSize environment)
                       (environmentActionCount environment)
-                      LinuxCPU
                   config =
                     defaultRLConfig
                       { rlMaxEpisodes = 2

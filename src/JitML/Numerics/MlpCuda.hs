@@ -29,7 +29,7 @@ import Data.Vector.Unboxed qualified as VU
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.MlpCuda (mlpCudaKernelSpec, renderMlpCudaSource)
-import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine (engineForSubstrate)
 import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Env.Env (Env)
@@ -58,6 +58,7 @@ mlpCudaRuntimeSource =
     { runtimeSourceKernel = mlpCudaKernelSpec
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceProgramKind = MlpProgram
     , runtimeSourceFiles = renderMlpCudaSource
     }
 

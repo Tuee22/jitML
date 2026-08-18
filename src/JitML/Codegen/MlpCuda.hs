@@ -29,9 +29,18 @@
 -- single-precision arithmetic does not reproduce the host's @Double@
 -- bit-for-bit; the backends test asserts agreement within a float
 -- tolerance, and run-to-run device determinism exactly.
+--
+-- Against the /other/ Linux lane the bar is higher and exact. Sprint `265.1`
+-- renders the activation through 'mlpCudaActivation' rather than CUDA's
+-- @tanhf@, so this artifact and the @linux-cpu@ oneDNN artifact evaluate one
+-- function one way. Every element-wise accumulation order already matched, so
+-- with the activation aligned the two lanes agree __bit for bit__ on the
+-- batched parameter gradient, and @jitml-backends --linux-cuda@ carries a
+-- standing case that fails closed if they drift apart again.
 module JitML.Codegen.MlpCuda
   ( mlpCudaKernelSpec
   , renderMlpCudaSource
+  , mlpCudaActivation
   )
 where
 
@@ -64,9 +73,15 @@ mlpCudaSource =
     , "#include <cuda_runtime.h>"
     , ""
     , "static const char *jitml_mlp_rng_policy = \"host-seeded-no-curand\";"
-    , "// determinism: --use_fast_math=false; TF32 disabled; per-thread sequential reductions"
+    , -- Sprint `78.1` — the compile-line arguments are named by the artifact's
+      -- toolchain fingerprint, which reads them off the compile command. This
+      -- comment used to restate `--use_fast_math=false`, which no compile line
+      -- passes.
+      "// determinism: no device-side atomics; per-thread sequential reductions"
     , ""
     , deviceHelpers
+    , ""
+    , activationHelpers
     , ""
     , forwardKernels
     , ""
@@ -192,6 +207,158 @@ deviceHelpers =
     , "}"
     ]
 
+-- | The device function name both lanes' activation resolves to on this lane.
+--
+-- Sprint `265.1` — exported so the cross-lane bit-identity case can assert the
+-- rendered kernels call it rather than CUDA's @tanhf@.
+mlpCudaActivation :: Text
+mlpCudaActivation = "jitml_mlp_tanhf"
+
+-- | One activation, evaluated one way on both Linux lanes.
+--
+-- Sprint `265.1` — @src/JitML/Codegen/MlpOneDnn.hs@ emits @std::tanh@, which on
+-- a @float@ argument is glibc's @sysdeps/ieee754/flt-32@ @tanhf@; this lane
+-- emitted CUDA's libdevice @tanhf@. Two implementations of one function agree to
+-- about a float ulp and therefore disagree, and because @MlpOneDnn@ declares its
+-- reduction order "matches the CUDA batch-grad reduction order" and
+-- @JitML.Engines.Engine@ passes @--fmad=false@ precisely so the lanes round
+-- alike, that disagreement was the one remaining source of cross-lane drift in
+-- the batched parameter gradient — measured at 9.54e-7 absolute while each lane
+-- sat 4.19e-7 from a float64 oracle.
+--
+-- The alignment is one-sided by construction: Sprint `263.1` pins the
+-- @linux-cpu@ artifact's SHA-256 in 45 of the 55 committed lane-fragment rows,
+-- so that lane's rendered text stays byte-identical and this lane moves. What
+-- moves it is glibc's own algorithm rather than an approximation of its output,
+-- because glibc's @tanhf@ is __not__ correctly rounded: against a
+-- correctly-rounded reference it differs on 118,674,314 of 4,278,190,080 floats,
+-- 44.4% of them in @[0.1, 1]@. Computing a more accurate tanh would not have
+-- matched it; reproducing its operation sequence does.
+--
+-- That reproduction is exact because nvcc is invoked with no fast-math argument,
+-- @--fmad=false@, and default correctly-rounded division, so each float
+-- operation below rounds exactly as the host's does. Verified exhaustively over
+-- every finite float, twice: in pure C under @-ffp-contract=off@, and on the
+-- device under this lane's own compile arguments — 0 mismatches out of
+-- 4,278,190,080, against 129,743,420 (3.03%, worst 1.79e-7 absolute) for CUDA's
+-- native @tanhf@.
+activationHelpers :: Text
+activationHelpers =
+  Text.unlines
+    [ "// Sprint 265.1 — glibc's flt-32 expm1f/tanhf algorithm, rendered so this"
+    , "// lane evaluates the same activation the linux-cpu artifact's std::tanh"
+    , "// does, bit for bit. nvcc is given no fast-math argument, --fmad=false,"
+    , "// and default correctly-rounded division, so each operation below rounds"
+    , "// as the host's does and an identical sequence yields an identical float."
+    , "__device__ __forceinline__ float jitml_mlp_expm1f(float x) {"
+    , "  const float one = 1.0f;"
+    , "  const float huge_v = 1.0e+30f;"
+    , "  const float tiny_v = 1.0e-30f;"
+    , "  const float o_threshold = 8.8721679688e+01f;"
+    , "  const float ln2_hi = 6.9313812256e-01f;"
+    , "  const float ln2_lo = 9.0580006145e-06f;"
+    , "  const float invln2 = 1.4426950216e+00f;"
+    , "  const float Q1 = -3.3333335072e-02f;"
+    , "  const float Q2 = 1.5873016091e-03f;"
+    , "  const float Q3 = -7.9365076090e-05f;"
+    , "  const float Q4 = 4.0082177293e-06f;"
+    , "  const float Q5 = -2.0109921195e-07f;"
+    , "  float y, hi, lo, c, t, e, hxs, hfx, r1, twopk;"
+    , "  int k = 0;"
+    , "  int xsb;"
+    , "  unsigned int hx = static_cast<unsigned int>(__float_as_int(x));"
+    , "  xsb = static_cast<int>(hx & 0x80000000u);"
+    , "  hx &= 0x7fffffffu;"
+    , "  c = 0.0f;"
+    , "  hi = 0.0f;"
+    , "  lo = 0.0f;"
+    , "  if (hx >= 0x4195b844u) {"
+    , "    if (hx >= 0x42b17218u) {"
+    , "      if (hx > 0x7f800000u) { return x + x; }"
+    , "      if (hx == 0x7f800000u) { return (xsb == 0) ? x : -1.0f; }"
+    , "      if (x > o_threshold) { return huge_v * huge_v; }"
+    , "    }"
+    , "    if (xsb != 0) {"
+    , "      if (x + tiny_v < 0.0f) { return tiny_v - one; }"
+    , "    }"
+    , "  }"
+    , "  if (hx > 0x3eb17218u) {"
+    , "    if (hx < 0x3F851592u) {"
+    , "      if (xsb == 0) { hi = x - ln2_hi; lo = ln2_lo; k = 1; }"
+    , "      else { hi = x + ln2_hi; lo = -ln2_lo; k = -1; }"
+    , "    } else {"
+    , "      k = static_cast<int>(invln2 * x + ((xsb == 0) ? 0.5f : -0.5f));"
+    , "      t = static_cast<float>(k);"
+    , "      hi = x - t * ln2_hi;"
+    , "      lo = t * ln2_lo;"
+    , "    }"
+    , "    x = hi - lo;"
+    , "    c = (hi - x) - lo;"
+    , "  } else if (hx < 0x33000000u) {"
+    , "    t = huge_v + x;"
+    , "    return x - (t - (huge_v + x));"
+    , "  } else {"
+    , "    k = 0;"
+    , "  }"
+    , "  hfx = 0.5f * x;"
+    , "  hxs = x * hfx;"
+    , "  r1 = one + hxs * (Q1 + hxs * (Q2 + hxs * (Q3 + hxs * (Q4 + hxs * Q5))));"
+    , "  t = 3.0f - r1 * hfx;"
+    , "  e = hxs * ((r1 - t) / (6.0f - x * t));"
+    , "  if (k == 0) { return x - (x * e - hxs); }"
+    , "  twopk = __int_as_float((0x7f + k) << 23);"
+    , "  e = (x * (e - c) - c);"
+    , "  e -= hxs;"
+    , "  if (k == -1) { return 0.5f * (x - e) - 0.5f; }"
+    , "  if (k == 1) {"
+    , "    if (x < -0.25f) { return -2.0f * (e - (x + 0.5f)); }"
+    , "    else { return one + 2.0f * (x - e); }"
+    , "  }"
+    , "  if (k <= -2 || k > 56) {"
+    , "    y = one - (e - x);"
+    , "    if (k == 128) { y = y * 2.0f * 0x1p127f; }"
+    , "    else { y = y * twopk; }"
+    , "    return y - one;"
+    , "  }"
+    , "  if (k < 23) {"
+    , "    t = __int_as_float(static_cast<int>(0x3f800000u - (0x1000000u >> k)));"
+    , "    y = t - (e - x);"
+    , "    y = y * twopk;"
+    , "  } else {"
+    , "    t = __int_as_float(static_cast<int>((0x7f - k) << 23));"
+    , "    y = x - (e + t);"
+    , "    y += one;"
+    , "    y = y * twopk;"
+    , "  }"
+    , "  return y;"
+    , "}"
+    , ""
+    , "__device__ __forceinline__ float " <> mlpCudaActivation <> "(float x) {"
+    , "  const float one = 1.0f;"
+    , "  const float tiny_v = 1.0e-30f;"
+    , "  float t, z;"
+    , "  int jx = __float_as_int(x);"
+    , "  int ix = jx & 0x7fffffff;"
+    , "  if (ix >= 0x7f800000) {"
+    , "    if (jx >= 0) { return one / x + one; }"
+    , "    else { return one / x - one; }"
+    , "  }"
+    , "  if (ix < 0x41b00000) {"
+    , "    if (ix < 0x24000000) { return x * (one + x); }"
+    , "    if (ix >= 0x3f800000) {"
+    , "      t = jitml_mlp_expm1f(2.0f * fabsf(x));"
+    , "      z = one - 2.0f / (t + 2.0f);"
+    , "    } else {"
+    , "      t = jitml_mlp_expm1f(-2.0f * fabsf(x));"
+    , "      z = -t / (t + 2.0f);"
+    , "    }"
+    , "  } else {"
+    , "    z = one - tiny_v;"
+    , "  }"
+    , "  return (jx >= 0) ? z : -z;"
+    , "}"
+    ]
+
 forwardKernels :: Text
 forwardKernels =
   Text.unlines
@@ -208,7 +375,7 @@ forwardKernels =
     , "    acc += w1[i * inputs + j] * input[j];"
     , "  }"
     , "  hidden_pre[i] = acc;"
-    , "  hidden_act[i] = tanhf(acc);"
+    , "  hidden_act[i] = " <> mlpCudaActivation <> "(acc);"
     , "}"
     , ""
     , "// output[k] = b2[k] + sum_i W2[k*hidden + i] * hidden_act[i]"
@@ -376,7 +543,7 @@ batchedGradientKernels =
     , "  for (int j = 0; j < inputs; ++j) {"
     , "    acc += w1[i * inputs + j] * input[b * inputs + j];"
     , "  }"
-    , "  hidden_act[b * hidden + i] = tanhf(acc);"
+    , "  hidden_act[b * hidden + i] = " <> mlpCudaActivation <> "(acc);"
     , "}"
     , ""
     , "// gB2[k] = sum_b dy[b][k]"

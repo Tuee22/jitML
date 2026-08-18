@@ -30,7 +30,7 @@ import Data.Vector.Unboxed qualified as VU
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.MlpMetal (mlpMetalKernelSpec, renderMlpMetalSource)
-import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine (engineForSubstrate)
 import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Env.Env (Env)
@@ -60,6 +60,7 @@ mlpMetalRuntimeSource =
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
     , runtimeSourceKernelFamily = Nothing
+    , runtimeSourceProgramKind = MlpProgram
     , runtimeSourceFiles = renderMlpMetalSource
     }
 

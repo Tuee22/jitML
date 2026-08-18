@@ -45,7 +45,12 @@ cudaSource family kernelSpec kind tuningChoice =
     , "static const char *jitml_kernel_family = " <> cString (familyName family) <> ";"
     , "static const char *jitml_cudnn_algorithm = " <> cString (cudnnDeterministicAlgorithm family) <> ";"
     , "static const char *jitml_rng_policy = \"host-splitmix64-no-curand\";"
-    , "// determinism: --use_fast_math=false; TF32 disabled; warp-shuffle reductions"
+    , -- Sprint `78.1` — a generated source states the determinism its own body
+      -- establishes. The compile-line arguments are named by the artifact's
+      -- toolchain fingerprint, which reads them off the compile command; this
+      -- comment used to restate `--use_fast_math=false`, which no compile line
+      -- passes.
+      "// determinism: no device-side atomics; warp-shuffle partials finalized host-side in index order"
     , ""
     , kernelOutputCountFunction family
     , ""

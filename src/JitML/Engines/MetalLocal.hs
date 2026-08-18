@@ -43,7 +43,7 @@ import JitML.Codegen.Metal
   , renderMetalFamilySource
   , threadgroupSizeFor
   )
-import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
+import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine
   ( KernelHandle (..)
   , engineForSubstrate
@@ -95,6 +95,7 @@ metalFamilyRuntimeSource family =
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
     , runtimeSourceKernelFamily = Just family
+    , runtimeSourceProgramKind = FamilyProgram
     , runtimeSourceFiles =
         renderMetalFamilyMetadata
           family
