@@ -19,7 +19,6 @@ import JitML.Cluster.Resources
   , budgetReplicas
   , defaultClusterResources
   , minio
-  , postgres
   , pulsar
   )
 
@@ -45,8 +44,6 @@ manualPVsFor resources =
     [ minioReplicas "platform" (budgetReplicas (minio resources))
     , pulsarBookieReplicas "platform" (budgetReplicas (pulsar resources))
     , pulsarZookeeperReplicas "platform" (budgetReplicas (pulsar resources)) "10Gi"
-    , perconaReplicas "platform" "harbor-pg" (budgetReplicas (postgres resources)) "10Gi"
-    , perconaReplicas "platform" "harbor-pg-repo1" 1 "10Gi"
     ]
 
 -- Avoid a module cycle through the loader while keeping the compatibility
@@ -161,11 +158,5 @@ pulsarZookeeperReplicas namespace count size =
       replica
       size
       (Just ("pulsar-zookeeper-data-pulsar-zookeeper-" <> Text.pack (show replica)))
-  | replica <- [0 .. count - 1]
-  ]
-
-perconaReplicas :: Text -> Text -> Int -> Text -> [ManualPV]
-perconaReplicas namespace statefulSet count size =
-  [ ManualPV namespace statefulSet replica size Nothing
   | replica <- [0 .. count - 1]
   ]

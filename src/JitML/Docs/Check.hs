@@ -9,6 +9,7 @@ module JitML.Docs.Check
   , docNameConforms
   , docsCategoryAllowed
   , docsDriftRemedy
+  , phaseLinkTargets
   , renderDocsDrift
   , replaceGeneratedSection
   )
@@ -16,14 +17,14 @@ where
 
 import Control.Monad (filterM)
 import Data.Char (isAsciiLower, isDigit)
-import Data.List (find, findIndex, sort)
+import Data.List (find, findIndex, isPrefixOf, sort)
 import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (takeBaseName, takeExtension, takeFileName, (</>))
+import System.FilePath (takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
 
 import JitML.Generated.Paths (TrackedGeneratedPath (..), trackingGeneratedPaths)
 import JitML.Generated.Registry
@@ -53,6 +54,8 @@ checkDocs = do
   governedPaths <- governedMarkdownPaths
   metadataDrifts <- concat <$> traverse checkDocumentMetadata governedPaths
   closureClaimDrifts <- concat <$> traverse checkDocumentClosureClaims governedPaths
+  phaseLinkDrifts <- concat <$> traverse checkDocumentPhaseLinks governedPaths
+  orphanDrifts <- checkOrphanedGeneratedTemplates
   taxonomyDrifts <- checkDocumentsTaxonomy
   namingDrifts <- checkDocumentsNaming
   pure
@@ -60,6 +63,8 @@ checkDocs = do
         <> pathDrifts
         <> metadataDrifts
         <> closureClaimDrifts
+        <> phaseLinkDrifts
+        <> orphanDrifts
         <> taxonomyDrifts
         <> namingDrifts
     )
@@ -79,6 +84,10 @@ docsDriftRemedy drift
       "update governed document header metadata"
   | "closure-claim." `Text.isPrefixOf` driftKey drift =
       "remove the current product-closure claim, or mark dated historical evidence explicitly"
+  | "phase-link." `Text.isPrefixOf` driftKey drift =
+      "repoint the citation at an existing phase document; a renumber moves every target"
+  | "orphan-template." `Text.isPrefixOf` driftKey drift =
+      "delete the stale generated template, or restore the registry entry that produced it"
   | otherwise = "run `jitml docs generate` to update"
 
 checkGeneratedSection :: GeneratedSectionRule -> IO [DocsDrift]
@@ -133,6 +142,106 @@ markdownFilesUnder path = do
       entries <- sort <$> listDirectory path
       concat <$> traverse (markdownFilesUnder . (path </>)) entries
     _ -> pure []
+
+-- | A generated chart template with no registry entry behind it is stale.
+--
+-- @jitml docs generate@ writes tracked paths but does not remove files that
+-- stopped being tracked, and drift checking only inspects paths still on the
+-- list, so deleting a registry entry silently leaves its rendered template on
+-- disk. Helm would keep deploying it. Removing the Harbor routes left exactly
+-- four such orphans. The generated prefixes are enumerated rather than globbed
+-- so an unrelated hand-written template is never mistaken for an orphan.
+checkOrphanedGeneratedTemplates :: IO [DocsDrift]
+checkOrphanedGeneratedTemplates = do
+  dirExists <- doesDirectoryExist templateDirectory
+  if not dirExists
+    then pure []
+    else do
+      entries <- listDirectory templateDirectory
+      let tracked =
+            Set.fromList (fmap trackedPath trackingGeneratedPaths)
+          orphans =
+            [ path
+            | entry <- sort entries
+            , any (`isPrefixOf` entry) generatedTemplatePrefixes
+            , let path = templateDirectory </> entry
+            , not (Set.member path tracked)
+            ]
+      pure (fmap orphanTemplateDrift orphans)
+ where
+  templateDirectory = "chart" </> "templates"
+
+-- | Template name prefixes that are rendered from a Haskell registry.
+generatedTemplatePrefixes :: [FilePath]
+generatedTemplatePrefixes =
+  ["httproute-", "grafana-dashboard-", "prometheus-scrapeconfig-"]
+
+orphanTemplateDrift :: FilePath -> DocsDrift
+orphanTemplateDrift path =
+  DocsDrift
+    { driftPath = path
+    , driftKey = "orphan-template." <> Text.pack (takeFileName path)
+    , driftReason = "generated template has no tracked registry entry"
+    }
+
+-- | Every @phase-N-slug.md@ citation in a governed document must resolve.
+--
+-- Metadata validation alone cannot catch this: a phase renumber rewrites the
+-- numbers in prose and moves the files, and any citation missed by that sweep
+-- stays syntactically valid markdown pointing at nothing. The 2026-07-24
+-- renumber left a long tail of exactly those. Resolving each target against the
+-- citing document\'s own directory makes a renumber fail closed here instead of
+-- silently degrading the plan\'s cross-references.
+checkDocumentPhaseLinks :: FilePath -> IO [DocsDrift]
+checkDocumentPhaseLinks path = do
+  contents <- Text.IO.readFile path
+  let base = takeDirectory path
+  concat <$> traverse (resolve base) (phaseLinkTargets contents)
+ where
+  resolve base target = do
+    exists <- doesFileExist (base </> target)
+    pure [phaseLinkDrift path target | not exists]
+
+-- | The distinct @phase-N-slug.md@ link targets a markdown document cites.
+--
+-- Targets are read out of markdown link destinations only, so a phase file name
+-- mentioned in prose or inside a fenced block is not mistaken for a citation.
+phaseLinkTargets :: Text -> [FilePath]
+phaseLinkTargets contents =
+  Set.toList
+    ( Set.fromList
+        [ Text.unpack candidate
+        | segment <- drop 1 (Text.splitOn "](" contents)
+        , let candidate = Text.takeWhile (\c -> c /= ')' && c /= '#') segment
+        , isPhaseDocumentName (takeFileName (Text.unpack candidate))
+        ]
+    )
+
+-- | @phase-<digits>-<lower-kebab>.md@, the canonical phase document name.
+isPhaseDocumentName :: FilePath -> Bool
+isPhaseDocumentName name =
+  case stripPrefixText "phase-" name of
+    Nothing -> False
+    Just rest ->
+      let (digits, remainder) = span isDigit rest
+       in not (null digits)
+            && takeExtension name == ".md"
+            && case remainder of
+              ('-' : slug) -> not (null (takeBaseName slug))
+              _ -> False
+ where
+  stripPrefixText prefix value =
+    if prefix == take (length prefix) value
+      then Just (drop (length prefix) value)
+      else Nothing
+
+phaseLinkDrift :: FilePath -> FilePath -> DocsDrift
+phaseLinkDrift path target =
+  DocsDrift
+    { driftPath = path
+    , driftKey = "phase-link." <> Text.pack target
+    , driftReason = "cited phase document does not exist: " <> Text.pack target
+    }
 
 checkDocumentsTaxonomy :: IO [DocsDrift]
 checkDocumentsTaxonomy = do

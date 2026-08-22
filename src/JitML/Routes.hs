@@ -73,10 +73,11 @@ routeRegistry =
       False
       Nothing
       (Just "Prometheus")
-  , Route "harbor-portal" "/harbor" "harbor" 80 (Just "/") False Nothing (Just "Harbor")
-  , Route "harbor-api" "/harbor/api" "harbor" 80 (Just "/api") False Nothing Nothing
-  , Route "harbor-registry" "/v2" "harbor" 80 Nothing False (Just 120) Nothing
-  , Route "harbor-service" "/service" "harbor" 80 Nothing False Nothing Nothing
+  , -- `registry:2` serves the Docker Registry v2 API and nothing else: there is
+    -- no portal, no project API, and no token endpoint, so `/v2` is the whole
+    -- public surface. The 120s timeout is kept because layer uploads, not the
+    -- API calls around them, are what run long.
+    Route "registry" "/v2" "registry" 5000 Nothing False (Just 120) Nothing
   , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False Nothing (Just "MinIO console")
   , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False Nothing Nothing
   , Route
@@ -107,7 +108,6 @@ adminPortalDisplayOrder =
   [ "grafana"
   , "prometheus"
   , "tensorboard"
-  , "harbor-portal"
   , "minio-console"
   , "pulsar-admin"
   ]

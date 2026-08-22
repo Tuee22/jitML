@@ -17,7 +17,7 @@ data:
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
-    , harborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
+    , imageRegistry = "registry.platform.svc.cluster.local:5000/library"
     , httpListener = Some { host = "0.0.0.0", port = 80 }
     , webappPulsarWsUrl = Some "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
     }

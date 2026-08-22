@@ -15,7 +15,7 @@ data AppError
   | SubprocessAttemptFailed ProcessAttemptFailure
   | MinIOFailed Text
   | PulsarFailed Text
-  | HarborFailed Text
+  | RegistryFailed Text
   | KubectlFailed Text
   | DocsCheckDrift Text
   | UnknownCommand Text

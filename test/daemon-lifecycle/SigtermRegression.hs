@@ -220,7 +220,7 @@ sighupReloadRegression =
             }
         changedBootConfig =
           (lifecycleBootConfig fixture)
-            { bootHarborRegistry = "restart-required.invalid/library"
+            { bootImageRegistry = "restart-required.invalid/library"
             }
     -- The bridge fixture expects the final restart-required drain to force a
     -- stuck delivery. Start from the default deadline, then prove the SIGHUP
@@ -493,7 +493,7 @@ lifecycleBootConfig fixture =
     , bootPulsarServiceUrl = "pulsar://lifecycle.invalid:6650"
     , bootPulsarAdminUrl = "http://lifecycle.invalid:8080"
     , bootMinioEndpoint = "http://lifecycle.invalid:9000"
-    , bootHarborRegistry = "lifecycle.invalid/library"
+    , bootImageRegistry = "lifecycle.invalid/library"
     , bootHttpListener =
         Just
           HttpListener
@@ -509,7 +509,7 @@ webappBootConfig fixture =
     , bootPulsarServiceUrl = "pulsar://webapp.invalid:6650"
     , bootPulsarAdminUrl = "http://webapp.invalid:8080"
     , bootMinioEndpoint = "http://webapp.invalid:9000"
-    , bootHarborRegistry = "webapp.invalid/library"
+    , bootImageRegistry = "webapp.invalid/library"
     , bootHttpListener =
         Just
           HttpListener
@@ -641,7 +641,10 @@ fakeCurlScript =
     , "  shift"
     , "done"
     , "case \"$url\" in"
-    , "  *'/repositories?page_size='*) printf '%s' '[]' ;;"
+    , -- The Registry v2 catalogue. The daemon parses this as JSON, so an
+      -- unmatched URL falling through to the plain '200' branch below would
+      -- fail the Coordinator's registry probe and stall readiness.
+      "  *'/v2/_catalog'*) printf '%s' '{\"repositories\":[]}' ;;"
     , "  *)"
     , "    if [ -n \"$output\" ]; then printf '%s' "
         <> "'<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">"

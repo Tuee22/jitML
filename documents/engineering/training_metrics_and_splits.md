@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [root README](../../README.md), [engineering index](README.md), [training workloads](training_workloads.md), [numerical core](numerical_core.md), [checkpoint format](checkpoint_format.md), [PureScript frontend](purescript_frontend.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+**Referenced by**: [root README](../../README.md), [engineering index](README.md), [training workloads](training_workloads.md), [numerical core](numerical_core.md), [checkpoint format](checkpoint_format.md), [PureScript frontend](purescript_frontend.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 **Generated sections**: none
 
 > **Purpose**: The single source of truth for jitML's supervised-learning
@@ -25,7 +25,7 @@ implemented.
   against its environment.
 
 Both are owned by
-[Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md),
+[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md),
 which is where the current status and the closing work are tracked.
 
 ## Invariants
@@ -46,7 +46,7 @@ which is where the current status and the closing work are tracked.
   external**: it is `literatureTarget − slack`, where `literatureTarget` is an
   external published constant and `slack` is a project-calibrated per-cohort
   tolerance. `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md))
+  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   owns the anchoring invariant; the target and slack tables live in
   `JitML.SL.ConvergenceThresholds` and `JitML.RL.ConvergenceThresholds`.
 - **Fixed terminating budgets.** A model is not trained "until converged."
@@ -226,7 +226,7 @@ closure evidence subsequently closed through Phases `240`–`246`.
 - **Convergence** — a cohort converges when the median held-out **test** accuracy
   over the fixed seed cohort clears its `literatureTarget − slack` bar. The
   anchoring invariant is owned by `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md))
+  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   and the target/slack table by `JitML.SL.ConvergenceThresholds`; the target is an
   external constant, the slack is project-calibrated, and neither is **derived
   from, or set equal to, the measured accuracy**. Regression rows use the declared
@@ -234,7 +234,7 @@ closure evidence subsequently closed through Phases `240`–`246`.
   held-out validation loss are reported per run. The ProductScenario integration
   journal measures each row end-to-end from a real random initialization. The
   current `jitml-model-convergence` stanza is only the lightweight case-registry
-  guard; [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+  guard; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
   owns making each of its cases consume that opaque completed-run evidence.
 - **Performance** — a **non-wall-clock** throughput metric (examples/sec). Wall-clock latency
   is excluded from the determinism contract (see [determinism_contract.md](determinism_contract.md)),
@@ -244,11 +244,11 @@ closure evidence subsequently closed through Phases `240`–`246`.
   positive and reproducible for the same fixed budget and split. The throughput
   **floor** the metric is graded against is a committed constant in
   `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)),
+  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)),
   never derived from the measured throughput. Binding every row's non-wall-clock
   inference measurement and same-seed reproducibility check to its exact trained
   artifact remains the contract-driven
-  [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+  [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
   obligation; the current lightweight stanza validates only its declared case
   metadata.
 
@@ -272,11 +272,11 @@ closure evidence subsequently closed through Phases `240`–`246`.
   return over `k` seeds clears its per-cohort return threshold. That threshold is
   `literatureTarget − slack` — an external published target less a
   project-calibrated slack — anchored by `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md))
+  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   and tabulated by `JitML.RL.ConvergenceThresholds`, never derived from the
   measured return. The measured return is a **trained-policy rollout** — the learned policy
   acting in the environment — not a scripted expert controller. Current
-  ProductScenario execution records the trained-policy result; Phase `284`
+  ProductScenario execution records the trained-policy result; Phase `285`
   migrates the per-model `jitml-model-convergence` cases from metadata checks to
   that completed-run evidence.
 - **Trainer-owned counters** — every successful traditional trainer returns
@@ -320,8 +320,8 @@ closure evidence subsequently closed through Phases `240`–`246`.
 - **Performance** — a non-wall-clock RL performance metric (sample efficiency, i.e.
   env-steps-to-threshold), graded against a committed **ceiling** in
   `JitML.Product.ExternalBars`
-  ([Phase 277](../../DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md)) that
-  is never derived from the measured value. The Phase `284` contract-driven
+  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)) that
+  is never derived from the measured value. The Phase `285` contract-driven
   per-model case owns exercising that measurement from the exact completed
   artifact and proving same-seed reproducibility; the current stanza checks only
   the registered metric and positive floor.

@@ -21,9 +21,9 @@ kinds (RL trainers, tuning trials, AlphaZero policy/value evaluation).
 oneDNN kernels on every substrate, and supervised serving executes the pure host
 executor, so neither reaches the bridge on this lane. The Metal arm of the device
 lowering is owned by
-[Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md), and per-row
+[Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md), and per-row
 Metal device evidence minted from an execution witness by
-[Phase 270](../../DEVELOPMENT_PLAN/phase-270-metal-row-device-evidence.md).
+[Phase 271](../../DEVELOPMENT_PLAN/phase-271-metal-row-device-evidence.md).
 Sections below describe the intended Apple boundary; where a statement is a target
 rather than current behaviour it says so.
 
@@ -161,10 +161,10 @@ route through the `MlpDevice` seam.
 **Supervised training and supervised serving do not reach the bridge today.**
 Supervised training over the typed `LayerGraph` executes oneDNN kernels on every
 substrate, and supervised serving executes the pure host executor, so neither is
-Metal-backed on this lane. Phases `269` and `270` own closing that; see
-[Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md). The target
+Metal-backed on this lane. Phases `270` and `271` own closing that; see
+[Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md). The target
 below describes the intended Apple boundary, not current execution. The Kubernetes cluster remains responsible for Pulsar,
-MinIO, Harbor, public routing, and orchestration. Inference and
+MinIO, the image registry, public routing, and orchestration. Inference and
 daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
 typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
 including AlphaZero policy/value validation, executes host-native through the
@@ -222,7 +222,7 @@ Metal structural-operation program or `RuntimeOperations*` ABI. The fixed bridge
 is the intended Apple boundary for generated MSL kernels selected by the
 supervised path. **That selection is not yet implemented**: the supervised graph
 path selects oneDNN kernels regardless of substrate, so no MSL kernel is chosen
-for it. Phase `269` owns the Metal arm of the device lowering.
+for it. Phase `270` owns the Metal arm of the device lowering.
 
 The supervised V2 checkpoint name remains a valid wire-format name. Its payload
 records the exact input/output transforms and trained graph metadata, and its one

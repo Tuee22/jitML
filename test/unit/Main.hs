@@ -3707,6 +3707,31 @@ unitTestMain =
             @?= [ "metadata.generated-sections.cluster.routes"
                 , "metadata.generated-sections.cluster.routes"
                 ]
+      , testCase "phase link scan reads markdown link destinations only" $ do
+          -- A renumber rewrites prose and moves files; a citation it misses stays
+          -- valid markdown pointing at nothing, which metadata validation cannot
+          -- see. The scan therefore reads destinations, and must not be fooled by
+          -- a phase file name that merely appears in prose or in a code span.
+          DocsCheck.phaseLinkTargets
+            ( Text.unlines
+                [ "See [Phase 42](phase-42-some-slug.md) and"
+                , "[relative](../DEVELOPMENT_PLAN/phase-7-other-slug.md#anchor)."
+                , "Prose naming phase-99-not-a-link.md is not a citation, nor is"
+                , "`phase-98-code-span.md` inside a code span."
+                , "[repeat](phase-42-some-slug.md) is counted once."
+                ]
+            )
+            @?= [ "../DEVELOPMENT_PLAN/phase-7-other-slug.md"
+                , "phase-42-some-slug.md"
+                ]
+      , testCase "phase link scan ignores non-phase link destinations" $ do
+          DocsCheck.phaseLinkTargets
+            ( Text.unlines
+                [ "[readme](README.md), [anchor](README.md#legacy-to-new-phase-map),"
+                , "[no slug](phase-12-.md), [no digits](phase-abc-slug.md)."
+                ]
+            )
+            @?= []
       , testCase "docs root metadata check accepts complete root-doc headers" $ do
           DocsCheck.checkRootDocMetadataText
             "README.md"
@@ -6159,7 +6184,7 @@ unitTestMain =
             HotReload.ReloadApplied snapshot -> HotReload.snapshotGeneration snapshot @?= 1
       , testCase "service capability classes are named in the local surface" $
           Capabilities.capabilityNames
-            @?= ["HasMinIO", "HasPulsar", "HasHarbor", "HasKubectl"]
+            @?= ["HasMinIO", "HasPulsar", "HasImageRegistry", "HasKubectl"]
       , testCase "AsyncBuffer drains async writes in spawn order (Sprint 8.4)" $ do
           writeLog <- newIORef ([] :: [Int])
           let sink =
@@ -9889,7 +9914,6 @@ unitTestMain =
             @?= [ "grafana"
                 , "prometheus"
                 , "tensorboard"
-                , "harbor-portal"
                 , "minio-console"
                 , "pulsar-admin"
                 ]
@@ -13006,8 +13030,8 @@ unitTestMain =
           ]
       , testGroup
           "Product phase status registry (Phase 221)"
-          [ testCase "enumerates product phases 220 through 288" $ do
-              PhaseStatus.productPhaseNumbers @?= [220 .. 288]
+          [ testCase "enumerates product phases 220 through 289" $ do
+              PhaseStatus.productPhaseNumbers @?= [220 .. 289]
               PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
           , testCase "reports incomplete while any product sprint is open" $ do
               PhaseStatus.allProductPhasesDone @?= False
@@ -16817,7 +16841,7 @@ canonicalErrors fixtureProcessFailure =
   , AppError.SubprocessAttemptFailed fixtureProcessAttemptFailure
   , AppError.MinIOFailed "bucket unavailable"
   , AppError.PulsarFailed "broker unavailable"
-  , AppError.HarborFailed "registry unavailable"
+  , AppError.RegistryFailed "registry unavailable"
   , AppError.KubectlFailed "context missing"
   , AppError.DocsCheckDrift $
       Text.unlines

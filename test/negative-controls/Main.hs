@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Phase 276 — the retained pure gate-soundness stanza.
+-- | Phase 277 — the retained pure gate-soundness stanza.
 --
 -- The gate-soundness controls pass today (the pure gates reject their
 -- known-fakes). The production-path controls listed in 'pendingProductionControls'

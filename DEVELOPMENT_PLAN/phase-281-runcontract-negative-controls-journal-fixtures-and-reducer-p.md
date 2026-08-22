@@ -1,4 +1,4 @@
-# Phase 280: RunContract Negative Controls - Journal Fixtures and Reducer Properties
+# Phase 281: RunContract Negative Controls - Journal Fixtures and Reducer Properties
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,15 +9,15 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 279 (Sprint 279.1).
+⏸️ **Blocked**. Blocked by Phase 280 (Sprint 280.1).
 
-## Sprint 280.1: RunContract Negative Controls - Journal Fixtures and Reducer Properties [⏸️ Blocked]
+## Sprint 281.1: RunContract Negative Controls - Journal Fixtures and Reducer Properties [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/NegativeControls.hs`,
 `src/JitML/Test/RunContract.hs`, `test/negative-controls/Main.hs`,
 `test/unit/Main.hs`
-**Blocked by**: Sprint `279.1`
+**Blocked by**: Sprint `280.1`
 **Docs to update**: `../documents/engineering/run_contract.md`,
 `../documents/engineering/product_completion_contract.md`, `system-components.md`
 
@@ -49,7 +49,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `279.1` lands the request/event negative-control fixtures.
+- Blocked until Sprint `280.1` lands the request/event negative-control fixtures.
 - Add the invalid-evidence journal suite (including
   storage-success-without-admission cases) and the reducer property suites.
 

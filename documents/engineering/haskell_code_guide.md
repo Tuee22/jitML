@@ -33,7 +33,7 @@ This doc defers to [../../README.md](../../README.md) for:
   fail closed returns `Either` / `ExceptT` / `AppError`; it does not use
   `error` as the fail-closed mechanism.
 - **Capability Classes and Service Errors** — `HasMinIO`, `HasPulsar`,
-  `HasHarbor`, `HasKubectl`; service errors `SEConflict`, `SEUnauthorized`,
+  `HasImageRegistry`, `HasKubectl`; service errors `SEConflict`, `SEUnauthorized`,
   `SETimeout`, `SETransient`.
 - **Retry Policy as First-Class Values** — `RetryPolicy` typed value with
   named strategies; `retryServiceAction` harness.
@@ -115,7 +115,7 @@ run protocol rather than maintaining a second manually validated status enum.
 |-------|-----------|---------------|
 | `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs` |
 | `HasPulsar` | Typed publication plus scoped subscriptions yielding receipt-bearing deliveries; the consumer handler returns one disposition and the interpreter owns settlement | `src/JitML/Service/Capabilities.hs` and `src/JitML/Service/PulsarWebSocketSubprocess.hs` |
-| `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs`; subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
+| `HasImageRegistry` | `registryImageExists`, `registryPromoteImage`, `registryPushImage`, `registryPullImage`, `registryListImages` | `src/JitML/Service/Capabilities.hs`; subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
 | `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
 `HasKubectl` operations route through the typed `Subprocess` boundary.
@@ -131,7 +131,7 @@ Defined in `src/JitML/AppError/AppError.hs`:
 | `SubprocessAttemptFailed` | Typed `Subprocess` runner raised synchronously before an exit status was observed | `1` |
 | `MinIOFailed` | `HasMinIO` operation failure (after `RetryPolicy`) | `1` |
 | `PulsarFailed` | `HasPulsar` operation failure | `1` |
-| `HarborFailed` | `HasHarbor` operation failure | `1` |
+| `RegistryFailed` | `HasImageRegistry` operation failure | `1` |
 | `KubectlFailed` | `HasKubectl` operation failure | `1` |
 | `DocsCheckDrift` | `jitml docs check` marker / file drift | `1` |
 | `UnknownCommand` | Parser failure or substrate-only command on wrong substrate | `1` |
@@ -256,7 +256,7 @@ Package validation and installation lives in the typed prerequisite DAG:
 Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 
 - `BootConfig` Dhall: `substrate`, `residency`, `inferenceMode`, Pulsar /
-  MinIO / Harbor connection info, HTTP listener.
+  MinIO / image-registry connection info, HTTP listener.
 - `LiveConfig` Dhall: structured-log threshold, retry policy, positive
   inference batch size / maximum latency, dedup cache size / TTL, and
   `drainDeadlineSeconds`; every accepted field has a live operational reader.

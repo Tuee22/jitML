@@ -75,7 +75,7 @@ import JitML.Service.Capabilities
   , ConsumerFailure (..)
   , ConsumerSessionEvent (..)
   , ETag (..)
-  , HasHarbor (..)
+  , HasImageRegistry (..)
   , HasKubectl (..)
   , HasMinIO (..)
   , HasPulsar (..)
@@ -683,7 +683,7 @@ main =
             Runtime.daemonClientProbeStatusName
             (Runtime.daemonClientProbeStatuses coordinatorRuntime)
             @?= [ "minio:list jitml-checkpoints"
-                , "harbor:list library"
+                , "registry:list library"
                 , "kubectl:get pods"
                 ]
           topicEvidence <-
@@ -726,7 +726,7 @@ main =
           readIORef clientLogRef
             >>= ( @?=
                     [ "minio:list:jitml-checkpoints:daemon-health/"
-                    , "harbor:list:library"
+                    , "registry:list:library"
                     , "kubectl:get:pods"
                     ]
                 )
@@ -802,17 +802,23 @@ main =
             "Engine keeps its Pulsar endpoint"
             ("pulsar_websocket_endpoint:" `Text.isInfixOf` rendered)
           assertBool
-            "Engine does not retain Harbor configuration"
-            (not ("harbor" `Text.isInfixOf` Text.toLower rendered))
+            "Engine does not retain image-registry configuration"
+            (not ("registry" `Text.isInfixOf` Text.toLower rendered))
           assertBool
             "Engine does not retain kubectl configuration"
             (not ("kubectl" `Text.isInfixOf` Text.toLower rendered))
           assertBool
-            "Engine does not retain the Harbor administrator"
+            "Engine does not retain a registry administrator"
             (not ("admin" `Text.isInfixOf` Text.toLower rendered))
+          -- The registry runs unauthenticated, so there is no credential to
+          -- leak; this asserts the rendering grew no credential field rather
+          -- than checking for one specific retired password, which could never
+          -- fail again and would be a vacuous guard.
           assertBool
-            "Engine does not retain the default Harbor password"
-            (not ("Harbor12345" `Text.isInfixOf` rendered))
+            "Engine does not retain any credential field"
+            ( not ("password" `Text.isInfixOf` Text.toLower rendered)
+                && not ("secret" `Text.isInfixOf` Text.toLower rendered)
+            )
       , testCase "Engine refuses to enter publication after the batch deadline" $ do
           topic <- expectRight (topicFor TrainingCommandRoute LinuxCPU)
           command <-
@@ -859,8 +865,8 @@ main =
           ServiceClients.coordinatorRoleClientSettings webappSettings @?= Nothing
           ServiceClients.rolePulsarSettings webappSettings @?= Nothing
           assertBool
-            "Engine rendering omits Harbor"
-            (not ("harbor" `Text.isInfixOf` Text.toLower engineRendered))
+            "Engine rendering omits the image registry"
+            (not ("registry" `Text.isInfixOf` Text.toLower engineRendered))
           assertBool
             "Engine rendering omits kubectl"
             (not ("kubectl" `Text.isInfixOf` Text.toLower engineRendered))
@@ -952,7 +958,7 @@ main =
           clientLog
             @?= [ "minio:put-blob-bytes-if-absent"
                 , "minio:cas-pointer"
-                , "harbor:promote"
+                , "registry:promote"
                 , "kubectl:apply:job/jitml-train"
                 , "kubectl:status:job/jitml-train"
                 , "kubectl:delete:job/jitml-train"
@@ -1224,7 +1230,7 @@ main =
           clientLog <- readIORef clientLogRef
           clientLog
             @?= [ "minio:put-blob-bytes-if-absent"
-                , "harbor:promote"
+                , "registry:promote"
                 , "kubectl:apply:job/jitml-train"
                 ]
       , testCase "daemon workload dispatcher can inject Linux CPU engine inference (Sprint 7.3)" $ do
@@ -2263,21 +2269,21 @@ instance HasMinIO (StateT SyntheticClientState IO) where
     recordClientCall "minio:delete-object"
     pure (Right ())
 
-instance HasHarbor (StateT SyntheticClientState IO) where
-  harborImageExists _image = do
-    recordClientCall "harbor:exists"
+instance HasImageRegistry (StateT SyntheticClientState IO) where
+  registryImageExists _image = do
+    recordClientCall "registry:exists"
     pure (Right False)
-  harborPromoteImage _source target = do
-    recordClientCall "harbor:promote"
+  registryPromoteImage _source target = do
+    recordClientCall "registry:promote"
     pure (Right target)
-  harborPushImage _image = do
-    recordClientCall "harbor:push"
+  registryPushImage _image = do
+    recordClientCall "registry:push"
     pure (Right (ETag "synthetic-digest"))
-  harborPullImage _image = do
-    recordClientCall "harbor:pull"
+  registryPullImage _image = do
+    recordClientCall "registry:pull"
     pure (Right (ETag "synthetic-digest"))
-  harborListImages project = do
-    recordClientCall ("harbor:list:" <> project)
+  registryListImages project = do
+    recordClientCall ("registry:list:" <> project)
     pure (Right [])
 
 instance HasKubectl (StateT SyntheticClientState IO) where

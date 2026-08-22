@@ -1,4 +1,4 @@
-# Phase 284: Contract-Driven Per-Model Evidence
+# Phase 285: Contract-Driven Per-Model Evidence
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,15 +9,15 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 281 (Sprint 281.1).
+⏸️ **Blocked**. Blocked by Phase 282 (Sprint 282.1).
 
-## Sprint 284.1: Contract-Driven Per-Model Evidence [⏸️ Blocked]
+## Sprint 285.1: Contract-Driven Per-Model Evidence [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/RowAssertions.hs`,
 `src/JitML/Test/RunContract.hs`, `test/model-convergence/Main.hs`,
 `src/JitML/Product/ExternalBars.hs`
-**Blocked by**: Sprint `281.1`
+**Blocked by**: Sprint `282.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/training_metrics_and_splits.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -57,7 +57,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `279.1` establishes the contract's adversarial acceptance
+- Blocked until Sprint `280.1` establishes the contract's adversarial acceptance
   boundary.
 - Migrate all per-model assertions to completed run evidence and separate RL
   learning/evaluation observations.

@@ -754,14 +754,14 @@ Bit-determinism proves a computation is *reproducible*, not that it is *real*: a
 fabricated kernel that returns a fixed buffer is perfectly bit-deterministic.
 Reproducibility is therefore paired with a metamorphic/differential discipline
 that a stub cannot satisfy. The pure gate-soundness slice owned by
-[Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md) makes
+[Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md) makes
 `jitml-negative-controls` reject hand-built known fakes and requires
 `pendingProductionControls` to remain non-empty. It does not by itself exercise
 production requests, events, journals, reducers, lifecycle failures, or every
 ProductRow. The production-path owners are
-[Phase 279](../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md),
-[Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
-and [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md),
+[Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md),
+[Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
+and [Phase 282](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md),
 as specified further in [unit_testing_policy.md](unit_testing_policy.md). Their
 current status and validation evidence live only in the development plan.
 
@@ -806,7 +806,7 @@ current phase status remain in the owning development-plan files.
 - [run_contract.md](run_contract.md)
 - [Legacy Phase 7: JIT Codegen and Per-Substrate Execution](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [Legacy Phase 12: Test Stanzas, Lint Matrix, Live Workflow Matrix](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
-- [../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md) — retained pure `jitml-negative-controls` gate-soundness scope
-- [../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md](../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md) — blocked production request/event controls
-- [../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) — blocked journal/reducer controls
-- [../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md) — blocked lifecycle and per-row controls
+- [../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md) — retained pure `jitml-negative-controls` gate-soundness scope
+- [../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md) — blocked production request/event controls
+- [../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) — blocked journal/reducer controls
+- [../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md) — blocked lifecycle and per-row controls

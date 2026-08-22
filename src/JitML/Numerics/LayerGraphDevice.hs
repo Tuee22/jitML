@@ -377,7 +377,7 @@ layerTrainingBackendFor substrate =
     Cache.AppleSilicon ->
       Left
         ( "layer-graph device training has no apple-silicon kernel: the Metal "
-            <> "layer-training renderer is Sprint 269.1's"
+            <> "layer-training renderer is Sprint 270.1's"
         )
 
 -- | The substrate a backend /is/, read off the backend that executes rather

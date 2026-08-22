@@ -40,7 +40,7 @@ module JitML.Service.Capabilities
   , continueBatch
   , doneBatch
   , ConsumerFailure (..)
-  , HasHarbor (..)
+  , HasImageRegistry (..)
   , HasKubectl (..)
   , HasMinIO (..)
   , HasPulsar (..)
@@ -284,15 +284,20 @@ class (MonadIO m) => HasPulsar m where
           ContinueBatchInternal disposition -> ContinueInternal disposition
           DoneBatchInternal disposition result -> DoneInternal disposition result
 
--- | Harbor capability. `harborPushImage` and `harborPullImage` exercise the
--- container-registry push/pull contract; `harborListImages` enumerates the
--- catalogue under a project.
-class (Monad m) => HasHarbor m where
-  harborImageExists :: ImageRef -> m (Either ServiceError Bool)
-  harborPromoteImage :: ImageRef -> ImageRef -> m (Either ServiceError ImageRef)
-  harborPushImage :: ImageRef -> m (Either ServiceError ETag)
-  harborPullImage :: ImageRef -> m (Either ServiceError ETag)
-  harborListImages :: Text -> m (Either ServiceError [ImageRef])
+-- | Image-registry capability. `registryPushImage` and `registryPullImage`
+-- exercise the container-registry push/pull contract; `registryListImages`
+-- enumerates the catalogue under a repository prefix.
+--
+-- The class is named for the contract rather than for a product. Every method
+-- here is expressible in the Docker Registry v2 API that any registry serves, so
+-- swapping the implementation is a deployment decision rather than a change to
+-- what the daemon can ask for.
+class (Monad m) => HasImageRegistry m where
+  registryImageExists :: ImageRef -> m (Either ServiceError Bool)
+  registryPromoteImage :: ImageRef -> ImageRef -> m (Either ServiceError ImageRef)
+  registryPushImage :: ImageRef -> m (Either ServiceError ETag)
+  registryPullImage :: ImageRef -> m (Either ServiceError ETag)
+  registryListImages :: Text -> m (Either ServiceError [ImageRef])
 
 -- | kubectl capability. `kubectlGet` returns the live YAML/JSON shape of a
 -- resource the cluster reports; `kubectlDelete` removes it through the typed
@@ -307,7 +312,7 @@ capabilityNames :: [Text]
 capabilityNames =
   [ "HasMinIO"
   , "HasPulsar"
-  , "HasHarbor"
+  , "HasImageRegistry"
   , "HasKubectl"
   ]
 

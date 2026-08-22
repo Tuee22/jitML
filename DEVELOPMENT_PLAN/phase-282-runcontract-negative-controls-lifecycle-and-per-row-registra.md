@@ -1,4 +1,4 @@
-# Phase 281: RunContract Negative Controls - Lifecycle and Per-Row Registration
+# Phase 282: RunContract Negative Controls - Lifecycle and Per-Row Registration
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,16 +9,16 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 280 (Sprint 280.1).
+⏸️ **Blocked**. Blocked by Phase 281 (Sprint 281.1).
 
-## Sprint 281.1: RunContract Negative Controls - Lifecycle and Per-Row Registration [⏸️ Blocked]
+## Sprint 282.1: RunContract Negative Controls - Lifecycle and Per-Row Registration [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/NegativeControls.hs`,
 `src/JitML/Test/RunContract.hs`, `src/JitML/Test/LiveWorkflow.hs`,
 `test/negative-controls/Main.hs`, `test/integration/Main.hs`,
 `test/unit/Main.hs`
-**Blocked by**: Sprint `280.1`
+**Blocked by**: Sprint `281.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/run_contract.md`,
 `../documents/engineering/product_completion_contract.md`,
@@ -61,7 +61,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `280.1` lands the journal fixtures and reducer properties.
+- Blocked until Sprint `281.1` lands the journal fixtures and reducer properties.
 - Add the settlement/timeout/cleanup/terminal-order lifecycle suites.
 - Make contract-negative coverage mandatory for every product row/workflow.
 

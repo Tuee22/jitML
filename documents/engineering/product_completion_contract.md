@@ -58,7 +58,7 @@ tune; this section names the obligation and the plan owns the implementation.
    trace, or a dense layer mislabelled as convolution — paired with the gate that
    must *reject* it. The current `jitml-negative-controls` stanza exercises
    hand-built pure gate-soundness controls and keeps production gaps explicit;
-   Phases `279`–`281` own contract-journal mutation and mandatory per-row
+   Phases `280`–`282` own contract-journal mutation and mandatory per-row
    registration. A gate that cannot reject its own known-fake is a failure, not
    a pass.
 2. **The convergence bar is externally anchored and structurally independent of
@@ -79,7 +79,7 @@ tune; this section names the obligation and the plan owns the implementation.
    rollout evaluation of the *trained policy* through the production device seam
    (`rleSyntheticTransitionEvidence = False`, median over `k` seeds at or above
    the external bar). The current `jitml-model-convergence` stanza checks the
-   per-row case registry and bar metadata; Phase `284` owns binding those cases
+   per-row case registry and bar metadata; Phase `285` owns binding those cases
    to opaque completed-run evidence. A scripted or expert controller reward can
    never close an RL row.
 
@@ -445,8 +445,8 @@ Coverage reports must name missing row/test pairs. A pass count without row
 identity is not enough to close a phase. The current ProductScenario journal
 supplies row-identified integration evidence, while the two standing realness
 stanzas remain lightweight guards: pure known-fake rejection and per-row case
-metadata, respectively. Phases `279`–`281` own contract-negative journal
-coverage, and Phase `284` owns completed-run per-model measurements. Their green
+metadata, respectively. Phases `280`–`282` own contract-negative journal
+coverage, and Phase `285` owns completed-run per-model measurements. Their green
 current forms cannot substitute for those later production obligations.
 
 ## Phase Validation Boundary

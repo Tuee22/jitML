@@ -100,17 +100,17 @@ import JitML.Service.BootConfig
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ConsumerSessionEvent (..)
-  , HasHarbor
+  , HasImageRegistry
   , HasKubectl
   , HasMinIO
   , HasPulsar
   , ImageRef
   , KubeResource (..)
   , ObjectRef
-  , harborListImages
   , kubectlGet
   , listObjects
   , pulsarPublish
+  , registryListImages
   )
 import JitML.Service.Clients
   ( DaemonRoleClientSettings
@@ -492,7 +492,7 @@ daemonRuntimeForConfigs bootConfig liveConfig =
         }
 
 -- | Engine acquire probes only its MinIO artifact capability. This narrower
--- signature is what allows the production Engine interpreter to omit Harbor
+-- signature is what allows the production Engine interpreter to omit the registry
 -- and kubectl instances entirely.
 probeEngineServiceClients
   :: (HasMinIO m)
@@ -504,17 +504,17 @@ probeEngineServiceClients runtime = do
 
 -- | Coordinator acquire owns the cluster-orchestration probes.
 probeCoordinatorServiceClients
-  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m)
   => DaemonRuntime
   -> m DaemonRuntime
 probeCoordinatorServiceClients runtime = do
   minioResult <- listObjects daemonProbeBucket daemonProbePrefix
-  harborResult <- harborListImages daemonProbeHarborProject
+  registryResult <- registryListImages daemonProbeRegistryPrefix
   kubectlResult <- kubectlGet daemonProbeKubeResource
   pure
     ( applyClientProbeStatuses
         [ minioProbeStatus minioResult
-        , harborProbeStatus harborResult
+        , registryProbeStatus registryResult
         , kubectlProbeStatus kubectlResult
         ]
         runtime
@@ -549,7 +549,7 @@ daemonClientProbeNames bootConfig =
     Engine -> ["minio:list jitml-checkpoints"]
     Coordinator ->
       [ "minio:list jitml-checkpoints"
-      , "harbor:list library"
+      , "registry:list library"
       , "kubectl:get pods"
       ]
     Webapp -> []
@@ -579,8 +579,8 @@ daemonProbeBucket = BucketName "jitml-checkpoints"
 daemonProbePrefix :: Text
 daemonProbePrefix = "daemon-health/"
 
-daemonProbeHarborProject :: Text
-daemonProbeHarborProject = "library"
+daemonProbeRegistryPrefix :: Text
+daemonProbeRegistryPrefix = "library"
 
 daemonProbeKubeResource :: KubeResource
 daemonProbeKubeResource = KubeResource "pods"
@@ -593,9 +593,9 @@ minioProbeStatus result =
         DaemonClientProbeSucceeded ("listed " <> Text.pack (show (length refs)) <> " objects")
       Left err -> DaemonClientProbeFailed err
 
-harborProbeStatus :: Either ServiceError [ImageRef] -> DaemonClientProbeStatus
-harborProbeStatus result =
-  DaemonClientProbeStatus "harbor:list library" $
+registryProbeStatus :: Either ServiceError [ImageRef] -> DaemonClientProbeStatus
+registryProbeStatus result =
+  DaemonClientProbeStatus "registry:list library" $
     case result of
       Right images ->
         DaemonClientProbeSucceeded ("listed " <> Text.pack (show (length images)) <> " images")
@@ -992,7 +992,7 @@ daemonConsumerBatch runtime budget dispatch =
             go router' (outcomes <> batchOutcomes) rest
 
 daemonWorkloadDispatcher
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => DaemonCommand
   -> EventId
   -> m (Either ServiceError ())
@@ -1073,7 +1073,7 @@ daemonWorkloadDispatcherWithWeightedInference runInference command _eventId =
 -- dispatcher, which performs the host-command workload placement for Apple
 -- Metal-backed work.
 daemonWorkloadDispatcherForwardingInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => DaemonCommand
   -> EventId
   -> m (Either ServiceError ())

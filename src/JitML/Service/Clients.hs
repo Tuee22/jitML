@@ -20,7 +20,7 @@ module JitML.Service.Clients
   , coordinatorClientSettingsForBootConfig
   , renderDaemonClientSettings
   , runDaemonServiceClient
-  , runDaemonHarborClient
+  , runDaemonRegistryClient
   , runDaemonKubectlClient
   , runDaemonMinIOClient
   , runDaemonPulsarClient
@@ -40,15 +40,10 @@ import JitML.Service.BootConfig
   , Role (..)
   )
 import JitML.Service.Capabilities
-  ( HasHarbor (..)
+  ( HasImageRegistry (..)
   , HasKubectl (..)
   , HasMinIO (..)
   , HasPulsar (..)
-  )
-import JitML.Service.HarborSubprocess
-  ( HarborSettings (..)
-  , HarborSubprocess
-  , runHarborSubprocess
   )
 import JitML.Service.InferenceBatch (batchDeadlineExpiredAt)
 import JitML.Service.KubectlSubprocess
@@ -70,19 +65,24 @@ import JitML.Service.PulsarWebSocketSubprocess
   , pulsarSettingsForEndpoint
   , runPulsarWebSocketSubprocess
   )
+import JitML.Service.RegistrySubprocess
+  ( RegistrySettings (..)
+  , RegistrySubprocess
+  , runRegistrySubprocess
+  )
 import JitML.Service.Retry (ServiceError (..))
 
 data DaemonClientSettings = DaemonClientSettings
   { daemonMinIOSettings :: MinIOSettings
   , daemonPulsarSettings :: PulsarWebSocketSettings
-  , daemonHarborSettings :: HarborSettings
+  , daemonRegistrySettings :: RegistrySettings
   , daemonKubectlSettings :: KubectlSettings
   }
   deriving stock (Eq, Show)
 
 -- | Capability-minimal settings retained by an Engine process. The
 -- constructor is private: Engine startup can project only MinIO and Pulsar and
--- cannot recover Harbor credentials or kubectl configuration from this value.
+-- cannot recover registry or kubectl configuration from this value.
 data EngineClientSettings = EngineClientSettings
   { engineMinIOSettings :: MinIOSettings
   , enginePulsarSettings :: PulsarWebSocketSettings
@@ -100,7 +100,7 @@ data DaemonRoleClientSettings
   | WebappRoleClientSettings
   deriving stock (Eq, Show)
 
--- | Opaque Engine interpreter. Deliberately has no 'HasHarbor' or 'HasKubectl'
+-- | Opaque Engine interpreter. Deliberately has no 'HasImageRegistry' or 'HasKubectl'
 -- instance, so orchestration effects cannot type-check in the Engine path.
 newtype EngineServiceClient a = EngineServiceClient
   { unEngineServiceClient :: ReaderT EngineClientSettings IO a
@@ -279,7 +279,7 @@ coordinatorClientSettingsForBootConfig bootConfig =
   DaemonClientSettings
     { daemonMinIOSettings = minioSettingsForBootConfig bootConfig
     , daemonPulsarSettings = pulsarSettingsForBootConfig bootConfig
-    , daemonHarborSettings = harborSettingsForBootConfig bootConfig
+    , daemonRegistrySettings = registrySettingsForBootConfig bootConfig
     , daemonKubectlSettings = kubectlSettingsForBootConfig bootConfig
     }
 
@@ -301,9 +301,9 @@ runDaemonPulsarClient :: DaemonClientSettings -> PulsarWebSocketSubprocess a -> 
 runDaemonPulsarClient settings =
   runPulsarWebSocketSubprocess (daemonPulsarSettings settings)
 
-runDaemonHarborClient :: DaemonClientSettings -> HarborSubprocess a -> IO a
-runDaemonHarborClient settings =
-  runHarborSubprocess (daemonHarborSettings settings)
+runDaemonRegistryClient :: DaemonClientSettings -> RegistrySubprocess a -> IO a
+runDaemonRegistryClient settings =
+  runRegistrySubprocess (daemonRegistrySettings settings)
 
 runDaemonKubectlClient :: DaemonClientSettings -> KubectlSubprocess a -> IO a
 runDaemonKubectlClient settings =
@@ -319,10 +319,10 @@ runDaemonPulsarAction action = do
   settings <- ask
   liftIO (runDaemonPulsarClient settings action)
 
-runDaemonHarborAction :: HarborSubprocess a -> DaemonServiceClient a
-runDaemonHarborAction action = do
+runDaemonRegistryAction :: RegistrySubprocess a -> DaemonServiceClient a
+runDaemonRegistryAction action = do
   settings <- ask
-  liftIO (runDaemonHarborClient settings action)
+  liftIO (runDaemonRegistryClient settings action)
 
 runDaemonKubectlAction :: KubectlSubprocess a -> DaemonServiceClient a
 runDaemonKubectlAction action = do
@@ -371,17 +371,17 @@ instance HasPulsar DaemonServiceClient where
           (liftIO . runDaemonServiceClient settings . observe)
           (liftIO . runDaemonServiceClient settings . handler)
 
-instance HasHarbor DaemonServiceClient where
-  harborImageExists image =
-    runDaemonHarborAction (harborImageExists image)
-  harborPromoteImage source target =
-    runDaemonHarborAction (harborPromoteImage source target)
-  harborPushImage image =
-    runDaemonHarborAction (harborPushImage image)
-  harborPullImage image =
-    runDaemonHarborAction (harborPullImage image)
-  harborListImages project =
-    runDaemonHarborAction (harborListImages project)
+instance HasImageRegistry DaemonServiceClient where
+  registryImageExists image =
+    runDaemonRegistryAction (registryImageExists image)
+  registryPromoteImage source target =
+    runDaemonRegistryAction (registryPromoteImage source target)
+  registryPushImage image =
+    runDaemonRegistryAction (registryPushImage image)
+  registryPullImage image =
+    runDaemonRegistryAction (registryPullImage image)
+  registryListImages project =
+    runDaemonRegistryAction (registryListImages project)
 
 instance HasKubectl DaemonServiceClient where
   kubectlApply resource yaml =
@@ -400,15 +400,15 @@ renderDaemonClientSettings settings =
     , "minio_request_path_prefix: " <> renderMaybeEmpty (minioRequestPathPrefix minioSettings)
     , "pulsar_websocket_endpoint: " <> pulsarWebSocketEndpoint pulsarSettings
     , "pulsar_admin_endpoint: " <> pulsarAdminEndpoint pulsarSettings
-    , "harbor_registry: " <> harborRegistry harborSettings
-    , "harbor_api_base_url: " <> harborApiBaseUrl harborSettings
+    , "registry_endpoint: " <> registryEndpoint registrySettings
+    , "registry_base_url: " <> registryBaseUrl registrySettings
     , "kubectl_kubeconfig: " <> renderKubectlKubeconfig kubectlSettings
     , "kubectl_namespace: " <> kubectlNamespace kubectlSettings
     ]
  where
   minioSettings = daemonMinIOSettings settings
   pulsarSettings = daemonPulsarSettings settings
-  harborSettings = daemonHarborSettings settings
+  registrySettings = daemonRegistrySettings settings
   kubectlSettings = daemonKubectlSettings settings
 
 renderKubectlKubeconfig :: KubectlSettings -> Text
@@ -447,27 +447,27 @@ pulsarAdminV2Endpoint rawEndpoint
  where
   endpoint = stripTrailingSlash rawEndpoint
 
-harborSettingsForBootConfig :: BootConfig -> HarborSettings
-harborSettingsForBootConfig bootConfig =
-  case bootResidency bootConfig of
-    Host ->
-      baseHarborSettings registryRoot ("http://" <> registryRoot <> "/harbor/api")
-    Cluster ->
-      baseHarborSettings registryRoot "http://harbor.platform.svc.cluster.local/api"
+-- | The registry endpoint the daemon talks to, per residency.
+--
+-- Both arms address the same Registry v2 API; only the reachable authority
+-- differs. There is no separate API base any more — Harbor's @\/api\/v2.0@
+-- surface is gone and @\/v2@ is the whole contract — and no credentials,
+-- because the local registry runs unauthenticated.
+registrySettingsForBootConfig :: BootConfig -> RegistrySettings
+registrySettingsForBootConfig bootConfig =
+  baseRegistrySettings registryRoot ("http://" <> registryRoot)
  where
-  registryRoot = registryRootFromPrefix (bootHarborRegistry bootConfig)
+  registryRoot = registryRootFromPrefix (bootImageRegistry bootConfig)
 
-baseHarborSettings :: Text -> Text -> HarborSettings
-baseHarborSettings registry apiBase =
-  HarborSettings
-    { harborDockerBinary = "docker"
-    , harborDockerHost = Nothing
-    , harborDockerConfigDir = "./.build/docker/harbor"
-    , harborCurlBinary = "curl"
-    , harborRegistry = registry
-    , harborApiBaseUrl = apiBase
-    , harborUsername = "admin"
-    , harborPassword = "Harbor12345"
+baseRegistrySettings :: Text -> Text -> RegistrySettings
+baseRegistrySettings registry baseUrl =
+  RegistrySettings
+    { registryDockerBinary = "docker"
+    , registryDockerHost = Nothing
+    , registryDockerConfigDir = "./.build/docker/registry"
+    , registryCurlBinary = "curl"
+    , registryEndpoint = registry
+    , registryBaseUrl = baseUrl
     }
 
 splitHttpEndpointPath :: Text -> (Text, Text)

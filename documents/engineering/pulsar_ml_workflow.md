@@ -58,7 +58,7 @@ separate per-role executables). Every role runs the same lifecycle skeleton —
 
 **jitML specialization.** The target Linux cluster runs one Engine replica for
 inference compute and one non-compute Coordinator for Training/Tune/RL placement
-and cluster orchestration. The Coordinator alone owns Harbor/kubectl probes and
+and cluster orchestration. The Coordinator alone owns image-registry/kubectl probes and
 the namespace-scoped Job/`pods/exec` RBAC; Engine retains only MinIO plus its
 typed compute subscription. On `apple-silicon`, the cluster Engine Deployment
 has zero replicas, the Coordinator forwards all four domains, and the host

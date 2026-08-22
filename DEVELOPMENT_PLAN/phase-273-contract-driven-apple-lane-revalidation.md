@@ -1,4 +1,4 @@
-# Phase 272: Contract-Driven Apple Lane Revalidation
+# Phase 273: Contract-Driven Apple Lane Revalidation
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ⏸️ **Blocked**. Blocked by Phase 268 (Sprint 268.1).
 
-## Sprint 272.1: Contract-Driven Apple Lane Revalidation [⏸️ Blocked]
+## Sprint 273.1: Contract-Driven Apple Lane Revalidation [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/RunContract.hs`,

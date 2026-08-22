@@ -30,8 +30,8 @@ renderError (MinIOFailed message) =
   renderSingle "minio failed" message
 renderError (PulsarFailed message) =
   renderSingle "pulsar failed" message
-renderError (HarborFailed message) =
-  renderSingle "harbor failed" message
+renderError (RegistryFailed message) =
+  renderSingle "registry failed" message
 renderError (KubectlFailed message) =
   renderSingle "kubectl failed" message
 renderError (DocsCheckDrift message) =

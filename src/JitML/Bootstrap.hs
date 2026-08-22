@@ -189,8 +189,7 @@ bootstrapPlanSteps substrate =
   , "raise Kind-node inotify caps for multi-cluster host readiness"
   , "prepare substrate-specific stateful PV storage"
   , "apply jitml-manual StorageClass and manual PVs"
-  , "install MinIO and Percona storage for Harbor"
-  , "install Harbor bootstrap phase"
+  , "install MinIO and provision the image-registry bucket"
   , "build jitml:local, retag jitml-demo:local, and load them into Kind"
   , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
   , "reconcile app pods to the loaded image identities"
@@ -367,11 +366,15 @@ livePhasedRolloutSubprocesses substrate =
   livePhasedRolloutSubprocessesForPort substrate (substrateEdgePort substrate) defaultClusterResources
 
 -- | Sprint 2.9 — the rollout splits in two around the postgres schema grant:
--- the pre-grant phase brings the operator + cluster up through readiness, then
--- the typed Haskell schema grant runs (replacing the former @sh -c@ that used
--- @$(kubectl ...)@ command substitution), then the post-grant phase continues
--- with Harbor through Pulsar topics. Each half is still a typed @[Subprocess]@
--- so the LivePlan/integration dry-run rendering is unchanged.
+-- the pre-grant phase brings storage up through readiness, the typed Haskell
+-- schema grant runs, then the post-grant phase builds and loads the images and
+-- installs the remaining releases. Each half is a typed @[Subprocess]@ so the
+-- LivePlan/integration dry-run rendering is unchanged.
+--
+-- Sprint `269.1` emptied the Postgres registry with Harbor, so the grant is a
+-- no-op over an empty list rather than a removed step: the machinery is generic
+-- over `postgresRegistry`, and a future Postgres-backed service restores it by
+-- adding one row.
 livePreGrantSubprocessesForPort :: Substrate -> Int -> ClusterResources -> FilePath -> [Subprocess]
 livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
   [ kindCreateSubprocess substrate kindConfigPath
@@ -391,13 +394,11 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
     <> [kubectlApplyFileSubprocess regcredManifestPath]
     <> concatMap releaseSteps minioBootstrapReleases
     <> Readiness.minioBootstrapReadinessSubprocesses
-    <> concatMap releaseSteps postgresOperatorReleases
     <> postgresClusterApplySubprocesses
     <> Readiness.postgresReadinessSubprocesses
  where
   kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
   releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
-  postgresOperatorReleases = filter ((== "harbor-pg") . releaseName) phasedReleases
   minioBootstrapReleases = filter ((== "minio") . releaseName) phasedReleases
 
 livePostGrantSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
@@ -407,8 +408,7 @@ livePostGrantSubprocessesForPort substrate edgePort chartPath =
 
 livePostGrantApplySubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
 livePostGrantApplySubprocessesForPort substrate edgePort chartPath =
-  concatMap releaseSteps harborApplicationReleases
-    <> mirrorBuildSteps substrate
+  mirrorBuildSteps substrate
     <> concatMap releaseSteps remainingReleases
     <> observabilityManifestApplySubprocesses chartPath
     <> edgeManifestApplySubprocesses chartPath
@@ -418,15 +418,7 @@ livePostGrantApplySubprocessesForPort substrate edgePort chartPath =
         then helmInstallSubprocessForEdgePortNoWait substrate edgePort release chartPath
         else helmInstallSubprocessForEdgePort substrate edgePort release chartPath
     ]
-  harborApplicationReleases = filter ((== "harbor") . releaseName) phasedReleases
-  remainingReleases =
-    filter
-      ( \release ->
-          releaseName release /= "harbor-pg"
-            && releaseName release /= "harbor"
-            && releaseName release /= "minio"
-      )
-      phasedReleases
+  remainingReleases = filter ((/= "minio") . releaseName) phasedReleases
   repoAppReleaseNames = ["jitml-service", "jitml-demo"]
 
 livePostGrantReadinessSubprocesses :: Int -> [Subprocess]
@@ -467,14 +459,7 @@ cachedThirdPartyRolloutImages =
   , "docker.io/bitnamilegacy/minio:2024.11.7-debian-12-r0"
   , "bitnamilegacy/minio-client:2024.10.29-debian-12-r1"
   , "apachepulsar/pulsar-all:3.0.7"
-  , "goharbor/harbor-core:v2.12.2"
-  , "goharbor/harbor-jobservice:v2.12.2"
-  , "goharbor/nginx-photon:v2.12.2"
-  , "goharbor/harbor-portal:v2.12.2"
-  , "goharbor/registry-photon:v2.12.2"
-  , "goharbor/harbor-registryctl:v2.12.2"
-  , "goharbor/redis-photon:v2.12.2"
-  , "goharbor/trivy-adapter-photon:v2.12.2"
+  , "docker.io/library/registry:2"
   , "docker.io/envoyproxy/gateway:v1.2.6"
   , "docker.io/envoyproxy/ratelimit:49af5cca"
   , "docker.io/envoyproxy/envoy:v1.31.4"
@@ -679,7 +664,7 @@ regcredManifestPath = ".build" </> "runtime" </> "regcred.yaml"
 
 -- | Sprint 2.14 — discover the host's Docker Hub credential and project the
 -- minimal @docker.io@-only @dockerconfigjson@ (mirroring the host
--- @config.json@ @auths@ filtering, so private-registry / Harbor creds are not
+-- @config.json@ @auths@ filtering, so private-registry creds are not
 -- forwarded into the cluster). Reads, never writes, the host config. Returns
 -- 'Nothing' when the host is not logged in to Docker Hub (the cluster then falls
 -- back to anonymous pulls). This is jitML's own self-contained Docker Hub
@@ -875,7 +860,7 @@ hostBootConfigForPublication publication =
     { bootPulsarServiceUrl = publicationPulsarUrl publication
     , bootPulsarAdminUrl = "http://127.0.0.1:" <> portText <> "/pulsar/admin"
     , bootMinioEndpoint = publicationMinioUrl publication
-    , bootHarborRegistry = "127.0.0.1:" <> portText <> "/library"
+    , bootImageRegistry = "127.0.0.1:" <> portText <> "/library"
     }
  where
   portText = Text.pack (show (publicationEdgePort publication))
@@ -2384,10 +2369,14 @@ measureLivePublication publication = do
 
 publicationHealthChecks :: ClusterPublication -> [PublicationHealthCheck]
 publicationHealthChecks publication =
-  [ HelmPublicationHealthCheck "harbor" ["harbor"]
+  [ -- The registry is a template in this chart rather than a dependency
+    -- release, so its health is a rollout status rather than a Helm release
+    -- listing. The Postgres check left with Harbor, which was its only user.
+    SubprocessPublicationHealthCheck
+      "registry"
+      (Readiness.rolloutStatusSubprocess "deployment/registry")
   , HelmPublicationHealthCheck "minio" ["minio"]
   , HelmPublicationHealthCheck "pulsar" ["pulsar"]
-  , HelmPublicationHealthCheck "postgres" ["harbor-pg"]
   , HelmPublicationHealthCheck
       "observability"
       ["kube-prometheus-stack", "tensorboard", "envoy-gateway"]

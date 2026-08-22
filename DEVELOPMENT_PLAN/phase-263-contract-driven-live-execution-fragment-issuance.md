@@ -98,14 +98,14 @@ validator/contract unit case and by the live browse cases, because
 Scope note: this phase retains the fragment-issuance surface and transfers the
 harness half of the readiness contract — publishing a correlated request through
 an established reply cursor instead of the diagnostic `ConsumerSessionConnected`
-event — forward to Sprint `281.1` under standards rule `M(a)`. That residue is a
+event — forward to Sprint `282.1` under standards rule `M(a)`. That residue is a
 transport redesign rather than a deletion: `establishReplyCursor` admits only a
 `FromLatest`/`Owned` subscription minted from a broker admin CREATE, while
 `JitML.Test.LiveWorkflow` must keep running over the non-broker
 `LocalEventSource`. The legacy prose parser, `ProductRowReportEvidence`, and the
-cross-lane round-trip tests are deliberately retained for Phase `275`, which owns
+cross-lane round-trip tests are deliberately retained for Phase `276`, which owns
 retiring them; changing the fragment's wire shape here would strand the
-`linux-cuda` and `apple-silicon` lanes behind the Phase `272` hardware boundary.
+`linux-cuda` and `apple-silicon` lanes behind the Phase `273` hardware boundary.
 
 ### Closure Evidence
 

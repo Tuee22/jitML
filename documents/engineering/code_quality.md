@@ -272,6 +272,6 @@ the full target stack:
 ## Cross-References
 
 - [../../README.md](../../README.md)
-- [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md)
-- [../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md](../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md)
+- [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [../documentation_standards.md](../documentation_standards.md)

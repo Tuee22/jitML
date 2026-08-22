@@ -156,7 +156,7 @@ import JitML.Service.BootConfig (Residency (..))
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag (..)
-  , HasHarbor (..)
+  , HasImageRegistry (..)
   , HasKubectl (..)
   , HasMinIO (..)
   , HasPulsar (..)
@@ -407,14 +407,14 @@ workloadOutcomeError (SomeWorkloadOutcome _ result) =
     Right _ -> Nothing
 
 runWorkloadEffect
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WorkloadEffect kind
   -> m (Either ServiceError (WorkloadEffectResult kind))
 runWorkloadEffect =
   runWorkloadEffectWithInference defaultCheckpointInference
 
 runWorkloadEffectWithInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => InferenceRunner m
   -> WorkloadEffect kind
   -> m (Either ServiceError (WorkloadEffectResult kind))
@@ -427,7 +427,7 @@ runWorkloadEffectWithInference runInference effect =
       runGenericCheckpointMutation ref $
         fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
-      fmap WorkloadImagePromoted <$> harborPromoteImage source target
+      fmap WorkloadImagePromoted <$> registryPromoteImage source target
     RunInference target request ->
       fmap InferenceResultPublished <$> runInferenceRequestWithTarget target runInference request
     CompareInferenceCheckpoints _ _ ->
@@ -449,14 +449,14 @@ runWorkloadEffectWithInference runInference effect =
       fmap (const WorkloadResourceDeleted) <$> kubectlDelete resource
 
 runWorkloadEffects
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => NonEmpty SomeWorkloadEffect
   -> m (NonEmpty SomeWorkloadOutcome)
 runWorkloadEffects =
   runWorkloadEffectsWithInference defaultCheckpointInference
 
 runWorkloadEffectsWithInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => InferenceRunner m
   -> NonEmpty SomeWorkloadEffect
   -> m (NonEmpty SomeWorkloadOutcome)
@@ -464,7 +464,7 @@ runWorkloadEffectsWithInference runInference =
   traverse (runSomeWorkloadEffectWithInference runInference)
 
 runSomeWorkloadEffectWithInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => InferenceRunner m
   -> SomeWorkloadEffect
   -> m SomeWorkloadOutcome
@@ -472,7 +472,7 @@ runSomeWorkloadEffectWithInference runInference (SomeWorkloadEffect effect) =
   SomeWorkloadOutcome effect <$> runWorkloadEffectWithInference runInference effect
 
 dispatchWorkloadPayload
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Text
   -> m (Either WorkloadDecodeError SomeWorkloadOutcome)
 dispatchWorkloadPayload payload =
@@ -482,7 +482,7 @@ dispatchWorkloadPayload payload =
       Right <$> runSomeWorkloadEffectWithInference defaultCheckpointInference effect
 
 dispatchTrainingCommand
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Residency
   -> Substrate
   -> TrainingCommand
@@ -491,7 +491,7 @@ dispatchTrainingCommand residency substrate command =
   runBuiltWorkloadEffects (buildTrainingWorkloadEffects residency substrate command)
 
 dispatchTuneCommand
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Residency
   -> Substrate
   -> TuneCommand
@@ -500,7 +500,7 @@ dispatchTuneCommand residency substrate command =
   runBuiltWorkloadEffects (buildTuneWorkloadEffects residency substrate command)
 
 dispatchRlCommand
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Residency
   -> Substrate
   -> RlCommand
@@ -509,7 +509,7 @@ dispatchRlCommand residency substrate command =
   runBuiltWorkloadEffects (buildRlWorkloadEffects residency substrate command)
 
 runBuiltWorkloadEffects
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
   -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
 runBuiltWorkloadEffects result =
@@ -994,7 +994,7 @@ defaultCheckpointInference _admitted _manifest _input =
 -- These functions mirror the unweighted variants but plumb the weighted
 -- callback through the typed, target-bound inference effect runner.
 runWorkloadEffectWithWeightedInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WeightedInferenceRunner m
   -> WorkloadEffect kind
   -> m (Either ServiceError (WorkloadEffectResult kind))
@@ -1007,7 +1007,7 @@ runWorkloadEffectWithWeightedInference runInference effect =
       runGenericCheckpointMutation ref $
         fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
-      fmap WorkloadImagePromoted <$> harborPromoteImage source target
+      fmap WorkloadImagePromoted <$> registryPromoteImage source target
     RunInference target request ->
       fmap InferenceResultPublished
         <$> runInferenceRequestWithWeightedInferenceTo target runInference request
@@ -1137,7 +1137,7 @@ checkpointStoreControlPrefixes =
   ]
 
 runWorkloadEffectsWithWeightedInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WeightedInferenceRunner m
   -> NonEmpty SomeWorkloadEffect
   -> m (NonEmpty SomeWorkloadOutcome)
@@ -1145,7 +1145,7 @@ runWorkloadEffectsWithWeightedInference runInference =
   traverse (runSomeWorkloadEffectWithWeightedInference runInference)
 
 runSomeWorkloadEffectWithWeightedInference
-  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WeightedInferenceRunner m
   -> SomeWorkloadEffect
   -> m SomeWorkloadOutcome
@@ -2024,7 +2024,7 @@ renderWorkloadEffect effect =
         <> " expected="
         <> maybe "(none)" unETag expected
     PromoteWorkloadImage source target ->
-      "harbor:promote-image " <> unImageRef source <> " -> " <> unImageRef target
+      "registry:promote-image " <> unImageRef source <> " -> " <> unImageRef target
     RunInference _ request ->
       "inference:run " <> irCallId request <> " -> " <> irReplyTopic request
     CompareInferenceCheckpoints _ command ->

@@ -75,7 +75,7 @@ completion boundary.
   executed.
 - **Closing validation**: the "dense layer labelled as convolution must be
   rejected" differential control and the untrained-graph controls in the
-  `jitml-negative-controls` stanza (Phase `276`,
+  `jitml-negative-controls` stanza (Phase `277`,
   [phase-32-external-truth-realness-harness.md](README.md#legacy-to-new-phase-map))
   must reject the current MLP-for-conv stand-in, exercised via
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.

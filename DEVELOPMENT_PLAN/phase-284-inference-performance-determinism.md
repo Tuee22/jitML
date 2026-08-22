@@ -1,4 +1,4 @@
-# Phase 283: Inference-Performance & Determinism
+# Phase 284: Inference-Performance & Determinism
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ✅ **Done**.
 
-## Sprint 283.1: Inference-Performance & Determinism [✅ Done]
+## Sprint 284.1: Inference-Performance & Determinism [✅ Done]
 
 **Status**: Done
 **Implementation**: `src/JitML/Test/RowAssertions.hs`, `test/model-convergence/Main.hs`, `src/JitML/Product/ExternalBars.hs`

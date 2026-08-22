@@ -36,7 +36,7 @@ graphs execute the Phase `241` device kernels on `linux-cpu` — spatial
 convolution, affine normalization, GeGLU, multi-head attention with `W_O`, and
 residual composition. Those are the only layer-graph device kernels that exist:
 on `linux-cuda` and `apple-silicon` the same graphs execute these oneDNN kernels
-for training and the pure host executor for serving. Phases `264` and `269` own
+for training and the pure host executor for serving. Phases `264` and `270` own
 the per-lane kernels. The trained graph and its graph-ordered parameter vector enter the
 single checkpoint envelope and the Store-reloaded inference path. The former
 `[LayerSpec]` / `[LayerState]` executable and the served-operation ABI once
@@ -721,7 +721,7 @@ CrossQ target-net removal, and the TQC pooled-quantile critic. The Sprint `25.2`
 collapse guard proves the named update paths do not collapse to identical final
 parameters. Per-model convergence remains a separate evidence obligation. The
 current `jitml-model-convergence` suite guards case-registry coverage and bar
-metadata only; [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+metadata only; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 binds each algorithm/environment case to its own completed trained-policy run.
 PPO/CartPole determinism is asserted by `jitml-rl-canonicals` as
 run-to-run equality on the same substrate and seed (two fresh runs compared

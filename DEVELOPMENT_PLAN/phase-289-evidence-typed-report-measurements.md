@@ -1,4 +1,4 @@
-# Phase 288: Evidence-Typed Report Measurements
+# Phase 289: Evidence-Typed Report Measurements
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,13 +9,13 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 287 (Sprint 287.1).
+⏸️ **Blocked**. Blocked by Phase 288 (Sprint 288.1).
 
-## Sprint 288.1: Evidence-Typed Report Measurements [⏸️ Blocked]
+## Sprint 289.1: Evidence-Typed Report Measurements [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/Report.hs`, `test/unit/Main.hs`
-**Blocked by**: Sprint `287.1`
+**Blocked by**: Sprint `288.1`
 **Docs to update**: `../documents/engineering/run_contract.md`,
 `../documents/engineering/unit_testing_policy.md`, `README.md`
 
@@ -25,7 +25,7 @@ Represent report measurements as typed evidence and derive suite, lane, and
 product counts from execution journals rather than a second post-test
 measurement path. This sprint owns the [Exit Definition](README.md#exit-definition)
 item `33` (lossless process and suite outcomes). It reads the journal-derived
-status registry that Sprint `287.1` lands.
+status registry that Sprint `288.1` lands.
 
 ### Deliverables
 
@@ -49,7 +49,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `287.1` lands the journal-derived status registry the
+- Blocked until Sprint `288.1` lands the journal-derived status registry the
   report projections read from.
 - Replace ambiguous measurements, post-run probes, and fabricated counts with
   projections of execution evidence.

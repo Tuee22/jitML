@@ -5,7 +5,7 @@
 **Referenced by**: [../README.md](../README.md),
 [../phase-260-linux-cpu-report-card.md](../phase-260-linux-cpu-report-card.md),
 [../phase-263-contract-driven-live-execution-fragment-issuance.md](../phase-263-contract-driven-live-execution-fragment-issuance.md),
-[../phase-273-attestation-join.md](../phase-273-attestation-join.md),
+[../phase-274-attestation-join.md](../phase-274-attestation-join.md),
 [../development_plan_standards.md](../development_plan_standards.md)
 **Generated sections**: none
 

@@ -10,37 +10,20 @@ jitml:
     tag: local
   storageClass: jitml-manual
 
-harbor:
-  expose:
-    type: clusterIP
-    tls:
-      enabled: false
-  externalURL: http://127.0.0.1:9090
-  database:
-    type: external
-    external:
-      host: harbor-pg-primary.platform.svc
-      port: "5432"
-      username: harbor
-      coreDatabase: harbor
-      existingSecret: harbor-pg-secrets
-      sslmode: require
-  persistence:
-    imageChartStorage:
-      type: s3
-      disableredirect: true
-      s3:
-        region: us-east-1
-        bucket: harbor-registry
-        accesskey: minio
-        secretkey: minioadmin
-        regionendpoint: http://minio.platform.svc.cluster.local:9000
-        secure: false
-        v4auth: true
-        chunksize: "134217728"
-    persistentVolumeClaim:
-      registry:
-        storageClass: jitml-manual
+# The image registry. `bucket` is deliberately the name Harbor used: reusing it
+# means the layers Harbor already wrote stay addressable, so replacing the
+# registry required no blob migration. Renaming it is cosmetic and tracked in
+# the removal ledger rather than done here.
+registry:
+  bucket: harbor-registry
+  region: us-east-1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 minio:
   mode: standalone

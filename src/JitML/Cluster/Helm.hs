@@ -52,10 +52,11 @@ dependencyPackages =
   mapMaybe releasePackage phasedReleases
 
 -- | Helm releases in the cluster reconciler. `JitML.Bootstrap` inserts the
--- non-Helm Docker build / Kind image-load phase between Harbor and the final
--- workload releases.
+-- non-Helm Docker build / Kind image-load phase between the registry and the
+-- final workload releases: the registry must be serving before any image is
+-- pushed to it.
 data HelmPhase
-  = HarborPhase
+  = RegistryPhase
   | PlatformPhase
   | FinalPhase
   deriving stock (Eq, Show)
@@ -71,9 +72,11 @@ data HelmRelease = HelmRelease
 
 phasedReleases :: [HelmRelease]
 phasedReleases =
-  [ HelmRelease "harbor-pg" "pg-operator" HarborPhase (Just "pg-operator-2.5.1.tgz") Nothing
-  , HelmRelease "minio" "minio" HarborPhase (Just "minio-14.8.5.tgz") (Just "values/minio.yaml")
-  , HelmRelease "harbor" "harbor" HarborPhase (Just "harbor-1.16.2.tgz") (Just "values/harbor.yaml")
+  [ -- MinIO first: it provides the S3 backend and the bucket the registry
+    -- stores layers in, so the registry cannot serve before it is up. The
+    -- registry itself is a template in this chart rather than a dependency
+    -- release, so it needs no entry here.
+    HelmRelease "minio" "minio" RegistryPhase (Just "minio-14.8.5.tgz") (Just "values/minio.yaml")
   , HelmRelease "pulsar" "pulsar" PlatformPhase (Just "pulsar-3.6.0.tgz") (Just "values/pulsar.yaml")
   , HelmRelease
       "kube-prometheus-stack"
@@ -104,7 +107,6 @@ helmInstallSubprocessForEdgePort substrate edgePort release =
       , "--set"
       , "edgePort=" <> Text.pack (show edgePort)
       ]
-        <> harborEdgeArgs edgePort release
     )
     release
 
@@ -162,18 +164,6 @@ valuesArgs release chartPath =
   case releaseValuesFile release of
     Just valuesFile -> ["--values", Text.pack (chartPath </> valuesFile)]
     Nothing -> []
-
-harborEdgeArgs :: Int -> HelmRelease -> [Text]
-harborEdgeArgs edgePort release
-  | releaseName release == "harbor" =
-      [ "--set"
-      , "expose.type=clusterIP"
-      , "--set"
-      , "expose.tls.enabled=false"
-      , "--set-string"
-      , "externalURL=http://127.0.0.1:" <> Text.pack (show edgePort)
-      ]
-  | otherwise = []
 
 helmPhasedRolloutPlan :: FilePath -> [Subprocess]
 helmPhasedRolloutPlan chartPath =

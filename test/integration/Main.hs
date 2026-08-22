@@ -179,7 +179,7 @@ import JitML.Service.Capabilities
   , ConsumerFailure (..)
   , ConsumerSessionEvent (..)
   , ETag (..)
-  , HasHarbor (..)
+  , HasImageRegistry (..)
   , HasMinIO (..)
   , HasPulsar (..)
   , ImageRef (..)
@@ -211,11 +211,11 @@ import JitML.Service.Consumer
   , eventIdText
   )
 import JitML.Service.FilesystemMinIO (FilesystemMinIO, runFilesystemMinIO)
-import JitML.Service.HarborSubprocess qualified as HarborSubprocess
 import JitML.Service.KubectlSubprocess (KubectlSettings (..), defaultKubectlSettings)
 import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
+import JitML.Service.RegistrySubprocess qualified as RegistrySubprocess
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.Workload qualified as Workload
@@ -3206,7 +3206,7 @@ main = do
                     "registered tuning publisher schedule does not clear its unchanged convergence bar"
                     (TrainingBudget.convergencePassed observation)
       , productScenarioIntegrationTests productScenarioStartup
-      , testCase "bootstrap plan includes Harbor-first publication" $
+      , testCase "bootstrap plan includes registry-first publication" $
           bootstrapPlanSteps LinuxCPU
             @?= [ "reconcile prerequisite graph for cluster"
                 , "render kind/cluster-linux-cpu.yaml"
@@ -3215,8 +3215,7 @@ main = do
                 , "raise Kind-node inotify caps for multi-cluster host readiness"
                 , "prepare substrate-specific stateful PV storage"
                 , "apply jitml-manual StorageClass and manual PVs"
-                , "install MinIO and Percona storage for Harbor"
-                , "install Harbor bootstrap phase"
+                , "install MinIO and provision the image-registry bucket"
                 , "build jitml:local, retag jitml-demo:local, and load them into Kind"
                 , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
                 , "reconcile app pods to the loaded image identities"
@@ -3351,20 +3350,22 @@ main = do
             ("containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1" `Text.isInfixOf` cudaConfig)
       , testCase "route registry renders HTTPRoute manifests" $
           length (fmap renderHTTPRoute routeRegistry) @?= length routeRegistry
-      , testCase "Harbor registry route allows real blob upload finalization" $ do
+      , testCase "registry route allows real blob upload finalization" $ do
+          -- Layer uploads, not the API calls around them, are what run long, so
+          -- the /v2 route keeps a timeout above Envoy's default.
           case filter
-            (Text.isInfixOf "  name: harbor-registry")
+            (Text.isInfixOf "  name: registry")
             (fmap renderHTTPRoute routeRegistry) of
             [routeYaml] -> do
               assertBool
-                "Harbor registry route has a request timeout above Envoy's default"
+                "registry route has a request timeout above Envoy's default"
                 ("        request: 120s" `Text.isInfixOf` routeYaml)
               assertBool
-                "Harbor registry route has a backend request timeout above Envoy's default"
+                "registry route has a backend request timeout above Envoy's default"
                 ("        backendRequest: 120s" `Text.isInfixOf` routeYaml)
             other ->
               assertFailure
-                ( "expected exactly one rendered harbor-registry route, got "
+                ( "expected exactly one rendered registry route, got "
                     <> show (length other)
                 )
       , testCase "EnvoyProxy renderer pins local data-plane resource requests" $ do
@@ -4305,7 +4306,7 @@ main = do
                     { BootConfig.bootPulsarServiceUrl = "pulsar://127.0.0.1:9090/pulsar"
                     , BootConfig.bootPulsarAdminUrl = "http://127.0.0.1:9090/pulsar/admin"
                     , BootConfig.bootMinioEndpoint = "http://127.0.0.1:9090/minio/s3"
-                    , BootConfig.bootHarborRegistry = "127.0.0.1:9090/library"
+                    , BootConfig.bootImageRegistry = "127.0.0.1:9090/library"
                     }
                 bootConfigPath = root </> "BootConfig.dhall"
             Text.IO.writeFile bootConfigPath (BootConfig.renderBootConfigDhall bootConfig)
@@ -4365,7 +4366,7 @@ main = do
                   )
               minioSettings = ServiceClients.daemonMinIOSettings settings
               pulsarSettings = ServiceClients.daemonPulsarSettings settings
-              harborSettings = ServiceClients.daemonHarborSettings settings
+              registrySettings = ServiceClients.daemonRegistrySettings settings
               kubectlSettings = ServiceClients.daemonKubectlSettings settings
           MinIOSubprocess.minioEndpoint minioSettings
             @?= "http://minio.platform.svc.cluster.local:9000"
@@ -4374,10 +4375,10 @@ main = do
             @?= "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
           PulsarWebSocketSubprocess.pulsarAdminEndpoint pulsarSettings
             @?= "http://pulsar-proxy.platform.svc.cluster.local:80/admin/v2"
-          HarborSubprocess.harborRegistry harborSettings
-            @?= "harbor-registry.platform.svc.cluster.local:5000"
-          HarborSubprocess.harborApiBaseUrl harborSettings
-            @?= "http://harbor.platform.svc.cluster.local/api"
+          RegistrySubprocess.registryEndpoint registrySettings
+            @?= "registry.platform.svc.cluster.local:5000"
+          RegistrySubprocess.registryBaseUrl registrySettings
+            @?= "http://registry.platform.svc.cluster.local:5000"
           kubectlKubeconfig kubectlSettings @?= ""
       , testCase
           "Engine client settings retain only Apple host artifact and messaging endpoints (Sprint 12.16)"
@@ -4393,7 +4394,9 @@ main = do
             MinIOSubprocess.minioRequestPathPrefix minioSettings @?= "/minio/s3"
             PulsarWebSocketSubprocess.pulsarWebSocketEndpoint pulsarSettings
               @?= "ws://127.0.0.1:9092/pulsar/ws"
-            assertBool "Engine settings omit Harbor" (not ("harbor" `Text.isInfixOf` Text.toLower rendered))
+            assertBool
+              "Engine settings omit the image registry"
+              (not ("registry" `Text.isInfixOf` Text.toLower rendered))
             assertBool "Engine settings omit kubectl" (not ("kubectl" `Text.isInfixOf` Text.toLower rendered))
       , testCase "CpuFeatures detection picks the right oneDNN micro-kernel knob" $ do
           features <- detectCpuFeatures
@@ -5916,16 +5919,16 @@ main = do
                 assertFailure ("expected duplicate shard to be idempotent, got: " <> show other)
       , testCase "dockerMirrorPlan emits build + tag + push subprocesses (Sprint 3.5)" $ do
           let localTag = "jitml:local"
-              harborTag = "127.0.0.1:9091/library/jitml:dev"
-              plan = DockerImage.dockerMirrorPlan localTag "." harborTag
+              registryTag = "127.0.0.1:9091/library/jitml:dev"
+              plan = DockerImage.dockerMirrorPlan localTag "." registryTag
               rendered = fmap renderSubprocess plan
           length plan @?= 3
           assertBool
             "first step builds"
             (any ("docker build" `Text.isPrefixOf`) rendered)
           assertBool
-            "second step tags to harbor"
-            (any (harborTag `Text.isInfixOf`) rendered)
+            "second step tags for the registry"
+            (any (registryTag `Text.isInfixOf`) rendered)
           assertBool
             "third step pushes"
             (any ("docker push" `Text.isInfixOf`) rendered)
@@ -5941,12 +5944,6 @@ main = do
             (any ("kind load docker-image jitml:local --name jitml-linux-cpu" `Text.isInfixOf`) rendered)
       , testCase "helm phased rollout installs packaged dependency archives (Sprint 3.5)" $ do
           let rendered = Text.unlines (fmap renderSubprocess (Helm.helmPhasedRolloutPlan "chart"))
-          assertBool
-            "harbor install uses dependency archive"
-            ("chart/charts/harbor-1.16.2.tgz" `Text.isInfixOf` rendered)
-          assertBool
-            "Harbor install uses direct subchart values"
-            ("--values chart/values/harbor.yaml" `Text.isInfixOf` rendered)
           assertBool
             "MinIO install uses direct subchart values"
             ("--values chart/values/minio.yaml" `Text.isInfixOf` rendered)
@@ -5989,16 +5986,16 @@ main = do
           assertBool
             "BookKeeper ledgers storage class is set at the chart's ledgers leaf"
             ("    ledgers:\n      size: 20Gi\n      storageClassName: jitml-manual" `Text.isInfixOf` pulsarValues)
-      , testCase "local-topology: default profile materializes the exact six-PV inventory" $ do
+      , testCase "local-topology: default profile materializes the exact four-PV inventory" $ do
+          -- Four, not six: the two harbor-pg volumes left with Harbor, whose
+          -- Postgres was the only service-managed database.
           let targetPVs = Storage.manualPVsFor Resources.defaultClusterResources
-          length targetPVs @?= 6
+          length targetPVs @?= 4
           fmap Storage.pvStatefulSet targetPVs
             @?= [ "minio"
                 , "pulsar-bookie-journal"
                 , "pulsar-bookie-ledgers"
                 , "pulsar-zookeeper-data"
-                , "harbor-pg"
-                , "harbor-pg-repo1"
                 ]
           assertBool "target profile contains only replica zero" (all ((== 0) . Storage.pvReplica) targetPVs)
           fmap Storage.pvClaimRefName targetPVs
@@ -6006,8 +6003,6 @@ main = do
                 , Just "pulsar-bookie-journal-pulsar-bookie-0"
                 , Just "pulsar-bookie-ledgers-pulsar-bookie-0"
                 , Just "pulsar-zookeeper-data-pulsar-zookeeper-0"
-                , Nothing
-                , Nothing
                 ]
           Resources.validateLocalPlatformTopology Resources.defaultClusterResources @?= Right ()
           let drifted =
@@ -6232,7 +6227,7 @@ main = do
             "direct MinIO does not use divergent defaultBuckets"
             (not ("defaultBuckets:" `Text.isInfixOf` minioValues))
           assertBool
-            "direct MinIO provisions the Harbor registry bucket"
+            "direct MinIO provisions the image-registry bucket"
             ("- name: harbor-registry" `Text.isInfixOf` minioValues)
           assertBool
             "direct MinIO bucket provisioning does not issue versioning commands"
@@ -6309,33 +6304,29 @@ main = do
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "linux-cpu live rollout binds stateful PVs to node-local storage before Harbor"
+              "linux-cpu live rollout binds stateful PVs to node-local storage before the platform releases"
               ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; mountpoint -q /jitml/.data/platform/minio/pv_0/ || mount --bind /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; chmod 0777 /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/;"
                   `Text.isInfixOf` commandText
               )
+            -- No registered Postgres remains, so the rollout emits no
+            -- Postgres ownership fixup. Asserting its absence keeps the empty
+            -- registry honest: a reintroduced cluster must re-add the chown.
             assertBool
-              "linux-cpu live rollout preserves registered Postgres ownership"
-              ( "chown -R 26:26 /var/local/jitml-stateful-pv/jitml/.data/platform/harbor-pg/pv_0/"
-                  `Text.isInfixOf` commandText
-              )
+              "live rollout emits no Postgres ownership fixup while the registry is empty"
+              (not ("chown -R 26:26" `Text.isInfixOf` commandText))
             assertBool
               "linux-cpu live rollout prepares worker-local stateful PV storage"
               ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "apple-silicon live rollout binds stateful PVs to node-local storage before Harbor"
+              "apple-silicon live rollout binds stateful PVs to node-local storage before the platform releases"
               ( "docker exec jitml-apple-silicon-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; mountpoint -q /jitml/.data/platform/minio/pv_0/ || mount --bind /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; chmod 0777 /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/;"
                   `Text.isInfixOf` appleCommandText
               )
             assertBool
-              "live rollout can warm-load the cached Percona operator image before Helm waits"
-              ( "kind load docker-image percona/percona-postgresql-operator:2.5.1 --name jitml-linux-cpu"
-                  `Text.isInfixOf` commandText
-              )
-            assertBool
-              "live rollout can warm-load the cached Harbor component images before Helm waits"
-              ( "kind load docker-image goharbor/harbor-core:v2.12.2 --name jitml-linux-cpu"
+              "live rollout can warm-load the cached registry image before Helm waits"
+              ( "kind load docker-image docker.io/library/registry:2 --name jitml-linux-cpu"
                   `Text.isInfixOf` commandText
               )
             assertBool
@@ -6359,8 +6350,8 @@ main = do
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "live rollout applies the Harbor registry route"
-              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/httproute-harbor-registry.yaml"
+              "live rollout applies the registry route"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/httproute-registry.yaml"
                   `Text.isInfixOf` commandText
               )
             publicReadyzProbe
@@ -6403,26 +6394,22 @@ main = do
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/prometheus-scrapeconfig-jitml.yaml"
                   `Text.isInfixOf` commandText
               )
+            -- MinIO is the first Helm release now that Harbor is gone, and it
+            -- is what provides the bucket the registry stores layers in.
+            let (beforeMinio, _fromMinio) =
+                  Text.breakOn "helm upgrade --install minio chart/charts/minio-14.8.5.tgz" commandText
             assertBool
-              "live rollout gives Harbor an explicit localhost externalURL"
-              ("--set-string externalURL=http://127.0.0.1:9091" `Text.isInfixOf` commandText)
-            assertBool
-              "live rollout passes Harbor's external database values"
-              ("--values chart/values/harbor.yaml" `Text.isInfixOf` commandText)
-            let (beforeHarbor, _fromHarbor) =
-                  Text.breakOn "helm upgrade --install harbor chart/charts/harbor-1.16.2.tgz" commandText
-            assertBool
-              "live rollout installs MinIO before Harbor so the registry bucket exists"
-              ("helm upgrade --install minio chart/charts/minio-14.8.5.tgz" `Text.isInfixOf` beforeHarbor)
+              "live rollout installs no Harbor release"
+              (not ("--install harbor " `Text.isInfixOf` commandText))
             assertBool
               "live rollout warm-loads cached third-party images before the first Helm release"
-              ( "kind load docker-image percona/percona-postgresql-operator:2.5.1 --name jitml-linux-cpu"
-                  `Text.isInfixOf` beforeHarbor
+              ( "kind load docker-image docker.io/library/registry:2 --name jitml-linux-cpu"
+                  `Text.isInfixOf` beforeMinio
               )
             assertBool
               "live rollout applies the inotify cap before the first Helm release"
               ( "docker exec jitml-linux-cpu-control-plane sysctl -w fs.inotify.max_user_instances=1024"
-                  `Text.isInfixOf` beforeHarbor
+                  `Text.isInfixOf` beforeMinio
               )
             let (beforeManualStorage, _fromManualStorage) =
                   Text.breakOn
@@ -6433,16 +6420,16 @@ main = do
               ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
                   `Text.isInfixOf` beforeManualStorage
               )
-            -- Sprint 4.8: the Harbor-registry bucket existence probe moved
-            -- from a `mc ls ... >/dev/null` chain in the rendered subprocess
-            -- list to typed Haskell IO (`runMinioBucketReadinessIO`).
-            -- `liveExecutePhasedRollout` runs the IO step between the
-            -- pre-grant and grant phases, before Harbor installs.
+            -- Sprint 4.8: the registry bucket existence probe moved from a
+            -- `mc ls ... >/dev/null` chain in the rendered subprocess list to
+            -- typed Haskell IO (`runMinioBucketReadinessIO`), which
+            -- `liveExecutePhasedRollout` runs between the phases.
+            --
+            -- With the Postgres registry empty there is no cluster to wait on,
+            -- so the rollout must emit no PerconaPGCluster wait at all.
             assertBool
-              "live rollout waits for harbor-pg before installing Harbor"
-              ( "wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'"
-                  `Text.isInfixOf` beforeHarbor
-              )
+              "live rollout waits on no PerconaPGCluster while the registry is empty"
+              (not ("wait perconapgcluster/" `Text.isInfixOf` commandText))
             -- Sprint 2.9: the postgres schema grant moved from an embedded `sh
             -- -c` subprocess to a typed Haskell IO step in
             -- `JitML.Bootstrap.postgresSchemaGrantIO`, so it no longer appears
@@ -6512,52 +6499,71 @@ main = do
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "live rollout applies registered PerconaPGCluster manifests"
-              ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -n platform -f -" `Text.isInfixOf` commandText)
-            assertBool
-              "live rollout waits for the registered service Postgres cluster"
-              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready' --timeout=600s"
-                  `Text.isInfixOf` commandText
-              )
+              "live rollout applies no PerconaPGCluster manifest while the registry is empty"
+              (not ("apply -n platform -f -" `Text.isInfixOf` commandText))
             assertBool
               "retired mirror placeholder chart is not executed by the live path"
               (not ("helm upgrade --install jitml-mirror" `Text.isInfixOf` commandText))
             assertBool
-              "live rollout does not rely on the in-cluster Harbor DNS name for local image publication"
-              (not ("docker push harbor.platform.svc.cluster.local" `Text.isInfixOf` commandText))
-      , testCase "HarborSubprocess uses explicit local registry settings (Sprint 4.1)" $ do
+              "live rollout does not rely on the in-cluster registry DNS name for local image publication"
+              (not ("docker push registry.platform.svc.cluster.local" `Text.isInfixOf` commandText))
+      , testCase "RegistrySubprocess uses explicit local registry settings (Phase 269)" $ do
+          -- Every call is addressed at the explicit local edge and carries the
+          -- explicit docker host/config, so nothing here can silently fall back
+          -- to the invoking user's docker context or to a default registry.
           let settings =
-                (HarborSubprocess.harborSettingsForLocalEdge 9091)
-                  { HarborSubprocess.harborDockerHost = Just "unix:///explicit/docker.sock"
+                (RegistrySubprocess.registrySettingsForLocalEdge 9091)
+                  { RegistrySubprocess.registryDockerHost = Just "unix:///explicit/docker.sock"
                   }
               imageRef = ImageRef "127.0.0.1:9091/library/jitml:phase4"
-              loginCommand = HarborSubprocess.harborLoginSubprocess settings
-              listCommand = HarborSubprocess.harborListRepositoriesSubprocess settings "library"
-              artifactCommand = HarborSubprocess.harborArtifactStatusSubprocess settings "library" "jitml" "phase4"
-              tagCommand = HarborSubprocess.harborCreateTagSubprocess settings "library" "jitml" "phase4" "ready"
-          renderSubprocess loginCommand
-            @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/harbor login --username admin --password-stdin 127.0.0.1:9091"
-          JitML.Sub.Subprocess.subprocessStdin loginCommand @?= Just "Harbor12345"
-          renderSubprocess (HarborSubprocess.harborManifestInspectSubprocess settings imageRef)
-            @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/harbor manifest inspect 127.0.0.1:9091/library/jitml:phase4"
+              listCommand = RegistrySubprocess.registryCatalogSubprocess settings
+              statusCommand =
+                RegistrySubprocess.registryManifestStatusSubprocess settings "library/jitml" "phase4"
+              putCommand =
+                RegistrySubprocess.registryManifestPutSubprocess
+                  settings
+                  "library/jitml"
+                  "ready"
+                  "application/vnd.docker.distribution.manifest.v2+json"
+                  "{\"mediaType\":\"application/vnd.docker.distribution.manifest.v2+json\"}"
+          renderSubprocess (RegistrySubprocess.registryManifestInspectSubprocess settings imageRef)
+            @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/registry manifest inspect 127.0.0.1:9091/library/jitml:phase4"
           assertBool
-            "Harbor API base path is explicit"
-            ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories?page_size=100"
-                `Text.isInfixOf` renderSubprocess listCommand
+            "catalogue listing uses the Registry v2 catalog endpoint"
+            ("http://127.0.0.1:9091/v2/_catalog?n=100" `Text.isInfixOf` renderSubprocess listCommand)
+          assertBool
+            "existence is a manifest HEAD, not a docker manifest inspect"
+            ( "http://127.0.0.1:9091/v2/library/jitml/manifests/phase4"
+                `Text.isInfixOf` renderSubprocess statusCommand
+                && "--head" `Text.isInfixOf` renderSubprocess statusCommand
             )
           assertBool
-            "Harbor artifact existence uses the API, not docker manifest inspect"
-            ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories/jitml/artifacts/phase4"
-                `Text.isInfixOf` renderSubprocess artifactCommand
+            "existence requests a schema-2 manifest rather than the legacy schema 1"
+            ( "Accept: application/vnd.docker.distribution.manifest.v2+json"
+                `Text.isInfixOf` renderSubprocess statusCommand
             )
           assertBool
-            "Harbor same-repository promotion uses the API tag endpoint"
-            ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories/jitml/artifacts/phase4/tags"
-                `Text.isInfixOf` renderSubprocess tagCommand
+            "tagging re-PUTs the manifest under the target tag"
+            ( "http://127.0.0.1:9091/v2/library/jitml/manifests/ready"
+                `Text.isInfixOf` renderSubprocess putCommand
+                && "--request PUT" `Text.isInfixOf` renderSubprocess putCommand
             )
           assertBool
-            "Harbor tag promotion sends the target tag as JSON"
-            ("{\"name\":\"ready\"}" `Text.isInfixOf` renderSubprocess tagCommand)
+            "tagging declares the manifest's own media type"
+            ( "Content-Type: application/vnd.docker.distribution.manifest.v2+json"
+                `Text.isInfixOf` renderSubprocess putCommand
+            )
+          -- The registry runs unauthenticated, so no call may present a
+          -- credential. A `--user` here would mean the deployment grew an auth
+          -- surface the chart does not configure.
+          assertBool
+            "no registry call presents credentials"
+            ( not
+                ( any
+                    ("--user" `Text.isInfixOf`)
+                    (fmap renderSubprocess [listCommand, statusCommand, putCommand])
+                )
+            )
       , testCase "cluster down uses the typed Kind delete subprocess (Sprint 2.9)" $ do
           let rendered = renderSubprocess (Helm.kindDeleteSubprocess LinuxCPU)
           -- Sprint 2.9: kindDelete is now a typed single command; the prior
@@ -6568,7 +6574,7 @@ main = do
             ("kind delete cluster --name jitml-linux-cpu" `Text.isInfixOf` rendered)
       , testCase "platform readiness checks cover Phase 4 service rollouts" $ do
           let rendered = Text.unlines (fmap renderSubprocess Readiness.platformReadinessSubprocesses)
-          assertBool "Harbor readiness" ("rollout status deployment/harbor-core" `Text.isInfixOf` rendered)
+          assertBool "registry readiness" ("rollout status deployment/registry" `Text.isInfixOf` rendered)
           assertBool "MinIO readiness" ("rollout status deployment/minio" `Text.isInfixOf` rendered)
           assertBool "Pulsar readiness" ("rollout status statefulset/pulsar-broker" `Text.isInfixOf` rendered)
           assertBool
@@ -6584,8 +6590,8 @@ main = do
             "jitML Coordinator readiness"
             ("rollout status deployment/jitml-coordinator" `Text.isInfixOf` rendered)
           assertBool
-            "PerconaPGCluster readiness"
-            ("wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'" `Text.isInfixOf` rendered)
+            "no PerconaPGCluster readiness while the registry is empty"
+            (not ("wait perconapgcluster/" `Text.isInfixOf` rendered))
           assertBool
             "NVIDIA RuntimeClass check"
             ("get runtimeclass nvidia" `Text.isInfixOf` rendered)
@@ -6726,7 +6732,7 @@ main = do
           BootConfig.bootPulsarServiceUrl hostConfig @?= Publication.publicationPulsarUrl publication
           BootConfig.bootMinioEndpoint hostConfig @?= Publication.publicationMinioUrl publication
           BootConfig.bootPulsarAdminUrl hostConfig @?= "http://127.0.0.1:9092/pulsar/admin"
-          BootConfig.bootHarborRegistry hostConfig @?= "127.0.0.1:9092/library"
+          BootConfig.bootImageRegistry hostConfig @?= "127.0.0.1:9092/library"
       , testCase "Tune resume-from-partial-sweep via HasMinIO (Sprint 9.7)" $
           withSystemTempDirectory "jitml-tune-resume" $ \root ->
             runFilesystemMinIO root $ do
@@ -6861,13 +6867,22 @@ main = do
               Left err ->
                 assertFailure ("expected MinIO read OK, got: " <> show err)
       , testCase "kubectlApply carries PerconaPGCluster YAML through explicit stdin command" $ do
-          cluster <-
-            case PostgresRegistry.postgresRegistry of
-              [value] -> pure value
-              values ->
-                assertFailure
-                  ("expected exactly one PerconaPGCluster registry entry, got: " <> show (length values))
-          let yaml = PostgresRegistry.renderPerconaPGCluster cluster
+          -- The registry is empty: `harbor-pg` was its only row and left with
+          -- Harbor. The renderer and the registry type are retained so that a
+          -- future Postgres-backed service is one row rather than a rebuild, so
+          -- the renderer is exercised against an explicit fixture here rather
+          -- than against whatever the registry happens to hold.
+          PostgresRegistry.postgresRegistry @?= []
+          let cluster =
+                PostgresRegistry.PerconaPGCluster
+                  { PostgresRegistry.perconaClusterName = "fixture-pg"
+                  , PostgresRegistry.perconaNamespace = "platform"
+                  , PostgresRegistry.perconaReplicas = 1
+                  , PostgresRegistry.perconaStorageSize = "10Gi"
+                  , PostgresRegistry.perconaDatabase = "fixture"
+                  , PostgresRegistry.perconaSecretName = "fixture-pg-secrets"
+                  }
+              yaml = PostgresRegistry.renderPerconaPGCluster cluster
               cmd =
                 JitML.Sub.Subprocess.subprocessWithStdin
                   "kubectl"
@@ -6883,7 +6898,7 @@ main = do
           renderSubprocess cmd
             @?= "kubectl --kubeconfig ./.build/jitml.kubeconfig apply --dry-run=client --validate=false -f -"
           JitML.Sub.Subprocess.subprocessStdin cmd @?= Just yaml
-          assertBool "rendered PerconaPGCluster names harbor-pg" ("harbor-pg" `Text.isInfixOf` yaml)
+          assertBool "rendered PerconaPGCluster names its cluster" ("fixture-pg" `Text.isInfixOf` yaml)
           assertBool
             "rendered PerconaPGCluster includes required pgBackRest repo"
             ("    pgbackrest:" `Text.isInfixOf` yaml)
@@ -6901,13 +6916,13 @@ main = do
             ("storageClassName: jitml-manual" `Text.isInfixOf` yaml)
           assertBool
             "rendered PerconaPGCluster binds a manual PV by volumeName"
-            ("volumeName: platform-harbor-pg-pv-0" `Text.isInfixOf` yaml)
+            ("volumeName: platform-fixture-pg-pv-0" `Text.isInfixOf` yaml)
           assertBool
             "rendered PerconaPGCluster has no higher-index instance PV"
-            (not ("volumeName: platform-harbor-pg-pv-1" `Text.isInfixOf` yaml))
+            (not ("volumeName: platform-fixture-pg-pv-1" `Text.isInfixOf` yaml))
           assertBool
             "rendered PerconaPGCluster binds a manual backup PV by volumeName"
-            ("volumeName: platform-harbor-pg-repo1-pv-0" `Text.isInfixOf` yaml)
+            ("volumeName: platform-fixture-pg-repo1-pv-0" `Text.isInfixOf` yaml)
       , testCase "KubectlSubprocess settings pin the repo-local kubeconfig explicitly" $ do
           kubectlBinary defaultKubectlSettings @?= "kubectl"
           kubectlKubeconfig defaultKubectlSettings @?= "./.build/jitml.kubeconfig"
@@ -7302,75 +7317,110 @@ main = do
                   daemonSubscriptions
                   2
                   5
-          , testCase "live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor)" $ do
+          , testCase "live HasImageRegistry same-repository tag promotion round-trip (Sprint 13.2)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
-                  settings = HarborSubprocess.harborSettingsForLocalEdge edgePort
-                  registry = HarborSubprocess.harborRegistry settings
+                  settings = RegistrySubprocess.registrySettingsForLocalEdge edgePort
+                  registry = RegistrySubprocess.registryEndpoint settings
               uniqueSuffix <- pickRandomSuffix
-              let repository = "library/jitml-harbor-test-" <> uniqueSuffix
+              let repository = "library/jitml-registry-test-" <> uniqueSuffix
                   initialRef = ImageRef (registry <> "/" <> repository <> ":initial")
                   currentRef = ImageRef (registry <> "/" <> repository <> ":current")
               case Publication.publicationSubstrate publication of
                 AppleSilicon ->
-                  seedHarborOciArtifact settings repository "initial"
+                  seedRegistryOciArtifact settings repository "initial"
                 _ -> do
                   -- Linux lanes validate the Docker-backed live push path with
                   -- a tiny single-platform image built directly under the
-                  -- unique Harbor tag. Avoid a cached multi-arch docker.io
+                  -- unique registry tag. Avoid a cached multi-arch docker.io
                   -- source image here: failed routed pushes can leave local
                   -- RepoDigests that make later retries skip required blobs.
-                  buildLocalHarborTestImage settings initialRef uniqueSuffix
-                  HarborSubprocess.runHarborSubprocess settings $ do
-                    pushResult <- harborPushImage initialRef
+                  buildLocalRegistryTestImage settings initialRef uniqueSuffix
+                  RegistrySubprocess.runRegistrySubprocess settings $ do
+                    pushResult <- registryPushImage initialRef
                     liftIO $ case pushResult of
                       Right _ -> pure ()
                       Left err ->
-                        assertFailure ("harborPushImage initial failed: " <> show err)
-              -- Drive the live exists/promote flow through HasHarbor.
-              HarborSubprocess.runHarborSubprocess settings $ do
-                existsInitial <- harborImageExists initialRef
+                        assertFailure ("registryPushImage initial failed: " <> show err)
+              -- Drive the live exists/promote flow through HasImageRegistry.
+              RegistrySubprocess.runRegistrySubprocess settings $ do
+                existsInitial <- registryImageExists initialRef
                 liftIO $ case existsInitial of
                   Right True -> pure ()
                   other ->
                     assertFailure
-                      ( "harborImageExists initial expected Right True, got "
+                      ( "registryImageExists initial expected Right True, got "
                           <> show other
                       )
-                promotionResult <- harborPromoteImage initialRef currentRef
+                promotionResult <- registryPromoteImage initialRef currentRef
                 liftIO $ case promotionResult of
                   Right promoted -> promoted @?= currentRef
                   Left err ->
-                    assertFailure ("harborPromoteImage failed: " <> show err)
-                existsCurrent <- harborImageExists currentRef
+                    assertFailure ("registryPromoteImage failed: " <> show err)
+                existsCurrent <- registryImageExists currentRef
                 liftIO $ case existsCurrent of
                   Right True -> pure ()
                   other ->
                     assertFailure
-                      ( "harborImageExists current expected Right True, got "
+                      ( "registryImageExists current expected Right True, got "
                           <> show other
                       )
-              -- Cleanup: remove the test repository through the Harbor API
-              -- via curl so a future test run can re-create the same name.
+              -- Cleanup: Registry v2 has no repository-delete API, so the
+              -- manifest is deleted by digest instead. The digest comes from the
+              -- registry's own `Docker-Content-Digest` response header rather
+              -- than being recomputed here, so the test deletes exactly what the
+              -- registry says it stored.
+              digestOutcome <-
+                runStreaming
+                  defaultSubprocessEnv
+                  ( subprocess
+                      (RegistrySubprocess.registryCurlBinary settings)
+                      [ "--silent"
+                      , "--show-error"
+                      , "--head"
+                      , "--header"
+                      , "Accept: application/vnd.oci.image.manifest.v1+json"
+                      , RegistrySubprocess.registryBaseUrl settings
+                          <> "/v2/"
+                          <> repository
+                          <> "/manifests/initial"
+                      ]
+                  )
+              manifestDigest <-
+                case digestOutcome of
+                  ProcessFailed failure ->
+                    assertFailure
+                      ( "registry manifest digest lookup failed:\n"
+                          <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
+                      )
+                  ProcessSucceeded transcript ->
+                    case responseHeader
+                      "docker-content-digest"
+                      (processTranscriptStdout transcript) of
+                      Just digest -> pure digest
+                      Nothing ->
+                        assertFailure
+                          ( "registry manifest response lacks Docker-Content-Digest:\n"
+                              <> Text.unpack (renderProcessOutcome digestOutcome)
+                          )
               cleanupOutcome <-
                 runStreaming
                   defaultSubprocessEnv
                   ( subprocess
-                      "curl"
-                      [ "-s"
-                      , "-u"
-                      , HarborSubprocess.harborUsername settings
-                          <> ":"
-                          <> HarborSubprocess.harborPassword settings
-                      , "-X"
+                      (RegistrySubprocess.registryCurlBinary settings)
+                      [ "--silent"
+                      , "--show-error"
+                      , "--request"
                       , "DELETE"
-                      , HarborSubprocess.harborApiBaseUrl settings
-                          <> "/v2.0/projects/library/repositories/"
-                          <> Text.drop (Text.length "library/") repository
+                      , RegistrySubprocess.registryBaseUrl settings
+                          <> "/v2/"
+                          <> repository
+                          <> "/manifests/"
+                          <> manifestDigest
                       ]
                   )
               assertProcessExitCode
-                "Harbor live-test repository cleanup"
+                "registry live-test manifest cleanup"
                 ExitSuccess
                 cleanupOutcome
           , testCase
@@ -11279,9 +11329,8 @@ subscriptionConsumerObservation topic expectedSubscription statsValue =
             <> show other
         )
 
-seedHarborOciArtifact :: HarborSubprocess.HarborSettings -> Text -> Text -> IO ()
-seedHarborOciArtifact settings repository tag = do
-  token <- harborRegistryToken settings repository "push,pull"
+seedRegistryOciArtifact :: RegistrySubprocess.RegistrySettings -> Text -> Text -> IO ()
+seedRegistryOciArtifact settings repository tag = do
   let configPayload =
         "{\"architecture\":\"amd64\",\"os\":\"linux\",\"rootfs\":{\"type\":\"layers\",\"diff_ids\":[]},\"config\":{}}"
   configDigest <- ociDigest configPayload
@@ -11299,68 +11348,18 @@ seedHarborOciArtifact settings repository tag = do
           , "}"
           , ",\"layers\":[]}"
           ]
-  uploadLocation <- startHarborBlobUpload settings token repository
-  putHarborBlob settings token uploadLocation configDigest configPayload
-  putHarborManifest settings token repository tag manifestPayload
+  uploadLocation <- startRegistryBlobUpload settings repository
+  putRegistryBlob settings uploadLocation configDigest configPayload
+  putRegistryManifest settings repository tag manifestPayload
 
-harborRegistryToken
-  :: HarborSubprocess.HarborSettings -> Text -> Text -> IO Text
-harborRegistryToken settings repository actions = do
-  let tokenUrl =
-        "http://"
-          <> HarborSubprocess.harborRegistry settings
-          <> "/service/token?service=harbor-registry&scope=repository:"
-          <> repository
-          <> ":"
-          <> actions
-  outcome <-
-    runStreaming
-      defaultSubprocessEnv
-      ( subprocess
-          (HarborSubprocess.harborCurlBinary settings)
-          [ "--fail"
-          , "--silent"
-          , "--show-error"
-          , "--user"
-          , HarborSubprocess.harborUsername settings
-              <> ":"
-              <> HarborSubprocess.harborPassword settings
-          , tokenUrl
-          ]
-      )
-  case outcome of
-    ProcessFailed failure ->
-      assertFailure
-        ( "Harbor token request failed:\n"
-            <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
-        )
-    ProcessSucceeded transcript ->
-      case eitherDecode
-        (ByteString.Lazy.fromStrict (Text.Encoding.encodeUtf8 (processTranscriptStdout transcript))) of
-        Right (Aeson.Object objectValue)
-          | Just (Aeson.String token) <- AesonKeyMap.lookup "token" objectValue ->
-              pure token
-        Right other ->
-          assertFailure
-            ( "Harbor token response missing token string: "
-                <> show other
-                <> "\n"
-                <> Text.unpack (renderProcessOutcome outcome)
-            )
-        Left err ->
-          assertFailure
-            ( "Harbor token response JSON parse failed: "
-                <> err
-                <> "\n"
-                <> Text.unpack (renderProcessOutcome outcome)
-            )
-
-startHarborBlobUpload
-  :: HarborSubprocess.HarborSettings -> Text -> Text -> IO Text
-startHarborBlobUpload settings token repository = do
+-- | Begin a blob upload. The registry runs unauthenticated, so there is no
+-- token to acquire and no @Authorization@ header to present.
+startRegistryBlobUpload
+  :: RegistrySubprocess.RegistrySettings -> Text -> IO Text
+startRegistryBlobUpload settings repository = do
   let uploadUrl =
         "http://"
-          <> HarborSubprocess.harborRegistry settings
+          <> RegistrySubprocess.registryEndpoint settings
           <> "/v2/"
           <> repository
           <> "/blobs/uploads/"
@@ -11368,7 +11367,7 @@ startHarborBlobUpload settings token repository = do
     runStreaming
       defaultSubprocessEnv
       ( subprocess
-          (HarborSubprocess.harborCurlBinary settings)
+          (RegistrySubprocess.registryCurlBinary settings)
           [ "--fail"
           , "--silent"
           , "--show-error"
@@ -11378,40 +11377,36 @@ startHarborBlobUpload settings token repository = do
           , "/dev/null"
           , "--request"
           , "POST"
-          , "--header"
-          , "Authorization: Bearer " <> token
           , uploadUrl
           ]
       )
   case outcome of
     ProcessFailed failure ->
       assertFailure
-        ( "Harbor blob upload start failed:\n"
+        ( "registry blob upload start failed:\n"
             <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
         )
     ProcessSucceeded transcript ->
       case responseHeader "location" (processTranscriptStdout transcript) of
-        Just location -> pure (resolveHarborLocation settings location)
+        Just location -> pure (resolveRegistryLocation settings location)
         Nothing ->
           assertFailure
-            ( "Harbor blob upload start response lacks Location header:\n"
+            ( "registry blob upload start response lacks Location header:\n"
                 <> Text.unpack (renderProcessOutcome outcome)
             )
 
-putHarborBlob
-  :: HarborSubprocess.HarborSettings -> Text -> Text -> Text -> Text -> IO ()
-putHarborBlob settings token uploadLocation digest payload =
+putRegistryBlob
+  :: RegistrySubprocess.RegistrySettings -> Text -> Text -> Text -> IO ()
+putRegistryBlob settings uploadLocation digest payload =
   assertCurlSuccess
-    "Harbor blob PUT"
+    "registry blob PUT"
     ( subprocessWithStdin
-        (HarborSubprocess.harborCurlBinary settings)
+        (RegistrySubprocess.registryCurlBinary settings)
         [ "--fail"
         , "--silent"
         , "--show-error"
         , "--request"
         , "PUT"
-        , "--header"
-        , "Authorization: Bearer " <> token
         , "--header"
         , "Content-Type: application/octet-stream"
         , "--data-binary"
@@ -11421,26 +11416,24 @@ putHarborBlob settings token uploadLocation digest payload =
         payload
     )
 
-putHarborManifest
-  :: HarborSubprocess.HarborSettings -> Text -> Text -> Text -> Text -> IO ()
-putHarborManifest settings token repository tag payload =
+putRegistryManifest
+  :: RegistrySubprocess.RegistrySettings -> Text -> Text -> Text -> IO ()
+putRegistryManifest settings repository tag payload =
   assertCurlSuccess
-    "Harbor manifest PUT"
+    "registry manifest PUT"
     ( subprocessWithStdin
-        (HarborSubprocess.harborCurlBinary settings)
+        (RegistrySubprocess.registryCurlBinary settings)
         [ "--fail"
         , "--silent"
         , "--show-error"
         , "--request"
         , "PUT"
         , "--header"
-        , "Authorization: Bearer " <> token
-        , "--header"
         , "Content-Type: application/vnd.oci.image.manifest.v1+json"
         , "--data-binary"
         , "@-"
         , "http://"
-            <> HarborSubprocess.harborRegistry settings
+            <> RegistrySubprocess.registryEndpoint settings
             <> "/v2/"
             <> repository
             <> "/manifests/"
@@ -11472,14 +11465,14 @@ responseHeader headerName headers =
     , let value = Text.drop 1 valueWithColon
     ]
 
-resolveHarborLocation :: HarborSubprocess.HarborSettings -> Text -> Text
-resolveHarborLocation settings location
+resolveRegistryLocation :: RegistrySubprocess.RegistrySettings -> Text -> Text
+resolveRegistryLocation settings location
   | "http://" `Text.isPrefixOf` location || "https://" `Text.isPrefixOf` location =
       location
   | "/" `Text.isPrefixOf` location =
-      "http://" <> HarborSubprocess.harborRegistry settings <> location
+      "http://" <> RegistrySubprocess.registryEndpoint settings <> location
   | otherwise =
-      "http://" <> HarborSubprocess.harborRegistry settings <> "/" <> location
+      "http://" <> RegistrySubprocess.registryEndpoint settings <> "/" <> location
 
 appendDigestQuery :: Text -> Text -> Text
 appendDigestQuery location digest
@@ -11498,7 +11491,7 @@ ociDigest payload = do
         digest : _ -> pure ("sha256:" <> digest)
         [] ->
           assertFailure
-            ( "shasum produced no digest for Harbor OCI seed payload:\n"
+            ( "shasum produced no digest for registry OCI seed payload:\n"
                 <> Text.unpack (renderProcessOutcome outcome)
             )
     ProcessFailed failure ->
@@ -11507,40 +11500,40 @@ ociDigest payload = do
             <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
         )
 
-buildLocalHarborTestImage
-  :: HarborSubprocess.HarborSettings
+buildLocalRegistryTestImage
+  :: RegistrySubprocess.RegistrySettings
   -> ImageRef
   -> Text
   -> IO ()
-buildLocalHarborTestImage settings (ImageRef imageRef) uniqueSuffix = do
-  createDirectoryIfMissing True (HarborSubprocess.harborDockerConfigDir settings)
+buildLocalRegistryTestImage settings (ImageRef imageRef) uniqueSuffix = do
+  createDirectoryIfMissing True (RegistrySubprocess.registryDockerConfigDir settings)
   let dockerfile =
         Text.unlines
           [ "FROM scratch"
-          , "LABEL org.opencontainers.image.title=\"jitml-harbor-live-test\""
+          , "LABEL org.opencontainers.image.title=\"jitml-registry-live-test\""
           , "LABEL org.opencontainers.image.revision=\"" <> uniqueSuffix <> "\""
           ]
       buildCommand =
         subprocessWithStdin
-          (HarborSubprocess.harborDockerBinary settings)
-          (harborDockerCliArgs settings ["build", "--pull=false", "-t", imageRef, "-"])
+          (RegistrySubprocess.registryDockerBinary settings)
+          (registryDockerCliArgs settings ["build", "--pull=false", "-t", imageRef, "-"])
           dockerfile
   outcome <- runStreaming defaultSubprocessEnv buildCommand
   case outcome of
     ProcessSucceeded _ -> pure ()
     ProcessFailed failure ->
       assertFailure
-        ( "docker build Harbor test image failed:\n"
+        ( "docker build registry test image failed:\n"
             <> Text.unpack (renderProcessOutcome (ProcessFailed failure))
         )
 
-harborDockerCliArgs :: HarborSubprocess.HarborSettings -> [Text] -> [Text]
-harborDockerCliArgs settings args =
+registryDockerCliArgs :: RegistrySubprocess.RegistrySettings -> [Text] -> [Text]
+registryDockerCliArgs settings args =
   maybe
     []
     (\dockerHost -> ["--host", dockerHost])
-    (HarborSubprocess.harborDockerHost settings)
-    <> ["--config", Text.pack (HarborSubprocess.harborDockerConfigDir settings)]
+    (RegistrySubprocess.registryDockerHost settings)
+    <> ["--config", Text.pack (RegistrySubprocess.registryDockerConfigDir settings)]
     <> args
 
 locateJitmlBinary :: IO (Maybe FilePath)

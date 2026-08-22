@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Phase 276 — the retained pure gate-soundness negative-control suite.
+-- | Phase 277 — the retained pure gate-soundness negative-control suite.
 --
 -- The audit's root-cause finding was that "Done" was graded by self-authored,
 -- self-referential gates. A negative control inverts that: it commits a
 -- KNOWN-FAKE artifact and asserts the gate __rejects__ it. A gate that cannot
 -- reject its known-fake is not a gate — the build fails.
 -- See the current external-truth obligations in the development-plan Exit
--- Definition and Phase 276.
+-- Definition and Phase 277.
 --
 -- The controls below are __gate-soundness__ controls: they exercise the pure
 -- gate logic (`RowAssertions`, `ExternalBars`) against hand-built known-fakes and
@@ -215,9 +215,9 @@ untrainedSl =
 -- for a green negative-control surface.
 pendingProductionControls :: [Text]
 pendingProductionControls =
-  [ "Phase 279: invalid raw request and event-stream fixtures"
-  , "Phase 280: invalid admitted-evidence journals and reducer properties"
-  , "Phase 281: settlement, timeout, cleanup, terminal-order, and mandatory per-row controls"
+  [ "Phase 280: invalid raw request and event-stream fixtures"
+  , "Phase 281: invalid admitted-evidence journals and reducer properties"
+  , "Phase 282: settlement, timeout, cleanup, terminal-order, and mandatory per-row controls"
   ]
 
 conv2dNotDenseFailures :: [Text]

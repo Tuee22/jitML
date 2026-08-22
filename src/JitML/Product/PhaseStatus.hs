@@ -338,126 +338,132 @@ allProductPhaseStatuses =
       ]
   , productPhase
       269
-      "Real Metal Kernels"
-      "DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md"
-      [ sprint "269.1" "Real Metal Kernels" Active
+      "Registry:2 Migration and Harbor Deprecation"
+      "DEVELOPMENT_PLAN/phase-269-registry2-migration-and-harbor-deprecation.md"
+      [ sprint "269.1" "Registry:2 Migration and Harbor Deprecation" Active
       ]
   , productPhase
       270
-      "Metal Row Device Evidence"
-      "DEVELOPMENT_PLAN/phase-270-metal-row-device-evidence.md"
-      [ sprint "270.1" "Metal Row Device Evidence" Active
+      "Real Metal Kernels"
+      "DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md"
+      [ sprint "270.1" "Real Metal Kernels" Active
       ]
   , productPhase
       271
-      "Apple Integration, E2E, and Attestation"
-      "DEVELOPMENT_PLAN/phase-271-apple-integration-e2e-and-attestation.md"
-      [ sprint "271.1" "Apple Integration, E2E, and Attestation" Blocked
+      "Metal Row Device Evidence"
+      "DEVELOPMENT_PLAN/phase-271-metal-row-device-evidence.md"
+      [ sprint "271.1" "Metal Row Device Evidence" Active
       ]
   , productPhase
       272
-      "Contract-Driven Apple Lane Revalidation"
-      "DEVELOPMENT_PLAN/phase-272-contract-driven-apple-lane-revalidation.md"
-      [ sprint "272.1" "Contract-Driven Apple Lane Revalidation" Blocked
+      "Apple Integration, E2E, and Attestation"
+      "DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md"
+      [ sprint "272.1" "Apple Integration, E2E, and Attestation" Blocked
       ]
   , productPhase
       273
-      "Attestation Join"
-      "DEVELOPMENT_PLAN/phase-273-attestation-join.md"
-      [ sprint "273.1" "Attestation Join" Done
+      "Contract-Driven Apple Lane Revalidation"
+      "DEVELOPMENT_PLAN/phase-273-contract-driven-apple-lane-revalidation.md"
+      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Blocked
       ]
   , productPhase
       274
-      "No-Caveat Closure Guard"
-      "DEVELOPMENT_PLAN/phase-274-no-caveat-closure-guard.md"
-      [ sprint "274.1" "No-Caveat Closure Guard" Done
+      "Attestation Join"
+      "DEVELOPMENT_PLAN/phase-274-attestation-join.md"
+      [ sprint "274.1" "Attestation Join" Done
       ]
   , productPhase
       275
-      "Journal-Derived Product Aggregation"
-      "DEVELOPMENT_PLAN/phase-275-journal-derived-product-aggregation.md"
-      [ sprint "275.1" "Journal-Derived Product Aggregation" Blocked
+      "No-Caveat Closure Guard"
+      "DEVELOPMENT_PLAN/phase-275-no-caveat-closure-guard.md"
+      [ sprint "275.1" "No-Caveat Closure Guard" Done
       ]
   , productPhase
       276
-      "Negative-Control Suite"
-      "DEVELOPMENT_PLAN/phase-276-negative-control-suite.md"
-      [ sprint "276.1" "Negative-Control Suite" Done
+      "Journal-Derived Product Aggregation"
+      "DEVELOPMENT_PLAN/phase-276-journal-derived-product-aggregation.md"
+      [ sprint "276.1" "Journal-Derived Product Aggregation" Blocked
       ]
   , productPhase
       277
+      "Negative-Control Suite"
+      "DEVELOPMENT_PLAN/phase-277-negative-control-suite.md"
+      [ sprint "277.1" "Negative-Control Suite" Done
+      ]
+  , productPhase
+      278
       "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
-      "DEVELOPMENT_PLAN/phase-277-external-bars-no-self-referential-gate-lint-and-exact-served.md"
+      "DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md"
       [ sprint
-          "277.1"
+          "278.1"
           "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
           Blocked
       ]
   , productPhase
-      278
-      "Measured/Declared Type Split & Behavioral Scaffold Lint"
-      "DEVELOPMENT_PLAN/phase-278-measured-declared-type-split-behavioral-scaffold-lint.md"
-      [ sprint "278.1" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
-      ]
-  , productPhase
       279
-      "RunContract Negative Controls - Request and Event Fixtures"
-      "DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md"
-      [ sprint "279.1" "RunContract Negative Controls - Request and Event Fixtures" Blocked
+      "Measured/Declared Type Split & Behavioral Scaffold Lint"
+      "DEVELOPMENT_PLAN/phase-279-measured-declared-type-split-behavioral-scaffold-lint.md"
+      [ sprint "279.1" "Measured/Declared Type Split & Behavioral Scaffold Lint" Done
       ]
   , productPhase
       280
-      "RunContract Negative Controls - Journal Fixtures and Reducer Properties"
-      "DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md"
-      [ sprint "280.1" "RunContract Negative Controls - Journal Fixtures and Reducer Properties" Blocked
+      "RunContract Negative Controls - Request and Event Fixtures"
+      "DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md"
+      [ sprint "280.1" "RunContract Negative Controls - Request and Event Fixtures" Blocked
       ]
   , productPhase
       281
-      "RunContract Negative Controls - Lifecycle and Per-Row Registration"
-      "DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md"
-      [ sprint "281.1" "RunContract Negative Controls - Lifecycle and Per-Row Registration" Blocked
+      "RunContract Negative Controls - Journal Fixtures and Reducer Properties"
+      "DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md"
+      [ sprint "281.1" "RunContract Negative Controls - Journal Fixtures and Reducer Properties" Blocked
       ]
   , productPhase
       282
-      "Per-Model Measured Convergence"
-      "DEVELOPMENT_PLAN/phase-282-per-model-measured-convergence.md"
-      [ sprint "282.1" "Per-Model Measured Convergence" Done
+      "RunContract Negative Controls - Lifecycle and Per-Row Registration"
+      "DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md"
+      [ sprint "282.1" "RunContract Negative Controls - Lifecycle and Per-Row Registration" Blocked
       ]
   , productPhase
       283
-      "Inference-Performance & Determinism"
-      "DEVELOPMENT_PLAN/phase-283-inference-performance-determinism.md"
-      [ sprint "283.1" "Inference-Performance & Determinism" Done
+      "Per-Model Measured Convergence"
+      "DEVELOPMENT_PLAN/phase-283-per-model-measured-convergence.md"
+      [ sprint "283.1" "Per-Model Measured Convergence" Done
       ]
   , productPhase
       284
-      "Contract-Driven Per-Model Evidence"
-      "DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md"
-      [ sprint "284.1" "Contract-Driven Per-Model Evidence" Blocked
+      "Inference-Performance & Determinism"
+      "DEVELOPMENT_PLAN/phase-284-inference-performance-determinism.md"
+      [ sprint "284.1" "Inference-Performance & Determinism" Done
       ]
   , productPhase
       285
-      "Evidence-Derived Closure Guard"
-      "DEVELOPMENT_PLAN/phase-285-evidence-derived-closure-guard.md"
-      [ sprint "285.1" "Evidence-Derived Closure Guard" Done
+      "Contract-Driven Per-Model Evidence"
+      "DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md"
+      [ sprint "285.1" "Contract-Driven Per-Model Evidence" Blocked
       ]
   , productPhase
       286
-      "Standing Adversarial Audit & Thin Plan"
-      "DEVELOPMENT_PLAN/phase-286-standing-adversarial-audit-thin-plan.md"
-      [ sprint "286.1" "Standing Adversarial Audit & Thin Plan" Done
+      "Evidence-Derived Closure Guard"
+      "DEVELOPMENT_PLAN/phase-286-evidence-derived-closure-guard.md"
+      [ sprint "286.1" "Evidence-Derived Closure Guard" Done
       ]
   , productPhase
       287
-      "Journal-Derived Status Registry"
-      "DEVELOPMENT_PLAN/phase-287-journal-derived-status-registry.md"
-      [ sprint "287.1" "Journal-Derived Status Registry" Blocked
+      "Standing Adversarial Audit & Thin Plan"
+      "DEVELOPMENT_PLAN/phase-287-standing-adversarial-audit-thin-plan.md"
+      [ sprint "287.1" "Standing Adversarial Audit & Thin Plan" Done
       ]
   , productPhase
       288
+      "Journal-Derived Status Registry"
+      "DEVELOPMENT_PLAN/phase-288-journal-derived-status-registry.md"
+      [ sprint "288.1" "Journal-Derived Status Registry" Blocked
+      ]
+  , productPhase
+      289
       "Evidence-Typed Report Measurements"
-      "DEVELOPMENT_PLAN/phase-288-evidence-typed-report-measurements.md"
-      [ sprint "288.1" "Evidence-Typed Report Measurements" Blocked
+      "DEVELOPMENT_PLAN/phase-289-evidence-typed-report-measurements.md"
+      [ sprint "289.1" "Evidence-Typed Report Measurements" Blocked
       ]
   ]
 
@@ -494,7 +500,7 @@ validateProductPhaseStatuses phases =
     <> concatMap validatePhase phases
  where
   phaseNumbers = fmap phaseNumber phases
-  expectedNumbers = [220 .. 288]
+  expectedNumbers = [220 .. 289]
   duplicatePhaseErrors =
     [ "duplicate product phase: " <> Text.pack (show number)
     | number <- duplicates phaseNumbers

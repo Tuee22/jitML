@@ -28,24 +28,17 @@ data PerconaPGCluster = PerconaPGCluster
   }
   deriving stock (Eq, Show)
 
--- | The authoritative service-Postgres registry. The first entry is
--- `harbor-pg` per Sprint 4.2. Adding a new service-managed Postgres means
--- adding a row here; `jitml lint chart` rejects any `PerconaPGCluster` not
--- declared here.
+-- | The authoritative service-Postgres registry.
+--
+-- Empty. `harbor-pg` was its only row, and it existed solely to back Harbor's
+-- core database; removing Harbor removed the last consumer of a service-managed
+-- Postgres, and with it the Percona operator release and both persistent
+-- volumes. The type and the `jitml lint chart` guard are retained rather than
+-- deleted so that adding a Postgres-backed service later is still a matter of
+-- adding one row here, and so that no chart may declare a `PerconaPGCluster`
+-- this list does not.
 postgresRegistry :: [PerconaPGCluster]
-postgresRegistry =
-  [ PerconaPGCluster
-      { perconaClusterName = "harbor-pg"
-      , perconaNamespace = "platform"
-      , -- Phase 53: single-instance local service Postgres topology.
-        -- The dhall/cluster/ profile's `postgres.replicas` records the same
-        -- target count for resource budgeting.
-        perconaReplicas = 1
-      , perconaStorageSize = "10Gi"
-      , perconaDatabase = "harbor"
-      , perconaSecretName = "harbor-pg-secrets"
-      }
-  ]
+postgresRegistry = []
 
 renderPerconaPGCluster :: PerconaPGCluster -> Text
 renderPerconaPGCluster cluster =

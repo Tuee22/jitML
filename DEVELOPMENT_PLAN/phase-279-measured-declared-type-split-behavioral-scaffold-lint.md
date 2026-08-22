@@ -1,4 +1,4 @@
-# Phase 278: Measured/Declared Type Split & Behavioral Scaffold Lint
+# Phase 279: Measured/Declared Type Split & Behavioral Scaffold Lint
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ✅ **Done**.
 
-## Sprint 278.1: Measured/Declared Type Split & Behavioral Scaffold Lint [✅ Done]
+## Sprint 279.1: Measured/Declared Type Split & Behavioral Scaffold Lint [✅ Done]
 
 **Status**: Done
 **Implementation**: `src/JitML/Product/Matrix.hs`, `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Test/Report.hs`, `src/JitML/Web/Contracts.hs`, `test/unit/Main.hs`

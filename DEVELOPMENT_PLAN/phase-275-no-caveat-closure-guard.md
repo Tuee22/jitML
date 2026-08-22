@@ -1,4 +1,4 @@
-# Phase 274: No-Caveat Closure Guard
+# Phase 275: No-Caveat Closure Guard
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ✅ **Done**.
 
-## Sprint 274.1: No-Caveat Closure Guard [✅ Done]
+## Sprint 275.1: No-Caveat Closure Guard [✅ Done]
 
 **Status**: Done
 **Implementation**: `README.md`, `DEVELOPMENT_PLAN/README.md`, `src/JitML/Lint/Docs.hs`

@@ -1,4 +1,4 @@
-# Phase 282: Per-Model Measured Convergence
+# Phase 283: Per-Model Measured Convergence
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ✅ **Done**.
 
-## Sprint 282.1: Per-Model Measured Convergence [✅ Done]
+## Sprint 283.1: Per-Model Measured Convergence [✅ Done]
 
 **Status**: Done
 **Implementation**: `src/JitML/Test/RowAssertions.hs`, `test/model-convergence/Main.hs`, `jitml.cabal`

@@ -40,8 +40,8 @@ count. Phase `265` closed `Done` on 2026-08-18 with a `55 / 55` eligible
 substrate's compiled artifact bytes became a function of its cache-key inputs —
 proven per lane by a double-compile gate — so Phase `266` is the first
 executable owner. The exact open chain is
-`266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280
-→ 281 → 284 → 287 → 288`; intervening Done phases retain their completed
+`266 → 267 → 268 → 269 → 270 → 271 → 272 → 273 → 276 → 278 → 280 → 281
+→ 282 → 285 → 288 → 289`; intervening Done phases retain their completed
 non-topology surfaces. The `apple-silicon` phases `269`, `270`, `271`, and `272`
 close on the Mac host under standards rule `M(d)`.
 
@@ -61,7 +61,7 @@ historical closure evidence live in
 
 **Substrates & bootstrap** — [Why this exists](#why-this-exists) · [Toolchain pinning](#toolchain-pinning) · [Substrates and runtime modes](#substrates-and-runtime-modes) · [Substrate-affinity phasing](#substrate-affinity-phasing) · [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) · [Bootstrap scripts](#bootstrap-scripts) · [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) · [Prerequisites as typed effects](#prerequisites-as-typed-effects)
 
-**Cluster & storage** — [Cluster topology and Kind](#cluster-topology-and-kind) · [Envoy Gateway API](#envoy-gateway-api-a-single-localhost-socket) · [Helm chart layout](#helm-chart-layout) · [Harbor](#harbor-as-the-registry) · [MinIO](#minio-object-store) · [TensorBoard event storage](#tensorboard-event-storage) · [Pulsar](#pulsar-as-the-control-plane--data-plane-bus) · [PostgreSQL](#postgresql) · [TensorBoard / Prometheus / Grafana](#tensorboard-prometheus-grafana-as-first-class)
+**Cluster & storage** — [Cluster topology and Kind](#cluster-topology-and-kind) · [Envoy Gateway API](#envoy-gateway-api-a-single-localhost-socket) · [Helm chart layout](#helm-chart-layout) · [Registry](#registry2-as-the-registry) · [MinIO](#minio-object-store) · [TensorBoard event storage](#tensorboard-event-storage) · [Pulsar](#pulsar-as-the-control-plane--data-plane-bus) · [PostgreSQL](#postgresql) · [TensorBoard / Prometheus / Grafana](#tensorboard-prometheus-grafana-as-first-class)
 
 **CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Typed run contracts](#typed-run-contracts) · [Doctrine scope](#doctrine-scope)
 
@@ -295,7 +295,7 @@ Shape:
   [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)
   and
   [documents/engineering/apple_silicon_metal_headless_builds.md](documents/engineering/apple_silicon_metal_headless_builds.md).
-- Pulsar endpoint discovery: `jitml bootstrap --apple-silicon` writes the routed coordinates to `./.build/runtime/cluster-publication.json`, then updates `./.build/conf/host/apple-silicon.dhall` with the current `BootConfig` fields (`pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, `harborRegistry`). `JitML.Service.Clients` derives the host daemon's `/pulsar/ws`, `/minio/s3`, Harbor API, and repo-local kubectl settings from that Dhall. No service-discovery RPC; the cluster publishes its own coordinates to a known file and the host daemon reads its Dhall config.
+- Pulsar endpoint discovery: `jitml bootstrap --apple-silicon` writes the routed coordinates to `./.build/runtime/cluster-publication.json`, then updates `./.build/conf/host/apple-silicon.dhall` with the current `BootConfig` fields (`pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, `imageRegistry`). `JitML.Service.Clients` derives the host daemon's `/pulsar/ws`, `/minio/s3`, registry, and repo-local kubectl settings from that Dhall. No service-discovery RPC; the cluster publishes its own coordinates to a known file and the host daemon reads its Dhall config.
 - The host daemon's only cluster contracts are Pulsar (RPC envelopes) and MinIO (large artifacts). Direct k8s API access from the host is forbidden and lint-enforced.
 
 On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes kernels in-pod (the substrate image carries the full JIT toolchain and, for CUDA Jobs, the NVIDIA runtime). For `linux-cpu`, the service dispatcher runs the latest-pointer/manifest read through `loadInferenceCheckpointWithWeights` and hands decoded weights to `runLinuxCpuWeightedCheckpointInference`, so routed `RunInference` messages use the generated-kernel FFI runner before publishing `InferenceResult`. For `linux-cuda`, the same dispatcher shape calls the guarded CUDA weighted checkpoint runner, which requires a positive CUDA runtime probe before compile/load/launch and otherwise returns a transient inference error before compilation. There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and an Apple-only `inference.command.apple-silicon` forwarding topic exists; the superseded command/event refs RPC is removed. The host-command topic family generalizes host-resident routing beyond inference so the in-cluster Apple daemon does not schedule Metal-backed training/RL/tuning starts into Linux pods.
@@ -316,11 +316,11 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh up` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. The `build` path also exposes a GHC-compatible LLVM `opt`/`llc` pair for the pinned `-fllvm` build by using PATH tools when they are in GHC 9.12.4's supported `[13,20)` range or by prepending an installed Homebrew `llvm@19` ... `llvm@13` keg. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local`, retags it as `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
+- `apple-silicon.sh up` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. The `build` path also exposes a GHC-compatible LLVM `opt`/`llc` pair for the pinned `-fllvm` build by using PATH tools when they are in GHC 9.12.4's supported `[13,20)` range or by prepending an installed Homebrew `llvm@19` ... `llvm@13` keg. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO up first, brings the registry up against that dependencies, builds `jitml:local`, retags it as `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
 - `linux-cpu.sh up` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh up` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the CUDA-capable Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
 
-> **Authenticated third-party image pre-pull.** The `docker.io/*` third-party chart images (MinIO, Pulsar, Harbor, …) are pre-pulled **authenticated on the host** and `kind load`ed before the cluster rolls out, so the Kind node's containerd never pulls them anonymously from Docker Hub and trips the Docker Hub **429** rate limit on a cold host. The pre-pull only **reads** the host's existing `docker login` (so `docker login` to Docker Hub once per host); it never writes `~/.docker/config.json`, preserving the no-touch invariant below. This is jitML's own self-contained Docker Hub credential path, owned by the project.
+> **Authenticated third-party image pre-pull.** The `docker.io/*` third-party chart images (MinIO, Pulsar, the registryor, …) are pre-pulled **authenticated on the host** and `kind load`ed before the cluster rolls out, so the Kind node's containerd never pulls them anonymously from Docker Hub and trips the Docker Hub **429** rate limit on a cold host. The pre-pull only **reads** the host's existing `docker login` (so `docker login` to Docker Hub once per host); it never writes `~/.docker/config.json`, preserving the no-touch invariant below. This is jitML's own self-contained Docker Hub credential path, owned by the project.
 
 Cleanup semantics matter:
 
@@ -509,10 +509,7 @@ Routes published at the edge (all under one `127.0.0.1:<edge-port>`):
 | `/tensorboard` | `tensorboard:80` | `/` |
 | `/grafana` | `kube-prometheus-stack-grafana:80` | `/` |
 | `/prometheus` | `kube-prometheus-stack-prometheus:9090` | `/` |
-| `/harbor` | `harbor:80` | `/` |
-| `/harbor/api` | `harbor:80` | `/api` |
-| `/v2` | `harbor:80` | (none) |
-| `/service` | `harbor:80` | (none) |
+| `/v2` | `registry:5000` | (none) |
 | `/minio/console` | `minio:9001` | `/` |
 | `/minio/s3` | `minio:9000` | `/` |
 | `/pulsar/admin` | `pulsar-proxy:80` | `/admin` |
@@ -528,7 +525,7 @@ Single umbrella chart at `./chart/`. The target release graph contains
 third-party chart dependencies plus jitML-owned local charts and rendered CRs.
 `Chart.yaml` declares the third-party subchart dependencies:
 
-- `harbor` — image registry.
+- `registry` — image registry (`registry:2`).
 - `pg-operator` — Percona Kubernetes Operator. The single-instance local
   Postgres service is a jitML-rendered `PerconaPGCluster` CR, not a separate
   `pg-db` subchart.
@@ -566,8 +563,7 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
     ├── pulsar-bookie-journal/pv_0      -- one bookie journal
     ├── pulsar-bookie-ledgers/pv_0      -- one bookie ledger store
     ├── pulsar-zookeeper-data/pv_0      -- one ZooKeeper data store
-    ├── harbor-pg/pv_0                  -- one Postgres instance
-    └── harbor-pg-repo1/pv_0            -- one pgBackRest repo
+    └── pulsar-zookeeper-data/pv_0      -- one ZooKeeper data store
 ```
 
 Corresponding target PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookie-journal-pv-0`, `platform-pulsar-bookie-ledgers-pv-0`, etc.; StatefulSet PVs are bound to the chart-generated replica-zero PVC (for example `data-minio-0`, `pulsar-bookie-journal-pulsar-bookie-0`, `pulsar-bookie-ledgers-pulsar-bookie-0`, and `pulsar-zookeeper-data-pulsar-zookeeper-0`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
@@ -600,21 +596,23 @@ Namespace: `platform` (fixed). `jitml bootstrap --<substrate>` creates it idempo
 
 **Phased deploy** (verbatim from infernix's lessons):
 
-1. **Harbor phase**: MinIO starts first so the `harbor-registry` bucket exists, the Percona operator applies and waits for the registered `harbor-pg` database, and Harbor then starts against those live dependencies.
+1. **Registry phase**: MinIO starts first so the `harbor-registry` bucket exists, then `registry:2` rolls out against it. No database step: Harbor's Postgres was the only service-managed database and left with it.
 2. **Image build/load phase**: `jitml:local` is rebuilt locally, retagged as `jitml-demo:local`, and both tags are loaded explicitly into the selected Kind cluster with `kind load docker-image`.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), and the jitML-demo workload roll out after the local image tags are present in Kind. Bootstrap applies the repo-owned foundation manifests before Helm, waits on explicit platform rollout/readiness checks, and applies the repo-owned Gateway/HTTPRoute manifests after the controller is installed.
 
-This avoids a hidden DNS/trust assumption between the host Docker daemon, the Kind node runtime, and an in-cluster Harbor registry while still bringing Harbor up as the platform registry surface.
+This avoids a hidden DNS/trust assumption between the host Docker daemon, the Kind node runtime, and the in-cluster registry while still bringing the registry up as the platform registry surface.
 
 ---
 
-# Harbor as the registry
+# `registry:2` as the registry
 
-Harbor is the platform registry surface. The local Kind bootstrap path is explicit: it rebuilds `jitml:local`, retags it as `jitml-demo:local`, loads both tags into Kind with `kind load docker-image`, and sets the in-cluster workloads to `imagePullPolicy: IfNotPresent`. The Harbor Helm release receives an explicit localhost `externalURL` for the selected edge port, and the edge routes send Harbor's public portal/API/registry/token paths through the chart's public `harbor` nginx service. The `HasHarbor` subprocess client takes explicit registry/API settings, Docker host socket when the local daemon is not at Docker's default path, and a repo-local Docker config directory under `./.build/docker/harbor`; live Linux CPU validation has exercised push/promote, pull, artifact existence, and repository listing without environment variables or global Docker config writes.
+`registry:2` is the platform registry surface. The local Kind bootstrap path is explicit: it rebuilds `jitml:local`, retags it as `jitml-demo:local`, loads both tags into Kind with `kind load docker-image`, and sets the in-cluster workloads to `imagePullPolicy: IfNotPresent`. The `HasImageRegistry` subprocess client takes an explicit registry endpoint and base URL, a Docker host socket when the local daemon is not at Docker's default path, and a repo-local Docker config directory under `./.build/docker/registry`; live Linux CPU validation exercises push/promote, pull, manifest existence, and catalogue listing without environment variables or global Docker config writes.
 
-Harbor's own image-chart storage backend is **MinIO** (S3 API), so Harbor's blobs and MinIO's buckets share a durability story. Live Linux CPU validation has pushed an OCI artifact through Harbor's registry HTTP API and confirmed the matching repository objects in the `harbor-registry` bucket. The local Docker-backed path is also validated through the selected localhost edge: a repo-local Docker config logs into `127.0.0.1:<edge-port>`, pushes and pulls a test image, lists the repository through `/harbor/api`, and confirms the tag through Harbor's artifact API.
+The registry runs **unauthenticated**. It is reached over loopback, which Docker already treats as an insecure registry, so there is no credential to present, no token endpoint, and no `docker login` step. Every operation the daemon performs is expressible in the Docker Registry v2 API: `GET /v2/_catalog` for the catalogue, `HEAD /v2/{repository}/manifests/{reference}` for existence and the `Docker-Content-Digest`, and — because Registry v2 has no tag API — a re-`PUT` of the source manifest under the target tag for same-repository promotion, which moves no blobs. Push, pull, tag and manifest inspection stay plain `docker` invocations because they were never registry-specific.
 
-Routed at `/harbor` (portal), `/harbor/api` (API), `/v2` (Docker registry), and `/service` (Harbor token service).
+Its storage backend is **MinIO** (S3 API), so registry blobs and MinIO's buckets share a durability story. The bucket name `harbor-registry` is deliberately retained from the Harbor era: reusing it meant replacing the registry required no blob migration.
+
+Routed at `/v2` only — there is no portal, project API, or token service to route.
 
 ---
 
@@ -622,7 +620,8 @@ Routed at `/harbor` (portal), `/harbor/api` (API), `/v2` (Docker registry), and 
 
 Buckets, provisioned by the Helm `provisioning.buckets` block:
 
-- `harbor-registry` — Harbor's S3 backend (128 MiB chunk size).
+- `harbor-registry` — the image registry's S3 backend (128 MiB chunk size). The
+  name predates `registry:2` and is kept so existing layers stay addressable.
 - `jitml-checkpoints` — training checkpoints. One prefix per experiment hash;
   deterministic snapshot-owned objects and commit records, a revisioned
   experiment-scoped writer/GC CAS record, content-addressed manifests, durable
@@ -1242,7 +1241,7 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 > `JitML.Coordinator.Topology`, the `jitml-demo` workload runs the one `jitml`
 > binary with `activeRole = Webapp`, and browser inference panels are
 > websocket-driven. Engine alone acquires compute subscriptions and retains an
-> opaque MinIO/Pulsar client with no Harbor or kubectl instance. Coordinator
+> opaque MinIO/Pulsar client with no registry or kubectl instance. Coordinator
 > reconciles the exact topic family, retains the full orchestration client, and
 > alone receives namespace Job/pod RBAC. Webapp retains no daemon clients, no
 > service-account token, and no GPU runtime/device request. The topic family
@@ -1381,9 +1380,14 @@ exercise this bounded join behavior against the actual threaded binary.
 
 # PostgreSQL
 
-Percona Kubernetes Operator manages the single-instance local Postgres service. The local live path renders the registered `harbor-pg` `PerconaPGCluster` with pinned Percona component images, one manual data PV, and one pgBackRest repo PV. Roles:
+**No service-managed Postgres is deployed.** `harbor-pg` was the only registered
+`PerconaPGCluster` and it existed solely as Harbor's metadata store, so the
+Percona operator, its cluster, and both persistent volumes left with Harbor.
+`JitML.Cluster.PostgresRegistry` retains the `PerconaPGCluster` type, an empty
+registry, and the `jitml lint chart` guard that rejects any chart-declared
+cluster the registry does not list, so reintroducing a Postgres-backed service
+is one registry row rather than a rebuild. Possible future role:
 
-- Harbor's metadata store.
 - (Optional, deployment-time) Grafana dashboard provisioning history when an operator wants persistence across pod restarts beyond what SQLite gives.
 
 **jitML itself does not use Postgres.** Trial state, experiment lineage, checkpoint references, and lineage between training runs and their resumes all live in MinIO — content-addressed manifests carry their own `parent-manifest` pointer (see [Checkpoint object layout](#checkpoint-object-layout)) and the `jitml-trials` bucket is the trial transcript store. jitML's only durable contracts are **MinIO** (artifacts) and **Pulsar** (job queues + events). The Postgres cluster exists for third-party services that themselves require a relational DB; the cluster may add it or remove it without affecting any jitML workload.
@@ -1398,7 +1402,7 @@ Percona Kubernetes Operator manages the single-instance local Postgres service. 
 
 - The `jitml-service` daemon (`/metrics` endpoint) — training-step latency, GPU utilization (Metal/CUDA queries), batch throughput, checkpoint write latency, MinIO call latency, Pulsar consume-lag.
 
-The target observability stack also reserves dashboard panels for deeper Pulsar broker/proxy, MinIO S3 API metrics, Harbor, and Kind node metrics as those live service-client paths close.
+The target observability stack also reserves dashboard panels for deeper Pulsar broker/proxy, MinIO S3 API metrics, the registry, and Kind node metrics as those live service-client paths close.
 
 **Grafana.** Provisioned dashboards committed to the repo, **generated from typed Haskell datatypes** via a renderer in `src/JitML/Observability/Grafana.hs`. Dashboards rendered by the renderer:
 
@@ -1694,7 +1698,7 @@ Per doctrine §Error Handling for the typed-domain-ADT discipline and single ren
 |---|---|
 | `0` | success |
 | `1` | user / usage error (bad flag, missing argument, malformed Dhall, validation failure) |
-| `2` | system / capability error (MinIO, Pulsar, Harbor, kubectl, network failure after retry) |
+| `2` | system / capability error (MinIO, Pulsar, the registryor, kubectl, network failure after retry) |
 | `3` | reconciler no-op-on-match (`bootstrap`, `cluster up`, `docs generate`, `lint --write` found nothing to do) |
 
 `test all`, `lint *`, and `docs check` communicate pass/fail by exit code only; their stdout is the rendered Plan, snapshot output, or summary block — never a status string for callers to grep.
@@ -1716,7 +1720,7 @@ the daemon-lifecycle and canonical Linux CPU gates. The full daemon contract
 ### Capability classes and the service-error union
 
 Per doctrine §Capability Classes and Service Errors. jitML's capability
-typeclasses are `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`; each
+typeclasses are `HasMinIO`, `HasPulsar`, `HasImageRegistry`, `HasKubectl`; each
 capability's typed error injects into a unified `ServiceError` via
 `AsServiceError`. `DaemonRuntime` retains a closed role projection: Engine's
 opaque interpreter has only `HasMinIO`/`HasPulsar`, Coordinator owns the full
@@ -1737,7 +1741,7 @@ scheduler and reload path are exercised by the Sprint `12.16` canonical gate.
 Per doctrine §Application Environment and §Long-Running Daemons for the `ReaderT Env IO` shape, SIGHUP semantics, and drain contract. jitML's keys:
 
 - **`BootConfig`** (immutable post-launch): active role, substrate, residency,
-  inference mode, Pulsar service/admin URLs, MinIO endpoint, Harbor registry,
+  inference mode, Pulsar service/admin URLs, MinIO endpoint, image registry,
   the residency-checked optional HTTP listener, and the Webapp-only Pulsar
   WebSocket URL. The drain deadline belongs to `LiveConfig`; kubeconfig is not a
   BootConfig field.
@@ -2372,7 +2376,7 @@ the checkpoint boundary. The ResNet family (`fashion-mnist-resnet`,
 `Conv2D` behind a two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`,
 residual BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as compact
 proxies under the bounded product budget, with the 2-D convolution forward
-implemented as a tight unboxed kernel. All 55 product rows admitted their checkpoints on `linux-cpu` at that date; admission is a checkpoint property, and per-model measured convergence and per-row device evidence remain owned by Phases `229`, `284`, and the per-lane phases.
+implemented as a tight unboxed kernel. All 55 product rows admitted their checkpoints on `linux-cpu` at that date; admission is a checkpoint property, and per-model measured convergence and per-row device evidence remain owned by Phases `229`, `285`, and the per-lane phases.
 
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
@@ -3334,7 +3338,7 @@ holds trial transcripts keyed on
 (for example, "every manifest produced by experiment X past step Y") are
 answered by MinIO object listings and purpose-built live surfaces such as
 `jitml inference run`, which read MinIO directly. The cluster may host Postgres
-for third-party services (Harbor's metadata, optional Grafana history), but
+for third-party services (optional Grafana history), but
 jitML itself never writes to it — its durable contracts are MinIO and Pulsar
 only.
 
@@ -3478,7 +3482,7 @@ The PureScript frontend is not a metrics dashboard with passive read-only panes;
 
 Every panel renders inside a slim shared header (`Chrome.Header` — the `jitML` wordmark plus a `[home]` link to `#portals`), so the directory is one click away from any view. The hash dispatcher disposes the previous Halogen root before mounting the next panel, so hash navigation leaves a single active app root; disposal also unsubscribes the cleanup-bearing stream emitter, clears its callbacks, and closes its WebSocket. The empty-hash landing routes to the portals home below; the named `#mnist-live-inference` / `#cifar-imagenet-upload` / `#training-progress` / `#hyperparameter-sweep` / `#rl-trajectory` / `#connect4-human-vs-alphazero` hashes continue to address each panel directly.
 
-- **Portals home.** Default landing for `127.0.0.1:<edge-port>/`. A two-column directory: the left column lists the in-SPA panels from `web/src/PanelRegistry.purs`; the right column lists every Envoy-routed admin portal from `web/src/Generated/AdminPortals.purs` (generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` — Grafana, Prometheus, TensorBoard, Harbor, MinIO console, Pulsar admin). Admin consoles open as top-level reverse-proxied links, not iframes: Grafana, Prometheus, TensorBoard, Harbor, MinIO, and Pulsar each own their auth, CSP, base-path, websocket, and internal navigation behavior. The consistent jitML UI is the generated portal directory plus shared chrome. The home page is an unauthenticated directory of upstreams, not a sign-in surface; each upstream owns its own auth (see [TLS posture](#envoy-gateway-api-a-single-localhost-socket) above). The list stays in sync with the chart's HTTPRoutes because the registry is the single source of truth, gated by `jitml docs check`.
+- **Portals home.** Default landing for `127.0.0.1:<edge-port>/`. A two-column directory: the left column lists the in-SPA panels from `web/src/PanelRegistry.purs`; the right column lists every Envoy-routed admin portal from `web/src/Generated/AdminPortals.purs` (generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` — Grafana, Prometheus, TensorBoard, MinIO console, Pulsar admin). Admin consoles open as top-level reverse-proxied links, not iframes: Grafana, Prometheus, TensorBoard, MinIO, and Pulsar each own their auth, CSP, base-path, websocket, and internal navigation behavior. The consistent jitML UI is the generated portal directory plus shared chrome. The home page is an unauthenticated directory of upstreams, not a sign-in surface; each upstream owns its own auth (see [TLS posture](#envoy-gateway-api-a-single-localhost-socket) above). The list stays in sync with the chart's HTTPRoutes because the registry is the single source of truth, gated by `jitml docs check`.
 - **Run list.** All experiments + runs from MinIO `jitml-checkpoints`, with status, lineage tree, and one-click "branch a new run from this checkpoint."
 - **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Shows TensorBoard run context and checkpoint overlays for the selected experiment, with the full TensorBoard console available through the portals home as a top-level route. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, and change run controls through their typed command surface. The daemon `LiveConfig` now carries operational dynamic log, retry, inference-batch/latency, dedup, and drain controls, each with a real runtime reader; the Sprint `12.16` gate validates those readers. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
 - **RL panel.** Episode-reward distribution (live), env render preview (canvas-rendered from `EpisodeFrame` events), replay-buffer fill, exploration rate. **Interactive controls:** start / pause / stop, swap policy, force-evaluate, scrub through a recorded trajectory.
@@ -3549,8 +3553,8 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: catalog properties, run-to-run trajectory determinism, fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is symmetric across all three backends for the family and MLP surfaces (see [unit_testing_policy.md](documents/engineering/unit_testing_policy.md) for the per-surface scope): generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
-| `jitml-negative-controls` | Integration (project-specific) | `TestNegativeControls` | current lightweight gate-soundness controls apply pure gates to hand-built known-fakes and require rejection; production-path contract mutations are enumerated as pending rather than silently treated as covered, with Phases `279`–`281` owning that live evidence |
-| `jitml-model-convergence` | Integration (project-specific) | `TestModelConvergence` | current lightweight metadata/case-registry guard: one case per ProductRow, externally anchored bar metadata, named integration/e2e evidence, and a non-wall-clock performance-floor declaration; it does not train, reload, serve, or infer, and Phase `284` owns completed-run convergence/performance evidence |
+| `jitml-negative-controls` | Integration (project-specific) | `TestNegativeControls` | current lightweight gate-soundness controls apply pure gates to hand-built known-fakes and require rejection; production-path contract mutations are enumerated as pending rather than silently treated as covered, with Phases `280`–`282` owning that live evidence |
+| `jitml-model-convergence` | Integration (project-specific) | `TestModelConvergence` | current lightweight metadata/case-registry guard: one case per ProductRow, externally anchored bar metadata, named integration/e2e evidence, and a non-wall-clock performance-floor declaration; it does not train, reload, serve, or infer, and Phase `285` owns completed-run convergence/performance evidence |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | probe the actual production binary with `+RTS -N1`, spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Local route/bucket/publication/contract/demo checks plus the target contract-driven live path: acquire an ephemeral Kind cluster, execute the scenario matrix through `runLiveWorkflow`, project browser assertions from completed journals, and release every owned resource; see [E2E cohorts](#e2e-cohorts) below. |
 
@@ -3850,7 +3854,7 @@ docker compose run --rm jitml jitml train \
   experiments/mnist.dhall --substrate linux-cuda --seed 42
 ```
 
-After bootstrap, the full surface lives at one URL — `127.0.0.1:<edge-port>/` — with the demo at `/`, TensorBoard at `/tensorboard`, Grafana at `/grafana`, Prometheus at `/prometheus`, Harbor at `/harbor` plus Docker registry paths `/v2` and `/service`, MinIO at `/minio/console`, and Pulsar at `/pulsar/admin`.
+After bootstrap, the full surface lives at one URL — `127.0.0.1:<edge-port>/` — with the demo at `/`, TensorBoard at `/tensorboard`, Grafana at `/grafana`, Prometheus at `/prometheus`, the Docker registry at `/v2`, MinIO at `/minio/console`, and Pulsar at `/pulsar/admin`.
 
 ---
 
@@ -3901,7 +3905,7 @@ jitML/
     playwright/                 -- E2E suite
     dist/                       -- bundle output
   chart/                        -- single umbrella Helm chart
-    Chart.yaml                  -- subchart deps (harbor, pulsar, minio, postgres, gateway, prometheus, tensorboard, ...)
+    Chart.yaml                  -- subchart deps (pulsar, minio, gateway, prometheus, tensorboard, ...)
     values.yaml
     templates/                  -- GatewayClass, Gateway, HTTPRoutes, EnvoyProxy, ...
   kind/                         -- per-substrate Kind configs
@@ -3948,7 +3952,7 @@ Binding project doctrine, in order:
 - Output Rules
 - Standard Flag Families (Plan/Apply, Daemon, Output — see [Standard flag families](#standard-flag-families) for jitML's binding table)
 - Error Handling (extended with exit code `3` for reconciler no-op-on-match; see [Exit codes and error rendering](#exit-codes-and-error-rendering))
-- Capability Classes and Service Errors (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`)
+- Capability Classes and Service Errors (`HasMinIO`, `HasPulsar`, `HasImageRegistry`, `HasKubectl`)
 - Retry Policy as First-Class Values
 - Prerequisites as Typed Effects (bootstrap scripts' contract is also encoded as a typed DAG)
 - Application Environment (`ReaderT Env IO`)

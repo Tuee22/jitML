@@ -15,7 +15,7 @@ let ClusterResources : Type =
       { nodeMemoryMiB : Natural
       , nodeCpus : Text
       , workerCount : Natural
-      , harbor : ComponentBudget
+      , registry : ComponentBudget
       , minio : ComponentBudget
       , pulsar : ComponentBudget
       , postgres : ComponentBudget

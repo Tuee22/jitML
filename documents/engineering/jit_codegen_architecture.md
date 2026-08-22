@@ -29,12 +29,12 @@ where a substrate becomes a backend. `linux-cpu` renders oneDNN primitives and
 `linux-cuda` renders cuBLAS/cuDNN primitives, both splicing the same shared
 operator layer, so the two lanes cannot drift in operator semantics.
 `apple-silicon` has no layer-graph training kernel and therefore fails closed
-naming Sprint `269.1`, rather than silently executing the `linux-cpu` artifact
+naming Sprint `270.1`, rather than silently executing the `linux-cpu` artifact
 and attributing the run to hardware that did not execute it. The per-substrate
 lowering is owned by
 Phase `79` (the substrate-generic seam),
 [Phase 264](../../DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md), and
-[Phase 269](../../DEVELOPMENT_PLAN/phase-269-real-metal-kernels.md).
+[Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md).
 
 **Target (Phase `234`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
 The oneDNN layer kernels gain a **batched** forward/backward path (Phase `234`).
@@ -567,7 +567,7 @@ scaffolding modules.
   copy-shaped: Dense2D, Conv2D, Conv3D, BatchNorm, LayerNorm, Embedding,
   Reduction, and Identity render explicit MSL bodies. **MultiHeadAttention is not
   yet real on the unweighted path**: it renders an elementwise square, which also
-  disagrees with the oneDNN renderer for the same family. Phase `269` owns it. Conv2D and Conv3D weighted kernels use windowed multi-tap
+  disagrees with the oneDNN renderer for the same family. Phase `270` owns it. Conv2D and Conv3D weighted kernels use windowed multi-tap
   neighbourhoods and the backend tests reject the old identity-copy and
   1x1-degenerate source markers before executing Metal output checks against
   host references.
@@ -745,5 +745,5 @@ the `.metal.json` cache artifact and bridge ABI.
 - [../../README.md → JIT compilation architecture](../../README.md#jit-compilation-architecture)
 - [determinism_contract.md](determinism_contract.md)
 - [daemon_architecture.md](daemon_architecture.md)
-- [../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md)
-- [../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md](../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md)
+- [../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+- [../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)

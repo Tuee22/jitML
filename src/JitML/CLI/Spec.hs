@@ -128,7 +128,7 @@ bootstrapCommand =
   leaf
     "bootstrap"
     "Bootstrap a substrate stack."
-    "Plans and applies full substrate bootstrap: generated Dhall, Kind, Harbor-first rollout, platform services, cluster daemon, demo, and Apple host-daemon handoff."
+    "Plans and applies full substrate bootstrap: generated Dhall, Kind, registry-first rollout, platform services, cluster daemon, demo, and Apple host-daemon handoff."
     ( substrateFlags
         <> [ dryRunOption
            , planFileOption
@@ -602,7 +602,7 @@ internalCommand =
     , leaf
         "third-party-images"
         "Print the third-party chart image list."
-        "Sprint 2.13 (Docker Hub credential path) — prints the third-party chart images (MinIO, Pulsar, Harbor, etc.) the bootstrap loads into the Kind cluster, one per line. The stage-0 bootstrap scripts pipe this list into an authenticated host `docker pull` before `kind load`, so the cluster never pulls these images anonymously from Docker Hub (avoiding the 429 rate limit on a cold host). This is jitML's own self-contained Docker Hub credential path."
+        "Sprint 2.13 (Docker Hub credential path) — prints the third-party chart images (MinIO, Pulsar, registry, etc.) the bootstrap loads into the Kind cluster, one per line. The stage-0 bootstrap scripts pipe this list into an authenticated host `docker pull` before `kind load`, so the cluster never pulls these images anonymously from Docker Hub (avoiding the 429 rate limit on a cold host). This is jitML's own self-contained Docker Hub credential path."
         []
         [Example "jitml internal third-party-images" "Print the third-party chart image list."]
     , leaf

@@ -87,10 +87,9 @@ function loadLivePublication(): ClusterPublication {
       throw new Error("cluster publication components must be a non-empty array");
     }
     const requiredComponents = [
-      "harbor",
+      "registry",
       "minio",
       "pulsar",
-      "postgres",
       "observability",
       ...(publicationSubstrate === "apple-silicon" ? [] : ["jitml-engine"]),
       "jitml-coordinator",
@@ -361,7 +360,6 @@ test("portals home links to every bundled admin portal", async ({ page }) => {
     ["jitml-portals-admin-grafana", "/grafana"],
     ["jitml-portals-admin-prometheus", "/prometheus"],
     ["jitml-portals-admin-tensorboard", "/tensorboard"],
-    ["jitml-portals-admin-harbor-portal", "/harbor"],
     ["jitml-portals-admin-minio-console", "/minio/console"],
     ["jitml-portals-admin-pulsar-admin", "/pulsar/admin"],
   ];

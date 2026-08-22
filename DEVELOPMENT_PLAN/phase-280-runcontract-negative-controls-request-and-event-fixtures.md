@@ -1,4 +1,4 @@
-# Phase 279: RunContract Negative Controls - Request and Event Fixtures
+# Phase 280: RunContract Negative Controls - Request and Event Fixtures
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,15 +9,15 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 277 (Sprint 277.1).
+⏸️ **Blocked**. Blocked by Phase 278 (Sprint 278.1).
 
-## Sprint 279.1: RunContract Negative Controls - Request and Event Fixtures [⏸️ Blocked]
+## Sprint 280.1: RunContract Negative Controls - Request and Event Fixtures [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/NegativeControls.hs`,
 `src/JitML/Test/RunContract.hs`, `test/negative-controls/Main.hs`,
 `test/unit/Main.hs`
-**Blocked by**: Sprint `277.1`
+**Blocked by**: Sprint `278.1`
 **Docs to update**: `../documents/engineering/run_contract.md`,
 `../documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -51,7 +51,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `277.1` binds the versioned aggregate evidence to the
+- Blocked until Sprint `278.1` binds the versioned aggregate evidence to the
   exact admitted bytes graded by these controls.
 - Add the invalid-request and invalid-event fixture suites.
 

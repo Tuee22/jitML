@@ -234,7 +234,6 @@ library
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
-        JitML.Service.HarborSubprocess
         JitML.Service.FilesystemMinIO
         JitML.Service.Http
         JitML.Service.HotReload
@@ -247,6 +246,7 @@ library
         JitML.Service.Logger
         JitML.Service.MinIOSubprocess
         JitML.Service.PulsarWebSocketSubprocess
+        JitML.Service.RegistrySubprocess
         JitML.Service.Retry
         JitML.Service.RunConfig
         JitML.Service.Runtime

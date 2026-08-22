@@ -1,4 +1,4 @@
-# Phase 285: Evidence-Derived Closure Guard
+# Phase 286: Evidence-Derived Closure Guard
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ✅ **Done**.
 
-## Sprint 285.1: Evidence-Derived Closure Guard [✅ Done]
+## Sprint 286.1: Evidence-Derived Closure Guard [✅ Done]
 
 **Status**: Done
 **Implementation**: `src/JitML/Docs/Check.hs`, `src/JitML/Lint/Docs.hs`, `src/JitML/Product/PhaseStatus.hs`, `test/unit/Main.hs`

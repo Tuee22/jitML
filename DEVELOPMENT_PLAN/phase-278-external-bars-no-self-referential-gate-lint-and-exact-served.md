@@ -1,4 +1,4 @@
-# Phase 277: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance
+# Phase 278: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,13 +9,13 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 275 (Sprint 275.1).
+⏸️ **Blocked**. Blocked by Phase 276 (Sprint 276.1).
 
-## Sprint 277.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [⏸️ Blocked]
+## Sprint 278.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Product/ExternalBars.hs`, `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Checkpoint/Format.hs`, `test/unit/Main.hs`
-**Blocked by**: Sprint `275.1`
+**Blocked by**: Sprint `276.1`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/determinism_contract.md`, `system-components.md`
 
 ### Objective
@@ -60,7 +60,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `275.1` produces the versioned aggregate evidence bound to
+- Blocked until Sprint `276.1` produces the versioned aggregate evidence bound to
   Sprint `133.1`'s opaque admitted artifact.
 - Recompute the external-bar measurement from the exact admitted manifest and
   served weight bytes, then add substitution controls that retain matching

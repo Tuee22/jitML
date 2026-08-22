@@ -5,7 +5,7 @@
 , pulsarServiceUrl : Text
 , pulsarAdminUrl : Text
 , minioEndpoint : Text
-, harborRegistry : Text
+, imageRegistry : Text
 , httpListener : Optional { host : Text, port : Natural }
 , webappPulsarWsUrl : Optional Text
 }

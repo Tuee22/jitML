@@ -31,15 +31,15 @@ dockerBuildSubprocess localTag contextDir =
     , Text.pack contextDir
     ]
 
--- | `docker tag <local> <harborRegistry>/<project>/<image>:<sha>`.
+-- | `docker tag <local> <imageRegistry>/<project>/<image>:<sha>`.
 dockerTagSubprocess :: Text -> Text -> Subprocess
-dockerTagSubprocess localTag harborTag =
-  subprocess "docker" ["tag", localTag, harborTag]
+dockerTagSubprocess localTag registryTag =
+  subprocess "docker" ["tag", localTag, registryTag]
 
--- | `docker push <harborTag>` — uploads the image to Harbor.
+-- | `docker push <registryTag>` — uploads the image to the registry.
 dockerPushSubprocess :: Text -> Subprocess
-dockerPushSubprocess harborTag =
-  subprocess "docker" ["push", harborTag]
+dockerPushSubprocess registryTag =
+  subprocess "docker" ["push", registryTag]
 
 -- | `docker login --username <u> --password <p> <registry>` for the
 -- mirror phase. The password is stdin-piped to avoid landing in
@@ -66,20 +66,20 @@ kindLoadDockerImageSubprocess substrate localTag =
 
 -- | Phase 3 local live path: build the image locally, then load it into
 -- Kind explicitly. This avoids relying on host Docker or Kind containerd
--- resolving an in-cluster Harbor DNS name during local bootstrap.
+-- resolving an in-cluster registry DNS name during local bootstrap.
 dockerBuildAndKindLoadPlan :: Substrate -> Text -> FilePath -> [Subprocess]
 dockerBuildAndKindLoadPlan substrate localTag contextDir =
   [ dockerBuildSubprocess localTag contextDir
   , kindLoadDockerImageSubprocess substrate localTag
   ]
 
--- | Harbor mirror/build phase plan: build the image locally,
--- tag it for Harbor, push it. The caller supplies the contextDir,
--- localTag, and harborTag; the sequencer walks the three subprocesses
+-- | Registry mirror/build phase plan: build the image locally,
+-- tag it for the registry, push it. The caller supplies the contextDir,
+-- localTag, and registryTag; the sequencer walks the three subprocesses
 -- through the typed `runStreaming` boundary.
 dockerMirrorPlan :: Text -> FilePath -> Text -> [Subprocess]
-dockerMirrorPlan localTag contextDir harborTag =
+dockerMirrorPlan localTag contextDir registryTag =
   [ dockerBuildSubprocess localTag contextDir
-  , dockerTagSubprocess localTag harborTag
-  , dockerPushSubprocess harborTag
+  , dockerTagSubprocess localTag registryTag
+  , dockerPushSubprocess registryTag
   ]

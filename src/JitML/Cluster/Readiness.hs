@@ -43,12 +43,7 @@ minioBootstrapReadinessSubprocesses =
 
 rolloutTargets :: [Text]
 rolloutTargets =
-  [ "deployment/harbor-core"
-  , "deployment/harbor-jobservice"
-  , "deployment/harbor-portal"
-  , "deployment/harbor-registry"
-  , "statefulset/harbor-redis"
-  , "statefulset/harbor-trivy"
+  [ "deployment/registry"
   , "deployment/minio"
   , "statefulset/pulsar-zookeeper"
   , "statefulset/pulsar-bookie"

@@ -1,4 +1,4 @@
-# Phase 287: Journal-Derived Status Registry
+# Phase 288: Journal-Derived Status Registry
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,14 +9,14 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 284 (Sprint 284.1).
+⏸️ **Blocked**. Blocked by Phase 285 (Sprint 285.1).
 
-## Sprint 287.1: Journal-Derived Status Registry [⏸️ Blocked]
+## Sprint 288.1: Journal-Derived Status Registry [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Product/PhaseStatus.hs`,
 `src/JitML/Docs/Check.hs`, `src/JitML/Lint/Docs.hs`, `test/unit/Main.hs`
-**Blocked by**: Sprint `284.1`
+**Blocked by**: Sprint `285.1`
 **Docs to update**: `../README.md`, `README.md`, `00-overview.md`,
 `development_plan_standards.md`, `../documents/documentation_standards.md`,
 `system-components.md`, `legacy-tracking-for-deletion.md`
@@ -50,7 +50,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `284.1` emits contract-derived per-model evidence for the
+- Blocked until Sprint `285.1` emits contract-derived per-model evidence for the
   standing status gate.
 - Replace the literal status registry with journal projections over versioned
   evidence and explicit unmet/blocked obligations.

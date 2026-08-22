@@ -3,11 +3,11 @@
 **Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
-[../phase-16-apple-silicon-closure.md](../phase-16-apple-silicon-closure.md),
-[../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),
-[../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md),
-[../phase-30-apple-silicon-product-lane.md](../phase-30-apple-silicon-product-lane.md),
-[../phase-31-no-caveat-product-aggregation.md](../phase-31-no-caveat-product-aggregation.md)
+[../phase-16-apple-silicon-closure.md](../README.md#legacy-to-new-phase-map),
+[../phase-17-cross-substrate-and-handoff.md](../README.md#legacy-to-new-phase-map),
+[../phase-18-no-caveat-product-handoff.md](../README.md#legacy-to-new-phase-map),
+[../phase-30-apple-silicon-product-lane.md](../README.md#legacy-to-new-phase-map),
+[../phase-31-no-caveat-product-aggregation.md](../README.md#legacy-to-new-phase-map)
 **Generated sections**: none
 
 > **Purpose**: The committed `apple-silicon` per-lane report-card fragment for
@@ -114,9 +114,9 @@ atari-subset	non-product: optional ROM-backed runtime support, not a required pr
 **Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
-[../phase-16-apple-silicon-closure.md](../phase-16-apple-silicon-closure.md),
-[../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),
-[../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
+[../phase-16-apple-silicon-closure.md](../README.md#legacy-to-new-phase-map),
+[../phase-17-cross-substrate-and-handoff.md](../README.md#legacy-to-new-phase-map),
+[../phase-18-no-caveat-product-handoff.md](../README.md#legacy-to-new-phase-map)
 **Generated sections**: none
 
 > **Purpose**: The committed `apple-silicon` per-lane report-card fragment that

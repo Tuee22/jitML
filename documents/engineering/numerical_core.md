@@ -37,7 +37,7 @@ lanes. Sprint `264.1` parameterised the classifier path on `Substrate` behind a
 `LayerTrainingBackend`, so `linux-cpu` executes oneDNN primitives and
 `linux-cuda` executes cuBLAS/cuDNN primitives, both under one total lowering and
 one shared operator layer. `apple-silicon` has no layer-graph training kernel and
-fails closed naming Sprint `269.1` instead of executing another lane's artifact.
+fails closed naming Sprint `270.1` instead of executing another lane's artifact.
 The remaining target — the Metal arm, so every supported substrate executes every
 operator with the pure algebra retained strictly as the oracle — is owned by
 [Phase 233](../../DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md),
@@ -435,4 +435,4 @@ The current worked examples are the checked-in local fixtures under
 - [../../README.md → Numerical core](../../README.md#numerical-core)
 - [training_workloads.md](training_workloads.md)
 - [jit_codegen_architecture.md](jit_codegen_architecture.md)
-- [../../DEVELOPMENT_PLAN/phase-6-numerical-core.md](../../DEVELOPMENT_PLAN/phase-6-numerical-core.md)
+- [../../DEVELOPMENT_PLAN/phase-6-numerical-core.md](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)

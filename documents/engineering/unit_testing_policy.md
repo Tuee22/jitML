@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [engineering index](README.md), [documentation standards](../documentation_standards.md), [root README](../../README.md), [determinism contract](determinism_contract.md), [training workloads](training_workloads.md), [product completion contract](product_completion_contract.md), [JIT code-generation architecture](jit_codegen_architecture.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 261](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md), [Phase 279](../../DEVELOPMENT_PLAN/phase-279-runcontract-negative-controls-request-and-event-fixtures.md), [Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+**Referenced by**: [engineering index](README.md), [documentation standards](../documentation_standards.md), [root README](../../README.md), [determinism contract](determinism_contract.md), [training workloads](training_workloads.md), [product completion contract](product_completion_contract.md), [JIT code-generation architecture](jit_codegen_architecture.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 261](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md), [Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md), [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [Phase 282](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 **Generated sections**: none
 
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
@@ -124,8 +124,8 @@ successful write receipt as eligibility.
 | `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, symmetric across all three backends for the family and MLP surfaces: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/{Main,SigtermRegression}.hs` covers lifecycle ordering, endpoints, opaque role-derived borrowed subscriptions, receipt-bound equal-payload delivery, strict decode failure, handler and settlement failure, owned cleanup, bounded persistent consumption, exact Coordinator topic/readiness state, role/domain dispatch separation, per-command dedup commits that survive later batch cancellation, Engine publication-entry refusal after the captured deadline, and actual compiled Engine/Webapp processes. Its companion unit groups cover dynamic log/retry/batch/SLO policy and the keyed Apple host workload registry, including duplicate/unknown/terminal Stops and bounded drain. Process cases exercise adjacent LiveConfig fail-closed loading; unchanged, valid changed, malformed-live, and immutable-Boot SIGHUP decisions; dynamically resized/expired dedup state; SIGTERM readiness loss; configured drain deadlines; forced-cleanup joins; and clean Webapp reload/termination. | Daemon Lifecycle | Sprint 12.7 / Sprint 5.18 / Sprint 12.16 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` is present and the active Docker context answers `docker info`, typed live-plan surfaces, browser-evidence mount/capability isolation, reporter wiring, and structural workflow assertions. Live execution borrows an existing publication without deletion or owns an auto-bootstrapped cluster and always releases it; primary failure is preserved when cleanup also fails. Phase `262` creates exactly 55 positive tests from the command-owned catalogue, binds their exact row/PlanId/artifact/measured identities through the real API/UI path, and returns a separately authenticated browser journal. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.16 / Phase 27 / Phase 28 / Phase 262 |
-| `jitml-negative-controls` | **Owned by [Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md) and wired into `jitml test all`.** The current `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) rejects hand-built known fakes with pure gate logic and requires the remaining production-path controls to stay explicitly enumerated. That pure gate-soundness scope does not mutate contract-driven production journals or require one negative case per `ProductRow`; Phases `279`–`281` own those production boundaries. Current status and validation evidence live in the development plan. | Integration (project-specific) | Phase 276 (legacy Sprint 32.1) / Phases 279–281 (legacy Sprints 32.4–32.6) |
-| `jitml-model-convergence` | **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map); declared and wired into `jitml test all`.** The current lightweight guard enumerates one case per `ProductRow` from `JitML.Product.Matrix.allProductRows` and validates row identity, named integration/e2e handles, external bars, and positive non-wall-clock performance floors. It does not train, reload, recompute served metrics, or infer; [Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md) owns migration to opaque completed-run evidence. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 284 |
+| `jitml-negative-controls` | **Owned by [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md) and wired into `jitml test all`.** The current `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) rejects hand-built known fakes with pure gate logic and requires the remaining production-path controls to stay explicitly enumerated. That pure gate-soundness scope does not mutate contract-driven production journals or require one negative case per `ProductRow`; Phases `280`–`282` own those production boundaries. Current status and validation evidence live in the development plan. | Integration (project-specific) | Phase 277 (legacy Sprint 32.1) / Phases 279–281 (legacy Sprints 32.4–32.6) |
+| `jitml-model-convergence` | **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map); declared and wired into `jitml test all`.** The current lightweight guard enumerates one case per `ProductRow` from `JitML.Product.Matrix.allProductRows` and validates row identity, named integration/e2e handles, external bars, and positive non-wall-clock performance floors. It does not train, reload, recompute served metrics, or infer; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md) owns migration to opaque completed-run evidence. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 285 |
 
 Sprint `10.6` records historical pre-IR execution counts and diagnostics. The
 current policy requires the complete unit run to include the graph-runtime,
@@ -135,7 +135,7 @@ the phase-owned live/integration, standing, docs, and code-quality gates.
 
 The table states the current verification boundary, not phase status. The
 standing realness stanzas are green lightweight guards, not substitutes for the
-contract-driven production evidence still owned by Phases `279`–`284`. Current
+contract-driven production evidence still owned by Phases `280`–`285`. Current
 closure evidence lives only in the Development Plan.
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
@@ -155,7 +155,7 @@ runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 | Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
 The four `*-canonicals`/HPO/backends rows, plus the two 2026-07-05 realness
-rows (`jitml-negative-controls`, retained by Phase `276` from legacy Phase
+rows (`jitml-negative-controls`, retained by Phase `277` from legacy Phase
 `32`; `jitml-model-convergence`, legacy Phase `33`), are **project-specific Integration** stanzas under doctrine §Test
 Organization's project-specific stanzas allowance — extensions of the
 Integration category, not parallel test systems.
@@ -333,7 +333,7 @@ cross-substrate drift check and no tolerance band. See
 ### `jitml-negative-controls` — committed known-fakes must be rejected
 
 **The retained pure gate-soundness scope is owned by
-[Phase 276](../../DEVELOPMENT_PLAN/phase-276-negative-control-suite.md)
+[Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md)
 (legacy Sprint `32.1`; declared in `jitml.cabal` and exposed through
 `jitml test all`).** The realness contract requires a gate that is not
 self-authored or self-referential. The current
@@ -343,16 +343,16 @@ pairs each with pure gate logic that must reject it, and **fails the build if
 any fake is accepted**. It also asserts that `pendingProductionControls` is
 non-empty, so blocked production-path coverage cannot disappear silently. It
 does not yet mutate the contract's real request/event journals, cover the full
-lifecycle, or require a negative control per `ProductRow`. Phases `279`–`281`
+lifecycle, or require a negative control per `ProductRow`. Phases `280`–`282`
 own those production boundaries: request
-and event fixtures in Phase `279`, journal/reducer coverage in Phase `280`, and
-lifecycle plus mandatory per-row registration in Phase `281`.
+and event fixtures in Phase `280`, journal/reducer coverage in Phase `281`, and
+lifecycle plus mandatory per-row registration in Phase `282`.
 
 ### `jitml-model-convergence` — per-model case-registry guard
 
 **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 and currently owned for production evidence by
-[Phase 284](../../DEVELOPMENT_PLAN/phase-284-contract-driven-per-model-evidence.md)
+[Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 (declared in `jitml.cabal` and exposed through `jitml test all`).** The realness
 audit found that artifact readers and declared evidence handles are not training
 drivers. The current `test/model-convergence/Main.hs` (backed by
@@ -361,7 +361,7 @@ one case per `ProductRow`, enumerated from
 `JitML.Product.Matrix.allProductRows`, and validates coverage, row identity,
 named integration/e2e handles, externally anchored bar metadata (anchored in the sense of `literatureTarget - slack`; the slack is project-calibrated), and positive
 non-wall-clock performance floors. No current case trains, reloads a completed
-artifact, recomputes its served metric, or performs inference. Phase `284`
+artifact, recomputes its served metric, or performs inference. Phase `285`
 owns that completed-run-evidence migration and its validation record.
 
 ### `jitml-daemon-lifecycle`
@@ -485,7 +485,7 @@ Live test driver:
    deleted; an auto-bootstrapped Kind cluster is always deleted on success or
    failure. If primary execution and cleanup both fail, the primary exception
    is preserved and the cleanup failure is emitted as additional diagnostics.
-   The teardown audit then rejects orphan PVs, MinIO buckets, Harbor projects,
+   The teardown audit then rejects orphan PVs, MinIO buckets, registry repositories,
    or Docker volumes.
 
 Cluster acquisition and release use one outer resource scope; every seeded

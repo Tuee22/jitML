@@ -109,7 +109,7 @@ parameterised on `Substrate`. A narrower `LayerTrainingBackend`
 (`OneDnnLayerTraining` / `CudaLayerTraining`) makes every function behind it
 total, and `layerTrainingBackendFor` is the single boundary where a substrate
 becomes a backend. `apple-silicon` has no layer-graph training kernel, so it
-fails closed naming Sprint `269.1` rather than silently executing the
+fails closed naming Sprint `270.1` rather than silently executing the
 `linux-cpu` artifact and attributing the run to hardware that did not execute
 it. The execution witness is minted from `layerTrainingBackendSubstrate` — the
 substrate the backend *is*, read off what executed, not the one requested.

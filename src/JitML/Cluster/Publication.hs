@@ -95,7 +95,7 @@ defaultPublication substrate =
 -- inferred ready from that zero-replica rollout.
 requiredPublicationComponents :: Substrate -> [Text]
 requiredPublicationComponents substrate =
-  [ "harbor"
+  [ "registry"
   , "minio"
   , "pulsar"
   , "postgres"

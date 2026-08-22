@@ -21,7 +21,7 @@ resources:
     memory: 1Gi
 
 # Local live validation can drive large routed object reads while the same
-# MinIO also serves Harbor and checkpoint traffic. Keep probes from killing a
+# MinIO also serves image-registry and checkpoint traffic. Keep probes from killing a
 # healthy but saturated local instance during those bursts.
 livenessProbe:
   enabled: true

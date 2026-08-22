@@ -825,7 +825,7 @@ commandPlanSteps ["cluster", "up"] =
   ]
 commandPlanSteps ["service"] =
   [ PlanStep "load-config" "Load BootConfig and LiveConfig."
-  , PlanStep "acquire-capabilities" "Acquire MinIO, Pulsar, Harbor, and kubectl capabilities."
+  , PlanStep "acquire-capabilities" "Acquire MinIO, Pulsar, image-registry, and kubectl capabilities."
   , PlanStep "serve" "Expose health, readiness, metrics, and at-least-once consumers."
   ]
 commandPlanSteps ["train"] =

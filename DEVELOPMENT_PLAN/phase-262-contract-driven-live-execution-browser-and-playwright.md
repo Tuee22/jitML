@@ -67,7 +67,7 @@ container code-quality gate all passed from one source and image state on
 `phase-124-bit-determinism-contract-and-retention-reconciler.md`,
 `phase-160-functional-core-live-workflow-interpreter.md`,
 `phase-174-live-minio-checkpoint-round-trip-and-retention.md`,
-`phase-276-negative-control-suite.md`,
+`phase-277-negative-control-suite.md`,
 `system-components.md`, `legacy-tracking-for-deletion.md`, `../README.md`
 
 ### Objective
@@ -731,7 +731,7 @@ fails until `jitml-demo:local` exists — the same retag the rollout's own
 - `development_plan_standards.md`
 - `phase-124-bit-determinism-contract-and-retention-reconciler.md`
 - `phase-174-live-minio-checkpoint-round-trip-and-retention.md`
-- `phase-276-negative-control-suite.md`
+- `phase-277-negative-control-suite.md`
 - `system-components.md`
 - `legacy-tracking-for-deletion.md`
 - `../README.md`

@@ -64,7 +64,7 @@ data BootConfig = BootConfig
   , bootPulsarServiceUrl :: Text
   , bootPulsarAdminUrl :: Text
   , bootMinioEndpoint :: Text
-  , bootHarborRegistry :: Text
+  , bootImageRegistry :: Text
   , bootHttpListener :: Maybe HttpListener
   , bootWebappPulsarWsUrl :: Maybe Text
   -- ^ Sprint 11.10 — the Pulsar __WebSocket__ endpoint the @Webapp@ role uses
@@ -99,7 +99,7 @@ data RawBootConfig = RawBootConfig
   , rawPulsarServiceUrl :: Text
   , rawPulsarAdminUrl :: Text
   , rawMinioEndpoint :: Text
-  , rawHarborRegistry :: Text
+  , rawImageRegistry :: Text
   , rawHttpListener :: Maybe RawHttpListener
   , rawWebappPulsarWsUrl :: Maybe Text
   }
@@ -121,7 +121,7 @@ defaultBootConfig substrate residency =
     , bootPulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , bootPulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , bootMinioEndpoint = "http://minio.platform.svc.cluster.local:9000"
-    , bootHarborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
+    , bootImageRegistry = "registry.platform.svc.cluster.local:5000/library"
     , bootHttpListener =
         case residency of
           Cluster -> Just (HttpListener "0.0.0.0" 8080)
@@ -139,7 +139,7 @@ renderBootConfigDhall config =
     , ", pulsarServiceUrl = \"" <> bootPulsarServiceUrl config <> "\""
     , ", pulsarAdminUrl = \"" <> bootPulsarAdminUrl config <> "\""
     , ", minioEndpoint = \"" <> bootMinioEndpoint config <> "\""
-    , ", harborRegistry = \"" <> bootHarborRegistry config <> "\""
+    , ", imageRegistry = \"" <> bootImageRegistry config <> "\""
     , ", httpListener = " <> renderListener (bootHttpListener config)
     , ", webappPulsarWsUrl = " <> renderOptionalText (bootWebappPulsarWsUrl config)
     , "}"
@@ -274,7 +274,7 @@ rawBootConfigDecoder =
       <*> Dhall.field "pulsarServiceUrl" Dhall.strictText
       <*> Dhall.field "pulsarAdminUrl" Dhall.strictText
       <*> Dhall.field "minioEndpoint" Dhall.strictText
-      <*> Dhall.field "harborRegistry" Dhall.strictText
+      <*> Dhall.field "imageRegistry" Dhall.strictText
       <*> Dhall.field "httpListener" (Dhall.maybe httpListenerDecoder)
       <*> Dhall.field "webappPulsarWsUrl" (Dhall.maybe Dhall.strictText)
 
@@ -321,7 +321,7 @@ rawToBootConfig raw = do
         , bootPulsarServiceUrl = rawPulsarServiceUrl raw
         , bootPulsarAdminUrl = rawPulsarAdminUrl raw
         , bootMinioEndpoint = rawMinioEndpoint raw
-        , bootHarborRegistry = rawHarborRegistry raw
+        , bootImageRegistry = rawImageRegistry raw
         , bootHttpListener = listener
         , bootWebappPulsarWsUrl = rawWebappPulsarWsUrl raw
         }

@@ -538,8 +538,6 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       AdminPortals.adminPortals `shouldSatisfy`
         any (\p -> p.name == "tensorboard" && p.path == "/tensorboard")
       AdminPortals.adminPortals `shouldSatisfy`
-        any (\p -> p.name == "harbor-portal" && p.path == "/harbor")
-      AdminPortals.adminPortals `shouldSatisfy`
         any (\p -> p.name == "minio-console" && p.path == "/minio/console")
       AdminPortals.adminPortals `shouldSatisfy`
         any (\p -> p.name == "pulsar-admin" && p.path == "/pulsar/admin")

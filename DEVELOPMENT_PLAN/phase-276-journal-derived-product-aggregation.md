@@ -1,4 +1,4 @@
-# Phase 275: Journal-Derived Product Aggregation
+# Phase 276: Journal-Derived Product Aggregation
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,16 +9,16 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 272 (Sprint 272.1).
+⏸️ **Blocked**. Blocked by Phase 273 (Sprint 273.1).
 
-## Sprint 275.1: Journal-Derived Product Aggregation [⏸️ Blocked]
+## Sprint 276.1: Journal-Derived Product Aggregation [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/Report.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`,
 `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
-**Blocked by**: Sprint `272.1`
+**Blocked by**: Sprint `273.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -58,7 +58,7 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `272.1` publishes its refreshed contract-driven lane
+- Blocked until Sprint `273.1` publishes its refreshed contract-driven lane
   fragment containing admitted artifact identities. Sprint `268.1` supplies the
   CUDA fragment transitively, and Sprint `261.1` supplies the refreshed
   `linux-cpu` fragment.

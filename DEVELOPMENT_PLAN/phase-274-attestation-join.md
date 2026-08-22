@@ -1,4 +1,4 @@
-# Phase 273: Attestation Join
+# Phase 274: Attestation Join
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 ✅ **Done**.
 
-## Sprint 273.1: Attestation Join [✅ Done]
+## Sprint 274.1: Attestation Join [✅ Done]
 
 **Status**: Done
 **Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/`

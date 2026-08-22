@@ -1,4 +1,4 @@
-# Phase 270: Metal Row Device Evidence
+# Phase 271: Metal Row Device Evidence
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -15,7 +15,7 @@ substrate and claim, and supervised rows on this lane execute oneDNN kernels rat
 than the fixed bridge. Prior evidence stays historical for the surface it
 exercised.
 
-## Sprint 270.1: Metal Row Device Evidence [🔄 Active]
+## Sprint 271.1: Metal Row Device Evidence [🔄 Active]
 
 **Status**: Active
 **Implementation**: `src/JitML/Product/Matrix.hs`, `test/backends/Main.hs`
@@ -78,7 +78,7 @@ final product aggregation remains blocked by Phase `29`.
 ### Remaining Work
 
 - Re-mint per-row Metal device evidence from an execution witness once Sprints
-  `229.1` and `269.1` land.
+  `229.1` and `270.1` land.
 - Re-run the lane and record the measured result.
 
 ### Historical Phase State

@@ -144,7 +144,7 @@ then closes the listener and releases resources. Lifecycle and consumer
 transitions emit filtered structured JSON on stderr.
 
 Runtime hardening order is part of the daemon contract: POSIX signal handling,
-readiness transitions, and graceful drain land before real Pulsar/MinIO/Harbor/
+readiness transitions, and graceful drain land before real Pulsar/MinIO/registry/
 kubectl clients. The current local runner implements the signal/control surface
 in `JitML.Service.Signal` and drops readiness when drain begins, so shutdown
 semantics are deterministic before the daemon starts mutating external services.
@@ -170,7 +170,7 @@ restart):
 | `pulsarServiceUrl` | `Text` | Pulsar broker URL |
 | `pulsarAdminUrl` | `Text` | Pulsar admin URL |
 | `minioEndpoint` | `Text` | MinIO S3 endpoint |
-| `harborRegistry` | `Text` | Harbor registry/project image prefix, e.g. `harbor-registry.platform.svc.cluster.local:5000/library` in-cluster or `127.0.0.1:<edge-port>/library` from the host |
+| `imageRegistry` | `Text` | Image-registry repository prefix, e.g. `registry.platform.svc.cluster.local:5000/library` in-cluster or `127.0.0.1:<edge-port>/library` from the host |
 | `httpListener` | `Optional HttpListener` | None when `residency = Host` |
 | `webappPulsarWsUrl` | `Optional Text` | Non-empty and present only for `activeRole = Webapp` |
 
@@ -220,9 +220,9 @@ rather than a silent fallback to defaults.
 `DaemonRoleClientSettings` projection. Engine retains only
 `EngineClientSettings` and runs through `EngineServiceClient`, whose only
 instances are `HasMinIO` and `HasPulsar`; Coordinator alone retains the full
-client settings and runs the Harbor/`kubectl` orchestration interpreter; Webapp
+client settings and runs the registry/`kubectl` orchestration interpreter; Webapp
 retains no daemon-client settings. Engine probes only MinIO. Coordinator first
-reconciles the exact topic family and then probes MinIO, Harbor, and kubectl.
+reconciles the exact topic family and then probes MinIO, the registry, and kubectl.
 Service startup
 opens one persistent typed Pulsar consumer per role-derived subscription;
 connected workers form part of `Ready` evidence and connection loss degrades
@@ -231,7 +231,7 @@ required failure drops readiness. Live Linux CPU
 validation on 2026-05-20 confirms those daemon-acquired read-only probes pass
 from the running pod. `JitML.Service.Workload` provides the local mutating
 workload-effect runner over the same capability classes for checkpoint blob
-writes, checkpoint pointer CAS, Harbor image promotion, kubectl
+writes, checkpoint pointer CAS, registry image promotion, kubectl
 apply/status/delete, and RunInference result publication.
 `JitML.Service.Runtime.daemonWorkloadDispatcher`
 parses rendered byte-faithful `WorkloadEffect` payloads and routes them
@@ -264,9 +264,9 @@ message, dispatches each domain before ack, and applies the Training, Tune, and
 RL Jobs through the service account. A second 2026-05-21 live run routes
 `WriteCheckpointBlob` workload-effect payloads through the same service-pod
 consumer path and reads the written objects back from MinIO. A third 2026-05-21
-live run routes `PromoteWorkloadImage` workload-effect payloads through Harbor
+live run routes `PromoteWorkloadImage` workload-effect payloads through the registry
 same-repository tag promotion and verifies the promoted artifact through the
-in-cluster Harbor API. The same service-pod path now routes `RunInference`
+in-cluster Registry v2 API. The same service-pod path now routes `RunInference`
 through MinIO latest-checkpoint reads and publishes `InferenceResult` through
 Pulsar. The normal `jitml service` serve path starts a persistent WebSocket
 interpreter for each opaque subscription and keeps one handler router per
@@ -382,25 +382,25 @@ logger. Consumer-ready, outcome, and error paths use this operational sink.
 |-------|-----------|---------------|
 | `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs`; local filesystem interpreter in `JitML.Service.FilesystemMinIO`; live HTTP S3 subprocess interpreter in `JitML.Service.MinIOSubprocess` |
 | `HasPulsar` | Typed publication and scoped typed subscriptions; single and batched subscriptions yield receipt-hidden decoded deliveries and the interpreter settles each handler disposition | `src/JitML/Service/Capabilities.hs`; persistent single-/multi-receipt WebSocket interpreters in `JitML.Service.PulsarWebSocketSubprocess` |
-| `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs`; explicit Docker/curl subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
+| `HasImageRegistry` | `registryImageExists`, `registryPromoteImage`, `registryPushImage`, `registryPullImage`, `registryListImages` | `src/JitML/Service/Capabilities.hs`; explicit Docker/curl subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
 | `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
 `JitML.Service.Clients` is the daemon acquisition settings layer. It derives a
 closed role projection from the loaded `BootConfig`: opaque Engine settings and
 an `EngineServiceClient` with only MinIO/Pulsar instances, full Coordinator
-settings with the Harbor/kubectl interpreter, or no daemon clients for Webapp.
+settings with the registry/kubectl interpreter, or no daemon clients for Webapp.
 `DaemonRuntime` retains and prints only that projection under
 `client_acquisition`; the same summary prints the BootConfig-derived opaque
 daemon subscription plan under `pulsar_subscriptions`. Live consumer connection
 state is runtime readiness evidence rather than an independently rendered
 acquisition Boolean. The summary also prints role-specific
-`client_probe_status`: MinIO for Engine; MinIO, Harbor, and kubectl for
+`client_probe_status`: MinIO for Engine; MinIO, the registry, and kubectl for
 Coordinator.
 Cluster daemons target direct in-cluster endpoints: MinIO at
 `http://minio.platform.svc.cluster.local:9000`, Pulsar WebSocket at
-`ws://pulsar-broker.platform.svc.cluster.local:8080/ws`, Harbor API at
-`http://harbor.platform.svc.cluster.local/api`, Harbor registry at
-`harbor-registry.platform.svc.cluster.local:5000`, and kubectl through the
+`ws://pulsar-broker.platform.svc.cluster.local:8080/ws`, the Registry v2 API at
+`http://registry.platform.svc.cluster.local:5000`, whose repository prefix is
+`registry.platform.svc.cluster.local:5000`, and kubectl through the
 in-cluster service-account environment. The local chart creates
 `ServiceAccount/jitml-engine` with no workload-mutation Role and disables
 service-account-token automounting in Engine pods. It creates
@@ -411,7 +411,7 @@ and never requests the NVIDIA RuntimeClass or device environment. Apple host
 daemons derive only Engine settings from the patched host Dhall: routed MinIO
 URLs are split into the root endpoint plus the `/minio/s3` request-target prefix,
 `pulsar://127.0.0.1:<edge>/pulsar` becomes
-`ws://127.0.0.1:<edge>/pulsar/ws`; no Harbor credentials or kubectl configuration
+`ws://127.0.0.1:<edge>/pulsar/ws`; no registry or kubectl configuration
 are constructed or retained. The host-native Apple daemon
 subscription path is live-validated on 2026-05-21 with
 `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
@@ -425,7 +425,7 @@ from Kubernetes discovery; the host subscribes as `jitml-host` to
 `rl.host-command.apple-silicon`. The cluster reaches the host only through Pulsar
 envelopes and MinIO object refs.
 
-`HasPulsar`, `HasHarbor`, and `HasKubectl` operations route through the typed
+`HasPulsar`, `HasImageRegistry`, and `HasKubectl` operations route through the typed
 `Subprocess` boundary where no native client is checked in. The Pulsar
 WebSocket interpreter targets `ws://127.0.0.1:<edge-port>/pulsar/ws`, which
 Envoy rewrites to the broker-embedded `/ws` endpoint on
@@ -445,13 +445,13 @@ boundaries through `EngineServiceClient` or the Coordinator interpreter before
 serving, and drops readiness
 when a required topic reconciliation, consumer, or probe fails. 2026-05-20
 live validation of the Linux CPU chart confirms `/healthz`, `/readyz`,
-`/metrics`, MinIO `jitml-checkpoints` listing, Harbor `library` listing, and
+`/metrics`, MinIO `jitml-checkpoints` listing, registry `library` listing, and
 in-pod `kubectl get pods -n platform` through the historical shared service
-account. The current Coordinator-only profile owns those Harbor/kubectl probes
+account. The current Coordinator-only profile owns those registry/kubectl probes
 and mutations. `JitML.Service.Workload` is the current typed workload-effect runner
 for mutating daemon effects: it maps checkpoint blob writes to
 `HasMinIO.putBlobBytesIfAbsent`, checkpoint pointer updates to
-`HasMinIO.casPointer`, image promotion to `HasHarbor.harborPromoteImage`, and
+`HasMinIO.casPointer`, image promotion to `HasImageRegistry.registryPromoteImage`, and
 resource apply/status/delete to `HasKubectl`; `RunInference` loads the latest
 checkpoint manifest through `HasMinIO` and publishes `InferenceResult` through
 `HasPulsar`. It also renders/parses
@@ -465,9 +465,8 @@ against the synthetic daemon client instance, and
 for the same dispatcher; 2026-05-21 live Linux CPU validation exercises that
 surface against the running service pod for the command-envelope path and for
 `WriteCheckpointBlob`, `PromoteWorkloadImage`, and `RunInference` payloads.
-Harbor
-settings are passed as a value
-(`HarborSettings`) containing registry/API coordinates, credentials, optional
+Registry settings are passed as a value
+(`RegistrySettings`) containing the registry endpoint and base URL, optional
 Docker host socket, and the repo-local Docker config directory; the client does
 not read process environment variables or write to the user's global Docker
 config.
@@ -682,7 +681,7 @@ actions under the current LiveConfig drain deadline.
 `jitml bootstrap --apple-silicon` writes the cluster publication to
 `./.build/runtime/cluster-publication.json` and the explicit live rollout patches
 `./.build/conf/host/apple-silicon.dhall` with the routed Pulsar, MinIO, and
-Harbor coordinates. The live bootstrap then starts the host daemon from that
+registry coordinates. The live bootstrap then starts the host daemon from that
 Dhall. Linux has no host-level Dhall; numerical Jobs and clustered Engines
 perform its JIT work.
 
@@ -761,4 +760,4 @@ broker/node failover.
 - [haskell_code_guide.md](haskell_code_guide.md)
 - [run_contract.md](run_contract.md)
 - [cluster_topology.md](cluster_topology.md)
-- [../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md)
+- [../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)

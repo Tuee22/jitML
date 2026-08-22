@@ -1,4 +1,4 @@
-# Phase 269: Real Metal Kernels
+# Phase 270: Real Metal Kernels
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -15,7 +15,7 @@ copy, and requires misleading comments to be corrected. The shipped unweighted
 multi-head-attention body renders an elementwise square, and comments still describe
 an explicit identity GEMM and a unit-centre filter.
 
-## Sprint 269.1: Real Metal Kernels [🔄 Active]
+## Sprint 270.1: Real Metal Kernels [🔄 Active]
 
 **Status**: Active
 **Implementation**: `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalLocal.hs`, `src/JitML/Engines/MetalBridge.hs`, `test/backends/Main.hs`

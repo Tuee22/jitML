@@ -1,4 +1,4 @@
-# Phase 276: Negative-Control Suite
+# Phase 277: Negative-Control Suite
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,9 +11,9 @@
 
 ✅ **Done** for the retained pure gate-soundness scope. Production-path
 request/event, journal/reducer, lifecycle, and mandatory per-row controls were
-transferred to Phases `279`–`281`; this phase does not claim those later gates.
+transferred to Phases `280`–`282`; this phase does not claim those later gates.
 
-## Sprint 276.1: Negative-Control Suite [✅ Done]
+## Sprint 277.1: Negative-Control Suite [✅ Done]
 
 **Status**: Done
 **Implementation**: `src/JitML/Test/NegativeControls.hs`, `test/negative-controls/Main.hs`, `jitml.cabal`
@@ -35,7 +35,7 @@ explicitly enumerated.
 - Assert each pure gate returns *reject* for its known-fake; a gate that cannot
   reject its known-fake is a failure, not a pass.
 - Keep the outstanding production-path categories non-empty and explicit.
-  Phases `279`–`281` own invalid request/event fixtures, journal/reducer
+  Phases `280`–`282` own invalid request/event fixtures, journal/reducer
   properties, lifecycle failures, and mandatory per-ProductRow registration.
 
 ### Validation
@@ -53,7 +53,7 @@ docker compose run --rm jitml jitml check-code
   work remained explicitly non-empty. `docker compose run --rm jitml env
   JITML_SUBSTRATE=linux-cpu cabal test jitml-negative-controls
   --test-options='--hide-successes --color=never'` passed **3 / 3** on
-  2026-07-06. This evidence does not satisfy Phases `279`–`281`.
+  2026-07-06. This evidence does not satisfy Phases `280`–`282`.
 
 ## Documentation Requirements
 
@@ -69,11 +69,11 @@ docker compose run --rm jitml jitml check-code
 **Cross-references to add:**
 
 - Link the retained pure gate-soundness scope to the production-path controls
-  owned by [Phase 279](phase-279-runcontract-negative-controls-request-and-event-fixtures.md),
-  [Phase 280](phase-280-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
-  and [Phase 281](phase-281-runcontract-negative-controls-lifecycle-and-per-row-registra.md).
+  owned by [Phase 280](phase-280-runcontract-negative-controls-request-and-event-fixtures.md),
+  [Phase 281](phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
+  and [Phase 282](phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md).
 - Record that the retained `jitml-negative-controls` stanza is a standing gate of
   [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md),
   which re-runs it against its final aligned `jitml:local` image. That re-run
   re-proves this phase's gate-soundness scope on the closing image; it does not
-  extend the scope, and it does not satisfy Phases `279`–`281`.
+  extend the scope, and it does not satisfy Phases `280`–`282`.

@@ -3,10 +3,10 @@
 **Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
-[../phase-29-linux-cuda-product-lane.md](../phase-29-linux-cuda-product-lane.md),
-[../phase-15-linux-cuda-and-cluster-closure.md](../phase-15-linux-cuda-and-cluster-closure.md),
-[../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),
-[../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
+[../phase-29-linux-cuda-product-lane.md](../README.md#legacy-to-new-phase-map),
+[../phase-15-linux-cuda-and-cluster-closure.md](../README.md#legacy-to-new-phase-map),
+[../phase-17-cross-substrate-and-handoff.md](../README.md#legacy-to-new-phase-map),
+[../phase-18-no-caveat-product-handoff.md](../README.md#legacy-to-new-phase-map)
 **Generated sections**: none
 
 > **Purpose**: The `linux-cuda` per-lane report-card fragment. Its row-complete

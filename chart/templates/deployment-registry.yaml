@@ -1,0 +1,104 @@
+# `registry:2` is the platform's image registry.
+#
+# It replaces Harbor, whose core/portal/jobservice/nginx/redis/trivy pods and
+# Percona Postgres cluster existed to serve a surface the daemon uses only for
+# push, pull, tag, existence and catalogue listing. Storage is the same MinIO
+# bucket Harbor wrote to, so previously pushed layers stay addressable and no
+# blob migration is required.
+#
+# No authentication: this is a single-node local stack reached over loopback,
+# and Docker treats `127.0.0.1` as an insecure registry by default, so neither a
+# daemon `--insecure-registry` flag nor a containerd `hosts.toml` entry is
+# needed. That is also why there is no `/service` token route any more.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: platform
+  labels:
+    app.kubernetes.io/part-of: jitml
+    app.kubernetes.io/name: registry
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+        app.kubernetes.io/part-of: jitml
+    spec:
+      containers:
+        - name: registry
+          image: registry:2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: registry
+              containerPort: 5000
+          env:
+            - name: REGISTRY_HTTP_ADDR
+              value: "0.0.0.0:5000"
+            - name: REGISTRY_STORAGE
+              value: s3
+            - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
+              value: http://minio.platform.svc.cluster.local:9000
+            - name: REGISTRY_STORAGE_S3_BUCKET
+              value: {{ .Values.registry.bucket | quote }}
+            - name: REGISTRY_STORAGE_S3_REGION
+              value: {{ .Values.registry.region | quote }}
+            - name: REGISTRY_STORAGE_S3_ACCESSKEY
+              value: {{ .Values.minio.auth.rootUser | quote }}
+            - name: REGISTRY_STORAGE_S3_SECRETKEY
+              value: {{ .Values.minio.auth.rootPassword | quote }}
+            - name: REGISTRY_STORAGE_S3_SECURE
+              value: "false"
+            - name: REGISTRY_STORAGE_S3_V4AUTH
+              value: "true"
+            # Harbor disabled redirects so clients never receive a presigned URL
+            # naming an in-cluster MinIO host they cannot resolve. The same
+            # applies here: the edge is the only reachable address.
+            - name: REGISTRY_STORAGE_REDIRECT_DISABLE
+              value: "true"
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: {{ .Values.registry.resources.requests.cpu | quote }}
+              memory: {{ .Values.registry.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.registry.resources.limits.cpu | quote }}
+              memory: {{ .Values.registry.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: platform
+  labels:
+    app.kubernetes.io/part-of: jitml
+    app.kubernetes.io/name: registry
+spec:
+  selector:
+    app: registry
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry

@@ -24,7 +24,7 @@ minio failed: bucket unavailable
 ---
 pulsar failed: broker unavailable
 ---
-harbor failed: registry unavailable
+registry failed: registry unavailable
 ---
 kubectl failed: context missing
 ---

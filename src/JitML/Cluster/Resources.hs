@@ -54,7 +54,7 @@ data ClusterResources = ClusterResources
   { nodeMemoryMiB :: Int
   , nodeCpus :: Text
   , workerCount :: Int
-  , harbor :: ComponentBudget
+  , registry :: ComponentBudget
   , minio :: ComponentBudget
   , pulsar :: ComponentBudget
   , postgres :: ComponentBudget
@@ -87,7 +87,7 @@ clusterResourcesDecoder =
       <$> fmap fromIntegral (Dhall.field "nodeMemoryMiB" Dhall.natural)
       <*> Dhall.field "nodeCpus" Dhall.strictText
       <*> fmap fromIntegral (Dhall.field "workerCount" Dhall.natural)
-      <*> Dhall.field "harbor" componentBudgetDecoder
+      <*> Dhall.field "registry" componentBudgetDecoder
       <*> Dhall.field "minio" componentBudgetDecoder
       <*> Dhall.field "pulsar" componentBudgetDecoder
       <*> Dhall.field "postgres" componentBudgetDecoder
@@ -106,7 +106,7 @@ defaultClusterResources =
     { nodeMemoryMiB = 12288
     , nodeCpus = "4"
     , workerCount = 1
-    , harbor = ComponentBudget 1 "100m" "500m" "256Mi" "512Mi"
+    , registry = ComponentBudget 1 "100m" "500m" "256Mi" "512Mi"
     , minio = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , pulsar = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , postgres = ComponentBudget 1 "200m" "500m" "512Mi" "1Gi"
@@ -132,7 +132,7 @@ validateLocalPlatformTopology resources =
         )
  where
   platformBudgets =
-    [ ("harbor", harbor resources)
+    [ ("registry", registry resources)
     , ("minio", minio resources)
     , ("pulsar", pulsar resources)
     , ("postgres", postgres resources)
@@ -181,7 +181,7 @@ renderClusterResourcesDhall res =
     [ "{ nodeMemoryMiB = " <> Text.pack (show (nodeMemoryMiB res))
     , ", nodeCpus = " <> quote (nodeCpus res)
     , ", workerCount = " <> Text.pack (show (workerCount res))
-    , ", harbor = " <> renderBudget (harbor res)
+    , ", registry = " <> renderBudget (registry res)
     , ", minio = " <> renderBudget (minio res)
     , ", pulsar = " <> renderBudget (pulsar res)
     , ", postgres = " <> renderBudget (postgres res)

@@ -388,7 +388,7 @@ topics :: [Text]
 topics = ["topic-a", "topic-b"]
 
 probes :: [Text]
-probes = ["minio", "harbor", "kubectl"]
+probes = ["minio", "registry", "kubectl"]
 
 connectAll :: DaemonState -> DaemonState
 connectAll =
