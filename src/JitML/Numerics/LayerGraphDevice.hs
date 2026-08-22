@@ -17,6 +17,7 @@ module JitML.Numerics.LayerGraphDevice
   , layerGraphDeviceExecutionWitness
   , layerGraphDeviceHash
   , layerGraphDeviceRuntimeSource
+  , layerTrainingBackendFor
   , runLayerGraphForwardDevice
   , layerGraphSquaredErrorGradientDevice
   , layerGraphCrossEntropyGradientDevice

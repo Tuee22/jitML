@@ -102,7 +102,10 @@ contract holds across:
   deterministically),
 - hyperparameter-trial selection (sampler state is reproducible),
 - checkpoint recovery (the `.jmw1` decode + manifest reload restore identical
-  state).
+  state),
+- compiled JIT artifact bytes (see
+  [Artifact Reproducibility](#artifact-reproducibility) — a separate guarantee
+  over the compiler's output rather than the kernel's).
 
 ## Run-Protocol Determinism
 
@@ -562,9 +565,13 @@ reproducibility witnesses:
 | `linux-cpu` | Detected ISA (AVX2 / AVX-512), oneDNN version, glibc version, CPU model |
 | `linux-cuda` | cuDNN version, cuBLAS version, CUDA driver version, GPU compute capability, NVCC version |
 
-The envelope is **not** part of the cache key — two runs with equal envelopes
-(same substrate, same toolchain) should produce bit-identical kernel output by
-the within-substrate contract. The envelope is the forensic record consumed by
+The envelope is **not** part of the cache key. Two runs with equal envelopes
+(same substrate, same toolchain) produce bit-identical **kernel output** by the
+within-substrate contract, and bit-identical **artifact bytes** by
+[Artifact Reproducibility](#artifact-reproducibility). Those are two separate
+guarantees over two different objects — what a kernel computes, and what the
+compiler emitted — and only the first depends on seed, data ordering, or
+optimizer state. The envelope is the forensic record consumed by
 checkpoint/inference tooling to detect substrate drift rather than silently
 displaying ULP-shifted floats as if they were the originator's. It is not a
 cross-substrate numeric-parity check: across substrates no equivalence is
@@ -648,6 +655,67 @@ parameter tensors explicitly; reconstruction rejects missing, duplicate, or
 shape-mismatched tensors, so a same-manifest reload restores the same graph
 topology and row-major parameter vectors before the oneDNN forward runner
 executes.
+
+## Artifact Reproducibility
+
+A compiled JIT artifact's bytes are a function of its cache-key inputs: the same
+rendered source compiled with the same arguments by the same toolchain yields a
+byte-identical artifact. This is a different guarantee from the numerical
+contract above — it has no seed, no data ordering, and no optimizer state in its
+antecedent — and it is the property that lets a `DeviceEvidence` cell pin
+`Text.take 16` of an artifact's SHA-256 and stay satisfiable across runs.
+
+Without it, that digest is a per-compile nonce rather than an identity, and any
+committed lane attestation that pins one is unsatisfiable by construction: it
+fails on the next compile of unchanged source.
+
+**Non-determinism is a producer injecting an input the cache key does not
+carry.** Each substrate therefore declares, in `JitML.Substrate.profileFor`, the
+closed set of such sources its artifact producer has — each already paired with
+the pin that removes it. `PinnedNonDeterminism` has no "unpinned" constructor, so
+a substrate cannot carry a known source without also carrying its remedy.
+
+| Substrate | Producer | Sources | Pin |
+|---|---|---|---|
+| `linux-cuda` | `nvcc` | its process id, embedded through `tmpxft_<pid>_…` intermediate file names | `--keep --keep-dir <scratch>`, directing intermediates at a caller-chosen directory whose path is not itself embedded |
+| | | a random per-translation-unit id for anonymous-namespace symbols (`_GLOBAL__N__<random>`) | render file-scope helpers `static`, removing the construct |
+| `linux-cpu` | `g++` | none | none required |
+| `apple-silicon` | none | none — the artifact **is** the rendered document | identity by construction |
+
+An empty set is a positive claim, not an omission. `linux-cpu` carries it because
+`g++` was measured reproducible both for repeated compiles and across differing
+output paths; supplying it a pin it does not need would be a regression rather
+than hardening, because an explicit `-frandom-seed` changes anonymous-namespace
+symbols and this lane's artifact bytes are attested.
+
+A type can make every *known* source unpinnable-by-omission; it cannot prove the
+set is *complete*. That is the gate's job, and it runs on every lane — including
+the two whose set is empty.
+
+### Validation
+
+```bash
+docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda
+docker compose run --rm jitml jitml test jitml-backends --linux-cpu
+```
+
+Each lane compiles one rendered source twice, at two distinct cache addresses —
+which gives two source directories, two staging paths, and two scratch
+directories — and asserts the two artifacts are byte-identical. Nothing is
+compared against a stored digest: per
+[unit_testing_policy.md → Snapshot Tests](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures),
+run-to-run equality is asserted between two fresh runs, never against a committed
+fixture.
+
+Publication is atomic on every substrate: a fill writes to a per-invocation
+staging path and `JitML.Engines.Loader` renames it into the content-addressed
+slot, so a killed or failed compile cannot leave a truncated artifact that the
+next run reports as a cache hit.
+
+Artifact identity is separate from cache-key identity. The cache key addresses an
+artifact by its inputs; the digest identifies the bytes that ran. Both must move
+independently — a fingerprint change relocates an artifact without altering its
+bytes, and a renderer change alters its bytes at a new address.
 
 ## Determinism Caveats
 

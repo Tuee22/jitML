@@ -33,15 +33,17 @@ The result is:
 
 ## Current Status
 
-As of 2026-08-16, Phases `42`, `53`, and `69` are Done with the one-worker
+As of 2026-08-19, Phases `42`, `53`, and `69` are Done with the one-worker
 cluster, clean single-instance platform rollout, and profile-driven Engine
-count. Phase `263` closed `Done` on 2026-08-16 once the committed `linux-cpu`
-lane fragment was confirmed by a run that read it after issuance, so Phase `265`
-is the first executable owner. The exact open chain is
-`265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280
+count. Phase `265` closed `Done` on 2026-08-18 with a `55 / 55` eligible
+`linux-cuda` lane run, and Phase `78` re-closed `Done` on 2026-08-19 once every
+substrate's compiled artifact bytes became a function of its cache-key inputs —
+proven per lane by a double-compile gate — so Phase `266` is the first
+executable owner. The exact open chain is
+`266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280
 → 281 → 284 → 287 → 288`; intervening Done phases retain their completed
-non-topology surfaces. The `apple-silicon` phases `269`, `270`, and `272` close
-on the Mac host under standards rule `M(d)`.
+non-topology surfaces. The `apple-silicon` phases `269`, `270`, `271`, and `272`
+close on the Mac host under standards rule `M(d)`.
 
 The current worktree renders the one-worker local Kind cluster,
 single-instance platform services, and one profile-driven Linux Engine.
@@ -77,7 +79,7 @@ The mainstream ML stack is Python + PyTorch / JAX + dynamic graphs + opaque CUDA
 
 We want a runtime that is:
 
-1. **Reproducible by construction.** Given identical inputs, seeds, and configuration, two runs produce identical outputs — including parameter initialization, minibatch ordering, optimizer state, RL trajectories, MCTS exploration paths, hyperparameter-trial selection, and checkpoint recovery. Reproducibility is an architectural requirement, not a flag.
+1. **Reproducible by construction.** Given identical inputs, seeds, and configuration, two runs produce identical outputs — including parameter initialization, minibatch ordering, optimizer state, RL trajectories, MCTS exploration paths, hyperparameter-trial selection, checkpoint recovery, and the bytes of every JIT-compiled artifact. Reproducibility is an architectural requirement, not a flag.
 2. **Declarative end-to-end.** A `.dhall` file is the full source of truth for a training run, a hyperparameter sweep, an RL experiment, or a cluster deployment. The CLI flags layered on top *override* the Dhall; they never replace it.
 3. **Hardware-native without an embedded Python runtime.** jitML compiles kernels on demand for Apple Metal, NVIDIA CUDA, or oneDNN/AVX, with OpenCL held as a future extension, and executes them through Haskell FFI bindings. The runtime has no Python interpreter in the loop.
 
@@ -182,7 +184,7 @@ toolchain assumptions but does not pin their package versions.
 | GHC | `9.12.4` | `.cabal` (`tested-with`) and `cabal.project` (`with-compiler`) |
 | Cabal | `3.16.1.0` | `docker/Dockerfile` (`ARG CABAL_VERSION`) and the host prerequisite DAG (`toolchain.cabal-3.16.1.0`) |
 | LLVM / Clang | Ubuntu 24.04 `llvm` + `clang` packages in `jitml:local`; host LLVM/Clang come from the host toolchain used to build `jitml` | `docker/Dockerfile` installs `llvm` and `clang`; `cabal.project` does not pin an LLVM package version |
-| NVCC / CUDA | CUDA package family `12-8`, cuDNN 9 for CUDA 12, deterministic JIT flags (`--fmad=false`, no `--use_fast_math`, baseline `sm_70`) | `docker/Dockerfile` (`CUDA_TOOLKIT_PACKAGE`, `CUDNN_PACKAGE`) and Haskell CUDA source renderers |
+| NVCC / CUDA | CUDA package family `12-8`, cuDNN 9 for CUDA 12; the pinned compile line (determinism *and* reproducibility arguments) is owned by [jit_codegen_architecture.md → linux-cuda](documents/engineering/jit_codegen_architecture.md#linux-cuda--cuda--cublas--cudnn) | `docker/Dockerfile` (`CUDA_TOOLKIT_PACKAGE`, `CUDNN_PACKAGE`) and Haskell CUDA source renderers |
 | Metal (Apple) | host OS Metal runtime + fixed jitML Metal bridge; core cache misses render MSL and call `MTLDevice.makeLibrary(source:options:)`; no Tart, no keychain, no SwiftPM, no full Xcode, no offline `metal` in the core path | bridge ABI + Metal runtime policy in the Apple cache metadata |
 | oneDNN | Ubuntu 24.04 `libdnnl-dev` package in `jitml:local`; AVX2 baseline, AVX-512 detected at JIT time | `docker/Dockerfile` installs `libdnnl-dev`; runtime probes verify headers/linker visibility |
 | `kindest/node` | pinned | `./kind/cluster-<substrate>.yaml` (canonical); mirrored as a comment in `cabal.project` for the toolchain-truth record |
@@ -380,7 +382,7 @@ for `JitML.Engines.MetalLocal`, which calls the fixed bridge instead of
 container do not reuse the same `.build/jit/linux-cpu/<hash>.so` path for
 loader-incompatible artifacts.
 
-**Cache key — shape + kind + generated source, weight-independent.** Each entry is hashed over `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)` where `KernelSpec` is model shape (layer topology, dtype layouts, activation choices) and `kind` is `training | inference`. Training and inference kernels are **separate artifacts** because they have different compute graphs — training carries the backward pass and optimizer-step kernel; inference is forward-only with frozen-weight constant folding enabled. Sharing one artifact across both would force one of them to be sub-optimal. The rendered-source payload is generated by the Haskell runtime source renderers under `src/JitML/Codegen/`; changing a renderer invalidates the compiled artifact. Toolchain fingerprints also carry loader-relevant ABI facts for local FFI paths, including the Linux CPU `artifact-abi=<os>-<arch>` value.
+**Cache key — shape + kind + generated source, weight-independent.** Each entry is hashed over `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)` where `KernelSpec` is model shape (layer topology, dtype layouts, activation choices) and `kind` is `training | inference`. Training and inference kernels are **separate artifacts** because they have different compute graphs — training carries the backward pass and optimizer-step kernel; inference is forward-only with frozen-weight constant folding enabled. Sharing one artifact across both would force one of them to be sub-optimal. The rendered-source payload is generated by the Haskell runtime source renderers under `src/JitML/Codegen/`; changing a renderer invalidates the compiled artifact. Toolchain fingerprints also carry loader-relevant ABI facts for local FFI paths, including the Linux CPU `artifact-abi=<os>-<arch>` value, and a `reproducibility=` field naming the arguments that pin the artifact's bytes.
 
 Consequence: a model that is both trained and used for inference has **two JIT artifacts in its lifetime**, regardless of how many checkpoints exist along its training history. Two snapshots of the same model share their weight layers (per the multi-object snapshot model in [Checkpoint object layout](#checkpoint-object-layout)) but never produce additional JIT compiles.
 
@@ -3818,7 +3820,7 @@ The clock is `Data.Time.Clock.getMonotonicTimeNSec`, started just before the fir
 Per-target codegen stack:
 
 - **GHC:** 9.12.4, Cabal 3.16.1.0, `-O2 -fllvm -funbox-strict-fields -fspecialise-aggressively -fexpose-all-unfoldings`, RTS `-A64m -n4m -qg1 -qb -T`.
-- **CUDA codegen:** pinned NVCC, `--fmad=false` with `--use_fast_math` omitted (bit-determinism), `-arch=sm_70` baseline + per-host detection at JIT time.
+- **CUDA codegen:** pinned NVCC, `-arch=sm_70` baseline + per-host detection at JIT time. The full argument list — the determinism arguments that pin the arithmetic and the reproducibility arguments that pin the artifact bytes — is owned by [jit_codegen_architecture.md → linux-cuda](documents/engineering/jit_codegen_architecture.md#linux-cuda--cuda--cublas--cudnn); it is not restated here.
 - **Metal codegen:** Haskell-rendered MSL source metadata + fixed host Metal bridge runtime `MTLDevice.makeLibrary(source:options:)`, `MTLCompileOptions.fastMathEnabled = false` or equivalent safe math mode.
 - **CPU oneDNN:** Ubuntu `libdnnl-dev` from the `jitml:local` image, AVX2 baseline + AVX-512 detection at JIT time.
 - **LLVM:** GHC builds with `-fllvm`; the LLVM toolchain comes from the host or `jitml:local` Ubuntu package set and is recorded by runtime probes/cache fingerprints instead of a Cabal project pin.

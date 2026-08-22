@@ -99,7 +99,7 @@ per standards rule L.
     `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`, `HarborFailed`,
     `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`, `InvalidConfig`,
     `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`, `JitCacheMiss`,
-    `JitToolchainDrift`, `CheckpointFormatUnsupported`,
+    `CheckpointFormatUnsupported`,
     `CheckpointWriteConflict`, `InferenceCheckpointMissing`,
     `InferenceManifestShaMismatch`, `TrainingPrerequisiteUnmet`,
     `ReconcilerNoop`. Exit code `3` for `ReconcilerNoop`.

@@ -27,7 +27,7 @@ docs (which own their content outright with no doctrine overlap).
 
 | Doc | Owns |
 |-----|------|
-| [determinism_contract.md](determinism_contract.md) | Per-substrate floating-point semantics, RNG split, per-experiment seed derivation, JIT cache content-addressing, bit-determinism envelope, within-substrate determinism contract (no cross-substrate guarantee) |
+| [determinism_contract.md](determinism_contract.md) | Per-substrate floating-point semantics, RNG split, per-experiment seed derivation, JIT cache content-addressing, artifact reproducibility, bit-determinism envelope, within-substrate determinism contract (no cross-substrate guarantee) |
 | [cluster_topology.md](cluster_topology.md) | Kind cluster shapes per substrate, Helm umbrella chart, Helm-values ownership, storage discipline, Envoy Gateway, route registry, no-kubeconfig-pollution invariant |
 | [daemon_architecture.md](daemon_architecture.md) | `jitml service` lifecycle, BootConfig / LiveConfig, hot reload, healthz/readyz/metrics, structured logging, recoverable vs fatal errors, at-least-once Pulsar consumer |
 | [run_contract.md](run_contract.md) | Raw-to-validated run planning, unit-indexed budgets, workload protocols, pure evidence reducers, placement/terminal lifecycle, receipt-bound delivery settlement, resource-safe live interpretation, evidence journals, and truthful reporting |

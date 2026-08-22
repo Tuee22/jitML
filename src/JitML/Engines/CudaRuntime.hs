@@ -15,6 +15,7 @@ module JitML.Engines.CudaRuntime
   , parseNvccVersion
   , parseNvidiaSmiDevices
   , probeCudaRuntime
+  , probeNvccVersion
   , renderCudaRuntimeProbe
   )
 where
@@ -88,6 +89,20 @@ probeCudaRuntime = do
             <> [renderNvidiaSmiProbeResult nvidiaSmiResult]
             <> [renderLdconfigProbeResult ldconfigResult]
       }
+
+-- | The installed nvcc release, or 'Nothing' when nvcc is not present.
+--
+-- Sprint `78.1` — the JIT cache records this beside each compiled artifact so a
+-- toolkit upgrade invalidates the artifact it produced. The full
+-- 'probeCudaRuntime' is deliberately not used here: this asks one question and
+-- must not fail because a GPU is absent.
+probeNvccVersion :: IO (Maybe Text)
+probeNvccVersion = do
+  nvccResult <- probeNvcc
+  pure $
+    case nvccResult of
+      Right output -> parseNvccVersion output
+      Left _ -> Nothing
 
 parseNvccVersion :: Text -> Maybe Text
 parseNvccVersion output =

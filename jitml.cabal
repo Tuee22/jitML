@@ -574,6 +574,7 @@ test-suite jitml-backends
 
     build-depends:
         base >=4.21 && <4.22,
+        bytestring,
         directory,
         filepath,
         jitml,

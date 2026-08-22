@@ -9,7 +9,50 @@
 
 ## Phase State
 
-✅ **Done** (re-closed 2026-08-17). Every toolchain fingerprint input is derived
+✅ **Done** (re-closed 2026-08-19). A compiled artifact's bytes are a function of
+its cache-key inputs on every substrate. The 2026-08-17 closure held one
+direction — every fingerprint input is derived from the surface it describes —
+and this closes the converse: an input that reaches the **artifact** without
+reaching the **cache key**.
+
+`nvcc` was injecting two such inputs. It embedded its own process id through its
+`tmpxft_<pid>_…` intermediate file names, and `cudafe` mangled the CUDA
+layer-training kernel's anonymous namespace as `_GLOBAL__N__<random>`; three
+full-lane runs on identical source had produced three different artifact digests
+(`d84ca76fda631347`, `a4964bef7e7ceb32`, `ef912228254d6960` for the layer-graph
+artifact). Both are pinned — intermediates are directed at a caller-chosen
+scratch directory whose path is not itself embedded, and file-scope helpers are
+rendered `static` — and the pins are declared per substrate in
+`JitML.Substrate.profileFor` as a closed `PinnedNonDeterminism` set with no
+unpinned constructor. `g++` was measured already reproducible, so `linux-cpu`
+carries the empty set as a positive claim rather than an omission.
+
+A type cannot prove that set is complete, so a double-compile gate discharges it
+on **every** lane, including the two whose set is empty: each compiles one
+rendered source twice at two distinct cache addresses — two source directories,
+two staging paths, two scratch directories — and asserts the artifacts are
+byte-identical. Both lanes pass. The contract is stated in
+[determinism_contract.md → Artifact Reproducibility](../documents/engineering/determinism_contract.md#artifact-reproducibility).
+
+This is what makes a `DeviceEvidence` cell's `Text.take 16` of an artifact's
+SHA-256 an identity rather than a per-compile nonce, so the committed
+`linux-cuda` lane fragment is satisfiable and
+[Phase 266](phase-266-cuda-integration-e2e-and-attestation.md) is the next
+executable owner. Two further defects the same audit surfaced are closed with
+it: publication is now atomic on every substrate (a fill stages to a
+per-invocation path and is renamed into the content-addressed slot, so a killed
+compile cannot leave a truncated artifact that the next run reports as a hit),
+and a toolchain sidecar beside each artifact makes a compiler upgrade a cache
+miss instead of serving stale machine code at an unchanged address.
+
+### Historical Phase State
+
+> 🔄 **Active** (reopened 2026-08-19 under standards rule `C`) — the reopen this
+closure discharges. `nvcc` output was not byte-reproducible, which made the
+committed `linux-cuda` lane fragment unsatisfiable by construction and
+fail-fast-blocked Phase `266` at `jitml-integration` `1 / 197`.
+
+> ✅ **Done** (re-closed 2026-08-17). Every toolchain fingerprint input is derived
 from the surface it describes, including the last one that was not. The
 `linux-cuda` determinism facts are read off the compile arguments themselves:
 `Engine.engineCompileFlagSpecs` tags each argument with the role it plays, so
@@ -48,7 +91,8 @@ measure at.
 `src/JitML/Engines/Engine.hs`, `src/JitML/Cache/Key.hs`, `src/JitML/Substrate.hs`,
 `src/JitML/Codegen/{OneDnn,Cuda,MlpCuda,CudaLayerTraining}.hs`, `src/JitML/Engines/{Local,CudaLocal,MetalLocal,TuningBenchmark,TuningCache}.hs`,
 `src/JitML/Numerics/{MlpOneDnn,MlpCuda,MlpMetal,LayerGraphOneDnn}.hs`,
-`src/JitML/App.hs`, `test/unit/Main.hs`
+`src/JitML/Engines/{Loader,CudaRuntime}.hs`, `src/JitML/App.hs`,
+`test/unit/Main.hs`, `test/backends/Main.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -113,6 +157,34 @@ surface; the local Linux CPU identity runner is owned by Sprint `7.3`.
   `kernel.cu` splices them and `layerTrainingKnobs` reads them.
 - The generated CUDA `// determinism:` comments state what their own bodies
   establish. They no longer restate `--use_fast_math=false`.
+- Every substrate's artifact bytes are a function of its cache-key inputs. The
+  invariant is stated in
+  [determinism_contract.md → Artifact Reproducibility](../documents/engineering/determinism_contract.md#artifact-reproducibility).
+  `JitML.Substrate.profileFor` declares, per substrate, the closed set of
+  non-determinism sources its producer has, each already paired with its pin;
+  `PinnedNonDeterminism` has no unpinned constructor, so a known source cannot be
+  carried without its remedy. An empty set — `linux-cpu`, `apple-silicon` — is a
+  positive claim discharged by the gate, not an omission.
+- `Engine.CompileArgument` splits a literal argument from one that carries a
+  caller-supplied value, so `--keep-dir <scratch>` cannot be passed without its
+  prefix and the invocation-scoped path never enters the cache key.
+  `ReproducibilityFlag` is a distinct role from `DeterminismFlag`, because an
+  argument that pins a compiler's embedded identifiers pins nothing numerical and
+  the determinism contract must not claim otherwise.
+- The converse direction of this sprint's own invariant is closed.
+  `compileSubprocess` is a total fold over `engineCompileFlagSpecs`, so no
+  argument reaches a compiler that the cache key never saw. The original closure
+  tested only that no advertised fact lacked a real argument; both directions are
+  now tested, which is what stops a third reopen.
+- Artifacts publish atomically on every substrate. A fill stages to a
+  per-invocation path and `Loader` renames into the content-addressed slot, so a
+  killed compile cannot leave a truncated artifact that the next run reports as a
+  cache hit. This replaces the fixed `.tmp` suffix the Apple arm used, which was
+  shared by every concurrent writer of one artifact.
+- A cache hit produced by a different toolchain is rejected. A sidecar beside each
+  artifact records the compiler version that produced it; a mismatch is a miss.
+  This is a cache-*validity* rule, not a cache-*key* change — the published
+  six-tuple is untouched.
 
 ### Validation
 
@@ -122,16 +194,66 @@ surface; the local Linux CPU identity runner is owned by Sprint `7.3`.
 2. `jitml-unit` verifies changing the rendered runtime-source payload changes
    the cache key.
 3. `jitml-unit` verifies the typed cache-hit/cache-miss decision surface.
-4. `jitml test jitml-unit --linux-cpu` passes, including the nine-case
+4. `jitml test jitml-unit --linux-cpu` passes, including the eighteen-case
    "Derived toolchain fingerprints (Phase 78)" group.
-5. `jitml docs check` reports `ok`.
-6. `jitml check-code` exits `0` inside `jitml:local`.
-
-### Remaining Work
-
-- None.
+5. `jitml test jitml-backends --linux-cpu` and
+   `jitml test jitml-backends --linux-cuda` each compile one rendered source
+   twice, at two distinct cache addresses, and assert the two artifacts are
+   byte-identical. Nothing is compared against a stored digest — per
+   [unit_testing_policy.md → Snapshot Tests](../documents/engineering/unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures),
+   run-to-run equality is asserted between two fresh runs. The two lanes are
+   separate single-accelerator gates, never one must-pass-together gate
+   (standards rule `M(b)`).
+6. `jitml docs check` reports `ok`.
+7. `jitml check-code` exits `0` inside `jitml:local`.
 
 ### Closure Evidence
+
+Re-closed 2026-08-19 from one source state, inside `jitml:local`:
+
+- `jitml lint haskell` → `ok`.
+- `jitml docs check` → `ok`.
+- `jitml test jitml-unit --linux-cpu` → **900 / 900 passed**, including the
+  three new cases that hold this landing: *every argument the compiler receives
+  is one the cache key saw* (the mirror image of the defect that reopened this
+  phase — an argument added straight into `compileSubprocess` would reach the
+  compiler while the fingerprint stayed blind to it); *each substrate pins every
+  non-determinism source its producer has*; and *every rendered native source
+  uses its substrate's linkage style*, which fails if a CUDA renderer
+  reintroduces an anonymous namespace or the `linux-cpu` renderer loses the one
+  its attested bytes were produced with.
+- `jitml test jitml-backends --linux-cpu` → **37 / 37 passed**, including
+  *linux-cpu layer-training artifact is byte-identical across two independent
+  compiles (Phase 78)*.
+- `jitml test jitml-backends --linux-cuda` → **28 / 28 passed** on the attached
+  RTX 5090, including *linux-cuda layer-training artifact is byte-identical
+  across two independent compiles (Phase 78)* — the gate that discharges the
+  reopen.
+- `jitml check-code` → `ok`.
+
+Validation commands:
+
+```bash
+docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda
+docker compose run --rm jitml jitml test jitml-backends --linux-cpu
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml docs check
+docker compose run --rm jitml jitml check-code
+```
+
+The `linux-cpu` arm is the tripwire: this lane's rendered text and artifact bytes
+must not move, because Sprint `263.1` pins that artifact's SHA-256 in 45 of the
+55 committed rows. Measured before and after the landing, the rendered
+layer-training text is unchanged at
+`42f20f9acfe24021a1298a299b09fa43c1344bc9deb837b54b45b7dcd163c407`.
+
+The `linux-cuda` artifact digests do move with this landing, by design: the two
+generated CUDA sources change (`static` file-scope helpers) and the
+`reproducibility=` fact enters the toolchain fingerprint, so that lane's kernels
+recompile once at a new address. That lane's fragment is issued by Sprint
+`268.1`, which is what this sprint unblocks.
+
+### Historical Closure Evidence
 
 Re-closed 2026-08-17 from one source state, inside `jitml:local`:
 
@@ -200,6 +322,27 @@ Closed 2026-08-14 from one source state, inside `jitml:local`:
 
 Every JIT cache key changes with this landing, by design: the first run on each
 substrate recompiles its kernels once.
+
+Added by the 2026-08-19 artifact-reproducibility landing:
+
+- `src/JitML/Substrate.hs`: `PinnedNonDeterminism`, `ArtifactProducer`, and
+  `InternalLinkageStyle`, with `profileFor` declaring each substrate's closed pin
+  set and linkage style. There is no unpinned constructor, so a producer cannot
+  carry a known non-determinism source without its remedy.
+- `src/JitML/Engines/Engine.hs`: `CompileArgument` splits literal arguments from
+  value-carrying ones so `--keep-dir <scratch>` cannot be passed without its
+  prefix and the invocation-scoped path never enters the cache key;
+  `ReproducibilityFlag` is a role distinct from `DeterminismFlag`;
+  `compileSubprocess` became a total fold over `engineCompileFlagSpecs`.
+- `src/JitML/Engines/Loader.hs`: `withStagedArtifact` is the one publish path for
+  every substrate, and a toolchain sidecar makes a compiler upgrade a cache miss.
+- `src/JitML/Codegen/CudaLayerTraining.hs`: file-scope helpers render `static`
+  rather than in an anonymous namespace.
+- `test/backends/Main.hs`: the per-lane double-compile gate.
+- Six further Sprint `78.1` rows moved to `Completed`, including the
+  `JitToolchainDrift` constructor — deleted rather than raised, because the
+  delivered design makes toolchain drift a recoverable miss and leaves no
+  unrecoverable state for an `AppError` to name.
 
 ### Historical Validation
 

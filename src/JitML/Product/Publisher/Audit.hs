@@ -200,14 +200,15 @@ validateProductPublishBatch projectedBatch results = do
     unlessEither
       (isCanonicalSha256 (productArtifactSha receipt))
       ("artifact receipt has non-canonical SHA-256: " <> productArtifactSha receipt)
+    -- One owner for this derivation: `Checkpoint.Store` reads the same function
+    -- when it admits a companion pointer, and the publisher's reuse path builds
+    -- receipts with it. Restating the shape here let a reused receipt carry a
+    -- physical key that this check never compared against.
     let expectedKey =
-          "jitml-checkpoints/"
-            <> productArtifactExperimentHash receipt
-            <> "/artifacts/"
-            <> productArtifactKind receipt
-            <> "/"
-            <> productArtifactSha receipt
-            <> ".txt"
+          CheckpointStore.canonicalProductCompanionObjectKey
+            (productArtifactExperimentHash receipt)
+            (productArtifactKind receipt)
+            (productArtifactSha receipt)
     requireProjectedValue
       "companion artifact object key"
       expectedKey

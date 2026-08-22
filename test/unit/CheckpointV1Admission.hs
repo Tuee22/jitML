@@ -127,6 +127,91 @@ checkpointV1AdmissionTests =
                 stored
                 admitted
             )
+    , testCase
+        "a reused product publish receipt carries the logical companion address (Phase 266)"
+        $ withSystemTempDirectory "jitml-product-v1-reuse-receipt"
+        $ \cacheRoot -> do
+          -- A receipt addresses its companion artifact logically; the batch
+          -- audit rebases that address into the manifest's storage-snapshot
+          -- namespace before comparing inventories. The reuse path used to copy
+          -- the manifest's own pointers, which are already snapshot-scoped, so
+          -- the audit scoped an already-scoped key: same snapshot, same payload
+          -- SHA, different object address. A reused receipt must be exactly the
+          -- receipt a fresh publish would have produced.
+          fixture <- expectRight =<< makeV1Fixture "DQN/cartpole" Nothing
+          env <- buildEnv defaultGlobalFlags {globalCacheDir = Just cacheRoot}
+          artifact <-
+            runReaderT
+              ( CheckpointWriter.writeTextArtifact
+                  (v1Experiment fixture)
+                  "rl-trajectory"
+                  "exact product transcript"
+              )
+              env
+          let transcriptPointer =
+                Checkpoint.ArtifactPointer
+                  { Checkpoint.artifactPointerKind = "rl-trajectory"
+                  , Checkpoint.artifactPointerObjectKey =
+                      CheckpointWriter.storedArtifactObjectKey artifact
+                  , Checkpoint.artifactPointerSha =
+                      Just (CheckpointWriter.storedArtifactSha artifact)
+                  }
+          stored <-
+            runReaderT
+              ( CheckpointWriter.writeLocalCompletedProductWeightCheckpoint
+                  (v1Completed fixture)
+                  (v1Experiment fixture)
+                  (v1TensorName fixture)
+                  (v1Step fixture)
+                  (v1Metrics fixture)
+                  (v1FinalWeights fixture)
+                  [transcriptPointer]
+              )
+              env
+          admitted <-
+            expectRight
+              =<< runReaderT
+                ( CheckpointWriter.admitLocalStoredCompletedCheckpoint
+                    (v1Experiment fixture)
+                    stored
+                )
+                env
+          projection <- expectRight (rlProjectionForRowId "DQN/cartpole")
+          let result = ProductPublisher.reuseProductPublishResult projection admitted
+              manifest =
+                CheckpointStore.admittedCheckpointManifest
+                  (CheckpointStore.admittedCompletedCheckpoint admitted)
+              receipts = ProductPublisher.productPublishArtifacts result
+          snapshotId <-
+            expectRight (CheckpointStore.checkpointStorageSnapshotId manifest)
+          -- Every reused receipt is the canonical logical content address.
+          [ ProductPublisher.productArtifactObjectKey receipt
+            | receipt <- receipts
+            ]
+            @?= [ CheckpointStore.canonicalProductCompanionObjectKey
+                    (ProductPublisher.productArtifactExperimentHash receipt)
+                    (ProductPublisher.productArtifactKind receipt)
+                    (ProductPublisher.productArtifactSha receipt)
+                | receipt <- receipts
+                ]
+          assertBool
+            "a reused receipt must not carry an already snapshot-scoped address"
+            ( not
+                ( any
+                    ( Text.isInfixOf "/snapshots/"
+                        . ProductPublisher.productArtifactObjectKey
+                    )
+                    receipts
+                )
+            )
+          -- Scoping each receipt exactly once reproduces the admitted manifest's
+          -- own pointers, which is the equality the batch audit asserts.
+          fmap
+            ( ProductPublisher.snapshotScopedPointer manifest snapshotId
+                . receiptPointer
+            )
+            receipts
+            @?= Checkpoint.manifestTranscriptPointers manifest
     , testCase "non-product V1 remains inspectable but cannot refine to completed evidence" $
         withSystemTempDirectory "jitml-non-product-v1-admission" $ \root -> do
           fixture <-
@@ -783,3 +868,12 @@ expectRight outcome =
   case outcome of
     Left err -> assertFailure ("expected Right, got Left " <> show err) >> error "unreachable"
     Right value -> pure value
+
+-- | The logical 'Checkpoint.ArtifactPointer' a publish receipt denotes.
+receiptPointer :: ProductPublisher.ProductArtifactReceipt -> Checkpoint.ArtifactPointer
+receiptPointer receipt =
+  Checkpoint.ArtifactPointer
+    { Checkpoint.artifactPointerKind = ProductPublisher.productArtifactKind receipt
+    , Checkpoint.artifactPointerObjectKey = ProductPublisher.productArtifactObjectKey receipt
+    , Checkpoint.artifactPointerSha = Just (ProductPublisher.productArtifactSha receipt)
+    }

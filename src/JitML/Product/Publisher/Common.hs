@@ -43,16 +43,32 @@ reuseProductPublishResult projection admitted =
   manifest =
     CheckpointStore.admittedCheckpointManifest
       (CheckpointStore.admittedCompletedCheckpoint admitted)
+  -- A receipt carries the __logical__ content address of its companion
+  -- artifact; the batch audit rebases it into the manifest's storage-snapshot
+  -- namespace before comparing inventories, and
+  -- 'CheckpointStore.canonicalProductCompanionObjectKey' is the one owner of
+  -- that derivation (the admission check in `Checkpoint.Store` reads it too).
+  --
+  -- The manifest's own pointers are already __physical__, so copying them here
+  -- made a reused receipt disagree with a freshly published one: the audit
+  -- scoped an already-scoped key and compared `SHA256(physical)` against the
+  -- manifest's `SHA256(logical)`. Same snapshot, same payload SHA, different
+  -- object address. Deriving the logical key instead makes a reused receipt
+  -- byte-identical to the one a fresh publish produces, which is exactly what
+  -- reuse claims to be.
   reuseReceipts =
     [ ProductArtifactReceipt
-        { productArtifactExperimentHash =
-            ProductMatrix.productProjectionExperimentHash projection
-        , productArtifactKind = Checkpoint.artifactPointerKind pointer
-        , productArtifactSha = fromMaybe "" (Checkpoint.artifactPointerSha pointer)
-        , productArtifactObjectKey = Checkpoint.artifactPointerObjectKey pointer
+        { productArtifactExperimentHash = experimentHash
+        , productArtifactKind = kind
+        , productArtifactSha = sha
+        , productArtifactObjectKey =
+            CheckpointStore.canonicalProductCompanionObjectKey experimentHash kind sha
         }
     | pointer <- Checkpoint.manifestTranscriptPointers manifest
+    , let kind = Checkpoint.artifactPointerKind pointer
+    , let sha = fromMaybe "" (Checkpoint.artifactPointerSha pointer)
     ]
+  experimentHash = ProductMatrix.productProjectionExperimentHash projection
 
 validateProductScenarioInvocation
   :: ProductMatrix.ProductProjection kind

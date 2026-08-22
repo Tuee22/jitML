@@ -33,7 +33,7 @@ and the doctrine-mandated output flags `--format` and `--color`.
   `PrerequisiteUnmet`, `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`,
   `HarborFailed`, `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`,
   `InvalidConfig`, `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`,
-  `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`,
+  `JitCacheMiss`, `CheckpointFormatUnsupported`,
   `CheckpointWriteConflict`, `InferenceCheckpointMissing`,
   `InferenceManifestShaMismatch`, `TrainingPrerequisiteUnmet`,
   `ReconcilerNoop`.

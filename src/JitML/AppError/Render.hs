@@ -48,8 +48,6 @@ renderError (RouteRegistryDrift message) =
   renderSingle "route registry drift" message
 renderError (JitCacheMiss message) =
   renderSingle "jit cache miss" message
-renderError (JitToolchainDrift message) =
-  renderSingle "jit toolchain drift" message
 renderError (CheckpointFormatUnsupported message) =
   renderSingle "checkpoint format unsupported" message
 renderError (CheckpointWriteConflict message) =

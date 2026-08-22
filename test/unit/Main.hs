@@ -50,7 +50,7 @@ import System.Directory
   , setOwnerExecutable
   , setPermissions
   )
-import System.Environment (getExecutablePath, lookupEnv)
+import System.Environment (getExecutablePath, lookupEnv, setEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -5213,6 +5213,66 @@ unitTestMain =
                   assertBool
                     "loader keeps the typed compile command for diagnostics"
                     ("g++ -std=c++20" `Text.isInfixOf` Loader.kernelArtifactCompileCommand artifact)
+      , testCase "kernel loader probes the artifact toolchain once per process" $
+          withSystemTempDirectory "jitml-toolchain-probe" $ \dir -> do
+            cwd <- getCurrentDirectory
+            originalPath <- fromMaybe "" <$> lookupEnv "PATH"
+            let shimDirectory = dir </> "shim"
+                shimPath = shimDirectory </> "nvcc"
+                probeLog = dir </> "nvcc-invocations"
+            createDirectoryIfMissing True shimDirectory
+            writeFile
+              shimPath
+              ( unlines
+                  [ "#!/bin/sh"
+                  , "echo invoked >> " <> probeLog
+                  , "echo 'Cuda compilation tools, release 12.8, V12.8.61'"
+                  ]
+              )
+            shimPermissions <- getPermissions shimPath
+            setPermissions shimPath (setOwnerExecutable True shimPermissions)
+            writeFile probeLog ""
+            bracket_
+              (setCurrentDirectory dir >> setEnv "PATH" (shimDirectory <> ":" <> originalPath))
+              (setEnv "PATH" originalPath >> setCurrentDirectory cwd)
+              $ do
+                env <- buildEnv defaultGlobalFlags
+                let kernelSpec = Cache.KernelSpec "phase-78-kernel:toolchain-probe"
+                    engine = Engine.engineForSubstrate Substrate.LinuxCUDA
+                    source =
+                      renderRuntimeSource
+                        kernelSpec
+                        Cache.Inference
+                        Cache.LinuxCUDA
+                        Cache.defaultTuningChoice
+                    handle = Engine.kernelHandleFor engine sampleCacheHash
+                    artifactPath = Text.unpack (Engine.kernelHandleArtifactPath handle)
+                createDirectoryIfMissing True (takeDirectory artifactPath)
+                StrictByteString.writeFile artifactPath (StrictByteString.pack [0x7f, 0x45, 0x4c, 0x46])
+                -- Every one of these is a cache hit, which is what a training
+                -- loop does: `ensureKernelArtifact` runs per device operation,
+                -- not per compile.
+                statuses <-
+                  traverse
+                    (const (Loader.ensureKernelArtifact env engine source sampleCacheHash))
+                    [1 :: Int .. 32]
+                assertBool
+                  "every repeated resolution is a cache hit"
+                  ( all
+                      ( \case
+                          Right artifact ->
+                            not (Loader.kernelArtifactCompiled artifact)
+                          Left _ -> False
+                      )
+                      statuses
+                  )
+                invocations <- length . lines <$> readFile probeLog
+                assertBool
+                  ( "the toolchain probe is memoised per process, but nvcc ran "
+                      <> show invocations
+                      <> " times across 32 cache hits"
+                  )
+                  (invocations <= 1)
       , testCase "Apple kernel loader fills source metadata cache without host build tools" $
           withSystemTempDirectory "jitml-apple-metadata-loader" $ \dir -> do
             cwd <- getCurrentDirectory
@@ -12323,6 +12383,84 @@ unitTestMain =
               , not (flag `Text.isInfixOf` text)
               ]
                 @?= []
+          , testCase "every argument the compiler receives is one the cache key saw" $ do
+              -- Sprint 78.1 closed one direction: no advertised determinism fact
+              -- without a real argument. This closes the other, which was never
+              -- tested — an argument added straight into `compileSubprocess`
+              -- would reach the compiler while the fingerprint stayed blind to
+              -- it, and the artifact bytes would then depend on an input the
+              -- cache key does not carry. That is exactly the defect class that
+              -- reopened this phase, in mirror image.
+              let scratch = "/tmp/jitml-scratch-fixture"
+                  spec = Cache.KernelSpec "phase-78-compile-line"
+              traverse_
+                ( \substrate -> do
+                    let engine = Engine.engineForSubstrate substrate
+                        source = RuntimeSource.renderRuntimeSource spec Cache.Inference substrate Cache.defaultTuningChoice
+                        staging = Engine.renderedStagingPath engine sampleCacheHash
+                        rendered =
+                          subprocessArguments
+                            (Engine.compileSubprocess engine source sampleCacheHash scratch staging)
+                        folded =
+                          concatMap
+                            (Engine.renderCompileFlag scratch)
+                            (Engine.engineCompileFlagSpecs engine)
+                        -- Everything the fold does not own: the program's library
+                        -- defines, the output pair, and the link line.
+                        unowned = filter (`notElem` folded) rendered
+                        program = RuntimeSource.runtimeSourceProgram source
+                        accountedFor =
+                          Engine.programLibraryDefines engine program
+                            <> [ "-o"
+                               , Text.pack staging
+                               , Text.pack (RuntimeSource.runtimeSourceRelativeDirectory source sampleCacheHash)
+                                   <> "/"
+                                   <> Engine.engineSourceFileName engine
+                               ]
+                            <> Engine.engineLinkFlags engine program
+                    assertBool
+                      ( show substrate
+                          <> " compile line carries an argument no list owns: "
+                          <> show (filter (`notElem` accountedFor) unowned)
+                      )
+                      (all (`elem` accountedFor) unowned)
+                )
+                Substrate.allSubstrates
+          , testCase "each substrate pins every non-determinism source its producer has" $ do
+              -- The pins are read off the profile, so a substrate cannot acquire
+              -- a source of non-determinism without also acquiring its remedy.
+              -- `linux-cpu` and `apple-silicon` carry the empty set as a
+              -- positive claim; the double-compile gate in jitml-backends is
+              -- what discharges it.
+              Substrate.producerPins Substrate.LinuxCUDA
+                @?= [Substrate.IntermediateFileNaming, Substrate.SymbolMangling]
+              Substrate.producerPins Substrate.LinuxCPU @?= []
+              Substrate.producerPins Substrate.AppleSilicon @?= []
+              -- A pin that renders an argument must actually appear on the line.
+              let cudaEngine = Engine.engineForSubstrate Substrate.LinuxCUDA
+                  reproducibility = Engine.compileLineReproducibility cudaEngine
+              assertBool
+                ("linux-cuda advertises its intermediate-naming pin: " <> show reproducibility)
+                ("--keep" `elem` reproducibility && "--keep-dir" `elem` reproducibility)
+              Engine.compileLineReproducibility (Engine.engineForSubstrate Substrate.LinuxCPU) @?= []
+          , testCase "every rendered native source uses its substrate's linkage style" $ do
+              -- `cudafe` mangles an anonymous namespace with a per-invocation
+              -- random id, so a CUDA renderer that reintroduces one silently
+              -- makes its artifact irreproducible. `linux-cpu` keeps the
+              -- anonymous form: g++ mangles it deterministically and Sprint
+              -- 263.1 pins those artifact bytes.
+              let rendered files = Text.concat (fmap sourceContents files)
+                  anonymous source = "namespace {" `Text.isInfixOf` source
+                  cudaSources =
+                    [ ("cuda-layer-training", rendered CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
+                    , ("cuda-mlp", rendered MlpCudaCodegen.renderMlpCudaSource)
+                    ]
+              Substrate.substrateLinkage Substrate.LinuxCUDA @?= Substrate.StaticFunctions
+              Substrate.substrateLinkage Substrate.LinuxCPU @?= Substrate.AnonymousNamespace
+              [name | (name, source) <- cudaSources, anonymous source] @?= ([] :: [Text])
+              assertBool
+                "the linux-cpu layer-training source keeps its attested anonymous namespace"
+                (anonymous (rendered OneDnnCodegen.renderOneDnnLayerTrainingSource))
           , testCase "only the programs that call cuBLAS/cuDNN link them" $ do
               -- Sprint 265.1 — the MLP artifact is hand-written elementwise
               -- CUDA including only `cuda_runtime.h`; it used to be compiled
@@ -16700,7 +16838,6 @@ canonicalErrors fixtureProcessFailure =
         ]
   , AppError.RouteRegistryDrift "httproute generated output is stale"
   , AppError.JitCacheMiss "abc123"
-  , AppError.JitToolchainDrift "cached with older nvcc"
   , AppError.CheckpointFormatUnsupported ".jmw0"
   , AppError.CheckpointWriteConflict "latest pointer etag changed"
   , AppError.InferenceCheckpointMissing "abc123"

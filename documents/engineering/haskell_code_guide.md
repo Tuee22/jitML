@@ -140,7 +140,6 @@ Defined in `src/JitML/AppError/AppError.hs`:
 | `ChartLintFailed` | Chart-shape lint failure | `1` |
 | `RouteRegistryDrift` | Route registry / generated HTTPRoute drift | `1` |
 | `JitCacheMiss` | FFI loader could not resolve a kernel artefact | `1` (recovered by JIT compile) |
-| `JitToolchainDrift` | `ToolchainFingerprint` mismatch against a cached artefact | `1` |
 | `CheckpointFormatUnsupported` | `.jmw1` magic / version mismatch | `1` |
 | `CheckpointWriteConflict` | `If-Match: <etag>` exhausted retries | `1` |
 | `InferenceCheckpointMissing` | No inference-eligible checkpoint exists for the requested experiment | `1` |

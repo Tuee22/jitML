@@ -275,8 +275,23 @@ A lane is selected with the public substrate flags, for example
 --linux-cuda`; the orchestrator synthesizes the backend stanza's
 `-p <substrate>` filter and adds `-fcuda` for `linux-cuda`. The lower-level
 `--test-options='-p <substrate>'` tasty passthrough remains available for
-ad-hoc runs. Within-substrate bit-for-bit reproducibility is the only equality
-asserted here.
+ad-hoc runs.
+
+**A `jitml-backends` case name contains exactly one substrate token.** Selection
+is a tasty `-p` substring match against the whole test path, so a name carrying
+two tokens is pulled into both lanes — including one whose toolchain is absent,
+where it fails on a missing compiler rather than being skipped — and a name
+carrying none runs in no lane at all, which the no-skipped-tests rule forbids. A
+cross-lane case is therefore named for the lane whose container must run it and
+describes the other side without naming it, for example "linux-cuda batched MLP
+gradient is bit-identical to the oneDNN lane".
+
+Two independent equalities are asserted here, both within a substrate:
+**kernel-output** reproducibility (repeated runs of one kernel return identical
+values) and **artifact-byte** reproducibility (the same rendered source compiled
+twice yields identical bytes — see
+[determinism_contract.md → Artifact Reproducibility](determinism_contract.md#artifact-reproducibility)).
+No cross-substrate equality is asserted.
 
 This one-real-lane-per-substrate model is the test-stanza instance of the
 project's [Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)

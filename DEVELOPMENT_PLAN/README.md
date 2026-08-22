@@ -95,10 +95,39 @@ same counts and which Phase `268` records as presently unreachable. Both are now
 reopened `Active` the same day (`profileDeterminism` advertised an nvcc flag the
 compile line does not pass and cuDNN/warp-shuffle choices the executed trainer
 MLP kernel does not use, and that list feeds the toolchain fingerprint) and
-re-closed `Done` on 2026-08-17 — see below. Phase `265` remains the first
-executable owner of the open chain.
+re-closed `Done` on 2026-08-17, reopened once more on 2026-08-19 for artifact
+reproducibility, and re-closed `Done` the same day — see below. Phase `265` was
+the first executable owner at that point; it closed on 2026-08-18 and Phase `266`
+now holds that position.
 
-**Phase `78` re-closed `Done` on 2026-08-17.** The last fingerprint input that
+**Phase `78` re-closed `Done` on 2026-08-19, and Phase `266` is now the first
+executable owner of the open chain.** A compiled artifact's bytes are a function
+of its cache-key inputs on every substrate. The 2026-08-17 closure held one
+direction — every fingerprint input derived from the surface it describes — and
+this closes the converse: an input reaching the compiled **artifact** without
+reaching the **cache key**. `nvcc` was injecting two (its own process id through
+`tmpxft_<pid>_…` intermediate names, and a `cudafe` per-invocation random id for
+anonymous-namespace symbols), so three full-lane runs on identical source had
+produced three different artifact digests. Both are pinned, each substrate
+declares its closed pin set in `JitML.Substrate.profileFor`, and a double-compile
+gate discharges that set on **every** lane — including `linux-cpu` and
+`apple-silicon`, whose sets are empty by positive claim rather than by omission.
+Both lanes pass. A `DeviceEvidence` cell's `Text.take 16` of the compiled bytes
+is therefore an identity, not a per-compile nonce.
+
+**That unblocks Phase `266`**, whose `jitml test all --linux-cuda` gate had failed
+at `jitml-integration` `1 / 197` on exactly that digest and fail-fast-blocked its
+other eight stanzas. `linux-cpu` was never affected — `g++` output was measured
+reproducible and that lane's rendered text is unchanged — so Phases `263` and
+`264` keep their owned surfaces closed. Two further defects closed with it:
+artifact publication is now atomic on every substrate, and a toolchain sidecar
+makes a compiler upgrade a cache miss instead of serving stale machine code at an
+unchanged address. See
+[Phase 78 → Closure Evidence](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md#closure-evidence)
+and
+[determinism_contract.md → Artifact Reproducibility](../documents/engineering/determinism_contract.md#artifact-reproducibility).
+
+**Phase `78` had re-closed `Done` on 2026-08-17.** The last fingerprint input that
 was restated rather than derived is derived: `Engine.engineCompileFlagSpecs` tags
 each compile argument with its role, so what nvcc is given and what the cache key
 advertises about that invocation are two projections of one list, and the
@@ -212,11 +241,44 @@ resolved to dense *and* claimed only dense features, so feature parity held
 vacuously. See
 [Phase 233 → Completed in this sprint](phase-233-typed-layer-ir-reverse-mode-autodiff.md#completed-in-this-sprint).
 
-**Phase `265` is the first executable owner.**
+**Phases `266` and `267` closed `Done` on 2026-08-22; Phase `268` is `Active` on
+its lifecycle obligation alone.** `jitml test all --linux-cuda` exits `0` — ten
+stanzas, `jitml-unit` **902 / 902**, `jitml-integration` **197 / 197**,
+`jitml-model-convergence` **111 / 111** — and `jitml test jitml-e2e --live
+--linux-cuda` exits `0` with the live Playwright product matrix **PASS**: **77**
+browser tests covering **55** distinct `e2e.product.*` row selectors. The
+publisher reports `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0`, and
+`jitml internal benchmark-product-row-wall-clock` reports `rows=55`,
+`status=PASS`, so [Exit Definition](#exit-definition) item `29` — every row
+strictly faster on `linux-cuda` — is **met** for the first time.
+
+What had blocked all three phases was one defect in the shared device path, not
+the kernels. `JitML.Engines.Loader.ensureKernelArtifact` runs on **every** device
+operation rather than only on a cache miss, so the Sprint `78.1` toolchain-validity
+check forked `nvcc --version` once per kernel launch: **20,692** spawns in 60 s of
+`linux-cuda` PPO rollout, none of them a compile. A lane paying a process fork per
+launch cannot be faster than the host tape, which is why item `29` read as
+unreachable and why the live RL workflow blew through its 600 s placement budget.
+Resolving the probe once per substrate per process — the per-artifact sidecar
+comparison that enforces the upgrade gate is untouched — moved `live daemon places
+StartRLRun by substrate` from a 600 s timeout to **96.33 s**, `live PPO cartpole
+convergence` from **2766.89 s** to **339.11 s**, and the `jitml-integration`
+stanza from **21.2 h** to **7.9 h**. A `jitml-unit` case drives 32 cache hits
+through a PATH-shimmed `nvcc` and fails if it is invoked more than once.
+
+Phase `268` re-issued the committed `linux-cuda` lane fragment from the completed
+scenario journal, and the standing drift case accepts it; its `DeviceEvidence`
+column was byte-identical across two independent full-lane runs. It stays
+`Active` because its own `### Validation` block names
+`./bootstrap/linux-cuda.sh up`/`test`/`down` and that evidence was gathered
+against an already-running cluster, so the bootstrap/test/down cleanup and
+diagnostic evidence is not yet recorded.
+
+**Phase `268` is the first executable owner.**
 
 The Phase `19`–`34` product registry is
-**53 Done / 3 Active / 0 Planned / 13 Blocked**.
-The numerically ordered open chain is `265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phases `43`–`52` and `54`–`68` retain `Done` on
+**56 Done / 3 Active / 0 Planned / 10 Blocked**.
+The numerically ordered open chain is `268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`. Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `272` remains the hard Apple-Silicon host boundary.
 
@@ -2701,9 +2763,9 @@ blocks) are tracked in
 The authoritative current state is [Closure Status](#closure-status) above and
 the [Phase Overview](00-overview.md). Seven registry phases are Active after the
 2026-08-12 execution-architecture reopen plus the 2026-08-14 Phase `229` reopen,
-and Phase `265` is the first executable owner overall. The
-Phase `19`–`34` registry is **53 Done / 3 Active / 0 Planned / 13 Blocked**.
-The complete open chain is `265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`, with every Blocked phase naming its predecessor.
+and Phase `268` is the first executable owner overall. The
+Phase `19`–`34` registry is **56 Done / 3 Active / 0 Planned / 10 Blocked**.
+The complete open chain is `268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`, with every Blocked phase naming its predecessor.
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3495,7 +3557,7 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`265 → 266 → 267 → 268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
+`268 → 269 → 270 → 271 → 272 → 275 → 277 → 279 → 280 → 281 → 284 → 287 → 288`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252` and `261` are

@@ -705,7 +705,12 @@ measurements, and training evidence while retaining the TensorBoard metadata.
 Training evidence now includes the run's `DeviceExecutionWitness` — the
 substrate, the backend and executed identity read back out of the compiled
 artifact, the content-addressed cache key, the artifact path, and the SHA-256 of
-the artifact bytes. The manifest stores only the four observations
+the artifact bytes. The cache key and the artifact digest are distinct identities
+and move independently — a toolchain-fingerprint change relocates an artifact
+without altering its bytes, and a renderer change alters its bytes at a new
+address — and both are stable across recompilation, per
+[determinism_contract.md → Artifact Reproducibility](determinism_contract.md#artifact-reproducibility).
+The manifest stores only the four observations
 (initial/final weight hash, update count, dataset SHA at read), so the
 manifest-versus-completion cross-check compares observations
 (`evidenceObservationsMatch`) rather than whole evidence records; the witness

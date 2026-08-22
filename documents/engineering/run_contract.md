@@ -269,7 +269,12 @@ across rather than dropping it, and a stored witness that no longer refines
 fails the revalidation instead of degrading to an unwitnessed completion.
 Product-row checkpoint admission requires the witness to be present, so the
 lane fragment's `DeviceEvidence` column is a measurement of the artifact that
-executed rather than a rendering of the row's declared substrate and claim. `TrainingBudget`,
+executed rather than a rendering of the row's declared substrate and claim. That
+digest identifies an artifact *identity* rather than one compilation of it,
+because artifact bytes are a function of the cache-key inputs — see
+[determinism_contract.md → Artifact Reproducibility](determinism_contract.md#artifact-reproducibility).
+Without that property the digest is a per-compile nonce, and a committed lane
+attestation pinning one can never be satisfied twice. `TrainingBudget`,
 `MetricCriterion`, `FiniteMeasurement`, `PassedMeasurement`, and
 `CompletedTraining` hide their constructors. Criterion rules are typed as
 at-least, at-most, or at-least-with-an-excluded-value; every threshold,

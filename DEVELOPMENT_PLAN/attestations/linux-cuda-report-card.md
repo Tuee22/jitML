@@ -1,4 +1,4 @@
-# `linux-cuda` Per-Lane Attestation (Phase 29) — Withdrawn Counts
+# `linux-cuda` Per-Lane Attestation — Revalidated 2026-08-22
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,40 +9,52 @@
 [../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
 **Generated sections**: none
 
-> **Purpose**: The `linux-cuda` per-lane report-card fragment for Phase `29`.
-> Its 2026-07-10 row-complete counts are **withdrawn** and are retained below as
-> dated historical evidence only; see `## Current Status`. Sprints
-> `15.20`-`15.22` remain historical CUDA HA/runtime evidence for the earlier
-> product baseline.
+> **Purpose**: The `linux-cuda` per-lane report-card fragment. Its row-complete
+> counts and its per-row timing table are the **2026-08-22** measured lane run;
+> the withdrawn 2026-07-10 counts they replace are described in
+> `## Current Status
 
-## Current Status
+**Revalidated 2026-08-22 on the current source.** The row-complete counts and
+the per-row timing table in this file are measured evidence from that run, not
+the withdrawn 2026-07-10 figures they replace.
 
-*(Dated historical, 2026-07-10 — the row-complete counts below are since
-WITHDRAWN.)*
+| Gate | Result |
+|---|---|
+| `jitml internal train-and-publish-product-rows --linux-cuda` | `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0` |
+| `jitml test all --linux-cuda` | **10 / 10** stanzas PASS — `jitml-unit` **902 / 902**, `jitml-integration` **197 / 197**, `jitml-sl-canonicals` **36 / 36**, `jitml-rl-canonicals` **47 / 47**, `jitml-hyperparameter` **26 / 26**, `jitml-backends` **28 / 28**, `jitml-daemon-lifecycle` **54 / 54**, `jitml-e2e` **30 / 30**, `jitml-negative-controls` **3 / 3**, `jitml-model-convergence` **111 / 111** |
+| `jitml test jitml-e2e --live --linux-cuda` | `jitml-integration` **197 / 197**, Haskell e2e **30 / 30**, `jitml-e2e-playwright` **PASS** — **77** browser tests, **55** distinct `e2e.product.*` row selectors |
+| `jitml internal benchmark-product-row-wall-clock` | **PASS**, `rows=55` — every row strictly faster on `linux-cuda` |
+| `jitml docs check` / `jitml check-code` | PASS / PASS |
 
-Every `55 / 55`, `71 / 71` and `27 / 27` count in this file, and the 55-row
-`linux-cpu`-vs-`linux-cuda` speedup table, are withdrawn dated evidence. They
-are retained verbatim because they are the record of what the 2026-07-10 run
-actually exercised, not because they describe the lane today.
+The seven-column row table below is issued from the completed scenario journal
+by `renderProductLaneAttestationFragment`, and the standing
+`Phase 263 issues the committed lane fragment from the completed scenario
+journal` case in `jitml-integration` passes against it — that case is what makes
+these cells measured evidence rather than a transcription.
 
-Two independent reasons:
+### Why the 2026-07-10 counts were withdrawn
 
-- Phase [266](../phase-266-cuda-integration-e2e-and-attestation.md) records the
+They are retained verbatim below as the record of what that run exercised.
+
+- Phase [266](../phase-266-cuda-integration-e2e-and-attestation.md) recorded the
   `55 / 55` and `71 / 71` counts as withdrawn, and Phase
   [260](../phase-260-linux-cpu-report-card.md) records that in that era the RL
   `median_final_reward` was the expert-controller heuristic rather than a
   trained-policy rollout — so those counts never certified learning.
 - The 2026-08-16 measured lane run reported `rows: 55`, `eligible: 50`,
-  `unsupported: 0`, `errors: 5`. Five RL rows miss their cohort bars; see
-  [Phase 265 → Remaining Work](../phase-265-cuda-row-device-evidence.md#remaining-work).
+  `unsupported: 0`, `errors: 5`. Phase
+  [265](../phase-265-cuda-row-device-evidence.md) re-closed on 2026-08-18 at
+  `eligible: 55`, `errors: 0`.
 
 [Exit Definition](../README.md#exit-definition) item `29` (every row strictly
-faster on `linux-cuda`) is therefore **not met**: Phase
-[268](../phase-268-contract-driven-cuda-lane-revalidation.md) records it as
-presently unreachable while non-dense rows fall back to the pure host tape on
-this lane, and there is no row-complete cohort to time. The replacement fragment
-is issued by Sprint `268.1` from a completed scenario journal, in the same way
-Sprint `263.1` re-issued the `linux-cpu` fragment.
+faster on `linux-cuda`) is **met** as of 2026-08-22. It had been unreachable for
+a reason the 2026-07-10 table could not show: `ensureKernelArtifact` re-probed
+the CUDA toolchain on every device operation rather than on a cache miss, so the
+lane forked `nvcc --version` once per kernel launch — measured at **20,692**
+spawns in 60 s of PPO rollout — which made `linux-cuda` the *slower* lane on
+end-to-end training. Phase
+[267](../phase-267-gpu-performance-and-persistent-device-buffers.md) records the
+fix and the timing table it unblocked.
 
 ## Topology Scope
 
@@ -83,7 +95,7 @@ generated CUDA family surface (`-fcuda`) on the attached RTX 5090. The Phase
 `cudnnConvolutionForward`, cuDNN tensor descriptors, and cuDNN normalization
 entry points, and the lane then executes the generated kernels on the real GPU.
 
-## Phase 29.4 Performance Timing Table (2026-07-10)
+## Per-Row Performance Timing Table (2026-08-22)
 
 Measured by:
 
@@ -94,65 +106,72 @@ docker compose run --rm jitml-cuda sh -lc 'cabal run -fcuda exe:jitml -- interna
 The command warms both real MLP devices, measures each ProductRow through the
 same public `MlpDevice` API, and fails unless every row's `linux-cuda` wall-clock
 is strictly less than the `linux-cpu` baseline. Result: **PASS**, **55 / 55**
-rows faster on `linux-cuda`.
+rows faster on `linux-cuda` — measured speedups span **2.142558x** to
+**4.708x**, mean **3.600x**, with no per-row exemption. This discharges
+[Exit Definition](../README.md#exit-definition) item `29`.
+
+The 2026-07-10 edition of this table was measured on a lane whose device path
+re-probed the CUDA toolchain on every kernel launch, so its absolute seconds are
+not comparable with these; see
+[Phase 267](../phase-267-gpu-performance-and-persistent-device-buffers.md).
 
 | ProductRow | Shape | Batch | Reps | linux-cpu seconds | linux-cuda seconds | Speedup | Status |
 |---|---:|---:|---:|---:|---:|---:|---|
-| `mnist-shallow-mlp` | 784x64x10 | 2048 | 4 | 1.206674 | 0.505556 | 2.386824 | PASS |
-| `mnist-deep-mlp` | 784x128x10 | 2048 | 4 | 1.962170 | 0.627011 | 3.129403 | PASS |
-| `mnist-lenet` | 784x96x10 | 2048 | 4 | 1.614431 | 0.634418 | 2.544743 | PASS |
-| `fashion-mnist-mlp` | 784x96x10 | 2048 | 4 | 1.628659 | 0.641233 | 2.539888 | PASS |
-| `fashion-mnist-resnet` | 784x160x10 | 2048 | 4 | 2.283322 | 0.664589 | 3.435692 | PASS |
-| `cifar10-resnet20` | 3072x192x10 | 512 | 4 | 2.736958 | 0.868611 | 3.150960 | PASS |
-| `cifar10-resnet56` | 3072x256x10 | 512 | 4 | 3.460169 | 0.955530 | 3.621205 | PASS |
-| `cifar100-wide-resnet` | 3072x256x100 | 512 | 4 | 3.543992 | 0.853608 | 4.151781 | PASS |
-| `cifar10-vit` | 3072x256x10 | 512 | 4 | 3.396690 | 0.843456 | 4.027111 | PASS |
-| `tiny-imagenet-resnet50` | 3072x320x200 | 512 | 4 | 4.436388 | 1.178175 | 3.765475 | PASS |
-| `california-housing-mlp` | 8x96x1 | 2048 | 4 | 0.019964 | 0.006636 | 3.008330 | PASS |
-| `PPO/cartpole` | 4x128x2 | 65536 | 4 | 1.154179 | 0.323944 | 3.562892 | PASS |
-| `PPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.110585 | 0.290605 | 3.821624 | PASS |
-| `PPO/acrobot` | 6x128x3 | 65536 | 4 | 1.441614 | 0.445420 | 3.236529 | PASS |
-| `PPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.699346 | 0.459264 | 3.700148 | PASS |
-| `PPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.287272 | 0.798312 | 2.865137 | PASS |
-| `PPO/gridworld-deterministic` | 8x128x4 | 65536 | 4 | 1.685447 | 0.557014 | 3.025863 | PASS |
-| `A2C/cartpole` | 4x128x2 | 65536 | 4 | 1.115364 | 0.309564 | 3.603012 | PASS |
-| `A2C/mountain-car` | 2x128x3 | 65536 | 4 | 1.121857 | 0.298352 | 3.760181 | PASS |
-| `A2C/lunar-lander` | 8x128x4 | 65536 | 4 | 1.707486 | 0.514747 | 3.317136 | PASS |
-| `A2C/key-door-grid` | 16x128x4 | 65536 | 4 | 2.266345 | 0.785858 | 2.883912 | PASS |
-| `TRPO/cartpole` | 4x128x2 | 65536 | 4 | 1.098936 | 0.312734 | 3.513967 | PASS |
-| `TRPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.119074 | 0.290038 | 3.858365 | PASS |
-| `TRPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.691703 | 0.500382 | 3.380824 | PASS |
-| `TRPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.362614 | 0.796947 | 2.964583 | PASS |
-| `MaskablePPO/cartpole` | 4x128x2 | 65536 | 4 | 1.136897 | 0.321063 | 3.541037 | PASS |
-| `MaskablePPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.119466 | 0.289543 | 3.866325 | PASS |
-| `MaskablePPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.831541 | 0.608859 | 3.008155 | PASS |
-| `MaskablePPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.358427 | 0.820457 | 2.874527 | PASS |
-| `RecurrentPPO/cartpole` | 4x128x2 | 65536 | 4 | 1.201206 | 0.319530 | 3.759295 | PASS |
-| `RecurrentPPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.204529 | 0.291490 | 4.132323 | PASS |
-| `RecurrentPPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.755374 | 0.520671 | 3.371366 | PASS |
-| `RecurrentPPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.434556 | 0.854252 | 2.849927 | PASS |
-| `DQN/cartpole` | 4x128x2 | 65536 | 4 | 1.131112 | 0.334273 | 3.383800 | PASS |
-| `DQN/mountain-car` | 2x128x3 | 65536 | 4 | 1.167069 | 0.291738 | 4.000395 | PASS |
-| `DQN/key-door-grid` | 16x128x4 | 65536 | 4 | 2.420547 | 0.824445 | 2.935970 | PASS |
-| `QR-DQN/cartpole` | 4x128x2 | 65536 | 4 | 1.146252 | 0.322452 | 3.554800 | PASS |
-| `QR-DQN/mountain-car` | 2x128x3 | 65536 | 4 | 1.154032 | 0.287194 | 4.018300 | PASS |
-| `QR-DQN/key-door-grid` | 16x128x4 | 65536 | 4 | 2.271558 | 0.715542 | 3.174598 | PASS |
-| `DDPG/lunar-lander` | 8x128x2 | 65536 | 4 | 1.422743 | 0.450618 | 3.157314 | PASS |
-| `TD3/lunar-lander` | 8x128x2 | 65536 | 4 | 1.413118 | 0.449911 | 3.140885 | PASS |
-| `SAC/lunar-lander` | 8x128x2 | 65536 | 4 | 1.405433 | 0.442417 | 3.176714 | PASS |
-| `SAC/pendulum` | 3x128x1 | 65536 | 4 | 0.912954 | 0.230979 | 3.952547 | PASS |
-| `CrossQ/lunar-lander` | 8x128x2 | 65536 | 4 | 1.382716 | 0.426744 | 3.240153 | PASS |
-| `TQC/lunar-lander` | 8x128x2 | 65536 | 4 | 1.402967 | 0.454247 | 3.088555 | PASS |
-| `ARS/cartpole` | 4x128x2 | 65536 | 4 | 1.118048 | 0.316045 | 3.537626 | PASS |
-| `ARS/mountain-car` | 2x128x3 | 65536 | 4 | 1.152100 | 0.318673 | 3.615301 | PASS |
-| `ARS/lunar-lander` | 8x128x4 | 65536 | 4 | 1.780886 | 0.543343 | 3.277647 | PASS |
-| `ARS/key-door-grid` | 16x128x4 | 65536 | 4 | 2.360869 | 0.829635 | 2.845672 | PASS |
-| `HER/goal-reaching` | 6x128x4 | 65536 | 4 | 1.607028 | 0.483674 | 3.322541 | PASS |
-| `connect4` | 42x160x8 | 4096 | 4 | 0.317271 | 0.080631 | 3.934842 | PASS |
-| `othello` | 64x192x65 | 4096 | 4 | 0.937725 | 0.225590 | 4.156758 | PASS |
-| `hex` | 121x224x122 | 4096 | 4 | 2.022758 | 0.517785 | 3.906556 | PASS |
-| `gomoku` | 225x256x226 | 4096 | 4 | 4.518823 | 0.925964 | 4.880129 | PASS |
-| `hyperparameter-tuning` | 784x128x10 | 2048 | 4 | 1.997553 | 0.684638 | 2.917678 | PASS |
+| `mnist-shallow-mlp` | 784x64x10 | 2048 | 4 | 1.146314 | 0.535021 | 2.142558 | PASS |
+| `mnist-deep-mlp` | 784x128x10 | 2048 | 4 | 1.704178 | 0.474056 | 3.594887 | PASS |
+| `mnist-lenet` | 784x96x10 | 2048 | 4 | 1.390950 | 0.484274 | 2.872238 | PASS |
+| `fashion-mnist-mlp` | 784x96x10 | 2048 | 4 | 1.466471 | 0.549071 | 2.670824 | PASS |
+| `fashion-mnist-resnet` | 784x160x10 | 2048 | 4 | 2.114614 | 0.579181 | 3.651040 | PASS |
+| `cifar10-resnet20` | 3072x192x10 | 512 | 4 | 2.437828 | 0.727111 | 3.352759 | PASS |
+| `cifar10-resnet56` | 3072x256x10 | 512 | 4 | 3.117624 | 0.780499 | 3.994399 | PASS |
+| `cifar100-wide-resnet` | 3072x256x100 | 512 | 4 | 3.819073 | 1.276060 | 2.992864 | PASS |
+| `cifar10-vit` | 3072x256x10 | 512 | 4 | 3.360560 | 1.084638 | 3.098324 | PASS |
+| `tiny-imagenet-resnet50` | 3072x320x200 | 512 | 4 | 4.012877 | 1.179175 | 3.403122 | PASS |
+| `california-housing-mlp` | 8x96x1 | 2048 | 4 | 0.018717 | 0.006268 | 2.986326 | PASS |
+| `PPO/cartpole` | 4x128x2 | 65536 | 4 | 1.203539 | 0.302011 | 3.985086 | PASS |
+| `PPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.287432 | 0.288994 | 4.454871 | PASS |
+| `PPO/acrobot` | 6x128x3 | 65536 | 4 | 1.547082 | 0.391567 | 3.951007 | PASS |
+| `PPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.798109 | 0.551471 | 3.260569 | PASS |
+| `PPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.474155 | 0.765630 | 3.231528 | PASS |
+| `PPO/gridworld-deterministic` | 8x128x4 | 65536 | 4 | 1.767260 | 0.526567 | 3.356193 | PASS |
+| `A2C/cartpole` | 4x128x2 | 65536 | 4 | 1.222290 | 0.357601 | 3.418028 | PASS |
+| `A2C/mountain-car` | 2x128x3 | 65536 | 4 | 1.297075 | 0.313607 | 4.135994 | PASS |
+| `A2C/lunar-lander` | 8x128x4 | 65536 | 4 | 1.855881 | 0.545491 | 3.402223 | PASS |
+| `A2C/key-door-grid` | 16x128x4 | 65536 | 4 | 2.452973 | 0.790814 | 3.101832 | PASS |
+| `TRPO/cartpole` | 4x128x2 | 65536 | 4 | 1.214061 | 0.330507 | 3.673329 | PASS |
+| `TRPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.346803 | 0.330263 | 4.077968 | PASS |
+| `TRPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.989211 | 0.561843 | 3.540514 | PASS |
+| `TRPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.568318 | 0.781317 | 3.287164 | PASS |
+| `MaskablePPO/cartpole` | 4x128x2 | 65536 | 4 | 1.328114 | 0.344120 | 3.859454 | PASS |
+| `MaskablePPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.301825 | 0.333756 | 3.900530 | PASS |
+| `MaskablePPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.955629 | 0.527046 | 3.710548 | PASS |
+| `MaskablePPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.776168 | 0.836595 | 3.318413 | PASS |
+| `RecurrentPPO/cartpole` | 4x128x2 | 65536 | 4 | 1.338408 | 0.337555 | 3.965003 | PASS |
+| `RecurrentPPO/mountain-car` | 2x128x3 | 65536 | 4 | 1.260369 | 0.301755 | 4.176797 | PASS |
+| `RecurrentPPO/lunar-lander` | 8x128x4 | 65536 | 4 | 1.920048 | 0.557656 | 3.443072 | PASS |
+| `RecurrentPPO/key-door-grid` | 16x128x4 | 65536 | 4 | 2.622290 | 0.732443 | 3.580197 | PASS |
+| `DQN/cartpole` | 4x128x2 | 65536 | 4 | 1.138619 | 0.300547 | 3.788485 | PASS |
+| `DQN/mountain-car` | 2x128x3 | 65536 | 4 | 1.226887 | 0.304455 | 4.029775 | PASS |
+| `DQN/key-door-grid` | 16x128x4 | 65536 | 4 | 2.321790 | 0.714806 | 3.248139 | PASS |
+| `QR-DQN/cartpole` | 4x128x2 | 65536 | 4 | 1.171712 | 0.297754 | 3.935163 | PASS |
+| `QR-DQN/mountain-car` | 2x128x3 | 65536 | 4 | 1.182691 | 0.289688 | 4.082642 | PASS |
+| `QR-DQN/key-door-grid` | 16x128x4 | 65536 | 4 | 2.379236 | 0.689620 | 3.450070 | PASS |
+| `DDPG/lunar-lander` | 8x128x2 | 65536 | 4 | 1.437172 | 0.421410 | 3.410389 | PASS |
+| `TD3/lunar-lander` | 8x128x2 | 65536 | 4 | 1.445171 | 0.399607 | 3.616485 | PASS |
+| `SAC/lunar-lander` | 8x128x2 | 65536 | 4 | 1.438707 | 0.415646 | 3.461377 | PASS |
+| `SAC/pendulum` | 3x128x1 | 65536 | 4 | 0.917294 | 0.225626 | 4.065558 | PASS |
+| `CrossQ/lunar-lander` | 8x128x2 | 65536 | 4 | 1.431557 | 0.431362 | 3.318688 | PASS |
+| `TQC/lunar-lander` | 8x128x2 | 65536 | 4 | 1.433629 | 0.429103 | 3.340991 | PASS |
+| `ARS/cartpole` | 4x128x2 | 65536 | 4 | 1.149064 | 0.290642 | 3.953536 | PASS |
+| `ARS/mountain-car` | 2x128x3 | 65536 | 4 | 1.128157 | 0.275401 | 4.096415 | PASS |
+| `ARS/lunar-lander` | 8x128x4 | 65536 | 4 | 1.765407 | 0.459687 | 3.840456 | PASS |
+| `ARS/key-door-grid` | 16x128x4 | 65536 | 4 | 2.350807 | 0.724981 | 3.242579 | PASS |
+| `HER/goal-reaching` | 6x128x4 | 65536 | 4 | 1.669457 | 0.443639 | 3.763095 | PASS |
+| `connect4` | 42x160x8 | 4096 | 4 | 0.296680 | 0.088282 | 3.360591 | PASS |
+| `othello` | 64x192x65 | 4096 | 4 | 0.972661 | 0.238909 | 4.071264 | PASS |
+| `hex` | 121x224x122 | 4096 | 4 | 1.986571 | 0.466408 | 4.259298 | PASS |
+| `gomoku` | 225x256x226 | 4096 | 4 | 4.462065 | 0.947773 | 4.707946 | PASS |
+| `hyperparameter-tuning` | 784x128x10 | 2048 | 4 | 1.744975 | 0.522420 | 3.340178 | PASS |
 
 ## Phase 29 Row-Complete Evidence Table (2026-07-10)
 
@@ -162,61 +181,61 @@ adds the strict per-row `linux-cuda` < `linux-cpu` performance table.
 
 ```
 row_id	Catalog	Integration	E2E	Negative	DeviceEvidence	Lane
-mnist-shallow-mlp	generated-matrix:product-row-mnist-shallow-mlp	integration.product.mnist-shallow-mlp	e2e.product.mnist-shallow-mlp	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-mnist-deep-mlp	generated-matrix:product-row-mnist-deep-mlp	integration.product.mnist-deep-mlp	e2e.product.mnist-deep-mlp	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-mnist-lenet	generated-matrix:product-row-mnist-lenet	integration.product.mnist-lenet	e2e.product.mnist-lenet	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-fashion-mnist-mlp	generated-matrix:product-row-fashion-mnist-mlp	integration.product.fashion-mnist-mlp	e2e.product.fashion-mnist-mlp	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-fashion-mnist-resnet	generated-matrix:product-row-fashion-mnist-resnet	integration.product.fashion-mnist-resnet	e2e.product.fashion-mnist-resnet	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-cifar10-resnet20	generated-matrix:product-row-cifar10-resnet20	integration.product.cifar10-resnet20	e2e.product.cifar10-resnet20	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-cifar10-resnet56	generated-matrix:product-row-cifar10-resnet56	integration.product.cifar10-resnet56	e2e.product.cifar10-resnet56	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-cifar100-wide-resnet	generated-matrix:product-row-cifar100-wide-resnet	integration.product.cifar100-wide-resnet	e2e.product.cifar100-wide-resnet	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-cifar10-vit	generated-matrix:product-row-cifar10-vit	integration.product.cifar10-vit	e2e.product.cifar10-vit	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-tiny-imagenet-resnet50	generated-matrix:product-row-tiny-imagenet-resnet50	integration.product.tiny-imagenet-resnet50	e2e.product.tiny-imagenet-resnet50	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-california-housing-mlp	generated-matrix:product-row-california-housing-mlp	integration.product.california-housing-mlp	e2e.product.california-housing-mlp	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:dense-conv-norm-attention-update-critical	linux-cuda
-PPO/cartpole	generated-matrix:product-row-PPO.cartpole	integration.product.PPO.cartpole	e2e.product.PPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-PPO/mountain-car	generated-matrix:product-row-PPO.mountain-car	integration.product.PPO.mountain-car	e2e.product.PPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-PPO/acrobot	generated-matrix:product-row-PPO.acrobot	integration.product.PPO.acrobot	e2e.product.PPO.acrobot	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-PPO/lunar-lander	generated-matrix:product-row-PPO.lunar-lander	integration.product.PPO.lunar-lander	e2e.product.PPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-PPO/key-door-grid	generated-matrix:product-row-PPO.key-door-grid	integration.product.PPO.key-door-grid	e2e.product.PPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-PPO/gridworld-deterministic	generated-matrix:product-row-PPO.gridworld-deterministic	integration.product.PPO.gridworld-deterministic	e2e.product.PPO.gridworld-deterministic	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-A2C/cartpole	generated-matrix:product-row-A2C.cartpole	integration.product.A2C.cartpole	e2e.product.A2C.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-A2C/mountain-car	generated-matrix:product-row-A2C.mountain-car	integration.product.A2C.mountain-car	e2e.product.A2C.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-A2C/lunar-lander	generated-matrix:product-row-A2C.lunar-lander	integration.product.A2C.lunar-lander	e2e.product.A2C.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-A2C/key-door-grid	generated-matrix:product-row-A2C.key-door-grid	integration.product.A2C.key-door-grid	e2e.product.A2C.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-TRPO/cartpole	generated-matrix:product-row-TRPO.cartpole	integration.product.TRPO.cartpole	e2e.product.TRPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-TRPO/mountain-car	generated-matrix:product-row-TRPO.mountain-car	integration.product.TRPO.mountain-car	e2e.product.TRPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-TRPO/lunar-lander	generated-matrix:product-row-TRPO.lunar-lander	integration.product.TRPO.lunar-lander	e2e.product.TRPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-TRPO/key-door-grid	generated-matrix:product-row-TRPO.key-door-grid	integration.product.TRPO.key-door-grid	e2e.product.TRPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-MaskablePPO/cartpole	generated-matrix:product-row-MaskablePPO.cartpole	integration.product.MaskablePPO.cartpole	e2e.product.MaskablePPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-MaskablePPO/mountain-car	generated-matrix:product-row-MaskablePPO.mountain-car	integration.product.MaskablePPO.mountain-car	e2e.product.MaskablePPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-MaskablePPO/lunar-lander	generated-matrix:product-row-MaskablePPO.lunar-lander	integration.product.MaskablePPO.lunar-lander	e2e.product.MaskablePPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-MaskablePPO/key-door-grid	generated-matrix:product-row-MaskablePPO.key-door-grid	integration.product.MaskablePPO.key-door-grid	e2e.product.MaskablePPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-RecurrentPPO/cartpole	generated-matrix:product-row-RecurrentPPO.cartpole	integration.product.RecurrentPPO.cartpole	e2e.product.RecurrentPPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-RecurrentPPO/mountain-car	generated-matrix:product-row-RecurrentPPO.mountain-car	integration.product.RecurrentPPO.mountain-car	e2e.product.RecurrentPPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-RecurrentPPO/lunar-lander	generated-matrix:product-row-RecurrentPPO.lunar-lander	integration.product.RecurrentPPO.lunar-lander	e2e.product.RecurrentPPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-RecurrentPPO/key-door-grid	generated-matrix:product-row-RecurrentPPO.key-door-grid	integration.product.RecurrentPPO.key-door-grid	e2e.product.RecurrentPPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-DQN/cartpole	generated-matrix:product-row-DQN.cartpole	integration.product.DQN.cartpole	e2e.product.DQN.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-DQN/mountain-car	generated-matrix:product-row-DQN.mountain-car	integration.product.DQN.mountain-car	e2e.product.DQN.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-DQN/key-door-grid	generated-matrix:product-row-DQN.key-door-grid	integration.product.DQN.key-door-grid	e2e.product.DQN.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-QR-DQN/cartpole	generated-matrix:product-row-QR-DQN.cartpole	integration.product.QR-DQN.cartpole	e2e.product.QR-DQN.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-QR-DQN/mountain-car	generated-matrix:product-row-QR-DQN.mountain-car	integration.product.QR-DQN.mountain-car	e2e.product.QR-DQN.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-QR-DQN/key-door-grid	generated-matrix:product-row-QR-DQN.key-door-grid	integration.product.QR-DQN.key-door-grid	e2e.product.QR-DQN.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-DDPG/lunar-lander	generated-matrix:product-row-DDPG.lunar-lander	integration.product.DDPG.lunar-lander	e2e.product.DDPG.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-TD3/lunar-lander	generated-matrix:product-row-TD3.lunar-lander	integration.product.TD3.lunar-lander	e2e.product.TD3.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-SAC/lunar-lander	generated-matrix:product-row-SAC.lunar-lander	integration.product.SAC.lunar-lander	e2e.product.SAC.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-SAC/pendulum	generated-matrix:product-row-SAC.pendulum	integration.product.SAC.pendulum	e2e.product.SAC.pendulum	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-CrossQ/lunar-lander	generated-matrix:product-row-CrossQ.lunar-lander	integration.product.CrossQ.lunar-lander	e2e.product.CrossQ.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-TQC/lunar-lander	generated-matrix:product-row-TQC.lunar-lander	integration.product.TQC.lunar-lander	e2e.product.TQC.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-ARS/cartpole	generated-matrix:product-row-ARS.cartpole	integration.product.ARS.cartpole	e2e.product.ARS.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-ARS/mountain-car	generated-matrix:product-row-ARS.mountain-car	integration.product.ARS.mountain-car	e2e.product.ARS.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-ARS/lunar-lander	generated-matrix:product-row-ARS.lunar-lander	integration.product.ARS.lunar-lander	e2e.product.ARS.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-ARS/key-door-grid	generated-matrix:product-row-ARS.key-door-grid	integration.product.ARS.key-door-grid	e2e.product.ARS.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-mlp-update-critical	linux-cuda
-HER/goal-reaching	generated-matrix:product-row-HER.goal-reaching	integration.product.HER.goal-reaching	e2e.product.HER.goal-reaching	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:goal-policy-mlp-update-critical	linux-cuda
-connect4	generated-matrix:product-row-connect4	integration.product.connect4	e2e.product.connect4	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-value-mlp-update-critical	linux-cuda
-othello	generated-matrix:product-row-othello	integration.product.othello	e2e.product.othello	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-value-mlp-update-critical	linux-cuda
-hex	generated-matrix:product-row-hex	integration.product.hex	e2e.product.hex	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-value-mlp-update-critical	linux-cuda
-gomoku	generated-matrix:product-row-gomoku	integration.product.gomoku	e2e.product.gomoku	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:policy-value-mlp-update-critical	linux-cuda
-hyperparameter-tuning	generated-matrix:product-row-hyperparameter-tuning	integration.product.hyperparameter-tuning	e2e.product.hyperparameter-tuning	checkpoint-required-fail-closed	device:linux-cuda:cuBLAS-cuDNN:ffi:dispatch:tuning-promoted-mlp-update-critical	linux-cuda
+mnist-shallow-mlp	generated-matrix:product-row-mnist-shallow-mlp	integration.product.mnist-shallow-mlp	e2e.product.mnist-shallow-mlp	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+mnist-deep-mlp	generated-matrix:product-row-mnist-deep-mlp	integration.product.mnist-deep-mlp	e2e.product.mnist-deep-mlp	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+mnist-lenet	generated-matrix:product-row-mnist-lenet	integration.product.mnist-lenet	e2e.product.mnist-lenet	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+fashion-mnist-mlp	generated-matrix:product-row-fashion-mnist-mlp	integration.product.fashion-mnist-mlp	e2e.product.fashion-mnist-mlp	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+fashion-mnist-resnet	generated-matrix:product-row-fashion-mnist-resnet	integration.product.fashion-mnist-resnet	e2e.product.fashion-mnist-resnet	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+cifar10-resnet20	generated-matrix:product-row-cifar10-resnet20	integration.product.cifar10-resnet20	e2e.product.cifar10-resnet20	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+cifar10-resnet56	generated-matrix:product-row-cifar10-resnet56	integration.product.cifar10-resnet56	e2e.product.cifar10-resnet56	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+cifar100-wide-resnet	generated-matrix:product-row-cifar100-wide-resnet	integration.product.cifar100-wide-resnet	e2e.product.cifar100-wide-resnet	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+cifar10-vit	generated-matrix:product-row-cifar10-vit	integration.product.cifar10-vit	e2e.product.cifar10-vit	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+tiny-imagenet-resnet50	generated-matrix:product-row-tiny-imagenet-resnet50	integration.product.tiny-imagenet-resnet50	e2e.product.tiny-imagenet-resnet50	checkpoint-required-fail-closed	device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7	linux-cuda
+california-housing-mlp	generated-matrix:product-row-california-housing-mlp	integration.product.california-housing-mlp	e2e.product.california-housing-mlp	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+PPO/cartpole	generated-matrix:product-row-PPO.cartpole	integration.product.PPO.cartpole	e2e.product.PPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+PPO/mountain-car	generated-matrix:product-row-PPO.mountain-car	integration.product.PPO.mountain-car	e2e.product.PPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+PPO/acrobot	generated-matrix:product-row-PPO.acrobot	integration.product.PPO.acrobot	e2e.product.PPO.acrobot	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+PPO/lunar-lander	generated-matrix:product-row-PPO.lunar-lander	integration.product.PPO.lunar-lander	e2e.product.PPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+PPO/key-door-grid	generated-matrix:product-row-PPO.key-door-grid	integration.product.PPO.key-door-grid	e2e.product.PPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+PPO/gridworld-deterministic	generated-matrix:product-row-PPO.gridworld-deterministic	integration.product.PPO.gridworld-deterministic	e2e.product.PPO.gridworld-deterministic	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+A2C/cartpole	generated-matrix:product-row-A2C.cartpole	integration.product.A2C.cartpole	e2e.product.A2C.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+A2C/mountain-car	generated-matrix:product-row-A2C.mountain-car	integration.product.A2C.mountain-car	e2e.product.A2C.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+A2C/lunar-lander	generated-matrix:product-row-A2C.lunar-lander	integration.product.A2C.lunar-lander	e2e.product.A2C.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+A2C/key-door-grid	generated-matrix:product-row-A2C.key-door-grid	integration.product.A2C.key-door-grid	e2e.product.A2C.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+TRPO/cartpole	generated-matrix:product-row-TRPO.cartpole	integration.product.TRPO.cartpole	e2e.product.TRPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+TRPO/mountain-car	generated-matrix:product-row-TRPO.mountain-car	integration.product.TRPO.mountain-car	e2e.product.TRPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+TRPO/lunar-lander	generated-matrix:product-row-TRPO.lunar-lander	integration.product.TRPO.lunar-lander	e2e.product.TRPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+TRPO/key-door-grid	generated-matrix:product-row-TRPO.key-door-grid	integration.product.TRPO.key-door-grid	e2e.product.TRPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+MaskablePPO/cartpole	generated-matrix:product-row-MaskablePPO.cartpole	integration.product.MaskablePPO.cartpole	e2e.product.MaskablePPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+MaskablePPO/mountain-car	generated-matrix:product-row-MaskablePPO.mountain-car	integration.product.MaskablePPO.mountain-car	e2e.product.MaskablePPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+MaskablePPO/lunar-lander	generated-matrix:product-row-MaskablePPO.lunar-lander	integration.product.MaskablePPO.lunar-lander	e2e.product.MaskablePPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+MaskablePPO/key-door-grid	generated-matrix:product-row-MaskablePPO.key-door-grid	integration.product.MaskablePPO.key-door-grid	e2e.product.MaskablePPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+RecurrentPPO/cartpole	generated-matrix:product-row-RecurrentPPO.cartpole	integration.product.RecurrentPPO.cartpole	e2e.product.RecurrentPPO.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+RecurrentPPO/mountain-car	generated-matrix:product-row-RecurrentPPO.mountain-car	integration.product.RecurrentPPO.mountain-car	e2e.product.RecurrentPPO.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+RecurrentPPO/lunar-lander	generated-matrix:product-row-RecurrentPPO.lunar-lander	integration.product.RecurrentPPO.lunar-lander	e2e.product.RecurrentPPO.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+RecurrentPPO/key-door-grid	generated-matrix:product-row-RecurrentPPO.key-door-grid	integration.product.RecurrentPPO.key-door-grid	e2e.product.RecurrentPPO.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+DQN/cartpole	generated-matrix:product-row-DQN.cartpole	integration.product.DQN.cartpole	e2e.product.DQN.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+DQN/mountain-car	generated-matrix:product-row-DQN.mountain-car	integration.product.DQN.mountain-car	e2e.product.DQN.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+DQN/key-door-grid	generated-matrix:product-row-DQN.key-door-grid	integration.product.DQN.key-door-grid	e2e.product.DQN.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+QR-DQN/cartpole	generated-matrix:product-row-QR-DQN.cartpole	integration.product.QR-DQN.cartpole	e2e.product.QR-DQN.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+QR-DQN/mountain-car	generated-matrix:product-row-QR-DQN.mountain-car	integration.product.QR-DQN.mountain-car	e2e.product.QR-DQN.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+QR-DQN/key-door-grid	generated-matrix:product-row-QR-DQN.key-door-grid	integration.product.QR-DQN.key-door-grid	e2e.product.QR-DQN.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+DDPG/lunar-lander	generated-matrix:product-row-DDPG.lunar-lander	integration.product.DDPG.lunar-lander	e2e.product.DDPG.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+TD3/lunar-lander	generated-matrix:product-row-TD3.lunar-lander	integration.product.TD3.lunar-lander	e2e.product.TD3.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+SAC/lunar-lander	generated-matrix:product-row-SAC.lunar-lander	integration.product.SAC.lunar-lander	e2e.product.SAC.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+SAC/pendulum	generated-matrix:product-row-SAC.pendulum	integration.product.SAC.pendulum	e2e.product.SAC.pendulum	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+CrossQ/lunar-lander	generated-matrix:product-row-CrossQ.lunar-lander	integration.product.CrossQ.lunar-lander	e2e.product.CrossQ.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+TQC/lunar-lander	generated-matrix:product-row-TQC.lunar-lander	integration.product.TQC.lunar-lander	e2e.product.TQC.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+ARS/cartpole	generated-matrix:product-row-ARS.cartpole	integration.product.ARS.cartpole	e2e.product.ARS.cartpole	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+ARS/mountain-car	generated-matrix:product-row-ARS.mountain-car	integration.product.ARS.mountain-car	e2e.product.ARS.mountain-car	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+ARS/lunar-lander	generated-matrix:product-row-ARS.lunar-lander	integration.product.ARS.lunar-lander	e2e.product.ARS.lunar-lander	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+ARS/key-door-grid	generated-matrix:product-row-ARS.key-door-grid	integration.product.ARS.key-door-grid	e2e.product.ARS.key-door-grid	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+HER/goal-reaching	generated-matrix:product-row-HER.goal-reaching	integration.product.HER.goal-reaching	e2e.product.HER.goal-reaching	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+connect4	generated-matrix:product-row-connect4	integration.product.connect4	e2e.product.connect4	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+othello	generated-matrix:product-row-othello	integration.product.othello	e2e.product.othello	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+hex	generated-matrix:product-row-hex	integration.product.hex	e2e.product.hex	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+gomoku	generated-matrix:product-row-gomoku	integration.product.gomoku	e2e.product.gomoku	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
+hyperparameter-tuning	generated-matrix:product-row-hyperparameter-tuning	integration.product.hyperparameter-tuning	e2e.product.hyperparameter-tuning	checkpoint-required-fail-closed	device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268	linux-cuda
 tic-tac-toe	non-product: unit-level minimax anchor documented outside the product matrix	not-required	not-required	not-required	not-required	not-required
 atari-subset	non-product: optional ROM-backed runtime support, not a required product row	not-required	not-required	not-required	not-required	not-required
 ```

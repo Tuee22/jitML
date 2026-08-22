@@ -82,7 +82,8 @@ import JitML.Codegen.Metal (metalBridgeAbiVersion, threadgroupSizeFor)
 import JitML.Codegen.OneDnn (oneDnnFixedReductionBlock)
 import JitML.Codegen.RuntimeSource (KernelProgram (..))
 import JitML.Engines.Engine
-  ( deterministicFlags
+  ( compileLineReproducibility
+  , deterministicFlags
   , engineCompileFlags
   , engineCompiler
   , engineForSubstrate
@@ -118,6 +119,7 @@ data ToolchainFacts = ToolchainFacts
   , factsCompileFlags :: ![Text]
   , factsLinkFlags :: ![Text]
   , factsDeterminism :: ![Text]
+  , factsReproducibility :: ![Text]
   , factsKnobs :: ![Text]
   , factsAbi :: !AbiKind
   , factsEntryPoints :: ![Text]
@@ -137,6 +139,7 @@ toolchainFingerprint facts =
           , labelled "flags" (factsCompileFlags facts)
           , labelled "link" (factsLinkFlags facts)
           , labelled "determinism" (factsDeterminism facts)
+          , labelled "reproducibility" (factsReproducibility facts)
           , labelled "knobs" (factsKnobs facts)
           ]
             <> renderAbiKind (factsAbi facts)
@@ -269,6 +272,7 @@ engineFamilyToolchainFingerprint substrate =
       , factsCompileFlags = engineCompileFlags engine FamilyProgram
       , factsLinkFlags = engineLinkFlags engine FamilyProgram
       , factsDeterminism = deterministicFlags engine
+      , factsReproducibility = compileLineReproducibility engine
       , factsKnobs = familyKnobs substrate
       , factsAbi = abiFor substrate
       , factsEntryPoints = familyEntryPoints
@@ -292,6 +296,7 @@ mlpToolchainFingerprint substrate =
       , factsCompileFlags = engineCompileFlags engine MlpProgram
       , factsLinkFlags = engineLinkFlags engine MlpProgram
       , factsDeterminism = deterministicFlags engine
+      , factsReproducibility = compileLineReproducibility engine
       , factsKnobs = mlpKnobs
       , factsAbi = abiFor substrate
       , factsEntryPoints = mlpEntryPoints
@@ -325,6 +330,7 @@ layerTrainingToolchainFingerprint substrate =
       , factsCompileFlags = engineCompileFlags engine LayerTrainingProgram
       , factsLinkFlags = engineLinkFlags engine LayerTrainingProgram
       , factsDeterminism = deterministicFlags engine
+      , factsReproducibility = compileLineReproducibility engine
       , factsKnobs = layerTrainingKnobs substrate
       , factsAbi = ExternCLayerGraphTraining
       , factsEntryPoints = layerTrainingEntryPoints

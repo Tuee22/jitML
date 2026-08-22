@@ -48,8 +48,6 @@ route registry drift: httproute generated output is stale
 ---
 jit cache miss: abc123
 ---
-jit toolchain drift: cached with older nvcc
----
 checkpoint format unsupported: .jmw0
 ---
 checkpoint write conflict: latest pointer etag changed

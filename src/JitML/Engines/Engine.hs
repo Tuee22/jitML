@@ -3,10 +3,15 @@
 module JitML.Engines.Engine
   ( Engine (..)
   , EngineEnvelope (..)
+  , CompileArgument (..)
   , CompileFlag (..)
   , CompileFlagRole (..)
+  , compileFlagText
+  , compileLineReproducibility
+  , renderCompileFlag
   , CudaLibrary (..)
   , programCudaLibraries
+  , programLibraryDefines
   , JitCacheStatus (..)
   , KernelHandle (..)
   , KernelInputs (..)
@@ -22,6 +27,8 @@ module JitML.Engines.Engine
   , engineLinkFlags
   , engineSourceFileName
   , kernelHandleFor
+  , renderedScratchDirectory
+  , renderedStagingPath
   , renderBuildPlan
   , renderEngineEnvelope
   , renderEnginePlan
@@ -43,8 +50,10 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate
   ( ArtifactFill (..)
+  , PinnedNonDeterminism (..)
   , Substrate (..)
   , SubstrateProfile (..)
+  , producerPins
   , profileFor
   , renderSubstrate
   )
@@ -144,6 +153,16 @@ compileLineDeterminism engine =
   isFastMathArgument argument =
     "fast-math" `Text.isInfixOf` argument || "fast_math" `Text.isInfixOf` argument
 
+-- | The reproducibility facts the compile line establishes, read off the same
+-- one list. Rendered for every substrate — empty where the producer injects
+-- nothing — so the fact is uniform rather than a per-substrate branch.
+compileLineReproducibility :: Engine -> [Text]
+compileLineReproducibility engine =
+  [ compileFlagText flag
+  | flag <- engineCompileFlagSpecs engine
+  , compileFlagRole flag == ReproducibilityFlag
+  ]
+
 renderEnginePlan :: Engine -> Text
 renderEnginePlan engine =
   Text.unlines
@@ -161,7 +180,15 @@ renderBuildPlan engine source hash =
     , "generated_source_dir: " <> Text.pack (runtimeSourceRelativeDirectory source hash)
     , "cache_artifact: " <> artifactPathText engine hash
     , "compile:"
-    , "  - " <> renderSubprocess (compileSubprocess engine source hash)
+    , "  - "
+        <> renderSubprocess
+          ( compileSubprocess
+              engine
+              source
+              hash
+              renderedScratchDirectory
+              (renderedStagingPath engine hash)
+          )
     ]
 
 kernelHandleFor :: Engine -> Cache.Hash -> KernelHandle
@@ -177,7 +204,16 @@ resolveKernelCache engine source hash cacheArtifactExists =
   let handle = kernelHandleFor engine hash
    in if cacheArtifactExists
         then JitCacheHit handle
-        else JitCacheMiss handle (compileSubprocess engine source hash)
+        else
+          JitCacheMiss
+            handle
+            ( compileSubprocess
+                engine
+                source
+                hash
+                renderedScratchDirectory
+                (renderedStagingPath engine hash)
+            )
 
 engineEnvelope
   :: Engine -> RuntimeSource -> Cache.Hash -> KernelInputs -> KernelOutputs -> EngineEnvelope
@@ -187,7 +223,15 @@ engineEnvelope engine source hash inputs outputs =
     , envelopeInputs = inputs
     , envelopeOutputs = outputs
     , envelopeDeterminism = deterministicFlags engine
-    , envelopeCompileCommand = renderSubprocess (compileSubprocess engine source hash)
+    , envelopeCompileCommand =
+        renderSubprocess
+          ( compileSubprocess
+              engine
+              source
+              hash
+              renderedScratchDirectory
+              (renderedStagingPath engine hash)
+          )
     }
 
 renderEngineEnvelope :: EngineEnvelope -> Text
@@ -227,14 +271,54 @@ data CompileFlagRole
     -- reads exactly these, so the determinism facts a cache key advertises are
     -- the determinism arguments the compile command passes.
     DeterminismFlag
+  | -- | The argument exists to pin the __artifact bytes__, not the arithmetic.
+    -- Kept distinct from 'DeterminismFlag' because that role feeds
+    -- 'JitML.Engines.Fingerprint.factsDeterminism', which
+    -- @documents/engineering/determinism_contract.md@ defines as /numerical/
+    -- determinism; an argument that pins a compiler's embedded identifiers pins
+    -- nothing numerical, and saying otherwise would make the determinism
+    -- contract state something false.
+    ReproducibilityFlag
+  deriving stock (Eq, Show)
+
+-- | A compile argument's shape.
+--
+-- Sprint `78.1` — most arguments are literals, but a pin can need a value the
+-- caller supplies per invocation. Splitting the two lets 'engineCompileFlags'
+-- contribute only the literal prefix to the cache key (so the key stays free of
+-- invocation-scoped paths) while 'renderCompileFlag' emits the full argument
+-- pair, and keeps the prefix and its value inseparable: neither can be passed
+-- without the other.
+data CompileArgument
+  = -- | Rendered verbatim.
+    FixedArgument !Text
+  | -- | Rendered as @\<prefix\> \<scratch dir\>@. The scratch directory's path
+    -- is measured __not__ to be embedded in the artifact, which is what makes it
+    -- safe to vary per invocation while the bytes stay reproducible.
+    ScratchDirArgument !Text
   deriving stock (Eq, Show)
 
 -- | One hash-free compile argument together with the role it plays.
 data CompileFlag = CompileFlag
-  { compileFlagText :: !Text
+  { compileFlagArgument :: !CompileArgument
   , compileFlagRole :: !CompileFlagRole
   }
   deriving stock (Eq, Show)
+
+-- | The cache-key-visible text of an argument: the literal, or a value
+-- argument's prefix. Never an invocation-scoped path.
+compileFlagText :: CompileFlag -> Text
+compileFlagText flag =
+  case compileFlagArgument flag of
+    FixedArgument text -> text
+    ScratchDirArgument prefix -> prefix
+
+-- | The argument as the compiler receives it.
+renderCompileFlag :: FilePath -> CompileFlag -> [Text]
+renderCompileFlag scratchDir flag =
+  case compileFlagArgument flag of
+    FixedArgument text -> [text]
+    ScratchDirArgument prefix -> [prefix, Text.pack scratchDir]
 
 -- | The hash-free compile arguments, split out of 'compileSubprocess' so the
 -- toolchain fingerprint (Sprint `78.1`) can name the flags the compile command
@@ -247,19 +331,24 @@ data CompileFlag = CompileFlag
 -- than two lists that can drift apart.
 engineCompileFlagSpecs :: Engine -> [CompileFlag]
 engineCompileFlagSpecs engine =
+  substrateCompileFlags engine <> reproducibilityFlags engine
+
+-- | The arguments a substrate's compiler needs regardless of reproducibility.
+substrateCompileFlags :: Engine -> [CompileFlag]
+substrateCompileFlags engine =
   case engineSubstrate engine of
     AppleSilicon -> []
     LinuxCPU ->
-      [ CompileFlag "-std=c++20" BuildFlag
-      , CompileFlag "-O2" BuildFlag
-      , CompileFlag "-fPIC" BuildFlag
-      , CompileFlag "-shared" BuildFlag
-      , CompileFlag "-DJITML_DETERMINISTIC_REDUCTIONS=1" DeterminismFlag
+      [ fixed "-std=c++20" BuildFlag
+      , fixed "-O2" BuildFlag
+      , fixed "-fPIC" BuildFlag
+      , fixed "-shared" BuildFlag
+      , fixed "-DJITML_DETERMINISTIC_REDUCTIONS=1" DeterminismFlag
       ]
     LinuxCUDA ->
-      [ CompileFlag "--shared" BuildFlag
-      , CompileFlag "--compiler-options=-fPIC" BuildFlag
-      , CompileFlag "-arch=sm_70" BuildFlag
+      [ fixed "--shared" BuildFlag
+      , fixed "--compiler-options=-fPIC" BuildFlag
+      , fixed "-arch=sm_70" BuildFlag
       , -- Disable FMA contraction so the device multiply-adds round the same
         -- way the CPU (oneDNN) build does with its separate multiply-then-add
         -- and fixed reduction order. With `--fmad=true` (the nvcc default) the
@@ -275,8 +364,32 @@ engineCompileFlagSpecs engine =
         -- with `no argument expected after '--use_fast_math'`, and absence is
         -- off. 'compileLineDeterminism' reads that absence off this list rather
         -- than restating a flag no compile line passes.
-        CompileFlag "--fmad=false" DeterminismFlag
+        fixed "--fmad=false" DeterminismFlag
       ]
+
+-- | The arguments that pin this substrate's artifact bytes, one per
+-- 'PinnedNonDeterminism' its producer carries.
+--
+-- Sprint `78.1` — total over the pin set, so a substrate whose producer gains a
+-- source of non-determinism cannot acquire it without also acquiring its
+-- remedy, and a substrate whose set is empty contributes nothing.
+-- 'SymbolMangling' is pinned in the renderer rather than on the command line
+-- (the construct is removed, see 'JitML.Substrate.InternalLinkageStyle'), so it
+-- contributes no argument here.
+reproducibilityFlags :: Engine -> [CompileFlag]
+reproducibilityFlags engine =
+  concatMap pinArguments (producerPins (engineSubstrate engine))
+ where
+  pinArguments pin =
+    case pin of
+      IntermediateFileNaming ->
+        [ fixed "--keep" ReproducibilityFlag
+        , CompileFlag (ScratchDirArgument "--keep-dir") ReproducibilityFlag
+        ]
+      SymbolMangling -> []
+
+fixed :: Text -> CompileFlagRole -> CompileFlag
+fixed text = CompileFlag (FixedArgument text)
 
 -- | A CUDA math library a generated program calls.
 data CudaLibrary = Cublas | Cudnn
@@ -342,16 +455,29 @@ engineSourceFileName engine =
     LinuxCPU -> "kernel.cc"
     LinuxCUDA -> "kernel.cu"
 
-compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> Subprocess
-compileSubprocess engine source hash =
+-- | The compile command, as a total fold over 'engineCompileFlagSpecs'.
+--
+-- Sprint `78.1` — no argument reaches the compiler that the spec list does not
+-- contain, so the cache key cannot be blind to an argument the compiler is
+-- given. (The converse — no advertised fact without a real argument — is what
+-- the original Sprint `78.1` closed; both directions now hold and both are
+-- tested.)
+--
+-- @scratchDir@ is the per-invocation directory the producer's intermediate
+-- files are directed at, and @stagingPath@ is where the artifact is written
+-- before being renamed into its content-addressed cache slot. Neither is a
+-- cache-key input: the scratch path is measured not to be embedded in the
+-- artifact, and the staging path is measured not to change the emitted bytes.
+compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> FilePath -> FilePath -> Subprocess
+compileSubprocess engine source hash scratchDir stagingPath =
   subprocess (Text.unpack (engineCompiler engine)) arguments
  where
   sourceDir = Text.pack (runtimeSourceRelativeDirectory source hash)
   sourcePath = sourceDir <> "/" <> engineSourceFileName engine
-  artifact = artifactPathText engine hash
+  staging = Text.pack stagingPath
   arguments =
     case engineSubstrate engine of
-      AppleSilicon -> [artifact, sourcePath]
+      AppleSilicon -> [staging, sourcePath]
       LinuxCPU -> hostCompileArguments
       LinuxCUDA -> hostCompileArguments
   -- The program is read off the rendered source rather than passed alongside
@@ -359,9 +485,20 @@ compileSubprocess engine source hash =
   -- the one it is compiling (Sprint `265.1`).
   program = runtimeSourceProgram source
   hostCompileArguments =
-    engineCompileFlags engine program
-      <> ["-o", artifact, sourcePath]
+    concatMap (renderCompileFlag scratchDir) (engineCompileFlagSpecs engine)
+      <> programLibraryDefines engine program
+      <> ["-o", staging, sourcePath]
       <> engineLinkFlags engine program
+
+-- | The scratch directory and staging path a rendering context shows when no
+-- real compile is being performed. Named once so a rendered plan displays the
+-- true argument /shape/ and no call site invents its own placeholder.
+renderedScratchDirectory :: FilePath
+renderedScratchDirectory = ".build/jit-scratch/<compile>"
+
+renderedStagingPath :: Engine -> Cache.Hash -> FilePath
+renderedStagingPath engine hash =
+  Text.unpack (artifactPathText engine hash) <> ".<compile>.partial"
 
 artifactPathText :: Engine -> Cache.Hash -> Text
 artifactPathText engine hash =

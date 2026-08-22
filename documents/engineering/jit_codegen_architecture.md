@@ -297,8 +297,10 @@ scaffolding modules.
   `./.build/jit-src/linux-cpu/<hash>/`.
 - `docker/Dockerfile` installs `libdnnl-dev`. The build plan invokes the
   oneDNN C++ compiler path through the typed `Subprocess` boundary against the
-  generated directory as `g++ ... -ldnnl`; the produced `.so` is written
-  atomically to `./.build/jit/linux-cpu/<hash>.so`.
+  generated directory as `g++ ... -ldnnl`; the compiler writes to a
+  per-invocation staging path and `JitML.Engines.Loader` publishes it by rename
+  to `./.build/jit/linux-cpu/<hash>.so`, so a content-addressed slot is either
+  absent or complete.
 - `src/JitML/Engines/Local.hs` routes the generated identity source,
   reduction source, and all generated oneDNN family kernels through
   `JitML.Engines.Loader`, `dlopen`s the produced `.so`, resolves
@@ -397,12 +399,17 @@ scaffolding modules.
 - `src/JitML/Codegen/Cuda.hs` renders the generated CUDA compiler input under
   `./.build/jit-src/linux-cuda/<hash>/`.
 - NVCC is invoked through the typed `Subprocess` boundary against the generated
-  directory with the doctrine-pinned determinism flags and baseline `sm_70`.
+  directory with the doctrine-pinned determinism flags, the reproducibility
+  arguments that pin its embedded intermediate-file names, and baseline
+  `sm_70`.
   Fast math is disabled by **omission** — `--use_fast_math` is never passed,
   because modern nvcc rejects the `=false` spelling — and `--fmad=false` is
   passed explicitly to suppress FMA contraction.
-- The produced `.so` is written atomically to
-  `./.build/jit/linux-cuda/<hash>.so`.
+- The compiler writes to a per-invocation staging path and
+  `JitML.Engines.Loader` publishes it by rename to
+  `./.build/jit/linux-cuda/<hash>.so`. Publication is one mechanism shared by
+  every substrate, so no fill path can leave a partially written artifact at a
+  content-addressed address that the next run reports as a cache hit.
 - The generated **family** reduction kernel uses warp-shuffle reduction and
   writes one deterministic partial per warp; it does not use device-side
   `atomicAdd`. The trainer MLP kernel does not use this pattern — see the MLP
@@ -445,15 +452,18 @@ scaffolding modules.
   `jitml_mlp_forward_batch` / `jitml_mlp_grad`) and does **not** call
   `cublasSgemm` (see "MLP forward/backward network kernels" below). The two
   surfaces therefore do not overlap and are not in conflict.
-- *(Dated historical, 2026-07-05 — since WITHDRAWN.)* On 2026-07-05 the
-  `jitml-backends --linux-cuda` lane was recorded as passing **21 / 21** on the
-  RTX 5090, asserting those generated source entry points before executing the
-  kernels. That evidence is withdrawn and must be cited only as dated historical
-  record. Current 2026-07-10 backend validation passes **22 / 22** on the RTX
-  5090, and the full `linux-cuda` product lane is **Done** after the fresh
-  55-row publisher, integration/e2e/live gates, and Phase `29.4` performance
-  table passed. The lane's assertion structure (checking the generated source
-  entry points before kernel execution) is unchanged.
+- *(Dated historical, 2026-07-05 and 2026-07-10 — both since WITHDRAWN.)* On
+  2026-07-05 the `jitml-backends --linux-cuda` lane was recorded as passing
+  **21 / 21** on the RTX 5090, and on 2026-07-10 as passing **22 / 22** with the
+  full `linux-cuda` product lane recorded `Done` off a fresh 55-row publisher,
+  integration/e2e/live gates, and a performance table. Both are dated historical
+  record only. The row-complete counts behind that closure were withdrawn on
+  2026-08-16; the product lane is not closed on them, and re-earning them is
+  owned by
+  [Phase 266](../../DEVELOPMENT_PLAN/phase-266-cuda-integration-e2e-and-attestation.md).
+  Current backend validation passes **28 / 28** on the RTX 5090 (2026-08-19).
+  The lane's assertion structure (checking the generated source entry points
+  before kernel execution) is unchanged.
 - `src/JitML/Engines/CudaLocal.hs` is the guarded CUDA local runner. It
   consumes a positive `probeCudaRuntime` before materializing and compiling the
   generated source, then loads the `.so` through the shared
@@ -461,9 +471,9 @@ scaffolding modules.
   family/output-count symbols as the Linux CPU local runner. It fails closed
   before compile when the CUDA runtime probe is unavailable.
 - The CUDA compile plan renders the typed
-  `nvcc --shared --compiler-options=-fPIC --fmad=false -arch=sm_70
-  -DJITML_USE_CUBLAS=1 -DJITML_USE_CUDNN=1 -o <artifact> <generated>/kernel.cu
-  -lcudart -lcublas -lcudnn` command so the produced `.so` carries DT_NEEDED
+  `nvcc --shared --compiler-options=-fPIC -arch=sm_70 --fmad=false
+  --keep --keep-dir <scratch> -DJITML_USE_CUBLAS=1 -DJITML_USE_CUDNN=1
+  -o <staging> <generated>/kernel.cu -lcudart -lcublas -lcudnn` command so the produced `.so` carries DT_NEEDED
   entries for the CUDA runtime, cuBLAS, and cuDNN; the dynamic linker
   resolves the three libraries at `dlopen` time and the CUDA toolchain
   fingerprint records the new link line so the JIT cache key reflects the
@@ -501,11 +511,17 @@ scaffolding modules.
   `jitml test all --linux-cuda` **8 / 8**, and passed live Playwright **71 / 71**
   at the CUDA edge `:9092`. This evidence is withdrawn and must be presented only
   as dated historical record, never as current closure. It was superseded on
-  2026-07-10 by the fresh **55 / 55** publisher, integration/e2e/live gates, and
-  **55 / 55** CUDA-faster-than-CPU table that retain closure for Sprints
-  `29.1`–`29.4`. Phase `29` as a whole is now **Blocked**, not Active: reopened
-  Sprint `29.5` waits on Phase `263` / legacy Sprint `28.6` before it can
-  produce the new contract-journal-bound CUDA lane attestation.
+  2026-07-10 by a fresh run of the same shape, and those counts were themselves
+  withdrawn on 2026-08-16 — so neither closes this lane. In the post-renumber
+  plan, legacy Phase `29` is Phases `265`–`268`:
+  [265](../../DEVELOPMENT_PLAN/phase-265-cuda-row-device-evidence.md) is `Done`,
+  [266](../../DEVELOPMENT_PLAN/phase-266-cuda-integration-e2e-and-attestation.md)
+  is `Planned` and owns re-earning the row-complete integration/e2e/attestation
+  evidence, and
+  [267](../../DEVELOPMENT_PLAN/phase-267-gpu-performance-and-persistent-device-buffers.md)
+  and
+  [268](../../DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md)
+  are `Blocked` behind it.
 - **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`

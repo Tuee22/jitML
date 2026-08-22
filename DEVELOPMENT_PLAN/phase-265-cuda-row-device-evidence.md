@@ -305,6 +305,13 @@ witnesses on 2026-08-15 and carries real digests; the `linux-cuda` card never
 was. It would therefore fail this check against any source state, including a
 no-op commit — this sprint moved the digests, it did not create the mismatch.
 
+The deeper cause was found on 2026-08-19 and is owned by
+[Phase 78](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md): `nvcc`
+output is not byte-reproducible, so the digest a cell pins is a per-compile nonce
+and no re-issue of this lane's fragment could hold. This sprint's own obligations
+are unaffected — they concern which engine ran and whether each row converged, not
+the stability of the artifact's address.
+
 Re-issuing it is [Phase 268](phase-268-contract-driven-cuda-lane-revalidation.md)'s
 stated deliverable ("Replace the committed `linux-cuda` fragment only after all
 scenarios complete; retain explicit failed/not-run entries rather than

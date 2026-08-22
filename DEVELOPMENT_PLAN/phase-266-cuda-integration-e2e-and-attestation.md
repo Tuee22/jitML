@@ -9,19 +9,50 @@
 
 ## Phase State
 
-⏸️ **Blocked** (reopened 2026-08-16 under standards rule `C`). This phase attests
+✅ **Done** (2026-08-22). `jitml test all --linux-cuda` runs every CUDA-supported
+product row for real through the training, checkpoint, integration, and e2e
+paths, and the refreshed `linux-cuda` attestation records that run rather than
+the withdrawn 2026-07-10 counts. The gate is green end to end: **10 / 10**
+stanzas, `jitml-integration` **197 / 197**, and the live Playwright product
+matrix **PASS** with **77** browser tests covering **55** distinct
+`e2e.product.*` row selectors.
+
+What blocked this phase was not row coverage but a defect in the device path.
+`JitML.Engines.Loader.ensureKernelArtifact` runs on **every** device operation,
+not only on a cache miss, so the Sprint `78.1` toolchain-validity check forked
+`nvcc --version` once per kernel launch — measured at **20,692** spawns in 60 s
+of `linux-cuda` PPO rollout, none of them a compile. That put the live RL
+workflow past its 600 s placement budget and made `jitml-integration` a 21.2-hour
+stanza. The probe is now resolved once per substrate per process; the per-artifact
+sidecar comparison that actually enforces the upgrade gate is unchanged, and a
+`jitml-unit` case drives 32 cache hits through a PATH-shimmed `nvcc` and fails if
+it runs more than once.
+
+The effect is measured, not inferred: `live daemon places StartRLRun by substrate`
+went from a hard 600 s timeout to **96.33 s**, `live PPO cartpole convergence`
+from **2766.89 s** to **339.11 s**, and the `jitml-integration` stanza from
+**21.2 h** to **7.9 h**.
+
+### Historical Phase State
+
+> 📋 **Planned** (2026-08-19). Every upstream dependency is `Done` and this phase
+is the first executable owner of the open chain. Its own obligation — a
+row-complete `linux-cuda` lane attested from real evidence — is not yet met: the
+`55 / 55` and `71 / 71` counts in `### Historical Validation` remain
+**withdrawn**, and the 2026-07-10 evidence stands only for the surface it
+exercised.
+
+> ⏸️ **Blocked** (reopened 2026-08-16 under standards rule `C`). This phase attests
 a row-complete `linux-cuda` lane, and its own `### Historical Validation` already
 records the `55 / 55` and `71 / 71` counts as **withdrawn**. The 2026-08-16
 measured lane run reported `rows: 55`, `eligible: 50`, `unsupported: 0`,
 `errors: 5`, so the lane is not row-complete and this phase cannot hold `Done`
-on that obligation. The 2026-07-10 evidence remains historical evidence for the
-surface it exercised.
+on that obligation.
 
-## Sprint 266.1: CUDA Integration, E2E, and Attestation [⏸️ Blocked]
+## Sprint 266.1: CUDA Integration, E2E, and Attestation [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Sprint `265.1`
-**Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
+**Status**: Done
+**Implementation**: `src/JitML/Engines/Loader.hs`, `test/unit/Main.hs`, `test/integration/Main.hs`, `test/e2e/Main.hs`, `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `../documents/engineering/unit_testing_policy.md`, `../documents/engineering/purescript_frontend.md`, `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
 
 ### Objective
@@ -40,12 +71,17 @@ row-complete lane evidence.
 - `jitml test jitml-e2e --live --linux-cuda` selected the existing CUDA
   publication at edge `:9092`, ran the Haskell e2e stanza, and then ran the live
   Playwright product matrix against that edge.
-- Live Playwright rendered every generated ProductRow artifact selector as
-  eligible: **71 / 71** browser tests passed, including **55 / 55** row-specific
-  `e2e.product.*` cases.
+- Live Playwright renders every generated ProductRow artifact selector as
+  eligible: **77** browser tests pass, covering **55** distinct row-specific
+  `e2e.product.*` selectors.
+- The device path resolves the artifact-toolchain probe once per substrate per
+  process. `ensureKernelArtifact` runs per device operation rather than per
+  compile, so an unmemoised probe forked `nvcc --version` once per kernel launch;
+  a `jitml-unit` case drives 32 cache hits through a PATH-shimmed `nvcc` and
+  fails if it is invoked more than once.
 - The refreshed CUDA report card in
-  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` records the 2026-07-10
-  Phase `29` validation.
+  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md` records the
+  2026-08-22 measured lane run.
 
 ### Validation
 
@@ -57,7 +93,26 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-07-10 validation passed on the current source: `jitml test all
+2026-08-22 validation passed on the current source.
+
+| Gate | Result |
+|---|---|
+| `jitml internal train-and-publish-product-rows --linux-cuda` | `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0` |
+| `jitml test all --linux-cuda` | exit `0` — **10 / 10** stanzas: `jitml-unit` **902 / 902**, `jitml-integration` **197 / 197**, `jitml-sl-canonicals` **36 / 36**, `jitml-rl-canonicals` **47 / 47**, `jitml-hyperparameter` **26 / 26**, `jitml-backends` **28 / 28**, `jitml-daemon-lifecycle` **54 / 54**, `jitml-e2e` **30 / 30**, `jitml-negative-controls` **3 / 3**, `jitml-model-convergence` **111 / 111** |
+| `jitml test jitml-e2e --linux-cuda` | exit `0` |
+| `jitml test jitml-e2e --live --linux-cuda` | exit `0` — `jitml-integration` **197 / 197**, Haskell e2e **30 / 30**, `jitml-e2e-playwright` **PASS** (**77** browser tests, **55** `e2e.product.*` selectors) |
+| `jitml docs check` | PASS |
+| `jitml check-code` | PASS |
+
+Measured effect of the loader fix on the live path, same commands and same
+cluster before and after: `live daemon places StartRLRun by substrate` **FAIL
+(600 s timeout) → OK (96.33 s)**; `live PPO cartpole convergence` **2766.89 s →
+339.11 s**; `jitml-integration` stanza **21.2 h → 7.9 h**; `nvcc` spawns per 60 s
+of CUDA PPO rollout **20,692 → 1**.
+
+### Historical Validation (2026-07-10, withdrawn counts)
+
+2026-07-10 validation passed on the then-current source: `jitml test all
 --linux-cuda` passed **10 / 10** stanzas (`jitml-unit` **278 / 278**,
 `jitml-integration` **137 / 137**, `jitml-sl-canonicals` **31 / 31**,
 `jitml-rl-canonicals` **39 / 39**, `jitml-hyperparameter` **19 / 19**,

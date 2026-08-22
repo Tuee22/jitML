@@ -1,9 +1,13 @@
 module JitML.Product.Publisher
-  ( ProductPublisherRuntime (..)
+  ( ProductArtifactReceipt (..)
+  , ProductPublishDisposition (..)
+  , ProductPublishResult (..)
+  , ProductPublisherRuntime (..)
   , RlPublishRun
   , SupervisedPublishRun (..)
   , TuningPublishDataset (..)
   , productTuneTrialArtifact
+  , reuseProductPublishResult
   , runTrainAndPublishProductRows
   , runTrainAndPublishProductRowsForInvocation
   , selectInternalProductRows
@@ -16,10 +20,14 @@ module JitML.Product.Publisher
 where
 
 import JitML.Product.Publisher.Audit
-  ( snapshotScopedPointer
+  ( ProductArtifactReceipt (..)
+  , ProductPublishDisposition (..)
+  , ProductPublishResult (..)
+  , snapshotScopedPointer
   , validateAdmittedProductCheckpoint
   , validateProductCompletedTrainingPlanId
   )
+import JitML.Product.Publisher.Common (reuseProductPublishResult)
 import JitML.Product.Publisher.Orchestrator
   ( runTrainAndPublishProductRows
   , runTrainAndPublishProductRowsForInvocation

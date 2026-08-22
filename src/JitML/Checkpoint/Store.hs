@@ -4,6 +4,7 @@
 
 module JitML.Checkpoint.Store
   ( AdmittedCheckpoint
+  , canonicalProductCompanionObjectKey
   , AdmittedCompletedCheckpoint
   , CheckpointAdmissionError (..)
   , CheckpointWriteError (..)

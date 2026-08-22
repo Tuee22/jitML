@@ -24,7 +24,6 @@ data AppError
   | ChartLintFailed Text
   | RouteRegistryDrift Text
   | JitCacheMiss Text
-  | JitToolchainDrift Text
   | CheckpointFormatUnsupported Text
   | CheckpointWriteConflict Text
   | InferenceCheckpointMissing Text

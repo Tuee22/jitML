@@ -322,19 +322,19 @@ allProductPhaseStatuses =
       266
       "CUDA Integration, E2E, and Attestation"
       "DEVELOPMENT_PLAN/phase-266-cuda-integration-e2e-and-attestation.md"
-      [ sprint "266.1" "CUDA Integration, E2E, and Attestation" Blocked
+      [ sprint "266.1" "CUDA Integration, E2E, and Attestation" Done
       ]
   , productPhase
       267
       "GPU Performance and Persistent Device Buffers"
       "DEVELOPMENT_PLAN/phase-267-gpu-performance-and-persistent-device-buffers.md"
-      [ sprint "267.1" "GPU Performance and Persistent Device Buffers" Blocked
+      [ sprint "267.1" "GPU Performance and Persistent Device Buffers" Done
       ]
   , productPhase
       268
       "Contract-Driven CUDA Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Blocked
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Active
       ]
   , productPhase
       269

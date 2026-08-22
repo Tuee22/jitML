@@ -8,7 +8,8 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Control.Exception qualified
-import Data.Either (isRight)
+import Data.ByteString qualified as ByteString
+import Data.Either (isRight, lefts)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
@@ -16,6 +17,7 @@ import JitML.Codegen.Cuda qualified as CudaCodegen
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
 import JitML.Codegen.Metal qualified as MetalCodegen
 import JitML.Codegen.MlpCuda qualified as MlpCudaCodegen
+import JitML.Codegen.RuntimeSource qualified as RuntimeSource
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal
@@ -26,12 +28,15 @@ import JitML.Engines.CudaLocal
 import JitML.Engines.CudaLocal qualified as Cuda
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.CudnnBindings qualified as Cudnn
+import JitML.Engines.Engine qualified as Engine
+import JitML.Engines.Fingerprint qualified as Fingerprint
 import JitML.Engines.HasEngine
   ( EngineRequest (..)
   , engineRunOutput
   , engineRunReportedFamily
   , runLinuxCpuEngine
   )
+import JitML.Engines.Loader qualified as Loader
 import JitML.Engines.Local
   ( linuxCpuKernelOutput
   , linuxCpuKernelReportedFamily
@@ -138,6 +143,54 @@ expectRight label result =
   case result of
     Right value -> pure value
     Left err -> assertFailure (label <> ": " <> Text.unpack err)
+
+-- | Compile one rendered source twice, at two distinct cache addresses, and
+-- return the two artifacts' bytes.
+--
+-- Sprint `78.1` — this is the gate that discharges
+-- 'JitML.Substrate.ArtifactProducer'. The type can make every *known*
+-- non-determinism source unpinnable-by-omission, but it cannot prove the set is
+-- complete; only compiling twice and comparing can. It therefore runs on every
+-- lane, including the two whose pin set is empty, because an empty set is a
+-- claim rather than an absence of one.
+--
+-- Two distinct synthetic hashes give two source directories, two artifact
+-- paths, and two scratch directories in one move, so a producer that embedded
+-- any of those paths would be caught here.
+compileArtifactTwice
+  :: Substrate.Substrate -> IO (Either Text.Text (ByteString.ByteString, ByteString.ByteString))
+compileArtifactTwice substrate = do
+  env <- buildEnv defaultGlobalFlags
+  case LayerGraphDevice.layerTrainingBackendFor substrate of
+    Left err -> pure (Left err)
+    Right backend -> compileBoth env backend
+ where
+  compileBoth env backend = do
+    let source = LayerGraphDevice.layerGraphDeviceRuntimeSource backend
+        hashes =
+          [ Cache.cacheKey
+              (Cache.KernelSpec ("phase-78-reproducibility-" <> Text.pack (show index)))
+              Cache.Training
+              substrate
+              (Fingerprint.layerTrainingToolchainFingerprint substrate)
+              (RuntimeSource.runtimeSourcePayload source)
+              Cache.defaultTuningChoice
+          | index <- [0 :: Int, 1]
+          ]
+    outcomes <- traverse (compileOnce env source) hashes
+    pure $
+      case outcomes of
+        [Right first, Right second] -> Right (first, second)
+        failures -> Left (Text.intercalate "; " (lefts failures))
+
+  compileOnce env source hash = do
+    artifact <- Loader.ensureKernelArtifact env (Engine.engineForSubstrate substrate) source hash
+    case artifact of
+      Left err -> pure (Left (Loader.renderKernelArtifactError err))
+      Right built -> do
+        let path = Text.unpack (Engine.kernelHandleArtifactPath (Loader.kernelArtifactHandle built))
+        bytes <- ByteString.readFile path
+        pure (Right bytes)
 
 main :: IO ()
 main =
@@ -1942,6 +1995,39 @@ main =
                 gradW1 g @?= gradW1 g2
                 gradW2 g @?= gradW2 g2
               _ -> assertBool "both batched MLP gradient runs succeed" False
+      , testCase
+          "linux-cuda layer-training artifact is byte-identical across two independent compiles (Phase 78)"
+          $ do
+            -- nvcc embeds its own process id (via `tmpxft_<pid>_…` intermediate
+            -- names) and a random anonymous-namespace id unless both are pinned.
+            -- Either one makes the artifact digest a per-compile nonce, which
+            -- makes a committed lane attestation unsatisfiable by construction.
+            outcome <- compileArtifactTwice Substrate.LinuxCUDA
+            case outcome of
+              Left message ->
+                assertFailure ("linux-cuda double compile failed: " <> Text.unpack message)
+              Right (first, second) ->
+                assertBool
+                  ( "linux-cuda artifact is not reproducible: "
+                      <> show (ByteString.length first)
+                      <> " vs "
+                      <> show (ByteString.length second)
+                      <> " bytes"
+                  )
+                  (first == second)
+      , testCase
+          "linux-cpu layer-training artifact is byte-identical across two independent compiles (Phase 78)"
+          $ do
+            -- g++ was measured to inject nothing, so this lane's pin set is
+            -- empty. That is a claim, and this is what discharges it — it also
+            -- guards the 55 attested `linux-cpu` cells against a future flag or
+            -- renderer change that would quietly make them unreproducible.
+            outcome <- compileArtifactTwice Substrate.LinuxCPU
+            case outcome of
+              Left message ->
+                assertFailure ("linux-cpu double compile failed: " <> Text.unpack message)
+              Right (first, second) ->
+                assertBool "linux-cpu artifact is not reproducible" (first == second)
       , testCase
           "linux-cuda batched MLP gradient is bit-identical to the oneDNN lane (Phase 265)"
           $ do
