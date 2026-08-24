@@ -154,16 +154,14 @@ The Haskell side owns:
 
 ### Host Residency
 
-Apple Metal execution is host-resident for the workload kinds that reach the
-bridge: RL trainers, tuning trials, and AlphaZero policy/value evaluation, which
-route through the `MlpDevice` seam.
-
-**Supervised training and supervised serving do not reach the bridge today.**
-Supervised training over the typed `LayerGraph` executes oneDNN kernels on every
-substrate, and supervised serving executes the pure host executor, so neither is
-Metal-backed on this lane. Phases `270` and `271` own closing that; see
-[Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md). The target
-below describes the intended Apple boundary, not current execution. The Kubernetes cluster remains responsible for Pulsar,
+Apple Metal execution is host-resident for RL trainers, tuning trials, and
+AlphaZero policy/value evaluation through the `MlpDevice` seam, and for
+supervised typed-graph training through `LayerGraphDevice`. The latter renders
+the complete layer-training MSL program on demand and dispatches dense,
+convolution, normalization, GeGLU, attention, patch, residual, pooling, and
+scale operations through the fixed bridge. Supervised serving continues to use
+the shared pure graph executor; Phase `271` owns the row-complete device-evidence
+gate for the Metal training path. The Kubernetes cluster remains responsible for Pulsar,
 MinIO, the image registry, public routing, and orchestration. Inference and
 daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
 typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
@@ -219,10 +217,11 @@ package source to MSL source.
 
 Supervised training and serving use the typed `LayerGraph`; there is no separate
 Metal structural-operation program or `RuntimeOperations*` ABI. The fixed bridge
-is the intended Apple boundary for generated MSL kernels selected by the
-supervised path. **That selection is not yet implemented**: the supervised graph
-path selects oneDNN kernels regardless of substrate, so no MSL kernel is chosen
-for it. Phase `270` owns the Metal arm of the device lowering.
+is the Apple boundary for generated MSL kernels selected by the supervised
+training path. `layerTrainingBackendFor AppleSilicon` selects
+`MetalLayerTraining`, persists the generated source metadata, and calls the
+bridge's layer-training entry point; bridge and primitive evidence therefore
+fail closed if Metal did not execute.
 
 The supervised V2 checkpoint name remains a valid wire-format name. Its payload
 records the exact input/output transforms and trained graph metadata, and its one

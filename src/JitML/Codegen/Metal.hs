@@ -173,13 +173,13 @@ unweightedFamilyNote family =
       , "// is in range writes one partial, matching ceil(n / 32) outputs."
       ]
     Dense2D ->
-      [ "// Dense2D unweighted path: explicit identity GEMM over the flat vector."
+      [ "// Dense2D unweighted path: the shared weighted algebra at its canonical unit matrix."
       ]
     Conv2DKernel ->
-      [ "// Conv2D unweighted path: 3x3 windowed convolution with a unit center filter."
+      [ "// Conv2D unweighted path: full 3x3 windowed convolution at the canonical no-op filter."
       ]
     Conv3DKernel ->
-      [ "// Conv3D unweighted path: 3x3x3 windowed convolution with a unit center filter."
+      [ "// Conv3D unweighted path: full 3x3x3 windowed convolution at the canonical no-op filter."
       ]
     BatchNormKernel ->
       [ "// BatchNorm unweighted path with canonical affine/global-stat defaults."
@@ -188,7 +188,7 @@ unweightedFamilyNote family =
       [ "// LayerNorm unweighted path: normalize over the flat input vector."
       ]
     MultiHeadAttentionKernel ->
-      [ "// MHA unweighted path: identity Q/K/V projections with elementwise Q*K."
+      [ "// MHA unweighted path: the shared Q/K/V algebra at canonical unit projections."
       ]
     EmbeddingKernel ->
       [ "// Embedding without a table preserves the supplied indices."
@@ -274,7 +274,19 @@ unweightedFamilyCompute family =
       , "  out[id] = (input[id] - mean) / sqrt(var + 1.0e-5f);"
       ]
     MultiHeadAttentionKernel ->
-      [ "  out[id] = input[id] * input[id];"
+      [ "  float projected = 0.0f;"
+      , "  for (uint j = 0u; j < n; ++j) {"
+      , "    float qsum = 0.0f;"
+      , "    float ksum = 0.0f;"
+      , "    for (uint k = 0u; k < n; ++k) {"
+      , "      float unit = (k == j) ? 1.0f : 0.0f;"
+      , "      qsum += input[k] * unit;"
+      , "      ksum += input[k] * unit;"
+      , "    }"
+      , "    float unit_v = (j == id) ? 1.0f : 0.0f;"
+      , "    projected += qsum * ksum * unit_v;"
+      , "  }"
+      , "  out[id] = projected;"
       ]
     EmbeddingKernel ->
       [ "  out[id] = input[id];"

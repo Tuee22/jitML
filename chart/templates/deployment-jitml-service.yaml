@@ -4,7 +4,7 @@ metadata:
   name: jitml-service
   namespace: platform
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -19,32 +19,13 @@ spec:
         checksum/live-config: {{ include (print $.Template.BasePath "/configmap-jitml-service.yaml") . | sha256sum | quote }}
       labels:
         app: jitml-service
-        jitml.substrate: linux-cuda
+        jitml.substrate: apple-silicon
         jitml.role: engine
-        jitml.compute: "true"
+        jitml.compute: "false"
         jitml.compute-scope: service
     spec:
       serviceAccountName: jitml-engine
       automountServiceAccountToken: false
-      runtimeClassName: nvidia
-      nodeSelector:
-        jitml.node-role/compute: "true"
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - topologyKey: kubernetes.io/hostname
-              labelSelector:
-                matchLabels:
-                  jitml.compute: "true"
-                  jitml.compute-scope: service
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: DoNotSchedule
-          labelSelector:
-            matchLabels:
-              jitml.compute: "true"
-              jitml.compute-scope: service
       containers:
         - name: jitml-service
           image: jitml:local
@@ -66,11 +47,6 @@ spec:
             httpGet:
               path: /healthz
               port: 8080
-          env:
-            - name: NVIDIA_VISIBLE_DEVICES
-              value: all
-            - name: NVIDIA_DRIVER_CAPABILITIES
-              value: compute,utility
           volumeMounts:
             - name: jit-cache
               mountPath: /opt/build
@@ -102,7 +78,7 @@ spec:
         checksum/live-config: {{ include (print $.Template.BasePath "/configmap-jitml-service.yaml") . | sha256sum | quote }}
       labels:
         app: jitml-coordinator
-        jitml.substrate: linux-cuda
+        jitml.substrate: apple-silicon
         jitml.role: coordinator
         jitml.compute: "false"
     spec:

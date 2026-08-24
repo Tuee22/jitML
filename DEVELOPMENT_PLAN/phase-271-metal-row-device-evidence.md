@@ -50,6 +50,34 @@ PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-show-d
 PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-e2e --test-show-details=direct
 ```
 
+### 2026-08-24 Pause Checkpoint
+
+The Phase `270` fixed-bridge layer-training implementation is now available to
+mint the execution witnesses this phase requires. Validation completed before
+this session paused:
+
+- `./bootstrap/apple-silicon.sh doctor` passed.
+- `jitml-backends` passed **21 / 21** on `apple-silicon`, including the
+  all-operator fixed-bridge layer-training oracle.
+- `jitml-e2e` passed **30 / 30**.
+- `./bootstrap/apple-silicon.sh up` completed its **111-step** live rollout.
+  The image build passed the container-only `jitml check-code` gate, and the
+  live status reported registry, MinIO, Pulsar, observability, coordinator,
+  demo, and edge all Ready.
+- Ten of the twelve canonical dataset objects were SHA-verified and staged:
+  MNIST and Fashion-MNIST train/test images and labels, Tiny ImageNet, and
+  California Housing. The canonical CIFAR-100 archive was also downloaded and
+  verified locally as
+  `58a81ae192c23a4be8b1804d68e518ed807d710a4eb253b1f2a199162a40d8ec`,
+  but was not staged before the pause. The CIFAR-10 transfer is incomplete and
+  its partial file is not evidence.
+
+No product-row publisher run was started, so this phase remains **Active** and
+no row-complete claim is made. At the user's pause request all active transfers
+were stopped and `./bootstrap/apple-silicon.sh down` deleted the two-node Kind
+cluster. A continuation must recreate the publication and re-stage all twelve
+objects before running the 55-row publisher.
+
 2026-07-06 closing validation: the `apple-silicon` backend lane proves Metal
 runtime absence fails before product-row evidence is accepted, and the real
 windowed kernels compile and dispatch through the fixed bridge on the host GPU.
@@ -77,9 +105,15 @@ final product aggregation remains blocked by Phase `29`.
 
 ### Remaining Work
 
-- Re-mint per-row Metal device evidence from an execution witness once Sprints
-  `229.1` and `270.1` land.
-- Re-run the lane and record the measured result.
+- Finish and SHA-verify the canonical CIFAR-10 archive download.
+- Recreate the Apple publication and re-stage all twelve canonical dataset
+  objects; the paused cluster was deliberately deleted.
+- Run `jitml internal train-and-publish-product-rows --apple-silicon` and require
+  `rows: 55`, `eligible: 55`, `unsupported: 0`, and `errors: 0`, with each
+  supported row's admitted manifest carrying its execution-derived Metal
+  witness.
+- Re-run the validation block on the final source and record the measured
+  result before changing this phase to `Done`.
 
 ### Historical Phase State
 

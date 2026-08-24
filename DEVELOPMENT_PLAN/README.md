@@ -334,11 +334,12 @@ publication readiness unsatisfiable; and a shared `<path>.tmp` staging name in
 source race, killing all but one. Sprint `78.1` had fixed that last class for
 compiled artifacts; the rendered-source path had the same defect.
 
-**Phase `270` is the first executable owner, and it is the apple-silicon wall.**
+**Phase `270` closed `Done` on 2026-08-24; Phase `271` is now the first
+executable owner and the apple-silicon evidence wall.**
 
 The Phase `19`–`34` product registry is
-**58 Done / 2 Active / 0 Planned / 10 Blocked**.
-The numerically ordered open chain is `270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phases `43`–`52` and `54`–`68` retain `Done` on
+**59 Done / 1 Active / 0 Planned / 10 Blocked**.
+The numerically ordered open chain is `271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `273` remains the hard Apple-Silicon host boundary.
 
@@ -2821,11 +2822,15 @@ blocks) are tracked in
 ## Current Plan Status
 
 The authoritative current state is [Closure Status](#closure-status) above and
-the [Phase Overview](00-overview.md). Seven registry phases are Active after the
-2026-08-12 execution-architecture reopen plus the 2026-08-14 Phase `229` reopen,
-and Phase `270` is the first executable owner overall. The
-Phase `19`–`34` registry is **58 Done / 2 Active / 0 Planned / 10 Blocked**.
-The complete open chain is `270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with every Blocked phase naming its predecessor.
+the [Phase Overview](00-overview.md). Phase `270` re-closed `Done` on
+2026-08-24, leaving Phase `271` as the first executable owner overall. The
+Phase `19`–`34` registry is **59 Done / 1 Active / 0 Planned / 10 Blocked**.
+The complete open chain is `271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with every Blocked phase naming its predecessor.
+Phase `271` is paused after its Apple doctor, **21 / 21** backend tests,
+**30 / 30** e2e tests, container code-quality gate, and live **111-step**
+bootstrap passed. The cluster was torn down before the 55-row publisher ran;
+its exact continuation checkpoint and remaining dataset work are recorded in
+[Phase 271 → 2026-08-24 Pause Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-24-pause-checkpoint).
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3617,15 +3622,15 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252` and `261` are
-Done; Phases `42`, `53`, `69`, `229`, and `262` are Done; Phases `268`, `273`,
-`276`, `278`, `280`–`282`, `285`, `288`, and `288` are Blocked by their
+Done; Phases `42`, `53`, `69`, `229`, `262`, `268`, and `270` are Done; Phases
+`272`, `273`, `276`, `278`, `280`–`282`, `285`, `288`, and `289` are Blocked by their
 immediate predecessor in the chain. Outside the registry range, Phases `7` and
-`72` re-closed `Done` on 2026-08-13; Phases `77`, `78`, `79`, `80`, and `84`
-remain Active on the same `linux-cpu` lane.
+`72` re-closed `Done` on 2026-08-13; Phases `77`, `79`, `80`, and `84`
+re-closed `Done` on 2026-08-14, and Phase `78` re-closed `Done` on 2026-08-19.
 
 Every edge points forward. Sprints `29.5` and `30.4` validate one accelerator
 each; Sprint `31.3` consumes their committed journals on `linux-cpu` and invokes

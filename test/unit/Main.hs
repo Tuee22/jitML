@@ -115,6 +115,7 @@ import JitML.Codegen.KernelFamily (KernelFamily (..))
 import JitML.Codegen.KernelFamily qualified as KernelFamily
 import JitML.Codegen.LayerTraining qualified as LayerTrainingCodegen
 import JitML.Codegen.Metal qualified as Metal
+import JitML.Codegen.MetalLayerTraining qualified as MetalLayerTrainingCodegen
 import JitML.Codegen.MlpCuda qualified as MlpCudaCodegen
 import JitML.Codegen.MlpMetal qualified as MlpMetalCodegen
 import JitML.Codegen.MlpOneDnn qualified as MlpOneDnnCodegen
@@ -12146,8 +12147,8 @@ unitTestMain =
                 "oneDNN attention delegates to the unit-weight algebra"
                 ("jitml_onednn_mha_unit(out, input, n);" `Text.isInfixOf` oneDnn)
               assertBool
-                "metal attention squares its input"
-                ("input[id] * input[id]" `Text.isInfixOf` metal)
+                "metal attention evaluates the shared unit-projection algebra"
+                ("projected += qsum * ksum * unit_v;" `Text.isInfixOf` metal)
               assertBool
                 "no renderer leaves attention as a bare passthrough"
                 (not ("jitml_onednn_dense_identity(out, input, n);" `Text.isInfixOf` oneDnn))
@@ -12600,6 +12601,10 @@ unitTestMain =
                 [ ("layer-training-onednn", rendered OneDnnCodegen.renderOneDnnLayerTrainingSource)
                 , ("layer-training-cuda", rendered CudaLayerTrainingCodegen.renderCudaLayerTrainingSource)
                 ]
+                @?= []
+              missing
+                Fingerprint.metalLayerTrainingEntryPoints
+                ("layer-training-metal", MetalLayerTrainingCodegen.metalLayerTrainingProgram)
                 @?= []
           , testCase "the family fingerprint names every kernel family" $
               [ family

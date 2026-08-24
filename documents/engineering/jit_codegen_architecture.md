@@ -23,15 +23,15 @@ time.
 
 **`LayerGraphDevice` is the one layer-graph device path, with a per-lane arm
 behind it.** Sprint `264.1` parameterised it on `Substrate`: a narrower
-`LayerTrainingBackend` (`OneDnnLayerTraining` / `CudaLayerTraining`) makes every
-function behind it total, and `layerTrainingBackendFor` is the single boundary
+`LayerTrainingBackend` (`OneDnnLayerTraining` / `CudaLayerTraining` /
+`MetalLayerTraining`) makes every function behind it total, and
+`layerTrainingBackendFor` is the single boundary
 where a substrate becomes a backend. `linux-cpu` renders oneDNN primitives and
 `linux-cuda` renders cuBLAS/cuDNN primitives, both splicing the same shared
-operator layer, so the two lanes cannot drift in operator semantics.
-`apple-silicon` has no layer-graph training kernel and therefore fails closed
-naming Sprint `270.1`, rather than silently executing the `linux-cpu` artifact
-and attributing the run to hardware that did not execute it. The per-substrate
-lowering is owned by
+operator layer. `apple-silicon` renders a content-addressed MSL training program
+covering the same typed operator vocabulary and dispatches it through the fixed
+host bridge; primitive evidence names the Metal direction that executed. The
+per-substrate lowering is owned by
 Phase `79` (the substrate-generic seam),
 [Phase 264](../../DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md), and
 [Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md).
@@ -563,11 +563,10 @@ scaffolding modules.
   atomically writing that `.metal.json` file. There is no per-kernel Swift
   package, SwiftPM invocation, Tart VM build, copied dylib, stable symlink, or
   Apple per-kernel `dlopen` path.
-- Phase `30` makes most of the product-family Metal renderer real rather than
+- Phase `270` makes the product-family Metal renderer real rather than
   copy-shaped: Dense2D, Conv2D, Conv3D, BatchNorm, LayerNorm, Embedding,
-  Reduction, and Identity render explicit MSL bodies. **MultiHeadAttention is not
-  yet real on the unweighted path**: it renders an elementwise square, which also
-  disagrees with the oneDNN renderer for the same family. Phase `270` owns it. Conv2D and Conv3D weighted kernels use windowed multi-tap
+  Reduction, Identity, and MultiHeadAttention render explicit shared-semantics
+  MSL bodies. Conv2D and Conv3D weighted kernels use windowed multi-tap
   neighbourhoods and the backend tests reject the old identity-copy and
   1x1-degenerate source markers before executing Metal output checks against
   host references.
@@ -575,7 +574,8 @@ scaffolding modules.
   command writes the bridge source under `./.build/host/apple-silicon/` and
   builds `libJitMLMetalBridge.dylib` with `/usr/bin/clang -dynamiclib -fobjc-arc
   -ObjC ... -framework Foundation -framework Metal`. The bridge exports probe,
-  generic source dispatch, and MLP forward/backward/batch entrypoints; stale
+  generic source dispatch, layer-training, and MLP forward/backward/batch
+  entrypoints; stale
   bridge builds fail the probe because required symbols are checked.
 - `src/JitML/Engines/MetalLocal.hs` loads/probes the fixed bridge, passes the
   Haskell-rendered MSL source to it, and dispatches unweighted and weighted

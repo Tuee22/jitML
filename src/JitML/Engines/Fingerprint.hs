@@ -68,6 +68,7 @@ module JitML.Engines.Fingerprint
   , mlpHostEntryPoints
   , mlpMetalEntryPoints
   , layerTrainingEntryPoints
+  , metalLayerTrainingEntryPoints
   )
 where
 
@@ -230,6 +231,12 @@ layerTrainingEntryPoints =
   , "jitml_layer_backward_weights_primitive"
   ]
 
+-- | The Apple layer-training artifact is generated MSL source metadata.  Its
+-- host-callable ABI lives in the fixed bridge; the artifact itself defines one
+-- total operator entry point.
+metalLayerTrainingEntryPoints :: [Text]
+metalLayerTrainingEntryPoints = ["jitml_layer_train"]
+
 -- | The kernel-family emitter set, derived from the family vocabulary rather
 -- than a hand-written @all-families@ tag.
 familyEmitters :: [Text]
@@ -332,8 +339,16 @@ layerTrainingToolchainFingerprint substrate =
       , factsDeterminism = deterministicFlags engine
       , factsReproducibility = compileLineReproducibility engine
       , factsKnobs = layerTrainingKnobs substrate
-      , factsAbi = ExternCLayerGraphTraining
-      , factsEntryPoints = layerTrainingEntryPoints
+      , factsAbi =
+          case substrate of
+            AppleSilicon -> FixedMetalBridge metalBridgeAbiVersion
+            LinuxCPU -> ExternCLayerGraphTraining
+            LinuxCUDA -> ExternCLayerGraphTraining
+      , factsEntryPoints =
+          case substrate of
+            AppleSilicon -> metalLayerTrainingEntryPoints
+            LinuxCPU -> layerTrainingEntryPoints
+            LinuxCUDA -> layerTrainingEntryPoints
       , factsEmitters = layerTrainingEmitters
       }
  where

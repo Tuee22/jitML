@@ -48,6 +48,7 @@ library
         JitML.Codegen.LayerTraining
         JitML.Dhall.Reflect
         JitML.Codegen.Metal
+        JitML.Codegen.MetalLayerTraining
         JitML.Codegen.MlpCuda
         JitML.Codegen.MlpMetal
         JitML.Codegen.MlpOneDnn

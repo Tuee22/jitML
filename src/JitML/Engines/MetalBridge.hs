@@ -12,6 +12,7 @@ module JitML.Engines.MetalBridge
   , runMetalMlpForward
   , runMetalMlpForwardBatch
   , runMetalMlpInputGradientBatch
+  , runMetalLayerTrain
   , runMetalSource
   )
 where
@@ -147,6 +148,29 @@ type MetalBridgeMlpInputGradientBatch =
   -> CSize
   -> IO CInt
 
+type MetalBridgeLayerTrain =
+  CString
+  -> CInt
+  -> Ptr CInt
+  -> CSize
+  -> Ptr CFloat
+  -> CSize
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> Ptr CFloat
+  -> CSize
+  -> CSize
+  -> CSize
+  -> CSize
+  -> Ptr CChar
+  -> CSize
+  -> IO CInt
+
 foreign import ccall "dynamic"
   mkMetalBridgeProbe :: FunPtr MetalBridgeProbe -> MetalBridgeProbe
 
@@ -170,6 +194,9 @@ foreign import ccall "dynamic"
 foreign import ccall "dynamic"
   mkMetalBridgeMlpInputGradientBatch
     :: FunPtr MetalBridgeMlpInputGradientBatch -> MetalBridgeMlpInputGradientBatch
+
+foreign import ccall "dynamic"
+  mkMetalBridgeLayerTrain :: FunPtr MetalBridgeLayerTrain -> MetalBridgeLayerTrain
 
 fixedMetalBridgePathCandidates :: IO [FilePath]
 fixedMetalBridgePathCandidates = do
@@ -247,6 +274,7 @@ probeBridgeAt path =
         symbol <- dlsym handle "jitml_metal_bridge_probe"
         exitCode <- mkMetalBridgeProbe symbol
         _mlpSymbol <- dlsym handle "jitml_metal_bridge_mlp_forward"
+        _layerTrainSymbol <- dlsym handle "jitml_metal_bridge_layer_train"
         pure (exitCode == 0)
     )
 
@@ -577,6 +605,74 @@ runMetalMlpInputGradientBatch source inputCount hidden outputs batch input dLdy 
                           then Right <$> peekCFloatArray dxCount dxPtr
                           else bridgeError exitCode errorPtr
 
+-- | Compile and dispatch one complete typed layer-graph training operator.
+--
+-- The fixed bridge owns buffer allocation and the one-thread deterministic
+-- launch.  The generated MSL writes all four result buffers in one dispatch;
+-- the hidden constructor of the product execution witness is reached only
+-- after this call returns successfully.
+runMetalLayerTrain
+  :: Text
+  -> Int
+  -> [Int]
+  -> [Float]
+  -> [Float]
+  -> [Float]
+  -> [Float]
+  -> [Float]
+  -> Int
+  -> IO (Either Text ([Float], [Float], [Float], [Float]))
+runMetalLayerTrain source opcode geom fparams input weights bias dy outputCount
+  | outputCount < 0 = pure (Left "Metal layer-training output count must be non-negative")
+  | otherwise =
+      withFixedMetalBridgeSymbol "jitml_metal_bridge_layer_train" $ \symbol -> do
+        let bridgeRun = mkMetalBridgeLayerTrain symbol
+            inputCount = length input
+            weightCount = length weights
+            biasCount = length bias
+        withCString (Text.unpack source) $ \sourcePtr ->
+          withArray (fmap fromIntegral geom :: [CInt]) $ \geomPtr ->
+            withArray (fmap CFloat fparams) $ \fparamsPtr ->
+              withArray (fmap CFloat input) $ \inputPtr ->
+                withArray (fmap CFloat weights) $ \weightsPtr ->
+                  withArray (fmap CFloat bias) $ \biasPtr ->
+                    withArray (fmap CFloat dy) $ \dyPtr ->
+                      allocaArray (max 1 outputCount) $ \outputPtr ->
+                        allocaArray (max 1 inputCount) $ \dxPtr ->
+                          allocaArray (max 1 weightCount) $ \dwPtr ->
+                            allocaArray (max 1 biasCount) $ \dbPtr ->
+                              callWithErrorBuffer $ \errorPtr -> do
+                                exitCode <-
+                                  bridgeRun
+                                    sourcePtr
+                                    (fromIntegral opcode)
+                                    geomPtr
+                                    (fromIntegral (length geom))
+                                    fparamsPtr
+                                    (fromIntegral (length fparams))
+                                    outputPtr
+                                    dxPtr
+                                    dwPtr
+                                    dbPtr
+                                    inputPtr
+                                    weightsPtr
+                                    biasPtr
+                                    dyPtr
+                                    (fromIntegral inputCount)
+                                    (fromIntegral outputCount)
+                                    (fromIntegral weightCount)
+                                    (fromIntegral biasCount)
+                                    errorPtr
+                                    (fromIntegral errorBufferLength)
+                                if exitCode == 0
+                                  then do
+                                    output <- peekCFloatArray outputCount outputPtr
+                                    dx <- peekCFloatArray inputCount dxPtr
+                                    dw <- peekCFloatArray weightCount dwPtr
+                                    db <- peekCFloatArray biasCount dbPtr
+                                    pure (Right (output, dx, dw, db))
+                                  else bridgeError exitCode errorPtr
+
 withFixedMetalBridgeSymbol
   :: String -> (FunPtr a -> IO (Either Text b)) -> IO (Either Text b)
 withFixedMetalBridgeSymbol symbolName use = do
@@ -814,6 +910,14 @@ fixedMetalBridgeSource =
     , "  return [jitml_device newBufferWithBytes:data length:bytes options:MTLResourceStorageModeShared];"
     , "}"
     , ""
+    , "static id<MTLBuffer> jitml_int_buffer(const int *data, size_t count) {"
+    , "  size_t bytes = jitml_max_size(count, 1) * sizeof(int);"
+    , "  if (data == NULL || count == 0) {"
+    , "    return [jitml_device newBufferWithLength:bytes options:MTLResourceStorageModeShared];"
+    , "  }"
+    , "  return [jitml_device newBufferWithBytes:data length:bytes options:MTLResourceStorageModeShared];"
+    , "}"
+    , ""
     , "static int jitml_commit(id<MTLCommandBuffer> command_buffer, char *error_buffer, size_t error_buffer_len) {"
     , "  [command_buffer commit];"
     , "  [command_buffer waitUntilCompleted];"
@@ -855,6 +959,72 @@ fixedMetalBridgeSource =
     , "  [encoder dispatchThreadgroups:MTLSizeMake(groups, 1, 1) threadsPerThreadgroup:MTLSizeMake(threadgroup_size, 1, 1)];"
     , "  [encoder endEncoding];"
     , "  return 0;"
+    , "}"
+    , ""
+    , "int jitml_metal_bridge_layer_train(const char *metal_source,"
+    , "                                   int opcode,"
+    , "                                   const int *geom, size_t geom_count,"
+    , "                                   const float *fparams, size_t fparams_count,"
+    , "                                   float *out_host, float *dx_host,"
+    , "                                   float *dw_host, float *db_host,"
+    , "                                   const float *x_host, const float *weights_host,"
+    , "                                   const float *bias_host, const float *dy_host,"
+    , "                                   size_t xlen, size_t outlen,"
+    , "                                   size_t wlen, size_t blen,"
+    , "                                   char *error_buffer, size_t error_buffer_len) {"
+    , "  @autoreleasepool {"
+    , "    if (error_buffer != NULL && error_buffer_len > 0) { error_buffer[0] = '\\0'; }"
+    , "    if (metal_source == NULL || out_host == NULL || dx_host == NULL || dw_host == NULL || db_host == NULL) {"
+    , "      return jitml_error(error_buffer, error_buffer_len, @\"Metal layer training received a null required pointer\");"
+    , "    }"
+    , "    NSString *source = [NSString stringWithUTF8String:metal_source];"
+    , "    if (source == nil) { return jitml_error(error_buffer, error_buffer_len, @\"Metal layer source is not UTF-8\"); }"
+    , "    id<MTLComputePipelineState> pipeline = jitml_pipeline(source, @\"jitml_layer_train\", 1, error_buffer, error_buffer_len);"
+    , "    if (pipeline == nil) { return 1; }"
+    , "    id<MTLBuffer> out = jitml_float_buffer(NULL, outlen);"
+    , "    id<MTLBuffer> dx = jitml_float_buffer(NULL, xlen);"
+    , "    id<MTLBuffer> dw = jitml_float_buffer(NULL, wlen);"
+    , "    id<MTLBuffer> db = jitml_float_buffer(NULL, blen);"
+    , "    id<MTLBuffer> x = jitml_float_buffer(x_host, xlen);"
+    , "    id<MTLBuffer> weights = jitml_float_buffer(weights_host, wlen);"
+    , "    id<MTLBuffer> bias = jitml_float_buffer(bias_host, blen);"
+    , "    id<MTLBuffer> dy = jitml_float_buffer(dy_host, outlen);"
+    , "    id<MTLBuffer> geometry = jitml_int_buffer(geom, geom_count);"
+    , "    id<MTLBuffer> params = jitml_float_buffer(fparams, fparams_count);"
+    , "    size_t scratch_count = 4096 + 8 * (xlen + outlen + 1);"
+    , "    if (opcode == 10 && geom_count >= 2) { scratch_count += 7 * (size_t)geom[1]; }"
+    , "    if (opcode == 13 && geom_count >= 3) { scratch_count += (size_t)geom[2] * (size_t)geom[0] * (size_t)geom[0]; }"
+    , "    id<MTLBuffer> scratch = jitml_float_buffer(NULL, scratch_count);"
+    , "    int initial_status = 1;"
+    , "    id<MTLBuffer> status = jitml_int_buffer(&initial_status, 1);"
+    , "    if (out == nil || dx == nil || dw == nil || db == nil || x == nil || weights == nil || bias == nil || dy == nil || geometry == nil || params == nil || scratch == nil || status == nil) {"
+    , "      return jitml_error(error_buffer, error_buffer_len, @\"Metal layer training failed to allocate buffers\");"
+    , "    }"
+    , "    id<MTLCommandBuffer> command_buffer = [jitml_queue commandBuffer];"
+    , "    id<MTLComputeCommandEncoder> encoder = [command_buffer computeCommandEncoder];"
+    , "    if (command_buffer == nil || encoder == nil) { return jitml_error(error_buffer, error_buffer_len, @\"Metal layer training failed to create command encoder\"); }"
+    , "    [encoder setComputePipelineState:pipeline];"
+    , "    [encoder setBuffer:out offset:0 atIndex:0]; [encoder setBuffer:dx offset:0 atIndex:1];"
+    , "    [encoder setBuffer:dw offset:0 atIndex:2]; [encoder setBuffer:db offset:0 atIndex:3];"
+    , "    [encoder setBuffer:x offset:0 atIndex:4]; [encoder setBuffer:weights offset:0 atIndex:5];"
+    , "    [encoder setBuffer:bias offset:0 atIndex:6]; [encoder setBuffer:dy offset:0 atIndex:7];"
+    , "    [encoder setBuffer:geometry offset:0 atIndex:8]; [encoder setBuffer:params offset:0 atIndex:9];"
+    , "    [encoder setBuffer:scratch offset:0 atIndex:10]; [encoder setBuffer:status offset:0 atIndex:11];"
+    , "    [encoder setBytes:&opcode length:sizeof(opcode) atIndex:12];"
+    , "    int xlen_i = xlen > INT32_MAX ? INT32_MAX : (int)xlen;"
+    , "    [encoder setBytes:&xlen_i length:sizeof(xlen_i) atIndex:13];"
+    , "    [encoder dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];"
+    , "    [encoder endEncoding];"
+    , "    int rc = jitml_commit(command_buffer, error_buffer, error_buffer_len);"
+    , "    if (rc != 0) { return rc; }"
+    , "    int executed = ((int *)[status contents])[0];"
+    , "    if (executed != 0) { return jitml_error(error_buffer, error_buffer_len, @\"Metal layer artifact rejected the requested opcode\"); }"
+    , "    if (outlen > 0) { memcpy(out_host, [out contents], outlen * sizeof(float)); }"
+    , "    if (xlen > 0) { memcpy(dx_host, [dx contents], xlen * sizeof(float)); }"
+    , "    if (wlen > 0) { memcpy(dw_host, [dw contents], wlen * sizeof(float)); }"
+    , "    if (blen > 0) { memcpy(db_host, [db contents], blen * sizeof(float)); }"
+    , "    return 0;"
+    , "  }"
     , "}"
     , ""
     , "int jitml_metal_bridge_mlp_forward(const char *metal_source,"

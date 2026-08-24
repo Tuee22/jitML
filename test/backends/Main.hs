@@ -517,6 +517,43 @@ main =
                   "Conv3D output must not collapse to the center-only 1x1 result"
                   (not (approxEqualFloatList 1.0e-3 degenerate3d (Metal.metalWeightedKernelOutput run)))
       , testCase
+          "apple-silicon total LayerGraph lowering runs on Metal and matches the pure oracle (Phase 270)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphDeviceFixture
+            let input = VU.fromList [0.15, -0.25, 0.35, -0.45]
+                target = VU.fromList [-0.05, 0.10, -0.15, 0.20]
+            (_tape, reference) <-
+              either
+                (assertFailure . Text.unpack)
+                pure
+                (LayerGraph.layerGraphSquaredErrorGradient graph input target)
+            run <-
+              LayerGraphDevice.layerGraphSquaredErrorGradientDevice
+                Substrate.AppleSilicon
+                env
+                graph
+                input
+                target
+                >>= expectRight "Metal LayerGraph gradient failed"
+            assertLayerGraphGradientClose
+              3.0e-3
+              (LayerGraphDevice.layerGraphDeviceGradient run)
+              reference
+            let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
+            length evidence @?= length deviceSupportedLayerKinds
+            assertBool
+              "every typed operator reports fixed-bridge Metal evidence"
+              ( all
+                  ( \entry ->
+                      LayerGraphDevice.layerEvidenceBackend entry
+                        == "apple-metal-fixed-bridge"
+                        && "metal-"
+                          `Text.isPrefixOf` LayerGraphDevice.layerEvidenceForwardPrimitive entry
+                  )
+                  evidence
+              )
+      , testCase
           "apple-silicon Metal runtime absence fails before product-row evidence is accepted (Phase 30.2)"
           $ do
             env <- buildEnv defaultGlobalFlags

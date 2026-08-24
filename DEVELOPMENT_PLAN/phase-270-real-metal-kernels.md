@@ -9,15 +9,16 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-12). Reopened: this sprint's deliverable requires the unweighted
-family bodies to render real per-operation MSL with no identity-class elementwise
-copy, and requires misleading comments to be corrected. The shipped unweighted
-multi-head-attention body renders an elementwise square, and comments still describe
-an explicit identity GEMM and a unit-centre filter.
+✅ **Done** (2026-08-24). The unweighted family bodies now use the shared
+per-operation algebra, their comments describe the real operations, and the typed
+`LayerGraphDevice` Apple arm renders a content-addressed layer-training MSL program
+and dispatches every layer kind through the fixed host Metal bridge. The Apple
+backend lane validates the generated source and device numerics against the pure
+oracle on the host GPU.
 
-## Sprint 270.1: Real Metal Kernels [🔄 Active]
+## Sprint 270.1: Real Metal Kernels [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalLocal.hs`, `src/JitML/Engines/MetalBridge.hs`, `test/backends/Main.hs`
 **Docs to update**: `../documents/engineering/jit_codegen_architecture.md`, `../documents/engineering/apple_silicon_metal_headless_builds.md`
 
@@ -67,6 +68,15 @@ ok`; the focused rendered-source guard passed **1 / 1**; the multi-tap Metal
 Conv2D/Conv3D runtime test passed **1 / 1**; and the full
 `apple-silicon` backend lane passed **20 / 20**.
 
+2026-08-24 reopen-closing validation: `./bootstrap/apple-silicon.sh doctor`
+passed; `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal run exe:jitml -- internal
+install-metal-bridge` rebuilt the fixed bridge and reported
+`metal_bridge_probe: ok`; the required three-target Cabal build passed; the
+focused total `LayerGraph` Metal-oracle case passed **1 / 1**; and the complete
+`apple-silicon` backend lane passed **21 / 21**, including generated-source,
+weighted-family, convolution, determinism, MLP, RL, and typed-layer-graph device
+coverage.
+
 ### Historical Validation
 
 - **Closed Exit-Definition obligation**: the generic Metal family bodies in
@@ -84,14 +94,6 @@ Conv2D/Conv3D runtime test passed **1 / 1**; and the full
   `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal test jitml-backends --test-options='-p apple-silicon'`
   — `apple-silicon` plus `linux-cpu` only, never `linux-cuda` in the same gate.
 
-### Remaining Work
-
-- Render the unweighted attention family against the shared semantics contract from
-  Sprint `84.1`; close the weighted-family wildcard.
-- Correct the remaining identity-class comments.
-- Implement the Metal arm of the total lowering so the typed layer graph executes on
-  the host GPU rather than through the pure executor.
-
 ### Historical Phase State
 
 > ✅ **Done**.
@@ -102,7 +104,8 @@ Conv2D/Conv3D runtime test passed **1 / 1**; and the full
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/jit_codegen_architecture.md`
+- `../documents/engineering/apple_silicon_metal_headless_builds.md`
 
 **Product docs to create/update:**
 

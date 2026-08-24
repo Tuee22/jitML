@@ -5,14 +5,14 @@
 **Referenced by**: ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, run_contract.md
 **Generated sections**: none
 
-> **Purpose**: Index of the project-specific engineering doctrine for jitML.
+> **Purpose**: Index of the engineering doctrine owned or consumed by jitML.
 
 ## Index
 
 The engineering docs split into four **doctrine-overlap** docs (which defer to
-[../../README.md](../../README.md) for the patterns it owns
-and retain only project-specific elaborations) and fourteen **project-specific**
-docs (which own their content outright with no doctrine overlap).
+[../../README.md](../../README.md) for the patterns it owns and retain only project-specific
+elaborations), thirteen **project-specific** docs (which own their content outright), and two
+**cross-project contracts** mirrored with sister repositories.
 
 ### Doctrine-Overlap
 
@@ -40,7 +40,13 @@ docs (which own their content outright with no doctrine overlap).
 | [training_workloads.md](training_workloads.md) | Current local SL/RL/AlphaZero/tuning catalogs, RL Dhall mirror, copyright-free `KeyDoorGrid-v0` default visual RL demo coverage, optional `atari-subset` ROM policy with generated/external ALE adapter boundary, statistical convergence-assertion methodology, and typed fail-closed requirements for RL device updates and tuning resume decode failures |
 | [checkpoint_format.md](checkpoint_format.md) | Current local checkpoint key/CAS/store/inference helpers plus target split-blob format, retention reconciler, full-family no-caveat checkpoint/inference metadata, and typed local object-key validation |
 | [purescript_frontend.md](purescript_frontend.md) | Current PureScript shell, generated contracts, panel/demo-route metadata, `spec-node` smoke-test runner, demo shim, Playwright scaffold, typed live-plan step, and the no-caveat browser/animation/replay/Playwright verification target |
-| [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | The cross-project contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and the forward-only-DAG + single-accelerator-per-phase phasing rules |
+
+### Cross-Project Contracts
+
+| Doc | Shared contract |
+|-----|-----------------|
+| [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | Contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and the forward-only-DAG + single-accelerator-per-phase phasing rules |
+| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | Independently re-derived Finite Resource Execution Authority Protocol shared semantically with `amoebius`, `infernix`, and `hostbootstrap`: one host/boot/capability-indexed algebra, permanent epoch and parent-scope locks interpreted on Darwin, Linux, and Windows, applied-wall evidence, crash/reboot reconciliation, and Metal/CUDA/CPU/RAM/storage/VM profiles without a shared codebase or daemon |
 
 Each doc carries the standard `**Status**` / `**Supersedes**` / `**Referenced
 by**` / `**Generated sections**:` / `> **Purpose**:` block per

@@ -6,9 +6,9 @@ metadata:
 data:
   BootConfig.dhall: |
     { activeRole = < Engine | Coordinator | Webapp >.Engine
-    , substrate = "linux-cuda"
+    , substrate = "apple-silicon"
     , residency = < Cluster | Host >.Cluster
-    , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
+    , inferenceMode = < SelfInference | ForwardToHost >.ForwardToHost
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
@@ -34,9 +34,9 @@ metadata:
 data:
   BootConfig.dhall: |
     { activeRole = < Engine | Coordinator | Webapp >.Coordinator
-    , substrate = "linux-cuda"
+    , substrate = "apple-silicon"
     , residency = < Cluster | Host >.Cluster
-    , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
+    , inferenceMode = < SelfInference | ForwardToHost >.ForwardToHost
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"

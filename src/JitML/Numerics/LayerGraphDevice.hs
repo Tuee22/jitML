@@ -38,6 +38,7 @@ module JitML.Numerics.LayerGraphDevice
   )
 where
 
+import Control.Exception.Safe (displayException, tryAny)
 import Control.Monad (foldM, unless)
 import Data.List (transpose)
 import Data.Text (Text)
@@ -46,11 +47,16 @@ import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import Foreign.C.String (CString, peekCString)
 import Foreign.C.Types (CFloat (..), CInt (..))
-import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
+import Foreign.Marshal.Array (allocaArray, peekArray, pokeArray, withArray)
 import Foreign.Ptr (FunPtr, Ptr)
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.CudaLayerTraining (renderCudaLayerTrainingSource)
+import JitML.Codegen.MetalLayerTraining
+  ( metalLayerTrainingKernelSpec
+  , metalLayerTrainingProgram
+  , renderMetalLayerTrainingSource
+  )
 import JitML.Codegen.OneDnn (renderOneDnnLayerTrainingSource)
 import JitML.Codegen.RuntimeSource (KernelProgram (..), RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine
@@ -65,6 +71,8 @@ import JitML.Engines.Loader
   , renderKernelArtifactError
   , withKernelSymbol
   )
+import JitML.Engines.MetalBridge qualified as MetalBridge
+import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Env.Env (Env)
 import JitML.Numerics.LayerGraph
   ( LayerActivation (..)
@@ -271,6 +279,8 @@ type BackendNameFun = IO CString
 
 type PrimitiveNameFun = CInt -> IO CString
 
+type PrimitiveNameTextFun = CInt -> IO Text
+
 foreign import ccall "dynamic"
   mkLayerForwardFun :: FunPtr LayerForwardFun -> LayerForwardFun
 
@@ -343,9 +353,9 @@ data LayerGraphDeviceFunctions = LayerGraphDeviceFunctions
   , lgConv3DBackwardData :: Conv3DBackwardDataFun
   , lgConv3DBackwardWeights :: Conv3DBackwardWeightsFun
   , lgOpTrain :: OpTrainFun
-  , lgForwardPrimitive :: PrimitiveNameFun
-  , lgBackwardDataPrimitive :: PrimitiveNameFun
-  , lgBackwardWeightsPrimitive :: PrimitiveNameFun
+  , lgForwardPrimitive :: PrimitiveNameTextFun
+  , lgBackwardDataPrimitive :: PrimitiveNameTextFun
+  , lgBackwardWeightsPrimitive :: PrimitiveNameTextFun
   }
 
 -- | The lanes that have a layer-graph training kernel.
@@ -358,39 +368,36 @@ data LayerGraphDeviceFunctions = LayerGraphDeviceFunctions
 data LayerTrainingBackend
   = OneDnnLayerTraining
   | CudaLayerTraining
+  | MetalLayerTraining
   deriving stock (Eq, Show)
 
 -- | Resolve the lane's layer-graph training backend, or fail closed naming the
 -- sprint that owns the missing kernel.
 --
--- @apple-silicon@ has no layer-graph training kernel: the Metal renderer emits
--- source metadata for the /family/ kernels only. Serving that lane's training
--- through the @linux-cpu@ oneDNN artifact would attribute a run to hardware that
--- did not execute it, and falling back to the pure executor is what the
--- hardware-native determinism contract forbids, so this is an error rather than
--- a default.
+-- @apple-silicon@ resolves to generated MSL source metadata and the fixed host
+-- bridge. Serving that lane through the @linux-cpu@ oneDNN artifact would
+-- attribute a run to hardware that did not execute it; every arm therefore
+-- names the backend that actually runs.
 layerTrainingBackendFor :: Cache.Substrate -> Either Text LayerTrainingBackend
 layerTrainingBackendFor substrate =
   case substrate of
     Cache.LinuxCPU -> Right OneDnnLayerTraining
     Cache.LinuxCUDA -> Right CudaLayerTraining
-    Cache.AppleSilicon ->
-      Left
-        ( "layer-graph device training has no apple-silicon kernel: the Metal "
-            <> "layer-training renderer is Sprint 270.1's"
-        )
+    Cache.AppleSilicon -> Right MetalLayerTraining
 
 -- | The substrate a backend /is/, read off the backend that executes rather
 -- than off the substrate that was requested.
 layerTrainingBackendSubstrate :: LayerTrainingBackend -> Cache.Substrate
 layerTrainingBackendSubstrate OneDnnLayerTraining = Cache.LinuxCPU
 layerTrainingBackendSubstrate CudaLayerTraining = Cache.LinuxCUDA
+layerTrainingBackendSubstrate MetalLayerTraining = Cache.AppleSilicon
 
 layerGraphDeviceKernelSpec :: LayerTrainingBackend -> Cache.KernelSpec
 layerGraphDeviceKernelSpec OneDnnLayerTraining =
   Cache.KernelSpec "layer-graph-training-onednn-affine-conv"
 layerGraphDeviceKernelSpec CudaLayerTraining =
   Cache.KernelSpec "layer-graph-training-cuda-affine-conv"
+layerGraphDeviceKernelSpec MetalLayerTraining = metalLayerTrainingKernelSpec
 
 layerGraphDeviceRuntimeSource :: LayerTrainingBackend -> RuntimeSource
 layerGraphDeviceRuntimeSource backend =
@@ -410,6 +417,15 @@ layerGraphDeviceRuntimeSource backend =
         , runtimeSourceTuning = Cache.defaultTuningChoice
         , runtimeSourceProgramKind = LayerTrainingProgram
         , runtimeSourceFiles = renderCudaLayerTrainingSource
+        }
+    MetalLayerTraining ->
+      GeneratedMetalSourceMetadata
+        { runtimeSourceKernel = layerGraphDeviceKernelSpec backend
+        , runtimeSourceKind = Cache.Training
+        , runtimeSourceTuning = Cache.defaultTuningChoice
+        , runtimeSourceKernelFamily = Nothing
+        , runtimeSourceProgramKind = LayerTrainingProgram
+        , runtimeSourceFiles = renderMetalLayerTrainingSource
         }
 
 layerGraphDeviceHash :: LayerTrainingBackend -> Cache.Hash
@@ -676,6 +692,8 @@ withCompiledLayerGraphBackend
   -> Env
   -> (LayerGraphDeviceFunctions -> Text -> Text -> Bool -> IO (Either Text a))
   -> IO (Either Text a)
+withCompiledLayerGraphBackend MetalLayerTraining env useFunctions =
+  withCompiledMetalLayerGraphBackend env useFunctions
 withCompiledLayerGraphBackend backend env useFunctions = do
   artifactResult <-
     ensureKernelArtifact
@@ -725,16 +743,364 @@ withCompiledLayerGraphBackend backend env useFunctions = do
                                           , lgConv3DBackwardWeights =
                                               mkConv3DBackwardWeightsFun conv3WeightsSymbol
                                           , lgOpTrain = mkOpTrainFun opTrainSymbol
-                                          , lgForwardPrimitive = mkPrimitiveNameFun forwardNameSymbol
-                                          , lgBackwardDataPrimitive = mkPrimitiveNameFun dataNameSymbol
+                                          , lgForwardPrimitive =
+                                              primitiveNameText (mkPrimitiveNameFun forwardNameSymbol)
+                                          , lgBackwardDataPrimitive =
+                                              primitiveNameText (mkPrimitiveNameFun dataNameSymbol)
                                           , lgBackwardWeightsPrimitive =
-                                              mkPrimitiveNameFun weightsNameSymbol
+                                              primitiveNameText (mkPrimitiveNameFun weightsNameSymbol)
                                           }
                                   useFunctions
                                     functions
                                     backendName
                                     artifactPath
                                     (kernelArtifactCompiled artifact)
+
+-- | Apple layer-graph training uses source metadata plus the fixed host bridge,
+-- not a per-kernel dynamic library.  The runtime/device and bridge are probed
+-- before the metadata address is admitted, then every callback below dispatches
+-- the generated @jitml_layer_train@ MSL entry point on the visible GPU.
+withCompiledMetalLayerGraphBackend
+  :: Env
+  -> (LayerGraphDeviceFunctions -> Text -> Text -> Bool -> IO (Either Text a))
+  -> IO (Either Text a)
+withCompiledMetalLayerGraphBackend env useFunctions = do
+  runtime <- MetalRuntime.probeMetalRuntime
+  if not (MetalRuntime.metalRuntimeDeviceVisible runtime)
+    then pure (Left "layergraph Metal compile failed: apple-silicon Metal device not visible")
+    else do
+      bridgeAvailable <- MetalBridge.probeFixedMetalBridge
+      if not bridgeAvailable
+        then pure (Left "layergraph Metal compile failed: fixed Metal bridge unavailable")
+        else do
+          artifactResult <-
+            ensureKernelArtifact
+              env
+              (engineForSubstrate Cache.AppleSilicon)
+              (layerGraphDeviceRuntimeSource MetalLayerTraining)
+              (layerGraphDeviceHash MetalLayerTraining)
+          case artifactResult of
+            Left err ->
+              pure (Left ("layergraph Metal metadata failed: " <> renderKernelArtifactError err))
+            Right artifact -> do
+              let handle = kernelArtifactHandle artifact
+                  artifactPath = kernelHandleArtifactPath handle
+                  functions = metalLayerGraphDeviceFunctions metalLayerTrainingProgram
+              attempted <-
+                tryAny
+                  ( useFunctions
+                      functions
+                      "apple-metal-fixed-bridge"
+                      artifactPath
+                      (kernelArtifactCompiled artifact)
+                  )
+              pure $
+                case attempted of
+                  Left err -> Left ("layergraph Metal dispatch failed: " <> Text.pack (displayException err))
+                  Right result -> result
+
+metalLayerGraphDeviceFunctions :: Text -> LayerGraphDeviceFunctions
+metalLayerGraphDeviceFunctions source =
+  LayerGraphDeviceFunctions
+    { lgForward = metalForward
+    , lgBackwardData = metalBackwardData
+    , lgBackwardWeights = metalBackwardWeights
+    , lgConvForward = metalConv2DForward
+    , lgConvBackwardData = metalConv2DBackwardData
+    , lgConvBackwardWeights = metalConv2DBackwardWeights
+    , lgConv3DForward = metalConv3DForward
+    , lgConv3DBackwardData = metalConv3DBackwardData
+    , lgConv3DBackwardWeights = metalConv3DBackwardWeights
+    , lgOpTrain = metalOpTrain
+    , lgForwardPrimitive = metalPrimitiveName "forward"
+    , lgBackwardDataPrimitive = metalPrimitiveName "backward-data"
+    , lgBackwardWeightsPrimitive = metalPrimitiveName "backward-weights"
+    }
+ where
+  run opcode geometry parameters inputs weights bias upstream outputCount =
+    requireMetalLayerResult
+      =<< MetalBridge.runMetalLayerTrain
+        source
+        opcode
+        geometry
+        parameters
+        inputs
+        weights
+        bias
+        upstream
+        outputCount
+
+  metalForward outPtr inputPtr weightsPtr biasPtr inputsC outputsC _kind batchC = do
+    let inputs = fromIntegral inputsC
+        outputs = fromIntegral outputsC
+        batch = fromIntegral batchC
+        inputCount = inputs * batch
+        outputCount = outputs * batch
+    input <- peekCFloatValues inputCount inputPtr
+    weights <- peekCFloatValues (inputs * outputs) weightsPtr
+    bias <- peekCFloatValues outputs biasPtr
+    (out, _dx, _dw, _db) <-
+      run 0 [inputs, outputs, batch] [] input weights bias (replicate outputCount 0.0) outputCount
+    pokeCFloatValues outPtr out
+
+  metalBackwardData dxPtr dPrePtr weightsPtr inputsC outputsC _kind batchC = do
+    let inputs = fromIntegral inputsC
+        outputs = fromIntegral outputsC
+        batch = fromIntegral batchC
+        inputCount = inputs * batch
+        outputCount = outputs * batch
+    dPre <- peekCFloatValues outputCount dPrePtr
+    weights <- peekCFloatValues (inputs * outputs) weightsPtr
+    (_out, dx, _dw, _db) <-
+      run
+        0
+        [inputs, outputs, batch]
+        []
+        (replicate inputCount 0.0)
+        weights
+        (replicate outputs 0.0)
+        dPre
+        outputCount
+    pokeCFloatValues dxPtr dx
+
+  metalBackwardWeights dwPtr dbPtr dPrePtr inputPtr inputsC outputsC _kind batchC = do
+    let inputs = fromIntegral inputsC
+        outputs = fromIntegral outputsC
+        batch = fromIntegral batchC
+        inputCount = inputs * batch
+        outputCount = outputs * batch
+        weightCount = inputs * outputs
+    dPre <- peekCFloatValues outputCount dPrePtr
+    input <- peekCFloatValues inputCount inputPtr
+    (_out, _dx, dw, db) <-
+      run
+        0
+        [inputs, outputs, batch]
+        []
+        input
+        (replicate weightCount 0.0)
+        (replicate outputs 0.0)
+        dPre
+        outputCount
+    pokeCFloatValues dwPtr dw
+    pokeCFloatValues dbPtr db
+
+  metalConv2DForward outPtr inputPtr weightsPtr biasPtr ci co h w kh kw sh sw ph pw batch = do
+    let geometry = fmap fromIntegral [ci, co, h, w, kh, kw, sh, sw, ph, pw, batch]
+        cin = fromIntegral ci
+        cout = fromIntegral co
+        height = fromIntegral h
+        width = fromIntegral w
+        kernelH = fromIntegral kh
+        kernelW = fromIntegral kw
+        strideH = fromIntegral sh
+        strideW = fromIntegral sw
+        padH = fromIntegral ph
+        padW = fromIntegral pw
+        batchN = fromIntegral batch
+        outH = (height + 2 * padH - kernelH) `div` strideH + 1
+        outW = (width + 2 * padW - kernelW) `div` strideW + 1
+        inputCount = batchN * cin * height * width
+        outputCount = batchN * cout * outH * outW
+        weightCount = cout * cin * kernelH * kernelW
+    input <- peekCFloatValues inputCount inputPtr
+    weights <- peekCFloatValues weightCount weightsPtr
+    bias <- peekCFloatValues cout biasPtr
+    (out, _dx, _dw, _db) <- run 1 geometry [] input weights bias (replicate outputCount 0.0) outputCount
+    pokeCFloatValues outPtr out
+
+  metalConv2DBackwardData dxPtr dPrePtr weightsPtr ci co h w kh kw sh sw ph pw batch = do
+    let geometry = fmap fromIntegral [ci, co, h, w, kh, kw, sh, sw, ph, pw, batch]
+        cin = fromIntegral ci
+        cout = fromIntegral co
+        height = fromIntegral h
+        width = fromIntegral w
+        kernelH = fromIntegral kh
+        kernelW = fromIntegral kw
+        strideH = fromIntegral sh
+        strideW = fromIntegral sw
+        padH = fromIntegral ph
+        padW = fromIntegral pw
+        batchN = fromIntegral batch
+        outH = (height + 2 * padH - kernelH) `div` strideH + 1
+        outW = (width + 2 * padW - kernelW) `div` strideW + 1
+        inputCount = batchN * cin * height * width
+        outputCount = batchN * cout * outH * outW
+        weightCount = cout * cin * kernelH * kernelW
+    dPre <- peekCFloatValues outputCount dPrePtr
+    weights <- peekCFloatValues weightCount weightsPtr
+    (_out, dx, _dw, _db) <-
+      run 1 geometry [] (replicate inputCount 0.0) weights (replicate cout 0.0) dPre outputCount
+    pokeCFloatValues dxPtr dx
+
+  metalConv2DBackwardWeights dwPtr dbPtr dPrePtr inputPtr ci co h w kh kw sh sw ph pw batch = do
+    let geometry = fmap fromIntegral [ci, co, h, w, kh, kw, sh, sw, ph, pw, batch]
+        cin = fromIntegral ci
+        cout = fromIntegral co
+        height = fromIntegral h
+        width = fromIntegral w
+        kernelH = fromIntegral kh
+        kernelW = fromIntegral kw
+        strideH = fromIntegral sh
+        strideW = fromIntegral sw
+        padH = fromIntegral ph
+        padW = fromIntegral pw
+        batchN = fromIntegral batch
+        outH = (height + 2 * padH - kernelH) `div` strideH + 1
+        outW = (width + 2 * padW - kernelW) `div` strideW + 1
+        inputCount = batchN * cin * height * width
+        outputCount = batchN * cout * outH * outW
+        weightCount = cout * cin * kernelH * kernelW
+    input <- peekCFloatValues inputCount inputPtr
+    dPre <- peekCFloatValues outputCount dPrePtr
+    (_out, _dx, dw, db) <-
+      run 1 geometry [] input (replicate weightCount 0.0) (replicate cout 0.0) dPre outputCount
+    pokeCFloatValues dwPtr dw
+    pokeCFloatValues dbPtr db
+
+  metalConv3DForward outPtr inputPtr weightsPtr biasPtr ci co d h w kd kh kw sd sh sw pd ph pw batch = do
+    let geometry = fmap fromIntegral [ci, co, d, h, w, kd, kh, kw, sd, sh, sw, pd, ph, pw, batch]
+        cin = fromIntegral ci
+        cout = fromIntegral co
+        depth = fromIntegral d
+        height = fromIntegral h
+        width = fromIntegral w
+        kernelD = fromIntegral kd
+        kernelH = fromIntegral kh
+        kernelW = fromIntegral kw
+        strideD = fromIntegral sd
+        strideH = fromIntegral sh
+        strideW = fromIntegral sw
+        padD = fromIntegral pd
+        padH = fromIntegral ph
+        padW = fromIntegral pw
+        batchN = fromIntegral batch
+        outD = (depth + 2 * padD - kernelD) `div` strideD + 1
+        outH = (height + 2 * padH - kernelH) `div` strideH + 1
+        outW = (width + 2 * padW - kernelW) `div` strideW + 1
+        inputCount = batchN * cin * depth * height * width
+        outputCount = batchN * cout * outD * outH * outW
+        weightCount = cout * cin * kernelD * kernelH * kernelW
+    input <- peekCFloatValues inputCount inputPtr
+    weights <- peekCFloatValues weightCount weightsPtr
+    bias <- peekCFloatValues cout biasPtr
+    (out, _dx, _dw, _db) <- run 2 geometry [] input weights bias (replicate outputCount 0.0) outputCount
+    pokeCFloatValues outPtr out
+
+  metalConv3DBackwardData dxPtr dPrePtr weightsPtr ci co d h w kd kh kw sd sh sw pd ph pw batch = do
+    let geometry = fmap fromIntegral [ci, co, d, h, w, kd, kh, kw, sd, sh, sw, pd, ph, pw, batch]
+        cin = fromIntegral ci
+        cout = fromIntegral co
+        depth = fromIntegral d
+        height = fromIntegral h
+        width = fromIntegral w
+        kernelD = fromIntegral kd
+        kernelH = fromIntegral kh
+        kernelW = fromIntegral kw
+        strideD = fromIntegral sd
+        strideH = fromIntegral sh
+        strideW = fromIntegral sw
+        padD = fromIntegral pd
+        padH = fromIntegral ph
+        padW = fromIntegral pw
+        batchN = fromIntegral batch
+        outD = (depth + 2 * padD - kernelD) `div` strideD + 1
+        outH = (height + 2 * padH - kernelH) `div` strideH + 1
+        outW = (width + 2 * padW - kernelW) `div` strideW + 1
+        inputCount = batchN * cin * depth * height * width
+        outputCount = batchN * cout * outD * outH * outW
+        weightCount = cout * cin * kernelD * kernelH * kernelW
+    dPre <- peekCFloatValues outputCount dPrePtr
+    weights <- peekCFloatValues weightCount weightsPtr
+    (_out, dx, _dw, _db) <-
+      run 2 geometry [] (replicate inputCount 0.0) weights (replicate cout 0.0) dPre outputCount
+    pokeCFloatValues dxPtr dx
+
+  metalConv3DBackwardWeights dwPtr dbPtr dPrePtr inputPtr ci co d h w kd kh kw sd sh sw pd ph pw batch = do
+    let geometry = fmap fromIntegral [ci, co, d, h, w, kd, kh, kw, sd, sh, sw, pd, ph, pw, batch]
+        cin = fromIntegral ci
+        cout = fromIntegral co
+        depth = fromIntegral d
+        height = fromIntegral h
+        width = fromIntegral w
+        kernelD = fromIntegral kd
+        kernelH = fromIntegral kh
+        kernelW = fromIntegral kw
+        strideD = fromIntegral sd
+        strideH = fromIntegral sh
+        strideW = fromIntegral sw
+        padD = fromIntegral pd
+        padH = fromIntegral ph
+        padW = fromIntegral pw
+        batchN = fromIntegral batch
+        outD = (depth + 2 * padD - kernelD) `div` strideD + 1
+        outH = (height + 2 * padH - kernelH) `div` strideH + 1
+        outW = (width + 2 * padW - kernelW) `div` strideW + 1
+        inputCount = batchN * cin * depth * height * width
+        outputCount = batchN * cout * outD * outH * outW
+        weightCount = cout * cin * kernelD * kernelH * kernelW
+    input <- peekCFloatValues inputCount inputPtr
+    dPre <- peekCFloatValues outputCount dPrePtr
+    (_out, _dx, dw, db) <-
+      run 2 geometry [] input (replicate weightCount 0.0) (replicate cout 0.0) dPre outputCount
+    pokeCFloatValues dwPtr dw
+    pokeCFloatValues dbPtr db
+
+  metalOpTrain opcodeC geomPtr geomLenC fparamsPtr fparamsLenC outPtr dxPtr dwPtr dbPtr inputPtr weightsPtr biasPtr dyPtr xlenC outlenC wlenC blenC = do
+    let opcode = fromIntegral opcodeC
+        geomLen = fromIntegral geomLenC
+        fparamsLen = fromIntegral fparamsLenC
+        xlen = fromIntegral xlenC
+        outlen = fromIntegral outlenC
+        wlen = fromIntegral wlenC
+        blen = fromIntegral blenC
+    geometry <- fmap (fmap fromIntegral) (peekArray geomLen geomPtr)
+    parameters <- peekCFloatValues fparamsLen fparamsPtr
+    input <- peekCFloatValues xlen inputPtr
+    weights <- peekCFloatValues wlen weightsPtr
+    bias <- peekCFloatValues blen biasPtr
+    upstream <- peekCFloatValues outlen dyPtr
+    (out, dx, dw, db) <- run opcode geometry parameters input weights bias upstream outlen
+    pokeCFloatValues outPtr out
+    pokeCFloatValues dxPtr dx
+    pokeCFloatValues dwPtr dw
+    pokeCFloatValues dbPtr db
+    pure 0
+
+requireMetalLayerResult
+  :: Either Text ([Float], [Float], [Float], [Float])
+  -> IO ([Float], [Float], [Float], [Float])
+requireMetalLayerResult =
+  either (ioError . userError . Text.unpack) pure
+
+peekCFloatValues :: Int -> Ptr CFloat -> IO [Float]
+peekCFloatValues count ptr =
+  fmap (\(CFloat value) -> value) <$> peekArray count ptr
+
+pokeCFloatValues :: Ptr CFloat -> [Float] -> IO ()
+pokeCFloatValues ptr = pokeArray ptr . fmap CFloat
+
+metalPrimitiveName :: Text -> CInt -> IO Text
+metalPrimitiveName direction kindCode =
+  pure
+    ( "metal-"
+        <> primitive
+        <> "-"
+        <> direction
+    )
+ where
+  primitive =
+    case kindCode of
+      1 -> "conv2d"
+      2 -> "conv3d"
+      3 -> "normalization"
+      4 -> "geglu"
+      5 -> "attention"
+      6 -> "patch"
+      7 -> "residual"
+      8 -> "pool"
+      9 -> "scale"
+      _ -> "dense"
 
 -- | Mint the execution witness for the layer-graph training kernel.
 --
@@ -754,7 +1120,7 @@ layerGraphDeviceExecutionWitness substrate env =
     Left err -> pure (Left err)
     Right backend ->
       withCompiledLayerGraphBackend backend env $ \functions backendName artifactPath _compiled -> do
-        executedPrimitive <- primitiveNameText (lgForwardPrimitive functions) 0
+        executedPrimitive <- lgForwardPrimitive functions 0
         DeviceWitness.witnessDeviceExecution
           (layerTrainingBackendSubstrate backend)
           backendName
@@ -2187,9 +2553,9 @@ mkEvidence
   -> CInt
   -> IO LayerGraphDeviceEvidence
 mkEvidence functions backendName artifactPath artifactCompiled node kindCode = do
-  forwardPrimitive <- primitiveNameText (lgForwardPrimitive functions) kindCode
-  backwardDataPrimitive <- primitiveNameText (lgBackwardDataPrimitive functions) kindCode
-  backwardWeightsPrimitive <- primitiveNameText (lgBackwardWeightsPrimitive functions) kindCode
+  forwardPrimitive <- lgForwardPrimitive functions kindCode
+  backwardDataPrimitive <- lgBackwardDataPrimitive functions kindCode
+  backwardWeightsPrimitive <- lgBackwardWeightsPrimitive functions kindCode
   pure
     LayerGraphDeviceEvidence
       { layerEvidenceName = layerNodeName node

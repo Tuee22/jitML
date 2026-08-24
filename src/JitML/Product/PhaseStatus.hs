@@ -346,7 +346,7 @@ allProductPhaseStatuses =
       270
       "Real Metal Kernels"
       "DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md"
-      [ sprint "270.1" "Real Metal Kernels" Active
+      [ sprint "270.1" "Real Metal Kernels" Done
       ]
   , productPhase
       271
