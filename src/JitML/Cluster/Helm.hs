@@ -77,6 +77,10 @@ phasedReleases =
     -- registry itself is a template in this chart rather than a dependency
     -- release, so it needs no entry here.
     HelmRelease "minio" "minio" RegistryPhase (Just "minio-14.8.5.tgz") (Just "values/minio.yaml")
+  , -- The registry is a repo-owned local chart rather than a dependency
+    -- subchart, and it installs after MinIO because its S3 backend is the
+    -- bucket MinIO provisions.
+    HelmRelease "registry" "registry" RegistryPhase Nothing Nothing
   , HelmRelease "pulsar" "pulsar" PlatformPhase (Just "pulsar-3.6.0.tgz") (Just "values/pulsar.yaml")
   , HelmRelease
       "kube-prometheus-stack"
@@ -99,16 +103,14 @@ helmInstallSubprocessForSubstrate substrate =
   helmInstallSubprocessForEdgePort substrate (substrateEdgePort substrate)
 
 helmInstallSubprocessForEdgePort :: Substrate -> Int -> HelmRelease -> FilePath -> Subprocess
-helmInstallSubprocessForEdgePort substrate edgePort release =
+helmInstallSubprocessForEdgePort substrate edgePort =
   helmInstallSubprocessWith
     True
-    ( [ "--set"
-      , "substrate=" <> renderSubstrate substrate
-      , "--set"
-      , "edgePort=" <> Text.pack (show edgePort)
-      ]
-    )
-    release
+    [ "--set"
+    , "substrate=" <> renderSubstrate substrate
+    , "--set"
+    , "edgePort=" <> Text.pack (show edgePort)
+    ]
 
 -- | Apply a repo-owned app release without waiting on its existing Deployment.
 -- Bootstrap loads mutable local tags immediately before this command, then its

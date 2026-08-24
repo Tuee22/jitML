@@ -1,0 +1,6 @@
+apiVersion: v2
+name: registry
+description: Local jitML image registry chart (`registry:2` on the MinIO S3 backend).
+type: application
+version: 0.1.0
+appVersion: 0.1.0

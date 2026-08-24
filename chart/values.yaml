@@ -10,21 +10,6 @@ jitml:
     tag: local
   storageClass: jitml-manual
 
-# The image registry. `bucket` is deliberately the name Harbor used: reusing it
-# means the layers Harbor already wrote stay addressable, so replacing the
-# registry required no blob migration. Renaming it is cosmetic and tracked in
-# the removal ledger rather than done here.
-registry:
-  bucket: harbor-registry
-  region: us-east-1
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
 minio:
   mode: standalone
   replicas: 1

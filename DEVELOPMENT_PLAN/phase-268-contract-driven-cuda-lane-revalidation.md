@@ -9,7 +9,7 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-22). The committed `linux-cuda` lane fragment is replaced
+✅ **Done** (2026-08-24). The committed `linux-cuda` lane fragment is replaced
 with journal-derived evidence and the standing drift gate accepts it:
 `jitml test all --linux-cuda` exits `0` with `jitml-integration` **197 / 197**,
 including `Phase 263 issues the committed lane fragment from the completed
@@ -31,11 +31,24 @@ the publisher turns a missed cohort bar into an `error`, `errors: 0` is those
 bars being met rather than unchecked. The shared `cohortThresholds` table was not
 modified.
 
-One owned obligation is unmet, and it is the lifecycle one: the 2026-08-22
-evidence was gathered against an already-running cluster rather than through the
-`./bootstrap/linux-cuda.sh up` -> `test` -> `down` sequence this sprint's
-validation block names, so the full bootstrap/test/down cleanup and diagnostic
-evidence is not yet recorded.
+The lifecycle obligation is discharged. On 2026-08-24 the sequence ran as the
+validation block names it, against a cluster built from nothing: `up` exited `0`
+in 112 steps with 21 pods ready, `test` passed the full lane (`jitml test all
+--linux-cuda` exit `0`, **10 / 10** stanzas, `jitml-integration` **197 / 197**;
+`jitml test jitml-e2e --live --linux-cuda` exit `0` with Playwright **PASS**),
+and `down` exited `0`, deleting both Kind nodes while preserving `.data` as the
+`down`-preserves-state contract requires. That run was shared with Phase
+[269](phase-269-registry2-migration-and-harbor-deprecation.md), which replaced
+Harbor with `registry:2` and needed the same from-nothing bootstrap, so the
+cluster was torn down and rebuilt once rather than twice.
+
+One observation from that teardown, recorded rather than acted on because it
+predates this sprint and belongs to no obligation it owns: `down` preserves
+`.data` as contracted but leaves `./.build/runtime/cluster-publication.json` in
+place, still naming the edge of a cluster that no longer exists. Four
+`jitml-unit` cases that mirror to live MinIO then fail with connection refused
+against a dead edge; they pass either with the cluster up or with that file
+absent. The publication is stale state after a teardown, not a live coordinate.
 
 ### Historical Phase State
 
@@ -56,9 +69,9 @@ revalidation cannot be meaningful while supervised rows on it execute oneDNN
 kernels, so the CUDA lowering in Sprint `264.1` and the witness in Sprint `229.1`
 land first.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [🔄 Active]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
@@ -120,17 +133,6 @@ for 45 rows and
 non-product rows (`tic-tac-toe`, `atari-subset`) remain declared literals, which
 is what `renderProductLaneAttestationFragment` emits for rows that carry no
 scenario evidence by construction.
-
-### Remaining Work
-
-- **Full bootstrap/test/down lifecycle evidence.** The 2026-08-22 revalidation
-  ran against a cluster that was already up, so this sprint's deliverable
-  "record cleanup and diagnostic evidence for the full bootstrap/test/down
-  lifecycle" is unmet. Closing it means running the validation block above as
-  written and in order — `./bootstrap/linux-cuda.sh up`,
-  `./bootstrap/linux-cuda.sh test`, `./bootstrap/linux-cuda.sh down` — and
-  recording the teardown and cleanup diagnostics. Every other obligation this
-  sprint owns is met and recorded above.
 
 ## Documentation Requirements
 

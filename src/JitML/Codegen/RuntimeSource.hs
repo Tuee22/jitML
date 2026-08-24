@@ -17,9 +17,11 @@ import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Unique (hashUnique, newUnique)
 import Path (Abs, Dir, Path, parseRelDir, toFilePath, (</>))
 import System.Directory (createDirectoryIfMissing, renameFile)
 import System.FilePath qualified as FilePath
+import System.Posix.Process (getProcessID)
 
 import JitML.Cache.Key
   ( Hash
@@ -166,10 +168,25 @@ materializeRuntimeSource env source hash = do
   traverse_ (writeSourceFile root) (runtimeSourceFiles source)
   pure directory
 
+-- | Publish a rendered source file by atomic rename from a per-invocation path.
+--
+-- The staging name must be unique per writer, not per destination. Rendered
+-- sources are content-addressed, so concurrent publishers routinely materialise
+-- the *same* address at the same time — 24 parallel single-row publishers
+-- against a cold cache do it constantly. With a shared @.tmp@ name they raced:
+-- the first rename moved the file, and every other writer's rename then failed
+-- with \"does not exist\", killing the run. Sprint `78.1` fixed exactly this for
+-- compiled artifacts; the rendered-source path had the same defect.
+--
+-- Overwriting the destination is safe precisely because the address is a hash of
+-- the contents: every racing writer publishes identical bytes.
 writeSourceFile :: FilePath -> SourceFile -> IO ()
 writeSourceFile root sourceFile = do
   let path = root FilePath.</> sourceRelativePath sourceFile
-      tmpPath = path <> ".tmp"
   createDirectoryIfMissing True (FilePath.takeDirectory path)
+  processId <- getProcessID
+  unique <- hashUnique <$> newUnique
+  let tmpPath =
+        path <> "." <> show processId <> "." <> show unique <> ".tmp"
   Text.IO.writeFile tmpPath (sourceContents sourceFile)
   renameFile tmpPath path

@@ -59,6 +59,7 @@ import JitML.Bootstrap
   , appRolloutMatchesLoadedImage
   , bootstrapPlanSteps
   , hostBootConfigForPublication
+  , kindPrepareStatefulPvSubprocesses
   , livePhasedRolloutSubprocesses
   , materializeBootstrapFilesForPort
   , parseAppPodImageEvidence
@@ -6311,9 +6312,29 @@ main = do
             -- No registered Postgres remains, so the rollout emits no
             -- Postgres ownership fixup. Asserting its absence keeps the empty
             -- registry honest: a reintroduced cluster must re-add the chown.
+            --
+            -- `kindPrepareStatefulPvSubprocesses` branches per substrate --
+            -- `linux-cpu` mounts, `linux-cuda` chowns -- so asserting only on
+            -- the `linux-cpu` text never reaches the arm that emits it. That
+            -- gap let a `chown -R 26:26` with no path operand through to a live
+            -- bootstrap, where it failed the run. Both arms are checked here.
             assertBool
-              "live rollout emits no Postgres ownership fixup while the registry is empty"
+              "linux-cpu live rollout emits no Postgres ownership fixup while the registry is empty"
               (not ("chown -R 26:26" `Text.isInfixOf` commandText))
+            assertBool
+              "linux-cuda live rollout emits no Postgres ownership fixup while the registry is empty"
+              ( not
+                  ( "chown -R 26:26"
+                      `Text.isInfixOf` Text.unlines
+                        ( fmap
+                            renderSubprocess
+                            ( kindPrepareStatefulPvSubprocesses
+                                LinuxCUDA
+                                Resources.defaultClusterResources
+                            )
+                        )
+                  )
+              )
             assertBool
               "linux-cpu live rollout prepares worker-local stateful PV storage"
               ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
@@ -6401,6 +6422,20 @@ main = do
             assertBool
               "live rollout installs no Harbor release"
               (not ("--install harbor " `Text.isInfixOf` commandText))
+            -- The registry is a repo-owned local chart, and its S3 backend is
+            -- the bucket MinIO provisions, so it must install after MinIO is
+            -- ready. Asserting the ordering catches a registry that would
+            -- crash-loop against a bucket that does not exist yet.
+            assertBool
+              "live rollout installs the registry release"
+              ("--install registry chart/local/registry" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout installs MinIO before the registry"
+              ( Text.breakOn "--install minio " commandText `seq`
+                  ( Text.length (fst (Text.breakOn "--install minio " commandText))
+                      < Text.length (fst (Text.breakOn "--install registry " commandText))
+                  )
+              )
             assertBool
               "live rollout warm-loads cached third-party images before the first Helm release"
               ( "kind load docker-image docker.io/library/registry:2 --name jitml-linux-cpu"
@@ -6560,8 +6595,8 @@ main = do
             "no registry call presents credentials"
             ( not
                 ( any
-                    ("--user" `Text.isInfixOf`)
-                    (fmap renderSubprocess [listCommand, statusCommand, putCommand])
+                    (("--user" `Text.isInfixOf`) . renderSubprocess)
+                    [listCommand, statusCommand, putCommand]
                 )
             )
       , testCase "cluster down uses the typed Kind delete subprocess (Sprint 2.9)" $ do

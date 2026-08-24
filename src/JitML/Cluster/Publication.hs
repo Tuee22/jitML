@@ -95,10 +95,12 @@ defaultPublication substrate =
 -- inferred ready from that zero-replica rollout.
 requiredPublicationComponents :: Substrate -> [Text]
 requiredPublicationComponents substrate =
-  [ "registry"
+  [ -- No "postgres": `harbor-pg` was the only registered service Postgres and
+    -- left with Harbor, so nothing measures that component any more. Requiring
+    -- a component no health check reports would fail every publication.
+    "registry"
   , "minio"
   , "pulsar"
-  , "postgres"
   , "observability"
   ]
     <> engineComponents

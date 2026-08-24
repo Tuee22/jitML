@@ -334,13 +334,13 @@ allProductPhaseStatuses =
       268
       "Contract-Driven CUDA Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Active
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Done
       ]
   , productPhase
       269
       "Registry:2 Migration and Harbor Deprecation"
       "DEVELOPMENT_PLAN/phase-269-registry2-migration-and-harbor-deprecation.md"
-      [ sprint "269.1" "Registry:2 Migration and Harbor Deprecation" Active
+      [ sprint "269.1" "Registry:2 Migration and Harbor Deprecation" Done
       ]
   , productPhase
       270

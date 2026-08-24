@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
         - name: registry
-          image: registry:2
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: registry
@@ -47,15 +47,15 @@ spec:
             - name: REGISTRY_STORAGE
               value: s3
             - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
-              value: http://minio.platform.svc.cluster.local:9000
+              value: {{ .Values.minio.endpoint | quote }}
             - name: REGISTRY_STORAGE_S3_BUCKET
-              value: {{ .Values.registry.bucket | quote }}
+              value: {{ .Values.storage.bucket | quote }}
             - name: REGISTRY_STORAGE_S3_REGION
-              value: {{ .Values.registry.region | quote }}
+              value: {{ .Values.storage.region | quote }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
-              value: {{ .Values.minio.auth.rootUser | quote }}
+              value: {{ .Values.minio.accessKey | quote }}
             - name: REGISTRY_STORAGE_S3_SECRETKEY
-              value: {{ .Values.minio.auth.rootPassword | quote }}
+              value: {{ .Values.minio.secretKey | quote }}
             - name: REGISTRY_STORAGE_S3_SECURE
               value: "false"
             - name: REGISTRY_STORAGE_S3_V4AUTH
@@ -81,24 +81,8 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: {{ .Values.registry.resources.requests.cpu | quote }}
-              memory: {{ .Values.registry.resources.requests.memory | quote }}
+              cpu: {{ .Values.resources.requests.cpu | quote }}
+              memory: {{ .Values.resources.requests.memory | quote }}
             limits:
-              cpu: {{ .Values.registry.resources.limits.cpu | quote }}
-              memory: {{ .Values.registry.resources.limits.memory | quote }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: registry
-  namespace: platform
-  labels:
-    app.kubernetes.io/part-of: jitml
-    app.kubernetes.io/name: registry
-spec:
-  selector:
-    app: registry
-  ports:
-    - name: registry
-      port: 5000
-      targetPort: registry
+              cpu: {{ .Values.resources.limits.cpu | quote }}
+              memory: {{ .Values.resources.limits.memory | quote }}

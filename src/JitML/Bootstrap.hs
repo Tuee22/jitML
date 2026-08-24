@@ -14,6 +14,7 @@ module JitML.Bootstrap
   , bootstrapPlanSteps
   , cachedThirdPartyRolloutImages
   , hostBootConfigForPublication
+  , kindPrepareStatefulPvSubprocesses
   , livePhasedRolloutSubprocesses
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
@@ -394,12 +395,16 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
     <> [kubectlApplyFileSubprocess regcredManifestPath]
     <> concatMap releaseSteps minioBootstrapReleases
     <> Readiness.minioBootstrapReadinessSubprocesses
+    -- The registry stores layers in the bucket MinIO just provisioned, so it
+    -- installs only after MinIO reports ready.
+    <> concatMap releaseSteps registryBootstrapReleases
     <> postgresClusterApplySubprocesses
     <> Readiness.postgresReadinessSubprocesses
  where
   kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
   releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
   minioBootstrapReleases = filter ((== "minio") . releaseName) phasedReleases
+  registryBootstrapReleases = filter ((== "registry") . releaseName) phasedReleases
 
 livePostGrantSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
 livePostGrantSubprocessesForPort substrate edgePort chartPath =
@@ -418,7 +423,8 @@ livePostGrantApplySubprocessesForPort substrate edgePort chartPath =
         then helmInstallSubprocessForEdgePortNoWait substrate edgePort release chartPath
         else helmInstallSubprocessForEdgePort substrate edgePort release chartPath
     ]
-  remainingReleases = filter ((/= "minio") . releaseName) phasedReleases
+  remainingReleases =
+    filter (\release -> releaseName release `notElem` ["minio", "registry"]) phasedReleases
   repoAppReleaseNames = ["jitml-service", "jitml-demo"]
 
 livePostGrantReadinessSubprocesses :: Int -> [Subprocess]
@@ -525,8 +531,12 @@ kindPrepareStatefulPvSubprocesses substrate resources =
       fmap kindMountStatefulPvNodeLocalSubprocess nodeNames
     LinuxCPU ->
       fmap kindMountStatefulPvNodeLocalSubprocess nodeNames
-    LinuxCUDA ->
-      fmap kindNormalizePostgresPvOwnershipSubprocess nodeNames
+    LinuxCUDA
+      -- The ownership fixup takes the Postgres PV paths as its operands, so an
+      -- empty registry would render `chown -R 26:26` with nothing to chown and
+      -- fail the bootstrap. No registered Postgres means no fixup to perform.
+      | null postgresManualPVs -> []
+      | otherwise -> fmap kindNormalizePostgresPvOwnershipSubprocess nodeNames
  where
   nodeNames = substrateKindNodeContainerNames substrate (workerCount resources)
 

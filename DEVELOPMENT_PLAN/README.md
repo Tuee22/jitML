@@ -290,11 +290,55 @@ clearing the pre-existing tail repointed **36** legacy-name citations across sev
 `documents/engineering/` files and two attestations at
 [`README.md#legacy-to-new-phase-map`](#legacy-to-new-phase-map).
 
-**Phase `268` is the first executable owner.**
+**Phases `268` and `269` closed `Done` on 2026-08-24 against one from-nothing
+cluster lifecycle.** `./bootstrap/linux-cuda.sh up` exited `0` in **112** steps
+with **21** pods ready and **no** `harbor-*`, `percona`, or `postgres` object in
+the cluster; `jitml test all --linux-cuda` exited `0` across **10 / 10** stanzas
+and **1,436** tests with `jitml-integration` **197 / 197**; `jitml test jitml-e2e
+--live --linux-cuda` exited `0` with `jitml-e2e-playwright` **PASS** (**77**
+browser tests, **55** `e2e.product.*` selectors); and `down` exited `0`, deleting
+both Kind nodes while preserving `.data`. Phase `268` needed exactly that
+lifecycle evidence and Phase `269` needed the same from-nothing bootstrap, so the
+cluster was rebuilt once rather than twice.
+
+Phase `269` replaced Harbor with a single `registry:2` Deployment on the MinIO
+bucket Harbor already used, so no blob migration was required and previously
+pushed layers stayed addressable. Harbor's core, registry, jobservice, portal,
+nginx, Redis and Trivy pods are gone, and the Percona Postgres operator with
+them: `harbor-pg` was the only row in `postgresRegistry`, which is now empty
+behind a retained type and lint guard. The platform's component set is **eight**.
+The daemon's capability class is `HasImageRegistry` over the Docker Registry v2
+API — `GET /v2/_catalog`, `HEAD /v2/{repository}/manifests/{reference}`, and a
+manifest re-`PUT` for tagging, which Registry v2 has no dedicated API for — while
+push, pull, tag and manifest inspection stay plain `docker` calls because they
+were never registry-specific. The registry runs unauthenticated, so
+[Exit Definition](#exit-definition) item `3` names the image registry generically
+rather than naming Harbor.
+
+The committed seven-column lane fragment needed **no** re-issue: `DeviceEvidence`
+attests which kernel executed on which device and is indifferent to which
+registry stores the image, so the standing `Phase 263` drift case passed against
+it unmodified. Only the attestation's component inventory moved.
+
+Five defects surfaced only against live infrastructure, none of them reachable
+from the host suite: a daemon-lifecycle fixture whose fake `curl` answered
+Harbor's catalogue URL rather than `/v2/_catalog`; a `chown -R 26:26` emitted
+with no path operand once the Postgres registry emptied, on the `linux-cuda` arm
+that the existing assertion never covered; a registry Deployment authored as a
+`chart/templates/` manifest, which the bootstrap applies with plain `kubectl
+apply` from an explicit list, so it was never applied and its Helm templating
+would never have rendered; a `postgres` entry still in
+`requiredPublicationComponents` that no health check measures, which made
+publication readiness unsatisfiable; and a shared `<path>.tmp` staging name in
+`writeSourceFile` that made concurrent publishers of the same content-addressed
+source race, killing all but one. Sprint `78.1` had fixed that last class for
+compiled artifacts; the rendered-source path had the same defect.
+
+**Phase `270` is the first executable owner, and it is the apple-silicon wall.**
 
 The Phase `19`–`34` product registry is
-**56 Done / 4 Active / 0 Planned / 10 Blocked**.
-The numerically ordered open chain is `268 → 269 → 270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phases `43`–`52` and `54`–`68` retain `Done` on
+**58 Done / 2 Active / 0 Planned / 10 Blocked**.
+The numerically ordered open chain is `270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `273` remains the hard Apple-Silicon host boundary.
 
@@ -2779,9 +2823,9 @@ blocks) are tracked in
 The authoritative current state is [Closure Status](#closure-status) above and
 the [Phase Overview](00-overview.md). Seven registry phases are Active after the
 2026-08-12 execution-architecture reopen plus the 2026-08-14 Phase `229` reopen,
-and Phase `268` is the first executable owner overall. The
-Phase `19`–`34` registry is **56 Done / 4 Active / 0 Planned / 10 Blocked**.
-The complete open chain is `268 → 269 → 270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with every Blocked phase naming its predecessor.
+and Phase `270` is the first executable owner overall. The
+Phase `19`–`34` registry is **58 Done / 2 Active / 0 Planned / 10 Blocked**.
+The complete open chain is `270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with every Blocked phase naming its predecessor.
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3573,7 +3617,7 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`268 → 269 → 270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`270 → 271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252` and `261` are

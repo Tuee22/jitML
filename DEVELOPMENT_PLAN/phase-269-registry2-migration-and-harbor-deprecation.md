@@ -11,7 +11,7 @@
 
 ## Phase State
 
-🔄 **Active** (2026-08-22). The platform's container registry is `registry:2`
+✅ **Done** (2026-08-24). The platform's container registry is `registry:2`
 serving the Docker Registry v2 API from the MinIO bucket Harbor already used, so
 no blob migration is required and previously pushed layers stay addressable.
 Harbor is removed rather than deprecated in place: the chart release, its portal,
@@ -29,9 +29,9 @@ Removing Harbor also empties
 its only row, so the Percona operator, both of its persistent volumes, and the
 schema-ownership grant step exist for no remaining consumer.
 
-## Sprint 269.1: `registry:2` Migration and Harbor Deprecation [🔄 Active]
+## Sprint 269.1: `registry:2` Migration and Harbor Deprecation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Service/RegistrySubprocess.hs`,
 `src/JitML/Service/Capabilities.hs`, `src/JitML/Service/Clients.hs`,
 `src/JitML/Service/BootConfig.hs`, `src/JitML/Cluster/Helm.hs`,
@@ -90,19 +90,39 @@ claim that Harbor is gone is only meaningful against a cluster brought up from
 nothing, and a stale `jitml:local` or a surviving `harbor-*` object would
 otherwise mask a missed reference.
 
-### Remaining Work
+2026-08-24 measured evidence, on a cluster bootstrapped from nothing:
 
-- The chart, Haskell, frontend, test, and documentation edits are in progress; the
-  validation block above has not yet been run end to end.
-- The committed per-lane attestations record a live-component count and a browser
-  test total that both move when Harbor's components and its admin portal are
-  removed. They must be re-issued from a completed lane run through the
-  `product_lane_fragment` block, never hand-edited — the standing
-  `Phase 263 issues the committed lane fragment` case fails closed on drift.
-- Phase [268](phase-268-contract-driven-cuda-lane-revalidation.md) owns the
-  `bootstrap/linux-cuda.sh up`/`test`/`down` lifecycle evidence it still lacks.
-  That teardown and rebuild is the same one this phase needs, so the two are
-  sequenced together rather than run twice.
+| Gate | Result |
+|---|---|
+| `./bootstrap/linux-cuda.sh up` | exit `0`, **112** steps; **21** pods Running/Completed; **0** `harbor-*`, `percona`, or `postgres` objects |
+| `deployment/registry` | **1/1** Available; `GET /v2/_catalog` through the edge returns `{"repositories":[]}` |
+| 12 canonical datasets | staged and SHA-verified, **0** failures |
+| `jitml internal train-and-publish-product-rows --linux-cuda` | `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0` |
+| `jitml test all --linux-cuda` | exit `0` — **10 / 10** stanzas: `jitml-unit` **904 / 904**, `jitml-integration` **197 / 197**, `jitml-model-convergence` **111 / 111**, `jitml-daemon-lifecycle` **54 / 54**, `jitml-rl-canonicals` **47 / 47**, `jitml-sl-canonicals` **36 / 36**, `jitml-e2e` **30 / 30**, `jitml-backends` **28 / 28**, `jitml-hyperparameter` **26 / 26**, `jitml-negative-controls` **3 / 3** |
+| `jitml test jitml-e2e --live --linux-cuda` | exit `0` — `jitml-integration` **197 / 197**, Haskell e2e **30 / 30**, `jitml-e2e-playwright` **PASS** (**77** browser tests, **55** `e2e.product.*` selectors) |
+| `jitml docs check` | PASS |
+
+The Playwright total is **unchanged at 77**. The Harbor portal was one entry in
+the `expected` array inside a single admin-portals test, so removing it removed
+an assertion rather than a test case.
+
+Five defects surfaced only once the lane ran against live infrastructure, none
+of them reachable from the host suite:
+
+- the daemon-lifecycle fixture's fake `curl` answered Harbor's catalogue URL, so
+  the Coordinator's registry probe could not parse `/v2/_catalog`;
+- `kindPrepareStatefulPvSubprocesses` emitted `chown -R 26:26` with no path
+  operand once the Postgres registry emptied — its `linux-cuda` arm was never
+  covered, because the existing assertion tested the `linux-cpu` arm;
+- the registry Deployment was authored as a `chart/templates/` manifest, which
+  the bootstrap applies with plain `kubectl apply` from an explicit list, so it
+  was never applied and its Helm templating would never have rendered;
+- `requiredPublicationComponents` still demanded a `postgres` component that no
+  health check measures any more, so publication readiness could never be met;
+- `writeSourceFile` staged rendered kernel sources at a shared `<path>.tmp`, so
+  concurrent publishers of the same content-addressed source raced and all but
+  one died on the rename. Sprint `78.1` fixed this class for compiled artifacts;
+  the rendered-source path had the same defect and is now staged per invocation.
 
 ## Documentation Requirements
 

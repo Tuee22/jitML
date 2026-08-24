@@ -529,8 +529,8 @@ main = runSpecAndExitProcess [ consoleReporter ] do
                 && row.demoPanel == Mnist.panelName
           )
 
-    it "generated admin portals catalog covers the six bundled portals" do
-      length AdminPortals.adminPortals `shouldEqual` 6
+    it "generated admin portals catalog covers the five bundled portals" do
+      length AdminPortals.adminPortals `shouldEqual` 5
       AdminPortals.adminPortals `shouldSatisfy`
         any (\p -> p.name == "grafana" && p.path == "/grafana")
       AdminPortals.adminPortals `shouldSatisfy`

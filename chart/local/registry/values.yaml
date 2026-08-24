@@ -1,0 +1,24 @@
+image:
+  repository: registry
+  tag: "2"
+
+# The bucket name is deliberately the one Harbor used. Reusing it means the
+# layers Harbor already wrote stay addressable, so replacing the registry
+# required no blob migration. Renaming it is cosmetic and is tracked in the
+# removal ledger rather than done here.
+storage:
+  bucket: harbor-registry
+  region: us-east-1
+
+minio:
+  endpoint: http://minio.platform.svc.cluster.local:9000
+  accessKey: minio
+  secretKey: minioadmin
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

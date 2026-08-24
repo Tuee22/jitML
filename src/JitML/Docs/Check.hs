@@ -211,11 +211,18 @@ phaseLinkTargets contents =
   Set.toList
     ( Set.fromList
         [ Text.unpack candidate
-        | segment <- drop 1 (Text.splitOn "](" contents)
+        | segment <- linkDestinations contents
         , let candidate = Text.takeWhile (\c -> c /= ')' && c /= '#') segment
         , isPhaseDocumentName (takeFileName (Text.unpack candidate))
         ]
     )
+ where
+  -- Everything after a "](" is a link destination; the leading segment is the
+  -- prose before the first link and is not one.
+  linkDestinations text =
+    case Text.splitOn "](" text of
+      [] -> []
+      (_prose : destinations) -> destinations
 
 -- | @phase-<digits>-<lower-kebab>.md@, the canonical phase document name.
 isPhaseDocumentName :: FilePath -> Bool

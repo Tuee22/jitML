@@ -14,6 +14,34 @@
 > the withdrawn 2026-07-10 counts they replace are described in
 > `## Current Status
 
+**Re-validated 2026-08-24 on a cluster bootstrapped from nothing, with Harbor
+replaced by `registry:2`.**
+
+| Gate | Result |
+|---|---|
+| `./bootstrap/linux-cuda.sh up` | exit `0`, **112** steps; **21** pods Running/Completed; **0** `harbor-*`, `percona`, or `postgres` objects |
+| `deployment/registry` | **1/1** Available; `GET /v2/_catalog` through the edge returns `{"repositories":[]}` |
+| 12 canonical datasets | staged and SHA-verified, **0** failures |
+| `jitml internal train-and-publish-product-rows --linux-cuda` | `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0` |
+| `jitml test all --linux-cuda` | exit `0` — **10 / 10** stanzas, **1,436** tests, `jitml-integration` **197 / 197** |
+| `jitml test jitml-e2e --live --linux-cuda` | exit `0` — `jitml-e2e-playwright` **PASS**, **77** browser tests, **55** `e2e.product.*` selectors |
+| `jitml docs check` / `jitml check-code` | PASS / PASS |
+| `./bootstrap/linux-cuda.sh down` | exit `0`; both Kind nodes deleted; `.data` preserved (1.2 GiB) per the `down`-preserves-state contract |
+
+The platform's component set is now **eight**, not the nine this file previously
+recorded: `registry`, `minio`, `pulsar`, `observability`, `jitml-engine`,
+`jitml-coordinator`, `jitml-demo`, `edge`. Harbor's core, registry, jobservice,
+portal, nginx, Redis and Trivy pods are gone, and with them the Percona Postgres
+cluster — `harbor-pg` was the only registered service Postgres, so `postgres` is
+no longer a measured or required component.
+
+The seven-column row fragment below is **unchanged** and required no re-issue.
+`DeviceEvidence` attests which kernel executed on which device, so it is
+indifferent to which registry stores the image; the standing
+`Phase 263 issues the committed lane fragment` case passes against it unmodified.
+
+### Superseded: 2026-08-22 revalidation
+
 **Revalidated 2026-08-22 on the current source.** The row-complete counts and
 the per-row timing table in this file are measured evidence from that run, not
 the withdrawn 2026-07-10 figures they replace.
@@ -76,7 +104,7 @@ validate the single-worker target opened on 2026-08-09. Phases `42`, `53`, and
 | Command / evidence | Result |
 |---|---|
 | `docker info --format '{{json .Runtimes}}'` / `docker compose run --rm jitml-cuda nvidia-smi` | NVIDIA runtime present; in-container `nvidia-smi` saw NVIDIA GeForce RTX 5090, driver `570.211.01`, CUDA `12.8` |
-| Live CUDA publication | Existing current CUDA publication selected at edge `:9092`; all seven components reported ready through `jitml cluster status` |
+| Live CUDA publication | Existing current CUDA publication selected at edge `:9092`; all seven components reported ready through `jitml cluster status` (dated 2026-07-10; the component set is now eight and Harbor-free — see `## Current Status`) |
 | Canonical dataset/ProductRow checkpoint staging | Current-source CUDA publisher produced **55 / 55** eligible ProductRows with **0** unsupported rows and **0** errors; live MinIO was refreshed with **407** ProductRow checkpoint objects from those validated local publisher artifacts through the signed edge route |
 | `docker compose run --rm jitml-cuda jitml test jitml-backends --linux-cuda` | **22 / 22** PASS, including cuBLAS/cuDNN execution and the persistent CUDA MLP weight-buffer source guard |
 | `docker compose run --rm jitml-cuda cabal run -fcuda exe:jitml -- internal train-and-publish-product-rows --linux-cuda` | Product checkpoints complete: **55 / 55** eligible rows, **0** unsupported, **0** errors |
