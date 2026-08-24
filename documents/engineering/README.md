@@ -46,7 +46,7 @@ elaborations), thirteen **project-specific** docs (which own their content outri
 | Doc | Shared contract |
 |-----|-----------------|
 | [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | Contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and the forward-only-DAG + single-accelerator-per-phase phasing rules |
-| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | Independently re-derived Finite Resource Execution Authority Protocol shared semantically with `amoebius`, `infernix`, and `hostbootstrap`: one host/boot/capability-indexed algebra, permanent epoch and parent-scope locks interpreted on Darwin, Linux, and Windows, applied-wall evidence, crash/reboot reconciliation, and Metal/CUDA/CPU/RAM/storage/VM profiles without a shared codebase or daemon |
+| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | Target five-project host-sharing topology: a standalone neutral Haskell kernel, independently versioned resource-family and mechanism releases, signed static catalogs, project-local adapters and anchors, direct kernel locks, base/turn leases, progressive MISU assurance, and explicit later amoebius ownership without adding a new seed-to-seed dependency, an early seed-to-amoebius dependency, or a shared daemon |
 
 Each doc carries the standard `**Status**` / `**Supersedes**` / `**Referenced
 by**` / `**Generated sections**:` / `> **Purpose**:` block per
