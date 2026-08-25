@@ -46,7 +46,7 @@ elaborations), fourteen **project-specific** docs (which own their content outri
 | Doc | Shared contract |
 |-----|-----------------|
 | [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | Contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and the forward-only-DAG + single-accelerator-per-phase phasing rules |
-| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | Not-adopted record of what participation in the operator-installed host claim ledger would mean: the fixed per-user root that carries the authority, the single-writer record and its one short admission section, what a granted claim does and does not establish, the rule that release-directed work is always admitted, the progressive consumption a one-shot admission cannot see, and the point-of-use observation that complements it |
+| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | The host resource coordination policy: kernel scopes rather than machines, an open domain algebra that conflicts by prefix at a segment boundary, one grant held by the supervising process with standing capacity declared as a reserve instead, the measured lock-mechanism results the OFD mandate rests on, and an explicit register of what is not verified |
 
 Each doc carries the standard `**Status**` / `**Supersedes**` / `**Referenced
 by**` / `**Generated sections**:` / `> **Purpose**:` block per
