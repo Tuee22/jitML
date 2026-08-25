@@ -46,7 +46,7 @@ elaborations), thirteen **project-specific** docs (which own their content outri
 | Doc | Shared contract |
 |-----|-----------------|
 | [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | Contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and the forward-only-DAG + single-accelerator-per-phase phasing rules |
-| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | Target five-project host-sharing topology: a standalone neutral Haskell kernel, independently versioned resource-family and mechanism releases, signed static catalogs, project-local adapters and anchors, direct kernel locks, base/turn leases, progressive MISU assurance, and explicit later amoebius ownership without adding a new seed-to-seed dependency, an early seed-to-amoebius dependency, or a shared daemon |
+| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | Not-adopted record of how jitML would participate in the operator-installed host claim ledger: a `Persistent` claim for the retained cluster footprint, `Transient` claims for finite foreground work, one exact device domain per accelerator execution, attachment at the existing cluster host-memory prerequisite that currently passes vacuously on Apple hosts, and the local all-device and raw-launch debts worth closing regardless |
 
 Each doc carries the standard `**Status**` / `**Supersedes**` / `**Referenced
 by**` / `**Generated sections**:` / `> **Purpose**:` block per
