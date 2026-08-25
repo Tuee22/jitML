@@ -11,7 +11,7 @@
 
 The engineering docs split into four **doctrine-overlap** docs (which defer to
 [../../README.md](../../README.md) for the patterns it owns and retain only project-specific
-elaborations), thirteen **project-specific** docs (which own their content outright), and two
+elaborations), fourteen **project-specific** docs (which own their content outright), and two
 **cross-project contracts** mirrored with sister repositories.
 
 ### Doctrine-Overlap
@@ -40,6 +40,7 @@ elaborations), thirteen **project-specific** docs (which own their content outri
 | [training_workloads.md](training_workloads.md) | Current local SL/RL/AlphaZero/tuning catalogs, RL Dhall mirror, copyright-free `KeyDoorGrid-v0` default visual RL demo coverage, optional `atari-subset` ROM policy with generated/external ALE adapter boundary, statistical convergence-assertion methodology, and typed fail-closed requirements for RL device updates and tuning resume decode failures |
 | [checkpoint_format.md](checkpoint_format.md) | Current local checkpoint key/CAS/store/inference helpers plus target split-blob format, retention reconciler, full-family no-caveat checkpoint/inference metadata, and typed local object-key validation |
 | [purescript_frontend.md](purescript_frontend.md) | Current PureScript shell, generated contracts, panel/demo-route metadata, `spec-node` smoke-test runner, demo shim, Playwright scaffold, typed live-plan step, and the no-caveat browser/animation/replay/Playwright verification target |
+| [shared_host_resource_protocol_analysis.md](shared_host_resource_protocol_analysis.md) | Verified review of [shared_host_resource_protocol.md](shared_host_resource_protocol.md): which of its claims hold against source, chart, Dhall, and plan; where its vocabulary diverges from the authoritative `hostbootstrap` Finite Resource Execution Authority Protocol; the seam and budget errors; and the recommended disposition |
 
 ### Cross-Project Contracts
 
