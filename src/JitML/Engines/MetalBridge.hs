@@ -607,10 +607,11 @@ runMetalMlpInputGradientBatch source inputCount hidden outputs batch input dLdy 
 
 -- | Compile and dispatch one complete typed layer-graph training operator.
 --
--- The fixed bridge owns buffer allocation and the one-thread deterministic
--- launch.  The generated MSL writes all four result buffers in one dispatch;
--- the hidden constructor of the product execution witness is reached only
--- after this call returns successfully.
+-- The fixed bridge owns buffer allocation and the deterministic launch.  Dense
+-- and spatial-convolution callbacks use one thread per independent result
+-- element; complete-operator reference opcodes retain a single control thread.
+-- The hidden constructor of the product execution witness is reached only after
+-- this call returns successfully.
 runMetalLayerTrain
   :: Text
   -> Int
@@ -979,7 +980,7 @@ fixedMetalBridgeSource =
     , "    }"
     , "    NSString *source = [NSString stringWithUTF8String:metal_source];"
     , "    if (source == nil) { return jitml_error(error_buffer, error_buffer_len, @\"Metal layer source is not UTF-8\"); }"
-    , "    id<MTLComputePipelineState> pipeline = jitml_pipeline(source, @\"jitml_layer_train\", 1, error_buffer, error_buffer_len);"
+    , "    id<MTLComputePipelineState> pipeline = jitml_pipeline(source, @\"jitml_layer_train\", 256, error_buffer, error_buffer_len);"
     , "    if (pipeline == nil) { return 1; }"
     , "    id<MTLBuffer> out = jitml_float_buffer(NULL, outlen);"
     , "    id<MTLBuffer> dx = jitml_float_buffer(NULL, xlen);"
@@ -1013,7 +1014,16 @@ fixedMetalBridgeSource =
     , "    [encoder setBytes:&opcode length:sizeof(opcode) atIndex:12];"
     , "    int xlen_i = xlen > INT32_MAX ? INT32_MAX : (int)xlen;"
     , "    [encoder setBytes:&xlen_i length:sizeof(xlen_i) atIndex:13];"
-    , "    [encoder dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];"
+    , "    size_t dispatch_count = 1;"
+    , "    if (opcode == 20 || opcode == 23 || opcode == 26) { dispatch_count = outlen; }"
+    , "    else if (opcode == 21 || opcode == 24 || opcode == 27) { dispatch_count = xlen; }"
+    , "    else if (opcode == 22 || opcode == 25 || opcode == 28) { dispatch_count = wlen + blen; }"
+    , "    else if (opcode == 31 && geom_count >= 5) { dispatch_count = (size_t)geom[4]; }"
+    , "    dispatch_count = jitml_max_size(dispatch_count, 1);"
+    , "    size_t threadgroup_size = pipeline.maxTotalThreadsPerThreadgroup < 256 ? pipeline.maxTotalThreadsPerThreadgroup : 256;"
+    , "    threadgroup_size = jitml_max_size(threadgroup_size, 1);"
+    , "    size_t groups = (dispatch_count + threadgroup_size - 1) / threadgroup_size;"
+    , "    [encoder dispatchThreadgroups:MTLSizeMake(groups,1,1) threadsPerThreadgroup:MTLSizeMake(threadgroup_size,1,1)];"
     , "    [encoder endEncoding];"
     , "    int rc = jitml_commit(command_buffer, error_buffer, error_buffer_len);"
     , "    if (rc != 0) { return rc; }"

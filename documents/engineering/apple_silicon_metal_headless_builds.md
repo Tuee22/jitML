@@ -14,18 +14,16 @@
 
 **Implemented today.** The fixed host bridge, runtime MSL compilation through
 `MTLDevice.makeLibrary(source:options:)`, the content-addressed `<hash>.metal.json`
-source artifact, and host-resident execution for the `MlpDevice`-backed workload
-kinds (RL trainers, tuning trials, AlphaZero policy/value evaluation).
-
-**Not yet implemented.** Supervised training over the typed `LayerGraph` executes
-oneDNN kernels on every substrate, and supervised serving executes the pure host
-executor, so neither reaches the bridge on this lane. The Metal arm of the device
-lowering is owned by
-[Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md), and per-row
-Metal device evidence minted from an execution witness by
-[Phase 271](../../DEVELOPMENT_PLAN/phase-271-metal-row-device-evidence.md).
-Sections below describe the intended Apple boundary; where a statement is a target
-rather than current behaviour it says so.
+source artifact, and host-resident execution cover both `MlpDevice` workloads
+(RL trainers, tuning trials, and AlphaZero policy/value evaluation) and
+supervised typed-`LayerGraph` training. The layer-graph path batches dense,
+Conv2D, Conv3D, block-affine, and normalization work across a mini-batch and
+dispatches staged element-parallel forward, backward-data, and
+backward-weights kernels through the fixed bridge. Supervised serving remains
+the shared pure typed-graph executor. The Metal lowering is owned by
+[Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md), and
+[Phase 271](../../DEVELOPMENT_PLAN/phase-271-metal-row-device-evidence.md) owns
+the row-complete Metal execution-witness gate.
 
 ## Summary
 
@@ -69,8 +67,10 @@ The Apple Silicon JIT path satisfies these constraints:
   cache misses.
 - **Same-substrate determinism.** The Apple path must preserve the
   [determinism contract](determinism_contract.md#apple-silicon-metal): fast math
-  off, fixed reduction tree, and single-stream launch ordering unless a future
-  tuning choice explicitly records a different deterministic launch discipline.
+  off, floating-point contraction disabled in the generated trainer MLP,
+  fixed ascending-order reductions, and single-stream launch ordering unless a
+  future tuning choice explicitly records a different deterministic launch
+  discipline.
 
 ## Verification Findings
 
@@ -159,9 +159,13 @@ AlphaZero policy/value evaluation through the `MlpDevice` seam, and for
 supervised typed-graph training through `LayerGraphDevice`. The latter renders
 the complete layer-training MSL program on demand and dispatches dense,
 convolution, normalization, GeGLU, attention, patch, residual, pooling, and
-scale operations through the fixed bridge. Supervised serving continues to use
-the shared pure graph executor; Phase `271` owns the row-complete device-evidence
-gate for the Metal training path. The Kubernetes cluster remains responsible for Pulsar,
+scale operations through the fixed bridge. Dense and spatial convolution use
+batched element-parallel forward, backward-data, and backward-weights stages;
+block affine/projection work uses the same batched dense seam, and normalization
+dispatches one sample per grid thread while reducing parameter gradients in a
+fixed order. Supervised serving continues to use the shared pure graph executor;
+Phase `271` owns the row-complete device-evidence gate for the Metal training
+path. The Kubernetes cluster remains responsible for Pulsar,
 MinIO, the image registry, public routing, and orchestration. Inference and
 daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
 typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
@@ -413,12 +417,23 @@ shape for a JIT.
    family MSL, and Conv2D/Conv3D weighted kernels use windowed multi-tap
    neighbourhoods rather than the former 1x1-degenerate body.
 6. The bridge source contains an in-process pipeline cache keyed by function,
-   source, and threadgroup size.
-7. Optional `apple.swiftc` / `apple.macos-sdk` prerequisites are retained only for
+   source, and threadgroup size. Successful Metal device-visibility probes are
+   cached for the producer process; failed probes and explicit diagnostics
+   remain fresh.
+7. Dense, Conv2D, and Conv3D training dispatch batched element-parallel
+   forward, backward-data, and backward-weights stages. Block affine/projection
+   stages reuse batched dense dispatch and normalization uses a batched opcode
+   with deterministic per-example statistics and fixed-order gamma/beta
+   reductions. Serial complete-operator opcodes remain as numerical references.
+8. Generated trainer MLP source uses the aligned glibc flt-32 `expm1f`/`tanhf`
+   operation sequence and `#pragma clang fp contract(off)`, matching the Linux
+   lanes' float32 arithmetic contract without changing row thresholds or
+   substrate-specific trainer parameters.
+9. Optional `apple.swiftc` / `apple.macos-sdk` prerequisites are retained only for
    separate non-core Swift JIT modules.
-8. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
+10. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
    are removed from the supported runtime JIT path.
-9. Supervised training persists the trained typed `LayerGraph`; serving
+11. Supervised training persists the trained typed `LayerGraph`; serving
    reconstructs and refines that graph and executes it through the shared pure
    graph runner with transforms outside. The former generated Metal structural
    executor and its `RuntimeOperations*` ABI are retired.

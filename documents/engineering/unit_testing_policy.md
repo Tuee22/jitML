@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: [engineering index](README.md), [documentation standards](../documentation_standards.md), [root README](../../README.md), [determinism contract](determinism_contract.md), [training workloads](training_workloads.md), [product completion contract](product_completion_contract.md), [JIT code-generation architecture](jit_codegen_architecture.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 261](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md), [Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md), [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [Phase 282](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
+**Referenced by**: [engineering index](README.md), [documentation standards](../documentation_standards.md), [root README](../../README.md), [determinism contract](determinism_contract.md), [training workloads](training_workloads.md), [product completion contract](product_completion_contract.md), [JIT code-generation architecture](jit_codegen_architecture.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 261](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 272](../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md), [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md), [Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md), [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [Phase 282](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 **Generated sections**: none
 
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
@@ -19,19 +19,13 @@
 `LayerGraph`, its graph-derived parameter count, the single supervised-graph
 checkpoint envelope, Store reload parity, and row convergence/evidence.
 `jitml-backends` covers batched device gradients and correct-operator execution
-against the finite-difference-validated pure oracle **on `linux-cpu`**; those
-layer-graph device cases exist for the oneDNN backend only, and assert its backend
-identity explicitly. The obsolete byte-frozen V1
-fixture and the `cifar10-vit` frozen-Mixer 123,595-parameter layout are retired.
-
-**Known plan-status guard mismatch (2026-08-09).** The canonical development
-plan now blocks Phase `262` behind the reopened Phase `42 → 53 → 69` topology
-chain, while the checked-in hand-maintained `JitML.Product.PhaseStatus` literal
-still says Phase `262` is `Active`. The existing
-[Pending Removal row](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md#pending-removal)
-owns that legacy registry. Its unit parity guard is expected to remain red
-until the provisional literal is synchronized; no phase may cite a full
-`jitml-unit` pass while that mismatch remains.
+against the finite-difference-validated pure oracle in the real `linux-cpu` and
+`apple-silicon` lanes. The Apple cases compile generated MSL through the fixed
+host bridge, execute the parallel dense/Conv2D/Conv3D/normalization opcodes on
+the Metal GPU, and retain artifact-bound device witnesses. The obsolete
+byte-frozen V1 fixture and the `cifar10-vit` frozen-Mixer 123,595-parameter
+layout are retired. Development-plan status parity remains an executable unit
+and documentation gate; this policy does not carry a second status ledger.
 
 ## Doctrine Deferrals
 
@@ -169,6 +163,16 @@ the append-only invocation journal. Live workflow journals remain inside their
 own test cases; the current `--live` measurement layer still launches
 post-test probes and is tracked for replacement by Sprint `34.3`. See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
+
+For the Apple product lane, `jitml test all --apple-silicon` is the host-native
+full-lane gate: it preflights Metal, binds substrate-backed stanzas through
+`JITML_SUBSTRATE`, runs the complete authenticated ProductScenario batch, and
+fails closed when the fixed bridge, Metal runtime, host Engine daemon, or live
+publication is absent. The separate
+`jitml test jitml-e2e --live --apple-silicon` invocation owns the live browser
+consumer. It must refine an authenticated 55-row browser-result journal before
+its Haskell e2e body can pass. Neither command may replace a failed supported
+row with an unsupported or skipped result.
 
 Substrate-selected runs serialize stanzas so live tests do not contend over one
 cluster/device. `jitml test <stanza>` uses the same result shape for one target.

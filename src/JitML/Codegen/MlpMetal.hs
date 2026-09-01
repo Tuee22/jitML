@@ -12,6 +12,7 @@
 -- ABI.
 module JitML.Codegen.MlpMetal
   ( mlpMetalKernelSpec
+  , mlpMetalActivation
   , renderMlpMetalProgram
   , renderMlpMetalSource
   )
@@ -43,6 +44,13 @@ renderMlpMetalSource =
 
 renderMlpMetalProgram :: Text
 renderMlpMetalProgram = metalKernels
+
+-- | The device function name used for every Metal MLP hidden activation.
+-- Exported so the backend source guard can reject a return to MSL's native
+-- @tanh@, whose float results diverge from the operation sequence used by the
+-- two aligned Linux lanes.
+mlpMetalActivation :: Text
+mlpMetalActivation = "jitml_mlp_tanhf"
 
 mlpMetalMetadata :: Text
 mlpMetalMetadata =
@@ -79,8 +87,10 @@ metalKernels :: Text
 metalKernels =
   Text.unlines
     [ "#include <metal_stdlib>"
+    , "#pragma clang fp contract(off)"
     , "using namespace metal;"
     , ""
+    , activationHelpers
     , "// hidden_pre[i] = b1[i] + sum_j W1[i*inputs+j]*input[j]; hidden_act = tanh."
     , "kernel void jitml_mlp_hidden("
     , "    device float *hidden_pre [[buffer(0)]], device float *hidden_act [[buffer(1)]],"
@@ -91,7 +101,7 @@ metalKernels =
     , "  int i = int(gid); if (i >= hidden) { return; }"
     , "  float acc = b1[i];"
     , "  for (int j = 0; j < inputs; ++j) { acc += w1[i * inputs + j] * input[j]; }"
-    , "  hidden_pre[i] = acc; hidden_act[i] = tanh(acc);"
+    , "  hidden_pre[i] = acc; hidden_act[i] = " <> mlpMetalActivation <> "(acc);"
     , "}"
     , ""
     , "// output[k] = b2[k] + sum_i W2[k*hidden+i]*hidden_act[i]."
@@ -142,7 +152,7 @@ metalKernels =
     , "  int total = batch * hidden; int idx = int(gid); if (idx >= total) { return; }"
     , "  int b = idx / hidden; int i = idx % hidden; float acc = b1[i];"
     , "  for (int j = 0; j < inputs; ++j) { acc += w1[i * inputs + j] * input[b * inputs + j]; }"
-    , "  hidden_act[b * hidden + i] = tanh(acc);"
+    , "  hidden_act[b * hidden + i] = " <> mlpMetalActivation <> "(acc);"
     , "}"
     , ""
     , "// Batched output: output[b*outputs+k] for one (b,k) per thread."
@@ -219,6 +229,131 @@ metalKernels =
     , "  for (int i = 0; i < hidden; ++i) { acc += w1[i * inputs + j] * d_hidden_pre[b * hidden + i]; }"
     , "  dx[b * inputs + j] = acc;"
     , "}"
+    ]
+
+-- | glibc's flt-32 @expm1f@/@tanhf@ operation sequence, expressed in MSL.
+--
+-- Phase 265 aligned the CUDA MLP with the oneDNN lane by rendering this
+-- algorithm because native CUDA @tanhf@ and glibc @tanhf@ disagree at float
+-- precision. Phase 271 completes that invariant for Apple Silicon: MSL's
+-- native @tanh@ is a third implementation and drove deterministic RL policies
+-- onto different trajectories. The fixed bridge compiles this source with
+-- @fastMathEnabled = false@ and this source disables FP contraction, so the
+-- individual float operations retain the ordered IEEE arithmetic expressed
+-- below.
+activationHelpers :: Text
+activationHelpers =
+  Text.unlines
+    [ "// Phase 271 — glibc's flt-32 expm1f/tanhf algorithm, rendered so all"
+    , "// three substrate MLP artifacts evaluate one hidden activation the same way."
+    , "inline float jitml_mlp_expm1f(float x) {"
+    , "  const float one = 1.0f;"
+    , "  const float huge_v = 1.0e+30f;"
+    , "  const float tiny_v = 1.0e-30f;"
+    , "  const float o_threshold = 8.8721679688e+01f;"
+    , "  const float ln2_hi = 6.9313812256e-01f;"
+    , "  const float ln2_lo = 9.0580006145e-06f;"
+    , "  const float invln2 = 1.4426950216e+00f;"
+    , "  const float Q1 = -3.3333335072e-02f;"
+    , "  const float Q2 = 1.5873016091e-03f;"
+    , "  const float Q3 = -7.9365076090e-05f;"
+    , "  const float Q4 = 4.0082177293e-06f;"
+    , "  const float Q5 = -2.0109921195e-07f;"
+    , "  float y, hi, lo, c, t, e, hxs, hfx, r1, twopk;"
+    , "  int k = 0;"
+    , "  int xsb;"
+    , "  uint hx = as_type<uint>(x);"
+    , "  xsb = int(hx & 0x80000000u);"
+    , "  hx &= 0x7fffffffu;"
+    , "  c = 0.0f;"
+    , "  hi = 0.0f;"
+    , "  lo = 0.0f;"
+    , "  if (hx >= 0x4195b844u) {"
+    , "    if (hx >= 0x42b17218u) {"
+    , "      if (hx > 0x7f800000u) { return x + x; }"
+    , "      if (hx == 0x7f800000u) { return (xsb == 0) ? x : -1.0f; }"
+    , "      if (x > o_threshold) { return huge_v * huge_v; }"
+    , "    }"
+    , "    if (xsb != 0) {"
+    , "      if (x + tiny_v < 0.0f) { return tiny_v - one; }"
+    , "    }"
+    , "  }"
+    , "  if (hx > 0x3eb17218u) {"
+    , "    if (hx < 0x3f851592u) {"
+    , "      if (xsb == 0) { hi = x - ln2_hi; lo = ln2_lo; k = 1; }"
+    , "      else { hi = x + ln2_hi; lo = -ln2_lo; k = -1; }"
+    , "    } else {"
+    , "      k = int(invln2 * x + ((xsb == 0) ? 0.5f : -0.5f));"
+    , "      t = float(k);"
+    , "      hi = x - t * ln2_hi;"
+    , "      lo = t * ln2_lo;"
+    , "    }"
+    , "    x = hi - lo;"
+    , "    c = (hi - x) - lo;"
+    , "  } else if (hx < 0x33000000u) {"
+    , "    t = huge_v + x;"
+    , "    return x - (t - (huge_v + x));"
+    , "  } else {"
+    , "    k = 0;"
+    , "  }"
+    , "  hfx = 0.5f * x;"
+    , "  hxs = x * hfx;"
+    , "  r1 = one + hxs * (Q1 + hxs * (Q2 + hxs * (Q3 + hxs * (Q4 + hxs * Q5))));"
+    , "  t = 3.0f - r1 * hfx;"
+    , "  e = hxs * ((r1 - t) / (6.0f - x * t));"
+    , "  if (k == 0) { return x - (x * e - hxs); }"
+    , "  twopk = as_type<float>(uint((0x7f + k) << 23));"
+    , "  e = x * (e - c) - c;"
+    , "  e -= hxs;"
+    , "  if (k == -1) { return 0.5f * (x - e) - 0.5f; }"
+    , "  if (k == 1) {"
+    , "    if (x < -0.25f) { return -2.0f * (e - (x + 0.5f)); }"
+    , "    else { return one + 2.0f * (x - e); }"
+    , "  }"
+    , "  if (k <= -2 || k > 56) {"
+    , "    y = one - (e - x);"
+    , "    if (k == 128) { y = y * 2.0f * 0x1p127f; }"
+    , "    else { y = y * twopk; }"
+    , "    return y - one;"
+    , "  }"
+    , "  if (k < 23) {"
+    , "    t = as_type<float>(uint(0x3f800000u - (0x1000000u >> uint(k))));"
+    , "    y = t - (e - x);"
+    , "    y = y * twopk;"
+    , "  } else {"
+    , "    t = as_type<float>(uint((0x7f - k) << 23));"
+    , "    y = x - (e + t);"
+    , "    y += one;"
+    , "    y = y * twopk;"
+    , "  }"
+    , "  return y;"
+    , "}"
+    , ""
+    , "inline float " <> mlpMetalActivation <> "(float x) {"
+    , "  const float one = 1.0f;"
+    , "  const float tiny_v = 1.0e-30f;"
+    , "  float t, z;"
+    , "  int jx = as_type<int>(x);"
+    , "  int ix = jx & 0x7fffffff;"
+    , "  if (ix >= 0x7f800000) {"
+    , "    if (jx >= 0) { return one / x + one; }"
+    , "    else { return one / x - one; }"
+    , "  }"
+    , "  if (ix < 0x41b00000) {"
+    , "    if (ix < 0x24000000) { return x * (one + x); }"
+    , "    if (ix >= 0x3f800000) {"
+    , "      t = jitml_mlp_expm1f(2.0f * fabs(x));"
+    , "      z = one - 2.0f / (t + 2.0f);"
+    , "    } else {"
+    , "      t = jitml_mlp_expm1f(-2.0f * fabs(x));"
+    , "      z = -t / (t + 2.0f);"
+    , "    }"
+    , "  } else {"
+    , "    z = one - tiny_v;"
+    , "  }"
+    , "  return (jx >= 0) ? z : -z;"
+    , "}"
+    , ""
     ]
 
 jsonString :: Text -> Text

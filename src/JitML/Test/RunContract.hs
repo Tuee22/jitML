@@ -1076,7 +1076,7 @@ productScenarioReportTests =
                 checkpointRoot
                 projection
                 >>= expectRight
-            copyFile "/bin/false" configuredExecutable
+            copyFile "/usr/bin/false" configuredExecutable
             replacementSha256 <- fileSha256 configuredExecutable
             assertBool
               "configured executable replacement unexpectedly retained the authorized digest"
@@ -1105,7 +1105,7 @@ productScenarioReportTests =
                   Report.productScenarioPreconditionPinnedExecutablePath
                     precondition
                 replacementPath = pinnedPath <> ".replacement"
-            copyFile "/bin/false" replacementPath
+            copyFile "/usr/bin/false" replacementPath
             renameFile replacementPath pinnedPath
             observed <-
               Report.revalidateProductScenarioPinnedExecutable precondition
@@ -1474,7 +1474,7 @@ productScenarioFixtureRunId :: Text
 productScenarioFixtureRunId = "phase-261-run-contract"
 
 productScenarioFixtureExecutablePath :: FilePath
-productScenarioFixtureExecutablePath = "/bin/true"
+productScenarioFixtureExecutablePath = "/usr/bin/true"
 
 productScenarioFixtureExecutableSha256 :: IO Text
 productScenarioFixtureExecutableSha256 =

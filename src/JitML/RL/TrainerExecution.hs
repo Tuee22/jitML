@@ -445,7 +445,7 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                     , PpoTrainer.ppoRolloutSteps =
                         ProductBudget.scheduleOnPolicyRolloutSteps schedule
                     , PpoTrainer.ppoEpochsPerUpdate =
-                        onPolicyEpochsPerUpdateFor variant envName epochsPerUpdate
+                        PpoTrainer.productPpoEpochsPerUpdateFor variant epochsPerUpdate
                     , PpoTrainer.ppoMaxEpisodeSteps =
                         ProductBudget.scheduleOnPolicyMaxEpisodeSteps schedule
                     , PpoTrainer.ppoActionCount = RLSim.envActionCount environment
@@ -505,12 +505,6 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
   -- bit-for-bit (see 'JitML.Codegen.MlpCuda.mlpCudaActivation').
   onPolicyTuning :: (Int, Double)
   onPolicyTuning = (10, 5.0e-4)
-  -- TRPO performs one natural-gradient actor step and its own isolated
-  -- value-head fitting passes per rollout. PPO's repeated gradient-epoch field
-  -- is deliberately ignored; the TRPO critic count and learning rate are
-  -- explicit trainer fields.
-  onPolicyEpochsPerUpdateFor PpoTrainer.VariantTRPO _ _ = 1
-  onPolicyEpochsPerUpdateFor _ _ fallback = fallback
   onPolicyKlTargetFor PpoTrainer.VariantTRPO "lunar-lander" = 0.002
   onPolicyKlTargetFor _ _ = PpoTrainer.ppoKlTarget PpoTrainer.defaultPpoTrainConfig
   -- TRPO acceptance compares the same unclipped surrogate differentiated by

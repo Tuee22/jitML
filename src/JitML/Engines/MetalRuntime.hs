@@ -7,16 +7,19 @@ module JitML.Engines.MetalRuntime
   , parseSwiftVersion
   , parseXcrunFindOutput
   , probeMetalRuntime
+  , probeMetalRuntimeCached
   , renderMetalRuntimeProbe
   )
 where
 
 import Control.Applicative ((<|>))
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception qualified as Exception
 import Data.Char (isSpace)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import System.IO.Unsafe (unsafePerformIO)
 
 import JitML.Sub.Outcome
   ( ProcessOutcome (..)
@@ -59,6 +62,29 @@ probeMetalRuntime = do
       , metalRuntimeProbeLog =
           [renderSystemProfilerProbeResult systemProfilerResult]
       }
+
+-- | Reuse a successful device-visibility probe within one process.  LayerGraph
+-- training opens its compiled backend once per batch, but GPU visibility cannot
+-- change underneath a running producer in any supported lifecycle.  Caching the
+-- successful result avoids spawning @system_profiler@ for every batch while
+-- keeping 'probeMetalRuntime' fresh for explicit doctor/status diagnostics.
+-- Failed probes are deliberately not cached, so a transient subprocess failure
+-- cannot poison the remainder of the process.
+probeMetalRuntimeCached :: IO MetalRuntimeProbe
+probeMetalRuntimeCached =
+  modifyMVar successfulMetalRuntimeProbe $ \cached ->
+    case cached of
+      Just probe -> pure (cached, probe)
+      Nothing -> do
+        probe <- probeMetalRuntime
+        pure
+          ( if metalRuntimeDeviceVisible probe then Just probe else Nothing
+          , probe
+          )
+
+{-# NOINLINE successfulMetalRuntimeProbe #-}
+successfulMetalRuntimeProbe :: MVar (Maybe MetalRuntimeProbe)
+successfulMetalRuntimeProbe = unsafePerformIO (newMVar Nothing)
 
 parseSwiftVersion :: Text -> Maybe Text
 parseSwiftVersion output =

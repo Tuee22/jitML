@@ -1985,7 +1985,7 @@ assertContains label needle haystack =
 testSettings :: PulsarWebSocketSettings
 testSettings =
   PulsarWebSocketSettings
-    { pulsarNodeBinary = "/bin/false"
+    { pulsarNodeBinary = "/usr/bin/false"
     , pulsarWebSocketEndpoint = "ws://unused.invalid/ws"
     , pulsarAdminEndpoint = "http://unused.invalid/admin/v2"
     }

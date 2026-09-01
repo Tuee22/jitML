@@ -765,7 +765,7 @@ withCompiledMetalLayerGraphBackend
   -> (LayerGraphDeviceFunctions -> Text -> Text -> Bool -> IO (Either Text a))
   -> IO (Either Text a)
 withCompiledMetalLayerGraphBackend env useFunctions = do
-  runtime <- MetalRuntime.probeMetalRuntime
+  runtime <- MetalRuntime.probeMetalRuntimeCached
   if not (MetalRuntime.metalRuntimeDeviceVisible runtime)
     then pure (Left "layergraph Metal compile failed: apple-silicon Metal device not visible")
     else do
@@ -840,7 +840,7 @@ metalLayerGraphDeviceFunctions source =
     weights <- peekCFloatValues (inputs * outputs) weightsPtr
     bias <- peekCFloatValues outputs biasPtr
     (out, _dx, _dw, _db) <-
-      run 0 [inputs, outputs, batch] [] input weights bias (replicate outputCount 0.0) outputCount
+      run 20 [inputs, outputs, batch] [] input weights bias (replicate outputCount 0.0) outputCount
     pokeCFloatValues outPtr out
 
   metalBackwardData dxPtr dPrePtr weightsPtr inputsC outputsC _kind batchC = do
@@ -853,7 +853,7 @@ metalLayerGraphDeviceFunctions source =
     weights <- peekCFloatValues (inputs * outputs) weightsPtr
     (_out, dx, _dw, _db) <-
       run
-        0
+        21
         [inputs, outputs, batch]
         []
         (replicate inputCount 0.0)
@@ -874,7 +874,7 @@ metalLayerGraphDeviceFunctions source =
     input <- peekCFloatValues inputCount inputPtr
     (_out, _dx, dw, db) <-
       run
-        0
+        22
         [inputs, outputs, batch]
         []
         input
@@ -906,7 +906,8 @@ metalLayerGraphDeviceFunctions source =
     input <- peekCFloatValues inputCount inputPtr
     weights <- peekCFloatValues weightCount weightsPtr
     bias <- peekCFloatValues cout biasPtr
-    (out, _dx, _dw, _db) <- run 1 geometry [] input weights bias (replicate outputCount 0.0) outputCount
+    (out, _dx, _dw, _db) <-
+      run 23 geometry [] input weights bias (replicate outputCount 0.0) outputCount
     pokeCFloatValues outPtr out
 
   metalConv2DBackwardData dxPtr dPrePtr weightsPtr ci co h w kh kw sh sw ph pw batch = do
@@ -930,7 +931,7 @@ metalLayerGraphDeviceFunctions source =
     dPre <- peekCFloatValues outputCount dPrePtr
     weights <- peekCFloatValues weightCount weightsPtr
     (_out, dx, _dw, _db) <-
-      run 1 geometry [] (replicate inputCount 0.0) weights (replicate cout 0.0) dPre outputCount
+      run 24 geometry [] (replicate inputCount 0.0) weights (replicate cout 0.0) dPre outputCount
     pokeCFloatValues dxPtr dx
 
   metalConv2DBackwardWeights dwPtr dbPtr dPrePtr inputPtr ci co h w kh kw sh sw ph pw batch = do
@@ -954,7 +955,7 @@ metalLayerGraphDeviceFunctions source =
     input <- peekCFloatValues inputCount inputPtr
     dPre <- peekCFloatValues outputCount dPrePtr
     (_out, _dx, dw, db) <-
-      run 1 geometry [] input (replicate weightCount 0.0) (replicate cout 0.0) dPre outputCount
+      run 25 geometry [] input (replicate weightCount 0.0) (replicate cout 0.0) dPre outputCount
     pokeCFloatValues dwPtr dw
     pokeCFloatValues dbPtr db
 
@@ -984,7 +985,8 @@ metalLayerGraphDeviceFunctions source =
     input <- peekCFloatValues inputCount inputPtr
     weights <- peekCFloatValues weightCount weightsPtr
     bias <- peekCFloatValues cout biasPtr
-    (out, _dx, _dw, _db) <- run 2 geometry [] input weights bias (replicate outputCount 0.0) outputCount
+    (out, _dx, _dw, _db) <-
+      run 26 geometry [] input weights bias (replicate outputCount 0.0) outputCount
     pokeCFloatValues outPtr out
 
   metalConv3DBackwardData dxPtr dPrePtr weightsPtr ci co d h w kd kh kw sd sh sw pd ph pw batch = do
@@ -1013,7 +1015,7 @@ metalLayerGraphDeviceFunctions source =
     dPre <- peekCFloatValues outputCount dPrePtr
     weights <- peekCFloatValues weightCount weightsPtr
     (_out, dx, _dw, _db) <-
-      run 2 geometry [] (replicate inputCount 0.0) weights (replicate cout 0.0) dPre outputCount
+      run 27 geometry [] (replicate inputCount 0.0) weights (replicate cout 0.0) dPre outputCount
     pokeCFloatValues dxPtr dx
 
   metalConv3DBackwardWeights dwPtr dbPtr dPrePtr inputPtr ci co d h w kd kh kw sd sh sw pd ph pw batch = do
@@ -1042,7 +1044,7 @@ metalLayerGraphDeviceFunctions source =
     input <- peekCFloatValues inputCount inputPtr
     dPre <- peekCFloatValues outputCount dPrePtr
     (_out, _dx, dw, db) <-
-      run 2 geometry [] input (replicate weightCount 0.0) (replicate cout 0.0) dPre outputCount
+      run 28 geometry [] input (replicate weightCount 0.0) (replicate cout 0.0) dPre outputCount
     pokeCFloatValues dwPtr dw
     pokeCFloatValues dbPtr db
 
@@ -1475,10 +1477,11 @@ deviceGradientBatch functions backendName artifactPath artifactCompiled seeds pa
   template = snd pair0
 
 -- | Batched analogue of 'deviceLayerGradient' for one layer over N examples.
--- The dense flat path takes one batched oneDNN call (@backward_weights@ sums the
--- parameter gradient over the batch). The correct-operator paths (spatial conv,
--- GeGLU/Norm/Attention/Patch/Residual) fold the single-example device kernel over
--- the batch, summing parameter and input gradients in ascending example order.
+-- Dense and spatial-convolution paths take one batched device call
+-- (@backward_weights@ sums the parameter gradient over the batch). Apple Metal
+-- also batches block affine/norm sub-primitives and standalone normalization;
+-- the remaining correct-operator paths fold the single-example device kernel in
+-- ascending example order.
 deviceLayerGradientBatch
   :: LayerGraphDeviceFunctions
   -> Text
@@ -1500,17 +1503,18 @@ deviceLayerGradientBatch functions backendName artifactPath artifactCompiled ups
       case (lowered, layerParameters node, layerGradientParameters template) of
         (LowerOpTrain plan, Nothing, Nothing) -> parameterFreeBatch plan
         (LowerDenseAffine, Just params, Just paramGradient) -> denseBatch params paramGradient
-        (LowerSpatialConv spec, Just params, Just _) ->
-          foldExamples (spatialConvEvidenceCode spec) $ \fwd up ->
-            let dPre =
-                  activationBackwardLocal (layerActivation node) (layerForwardOutput fwd) up
-             in fmap (fmap dropForward) (runDeviceSpatialConv functions spec params (layerForwardInput fwd) dPre)
-        (LowerBlockComposition, Just _, Just _) ->
-          foldExamples blockEvidenceCode $ \fwd up ->
-            fmap (fmap dropForward) (runDeviceBlock functions (layerForwardNode fwd) (layerForwardInput fwd) up)
-        (LowerOpTrain plan, Just _, Just _) ->
-          foldExamples (dopEvidenceCode plan) $ \fwd up ->
-            fmap (fmap dropForward) (runDeviceOp functions node (layerForwardInput fwd) up)
+        (LowerSpatialConv spec, Just params, Just _) -> spatialConvBatch spec params
+        (LowerBlockComposition, Just _, Just _)
+          | backendName == "apple-metal-fixed-bridge" -> blockBatch
+          | otherwise ->
+              foldExamples blockEvidenceCode $ \fwd up ->
+                fmap (fmap dropForward) (runDeviceBlock functions (layerForwardNode fwd) (layerForwardInput fwd) up)
+        (LowerOpTrain plan, Just params, Just _)
+          | backendName == "apple-metal-fixed-bridge" && dopCode plan == 11 ->
+              normBatch plan params
+          | otherwise ->
+              foldExamples (dopEvidenceCode plan) $ \fwd up ->
+                fmap (fmap dropForward) (runDeviceOp functions node (layerForwardInput fwd) up)
         _ ->
           pure
             ( Left
@@ -1571,6 +1575,74 @@ deviceLayerGradientBatch functions backendName artifactPath artifactCompiled ups
                   , Just evidence
                   )
               )
+  spatialConvBatch spec params = do
+    let inputs = VU.length (layerForwardInput forward0)
+        inputFlat = VU.concat (fmap layerForwardInput forwards)
+        dPreFlat =
+          VU.concat
+            ( zipWith
+                (activationBackwardLocal (layerActivation node) . layerForwardOutput)
+                forwards
+                upstreams
+            )
+    result <- runDeviceSpatialConvBatch functions spec params inputFlat dPreFlat batchN
+    case result of
+      Left err -> pure (Left err)
+      Right (_out, dxFlat, dw, db) -> do
+        evidence <-
+          mkEvidence
+            functions
+            backendName
+            artifactPath
+            artifactCompiled
+            node
+            (spatialConvEvidenceCode spec)
+        pure
+          ( Right
+              ( template
+                  { layerGradientInput = sumRows batchN inputs dxFlat
+                  , layerGradientParameters = Just (LayerParameterGradient dw db)
+                  }
+              , Just evidence
+              )
+          )
+  blockBatch = do
+    let inputs = VU.length (layerForwardInput forward0)
+        inputFlat = VU.concat (fmap layerForwardInput forwards)
+        upstreamFlat = VU.concat upstreams
+    result <- runDeviceBlockBatch functions node batchN inputFlat upstreamFlat
+    case result of
+      Left err -> pure (Left err)
+      Right (_out, dxFlat, dw, db) -> do
+        evidence <- mkEvidence functions backendName artifactPath artifactCompiled node blockEvidenceCode
+        pure
+          ( Right
+              ( template
+                  { layerGradientInput = sumRows batchN inputs dxFlat
+                  , layerGradientParameters = Just (LayerParameterGradient dw db)
+                  }
+              , Just evidence
+              )
+          )
+  normBatch plan params = do
+    let inputs = VU.length (layerForwardInput forward0)
+        inputFlat = VU.concat (fmap layerForwardInput forwards)
+        upstreamFlat = VU.concat upstreams
+    result <- runDeviceNormBatchPlan functions plan batchN inputFlat upstreamFlat params
+    case result of
+      Left err -> pure (Left err)
+      Right (_out, dxFlat, dw, db) -> do
+        evidence <-
+          mkEvidence functions backendName artifactPath artifactCompiled node (dopEvidenceCode plan)
+        pure
+          ( Right
+              ( template
+                  { layerGradientInput = sumRows batchN inputs dxFlat
+                  , layerGradientParameters = Just (LayerParameterGradient dw db)
+                  }
+              , Just evidence
+              )
+          )
   -- Correct-operator path: fold the single-example device kernel over the batch.
   foldExamples evCode runOne = do
     folded <- foldDeviceExamples runOne forwards upstreams
@@ -1692,16 +1764,31 @@ runDeviceForwardOnly
   -> Int
   -> Int
   -> IO (Either Text (Vector Double))
-runDeviceForwardOnly functions kindCode params input inputs outputs
+runDeviceForwardOnly functions kindCode params input inputs outputs =
+  runDeviceForwardOnlyBatch functions kindCode params input inputs outputs 1
+
+runDeviceForwardOnlyBatch
+  :: LayerGraphDeviceFunctions
+  -> CInt
+  -> LayerParameters
+  -> Vector Double
+  -> Int
+  -> Int
+  -> Int
+  -> IO (Either Text (Vector Double))
+runDeviceForwardOnlyBatch functions kindCode params input inputs outputs batchN
   | VU.length (layerWeights params) /= inputs * outputs =
       pure (Left "layergraph-onednn: weight length does not match input/output width")
   | VU.length (layerBias params) /= outputs =
       pure (Left "layergraph-onednn: bias length does not match output width")
+  | batchN <= 0 = pure (Left "layergraph-onednn: batch must be positive")
+  | VU.length input /= batchN * inputs =
+      pure (Left "layergraph-onednn: input length does not match batch/input width")
   | otherwise =
       withArray (toC (VU.toList input)) $ \inputPtr ->
         withArray (toC (VU.toList (layerWeights params))) $ \weightsPtr ->
           withArray (toC (VU.toList (layerBias params))) $ \biasPtr ->
-            allocaArray outputs $ \prePtr -> do
+            allocaArray (batchN * outputs) $ \prePtr -> do
               lgForward
                 functions
                 prePtr
@@ -1711,8 +1798,8 @@ runDeviceForwardOnly functions kindCode params input inputs outputs
                 (fromIntegral inputs)
                 (fromIntegral outputs)
                 kindCode
-                1
-              Right . VU.fromList <$> peekFloats outputs prePtr
+                (fromIntegral batchN)
+              Right . VU.fromList <$> peekFloats (batchN * outputs) prePtr
 
 -- | Phase 241 — run a real spatial 2-D convolution's forward + backward through
 -- the oneDNN device kernels, returning @(output, dInput, dWeights, dBias)@.
@@ -1728,18 +1815,33 @@ runDeviceSpatialConv
   -> Vector Double
   -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
 runDeviceSpatialConv functions spec params input dPre =
+  runDeviceSpatialConvBatch functions spec params input dPre 1
+
+-- | Batched spatial-convolution device dispatch. Inputs and upstream gradients
+-- are row-major concatenations; the returned output/input-gradient retain that
+-- row layout while parameter gradients are the deterministic batch sum produced
+-- by the backend primitive.
+runDeviceSpatialConvBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerGraph.ConvSpec
+  -> LayerParameters
+  -> Vector Double
+  -> Vector Double
+  -> Int
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runDeviceSpatialConvBatch functions spec params input dPre batchN =
   case ( LayerGraph.convInputDims spec
        , LayerGraph.convKernelDims spec
        , LayerGraph.convStride spec
        , LayerGraph.convPadding spec
        ) of
     ([h, w], [kh, kw], [sh, sw], [ph, pw])
-      | cin <= 0 || cout <= 0 || h <= 0 || w <= 0 ->
+      | batchN <= 0 || cin <= 0 || cout <= 0 || h <= 0 || w <= 0 ->
           pure (Left "runDeviceSpatialConv: non-positive conv geometry")
-      | VU.length input /= inLen ->
-          pure (Left "runDeviceSpatialConv: input length does not match Cin*H*W")
-      | VU.length dPre /= outLen ->
-          pure (Left "runDeviceSpatialConv: dPre length does not match Cout*Hout*Wout")
+      | VU.length input /= batchN * inLen ->
+          pure (Left "runDeviceSpatialConv: input length does not match N*Cin*H*W")
+      | VU.length dPre /= batchN * outLen ->
+          pure (Left "runDeviceSpatialConv: dPre length does not match N*Cout*Hout*Wout")
       | VU.length (layerWeights params) /= wLen ->
           pure (Left "runDeviceSpatialConv: weight length does not match Cout*Cin*Kh*Kw")
       | VU.length (layerBias params) /= cout ->
@@ -1749,8 +1851,8 @@ runDeviceSpatialConv functions spec params input dPre =
             withArray (toC (VU.toList (layerWeights params))) $ \weightsPtr ->
               withArray (toC (VU.toList (layerBias params))) $ \biasPtr ->
                 withArray (toC (VU.toList dPre)) $ \dPrePtr ->
-                  allocaArray outLen $ \outPtr ->
-                    allocaArray inLen $ \dxPtr ->
+                  allocaArray (batchN * outLen) $ \outPtr ->
+                    allocaArray (batchN * inLen) $ \dxPtr ->
                       allocaArray wLen $ \dwPtr ->
                         allocaArray cout $ \dbPtr -> do
                           let ci = fromIntegral cin
@@ -1766,13 +1868,13 @@ runDeviceSpatialConv functions spec params input dPre =
                                 , fromIntegral sw
                                 , fromIntegral ph
                                 , fromIntegral pw
-                                , 1 :: CInt
+                                , fromIntegral batchN
                                 )
                           applyConvForward (lgConvForward functions) outPtr inputPtr weightsPtr biasPtr args
                           applyConvBackwardData (lgConvBackwardData functions) dxPtr dPrePtr weightsPtr args
                           applyConvBackwardWeights (lgConvBackwardWeights functions) dwPtr dbPtr dPrePtr inputPtr args
-                          out <- VU.fromList <$> peekFloats outLen outPtr
-                          dx <- VU.fromList <$> peekFloats inLen dxPtr
+                          out <- VU.fromList <$> peekFloats (batchN * outLen) outPtr
+                          dx <- VU.fromList <$> peekFloats (batchN * inLen) dxPtr
                           dw <- VU.fromList <$> peekFloats wLen dwPtr
                           db <- VU.fromList <$> peekFloats cout dbPtr
                           pure (Right (out, dx, dw, db))
@@ -1790,12 +1892,12 @@ runDeviceSpatialConv functions spec params input dPre =
     -- tags (nchw/oihw versus ncdhw/oidhw) and primitive descriptors are
     -- arity-specific.
     ([d, h, w], [kd, kh, kw], [sd, sh, sw], [pdp, ph, pw])
-      | cin <= 0 || cout <= 0 || d <= 0 || h <= 0 || w <= 0 ->
+      | batchN <= 0 || cin <= 0 || cout <= 0 || d <= 0 || h <= 0 || w <= 0 ->
           pure (Left "runDeviceSpatialConv: non-positive conv geometry")
-      | VU.length input /= inLen ->
-          pure (Left "runDeviceSpatialConv: input length does not match Cin*D*H*W")
-      | VU.length dPre /= outLen ->
-          pure (Left "runDeviceSpatialConv: dPre length does not match Cout*Dout*Hout*Wout")
+      | VU.length input /= batchN * inLen ->
+          pure (Left "runDeviceSpatialConv: input length does not match N*Cin*D*H*W")
+      | VU.length dPre /= batchN * outLen ->
+          pure (Left "runDeviceSpatialConv: dPre length does not match N*Cout*Dout*Hout*Wout")
       | VU.length (layerWeights params) /= wLen ->
           pure (Left "runDeviceSpatialConv: weight length does not match Cout*Cin*Kd*Kh*Kw")
       | VU.length (layerBias params) /= cout ->
@@ -1805,8 +1907,8 @@ runDeviceSpatialConv functions spec params input dPre =
             withArray (toC (VU.toList (layerWeights params))) $ \weightsPtr ->
               withArray (toC (VU.toList (layerBias params))) $ \biasPtr ->
                 withArray (toC (VU.toList dPre)) $ \dPrePtr ->
-                  allocaArray outLen $ \outPtr ->
-                    allocaArray inLen $ \dxPtr ->
+                  allocaArray (batchN * outLen) $ \outPtr ->
+                    allocaArray (batchN * inLen) $ \dxPtr ->
                       allocaArray wLen $ \dwPtr ->
                         allocaArray cout $ \dbPtr -> do
                           let ci = fromIntegral cin
@@ -1831,7 +1933,7 @@ runDeviceSpatialConv functions spec params input dPre =
                             (fromIntegral pdp)
                             (fromIntegral ph)
                             (fromIntegral pw)
-                            1
+                            (fromIntegral batchN)
                           lgConv3DBackwardData
                             functions
                             dxPtr
@@ -1851,7 +1953,7 @@ runDeviceSpatialConv functions spec params input dPre =
                             (fromIntegral pdp)
                             (fromIntegral ph)
                             (fromIntegral pw)
-                            1
+                            (fromIntegral batchN)
                           lgConv3DBackwardWeights
                             functions
                             dwPtr
@@ -1872,9 +1974,9 @@ runDeviceSpatialConv functions spec params input dPre =
                             (fromIntegral pdp)
                             (fromIntegral ph)
                             (fromIntegral pw)
-                            1
-                          out <- VU.fromList <$> peekFloats outLen outPtr
-                          dx <- VU.fromList <$> peekFloats inLen dxPtr
+                            (fromIntegral batchN)
+                          out <- VU.fromList <$> peekFloats (batchN * outLen) outPtr
+                          dx <- VU.fromList <$> peekFloats (batchN * inLen) dxPtr
                           dw <- VU.fromList <$> peekFloats wLen dwPtr
                           db <- VU.fromList <$> peekFloats cout dbPtr
                           pure (Right (out, dx, dw, db))
@@ -2283,6 +2385,54 @@ runDeviceOpPlan functions plan input upstream weightValues biasValues
   wLen = VU.length weightValues
   bLen = VU.length biasValues
 
+-- | Apple fixed-bridge normalization over a row-major batch. Opcode 31 runs one
+-- linear-work norm thread per example, writes disjoint per-example parameter
+-- gradients, and this host wrapper reduces those rows in ascending order.
+runDeviceNormBatchPlan
+  :: LayerGraphDeviceFunctions
+  -> DeviceOpPlan
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> LayerParameters
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runDeviceNormBatchPlan functions plan batchN input upstream params
+  | batchN <= 0 = pure (Left "runDeviceNormBatchPlan: batch must be positive")
+  | dopCode plan /= 11 = pure (Left "runDeviceNormBatchPlan: plan is not normalization")
+  | VU.length input /= batchN * perExampleLen =
+      pure (Left "runDeviceNormBatchPlan: input length does not match batch geometry")
+  | VU.length upstream /= batchN * perExampleLen =
+      pure (Left "runDeviceNormBatchPlan: upstream length does not match batch geometry")
+  | parameterWidth <= 0 || VU.length (layerBias params) /= parameterWidth =
+      pure (Left "runDeviceNormBatchPlan: gamma/beta widths do not match")
+  | otherwise = do
+      result <-
+        runDeviceOpPlan
+          functions
+          plan
+            { dopCode = 31
+            , dopGeom = dopGeom plan <> [batchN]
+            , dopOutLen = batchN * perExampleLen
+            }
+          input
+          upstream
+          (VU.concat (replicate batchN (layerWeights params)))
+          (VU.concat (replicate batchN (layerBias params)))
+      pure
+        ( fmap
+            ( \(out, dx, perExampleDw, perExampleDb) ->
+                ( out
+                , dx
+                , sumRows batchN parameterWidth perExampleDw
+                , sumRows batchN parameterWidth perExampleDb
+                )
+            )
+            result
+        )
+ where
+  perExampleLen = dopOutLen plan
+  parameterWidth = VU.length (layerWeights params)
+
 -- | Phase 241/242 — @BasicBlock@ / @Bottleneck@ device backward composed from the
 -- existing device sub-kernels: the dense-affine forward/backward
 -- ('runDeviceForwardOnly' / 'runDeviceLayer', kind code 0) and the norm
@@ -2321,6 +2471,38 @@ runDeviceBlock functions node input upstream =
       pure (Left (layerNodeName node <> ": block requires parameters"))
     _ -> pure (Left "runDeviceBlock: node operator is not a BlockOp")
 
+-- | Batched block composition for the Apple fixed bridge. Dense affine stages
+-- and projection shortcuts use the existing batched callbacks; normalization
+-- uses opcode 31 so statistics remain per example while parameter gradients are
+-- reduced deterministically across the batch.
+runDeviceBlockBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerNode
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runDeviceBlockBatch functions node batchN input upstream
+  | batchN <= 0 = pure (Left "runDeviceBlockBatch: batch must be positive")
+  | otherwise =
+      case (LayerGraph.layerNodeOp node, layerParameters node) of
+        (LayerGraph.BlockOp spec, Just params) ->
+          case blockDeviceParts spec params of
+            Left err -> pure (Left err)
+            Right (stageParts, shortcutPart) ->
+              runBlockDeviceBatch
+                functions
+                (layerActivation node)
+                (LayerGraph.blScale spec)
+                stageParts
+                shortcutPart
+                batchN
+                input
+                upstream
+        (LayerGraph.BlockOp _, Nothing) ->
+          pure (Left (layerNodeName node <> ": block requires parameters"))
+        _ -> pure (Left "runDeviceBlockBatch: node operator is not a BlockOp")
+
 -- | One block stage's device-ready parameter split: the dense-affine weights/bias
 -- and dimensions, an optional (norm spec, gamma/beta) pair, and the stage
 -- activation.
@@ -2338,6 +2520,14 @@ data DeviceStageTape = DeviceStageTape
   { dstInput :: !(Vector Double)
   , dstAffineOut :: !(Vector Double)
   , dstOutput :: !(Vector Double)
+  }
+
+-- | Batched block tape; each vector is a row-major concatenation of the
+-- corresponding single-example field.
+data DeviceStageBatchTape = DeviceStageBatchTape
+  { dsbtInput :: !(Vector Double)
+  , dsbtAffineOut :: !(Vector Double)
+  , dsbtOutput :: !(Vector Double)
   }
 
 -- | 'Nothing' is an identity shortcut; @'Just' (inWidth, outWidth, projection)@ is
@@ -2485,6 +2675,108 @@ runBlockDevice functions finalAct scale stageParts shortcutPart input upstream =
       (deviceAffineBackward functions projParams x d sIn sOut)
       (\(dx, dW, dB) -> pure (Right (dx, [dW], [dB])))
 
+-- | Batched counterpart of 'runBlockDevice'. All flat vectors are row-major;
+-- affine and norm parameter gradients returned by their device kernels are
+-- already batch sums in ascending reduction order.
+runBlockDeviceBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerActivation
+  -> Double
+  -> [DeviceStagePart]
+  -> DeviceShortcut
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double, Vector Double))
+runBlockDeviceBatch _ _ _ [] _ _ _ _ =
+  pure (Left "runDeviceBlockBatch: block has no stages")
+runBlockDeviceBatch functions finalAct scale stageParts@(firstPart : restParts) shortcutPart batchN input upstream
+  | VU.length input /= batchN * inputWidth =
+      pure (Left "runDeviceBlockBatch: input length does not match batch geometry")
+  | VU.length upstream /= batchN * outputWidth =
+      pure (Left "runDeviceBlockBatch: upstream length does not match batch geometry")
+  | otherwise =
+      bindE (forwardStages stageParts input) $ \(tapes, u) ->
+        bindE (shortcutForward shortcutPart input) $ \sx ->
+          if VU.length sx /= VU.length u
+            then pure (Left "runDeviceBlockBatch: shortcut/branch width mismatch")
+            else do
+              let ypre = VU.zipWith (\p q -> p + scale * q) sx u
+                  y = applyActivation finalAct ypre
+                  d = activationBackwardLocal finalAct y upstream
+                  du = VU.map (* scale) d
+              bindE (backwardStages stageParts tapes du) $ \(dxBranch, stageWGrads, stageBGrads) ->
+                bindE (shortcutBackward shortcutPart input d) $ \(dxShort, shortWGrads, shortBGrads) ->
+                  pure
+                    ( Right
+                        ( y
+                        , VU.zipWith (+) dxBranch dxShort
+                        , VU.concat (stageWGrads <> shortWGrads)
+                        , VU.concat (stageBGrads <> shortBGrads)
+                        )
+                    )
+ where
+  inputWidth = dspAffIn firstPart
+  outputWidth = dspAffOut (foldl' (\_ part -> part) firstPart restParts)
+  forwardStages parts x0 = go parts x0 []
+   where
+    go [] x acc = pure (Right (reverse acc, x))
+    go (p : ps) x acc =
+      bindE
+        (deviceAffineForwardBatch functions (dspAffine p) batchN x (dspAffIn p) (dspAffOut p))
+        $ \z ->
+          case dspNorm p of
+            Nothing ->
+              let out = applyActivation (dspAct p) z
+               in go ps out (DeviceStageBatchTape x z out : acc)
+            Just (nspec, nparams) ->
+              bindE (deviceNormForwardBatch functions nspec nparams batchN z) $ \zn ->
+                let out = applyActivation (dspAct p) zn
+                 in go ps out (DeviceStageBatchTape x z out : acc)
+  backwardStages parts tapes du = goRev (reverse (zip parts tapes)) du [] []
+   where
+    goRev [] dIn wAcc bAcc = pure (Right (dIn, wAcc, bAcc))
+    goRev ((p, tape) : rest) dIn wAcc bAcc =
+      bindE (stageBackward p tape dIn) $ \(dPrev, wGrad, bGrad) ->
+        goRev rest dPrev (wGrad : wAcc) (bGrad : bAcc)
+  stageBackward p tape dIn =
+    let dActPre = activationBackwardLocal (dspAct p) (dsbtOutput tape) dIn
+     in case dspNorm p of
+          Nothing ->
+            deviceAffineBackwardBatch
+              functions
+              (dspAffine p)
+              batchN
+              (dsbtInput tape)
+              dActPre
+              (dspAffIn p)
+              (dspAffOut p)
+          Just (nspec, nparams) ->
+            bindE
+              (deviceNormBackwardBatch functions nspec nparams batchN (dsbtAffineOut tape) dActPre)
+              $ \(dz, dGamma, dBeta) ->
+                bindE
+                  ( deviceAffineBackwardBatch
+                      functions
+                      (dspAffine p)
+                      batchN
+                      (dsbtInput tape)
+                      dz
+                      (dspAffIn p)
+                      (dspAffOut p)
+                  )
+                  ( \(dx, dW, dB) ->
+                      pure (Right (dx, VU.concat [dW, dGamma], VU.concat [dB, dBeta]))
+                  )
+  shortcutForward Nothing x = pure (Right x)
+  shortcutForward (Just (sIn, sOut, projParams)) x =
+    deviceAffineForwardBatch functions projParams batchN x sIn sOut
+  shortcutBackward Nothing _ d = pure (Right (d, [], []))
+  shortcutBackward (Just (sIn, sOut, projParams)) x d =
+    bindE
+      (deviceAffineBackwardBatch functions projParams batchN x d sIn sOut)
+      (\(dx, dW, dB) -> pure (Right (dx, [dW], [dB])))
+
 -- | Short-circuiting bind for the @IO (Either Text a)@ device-call pipeline.
 bindE :: IO (Either Text a) -> (a -> IO (Either Text b)) -> IO (Either Text b)
 bindE m f = m >>= either (pure . Left) f
@@ -2512,6 +2804,30 @@ deviceAffineBackward
   -> IO (Either Text (Vector Double, Vector Double, Vector Double))
 deviceAffineBackward functions params x dPre inW outW = do
   result <- runDeviceLayer functions 0 params x dPre inW outW 1
+  pure (fmap (\(_pre, dx, dW, dB) -> (dx, dW, dB)) result)
+
+deviceAffineForwardBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerParameters
+  -> Int
+  -> Vector Double
+  -> Int
+  -> Int
+  -> IO (Either Text (Vector Double))
+deviceAffineForwardBatch functions params batchN input inW outW =
+  runDeviceForwardOnlyBatch functions 0 params input inW outW batchN
+
+deviceAffineBackwardBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerParameters
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> Int
+  -> Int
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double))
+deviceAffineBackwardBatch functions params batchN x dPre inW outW = do
+  result <- runDeviceLayer functions 0 params x dPre inW outW batchN
   pure (fmap (\(_pre, dx, dW, dB) -> (dx, dW, dB)) result)
 
 -- | Device norm forward (@out = norm(z)@) via the opcode-11 kernel with a zero
@@ -2543,6 +2859,42 @@ deviceNormBackward functions nspec nparams z dy =
     Right normNode -> do
       result <- runDeviceOp functions normNode z dy
       pure (fmap (\(_out, dz, dGamma, dBeta) -> (dz, dGamma, dBeta)) result)
+
+deviceNormForwardBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerGraph.NormSpec
+  -> LayerParameters
+  -> Int
+  -> Vector Double
+  -> IO (Either Text (Vector Double))
+deviceNormForwardBatch functions nspec nparams batchN z = do
+  let plan = normOpPlan nspec perExampleLen
+  result <-
+    runDeviceNormBatchPlan
+      functions
+      plan
+      batchN
+      z
+      (VU.replicate (VU.length z) 0.0)
+      nparams
+  pure (fmap (\(out, _, _, _) -> out) result)
+ where
+  perExampleLen = LayerGraph.nChannels nspec * LayerGraph.nSpatial nspec
+
+deviceNormBackwardBatch
+  :: LayerGraphDeviceFunctions
+  -> LayerGraph.NormSpec
+  -> LayerParameters
+  -> Int
+  -> Vector Double
+  -> Vector Double
+  -> IO (Either Text (Vector Double, Vector Double, Vector Double))
+deviceNormBackwardBatch functions nspec nparams batchN z dy = do
+  let plan = normOpPlan nspec perExampleLen
+  result <- runDeviceNormBatchPlan functions plan batchN z dy nparams
+  pure (fmap (\(_out, dz, dGamma, dBeta) -> (dz, dGamma, dBeta)) result)
+ where
+  perExampleLen = LayerGraph.nChannels nspec * LayerGraph.nSpatial nspec
 
 mkEvidence
   :: LayerGraphDeviceFunctions

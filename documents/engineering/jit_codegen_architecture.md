@@ -18,8 +18,9 @@
 **Implemented today.** The supervised served path reconstructs the reloaded typed
 `LayerGraph` from checkpoint metadata and executes it directly through
 `LayerGraph.runLayerGraph` (Phases `237`–`239`); the V2 structural-operation ABI
-has been removed. The `LayerGraphDevice` device path evaluates one example at a
-time.
+has been removed. The `LayerGraphDevice` training path evaluates a complete
+mini-batch per layer for dense and spatial convolution on all device lanes;
+Apple Metal also batches block affine/projection and normalization sub-primitives.
 
 **`LayerGraphDevice` is the one layer-graph device path, with a per-lane arm
 behind it.** Sprint `264.1` parameterised it on `Substrate`: a narrower
@@ -36,8 +37,9 @@ Phase `79` (the substrate-generic seam),
 [Phase 264](../../DEVELOPMENT_PLAN/phase-264-real-cudnn-cublas-kernels.md), and
 [Phase 270](../../DEVELOPMENT_PLAN/phase-270-real-metal-kernels.md).
 
-**Target (Phase `234`, see [DEVELOPMENT_PLAN](../../DEVELOPMENT_PLAN/README.md)).**
-The oneDNN layer kernels gain a **batched** forward/backward path (Phase `234`).
+Phase `234` supplied the oneDNN **batched** forward/backward path; the CUDA and
+Metal lowerings preserve that mini-batch device boundary with lane-specific
+deterministic kernels.
 
 ## Cache Layout
 
@@ -586,18 +588,28 @@ scaffolding modules.
   returning output to Haskell.
 - `src/JitML/Numerics/MlpDevice.hs` routes Apple MLP forward, backward,
   batched-gradient, batched-forward, and input-gradient batches through the same
-  fixed bridge ABI using MSL from `src/JitML/Codegen/MlpMetal.hs`.
+  fixed bridge ABI using MSL from `src/JitML/Codegen/MlpMetal.hs`. The generated
+  MLP source mirrors the aligned glibc flt-32 `expm1f`/`tanhf` operation sequence
+  used by the Linux lanes and declares `#pragma clang fp contract(off)` so the
+  trainer's float32 arithmetic does not drift through native MSL `tanh` or
+  multiply-add contraction.
 - `src/JitML/Engines/MetalRuntime.hs` probes host Metal device visibility
-  (`system_profiler SPDisplaysDataType`); device visibility plus a loadable fixed
-  bridge gates host execution. The core cache-miss path does not require
-  `swiftc`, `xcrun metal`, SwiftPM, full Xcode, Tart, or login-keychain state.
+  (`system_profiler SPDisplaysDataType`); successful visibility is cached for
+  the producer process, while failures and explicit diagnostics probe afresh.
+  Device visibility plus a loadable fixed bridge gates host execution. The core
+  cache-miss path does not require `swiftc`, `xcrun metal`, SwiftPM, full Xcode,
+  Tart, or login-keychain state.
+- `MetalLayerTraining` retains serial complete-operator opcodes as reference
+  implementations and uses staged element-parallel opcodes for batched dense,
+  Conv2D, and Conv3D forward/backward results. Block affine/projection work
+  reuses batched dense dispatch, and the normalization opcode runs one example
+  per grid thread while preserving fixed-order gamma/beta reductions.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
-- The per-row `device:<substrate>:<runtime>:<kernel-summary>` cell is currently
-  composed from the declared substrate and the declared device claim, so it is not
-  a record of what executed. Phase `229` owns making it mintable only from an
-  execution witness. Dated per-lane counts are owned by the sprint whose gate
-  produced them and live in
+- The per-row `device:<substrate>:<runtime>:<kernel-summary>` cell is minted from
+  an execution witness produced after the compiled primitive dispatches; a
+  declared substrate or claimed device cannot construct that evidence. Dated
+  per-lane counts are owned by the sprint whose gate produced them and live in
   [../../DEVELOPMENT_PLAN/](../../DEVELOPMENT_PLAN/README.md).
 
 The bridge is host-only process infrastructure. A Linux container cannot execute

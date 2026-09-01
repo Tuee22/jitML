@@ -8,15 +8,20 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Control.Exception qualified
+import Data.Bits qualified as Bits
 import Data.ByteString qualified as ByteString
 import Data.Either (isRight, lefts)
+import Data.List qualified as List
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector.Unboxed qualified as VU
+import GHC.Float qualified
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.Cuda qualified as CudaCodegen
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
 import JitML.Codegen.Metal qualified as MetalCodegen
+import JitML.Codegen.MetalLayerTraining qualified as MetalLayerTraining
 import JitML.Codegen.MlpCuda qualified as MlpCudaCodegen
+import JitML.Codegen.MlpMetal qualified as MlpMetalCodegen
 import JitML.Codegen.RuntimeSource qualified as RuntimeSource
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CublasBindings qualified as Cublas
@@ -56,6 +61,7 @@ import JitML.Numerics.LayerGraphDevice qualified as LayerGraphDevice
 import JitML.Numerics.Mlp
   ( MlpForward (..)
   , MlpGradient (..)
+  , MlpParams (..)
   , MlpShape (..)
   , mlpBackward
   , mlpForward
@@ -553,6 +559,63 @@ main =
                   )
                   evidence
               )
+      , testCase
+          "apple-silicon production LayerGraph callbacks use staged element-parallel Metal opcodes (Phase 271)"
+          $ do
+            let source = MetalLayerTraining.metalLayerTrainingProgram
+                assertHas needle =
+                  assertBool
+                    ("Metal layer-training source should contain " <> Text.unpack needle)
+                    (needle `Text.isInfixOf` source)
+            for_
+              [ "case 20: jitml_dense_forward_element"
+              , "case 21: jitml_dense_backward_data_element"
+              , "case 22: jitml_dense_backward_weights_element"
+              , "case 23: jitml_conv2d_forward_element"
+              , "case 24: jitml_conv2d_backward_data_element"
+              , "case 25: jitml_conv2d_backward_weights_element"
+              , "case 26: jitml_conv3d_forward_element"
+              , "case 27: jitml_conv3d_backward_data_element"
+              , "case 28: jitml_conv3d_backward_weights_element"
+              , "case 31: jitml_norm_batch_sample"
+              ]
+              assertHas
+            assertBool
+              "production stages must not restore the global single-thread return"
+              (not ("if (gid != 0u) { return; }" `Text.isInfixOf` source))
+      , testCase
+          "apple-silicon batched LayerGraph conv/block/norm gradient matches the summed oracle (Phase 271)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            graph <- either (assertFailure . Text.unpack) pure layerGraphDeviceFixture
+            let batch =
+                  [ (VU.fromList [0.15, -0.25, 0.35, -0.45], VU.fromList [-0.05, 0.10, -0.15, 0.20])
+                  , (VU.fromList [-0.20, 0.30, -0.10, 0.05], VU.fromList [0.10, -0.05, 0.20, -0.10])
+                  , (VU.fromList [0.40, -0.10, 0.20, -0.30], VU.fromList [-0.20, 0.15, -0.05, 0.10])
+                  ]
+            reference <-
+              either (assertFailure . Text.unpack) pure $ do
+                gradients <-
+                  traverse
+                    (\(input, target) -> snd <$> LayerGraph.layerGraphSquaredErrorGradient graph input target)
+                    batch
+                case gradients of
+                  [] -> Left "empty batch"
+                  firstGradient : remaining ->
+                    Right (foldl addLayerGraphGradient firstGradient remaining)
+            run <-
+              LayerGraphDevice.layerGraphSquaredErrorGradientBatchDevice
+                Substrate.AppleSilicon
+                env
+                graph
+                batch
+                >>= expectRight "batched Metal LayerGraph gradient failed"
+            assertLayerGraphGradientClose
+              5.0e-3
+              (LayerGraphDevice.layerGraphDeviceGradient run)
+              reference
+            length (LayerGraphDevice.layerGraphDeviceEvidence run)
+              @?= length deviceSupportedLayerKinds
       , testCase
           "apple-silicon Metal runtime absence fails before product-row evidence is accepted (Phase 30.2)"
           $ do
@@ -2565,6 +2628,49 @@ main =
                   (lossOf netN < lossOf net0)
       , -- Metal MLP: validated in the host-native apple-silicon lane.
         testCase
+          "apple-silicon batched MLP gradient is bit-identical to the aligned float32 oracle (Phase 271)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 16, mlpHidden = 64, mlpOutputs = 8}
+                params = mlpInit shape 11
+                sample b =
+                  ( VU.generate 16 $ \j ->
+                      sin (fromIntegral (b * 16 + j) * 0.37) * 1.5
+                  , VU.generate 8 $ \k ->
+                      cos (fromIntegral (b * 8 + k) * 0.21) * 0.5
+                  )
+                batch = [sample b | b <- [0 .. 31 :: Int]]
+                oracle = mlpBatchGradientAlignedFloat params batch
+            metal <- mlpBatchGradientMetal env params batch
+            case metal of
+              Right gradient -> do
+                gradW1 gradient @?= gradW1 oracle
+                gradB1 gradient @?= gradB1 oracle
+                gradW2 gradient @?= gradW2 oracle
+                gradB2 gradient @?= gradB2 oracle
+              Left message ->
+                assertFailure ("apple-silicon batched gradient failed: " <> Text.unpack message)
+      , testCase
+          "apple-silicon MLP source renders the lane-aligned activation (Phase 271)"
+          $ do
+            let rendered =
+                  Text.concat
+                    [ contents
+                    | SourceFile _ contents <- MlpMetalCodegen.renderMlpMetalSource
+                    ]
+            assertBool
+              "the MLP Metal source defines the aligned activation"
+              (("inline float " <> MlpMetalCodegen.mlpMetalActivation) `Text.isInfixOf` rendered)
+            assertBool
+              "the MLP Metal source calls the aligned activation"
+              ((MlpMetalCodegen.mlpMetalActivation <> "(acc)") `Text.isInfixOf` rendered)
+            assertBool
+              "the MLP Metal source disables floating-point contraction"
+              ("#pragma clang fp contract(off)" `Text.isInfixOf` rendered)
+            assertBool
+              "no MLP Metal call site uses MSL's native tanh"
+              (not ("= tanh(" `Text.isInfixOf` rendered))
+      , testCase
           "apple-silicon MLP forward kernel matches the pure-Haskell network (Phase 4 rebalance)"
           $ do
             env <- buildEnv defaultGlobalFlags
@@ -3269,6 +3375,181 @@ assertWeightedMatchesReference label family input weights actual =
     )
  where
   expected = familyReference family input weights
+
+-- | Exact Float oracle for the batched MLP parameter-gradient ABI. The loop
+-- nesting and accumulation order mirror MlpOneDnn/MlpCuda/MlpMetal, while the
+-- activation below mirrors the glibc flt-32 operation sequence rendered by the
+-- two GPU lanes. Keeping this oracle host-local lets the Apple lane make the
+-- bit-identity assertion without installing oneDNN on the Mac host.
+mlpBatchGradientAlignedFloat
+  :: MlpParams -> [(VU.Vector Double, VU.Vector Double)] -> MlpGradient
+mlpBatchGradientAlignedFloat params batch =
+  MlpGradient
+    { gradW1 = toDouble gradW1Float
+    , gradB1 = toDouble gradB1Float
+    , gradW2 = toDouble gradW2Float
+    , gradB2 = toDouble gradB2Float
+    }
+ where
+  shape = paramShape params
+  inputCount = mlpInputs shape
+  hiddenCount = mlpHidden shape
+  outputCount = mlpOutputs shape
+  batchCount = length batch
+  w1 = VU.map realToFrac (paramW1 params) :: VU.Vector Float
+  b1 = VU.map realToFrac (paramB1 params) :: VU.Vector Float
+  w2 = VU.map realToFrac (paramW2 params) :: VU.Vector Float
+  samples =
+    [ (VU.map realToFrac input, VU.map realToFrac dLdy)
+    | (input, dLdy) <- batch
+    ]
+  hiddenActs =
+    [ VU.generate hiddenCount $ \i ->
+        glibcTanhFloat $
+          List.foldl'
+            (\acc j -> acc + (w1 VU.! (i * inputCount + j)) * (input VU.! j))
+            (b1 VU.! i)
+            [0 .. inputCount - 1]
+    | (input, _) <- samples
+    ]
+  inputAt b = fst (samples !! b)
+  dLdyAt b = snd (samples !! b)
+  hiddenAt b = hiddenActs !! b
+  dPre b i =
+    let dAct =
+          List.foldl'
+            (\acc k -> acc + (w2 VU.! (k * hiddenCount + i)) * (dLdyAt b VU.! k))
+            0.0
+            [0 .. outputCount - 1]
+        hidden = hiddenAt b VU.! i
+     in dAct * (1.0 - hidden * hidden)
+  gradB2Float =
+    VU.generate outputCount $ \k ->
+      List.foldl'
+        (\acc b -> acc + (dLdyAt b VU.! k))
+        0.0
+        [0 .. batchCount - 1]
+  gradW2Float =
+    VU.generate (outputCount * hiddenCount) $ \idx ->
+      let (k, i) = idx `divMod` hiddenCount
+       in List.foldl'
+            (\acc b -> acc + (dLdyAt b VU.! k) * (hiddenAt b VU.! i))
+            0.0
+            [0 .. batchCount - 1]
+  gradB1Float =
+    VU.generate hiddenCount $ \i ->
+      List.foldl'
+        (\acc b -> acc + dPre b i)
+        0.0
+        [0 .. batchCount - 1]
+  gradW1Float =
+    VU.generate (hiddenCount * inputCount) $ \idx ->
+      let (i, j) = idx `divMod` inputCount
+       in List.foldl'
+            (\acc b -> acc + dPre b i * (inputAt b VU.! j))
+            0.0
+            [0 .. batchCount - 1]
+  toDouble = VU.map realToFrac
+
+-- | glibc's flt-32 tanhf for the finite activation range exercised by the
+-- wide parity fixture. Every binding is Float, so each operation rounds at the
+-- same point as the rendered MSL/CUDA helper. The expm1 reduction below rejects
+-- only the large-magnitude arm that the fixture cannot reach.
+glibcTanhFloat :: Float -> Float
+glibcTanhFloat x
+  | ix < 0x24000000 = x * (one + x)
+  | ix < 0x41b00000 =
+      signed $
+        if ix >= 0x3f800000
+          then
+            let t = glibcExpm1Float (2.0 * abs x)
+             in one - 2.0 / (t + 2.0)
+          else
+            let t = glibcExpm1Float (-(2.0 * abs x))
+             in negate t / (t + 2.0)
+  | otherwise = signed (one - tiny)
+ where
+  bits = GHC.Float.castFloatToWord32 x
+  ix = bits Bits..&. 0x7fffffff
+  negative = Bits.testBit bits 31
+  signed value = if negative then negate value else value
+  one = 1.0 :: Float
+  tiny = 1.0e-30 :: Float
+
+glibcExpm1Float :: Float -> Float
+glibcExpm1Float x0
+  | hx >= 0x4195b844 =
+      error "glibcExpm1Float: parity fixture exceeded the supported activation range"
+  | hx < 0x33000000 =
+      let t = huge + x0
+       in x0 - (t - (huge + x0))
+  | otherwise = finish reducedX correction reductionK
+ where
+  bits = GHC.Float.castFloatToWord32 x0
+  signBit = bits Bits..&. 0x80000000
+  hx = bits Bits..&. 0x7fffffff
+  one = 1.0 :: Float
+  huge = 1.0e30 :: Float
+  ln2Hi = 6.9313812256e-1 :: Float
+  ln2Lo = 9.0580006145e-6 :: Float
+  invLn2 = 1.4426950216 :: Float
+  q1 = -3.3333335072e-2 :: Float
+  q2 = 1.5873016091e-3 :: Float
+  q3 = -7.9365076090e-5 :: Float
+  q4 = 4.0082177293e-6 :: Float
+  q5 = -2.0109921195e-7 :: Float
+  (reducedX, correction, reductionK)
+    | hx > 0x3eb17218 =
+        let (hi, lo, k)
+              | hx < 0x3f851592 =
+                  if signBit == 0
+                    then (x0 - ln2Hi, ln2Lo, 1)
+                    else (x0 + ln2Hi, negate ln2Lo, -1)
+              | otherwise =
+                  let rounded = if signBit == 0 then 0.5 else -0.5
+                      k' = truncate (invLn2 * x0 + rounded)
+                      t = fromIntegral k'
+                   in (x0 - t * ln2Hi, t * ln2Lo, k')
+            x = hi - lo
+         in (x, (hi - x) - lo, k)
+    | otherwise = (x0, 0.0, 0)
+  finish x corr k =
+    let hfx = 0.5 * x
+        hxs = x * hfx
+        r1 = one + hxs * (q1 + hxs * (q2 + hxs * (q3 + hxs * (q4 + hxs * q5))))
+        t0 = 3.0 - r1 * hfx
+        e0 = hxs * ((r1 - t0) / (6.0 - x * t0))
+     in if k == 0
+          then x - (x * e0 - hxs)
+          else scaleReduced x corr hxs e0 k
+  scaleReduced x corr hxs e0 k =
+    let twoPk =
+          GHC.Float.castWord32ToFloat $
+            fromIntegral ((0x7f + k) `Bits.shiftL` 23)
+        e = x * (e0 - corr) - corr - hxs
+     in case k of
+          -1 -> 0.5 * (x - e) - 0.5
+          1
+            | x < -0.25 -> -(2.0 * (e - (x + 0.5)))
+            | otherwise -> one + 2.0 * (x - e)
+          _
+            | k <= -2 || k > 56 ->
+                let y0 = one - (e - x)
+                    y =
+                      if k == 128
+                        then y0 * 2.0 * GHC.Float.castWord32ToFloat 0x7f000000
+                        else y0 * twoPk
+                 in y - one
+            | k < 23 ->
+                let t =
+                      GHC.Float.castWord32ToFloat $
+                        0x3f800000 - (0x01000000 `Bits.shiftR` k)
+                 in (t - (e - x)) * twoPk
+            | otherwise ->
+                let t =
+                      GHC.Float.castWord32ToFloat $
+                        fromIntegral ((0x7f - k) `Bits.shiftL` 23)
+                 in (x - (e + t) + one) * twoPk
 
 assertListClose :: String -> [Float] -> [Float] -> IO ()
 assertListClose label expected actual =

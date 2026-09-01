@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
@@ -392,6 +392,13 @@ with the Haskell verifier.
 when all four browser-evidence environment variables are present; a partial
 configuration fails immediately. Current lane validation evidence belongs in
 the development plan, not this architecture document.
+
+The `apple-silicon` browser closure runs through
+`jitml test jitml-e2e --live --apple-silicon` against the retained Apple
+publication and host Engine daemon. Its positive matrix must contain all 55
+catalogue-derived tests and render the exact Metal-trained row artifacts; a
+missing daemon, Metal runtime, publication, catalogue row, or authenticated
+browser result is a lane failure rather than an offline or static fallback.
 
 Playwright execution runs through a structured process result on the explicit
 live orchestration path and attaches its transcript to the scenario journal; it

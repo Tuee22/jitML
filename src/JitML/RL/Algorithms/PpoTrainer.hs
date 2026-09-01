@@ -39,6 +39,7 @@ module JitML.RL.Algorithms.PpoTrainer
   , OnPolicyVariant (..)
   , defaultPpoTrainConfig
   , productPpoCountBetaFor
+  , productPpoEpochsPerUpdateFor
   , productPpoHiddenUnits
   , productPpoVectorEnvCount
 
@@ -190,6 +191,17 @@ productPpoHiddenUnits = 256
 
 productPpoVectorEnvCount :: Int
 productPpoVectorEnvCount = 16
+
+-- | Product update passes for each on-policy contract. PPO's repeated
+-- old-policy epochs are valid only for variants that constrain their
+-- importance ratio. A2C applies its unconstrained actor-critic update once per
+-- rollout; TRPO owns one natural-gradient actor step and separate critic
+-- passes. Keeping this selection beside the variant prevents a product caller
+-- from silently turning A2C into unclipped multi-epoch PPO.
+productPpoEpochsPerUpdateFor :: OnPolicyVariant -> Int -> Int
+productPpoEpochsPerUpdateFor VariantA2C _ = 1
+productPpoEpochsPerUpdateFor VariantTRPO _ = 1
+productPpoEpochsPerUpdateFor _ fallback = fallback
 
 -- | Product count-exploration defaults for the sparse-goal on-policy rows.
 -- KeyDoorGrid bins the agent position together with its key/door phase, so the

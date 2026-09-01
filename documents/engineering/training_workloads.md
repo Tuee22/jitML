@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
@@ -720,7 +720,15 @@ epochs, SAC entropy terms,
 CrossQ target-net removal, and the TQC pooled-quantile critic. The Sprint `25.2`
 collapse guard proves the named update paths do not collapse to identical final
 parameters. Per-model convergence remains a separate evidence obligation. The
-current `jitml-model-convergence` suite guards case-registry coverage and bar
+product A2C contract likewise consumes each sampled rollout exactly once. A2C's
+unclipped actor-critic surrogate has no PPO ratio bound that would make ten
+passes over samples from the old policy safe; `productPpoEpochsPerUpdateFor`
+therefore selects one pass for A2C and TRPO while preserving the configured PPO
+epoch count for PPO, MaskablePPO, and RecurrentPPO. This selection is
+algorithm-specific and substrate-independent. Measured optimizer counters still
+record the minibatch applications that actually ran; the canonical A2C product
+schedule produces 19,200 applications from its 1,228,800 observed transitions.
+The current `jitml-model-convergence` suite guards case-registry coverage and bar
 metadata only; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 binds each algorithm/environment case to its own completed trained-policy run.
 PPO/CartPole determinism is asserted by `jitml-rl-canonicals` as

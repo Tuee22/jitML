@@ -14178,6 +14178,12 @@ unitTestMain =
               AlgorithmCommon.measuredEnvironmentTransitionCount
                 (PpoTrainer.resultMeasuredCounters result)
                 @?= 8
+          , testCase "product A2C consumes each old-policy rollout once" $ do
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantA2C 10 @?= 1
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantTRPO 10 @?= 1
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantPPO 10 @?= 10
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantMaskablePPO 10 @?= 10
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantRecurrentPPO 10 @?= 10
           , testCase "device TRPO reports accepted actor plus value-head optimizer steps" $ do
               let config =
                     PpoTrainer.defaultPpoTrainConfig

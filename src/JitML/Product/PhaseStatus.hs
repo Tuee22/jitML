@@ -352,13 +352,13 @@ allProductPhaseStatuses =
       271
       "Metal Row Device Evidence"
       "DEVELOPMENT_PLAN/phase-271-metal-row-device-evidence.md"
-      [ sprint "271.1" "Metal Row Device Evidence" Active
+      [ sprint "271.1" "Metal Row Device Evidence" Done
       ]
   , productPhase
       272
       "Apple Integration, E2E, and Attestation"
       "DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md"
-      [ sprint "272.1" "Apple Integration, E2E, and Attestation" Blocked
+      [ sprint "272.1" "Apple Integration, E2E, and Attestation" Active
       ]
   , productPhase
       273

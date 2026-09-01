@@ -83,8 +83,10 @@ artifact's SHA-256. Validated on the attached RTX 5090:
 Apple supervised rows execute the `linux-cpu` oneDNN layer-training artifact —
 the same defect that reopened Phases `270` and `271` on 2026-08-12, not carried
 through to this phase at the time. Sprint `264.1` makes it fail closed instead of
-silently mis-attributing the run. It is blocked by Sprints `270.1` and `271.1`,
-both lower-numbered, so the dependency edge stays forward-only.
+silently mis-attributing the run. At that checkpoint it was blocked by Sprints
+`270.1` and `271.1`, both lower-numbered, so the dependency edge stayed
+forward-only. Those prerequisites subsequently closed and Phase `272` became
+Active; its current state is recorded below.
 
 **Phases `266`, `267`, and `78` reopened on 2026-08-16 under rule `C`.** Phase
 `266` attested a row-complete `linux-cuda` lane on counts its own historical
@@ -334,14 +336,27 @@ publication readiness unsatisfiable; and a shared `<path>.tmp` staging name in
 source race, killing all but one. Sprint `78.1` had fixed that last class for
 compiled artifacts; the rendered-source path had the same defect.
 
-**Phase `270` closed `Done` on 2026-08-24; Phase `271` is now the first
-executable owner and the apple-silicon evidence wall.**
+**Phase `271` closed `Done` on 2026-08-28; Phase `272` is now Active and the
+first executable owner.** The corrected Apple producer exited `0` after
+**5 h 12 min 41.62 s** with `rows: 55`, `eligible: 55`, `unsupported: 0`,
+`errors: 0`, `admitted-inventory-entries: 55`, and one tuning transcript. The
+final source passed the Apple doctor, `jitml-backends` **25 / 25**, and
+`jitml-e2e` **30 / 30**; clean image build
+`jitml:local@sha256:95e7786b0cd49b99ec26c8ffd0f18aa8b3d8956f163ec533972c7326fbf0df91`,
+`jitml docs check`, `jitml check-code`, and the six-case phase-status guard also
+passed. See
+[Phase 271 → 2026-08-26 Continuation Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-26-continuation-checkpoint).
 
 The Phase `19`–`34` product registry is
-**59 Done / 1 Active / 0 Planned / 10 Blocked**.
-The numerically ordered open chain is `271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phases `43`–`52` and `54`–`68` retain `Done` on
+**60 Done / 1 Active / 0 Planned / 9 Blocked**.
+The numerically ordered open chain is `272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `273` remains the hard Apple-Silicon host boundary.
+Phase `272` has a green ten-stanza Apple lane (`10` passed, `0` failed,
+`0` not-run) but remains Active: its 2026-09-01 explicit live-e2e attempt was
+interrupted during fresh row 55 of 55 before the acquisition assertion or
+Playwright ran. The exact restart point and remaining gates are recorded in
+[Phase 272 → 2026-09-01 continuation checkpoint](phase-272-apple-integration-e2e-and-attestation.md#2026-09-01-continuation-checkpoint).
 
 Phase `42` is Done with the one-control-plane/one-worker Kind shape, target node
 caps, and profile-driven manual-PV rendering. Phase `53` closed after its
@@ -2822,15 +2837,19 @@ blocks) are tracked in
 ## Current Plan Status
 
 The authoritative current state is [Closure Status](#closure-status) above and
-the [Phase Overview](00-overview.md). Phase `270` re-closed `Done` on
-2026-08-24, leaving Phase `271` as the first executable owner overall. The
-Phase `19`–`34` registry is **59 Done / 1 Active / 0 Planned / 10 Blocked**.
-The complete open chain is `271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with every Blocked phase naming its predecessor.
-Phase `271` is paused after its Apple doctor, **21 / 21** backend tests,
-**30 / 30** e2e tests, container code-quality gate, and live **111-step**
-bootstrap passed. The cluster was torn down before the 55-row publisher ran;
-its exact continuation checkpoint and remaining dataset work are recorded in
-[Phase 271 → 2026-08-24 Pause Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-24-pause-checkpoint).
+the [Phase Overview](00-overview.md). Phase `271` closed `Done` on
+2026-08-28, leaving Active Phase `272` as the first executable owner overall.
+The Phase `19`–`34` registry is
+**60 Done / 1 Active / 0 Planned / 9 Blocked**. The complete open chain is
+`272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with every
+Blocked phase naming its predecessor. Phase `271` closed at 55 / 55 admitted
+Apple rows, Apple backend **25 / 25**, and e2e **30 / 30**; its complete
+evidence is recorded in
+[Phase 271 → 2026-08-26 Continuation Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-26-continuation-checkpoint).
+Phase `272` has passed the complete ten-stanza Apple lane, but its explicit
+live-e2e retry must start over after the 2026-09-01 user-requested interruption
+during row 55 of its fresh acquisition; no Playwright case ran in that attempt.
+The retained publication and host daemon were left available for continuation.
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3622,13 +3641,13 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`271 → 272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`272 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252` and `261` are
-Done; Phases `42`, `53`, `69`, `229`, `262`, `268`, and `270` are Done; Phases
-`272`, `273`, `276`, `278`, `280`–`282`, `285`, `288`, and `289` are Blocked by their
-immediate predecessor in the chain. Outside the registry range, Phases `7` and
+Done; Phases `42`, `53`, `69`, `229`, `262`, `268`, `270`, and `271` are Done;
+Phase `272` is Active; Phases `273`, `276`, `278`, `280`–`282`, `285`, `288`,
+and `289` are Blocked by their immediate predecessor in the chain. Outside the registry range, Phases `7` and
 `72` re-closed `Done` on 2026-08-13; Phases `77`, `79`, `80`, and `84`
 re-closed `Done` on 2026-08-14, and Phase `78` re-closed `Done` on 2026-08-19.
 

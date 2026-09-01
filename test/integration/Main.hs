@@ -2347,6 +2347,7 @@ acquireProductScenarioIntegrationAggregate
     let runRoot = takeDirectory journalPath
         workspace = runRoot </> "workspace"
         checkpointRoot = workspace </> ".build" </> "checkpoints"
+        repositoryHost = repositoryRoot </> ".build" </> "host"
         repositoryRuntime = repositoryRoot </> ".build" </> "runtime"
     journalExists <- doesFileExist journalPath
     when journalExists $
@@ -2369,6 +2370,10 @@ acquireProductScenarioIntegrationAggregate
     createDirectoryLink
       repositoryRuntime
       (workspace </> ".build" </> "runtime")
+    when (selectedSubstrate == AppleSilicon) $
+      createDirectoryLink
+        repositoryHost
+        (workspace </> ".build" </> "host")
     batch <-
       case ProductMatrix.projectProductRows selectedSubstrate ProductMatrix.allProductRows of
         Failure errors ->
