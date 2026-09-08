@@ -1,4 +1,4 @@
-# `apple-silicon` Per-Lane Attestation (Phase 30)
+# `apple-silicon` Per-Lane Attestation (Phase 273)
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -6,47 +6,55 @@
 [../phase-16-apple-silicon-closure.md](../README.md#legacy-to-new-phase-map),
 [../phase-17-cross-substrate-and-handoff.md](../README.md#legacy-to-new-phase-map),
 [../phase-18-no-caveat-product-handoff.md](../README.md#legacy-to-new-phase-map),
-[../phase-30-apple-silicon-product-lane.md](../README.md#legacy-to-new-phase-map),
-[../phase-31-no-caveat-product-aggregation.md](../README.md#legacy-to-new-phase-map)
+[../phase-272-apple-integration-e2e-and-attestation.md](../phase-272-apple-integration-e2e-and-attestation.md),
+[../phase-273-contract-driven-apple-lane-revalidation.md](../phase-273-contract-driven-apple-lane-revalidation.md),
+[../phase-276-journal-derived-product-aggregation.md](../phase-276-journal-derived-product-aggregation.md)
 **Generated sections**: none
 
 > **Purpose**: The committed `apple-silicon` per-lane report-card fragment for
-> Phase `30`. The Apple backend evidence was refreshed on 2026-07-06 after the
-> realness audit; Phase `31` now consumes this file alongside the fresh
-> `linux-cpu` and `linux-cuda` fragments during `linux-cpu` aggregation.
+> Phase `273`. The final-source contract-driven Apple lifecycle refreshed this
+> file on 2026-09-08 before CPU-only aggregation in Phase `276`.
 
 ## Topology Scope
 
-The Apple Metal device/product and host-forwarding evidence remains valid on
-its owned surfaces. The three-worker and replicated-platform measurements
-retained later in this file are historical and do not validate the
-single-worker target opened on 2026-08-09. Phases `42`, `53`, and `69` own that
-topology; no replacement multi-worker Apple run is required.
+The current evidence covers the governed one-control-plane/one-worker local Kind
+topology, single-instance platform services, and host-resident Metal execution.
+The three-worker and replicated-platform measurements retained later in this
+file are historical only and do not define the current acceptance topology.
 
 ## Host
 
-- Apple M1 Max workstation, macOS 26.5.1 (Darwin 25.5.0, arm64), Metal-capable
+- Apple M1 Max workstation, macOS 26.6.2 (Darwin 25G83, arm64), Metal-capable
   GPU visible to jitML's execution context.
 - Fixed host Metal bridge: rendered MSL is compiled in-process through
   `MTLDevice.makeLibrary(source:options:)` with fast math disabled; the core path
   does not use Tart, SwiftPM-generated kernels, full Xcode, offline `metal`, or
   login-keychain state.
-- Validated 2026-07-05 for the original Phase `30` fragment; refreshed
-  2026-07-06 for the fixed-bridge Metal backend kernel surface.
+- Live one-worker `apple-silicon` Kind cluster with all seven publication
+  components ready and edge port `9091`; the host daemon acquired the Metal
+  runtime and fixed bridge and connected all four command consumers.
+- Validated 2026-09-08 against the final Phase `273` source.
 
-## Phase 30 Product-Lane Validation Gate
+## Phase 273 Product-Lane Validation Gate
 
 | Command / evidence | Result |
 |---|---|
 | `./bootstrap/apple-silicon.sh doctor` | PASS (`apple-silicon stage-0 doctor: ok`) |
-| `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal run exe:jitml -- internal install-metal-bridge` | PASS (`metal_bridge_probe: ok`) |
-| `PATH=/opt/homebrew/opt/llvm@19/bin:$PATH cabal build test:jitml-backends test:jitml-e2e test:jitml-unit` | PASS on arm64 host with GHC-compatible LLVM 19 tools |
-| `jitml-backends --apple-silicon` Metal source and runtime tests | PASS: generated MSL rejects identity-copy/1x1 scaffold markers, Conv2D/Conv3D multi-tap kernels match windowed references, Metal runtime absence fails before row evidence is accepted, and the full `apple-silicon` backend lane passed **20 / 20** on 2026-07-06 |
-| Product row report schema | PASS: every ProductRow carries `DeviceEvidence` for the `apple-silicon` lane |
+| `./bootstrap/apple-silicon.sh up` | PASS: immutable image `sha256:d9105907767618e1af564a4a5fbe23535e87c3c71c803d0c49ae83d60473101e`, all **113** rollout steps, seven ready publication components, edge `:9091`, and the governed dataset inventory live-verified |
+| Host daemon | PASS: `apple.metal-runtime=yes`, `apple.metal-bridge=yes`, four connected command consumers, and `ready` |
+| `./bootstrap/apple-silicon.sh test` | PASS: **10** stanzas passed, **0** failed, **0** not-run in 106,546.281929 seconds; stanza counts were unit **906 / 906**, integration **197 / 197**, SL canonicals **36 / 36**, RL canonicals **47 / 47**, hyperparameter **26 / 26**, backends **25 / 25**, daemon lifecycle **54 / 54**, e2e **30 / 30**, negative controls **3 / 3**, and model convergence **111 / 111** |
+| Authenticated ProductScenario journal | PASS: version `3`, run `jitml-product-scenario-45c81e636039819c`, exactly **55 / 55** rows, checkpoint-scope digest `7c94acc7f1bc6124b3bfcaff2cf706f71c37587a10dfeed2b47f0e1b114fe0d8`, projection-batch digest `d0b5713f59df3ea3090bab7c2615d6fcd796f4fae30c063a91213ffa308be607`, and retained-file SHA-256 `67134e1e47efe819b041c38830bda4a73809d0fd7146adadd7a11c6154e2fef3` |
+| Committed-fragment issuance comparator inside `jitml-integration` | PASS: the authenticated journal re-minted and exactly matched all committed row cells below |
+| Final live placement/cleanup snapshot | PASS: only the three expected platform provisioning/init Jobs existed; no Metal training/RL/tuning workload Job existed; every running pod was Ready with zero restarts |
+| `./bootstrap/apple-silicon.sh down` | PASS: terminal status `0`, both Kind nodes deleted, no Kind cluster/container and no Phase `273` test/daemon process remained |
+| Final Apple executables | `.build/jitml` SHA-256 `52e5477d726e5d8a0b857f1abe74371dd25788d37230fdcf8bacdb08cf842114`; preserved arm64 build-tree executable SHA-256 `f4ee639fe2568b1614ead70110feae664450cb25a7a97b97e2b0de9d57446c3a` |
 
-The table below is the committed `apple-silicon` fragment consumed by Phase `31`.
-It uses the current product-row evidence schema and pins every row to the fixed
-host Metal bridge compile/dispatch evidence.
+The table below is the committed `apple-silicon` fragment consumed by Phase
+`276` and later CPU-only aggregation. It uses the current product-row evidence
+schema and pins every row to the exact device evidence re-issued from the
+authenticated final-source journal. The first ten supervised rows carry the
+fixed-bridge layer-graph witness; California Housing and the remaining 44 rows
+carry the executed Metal MLP witness.
 
 ```
 row_id	Catalog	Integration	E2E	Negative	DeviceEvidence	Lane

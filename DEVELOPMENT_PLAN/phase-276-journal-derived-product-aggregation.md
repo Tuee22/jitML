@@ -9,16 +9,16 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 273 (Sprint 273.1).
+📋 **Planned** (2026-09-08). Phase `273` is Done and supplies the refreshed
+Apple fragment; this CPU-only aggregation phase has not started.
 
-## Sprint 276.1: Journal-Derived Product Aggregation [⏸️ Blocked]
+## Sprint 276.1: Journal-Derived Product Aggregation [📋 Planned]
 
-**Status**: Blocked
+**Status**: Planned
 **Implementation**: `src/JitML/Test/Report.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`,
 `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
-**Blocked by**: Sprint `273.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -58,10 +58,9 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprint `273.1` publishes its refreshed contract-driven lane
-  fragment containing admitted artifact identities. Sprint `268.1` supplies the
-  CUDA fragment transitively, and Sprint `261.1` supplies the refreshed
-  `linux-cpu` fragment.
+- No unmet blocker remains. Sprint `273.1` supplies the refreshed Apple
+  fragment, Sprint `268.1` supplies the CUDA fragment, and Sprint `261.1`
+  supplies the refreshed `linux-cpu` fragment.
 - Implement typed journal decode/join and regenerate the aggregate report.
 - Retire post-hoc/prose-fragment aggregation only after the join rejects all
   negative fixtures and the CPU-only validation passes.

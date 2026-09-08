@@ -196,16 +196,23 @@ instance HasPulsar EngineServiceClient where
           subscription
           (liftIO . runEngineServiceClient settings . observe)
           (liftIO . runEngineServiceClient settings . handler)
-  pulsarConsumeBatchesUntil readPolicy compatibilityKey subscription observe handler = do
-    settings <- ask
-    liftIO $
-      runPulsarWebSocketSubprocess (enginePulsarSettings settings) $
-        pulsarConsumeBatchesUntil
-          (liftIO (runEngineServiceClient settings readPolicy))
-          compatibilityKey
-          subscription
-          (liftIO . runEngineServiceClient settings . observe)
-          (liftIO . runEngineServiceClient settings . handler)
+  pulsarConsumeBatchesUntil
+    readPolicy
+    compatibilityKey
+    deadlineMode
+    subscription
+    observe
+    handler = do
+      settings <- ask
+      liftIO $
+        runPulsarWebSocketSubprocess (enginePulsarSettings settings) $
+          pulsarConsumeBatchesUntil
+            (liftIO (runEngineServiceClient settings readPolicy))
+            compatibilityKey
+            deadlineMode
+            subscription
+            (liftIO . runEngineServiceClient settings . observe)
+            (liftIO . runEngineServiceClient settings . handler)
 
 enginePublicationDeadlineResult :: EngineClientSettings -> IO (Either ServiceError ())
 enginePublicationDeadlineResult settings =
@@ -360,16 +367,23 @@ instance HasPulsar DaemonServiceClient where
           subscription
           (liftIO . runDaemonServiceClient settings . observe)
           (liftIO . runDaemonServiceClient settings . handler)
-  pulsarConsumeBatchesUntil readPolicy compatibilityKey subscription observe handler = do
-    settings <- ask
-    liftIO $
-      runDaemonPulsarClient settings $
-        pulsarConsumeBatchesUntil
-          (liftIO (runDaemonServiceClient settings readPolicy))
-          compatibilityKey
-          subscription
-          (liftIO . runDaemonServiceClient settings . observe)
-          (liftIO . runDaemonServiceClient settings . handler)
+  pulsarConsumeBatchesUntil
+    readPolicy
+    compatibilityKey
+    deadlineMode
+    subscription
+    observe
+    handler = do
+      settings <- ask
+      liftIO $
+        runDaemonPulsarClient settings $
+          pulsarConsumeBatchesUntil
+            (liftIO (runDaemonServiceClient settings readPolicy))
+            compatibilityKey
+            deadlineMode
+            subscription
+            (liftIO . runDaemonServiceClient settings . observe)
+            (liftIO . runDaemonServiceClient settings . handler)
 
 instance HasImageRegistry DaemonServiceClient where
   registryImageExists image =

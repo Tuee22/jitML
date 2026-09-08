@@ -6,6 +6,7 @@ module JitML.Service.Command
   , ServiceInvocation (..)
   , currentTimestampNs
   , daemonCommandBatchDeadline
+  , daemonCommandBatchDeadlineMode
   , engineWeightedInference
   , publishPulsarEvent
   , runInstallMetalBridge
@@ -944,6 +945,7 @@ daemonConsumerWorkerLoop
             subscription
             (liftIO (readInferenceBatchPolicy control))
             inferenceBatchCompatibility
+            daemonCommandBatchDeadlineMode
             (observeDaemonConsumerSession control connectedRef subscription)
             ( handleDaemonConsumerBatch
                 commandRuntime
@@ -1253,6 +1255,20 @@ daemonCommandBatchDeadline window command =
     _nonInference -> batched
  where
   batched = Just (InferenceBatch.batchWindowDeadlineNanoseconds window)
+
+-- | Select the transport execution fence using the same command distinction as
+-- 'daemonCommandBatchDeadline'. Forward passes remain bounded by the captured
+-- inference SLO. Isolated control commands retain the batch collection window
+-- but execute under their own request/retry/drain bounds.
+daemonCommandBatchDeadlineMode
+  :: Consumer.DaemonCommand -> InferenceBatch.BatchDeadlineMode
+daemonCommandBatchDeadlineMode command =
+  case command of
+    Consumer.InferenceDaemonCommand _substrate (Inference.RunInference {}) ->
+      InferenceBatch.BatchDeadlineEnforced
+    Consumer.InferenceDaemonCommand _substrate _control ->
+      InferenceBatch.BatchDeadlineIgnored
+    _nonInference -> InferenceBatch.BatchDeadlineEnforced
 
 daemonBatchDisposition :: Maybe DaemonBatchFailure -> Capabilities.Disposition
 daemonBatchDisposition batchFailure =

@@ -56,13 +56,15 @@ import JitML.Coordinator.Topology
   )
 import JitML.Service.Capabilities (HasPulsar (..))
 import JitML.Service.InferenceBatch
-  ( BatchOffer (..)
+  ( BatchDeadlineMode (..)
+  , BatchOffer (..)
   , BatchPolicy
   , OpenBatch
   , batchCollectionDeadlineNanoseconds
   , batchDeadlineNanoseconds
   , batchFlushReason
   , batchItems
+  , batchKey
   , batchWindow
   , offerBatch
   , openBatch
@@ -193,17 +195,24 @@ instance HasPulsar PulsarWebSocketSubprocess where
           (runPulsarWebSocketSubprocess settings . handler)
       )
 
-  pulsarConsumeBatchesUntil readPolicy compatibilityKey subscription observe handler = do
-    settings <- ask
-    liftIO
-      ( consumePersistentBatches
-          settings
-          subscription
-          (runPulsarWebSocketSubprocess settings readPolicy)
-          compatibilityKey
-          (runPulsarWebSocketSubprocess settings . observe)
-          (runPulsarWebSocketSubprocess settings . handler)
-      )
+  pulsarConsumeBatchesUntil
+    readPolicy
+    compatibilityKey
+    deadlineMode
+    subscription
+    observe
+    handler = do
+      settings <- ask
+      liftIO
+        ( consumePersistentBatches
+            settings
+            subscription
+            (runPulsarWebSocketSubprocess settings readPolicy)
+            compatibilityKey
+            deadlineMode
+            (runPulsarWebSocketSubprocess settings . observe)
+            (runPulsarWebSocketSubprocess settings . handler)
+        )
 
 pulsarPublishSubprocess
   :: PulsarWebSocketSettings
@@ -452,38 +461,46 @@ consumePersistentBatches
   -> Subscription event
   -> IO BatchPolicy
   -> (event -> key)
+  -> (event -> BatchDeadlineMode)
   -> (ConsumerSessionEvent -> IO ())
   -> (DeliveryBatch event -> IO (ConsumerBatchDecision result))
   -> IO (Either ConsumerFailure result)
-consumePersistentBatches settings subscription readPolicy compatibilityKey observe handler = do
-  retainedFailure <- newIORef Nothing
-  preserveLateFailure retainedFailure $ mask $ \restore -> do
-    processResult <-
-      tryAny
-        ( restore
-            ( runPipedProcess
-                (pulsarBatchConsumerSubprocess settings subscription)
-                ( \session ->
-                    consumeBatchLoop
-                      (subscriptionTopicInternal subscription)
-                      readPolicy
-                      compatibilityKey
-                      observe
-                      handler
-                      session
-                      BatchTransportState
-                        { batchBridgeState = emptyBridgeState
-                        , batchConnected = False
-                        , batchPermitOutstanding = False
-                        , batchDeferredDeliveries = []
-                        }
-                )
-            )
-        )
-    let consumed = finalizeProcessResult processResult
-    cleanupResult <- cleanupSubscription settings subscription
-    finalResult <- finalizeConsumeCleanup consumed cleanupResult
-    retainFailure retainedFailure finalResult
+consumePersistentBatches
+  settings
+  subscription
+  readPolicy
+  compatibilityKey
+  deadlineMode
+  observe
+  handler = do
+    retainedFailure <- newIORef Nothing
+    preserveLateFailure retainedFailure $ mask $ \restore -> do
+      processResult <-
+        tryAny
+          ( restore
+              ( runPipedProcess
+                  (pulsarBatchConsumerSubprocess settings subscription)
+                  ( \session ->
+                      consumeBatchLoop
+                        (subscriptionTopicInternal subscription)
+                        readPolicy
+                        (\event -> (compatibilityKey event, deadlineMode event))
+                        observe
+                        handler
+                        session
+                        BatchTransportState
+                          { batchBridgeState = emptyBridgeState
+                          , batchConnected = False
+                          , batchPermitOutstanding = False
+                          , batchDeferredDeliveries = []
+                          }
+                  )
+              )
+          )
+      let consumed = finalizeProcessResult processResult
+      cleanupResult <- cleanupSubscription settings subscription
+      finalResult <- finalizeConsumeCleanup consumed cleanupResult
+      retainFailure retainedFailure finalResult
 
 finalizeProcessResult
   :: Either SomeException (ConsumeActionResult result, ProcessOutcome)
@@ -565,7 +582,7 @@ consumeBatchLoop
   :: (Eq key)
   => Topic event
   -> IO BatchPolicy
-  -> (event -> key)
+  -> (event -> (key, BatchDeadlineMode))
   -> (ConsumerSessionEvent -> IO ())
   -> (DeliveryBatch event -> IO (ConsumerBatchDecision result))
   -> PipedSession
@@ -645,12 +662,12 @@ collectOpenBatch
   :: (Eq key)
   => Topic event
   -> IO BatchPolicy
-  -> (event -> key)
+  -> (event -> (key, BatchDeadlineMode))
   -> (ConsumerSessionEvent -> IO ())
   -> (DeliveryBatch event -> IO (ConsumerBatchDecision result))
   -> PipedSession
   -> BatchTransportState event
-  -> OpenBatch key (Delivery event)
+  -> OpenBatch (key, BatchDeadlineMode) (Delivery event)
   -> IO (ConsumeActionResult result)
 collectOpenBatch topic readPolicy compatibilityKey observe handler session transport batch = do
   now <- getMonotonicTimeNSec
@@ -712,18 +729,24 @@ collectOpenBatch topic readPolicy compatibilityKey observe handler session trans
   handleOpenBatch = handleOpenBatchWith transport batch
 
   handleOpenBatchWith nextTransport ready = do
-    beforeHandler <- getMonotonicTimeNSec
-    let remainingNanoseconds =
-          batchDeadlineNanoseconds ready - toInteger beforeHandler
     handlerResult <-
-      if remainingNanoseconds <= 0
-        then pure (Right Nothing)
-        else
-          tryAny
-            ( timeout
-                (boundedMicroseconds remainingNanoseconds)
-                (handler (DeliveryBatch (batchWindow ready) (batchItems ready)))
-            )
+      case snd (batchKey ready) of
+        BatchDeadlineEnforced -> do
+          beforeHandler <- getMonotonicTimeNSec
+          let remainingNanoseconds =
+                batchDeadlineNanoseconds ready - toInteger beforeHandler
+          if remainingNanoseconds <= 0
+            then pure (Right Nothing)
+            else
+              tryAny
+                ( timeout
+                    (boundedMicroseconds remainingNanoseconds)
+                    (handler (DeliveryBatch (batchWindow ready) (batchItems ready)))
+                )
+        BatchDeadlineIgnored ->
+          fmap Just
+            <$> tryAny
+              (handler (DeliveryBatch (batchWindow ready) (batchItems ready)))
     case handlerResult of
       Left exception
         | Just asyncException <- fromException exception ->

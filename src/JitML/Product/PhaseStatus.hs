@@ -358,13 +358,13 @@ allProductPhaseStatuses =
       272
       "Apple Integration, E2E, and Attestation"
       "DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md"
-      [ sprint "272.1" "Apple Integration, E2E, and Attestation" Active
+      [ sprint "272.1" "Apple Integration, E2E, and Attestation" Done
       ]
   , productPhase
       273
       "Contract-Driven Apple Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-273-contract-driven-apple-lane-revalidation.md"
-      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Blocked
+      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Done
       ]
   , productPhase
       274
@@ -382,7 +382,7 @@ allProductPhaseStatuses =
       276
       "Journal-Derived Product Aggregation"
       "DEVELOPMENT_PLAN/phase-276-journal-derived-product-aggregation.md"
-      [ sprint "276.1" "Journal-Derived Product Aggregation" Blocked
+      [ sprint "276.1" "Journal-Derived Product Aggregation" Planned
       ]
   , productPhase
       277

@@ -401,7 +401,14 @@ validation.
 
 The sparse-inference regression boundary is explicit and focused:
 the `InferenceBatch` unit group covers the distinct early collection cutoff and
-exact shared deadline predicate; the `PulsarTransport` group covers redirect-safe owned cleanup,
+exact shared deadline predicate. The daemon supplies a typed per-command
+deadline mode to the lower Pulsar batch transport and that mode participates in
+batch compatibility: `RunInference` batches remain subject to the configured
+forward-pass deadline, while isolated catalogue, comparison, adversarial, and
+transcript controls run under their request/retry/drain bounds instead of that
+inference fence. The `PulsarTransport` group proves both a late inference batch
+is cancelled and nacked before publication and an over-deadline isolated control
+can complete and ack exactly once; it also covers redirect-safe owned cleanup,
 under-capacity dispatch, cancellation
 settlement/drain/process/cleanup failure precedence, and an actual Node bridge
 drain race whose hidden Nack flushes before `Drained`. The four `inference reply

@@ -118,7 +118,7 @@ import JitML.Service.Capabilities
   , subscriptionOwnership
   , subscriptionStart
   )
-import JitML.Service.InferenceBatch (BatchPolicy)
+import JitML.Service.InferenceBatch (BatchDeadlineMode, BatchPolicy)
 import JitML.Service.Retry (ServiceError (..), serviceErrorToAppError)
 import JitML.Sub.Outcome (ProcessOutcome (..))
 import JitML.Substrate (Substrate (..), renderSubstrate)
@@ -316,6 +316,7 @@ consumeDaemonSubscriptionBatches
   => DaemonSubscription
   -> m BatchPolicy
   -> (DaemonCommand -> key)
+  -> (DaemonCommand -> BatchDeadlineMode)
   -> (ConsumerSessionEvent -> m ())
   -> (DeliveryBatch DaemonCommand -> m (ConsumerBatchDecision result))
   -> m (Either ConsumerFailure result)
@@ -323,11 +324,13 @@ consumeDaemonSubscriptionBatches
   (DaemonSubscription _domain topic subscription toCommand)
   readPolicy
   compatibilityKey
+  deadlineMode
   observe
   handler =
     pulsarConsumeBatchesUntil
       readPolicy
       (compatibilityKey . toDaemonCommand)
+      (deadlineMode . toDaemonCommand)
       subscription
       observe
       (handler . mapDeliveryBatch toDaemonCommand)

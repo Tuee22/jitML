@@ -62,7 +62,8 @@ import GHC.Clock (getMonotonicTimeNSec)
 
 import JitML.Coordinator.Topology (Topic)
 import JitML.Service.InferenceBatch
-  ( BatchPolicy
+  ( BatchDeadlineMode
+  , BatchPolicy
   , BatchWindow
   , batchWindow
   , openBatch
@@ -269,20 +270,27 @@ class (MonadIO m) => HasPulsar m where
     :: (Eq key)
     => m BatchPolicy
     -> (event -> key)
+    -> (event -> BatchDeadlineMode)
     -> Subscription event
     -> (ConsumerSessionEvent -> m ())
     -> (DeliveryBatch event -> m (ConsumerBatchDecision result))
     -> m (Either ConsumerFailure result)
-  pulsarConsumeBatchesUntil readPolicy _compatibilityKey subscription observe handler =
-    pulsarConsumeUntil subscription observe $ \delivery -> do
-      policySnapshot <- readPolicy
-      admittedAt <- liftIO getMonotonicTimeNSec
-      let window = batchWindow (openBatch admittedAt policySnapshot () delivery)
-      decision <- handler (DeliveryBatch window (delivery :| []))
-      pure $
-        case decision of
-          ContinueBatchInternal disposition -> ContinueInternal disposition
-          DoneBatchInternal disposition result -> DoneInternal disposition result
+  pulsarConsumeBatchesUntil
+    readPolicy
+    _compatibilityKey
+    _deadlineMode
+    subscription
+    observe
+    handler =
+      pulsarConsumeUntil subscription observe $ \delivery -> do
+        policySnapshot <- readPolicy
+        admittedAt <- liftIO getMonotonicTimeNSec
+        let window = batchWindow (openBatch admittedAt policySnapshot () delivery)
+        decision <- handler (DeliveryBatch window (delivery :| []))
+        pure $
+          case decision of
+            ContinueBatchInternal disposition -> ContinueInternal disposition
+            DoneBatchInternal disposition result -> DoneInternal disposition result
 
 -- | Image-registry capability. `registryPushImage` and `registryPullImage`
 -- exercise the container-registry push/pull contract; `registryListImages`

@@ -61,7 +61,8 @@ import JitML.Service.Capabilities
   , subscriptionTopic
   )
 import JitML.Service.InferenceBatch
-  ( batchMaximumSize
+  ( BatchDeadlineMode (..)
+  , batchMaximumSize
   , batchWindowAdmissionNanoseconds
   , batchWindowDeadlineNanoseconds
   , batchWindowPolicy
@@ -190,6 +191,7 @@ pulsarTransportTests =
                     pulsarConsumeBatchesUntil
                       (pure policy)
                       (const ())
+                      (const BatchDeadlineEnforced)
                       subscription
                       (\sessionEvent -> liftIO (modifyIORef' observed (<> [sessionEvent])))
                       ( \batch -> do
@@ -254,6 +256,7 @@ pulsarTransportTests =
                     pulsarConsumeBatchesUntil
                       (pure policy)
                       (const ())
+                      (const BatchDeadlineEnforced)
                       subscription
                       (const (pure ()))
                       ( \batch -> do
@@ -290,6 +293,7 @@ pulsarTransportTests =
                     pulsarConsumeBatchesUntil
                       readNextPolicy
                       (const ())
+                      (const BatchDeadlineEnforced)
                       subscription
                       (const (pure ()))
                       ( \_batch -> do
@@ -305,6 +309,29 @@ pulsarTransportTests =
             result @?= Right ()
             readIORef handlerCalls >>= (@?= 2)
             readIORef latePublication >>= (@?= False)
+    , testCase "isolated control handler can outlive the inference batch deadline and Ack once" $
+        withWorkflowFixture Borrowed $ \_topic _event subscription ->
+          withFakeNode (singletonBatchScript validWorkflowPayload) $ \settings -> do
+            let policy = either (error . show) id (mkBatchPolicy 64 1000)
+            handlerCalls <- newIORef (0 :: Int)
+            result <-
+              ( withinFixtureTimeout $
+                  runPulsarWebSocketSubprocess settings $
+                    pulsarConsumeBatchesUntil
+                      (pure policy)
+                      (const ())
+                      (const BatchDeadlineIgnored)
+                      subscription
+                      (const (pure ()))
+                      ( \_batch -> do
+                          liftIO (modifyIORef' handlerCalls (+ 1))
+                          liftIO (threadDelay 100000)
+                          pure (doneBatch ack ())
+                      )
+              )
+                :: IO (Either ConsumerFailure ())
+            result @?= Right ()
+            readIORef handlerCalls >>= (@?= 1)
     , testCase "decode failure is negative-acked, confirmed, and drained" $
         withWorkflowFixture Borrowed $ \_topic _event subscription ->
           withFakeNode (terminalScript NackKind "not-a-workflow-status") $ \settings -> do
@@ -468,6 +495,7 @@ pulsarTransportTests =
                     pulsarConsumeBatchesUntil
                       (pure policy)
                       (const ())
+                      (const BatchDeadlineEnforced)
                       subscription
                       (\event -> liftIO (modifyIORef' observed (<> [event])))
                       ( \batch -> do
@@ -937,6 +965,7 @@ pulsarTransportTests =
                   $ pulsarConsumeBatchesUntil
                     (pure policy)
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     ( \_batch -> do
@@ -970,6 +999,7 @@ pulsarTransportTests =
                   pulsarConsumeBatchesUntil
                     (pure policy)
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     ( \_batch -> do
@@ -993,6 +1023,7 @@ pulsarTransportTests =
                   pulsarConsumeBatchesUntil
                     (pure policy)
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     ( \_batch -> do
@@ -1020,6 +1051,7 @@ pulsarTransportTests =
                   pulsarConsumeBatchesUntil
                     readPolicy
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     (const (pure (doneBatch ack ())))
@@ -1041,6 +1073,7 @@ pulsarTransportTests =
                   pulsarConsumeBatchesUntil
                     readPolicy
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     (const (pure (doneBatch ack ())))
@@ -1080,6 +1113,7 @@ pulsarTransportTests =
                   $ pulsarConsumeBatchesUntil
                     (pure policy)
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     (const (pure (doneBatch ack ())))
@@ -1117,6 +1151,7 @@ pulsarTransportTests =
                   $ pulsarConsumeBatchesUntil
                     (pure policy)
                     (const ())
+                    (const BatchDeadlineEnforced)
                     subscription
                     (const (pure ()))
                     (const (pure (doneBatch ack ())))

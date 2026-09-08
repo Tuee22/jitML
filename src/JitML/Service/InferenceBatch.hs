@@ -8,6 +8,7 @@ module JitML.Service.InferenceBatch
   , batchMaximumLatencyMicros
   , batchMaximumSize
   , mkBatchPolicy
+  , BatchDeadlineMode (..)
   , BatchFlushReason (..)
   , OpenBatch
   , BatchOffer (..)
@@ -47,6 +48,16 @@ data BatchPolicy = BatchPolicy
 data BatchPolicyError
   = BatchSizeMustBePositive
   | BatchLatencyMustBePositive
+  deriving stock (Eq, Show)
+
+-- | Whether the transport's inference latency fence bounds handler execution.
+-- Ordinary forward-pass batches are deadline-bound; isolated control commands
+-- share the subscription and collection machinery but own their longer-lived
+-- request/retry deadlines, so cancelling them at the inference fence would
+-- create an unsatisfiable negative-acknowledgement loop.
+data BatchDeadlineMode
+  = BatchDeadlineEnforced
+  | BatchDeadlineIgnored
   deriving stock (Eq, Show)
 
 mkBatchPolicy :: Natural -> Natural -> Either BatchPolicyError BatchPolicy

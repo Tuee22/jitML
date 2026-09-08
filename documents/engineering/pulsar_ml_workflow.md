@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../../README.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, run_contract.md, daemon_architecture.md
+**Referenced by**: README.md, ../../README.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/development_plan_standards.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md, run_contract.md, daemon_architecture.md
 **Generated sections**: none
 
 > **Purpose**: The shared normative cross-project contract, specialized locally
@@ -163,24 +163,29 @@ unrepresentable in the domain.
 jitML specializes delivery settlement with opaque broker receipts and derives a
 semantic `EventId` from the refined plan, command kind, and logical key; the two
 identities never alias. Its inference consumer reads a positive batch-size and
-latency snapshot at first admission, groups compatible `RunInference` requests
-by experiment/checkpoint and input width, and retains every hidden receipt.
+latency snapshot at first admission. A typed per-command deadline mode is part
+of batch compatibility: it groups deadline-enforced `RunInference` requests by
+experiment/checkpoint and input width, while catalogue, comparison, adversarial,
+and transcript controls remain isolated and ignore the inference forward-pass
+fence. Every batch retains each hidden receipt.
 Collection closes on size/compatibility or at the sparse cutoff
 `admission + min(1 ms, latency / 10)`; the distinct captured
-handler/publication-entry deadline remains `admission + latency`. This sends an
-under-capacity batch to Engine with most of its SLO intact without extending the
-captured window.
+handler/publication-entry deadline remains `admission + latency` for inference.
+This sends an under-capacity inference batch to Engine with most of its SLO
+intact without extending the captured window. Isolated controls instead remain
+bounded by their existing request, retry, and drain policies.
 
 Daemon dispatch commits semantic dedup state per command. A later cancellation
 restores only that command's in-progress transition, so earlier successful
 commands survive a whole-batch Nack and do not repeat their effects on
-redelivery. If the handler does not return before timeout, the transport cancels
-it and Nacks the admitted receipts. Engine refuses to enter a Pulsar publication
-after the captured deadline. A decision that does return is never
-retroactively Nacked by a later clock sample because publication may already be
-externally visible; broker acknowledgement or publication completion is not
-guaranteed by the deadline. Commanded and drain-race settlements must flush and
-be confirmed before `Drained`.
+redelivery. For a deadline-enforced inference batch, if the handler does not
+return before timeout, the transport cancels it and Nacks the admitted receipts;
+Engine also refuses to enter a Pulsar publication after the captured deadline.
+An isolated control is not cancelled by that inference fence. A decision that
+does return is never retroactively Nacked by a later clock sample because
+publication may already be externally visible; broker acknowledgement or
+publication completion is not guaranteed by the deadline. Commanded and
+drain-race settlements must flush and be confirmed before `Drained`.
 
 The jitML inference CLI never computes. It **establishes** one `Owned`,
 `FromLatest` reply cursor through an acknowledged admin subscription `CREATE`,

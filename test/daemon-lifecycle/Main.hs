@@ -1813,6 +1813,7 @@ main =
               ( pulsarConsumeBatchesUntil
                   (pure policy)
                   (const ())
+                  (const InferenceBatch.BatchDeadlineEnforced)
                   subscription
                   (const (pure ()))
                   ( \batch -> do
@@ -1845,44 +1846,47 @@ main =
             policy <- expectRight (InferenceBatch.mkBatchPolicy 64 5_000_000)
             let window = InferenceBatch.batchWindow (InferenceBatch.openBatch 0 policy () ())
                 deadlineFor = ServiceCommand.daemonCommandBatchDeadline window
+                deadlineModeFor = ServiceCommand.daemonCommandBatchDeadlineMode
                 inference = InferenceDaemonCommand LinuxCPU
                 batched =
                   Just (InferenceBatch.batchWindowDeadlineNanoseconds window)
-            deadlineFor
-              ( inference
-                  ( Inference.RunInference
-                      Inference.InferenceRequest
-                        { Inference.irCallId = "call"
-                        , Inference.irExperimentHash = "product-row-mnist-deep-mlp"
-                        , Inference.irReplyTopic = "reply"
-                        , Inference.irInput = [0.5]
-                        }
-                  )
-              )
-              @?= batched
-            deadlineFor
-              ( inference
-                  ( Inference.ListCheckpoints
-                      Inference.ListCheckpointsCommand
-                        { Inference.lccCallId = "call"
-                        , Inference.lccReplyTopic = "reply"
-                        }
-                  )
-              )
-              @?= Nothing
-            deadlineFor
-              ( inference
-                  ( Inference.LoadTranscript
-                      Inference.LoadTranscriptCommand
-                        { Inference.ltcCallId = "call"
-                        , Inference.ltcTranscriptId = "transcript"
-                        , Inference.ltcReplyTopic = "reply"
-                        }
-                  )
-              )
-              @?= Nothing
+                forwardCommand =
+                  inference
+                    ( Inference.RunInference
+                        Inference.InferenceRequest
+                          { Inference.irCallId = "call"
+                          , Inference.irExperimentHash = "product-row-mnist-deep-mlp"
+                          , Inference.irReplyTopic = "reply"
+                          , Inference.irInput = [0.5]
+                          }
+                    )
+                listCommand =
+                  inference
+                    ( Inference.ListCheckpoints
+                        Inference.ListCheckpointsCommand
+                          { Inference.lccCallId = "call"
+                          , Inference.lccReplyTopic = "reply"
+                          }
+                    )
+                transcriptCommand =
+                  inference
+                    ( Inference.LoadTranscript
+                        Inference.LoadTranscriptCommand
+                          { Inference.ltcCallId = "call"
+                          , Inference.ltcTranscriptId = "transcript"
+                          , Inference.ltcReplyTopic = "reply"
+                          }
+                    )
+            deadlineFor forwardCommand @?= batched
+            deadlineModeFor forwardCommand @?= InferenceBatch.BatchDeadlineEnforced
+            deadlineFor listCommand @?= Nothing
+            deadlineModeFor listCommand @?= InferenceBatch.BatchDeadlineIgnored
+            deadlineFor transcriptCommand @?= Nothing
+            deadlineModeFor transcriptCommand @?= InferenceBatch.BatchDeadlineIgnored
             -- Non-inference domains keep the window they already honoured.
             deadlineFor (syntheticTrainingCommand "train" LinuxCPU) @?= batched
+            deadlineModeFor (syntheticTrainingCommand "train" LinuxCPU)
+              @?= InferenceBatch.BatchDeadlineEnforced
       , testCase "consumerLoopExit short-circuits on first PulsarFailed (Sprint 5.5)" $ do
           eventA <- expectDaemonCommandEventId (syntheticTrainingCommand "a" LinuxCPU)
           eventB <- expectDaemonCommandEventId (syntheticTrainingCommand "b" LinuxCPU)

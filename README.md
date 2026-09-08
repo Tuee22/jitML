@@ -33,17 +33,101 @@ The result is:
 
 ## Current Status
 
-As of 2026-08-19, Phases `42`, `53`, and `69` are Done with the one-worker
-cluster, clean single-instance platform rollout, and profile-driven Engine
-count. Phase `265` closed `Done` on 2026-08-18 with a `55 / 55` eligible
-`linux-cuda` lane run, and Phase `78` re-closed `Done` on 2026-08-19 once every
-substrate's compiled artifact bytes became a function of its cache-key inputs —
-proven per lane by a double-compile gate — so Phase `266` is the first
-executable owner. The exact open chain is
-`266 → 267 → 268 → 269 → 270 → 271 → 272 → 273 → 276 → 278 → 280 → 281
-→ 282 → 285 → 288 → 289`; intervening Done phases retain their completed
-non-topology surfaces. The `apple-silicon` phases `269`, `270`, `271`, and `272`
-close on the Mac host under standards rule `M(d)`.
+As of 2026-09-08, Phases `266`–`273` are Done and Phase `276` is Planned as the
+first executable owner; Phase `276` has not started. Phase `273`'s exact Apple
+lifecycle passed all **10 / 10** stanzas in 106,546.281929 seconds, preserved an
+authenticated version-`3` **55 / 55** row journal, re-minted the unchanged
+committed Apple fragment, and shut down the daemon and Kind cluster. The
+historical Apple closure chronology leading to that result follows. Phase
+`272`'s final-source explicit live Apple e2e gate exited
+`0` with integration **197 / 197**, Playwright **77 / 77**, and Haskell e2e
+**30 / 30**. Phase `272` remains open because the shared Pulsar batch-transport
+fix postdates its earlier green ten-stanza Apple lane. The final-source complete
+lane attempt passed `jitml-unit` and reached the `jitml-integration`
+ProductScenario `mnist-lenet` row before it was interrupted at the user's stop
+request. It produced no terminal status and is not closing evidence, so a fresh
+full-lane rerun must pass before the attestation, standalone gates, docs, and
+code-quality checks can close the phase. The next clean-host bootstrap passed
+**111** live rollout steps and the daemon reached readiness with four consumers,
+but the fresh lane exited `1` in `jitml-integration` after `jitml-unit` passed:
+the rebuilt cluster contained none of the twelve governed canonical dataset
+objects, so live dataset inventory and dependent workflow/product assertions
+failed closed. That runtime was stopped at the checkpoint. The continuation
+then rebuilt and reconciled the current source, staged and live-verified all
+twelve governed objects, and restored the ready four-consumer Metal daemon. Its
+fresh complete lane passed `jitml-unit`, completed the first five
+ProductScenario rows, and reached `cifar10-resnet20` before it was intentionally
+interrupted at the user's stop request without a terminal status. The lane,
+daemon, and Kind cluster were stopped; this attempt is not closing evidence.
+The latest continuation rebuilt immutable image
+`sha256:550cab9db6cc1f835e1b938b9a57a3ffa7d32f44d822c2d62fdbb2441b6bf5e3`,
+passed all **111** bootstrap steps, restaged and focused-live-verified all twelve
+objects, and restored the ready four-consumer Metal daemon. Its fresh complete
+lane passed `jitml-unit`, completed eight ProductScenario rows, and reached
+`cifar10-vit` before the user's stop request. It was intentionally interrupted
+without a terminal status; the lane, daemon, and Kind cluster are stopped, and
+the attempt is not closing evidence. A fresh full-lane rerun remains required
+before the attestation, standalone, documentation, and code-quality gates. The
+final continuation used immutable image
+`sha256:55975f2ec4db8eaf9dacee5b125ea1ed4dfb028c88a44b78a1ee232a1189ea6f`:
+all **111** bootstrap steps passed, all twelve exact datasets passed the focused
+live gate, and the real-Metal daemon reached readiness with four connected
+consumers. Its fresh complete lane passed `jitml-unit`, completed eight
+ProductScenario rows through `cifar100-wide-resnet`, and reached `cifar10-vit`
+before the user's stop request. The intentional interrupt produced terminal
+status `2`; it is not closing evidence. The lane and daemon are stopped, the
+Kind cluster is deleted, and a fresh full-lane rerun remains required. The
+latest continuation used immutable image
+`sha256:2365ac55ef5fc8accee708acba8243d95d6d8248b6a52a11d92ce19ec51f66d7`:
+bootstrap passed all **111** steps, doctor passed, all seven components reported
+ready, edge readiness passed, all twelve exact datasets passed the focused live gate **1 / 1** in
+5.74 seconds, and the four-consumer real-Metal daemon reached readiness. The
+fresh complete lane passed `jitml-unit`, completed eight ProductScenario rows
+through `cifar100-wide-resnet`, and reached `cifar10-vit`. The user's stop
+request intentionally interrupted it there with terminal status `2`; it is not
+closing evidence. The lane and daemon are stopped, the Kind cluster is deleted,
+and the complete ten-stanza rerun remains open. The final continuation ran on
+immutable image
+`sha256:d4094b5ac0a70b2aa7bf3748e987e48516b237394521cbf7c0effdbfd550f27e`:
+the clean host build compiled **305 / 305** modules, the image build completed
+in 45m26s, bootstrap passed all **111** steps, all twelve exact datasets passed
+the focused live gate **1 / 1** in 5.72 seconds, and the four-consumer
+real-Metal daemon reached readiness. The fresh complete lane passed
+`jitml-unit`; `jitml-integration` completed the first eight ProductScenario rows
+through `cifar100-wide-resnet`, then advanced to `cifar10-vit`. The user's stop
+request intentionally interrupted it there with terminal status `2`; it is not
+closing evidence. The lane and daemon are stopped, the Kind cluster is deleted,
+and the complete ten-stanza rerun remains open. A subsequent continuation
+rebuilt immutable image
+`sha256:e06058d13cdc208ab3f2625fad23319c8cc1b43dd203a5a76b97ad7da204c91e`
+in 45m18s, completed all **111** rollout steps, passed doctor, all seven
+component statuses, edge readiness, and the exact twelve-object focused live
+gate **1 / 1** in 5.70 seconds, and restored the ready four-consumer Metal
+daemon. The fresh complete lane passed `jitml-unit`; `jitml-integration`
+completed all ten supervised ProductScenario rows, including the 1h49m
+`cifar10-vit` and 1h12m `tiny-imagenet-resnet50` rows, plus `PPO/cartpole`,
+`PPO/mountain-car`, and `PPO/acrobot`, then advanced to `PPO/lunar-lander`.
+The user's stop request intentionally interrupted the lane before that row
+returned; the wrapper recorded terminal status `2`, so neither the partial
+integration stanza nor the invocation is closing evidence. The lane and daemon
+are stopped, the Kind cluster is deleted, and a fresh complete-lane rerun
+remains required. At the user's subsequent direction, work resumed from the
+preserved Apple host build tree as the `resume7` lifecycle. It ran from the same
+final source and exited `0`: all **55 / 55** ProductScenario rows returned, the
+authenticated journal re-minted the exact committed fragment, and all ten
+stanzas passed with `0` failed and `0` not-run in 116,396.918861 seconds. The
+standalone Apple backend gate passed **25 / 25** and non-live e2e passed **30 /
+30**. The final container documentation and code-quality gates passed, the
+focused phase-status registry passed all **6 / 6** cases, and the documented
+aggregation scan inspected **20 / 20** CPU-only validation blocks with **0**
+accelerator invocations. Phase `272` is therefore Done. Phase `273` subsequently
+closed Done on 2026-09-08 with its final-source **10 / 10** Apple stanza run,
+**55 / 55** row authenticated journal, exact committed-fragment comparator, and
+successful Apple teardown; Phase `276` is Planned and has not started.
+The exact open chain is
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`; intervening Done
+phases retain their completed non-topology surfaces. Phases `270`–`273` close on
+the Mac host under standards rule `M(d)`.
 
 The current worktree renders the one-worker local Kind cluster,
 single-instance platform services, and one profile-driven Linux Engine.

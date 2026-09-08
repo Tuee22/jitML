@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, cluster_topology.md, haskell_code_guide.md, jit_codegen_architecture.md, purescript_frontend.md, training_workloads.md, durable_state_dsl.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md, cluster_topology.md, haskell_code_guide.md, jit_codegen_architecture.md, purescript_frontend.md, training_workloads.md, durable_state_dsl.md, run_contract.md
 **Generated sections**: daemon.surface
 
 > **Purpose**: Project-specific `jitml service` daemon architecture — the
@@ -15,8 +15,9 @@
 The daemon roles, capability separation, at-least-once settlement, and Apple
 host/cluster split are implemented. The checked-in Kind topology now supplies
 one worker and Phase 53 closed the single-instance platform rollout. Phase 69
-closed the profile-driven Linux Engine count, and Phase 262 is Active. The authoritative status
-is [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
+closed the profile-driven Linux Engine count, Phase 262 is Done, and Phase 272
+is the first executable owner. The authoritative status is
+[DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
 The target local profile has one clustered Linux Engine, one clustered
 Coordinator, and one worker node. An operator may still select any positive
@@ -272,15 +273,18 @@ Pulsar. The normal `jitml service` serve path starts a persistent WebSocket
 interpreter for each opaque subscription and keeps one handler router per
 worker. Non-inference deliveries produce one disposition. Inference workers use
 the multi-receipt batching interpreter: each compatible batch captures the
-current size/latency policy. Sparse collection closes at the smaller of one
-millisecond and one tenth of the captured latency budget. The deployed default
-budget is five seconds, yielding a captured handler/publication-entry deadline.
-The transport timeout cancels a handler that has not returned and Nacks the
-admitted receipt set with `RetryRequested`. Dispatch commits semantic dedup
+current size/latency policy and a typed per-command deadline mode. Sparse
+collection closes at the smaller of one millisecond and one tenth of the
+captured latency budget. The deployed default budget is five seconds, yielding
+a captured handler/publication-entry deadline for `RunInference`. The transport
+timeout cancels a deadline-enforced inference handler that has not returned and
+Nacks the admitted receipt set with `RetryRequested`; isolated catalogue,
+comparison, adversarial, and transcript controls ignore that inference fence
+and remain bounded by their request, retry, and drain policies. Dispatch commits semantic dedup
 state one command at a time, so successful prefix commands remain committed if
 a later command is cancelled and the broker redelivers the Nacked batch. Engine
-samples the same deadline immediately before each Pulsar publication and refuses
-to enter that side effect after expiry.
+samples the same deadline immediately before each inference publication and
+refuses to enter that side effect after expiry.
 
 A handler decision that does return is not retroactively converted to a Nack by
 a later clock sample: publication may already be externally visible, and broker
@@ -616,15 +620,19 @@ higher-order cleanup Core into the CLI composition module.
 Inference uses `pulsarConsumeBatchesUntil`, the multi-receipt form of the same
 capability. The transport permits one broker delivery at a time while admitting
 a compatible batch, retains every receipt privately, and stops sparse
-collection at the earlier collection cutoff. The timeout owns the handler
-deadline, while Engine independently refuses to enter publication after the
-same captured deadline. If no handler decision returns, the transport cancels
-the handler and Nacks the admitted set; if a decision returns, the transport
-settles it without a retroactive clock-based Nack because publication may
-already be visible. Every hidden receipt, including a delivery racing drain,
+collection at the earlier collection cutoff. The command's typed deadline mode
+participates in compatibility. For `RunInference`, the transport owns the
+handler deadline while Engine independently refuses to enter publication after
+the same captured deadline; if no decision returns, the transport cancels the
+handler and Nacks the admitted set. Isolated catalogue, comparison, adversarial,
+and transcript controls do not use that inference deadline and instead finish
+under their request, retry, and drain bounds. If a decision returns, the
+transport settles it without a retroactive clock-based Nack because publication
+may already be visible. Every hidden receipt, including a delivery racing drain,
 must flush and settle before `Drained`. Decode failure Nacks the admitted set and
-fails the session; SLO expiry Nacks the set with `RetryRequested` and continues.
-A policy reload applies only when the next batch admits its first delivery.
+fails the session; inference SLO expiry Nacks the set with `RetryRequested` and
+continues. A policy reload applies only when the next batch admits its first
+delivery.
 
 Linux CPU/CUDA typed start commands select cluster-Job placement; Apple
 Metal-backed starts select host-run placement and cannot produce a Linux
