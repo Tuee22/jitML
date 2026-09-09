@@ -10,9 +10,10 @@
 ## Phase State
 
 ⏸️ **Blocked** (2026-09-08 evidence-retention audit). Blocked by Phase `273`
-(Sprint `273.1`). The repository contains only Markdown lane projections; the
-three versioned authenticated journals and admitted artifact identities this
-phase must decode are neither tracked in Git nor present in the workspace.
+(Sprint `273.1`). Phase `261` has retained the exact typed `linux-cpu` lane
+journal. The CUDA and Apple lanes still have only Markdown projections; their
+typed journals and admitted artifact identities remain required before this
+phase can decode and join all three lanes.
 
 ## Sprint 276.1: Journal-Derived Product Aggregation [⏸️ Blocked]
 
@@ -61,9 +62,10 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- Blocked until Sprints `261.1`, `268.1`, and `273.1` commit portable typed
-  journal projections minted from their authenticated live reports. The current
-  Markdown fragments are not admissible substitutes.
+- Sprint `261.1`'s portable typed journal is retained. Blocked until Sprints
+  `268.1` and `273.1` retain their portable typed journal projections minted from
+  authenticated live reports. The current Markdown fragments are not admissible
+  substitutes.
 - Implement typed journal decode/join and regenerate the aggregate report.
 - Retire post-hoc/prose-fragment aggregation only after the join rejects all
   negative fixtures and the CPU-only validation passes.

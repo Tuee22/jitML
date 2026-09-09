@@ -9,13 +9,15 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-09-08 under standards rules `C` and `N`). Phase
-`261` has re-closed with the durable typed lane-journal projection and the exact
-`linux-cpu` journal retained. This phase is now the first executable owner and
-must issue the equivalent digest-pinned artifact from the real `linux-cuda`
-lifecycle. The historical CUDA execution remains valid for its device/runtime
-surface, but its transient authenticated journal cannot be consumed by Phase
-`276`.
+⏸️ **Blocked** (2026-09-09 prerequisite check under standards rule `C`). A Linux
+host with an NVIDIA GPU and the NVIDIA container runtime is required; the current
+Darwin arm64 / Colima host exposes no NVIDIA runtime. Phase `261` has re-closed
+with the durable typed lane-journal projection and the exact `linux-cpu` journal
+retained. This phase is the first open owner and must issue the equivalent
+digest-pinned artifact from the real `linux-cuda` lifecycle. The historical CUDA
+execution remains valid for its device/runtime surface, but its transient
+authenticated journal cannot be consumed by Phase `276`. Later open phases stay
+Blocked until this lifecycle passes and its exact evidence is retained.
 
 ### Historical Phase State
 
@@ -79,9 +81,11 @@ revalidation cannot be meaningful while supervised rows on it execute oneDNN
 kernels, so the CUDA lowering in Sprint `264.1` and the witness in Sprint `229.1`
 land first.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [🔄 Active]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [⏸️ Blocked]
 
-**Status**: Active
+**Status**: Blocked
+**Blocked by**: External prerequisite — a Linux NVIDIA host whose Docker daemon
+exposes a real GPU through the NVIDIA container runtime to the `jitml-cuda` service.
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
@@ -123,9 +127,11 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-2026-08-22 evidence on the current source, gathered against a running
-`linux-cuda` cluster (the bootstrap lifecycle itself is still outstanding — see
-below):
+### Historical Validation
+
+2026-08-22 evidence on the source at that checkpoint, gathered against a running
+`linux-cuda` cluster. Its bootstrap lifecycle subsequently passed on 2026-08-24;
+neither run retained the typed journal required by the 2026-09-08 reopening:
 
 | Gate | Result |
 |---|---|
@@ -144,10 +150,37 @@ non-product rows (`tic-tac-toe`, `atari-subset`) remain declared literals, which
 is what `renderProductLaneAttestationFragment` emits for rows that carry no
 scenario evidence by construction.
 
+### Current Validation State
+
+- On 2026-09-09, `./bootstrap/linux-cuda.sh up` exited `2` at the stage-0
+  prerequisite gate with `NVIDIA container runtime is not registered with Docker;
+  install and configure nvidia-container-toolkit`.
+- The host reports `Darwin arm64`; the active Docker context is `colima`, its
+  daemon reports `linux aarch64`, and its registered runtimes are `runc` and
+  `io.containerd.runc.v2`. No NVIDIA runtime is registered. Bootstrap stopped
+  before image preparation or cluster creation; the lane tests and teardown were
+  not run. No new CUDA completion evidence was produced.
+- Numerical-order execution remains at this phase. A CUDA-host session with the
+  required hardware/runtime must execute the prescribed lifecycle before Phase
+  `273` can start.
+- Checkpoint validation passed: `docker compose build jitml`, container
+  `jitml docs check`, container `jitml check-code`, and
+  `jitml test jitml-unit --linux-cpu --test-options='-p "Product phase status registry"'`
+  inside the project container (**6 / 6**). The deterministic plan scans report
+  **0** backward dependencies, **0** dual-accelerator gates, and **0** accelerator
+  invocations across **20** aggregation validation blocks. The typed registry
+  contains **60 Done / 0 Active / 0 Planned / 10 Blocked**; this corrects the
+  stale summary count without closing any phase.
+- These checks use the image's compiled source with the current plan mounted
+  at `/jitml/DEVELOPMENT_PLAN`; the image's changed source and root README match
+  the worktree byte-for-byte. Separate output streams and terminal result records
+  are retained under `.build/runtime/phase268-20260909/`. These checkpoint checks
+  do not discharge the CUDA lifecycle or journal-retention obligations.
+
 ### Remaining Work
 
-- Rerun the prescribed `linux-cuda` lifecycle and retain the exact
-  journal-derived CUDA projection with its SHA-256 pin.
+- On a Linux NVIDIA host, rerun the prescribed `linux-cuda` lifecycle and retain
+  the exact journal-derived CUDA projection with its SHA-256 pin.
 - Revalidate its exact row order, plan identities, admitted manifests, measured
   evidence, device witnesses, and completion journal digests before restoring
   `Done`.

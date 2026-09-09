@@ -20,16 +20,23 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-09-08 Phase 261 re-closure).** Phase `261` re-closed after
-immutable-image `linux-cpu` integration completed all 55 ProductRows and the
+**⏸️ Blocked (2026-09-09 CUDA prerequisite check).** Phase `268` is the first
+open owner. Its prescribed `./bootstrap/linux-cuda.sh up` exited `2` on the
+current Darwin arm64 / Colima host because Docker has no NVIDIA container
+runtime. A Linux NVIDIA host with the real CUDA runtime is required before
+numerical-order execution can continue; see
+[Phase 268](phase-268-contract-driven-cuda-lane-revalidation.md#current-validation-state).
+Phase `261` re-closed after immutable-image `linux-cpu` integration completed all
+55 ProductRows and the
 exact canonical version-`1` typed lane journal was retained with SHA-256
 `f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
 The production reader admits all 55 rows against the current projection and the
-full **907 / 907** unit gate, docs check, and check-code pass. Phase `268` is now
-the first executable owner; the current chain is
+full **907 / 907** unit gate, docs check, and check-code passed at that closure.
+The current chain is
 `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
-**59 Done / 1 Active / 0 Planned / 10 Blocked**. Historical lane results remain
-evidence for the surfaces they actually exercised, but CUDA and Apple must
+**60 Done / 0 Active / 0 Planned / 10 Blocked**, counted from the 70-entry typed
+registry. Historical lane results remain evidence for the surfaces they actually
+exercised, but CUDA and Apple must
 still re-issue their durable typed journal projections before Phase `276`.
 
 **Historical Apple validation chronology (superseded by the current status
@@ -435,7 +442,8 @@ compiled artifacts; the rendered-source path had the same defect.
 **Phase `271` closed `Done` on 2026-08-28; Phase `272` closed on 2026-09-07;
 Phase `273` closed on 2026-09-08; the evidence-retention audit subsequently
 reopened Phase `261`, which has now re-closed with the typed CPU journal. Phase
-`268` is the first executable owner.** The corrected Phase `271`
+`268` is the first open owner, blocked on the current host's missing NVIDIA
+runtime.** The corrected Phase `271`
 Apple producer exited `0` after
 **5 h 12 min 41.62 s** with `rows: 55`, `eligible: 55`, `unsupported: 0`,
 `errors: 0`, `admitted-inventory-entries: 55`, and one tuning transcript. The
@@ -447,14 +455,14 @@ passed. See
 [Phase 271 → 2026-08-26 Continuation Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-26-continuation-checkpoint).
 
 The Phase `19`–`34` product registry is
-**59 Done / 1 Active / 0 Planned / 10 Blocked**.
+**60 Done / 0 Active / 0 Planned / 10 Blocked**.
 The numerically ordered open chain is
 `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `273` historically closed the hard Apple-Silicon host boundary
-and is now Blocked only until the portable journal produced by Phase `261` can
-be re-issued on the Apple host.
+and is now Blocked by Phase `268` before the portable journal produced by Phase
+`261` can be re-issued on the Apple host.
 Phase `272` is Done. Its final-source explicit live Apple e2e gate exited
 `0` with `jitml-integration` **197 / 197**, Playwright **77 / 77**, and Haskell
 `jitml-e2e` **30 / 30**. The earlier ten-stanza Apple lane passed `10` / `10`,
@@ -2167,8 +2175,8 @@ for Metal), and item 18 (empty legacy ledger) was then met after the final
 The retained-cluster, shared-live-interpreter, checkpoint/runtime, and local
 resource repairs are closed. The 2026-09-08 evidence-retention audit reopened
 the numerical roadmap at Phase `261`; that phase has re-closed with the retained
-typed CPU journal. Phase `268` is the current first executable owner and the
-current chain proceeds strictly as
+typed CPU journal. Phase `268` is the first open owner, blocked until a Linux
+NVIDIA host provides its real CUDA runtime. The chain proceeds strictly as
 `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`:
 
 1. Sprint `2.9` has restored and validated the typed Kind existence branch,
@@ -2208,9 +2216,9 @@ current chain proceeds strictly as
    `attestations/linux-cpu-product-lane-journal.json`, pinned by SHA-256
    `f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
 8. Phases `42`, `53`, `69`, `262`, and `263` remain Done on their validated
-   surfaces. Phase `268` is Active and must supply the retained `linux-cuda`
-   journal. Phase `273` is Blocked until then and reissues the
-   `apple-silicon` journal in its own Mac-host session.
+   surfaces. Phase `268` is Blocked on the NVIDIA host prerequisite and must
+   supply the retained `linux-cuda` journal. Phase `273` is Blocked until then
+   and reissues the `apple-silicon` journal in its own Mac-host session.
 9. Sprint `31.3` remains Blocked until all three earlier committed lane journals
    can be admitted and aggregated on `linux-cpu`; Sprint
    `32.2` binds external bars to exact served bytes; Sprint `32.4` installs
@@ -3017,9 +3025,13 @@ the [Phase Overview](00-overview.md). The 2026-09-08 evidence-retention audit
 reopened Phase `261` because the authenticated lane journals needed by Phase
 `276` were never committed. Phase `261` has re-closed with its retained typed
 CPU journal. The Phase `19`–`34` registry is
-**59 Done / 1 Active / 0 Planned / 10 Blocked**. The complete open chain is
+**60 Done / 0 Active / 0 Planned / 10 Blocked**, counted from the typed registry.
+Phase `268`'s 2026-09-09 bootstrap attempt exited `2` because the current
+Darwin arm64 / Colima host has no NVIDIA container runtime. The complete open
+chain is
 `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
-with every Blocked phase naming its predecessor. Phase `271` closed at 55 / 55 admitted
+with Phase `268` naming that external prerequisite and each later Blocked phase
+naming its predecessor. Phase `271` closed at 55 / 55 admitted
 Apple rows, Apple backend **25 / 25**, and e2e **30 / 30**; its complete
 evidence is recorded in
 [Phase 271 → 2026-08-26 Continuation Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-26-continuation-checkpoint).
@@ -3893,7 +3905,8 @@ The current dependency chain is:
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252`, `42`, `53`,
-`69`, `229`, `261`, `262`, and `270`–`272` remain Done. Phase `268` is Active;
+`69`, `229`, `261`, `262`, and `270`–`272` remain Done. Phase `268` is Blocked
+on the external Linux NVIDIA host/runtime prerequisite;
 Phases `273`, `276`, `278`, `280`–`282`, `285`, `288`, and `289` are Blocked by
 their immediate predecessor in the chain.
 Outside the registry range, Phases `7` and

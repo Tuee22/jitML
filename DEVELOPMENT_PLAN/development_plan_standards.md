@@ -468,8 +468,11 @@ needed for later exact admission. That audit opened the chain
 `261 → 268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phase `261`
 has since re-closed after retaining and admitting the exact typed CPU journal;
 the current chain is `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
-with each later member Blocked by its immediate executable prerequisite. The
-Phase `19`–`34` registry is **59 Done / 1 Active / 0 Planned / 10 Blocked**.
+with each later member Blocked by its immediate executable prerequisite. Phase
+`268` is Blocked on the external Linux NVIDIA host/runtime prerequisite after
+the 2026-09-09 stage-0 bootstrap attempt exited `2` on Darwin arm64 / Colima.
+The Phase `19`–`34` registry is **60 Done / 0 Active / 0 Planned / 10 Blocked**,
+counted from its 70 entries.
 Phases `42`, `53`, `69`, `229`, and `262` remain Done. At the dated
 2026-08-12 execution-architecture checkpoint, the audit had returned Phases
 `229`, `233`, `241`, `263`, `264`, `265`, and `270` to Active and moved Phase
