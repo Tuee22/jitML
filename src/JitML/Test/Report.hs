@@ -38,6 +38,7 @@ module JitML.Test.Report
   , completedProductScenarioManifestSha
   , completedProductScenarioMeasuredDigest
   , completedProductScenarioMeasuredSummary
+  , completedProductScenarioCompletedTraining
   , completedProductScenarioPlanId
   , completedProductScenarioRowId
   , completedProductScenarioRunId
@@ -1271,6 +1272,15 @@ completedProductScenarioMeasuredSummary =
   canonicalCompletedTrainingSummary
     . CheckpointStore.admittedCompletedTraining
     . scenarioEvidenceAdmittedCompletion
+
+-- | The refined, versioned completion retained by the exact Store admission.
+-- Portable lane journals serialize this opaque value rather than attempting
+-- to reconstruct measurements from the human-readable report projection.
+completedProductScenarioCompletedTraining
+  :: CompletedProductScenarioEvidence
+  -> CompletedTraining
+completedProductScenarioCompletedTraining =
+  CheckpointStore.admittedCompletedTraining . scenarioEvidenceAdmittedCompletion
 
 completedProductScenarioExperimentHash :: CompletedProductScenarioEvidence -> Text
 completedProductScenarioExperimentHash = scenarioEvidenceExperimentHash

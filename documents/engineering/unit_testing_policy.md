@@ -174,6 +174,13 @@ consumer. It must refine an authenticated 55-row browser-result journal before
 its Haskell e2e body can pass. Neither command may replace a failed supported
 row with an unsupported or skipped result.
 
+A green `jitml-integration` acquisition also writes the authenticated portable
+lane-journal candidate to
+`.build/runtime/product-lane-journals/<substrate>.json`. Unit coverage exercises
+its canonical encoding, exact digest pin, current projection order, and refined
+completion identities; only the real substrate lane can issue closure evidence
+for its eventual tracked file.
+
 Substrate-selected runs serialize stanzas so live tests do not contend over one
 cluster/device. `jitml test <stanza>` uses the same result shape for one target.
 Style and code-quality commands remain separate; use `docker compose run --rm

@@ -15,8 +15,9 @@
 The daemon roles, capability separation, at-least-once settlement, and Apple
 host/cluster split are implemented. The checked-in Kind topology now supplies
 one worker and Phase 53 closed the single-instance platform rollout. Phase 69
-closed the profile-driven Linux Engine count, Phase 262 is Done, and Phase 272
-is the first executable owner. The authoritative status is
+closed the profile-driven Linux Engine count, and Phase 262 is Done. Mutable
+phase ownership is intentionally kept in the authoritative plan rather than
+duplicated here; the current status is
 [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
 The target local profile has one clustered Linux Engine, one clustered

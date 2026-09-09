@@ -33,12 +33,20 @@ The result is:
 
 ## Current Status
 
-As of 2026-09-08, Phases `266`–`273` are Done and Phase `276` is Planned as the
-first executable owner; Phase `276` has not started. Phase `273`'s exact Apple
-lifecycle passed all **10 / 10** stanzas in 106,546.281929 seconds, preserved an
-authenticated version-`3` **55 / 55** row journal, re-minted the unchanged
-committed Apple fragment, and shut down the daemon and Kind cluster. The
-historical Apple closure chronology leading to that result follows. Phase
+Phase `261` re-closed on 2026-09-08 after its immutable-image `linux-cpu`
+integration completed all 55 ProductRows and retained the exact canonical typed
+lane journal with SHA-256
+`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
+Phase `268` is now Active and the first executable owner. The exact open chain
+is `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
+**59 Done / 1 Active / 0 Planned / 10 Blocked**. The authoritative current
+ledger is [DEVELOPMENT_PLAN/README.md](DEVELOPMENT_PLAN/README.md).
+
+The following Apple closure chronology is historical and predates that audit.
+Phase `273`'s exact Apple lifecycle passed all **10 / 10** stanzas in
+106,546.281929 seconds, produced an authenticated version-`3` **55 / 55** row
+journal, re-minted the unchanged committed Apple fragment, and shut down the
+daemon and Kind cluster. Phase
 `272`'s final-source explicit live Apple e2e gate exited
 `0` with integration **197 / 197**, Playwright **77 / 77**, and Haskell e2e
 **30 / 30**. Phase `272` remains open because the shared Pulsar batch-transport
@@ -120,14 +128,17 @@ standalone Apple backend gate passed **25 / 25** and non-live e2e passed **30 /
 30**. The final container documentation and code-quality gates passed, the
 focused phase-status registry passed all **6 / 6** cases, and the documented
 aggregation scan inspected **20 / 20** CPU-only validation blocks with **0**
-accelerator invocations. Phase `272` is therefore Done. Phase `273` subsequently
-closed Done on 2026-09-08 with its final-source **10 / 10** Apple stanza run,
-**55 / 55** row authenticated journal, exact committed-fragment comparator, and
-successful Apple teardown; Phase `276` is Planned and has not started.
-The exact open chain is
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`; intervening Done
-phases retain their completed non-topology surfaces. Phases `270`–`273` close on
-the Mac host under standards rule `M(d)`.
+accelerator invocations. Phase `272` is therefore Done. Phase `273`
+subsequently closed on 2026-09-08 against its final-source **10 / 10** Apple
+stanza run, **55 / 55** row authenticated journal, exact committed-fragment
+comparator, and successful Apple teardown. The 2026-09-08 evidence-retention
+audit later reopened Phase `261` Active because that authenticated journal was
+transient and only a Markdown projection survived; it consequently reopened
+Phases `268` and `273` Blocked. Phase `261` has since re-closed with the retained
+typed CPU journal. The exact current open chain is
+`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`;
+intervening Done phases retain their completed non-topology surfaces. Phases
+`270`–`273` close on the Mac host under standards rule `M(d)`.
 
 The current worktree renders the one-worker local Kind cluster,
 single-instance platform services, and one profile-driven Linux Engine.
@@ -3834,6 +3845,13 @@ actually happened:
 4. Suite status, pass/fail/not-run counts, and total duration are derived only
    from the invocation journal, which is printed before the original failure is
    propagated.
+
+After a green integration acquisition authenticates and Store-re-admits the
+temporary ProductScenario journal, it writes the canonical portable evidence
+candidate to `.build/runtime/product-lane-journals/<substrate>.json`. That file
+contains the projection-ordered refined completions and their exact identity
+bindings; downstream aggregation accepts it only against an externally pinned
+SHA-256.
 
 Representative output shape:
 

@@ -9,9 +9,12 @@
 
 ## Phase State
 
-✅ **Done** (2026-08-11). Phase 261 (Sprint 261.1) closed on 2026-08-01. Browser
-and Playwright evidence is implemented against the authenticated completed-row
-journal through the staged producer/catalogue/reporter refinement, and its
+✅ **Done** (2026-08-11). Phase 261 (Sprint 261.1) historically closed on
+2026-08-01 and reopened on 2026-09-08 only for durable typed lane-journal
+retention; that new downstream-consumer obligation does not invalidate this
+phase's already-validated browser surface. Browser and Playwright evidence is
+implemented against the authenticated completed-row journal through the staged
+producer/catalogue/reporter refinement, and its
 closure gate passed against the single-worker local topology owned by the
 now-closed Phase 42 → Phase 53 → Phase 69 chain. The aligned `jitml:local`
 image, the live `linux-cpu` gate, the unit, negative-control,

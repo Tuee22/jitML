@@ -57,6 +57,15 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-09-08 — typed lane-journal retention audit.** Phase `261` reopened under
+standards rules `C` and `N` because its transient authenticated scenario journal
+was deleted before the later aggregation phase could decode it; Phases `268` and
+`273` consequently reopened Blocked. This is an unmet primary evidence-retention
+obligation, not a compatibility helper or deprecated surface. Phase `261`
+re-closed after retaining and admitting the exact typed CPU journal; Phase
+`268` now owns the active CUDA journal re-issuance. No ledger row changes:
+Pending Removal remains **14** rows and Completed remains **152**.
+
 **2026-08-16 — documentation-truth pass.** Measuring the `linux-cuda` lane for
 Sprint `265.1` surfaced governed-doc claims that measurement contradicts, and the
 docs are reconciled to the measurements rather than the reverse. Phases `266` and

@@ -272,6 +272,16 @@ completion, contribute a row, or weaken exact observed-budget equality, and a
 subsequent attempt starts a fresh scope rather than resuming or reusing partial
 roots.
 
+The authenticated parent then issues a canonical version-`1` portable lane
+journal before deleting that scope. It retains the complete refined
+`CompletedTraining` DTO together with the row, plan, substrate, admitted
+manifest, inference manifest, device witness, executable, invocation,
+contract, and completion-journal identities. This is an archival projection,
+not a replacement admission: later consumers must pin its exact SHA-256, and
+the portable reader refines the embedded completion against the current
+ProductRow batch without claiming that the deleted HMAC key or checkpoint root
+still exists.
+
 The supervised-graph payload makes that provenance distinction nominal. The ProductRow
 publisher writes `RawProductRowProjectionOrigin`, which must resolve the row and
 `PlanId` to exactly one supported-substrate projection and use the row's

@@ -105,6 +105,7 @@ import JitML.Test.LivePlan
   , scopedLiveE2EPlanFor
   , scopedLiveE2EPlanForBrowserEvidence
   )
+import JitML.Test.ProductLaneJournal qualified as ProductLaneJournal
 import JitML.Test.ProductScenarioAuthorization qualified as ProductScenarioAuthorization
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Test.Report
@@ -818,7 +819,7 @@ verifyGreenProductScenarioJournal targets scenarioScope journal
             )
         Just scope -> do
           loaded <-
-            ProductScenarioJournal.readProductScenarioJournal
+            ProductScenarioJournal.readAuthenticatedProductScenarioJournal
               (productScenarioJournalKey scope)
               (productScenarioJournalPath scope)
               (productScenarioCheckpointRoot scope)
@@ -826,15 +827,39 @@ verifyGreenProductScenarioJournal targets scenarioScope journal
               (productScenarioExecutablePath scope)
               (productScenarioExecutableSha256 scope)
               (productScenarioProjectionBatch scope)
-          pure $
-            case loaded of
-              Left errors ->
-                Left
-                  ( "green integration acquisition did not produce an authenticated "
-                      <> "ProductScenario journal: "
-                      <> Text.pack (show (NonEmpty.toList errors))
-                  )
-              Right _report -> Right ()
+          case loaded of
+            Left errors ->
+              pure
+                ( Left
+                    ( "green integration acquisition did not produce an authenticated "
+                        <> "ProductScenario journal: "
+                        <> Text.pack (show (NonEmpty.toList errors))
+                    )
+                )
+            Right authenticated -> do
+              let lane =
+                    ProductMatrix.productProjectionBatchSubstrate
+                      (productScenarioProjectionBatch scope)
+                  candidatePath =
+                    ".build"
+                      </> "runtime"
+                      </> "product-lane-journals"
+                      </> Text.unpack (renderSubstrate lane)
+                      <> ".json"
+              issued <-
+                ProductLaneJournal.writeProductLaneJournalAtomic
+                  candidatePath
+                  (productScenarioProjectionBatch scope)
+                  authenticated
+              pure $
+                case issued of
+                  Left errors ->
+                    Left
+                      ( "green integration acquisition could not retain its portable "
+                          <> "ProductLane journal: "
+                          <> Text.pack (show (NonEmpty.toList errors))
+                      )
+                  Right _journal -> Right ()
 
 -- | Allocate one fresh parent that outlives the child invocations and the
 -- post-body journal read, then disappears after live diagnostics and release.

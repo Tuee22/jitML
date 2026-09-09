@@ -287,6 +287,7 @@ library
         JitML.Test.Pulsar
         JitML.Test.PulsarBridge
         JitML.Test.PulsarTransport
+        JitML.Test.ProductLaneJournal
         JitML.Test.ProductScenarioJournal
         JitML.Test.ProductScenarioRunner
         JitML.Test.DeviceWitnessFixture

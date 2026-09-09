@@ -333,6 +333,7 @@ import JitML.Test.LivePlan
   , ScopedLivePlan (..)
   )
 import JitML.Test.PipedProcess qualified as PipedProcess
+import JitML.Test.ProductLaneJournal qualified as ProductLaneJournal
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Test.ProductScenarioRunner qualified as ProductScenarioRunner
 import JitML.Test.PulsarBridge qualified as PulsarBridge
@@ -1155,6 +1156,125 @@ productScenarioJournalTests =
                   )
             )
             entries
+    , testCase "authenticated reports issue a pinned portable typed lane journal" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          authenticated <-
+            ProductScenarioJournal.readAuthenticatedProductScenarioJournal
+              (journalFixtureKey fixture)
+              (journalFixturePath fixture)
+              (journalFixtureCheckpointRoot fixture)
+              (journalFixtureRunId fixture)
+              (journalFixtureExecutablePath fixture)
+              (journalFixtureExecutableSha fixture)
+              (journalFixtureBatch fixture)
+              >>= \case
+                Left errors ->
+                  assertFailure ("authenticated journal read failed: " <> show errors)
+                    >> error "unreachable"
+                Right value -> pure value
+          issued <-
+            case ProductLaneJournal.buildProductLaneJournal
+              (journalFixtureBatch fixture)
+              authenticated of
+              Left errors ->
+                assertFailure ("portable lane journal build failed: " <> show errors)
+                  >> error "unreachable"
+              Right value -> pure value
+          let bytes = ProductLaneJournal.issuedProductLaneJournalBytes issued
+              digest = ProductLaneJournal.issuedProductLaneJournalSha256 issued
+              expectedEvidence =
+                Report.completedProductScenarioReportEntries
+                  (journalFixtureReport fixture)
+          admitted <-
+            case ProductLaneJournal.admitProductLaneJournal
+              digest
+              (journalFixtureBatch fixture)
+              bytes of
+              Left errors ->
+                assertFailure ("portable lane journal admission failed: " <> show errors)
+                  >> error "unreachable"
+              Right value -> pure value
+          let rows = ProductLaneJournal.admittedProductLaneJournalRows admitted
+          ProductLaneJournal.admittedProductLaneJournalRunId admitted
+            @?= journalFixtureRunId fixture
+          ProductLaneJournal.admittedProductLaneJournalSubstrate admitted
+            @?= Substrate.LinuxCPU
+          fmap ProductLaneJournal.productLaneJournalRowRowId rows
+            @?= fmap Report.completedProductScenarioRowId expectedEvidence
+          fmap ProductLaneJournal.productLaneJournalRowPlanId rows
+            @?= fmap Report.completedProductScenarioPlanId expectedEvidence
+          fmap ProductLaneJournal.productLaneJournalRowManifestSha rows
+            @?= fmap Report.completedProductScenarioManifestSha expectedEvidence
+          fmap ProductLaneJournal.productLaneJournalRowMeasuredDigest rows
+            @?= fmap Report.completedProductScenarioMeasuredDigest expectedEvidence
+          fmap ProductLaneJournal.productLaneJournalRowDeviceWitness rows
+            @?= fmap Report.completedProductScenarioDeviceWitness expectedEvidence
+          let outputPath = journalFixtureRoot fixture </> "portable-lane.json"
+          ProductLaneJournal.writeProductLaneJournalAtomic
+            outputPath
+            (journalFixtureBatch fixture)
+            authenticated
+            >>= \case
+              Left errors -> assertFailure ("portable lane journal write failed: " <> show errors)
+              Right written ->
+                ProductLaneJournal.issuedProductLaneJournalSha256 written @?= digest
+          StrictByteString.readFile outputPath >>= (@?= bytes)
+          case ProductLaneJournal.admitProductLaneJournal
+            digest
+            (journalFixtureBatch fixture)
+            (StrictByteString.snoc bytes 32) of
+            Left errors ->
+              assertBool
+                ("expected digest rejection, got " <> show errors)
+                ( any
+                    (\case ProductLaneJournal.ProductLaneJournalDigestMismatch {} -> True; _ -> False)
+                    errors
+                )
+            Right _ -> assertFailure "digest-drifted portable lane journal was admitted"
+          original <-
+            case Aeson.eitherDecodeStrict' bytes of
+              Left err -> assertFailure ("portable lane JSON did not decode: " <> err) >> error "unreachable"
+              Right value -> pure value
+          let driftedValue =
+                modifyFirstJournalRow
+                  (setObjectField "plan_id" (Aeson.String zeroJournalDigest))
+                  original
+              driftedBytes =
+                ByteString.toStrict (Aeson.encode driftedValue) <> "\n"
+              driftedDigest =
+                WeightCodec.jmw1ContentSha (ByteString.fromStrict driftedBytes)
+          case ProductLaneJournal.admitProductLaneJournal
+            driftedDigest
+            (journalFixtureBatch fixture)
+            driftedBytes of
+            Left errors ->
+              assertBool
+                ("expected typed identity rejection, got " <> show errors)
+                ( any
+                    (\case ProductLaneJournal.ProductLaneJournalSourceRejected {} -> True; _ -> False)
+                    errors
+                )
+            Right _ -> assertFailure "identity-drifted portable lane journal was admitted"
+          let manifestDriftValue =
+                modifyFirstJournalRow
+                  (setObjectField "inference_manifest_sha256" (Aeson.String zeroJournalDigest))
+                  original
+              manifestDriftBytes =
+                ByteString.toStrict (Aeson.encode manifestDriftValue) <> "\n"
+              manifestDriftDigest =
+                WeightCodec.jmw1ContentSha (ByteString.fromStrict manifestDriftBytes)
+          case ProductLaneJournal.admitProductLaneJournal
+            manifestDriftDigest
+            (journalFixtureBatch fixture)
+            manifestDriftBytes of
+            Left errors ->
+              assertBool
+                ("expected checkpoint identity rejection, got " <> show errors)
+                ( any
+                    (\case ProductLaneJournal.ProductLaneJournalSourceRejected {} -> True; _ -> False)
+                    errors
+                )
+            Right _ -> assertFailure "checkpoint-drifted portable lane journal was admitted"
     , testCase "strict current-run schema rejects malformed, unknown, stale-run, batch, and lane input" $
         withProductScenarioJournalFixture $ \fixture -> do
           original <- readJournalValue (journalFixturePath fixture)

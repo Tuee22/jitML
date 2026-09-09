@@ -9,6 +9,16 @@
 
 ## Phase State
 
+🔄 **Active** (reopened 2026-09-08 under standards rules `C` and `N`). Phase
+`261` has re-closed with the durable typed lane-journal projection and the exact
+`linux-cpu` journal retained. This phase is now the first executable owner and
+must issue the equivalent digest-pinned artifact from the real `linux-cuda`
+lifecycle. The historical CUDA execution remains valid for its device/runtime
+surface, but its transient authenticated journal cannot be consumed by Phase
+`276`.
+
+### Historical Phase State
+
 ✅ **Done** (2026-08-24). The committed `linux-cuda` lane fragment is replaced
 with journal-derived evidence and the standing drift gate accepts it:
 `jitml test all --linux-cuda` exits `0` with `jitml-integration` **197 / 197**,
@@ -69,9 +79,9 @@ revalidation cannot be meaningful while supervised rows on it execute oneDNN
 kernels, so the CUDA lowering in Sprint `264.1` and the witness in Sprint `229.1`
 land first.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [✅ Done]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [🔄 Active]
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
@@ -133,6 +143,14 @@ for 45 rows and
 non-product rows (`tic-tac-toe`, `atari-subset`) remain declared literals, which
 is what `renderProductLaneAttestationFragment` emits for rows that carry no
 scenario evidence by construction.
+
+### Remaining Work
+
+- Rerun the prescribed `linux-cuda` lifecycle and retain the exact
+  journal-derived CUDA projection with its SHA-256 pin.
+- Revalidate its exact row order, plan identities, admitted manifests, measured
+  evidence, device witnesses, and completion journal digests before restoring
+  `Done`.
 
 ## Documentation Requirements
 

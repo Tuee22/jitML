@@ -742,6 +742,12 @@ each recorded manifest address through Store. Thus neither a copied checkpoint
 carrying a V2 `RawCompletedTraining` DTO, an authenticated journal row naming a
 different address, nor a
 successful child exit can substitute for the joined persisted identities.
+After this live admission succeeds, the portable lane-journal projection stores
+the canonical hexadecimal V2 `CompletedTraining` bytes and their SHA-256 beside
+the admitted manifest and execution identities. Its reader decodes and refines
+those bytes again and requires an externally pinned digest for the complete
+canonical JSON. It does not turn an archival record back into a live Store
+admission or preserve the deleted HMAC capability.
 The persisted form contains no authoritative pass boolean; structural
 completion validation requires TensorBoard scalar tags and rejects a manifest
 that lacks mirrored evidence, carries invalid/non-finite evidence, names

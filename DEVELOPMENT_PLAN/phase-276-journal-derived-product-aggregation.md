@@ -9,16 +9,19 @@
 
 ## Phase State
 
-📋 **Planned** (2026-09-08). Phase `273` is Done and supplies the refreshed
-Apple fragment; this CPU-only aggregation phase has not started.
+⏸️ **Blocked** (2026-09-08 evidence-retention audit). Blocked by Phase `273`
+(Sprint `273.1`). The repository contains only Markdown lane projections; the
+three versioned authenticated journals and admitted artifact identities this
+phase must decode are neither tracked in Git nor present in the workspace.
 
-## Sprint 276.1: Journal-Derived Product Aggregation [📋 Planned]
+## Sprint 276.1: Journal-Derived Product Aggregation [⏸️ Blocked]
 
-**Status**: Planned
+**Status**: Blocked
 **Implementation**: `src/JitML/Test/Report.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`,
 `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
+**Blocked by**: Sprint `273.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -58,9 +61,9 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- No unmet blocker remains. Sprint `273.1` supplies the refreshed Apple
-  fragment, Sprint `268.1` supplies the CUDA fragment, and Sprint `261.1`
-  supplies the refreshed `linux-cpu` fragment.
+- Blocked until Sprints `261.1`, `268.1`, and `273.1` commit portable typed
+  journal projections minted from their authenticated live reports. The current
+  Markdown fragments are not admissible substitutes.
 - Implement typed journal decode/join and regenerate the aggregate report.
 - Retire post-hoc/prose-fragment aggregation only after the join rejects all
   negative fixtures and the CPU-only validation passes.

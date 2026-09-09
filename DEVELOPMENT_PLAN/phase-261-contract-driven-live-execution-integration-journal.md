@@ -9,13 +9,13 @@
 
 ## Phase State
 
-✅ **Done** (closed 2026-08-01). The `linux-cpu` integration lane now derives
-and executes all 55 `ProductRow` scenarios through the command-owned live
-contract, authenticates their ordered version-3 aggregate journal, and requires
-exact parent-side `Store` re-admission before reporting completion. Phase `262`
-subsequently started. Current successor state lives in
-[README.md → Closure Status](README.md#closure-status), not in this historical
-phase snapshot.
+✅ **Done** (re-closed 2026-09-08). The `linux-cpu` integration lane derives and
+executes all 55 `ProductRow` scenarios, authenticates the version-3 aggregate
+before its temporary scope disappears, and atomically retains the canonical
+version-1 portable typed projection. The exact 175,172-byte journal is tracked
+at [attestations/linux-cpu-product-lane-journal.json](attestations/linux-cpu-product-lane-journal.json)
+with pinned SHA-256
+`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
 
 ## Sprint 261.1: Contract-Driven Live Execution - Integration Journal [✅ Done]
 
@@ -24,12 +24,14 @@ phase snapshot.
 `src/JitML/Test/ProductScenarioAuthorization.hs`,
 `src/JitML/Test/ProductScenarioInterpreter/Internal.hs`,
 `src/JitML/Test/ProductScenarioJournal.hs`,
+`src/JitML/Test/ProductLaneJournal.hs`,
 `src/JitML/Test/ProductScenarioRunner.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/Test/RunContract.hs`, `src/JitML/Test/Command.hs`,
 `src/JitML/Test/LiveE2EScope.hs`, `src/JitML/Sub/Stream.hs`,
 `src/JitML/Training/Budget.hs`, `src/JitML/Product/Publisher.hs`,
 `src/JitML/Product/PhaseStatus.hs`, `src/JitML/Checkpoint/Format.hs`,
-`src/JitML/App.hs`
+`src/JitML/App.hs`,
+`DEVELOPMENT_PLAN/attestations/linux-cpu-product-lane-journal.json`
 **Docs to update**: `../README.md`,
 `../documents/engineering/unit_testing_policy.md`,
 `../documents/engineering/product_completion_contract.md`,
@@ -93,7 +95,7 @@ docker compose run --rm jitml jitml check-code
 docker compose run --rm jitml jitml docs check
 ```
 
-### Closure Evidence
+### Historical Closure Evidence
 
 Validated 2026-08-01 in the project container against immutable image
 `sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`;
@@ -110,6 +112,26 @@ every closure gate exited zero:
 
 The validated cluster publication reported all nine components live-ready, and
 the staged dataset inventory contained exactly the 12 canonical artifacts.
+
+### Closure Evidence
+
+Validated 2026-09-08 against immutable image
+`sha256:da16ed8cf65cac1bfd6803798c7fd31b2324dbf980b160529dd795840c7dbe22`:
+
+- `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cpu.sh up` passed all
+  115 rollout steps; all 12 governed datasets were staged with their canonical
+  SHA-256 identities.
+- `jitml test jitml-integration --linux-cpu` exited `0`, completed all 55
+  ordered ProductScenario rows, authenticated their exact current-run source
+  journal, and wrote the portable candidate.
+- The tracked file is byte-identical to that candidate. Its pinned SHA-256 is
+  `f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`;
+  the production `admitProductLaneJournal` reader admitted all 55 rows against
+  the current `linux-cpu` projection.
+- `jitml test jitml-unit --linux-cpu` passed all **907 / 907** tests, including
+  canonical encoding, expected-digest, identity-drift, manifest-drift, typed
+  completion, and phase-status controls.
+- `jitml check-code`, `jitml docs check`, and `git diff --check` passed.
 
 ## Documentation Requirements
 

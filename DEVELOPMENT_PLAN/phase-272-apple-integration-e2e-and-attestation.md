@@ -93,7 +93,9 @@ gate also passed **25 / 25** and non-live e2e passed **30 / 30**. The final
 container documentation and code-quality gates passed, the focused phase-status
 registry passed **6 / 6**, and the aggregation no-rerun scan inspected **20 /
 20** mapped CPU-only validation blocks with **0** accelerator invocations.
-Phase `272` is closed and Phase `273` is the first executable owner.
+Phase `272` closed and, at that closure checkpoint, Phase `273` was the first
+executable owner. The later evidence-retention audit does not invalidate this
+phase's runtime result; it reopens the downstream journal-retention owners.
 
 ## Sprint 272.1: Apple Integration, E2E, and Attestation [✅ Done]
 

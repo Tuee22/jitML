@@ -461,11 +461,16 @@ The strict forward chain runs `1 → … → 289` in the single-session numberin
 The 2026-07-26 IR-single-owner `+4` renumber inserted Phases `236`–`239` and
 shifted the former tail `236`–`283` to `240`–`287`; Phase `289` is the later
 evidence-typed report-measurement owner. The 2026-08-09 local-resource correction
-reopens the existing topology owners instead of adding a tail phase. The current
-open chain is `276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`:
-Phase `276` is Planned and has not started, and every later member is Blocked by
-its immediate predecessor. Phases `42`, `53`, `69`, `229`, `262`, and `273` are
-Done. At the dated
+reopens the existing topology owners instead of adding a tail phase. The
+2026-09-08 evidence-retention audit found that the three lane attestations were
+only Markdown projections and that none retained the typed scenario journal
+needed for later exact admission. That audit opened the chain
+`261 → 268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phase `261`
+has since re-closed after retaining and admitting the exact typed CPU journal;
+the current chain is `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
+with each later member Blocked by its immediate executable prerequisite. The
+Phase `19`–`34` registry is **59 Done / 1 Active / 0 Planned / 10 Blocked**.
+Phases `42`, `53`, `69`, `229`, and `262` remain Done. At the dated
 2026-08-12 execution-architecture checkpoint, the audit had returned Phases
 `229`, `233`, `241`, `263`, `264`, `265`, and `270` to Active and moved Phase
 `268` to Blocked; Phases `229`, `7`, and `72` re-closed `Done` on 2026-08-13.
@@ -482,9 +487,9 @@ admission) all closed `Done` on 2026-07-27. Phases `237` (supervised serving on
 the IR) and `238` (supervised training on the IR) closed `Done` on 2026-07-28;
 Phase `239` (checkpoint construction from the trained graph) closed `Done` on
 2026-07-28; Phases `240`–`246` (the coupled literal-architecture landing) closed
-`Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `261` closed `Done` on 2026-08-01 after immutable-image integration **161 / 161** (Phase `261` subtree **60 / 60**), unit **772 / 772**, authenticated ordered version-`3` **55-row** aggregate plus exact Store re-admission, live **9-component** and **12-dataset-object** checks, docs check, and check-code passed. Phase `262` (contract-driven live execution: browser and Playwright) closed `Done` on 2026-08-11. Phase `263` (contract-driven live execution: fragment issuance) closed `Done` on 2026-08-12 and reopened the same day under rule `C` when its device-evidence column proved to be declaration-derived. At that checkpoint the Phase `19`–`34` registry was **54 Done / 2 Active / 1 Planned / 11 Blocked**, with Phase `266` as the first executable owner. The apple-silicon wall at Phase `273` remains the hard stop on non-Apple hosts. Untouched
+`Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `261` closed `Done` on 2026-08-01 after immutable-image integration **161 / 161** (Phase `261` subtree **60 / 60**), unit **772 / 772**, authenticated ordered version-`3` **55-row** aggregate plus exact Store re-admission, live **9-component** and **12-dataset-object** checks, docs check, and check-code passed. Phase `262` (contract-driven live execution: browser and Playwright) closed `Done` on 2026-08-11. Phase `263` (contract-driven live execution: fragment issuance) closed `Done` on 2026-08-12 and reopened the same day under rule `C` when its device-evidence column proved to be declaration-derived. At that checkpoint the Phase `19`–`34` registry was **54 Done / 2 Active / 1 Planned / 11 Blocked**, with Phase `266` as the first executable owner. Once the preceding Linux lane journals have been retained, the apple-silicon wall at Phase `273` is the eventual hard stop on non-Apple hosts. Untouched
 phases remain Done on their retained surfaces, but the overall product handoff
-is incomplete until this chain closes. Sprints `29.5` and `30.4` independently
+is incomplete until the current chain closes. Sprints `29.5` and `30.4` independently
 refresh the `linux-cuda` and `apple-silicon` evidence; Sprint `31.3` aggregates
 their committed journals on `linux-cpu` without re-running an accelerator.
 

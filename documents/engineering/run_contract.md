@@ -817,6 +817,19 @@ successful chronology, and re-admits every recorded immutable manifest address
 through Store. A valid HMAC or green integration exit alone cannot mint report
 evidence.
 
+After that exact re-admission, the parent writes a canonical version-`1`
+portable lane journal under
+`.build/runtime/product-lane-journals/<substrate>.json`. Its issuer accepts only
+the authentication-preserving journal result. Each projection-ordered row
+retains `row_id`, semantic `plan_id`, substrate, experiment and admitted
+manifest identities, inference-manifest identity, checkpoint-scope and
+executable bindings, invocation/contract/completion-journal digests, the
+measured completion digest, measured device witness, and the full versioned
+`CompletedTraining` DTO. A later reader must supply the externally pinned
+SHA-256 of the exact canonical JSON before the embedded completion can refine;
+this portable projection does not recreate the deleted HMAC key or claim to
+re-admit a vanished checkpoint scope.
+
 The browser-safe catalogue derived from that opaque report has one frozen
 version-`1` transport schema. Its top level is exactly `format`, `version`,
 `run_id`, `substrate`, `catalogue_sha256`, `source_journal_sha256`, and `rows`.

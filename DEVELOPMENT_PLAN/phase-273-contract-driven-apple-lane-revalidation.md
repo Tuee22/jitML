@@ -9,17 +9,26 @@
 
 ## Phase State
 
+⏸️ **Blocked** (reopened 2026-09-08 under standards rules `C` and `N`). Blocked
+by Phase `268` (Sprint `268.1`) in the numerical execution chain. The prescribed
+real Apple lifecycle completed, but its authenticated journal was not committed;
+the retained SHA-256 and Markdown projection cannot reconstruct its typed rows
+or admitted checkpoint identities for Phase `276`.
+
+### Historical Phase State
+
 ✅ **Done** (2026-09-08). The prescribed real Apple lifecycle completed from
 the final Phase `273` source, produced the authenticated 55-row journal and
 unchanged committed lane fragment, passed all ten Apple stanzas, and shut down
 the host daemon and Kind workload.
 
-## Sprint 273.1: Contract-Driven Apple Lane Revalidation [✅ Done]
+## Sprint 273.1: Contract-Driven Apple Lane Revalidation [⏸️ Blocked]
 
-**Status**: Done
+**Status**: Blocked
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
+**Blocked by**: Sprint `268.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -61,7 +70,7 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
-### Completion Evidence
+### Historical Completion Evidence
 
 - `./bootstrap/apple-silicon.sh up` exited `0` against immutable image
   `sha256:d9105907767618e1af564a4a5fbe23535e87c3c71c803d0c49ae83d60473101e`;
@@ -97,7 +106,10 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- None.
+- After Sprint `268.1` closes, rerun the prescribed Apple lifecycle using the
+  durable journal-projection writer and commit the authenticated typed input.
+- Revalidate all 55 row identities, plans, admitted manifests, measured
+  evidence, Metal device witnesses, completion journal digests, and teardown.
 
 ## Documentation Requirements
 

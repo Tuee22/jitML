@@ -334,7 +334,7 @@ allProductPhaseStatuses =
       268
       "Contract-Driven CUDA Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Done
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Active
       ]
   , productPhase
       269
@@ -364,7 +364,7 @@ allProductPhaseStatuses =
       273
       "Contract-Driven Apple Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-273-contract-driven-apple-lane-revalidation.md"
-      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Done
+      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Blocked
       ]
   , productPhase
       274
@@ -382,7 +382,7 @@ allProductPhaseStatuses =
       276
       "Journal-Derived Product Aggregation"
       "DEVELOPMENT_PLAN/phase-276-journal-derived-product-aggregation.md"
-      [ sprint "276.1" "Journal-Derived Product Aggregation" Planned
+      [ sprint "276.1" "Journal-Derived Product Aggregation" Blocked
       ]
   , productPhase
       277
