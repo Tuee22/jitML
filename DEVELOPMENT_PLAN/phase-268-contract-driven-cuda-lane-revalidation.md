@@ -9,9 +9,10 @@
 
 ## Phase State
 
-⏸️ **Blocked** (2026-09-09 prerequisite check under standards rule `C`). A Linux
-host with an NVIDIA GPU and the NVIDIA container runtime is required; the current
-Darwin arm64 / Colima host exposes no NVIDIA runtime. Phase `261` has re-closed
+🔄 **Active** (2026-09-09 Linux CUDA continuation under standards rule `C`).
+The Linux x86_64 host exposes an RTX 5090 and the NVIDIA container runtime;
+`./bootstrap/linux-cuda.sh doctor` passed. The container build passed, and the
+prescribed CUDA lifecycle is in progress. Phase `261` has re-closed
 with the durable typed lane-journal projection and the exact `linux-cpu` journal
 retained. This phase is the first open owner and must issue the equivalent
 digest-pinned artifact from the real `linux-cuda` lifecycle. The historical CUDA
@@ -81,11 +82,9 @@ revalidation cannot be meaningful while supervised rows on it execute oneDNN
 kernels, so the CUDA lowering in Sprint `264.1` and the witness in Sprint `229.1`
 land first.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [⏸️ Blocked]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [🔄 Active]
 
-**Status**: Blocked
-**Blocked by**: External prerequisite — a Linux NVIDIA host whose Docker daemon
-exposes a real GPU through the NVIDIA container runtime to the `jitml-cuda` service.
+**Status**: Active
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
@@ -119,13 +118,45 @@ The binding design is
 
 ### Validation
 
+Build the current runtime source into `jitml:local` before starting the lifecycle.
+The skip-image-build setting reuses that prepared image during bootstrap.
+
 ```bash
-./bootstrap/linux-cuda.sh up
+docker compose build jitml
+JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cuda.sh up
+```
+
+Before testing, stage all twelve exact canonical dataset artifacts through
+`jitml internal upload-dataset`, using the operational prerequisites in
+[Phase 261](phase-261-contract-driven-live-execution-integration-journal.md#validation).
+First use does not download or populate MinIO. Run the publisher, the complete
+CUDA lane, the live browser gate, and the every-row performance comparison in
+sequence so checkpoint writers and measured GPU workloads do not overlap:
+
+```bash
+docker compose run --rm jitml-cuda jitml internal train-and-publish-product-rows --linux-cuda
 ./bootstrap/linux-cuda.sh test
+docker compose run --rm jitml-cuda jitml test jitml-e2e --live --linux-cuda
+docker compose run --rm jitml-cuda jitml internal benchmark-product-row-wall-clock
+```
+
+Retain the exact `.build/runtime/product-lane-journals/linux-cuda.json` emitted
+by the successful integration invocation at
+`DEVELOPMENT_PLAN/attestations/linux-cuda-product-lane-journal.json`, record its
+SHA-256, and admit it against the current CUDA projection with the production
+`admitProductLaneJournal` reader before closure. Complete teardown and the
+container documentation, code-quality, and phase-status gates:
+
+```bash
 ./bootstrap/linux-cuda.sh down
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu --test-options='-p "Product phase status registry"'
 ```
+
+The three deterministic plan scans in standards rule `M` also report zero
+backward dependencies, dual-accelerator gates, and aggregation accelerator
+invocations.
 
 ### Historical Validation
 
@@ -151,6 +182,52 @@ is what `renderProductLaneAttestationFragment` emits for rows that carry no
 scenario evidence by construction.
 
 ### Current Validation State
+
+- The 2026-09-09 Linux continuation runs on Linux x86_64 with an NVIDIA GeForce
+  RTX 5090, driver `595.84`, and Docker `29.7.1` with the `nvidia` runtime
+  registered. `./bootstrap/linux-cuda.sh doctor` exited `0`.
+- `docker compose build jitml` exited `0`, including `check-code: ok` and the
+  frontend bundle build, producing image
+  `sha256:c9edacfa539abd18f28f560478faf50b6a69e4a685f6107c8d61f1b3bea1b321`.
+  All 333 checked runtime source and build-input files match the worktree.
+  The image's CUDA executable SHA-256 is
+  `ada1b9ac8e730d39d76080d6890f4da029040cd022b0bc299140aebd5579d7e6`.
+- The GPU-attached project container reports the RTX 5090, compute capability
+  `12.0`, and driver `595.84`. All twelve retained dataset inputs match their
+  source SHA-256 pins, and all eighteen registered service images pulled.
+- CUDA bootstrap exited `0` after **113** rollout steps in **802.73 seconds**.
+  All twelve canonical dataset uploads exited `0`; the live Engine pod also
+  reports the RTX 5090, compute capability `12.0`, and driver `595.84`. The CUDA
+  test build exited `0` after **1,747.75 seconds**, compiling and linking all
+  test executables with `-fcuda`.
+- The 55-row CUDA publisher exited `0` on 2026-09-09 at **23:55:53 UTC**. Its
+  terminal output reports **55 eligible / 0 unsupported / 0 errors**, **55**
+  admitted inventory entries, and **1** `tune-trials-v2` transcript. Its original
+  host log collector disconnected while the container continued; the complete
+  Docker output and terminal container status are retained in
+  `cuda-publisher-recovered.*`, with an empty stderr stream.
+- `./bootstrap/linux-cuda.sh test` started at **23:55:55 UTC**, after the
+  publisher passed, and is in progress. No CUDA lane completion or new journal
+  is claimed. Invocation stdout, stderr, and terminal exit records are retained
+  under `.build/runtime/phase268-20260909-linux/`. The initial image build was
+  intentionally interrupted with exit `130` to include the status-registry
+  update; `build-current` is the successful replacement invocation.
+- A production `projectProductRows LinuxCUDA allProductRows` probe matches all
+  **55** catalog identities in the retained CUDA report card (**0** mismatches).
+  `projection-comparison.json` retains the comparison; this pure identity check
+  does not replace live device-witness or completion-journal validation.
+- The current container docs check passed. The deterministic scans cover all
+  phase documents and all twenty mapped aggregation validation blocks, with
+  **0** backward dependencies, **0** dual-accelerator gates, and **0** aggregation
+  accelerator invocations. The registry contains **60 Done / 1 Active / 0
+  Planned / 9 Blocked**. The focused phase-status unit gate passed **6 / 6**
+  against the current mounted plan. Publisher and full-lane checkpoint writers
+  run sequentially.
+- The prescribed CUDA lifecycle, exact journal retention/admission, documentation
+  check, code-quality gate, and plan guards remain required before closing this
+  phase and starting Phase `273`.
+
+### Historical 2026-09-09 Mac Prerequisite Check
 
 - On 2026-09-09, `./bootstrap/linux-cuda.sh up` exited `2` at the stage-0
   prerequisite gate with `NVIDIA container runtime is not registered with Docker;
@@ -179,11 +256,16 @@ scenario evidence by construction.
 
 ### Remaining Work
 
-- On a Linux NVIDIA host, rerun the prescribed `linux-cuda` lifecycle and retain
-  the exact journal-derived CUDA projection with its SHA-256 pin.
-- Revalidate its exact row order, plan identities, admitted manifests, measured
-  evidence, device witnesses, and completion journal digests before restoring
-  `Done`.
+- Complete the running full CUDA test lane, then execute the live browser gate
+  and every-row performance comparison in the Validation sequence above. The
+  image build, bootstrap, dataset staging, and 55-row publisher are complete.
+- Retain the exact portable journal issued by the successful full CUDA test
+  invocation with its SHA-256 pin. Revalidate its exact row order, plan
+  identities, admitted manifests, measured evidence, device witnesses, and
+  completion journal digests through the production admission reader.
+- Complete the prescribed teardown, container documentation and code-quality
+  checks, phase-status guards, and three deterministic plan scans. Record every
+  terminal outcome and align the lane report card before restoring `Done`.
 
 ## Documentation Requirements
 

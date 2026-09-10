@@ -334,7 +334,7 @@ allProductPhaseStatuses =
       268
       "Contract-Driven CUDA Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-268-contract-driven-cuda-lane-revalidation.md"
-      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Blocked
+      [ sprint "268.1" "Contract-Driven CUDA Lane Revalidation" Active
       ]
   , productPhase
       269

@@ -33,15 +33,11 @@ The result is:
 
 ## Current Status
 
-Phase `261` re-closed on 2026-09-08 after its immutable-image `linux-cpu`
-integration completed all 55 ProductRows and retained the exact canonical typed
-lane journal with SHA-256
-`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
-Phase `268` is the first open owner, blocked on the current Mac/Colima host's
-missing NVIDIA container runtime. The exact open chain
-is `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
-**60 Done / 0 Active / 0 Planned / 10 Blocked**. The authoritative current
-ledger is [DEVELOPMENT_PLAN/README.md](DEVELOPMENT_PLAN/README.md).
+The integration command retains a portable typed lane journal after authenticating
+its completed ProductRow scenarios. Product closure requires retained evidence
+from each real substrate lane and exact admission by the later aggregation.
+The current execution owner, host prerequisites, validation evidence, and status
+counts live in [DEVELOPMENT_PLAN/README.md → Closure Status](DEVELOPMENT_PLAN/README.md#closure-status).
 
 The following Apple closure chronology is historical and predates that audit.
 Phase `273`'s exact Apple lifecycle passed all **10 / 10** stanzas in

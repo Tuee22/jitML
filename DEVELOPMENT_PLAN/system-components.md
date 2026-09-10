@@ -19,9 +19,9 @@ admitting its exact 55-row typed `linux-cpu` journal. The historical journals
 produced by Phases `268` and `273` were transient; only their seven-column
 Markdown projections were committed, so Phase `276` cannot yet perform its
 journal-only aggregation. The Phase `19`–`34` product-sprint checkpoint is
-**60 Done / 0 Active / 0 Planned / 10 Blocked**, counted from the typed registry.
-Phase `268` is the first open owner, blocked on the current Darwin arm64 /
-Colima host's missing NVIDIA container runtime. The exact open chain is
+**60 Done / 1 Active / 0 Planned / 9 Blocked**, counted from the typed registry.
+Phase `268` is the first open owner, Active on the Linux x86_64 RTX 5090 host
+after its CUDA prerequisite check passed. The exact open chain is
 `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 ### Historical Apple Validation Chronicle
