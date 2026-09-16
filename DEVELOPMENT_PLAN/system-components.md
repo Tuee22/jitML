@@ -15,14 +15,16 @@
 
 The inventory documents the authoritative target end state and the present
 checked-in implementation. Phase `261` has re-closed after retaining and
-admitting its exact 55-row typed `linux-cpu` journal. The historical journals
-produced by Phases `268` and `273` were transient; only their seven-column
-Markdown projections were committed, so Phase `276` cannot yet perform its
-journal-only aggregation. The Phase `19`–`34` product-sprint checkpoint is
-**60 Done / 1 Active / 0 Planned / 9 Blocked**, counted from the typed registry.
-Phase `268` is the first open owner, Active on the Linux x86_64 RTX 5090 host
-after its CUDA prerequisite check passed. The exact open chain is
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+admitting its exact 55-row typed `linux-cpu` journal, and Phase `268` closed on
+2026-09-12 after its real RTX 5090 lifecycle retained and admitted the
+equivalent 55-row typed `linux-cuda` journal. Phase `273`'s historical Apple
+journal was transient; only its seven-column Markdown projection was committed,
+so Phase `276` cannot yet perform its journal-only aggregation. The Phase
+`19`–`34` product-sprint checkpoint is
+**61 Done / 1 Active / 0 Planned / 8 Blocked**, counted from the typed registry.
+Phase `273` is the first open owner and closes only on the Apple Silicon host
+under standards rule `M(d)`. The exact open chain is
+`273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 ### Historical Apple Validation Chronicle
 
@@ -99,8 +101,8 @@ non-live e2e passed **30 / 30**. The final container documentation,
 code-quality, and focused **6 / 6** phase-status gates passed; the aggregation
 no-rerun scan inspected **20 / 20** mapped CPU-only validation blocks with **0**
 accelerator invocations. Phase `272` is Done. Phase `273` subsequently closed
-Done on 2026-09-08; its typed journal must be re-issued after Phase `268`
-retains the preceding CUDA projection.
+Done on 2026-09-08; Phase `268` has since retained the preceding CUDA
+projection, so Phase `273`'s typed Apple journal is the only re-issuance left.
 
 ### Current Implementation
 

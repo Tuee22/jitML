@@ -9,16 +9,19 @@
 
 ## Phase State
 
-🔄 **Active** (2026-09-09 Linux CUDA continuation under standards rule `C`).
-The Linux x86_64 host exposes an RTX 5090 and the NVIDIA container runtime;
-`./bootstrap/linux-cuda.sh doctor` passed. The container build passed, and the
-prescribed CUDA lifecycle is in progress. Phase `261` has re-closed
-with the durable typed lane-journal projection and the exact `linux-cpu` journal
-retained. This phase is the first open owner and must issue the equivalent
-digest-pinned artifact from the real `linux-cuda` lifecycle. The historical CUDA
-execution remains valid for its device/runtime surface, but its transient
-authenticated journal cannot be consumed by Phase `276`. Later open phases stay
-Blocked until this lifecycle passes and its exact evidence is retained.
+✅ **Done** (2026-09-12). The prescribed `linux-cuda` lifecycle ran end to end
+on the real RTX 5090 host and the durable typed lane journal it owes Phase `276`
+is retained. `./bootstrap/linux-cuda.sh test` exited `0` with **10 / 10**
+stanzas, `0` failed and `0` not-run; the live browser gate, the 55-row publisher
+and the every-row wall-clock comparison all exited `0`; and the exact
+175,023-byte version-`1` journal is tracked at
+[attestations/linux-cuda-product-lane-journal.json](attestations/linux-cuda-product-lane-journal.json)
+with pinned SHA-256
+`e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`. The
+production `admitProductLaneJournal` reader admits all **55** rows against the
+current `linux-cuda` projection. Teardown, documentation, code-quality and
+phase-status gates passed. Phase `273` is the next owner and needs the Apple
+host.
 
 ### Historical Phase State
 
@@ -82,12 +85,13 @@ revalidation cannot be meaningful while supervised rows on it execute oneDNN
 kernels, so the CUDA lowering in Sprint `264.1` and the witness in Sprint `229.1`
 land first.
 
-## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [🔄 Active]
+## Sprint 268.1: Contract-Driven CUDA Lane Revalidation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
-`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`
+`DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`,
+`DEVELOPMENT_PLAN/attestations/linux-cuda-product-lane-journal.json`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -181,51 +185,87 @@ non-product rows (`tic-tac-toe`, `atari-subset`) remain declared literals, which
 is what `renderProductLaneAttestationFragment` emits for rows that carry no
 scenario evidence by construction.
 
-### Current Validation State
+### Closure Evidence
 
-- The 2026-09-09 Linux continuation runs on Linux x86_64 with an NVIDIA GeForce
-  RTX 5090, driver `595.84`, and Docker `29.7.1` with the `nvidia` runtime
-  registered. `./bootstrap/linux-cuda.sh doctor` exited `0`.
-- `docker compose build jitml` exited `0`, including `check-code: ok` and the
-  frontend bundle build, producing image
-  `sha256:c9edacfa539abd18f28f560478faf50b6a69e4a685f6107c8d61f1b3bea1b321`.
-  All 333 checked runtime source and build-input files match the worktree.
-  The image's CUDA executable SHA-256 is
-  `ada1b9ac8e730d39d76080d6890f4da029040cd022b0bc299140aebd5579d7e6`.
-- The GPU-attached project container reports the RTX 5090, compute capability
-  `12.0`, and driver `595.84`. All twelve retained dataset inputs match their
-  source SHA-256 pins, and all eighteen registered service images pulled.
-- CUDA bootstrap exited `0` after **113** rollout steps in **802.73 seconds**.
-  All twelve canonical dataset uploads exited `0`; the live Engine pod also
-  reports the RTX 5090, compute capability `12.0`, and driver `595.84`. The CUDA
-  test build exited `0` after **1,747.75 seconds**, compiling and linking all
-  test executables with `-fcuda`.
-- The 55-row CUDA publisher exited `0` on 2026-09-09 at **23:55:53 UTC**. Its
-  terminal output reports **55 eligible / 0 unsupported / 0 errors**, **55**
-  admitted inventory entries, and **1** `tune-trials-v2` transcript. Its original
-  host log collector disconnected while the container continued; the complete
-  Docker output and terminal container status are retained in
-  `cuda-publisher-recovered.*`, with an empty stderr stream.
-- `./bootstrap/linux-cuda.sh test` started at **23:55:55 UTC**, after the
-  publisher passed, and is in progress. No CUDA lane completion or new journal
-  is claimed. Invocation stdout, stderr, and terminal exit records are retained
-  under `.build/runtime/phase268-20260909-linux/`. The initial image build was
-  intentionally interrupted with exit `130` to include the status-registry
-  update; `build-current` is the successful replacement invocation.
-- A production `projectProductRows LinuxCUDA allProductRows` probe matches all
-  **55** catalog identities in the retained CUDA report card (**0** mismatches).
-  `projection-comparison.json` retains the comparison; this pure identity check
-  does not replace live device-witness or completion-journal validation.
-- The current container docs check passed. The deterministic scans cover all
-  phase documents and all twenty mapped aggregation validation blocks, with
-  **0** backward dependencies, **0** dual-accelerator gates, and **0** aggregation
-  accelerator invocations. The registry contains **60 Done / 1 Active / 0
-  Planned / 9 Blocked**. The focused phase-status unit gate passed **6 / 6**
-  against the current mounted plan. Publisher and full-lane checkpoint writers
-  run sequentially.
-- The prescribed CUDA lifecycle, exact journal retention/admission, documentation
-  check, code-quality gate, and plan guards remain required before closing this
-  phase and starting Phase `273`.
+The prescribed lifecycle ran on Linux x86_64 with an NVIDIA GeForce RTX 5090,
+driver `595.84`, CUDA `13.2`, and Docker with the `nvidia` runtime registered
+as the default. `./bootstrap/linux-cuda.sh doctor` exited `0`.
+
+| Gate | Result |
+|---|---|
+| `docker compose build jitml` | exit `0`; in-build `check-code: ok`; image `sha256:8e629e9d6091905818f65b716a5be4b474c32414c4fabd71487b0a76b386bc81` |
+| `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cuda.sh up` | exit `0` — **113** live rollout steps, **18** third-party images pre-pulled, all **8** components ready, edge port `9092` |
+| twelve canonical dataset uploads | **12 / 12** exit `0`, every artifact matching its governed SHA-256 pin |
+| `jitml internal train-and-publish-product-rows --linux-cuda` | exit `0` — `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0` |
+| `./bootstrap/linux-cuda.sh test` | exit `0` in **36,938.267859688** seconds — **10 / 10** stanzas, `0` failed, `0` not-run |
+| `jitml test jitml-e2e --live --linux-cuda` | exit `0` — `jitml-integration` **197 / 197**, `jitml-e2e-playwright` **PASS**, Haskell `jitml-e2e` **30 / 30** |
+| `jitml internal benchmark-product-row-wall-clock` | `rows=55`, `status=PASS`, `0` failed rows — item `29` met |
+| `./bootstrap/linux-cuda.sh down` | exit `0`; both Kind nodes deleted; `.data` preserved (1.2 GiB) |
+| `jitml docs check` / `jitml check-code` | PASS / PASS |
+| focused `Product phase status registry` unit gate | **6 / 6** |
+
+The complete lane's ten stanzas are `jitml-unit` **907 / 907**,
+`jitml-integration` **197 / 197** (28,375.03 s), `jitml-sl-canonicals`
+**36 / 36**, `jitml-rl-canonicals` **47 / 47**, `jitml-hyperparameter`
+**26 / 26**, `jitml-backends` **28 / 28**, `jitml-daemon-lifecycle` **54 / 54**,
+`jitml-e2e` **30 / 30**, `jitml-negative-controls` **3 / 3**, and
+`jitml-model-convergence` **111 / 111** — **1,439** tests in total. The live
+browser gate exercised **77** Playwright tests in 56.0 seconds across **55**
+distinct `e2e.product.*` row selectors.
+
+The publisher's 55 rows were trained fresh over 6h21m
+(2026-09-10T21:31:57Z to 2026-09-11T03:53Z). Its retained transcript is the
+confirming re-invocation that reused all **55** already-admitted checkpoints in
+ten seconds and reported the same `55 / 55 / 0 / 0` counts with an empty stderr
+stream.
+
+The exact `.build/runtime/product-lane-journals/linux-cuda.json` issued by the
+successful full-lane integration invocation is retained at
+[attestations/linux-cuda-product-lane-journal.json](attestations/linux-cuda-product-lane-journal.json):
+175,023 bytes, SHA-256
+`e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`, wire
+version `1`, substrate `linux-cuda`, run id
+`jitml-product-scenario-d039c90b33061fd0`, source journal SHA-256
+`5cb77077b466b81635dbea1a740d8bc372263e45c4803aae0507477485ee53f7`. The
+production `admitProductLaneJournal` reader, run against
+`projectProductRows LinuxCUDA allProductRows`, admits all **55** rows with the
+pinned digest and rejects nothing.
+
+Its `DeviceEvidence` resolves to exactly two device witnesses — **45** rows on
+`cuda` / `mlp-forward-backward-tanh-linear` with artifact SHA-256
+`bfdeb1d4e39cf268461241c17849def2a5da36740f0998874a41e12166aaf3ae`, and **10**
+rows on `linux-cuda-cudnn` / `cublas_sgemm_forward` with artifact SHA-256
+`06afb721b891e7c73c92d7a9c940e0e6a468a8f29c5af86df0ba57cbff809d6b`. Both are
+byte-identical to the values the 2026-08-19 and 2026-08-22 full-lane runs
+issued, so Phase
+[78](phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md)'s artifact
+reproducibility now holds across three independent lanes on two separately
+bootstrapped clusters.
+
+The three deterministic plan scans in standards rule `M` report **0** backward
+dependency edges, **0** dual-accelerator validation gates, and **0** accelerator
+invocations across the **58** registered phases whose `### Validation` blocks are
+`linux-cpu`-only. That mapping is a superset of the twenty aggregation blocks
+earlier passes scanned.
+
+Invocation stdout, stderr, and terminal status records for every step are
+retained under `.build/runtime/phase268-20260910-linux/`.
+
+#### Shared-host interruption (not closing evidence)
+
+At 2026-09-11T15:52:59Z an unrelated cleanup on this shared host destroyed the
+`jitml-linux-cuda-control-plane` container while the first
+`jitml test jitml-e2e --live --linux-cuda` attempt was running. The lane stalled
+against a dead API server and was aborted without a terminal status; it is not
+closing evidence, and its empty transcript is retained as
+`e2e-attempt1.*`. The complete `jitml test all --linux-cuda` lane had already
+exited `0` before that point, and the journal it issued was written at
+2026-09-11T14:09:57Z, so that evidence is unaffected. The cluster was rebuilt
+(`up` exit `0`, **112** rollout steps, all **8** components ready, edge port
+`9092`); the retained MinIO PV preserved all twelve dataset objects and all 55
+admitted checkpoints, which the publisher re-audit confirmed at `55 / 55 / 0 / 0`
+in ten seconds; and the live browser gate was then re-run from the beginning and
+exited `0`.
 
 ### Historical 2026-09-09 Mac Prerequisite Check
 
@@ -253,19 +293,6 @@ scenario evidence by construction.
   the worktree byte-for-byte. Separate output streams and terminal result records
   are retained under `.build/runtime/phase268-20260909/`. These checkpoint checks
   do not discharge the CUDA lifecycle or journal-retention obligations.
-
-### Remaining Work
-
-- Complete the running full CUDA test lane, then execute the live browser gate
-  and every-row performance comparison in the Validation sequence above. The
-  image build, bootstrap, dataset staging, and 55-row publisher are complete.
-- Retain the exact portable journal issued by the successful full CUDA test
-  invocation with its SHA-256 pin. Revalidate its exact row order, plan
-  identities, admitted manifests, measured evidence, device witnesses, and
-  completion journal digests through the production admission reader.
-- Complete the prescribed teardown, container documentation and code-quality
-  checks, phase-status guards, and three deterministic plan scans. Record every
-  terminal outcome and align the lane report card before restoring `Done`.
 
 ## Documentation Requirements
 

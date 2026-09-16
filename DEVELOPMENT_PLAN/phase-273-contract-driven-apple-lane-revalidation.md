@@ -9,11 +9,14 @@
 
 ## Phase State
 
-⏸️ **Blocked** (reopened 2026-09-08 under standards rules `C` and `N`). Blocked
-by Phase `268` (Sprint `268.1`) in the numerical execution chain. The prescribed
-real Apple lifecycle completed, but its authenticated journal was not committed;
-the retained SHA-256 and Markdown projection cannot reconstruct its typed rows
-or admitted checkpoint identities for Phase `276`.
+🔄 **Active** (reopened 2026-09-08 under standards rules `C` and `N`; unblocked
+2026-09-12 when Sprint `268.1` closed). The prescribed real Apple lifecycle
+completed, but its authenticated journal was not committed; the retained SHA-256
+and Markdown projection cannot reconstruct its typed rows or admitted checkpoint
+identities for Phase `276`. This phase is now the first open owner in the
+numerical chain, and it closes only on the Apple Silicon host: standards rule
+`M(d)` makes `apple-silicon` a single-host obligation, so no Linux or CUDA
+session can discharge it.
 
 ### Historical Phase State
 
@@ -22,13 +25,12 @@ the final Phase `273` source, produced the authenticated 55-row journal and
 unchanged committed lane fragment, passed all ten Apple stanzas, and shut down
 the host daemon and Kind workload.
 
-## Sprint 273.1: Contract-Driven Apple Lane Revalidation [⏸️ Blocked]
+## Sprint 273.1: Contract-Driven Apple Lane Revalidation [🔄 Active]
 
-**Status**: Blocked
+**Status**: Active
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
 `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
-**Blocked by**: Sprint `268.1`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -106,10 +108,18 @@ docker compose run --rm jitml jitml check-code
 
 ### Remaining Work
 
-- After Sprint `268.1` closes, rerun the prescribed Apple lifecycle using the
-  durable journal-projection writer and commit the authenticated typed input.
+- Rerun the prescribed Apple lifecycle on the Apple Silicon host using the
+  durable journal-projection writer, and commit the authenticated typed input at
+  `DEVELOPMENT_PLAN/attestations/apple-silicon-product-lane-journal.json` with
+  its pinned SHA-256, as Sprint `261.1` did for `linux-cpu` and Sprint `268.1`
+  for `linux-cuda`.
 - Revalidate all 55 row identities, plans, admitted manifests, measured
-  evidence, Metal device witnesses, completion journal digests, and teardown.
+  evidence, Metal device witnesses, completion journal digests, and teardown,
+  admitting the retained bytes through the production `admitProductLaneJournal`
+  reader against the current `apple-silicon` projection.
+- Sprint `268.1` is closed, so this sprint carries no unmet upstream blocker.
+  Its only outstanding prerequisite is host access: the lifecycle needs a
+  Metal-capable Apple Silicon Mac, which the current Linux CUDA host is not.
 
 ## Documentation Requirements
 

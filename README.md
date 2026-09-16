@@ -36,6 +36,9 @@ The result is:
 The integration command retains a portable typed lane journal after authenticating
 its completed ProductRow scenarios. Product closure requires retained evidence
 from each real substrate lane and exact admission by the later aggregation.
+The `linux-cpu` and `linux-cuda` journals are both retained and admitted; the
+`apple-silicon` journal is the only one still outstanding, and it can be issued
+only on an Apple Silicon host.
 The current execution owner, host prerequisites, validation evidence, and status
 counts live in [DEVELOPMENT_PLAN/README.md → Closure Status](DEVELOPMENT_PLAN/README.md#closure-status).
 

@@ -20,26 +20,27 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-09-09 Linux CUDA continuation).** Phase `268` is the first
-open owner. The current Linux x86_64 host exposes an RTX 5090 and a registered
-NVIDIA container runtime; `./bootstrap/linux-cuda.sh doctor` passed. The container build and its
-code-quality gate passed; CUDA bootstrap passed all 113 rollout steps. Dataset
-uploads passed; the CUDA test build and publisher passed (**55 eligible / 0 unsupported /
-0 errors**). The full CUDA test lane is in progress. No
-new lane completion is claimed. See
-[Phase 268](phase-268-contract-driven-cuda-lane-revalidation.md#current-validation-state).
-Phase `261` re-closed after immutable-image `linux-cpu` integration completed all
-55 ProductRows and the
-exact canonical version-`1` typed lane journal was retained with SHA-256
-`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
-The production reader admits all 55 rows against the current projection and the
-full **907 / 907** unit gate, docs check, and check-code passed at that closure.
-The current chain is
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
-**60 Done / 1 Active / 0 Planned / 9 Blocked**, counted from the 70-entry typed
-registry. Historical lane results remain evidence for the surfaces they actually
-exercised, but CUDA and Apple must
-still re-issue their durable typed journal projections before Phase `276`.
+**🔄 Active (2026-09-12 Apple lane owner).** Phase `273` is the first open
+owner, and it closes only on an Apple Silicon host under standards rule `M(d)`.
+The chain is `273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
+**61 Done / 1 Active / 0 Planned / 8 Blocked**, counted from the 70-entry typed
+registry.
+
+Phase `268` closed on 2026-09-12 on the real RTX 5090 host.
+`./bootstrap/linux-cuda.sh test` exited `0` with **10 / 10** stanzas, `0` failed
+and `0` not-run in 36,938.267859688 seconds; the 55-row publisher reported
+**55 eligible / 0 unsupported / 0 errors**; the live browser gate exited `0`
+with `jitml-integration` **197 / 197**, Playwright **77 / 77** and Haskell e2e
+**30 / 30**; and `benchmark-product-row-wall-clock` passed `rows=55`. The exact
+version-`1` CUDA lane journal is retained with SHA-256
+`e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`, and the
+production reader admits all 55 rows against the current `linux-cuda`
+projection. See
+[Phase 268 → Closure Evidence](phase-268-contract-driven-cuda-lane-revalidation.md#closure-evidence).
+
+Phase `261` holds the equivalent `linux-cpu` journal with SHA-256
+`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`. Only the
+`apple-silicon` journal is still missing before Phase `276` can aggregate.
 
 **Historical Apple validation chronology (superseded by the current status
 above).** Phase `272`'s final-source explicit live Apple e2e gate was green at
@@ -2219,9 +2220,12 @@ strictly as
    `attestations/linux-cpu-product-lane-journal.json`, pinned by SHA-256
    `f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
 8. Phases `42`, `53`, `69`, `262`, and `263` remain Done on their validated
-   surfaces. Phase `268` is Active on the Linux NVIDIA host and must
-   supply the retained `linux-cuda` journal. Phase `273` is Blocked until then
-   and reissues the `apple-silicon` journal in its own Mac-host session.
+   surfaces. Phase `268` / Sprint `29.5` is Done: its real Linux NVIDIA lane
+   retained the byte-identical 175,023-byte
+   `attestations/linux-cuda-product-lane-journal.json`, pinned by SHA-256
+   `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`. Phase
+   `273` is Active and reissues the `apple-silicon` journal in its own
+   Mac-host session.
 9. Sprint `31.3` remains Blocked until all three earlier committed lane journals
    can be admitted and aggregated on `linux-cpu`; Sprint
    `32.2` binds external bars to exact served bytes; Sprint `32.4` installs
@@ -2380,8 +2384,8 @@ obligation exists.
 | 26 | AlphaZero Real Self-Play Per Game | ✅ Done (reclosed 2026-07-06) | [phase-26-alphazero-real-self-play.md](README.md#legacy-to-new-phase-map) |
 | 27 | Demo All-Model Rendering | ✅ Done (reclosed 2026-07-06) | [phase-27-demo-all-model-rendering.md](README.md#legacy-to-new-phase-map) |
 | 28 | Per-Model Integration and E2E | ✅ Done (Sprint `28.4` with the authenticated integration journal; Sprint `28.5` / Phase `262` closed browser and Playwright on 2026-08-11) | [phase-28-per-model-integration-and-e2e.md](README.md#legacy-to-new-phase-map) |
-| 29 | Linux CUDA Product Lane | ⏸️ Blocked (Sprint `29.5` — refresh the real `linux-cuda` lane through the new contract; blocked by Phase `263` / legacy Sprint `28.6`) | [phase-29-linux-cuda-product-lane.md](README.md#legacy-to-new-phase-map) |
-| 30 | Apple Silicon Product Lane | ⏸️ Blocked (Sprint `30.4` — refresh the real `apple-silicon` lane through the new contract; blocked by `29.5`) | [phase-30-apple-silicon-product-lane.md](README.md#legacy-to-new-phase-map) |
+| 29 | Linux CUDA Product Lane | ✅ Done (Sprint `29.5` / Phase `268` closed 2026-09-12 — the real `linux-cuda` lane refreshed through the new contract, with the retained typed lane journal) | [phase-29-linux-cuda-product-lane.md](README.md#legacy-to-new-phase-map) |
+| 30 | Apple Silicon Product Lane | 🔄 Active (Sprint `30.4` / Phase `273` — refresh the real `apple-silicon` lane through the new contract and retain its typed lane journal; Apple host required) | [phase-30-apple-silicon-product-lane.md](README.md#legacy-to-new-phase-map) |
 | 31 | No-Caveat Product Aggregation | ⏸️ Blocked (Sprint `31.3` — `linux-cpu`-only journal aggregation; blocked by `30.4`, with `29.5` transitive) | [phase-31-no-caveat-product-aggregation.md](README.md#legacy-to-new-phase-map) |
 | 32 | External-Truth Realness Harness & Negative-Control Gate | ⏸️ Blocked (Sprint `32.2` — exact served-byte provenance, blocked by `31.3`; Sprint `32.4` blocked by `32.2`) | [phase-32-external-truth-realness-harness.md](README.md#legacy-to-new-phase-map) |
 | 33 | Per-Model Convergence & Inference-Performance Tests | ⏸️ Blocked (Sprint `33.3` — contract-driven per-model training/evaluation; blocked by `32.4`) | [phase-33-per-model-convergence-and-inference-tests.md](README.md#legacy-to-new-phase-map) |
@@ -3027,15 +3031,14 @@ The authoritative current state is [Closure Status](#closure-status) above and
 the [Phase Overview](00-overview.md). The 2026-09-08 evidence-retention audit
 reopened Phase `261` because the authenticated lane journals needed by Phase
 `276` were never committed. Phase `261` has re-closed with its retained typed
-CPU journal. The Phase `19`–`34` registry is
-**60 Done / 1 Active / 0 Planned / 9 Blocked**, counted from the typed registry.
-Phase `268`'s 2026-09-09 Linux CUDA prerequisite check passed on the RTX 5090
-host. Its container build and 113-step CUDA bootstrap passed; dataset uploads
-passed, the CUDA test build and publisher passed (**55 eligible / 0 unsupported /
-0 errors**). The full CUDA test lane is in progress. The complete
-open chain is
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
-with Phase `268` Active and each later Blocked phase naming its predecessor.
+CPU journal, and Phase `268` closed on 2026-09-12 with the retained typed CUDA
+journal. The Phase `19`–`34` registry is
+**61 Done / 1 Active / 0 Planned / 8 Blocked**, counted from the typed registry.
+The complete open chain is
+`273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
+with Phase `273` Active and each later Blocked phase naming its predecessor.
+Phase `273` is an `apple-silicon` obligation and closes only on the Apple host
+under standards rule `M(d)`; no Linux or CUDA session can discharge it.
 Phase `271` closed at 55 / 55 admitted
 Apple rows, Apple backend **25 / 25**, and e2e **30 / 30**; its complete
 evidence is recorded in

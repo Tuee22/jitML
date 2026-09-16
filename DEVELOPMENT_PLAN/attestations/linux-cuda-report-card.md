@@ -1,4 +1,4 @@
-# `linux-cuda` Per-Lane Attestation — Revalidated 2026-08-22
+# `linux-cuda` Per-Lane Attestation — Revalidated 2026-09-12
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -10,9 +10,39 @@
 **Generated sections**: none
 
 > **Purpose**: The `linux-cuda` per-lane report-card fragment. Its row-complete
-> counts and its per-row timing table are the **2026-08-22** measured lane run;
-> the withdrawn 2026-07-10 counts they replace are described in
-> `## Current Status
+> counts and its per-row timing table are the **2026-08-22** measured lane run,
+> revalidated unchanged by the **2026-09-12** Phase `268` lifecycle; the
+> withdrawn 2026-07-10 counts they replace are described in
+> [Why the 2026-07-10 counts were withdrawn](#why-the-2026-07-10-counts-were-withdrawn).
+
+## Current Status
+
+**Re-validated 2026-09-12 on a cluster bootstrapped from nothing on a real
+NVIDIA GeForce RTX 5090 host (driver `595.84`, CUDA `13.2`), closing Phase
+[268](../phase-268-contract-driven-cuda-lane-revalidation.md).**
+
+| Gate | Result |
+|---|---|
+| `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cuda.sh up` | exit `0`, **113** steps; all **8** components ready; edge port `9092` |
+| 12 canonical datasets | staged and SHA-verified, **0** failures |
+| `jitml internal train-and-publish-product-rows --linux-cuda` | `rows: 55`, `eligible: 55`, `unsupported: 0`, `errors: 0` |
+| `./bootstrap/linux-cuda.sh test` | exit `0` in **36,938.267859688** s — **10 / 10** stanzas, **1,439** tests, `jitml-integration` **197 / 197** |
+| `jitml test jitml-e2e --live --linux-cuda` | exit `0` — `jitml-e2e-playwright` **PASS**, **77** browser tests, **55** `e2e.product.*` selectors, Haskell e2e **30 / 30** |
+| `jitml internal benchmark-product-row-wall-clock` | **PASS**, `rows=55` — every row strictly faster on `linux-cuda` |
+| retained typed lane journal | 175,023 bytes, SHA-256 `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`, admitted **55 / 55** by `admitProductLaneJournal` |
+| `jitml docs check` / `jitml check-code` | PASS / PASS |
+| `./bootstrap/linux-cuda.sh down` | exit `0`; both Kind nodes deleted; `.data` preserved (1.2 GiB) |
+
+The seven-column row fragment below is **unchanged** and required no re-issue.
+Its `DeviceEvidence` column resolves to the same two witnesses this run's
+retained journal carries — 45 rows on
+`device:linux-cuda:cuda:mlp-forward-backward-tanh-linear:bfdeb1d4e39cf268` and
+10 on
+`device:linux-cuda:linux-cuda-cudnn:cublas_sgemm_forward:06afb721b891e7c7` — so
+the artifact digests are now byte-identical across three independent full-lane
+runs (2026-08-19, 2026-08-22, and 2026-09-11).
+
+### Superseded: 2026-08-24 revalidation
 
 **Re-validated 2026-08-24 on a cluster bootstrapped from nothing, with Harbor
 replaced by `registry:2`.**
