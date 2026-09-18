@@ -287,6 +287,7 @@ library
         JitML.Test.Pulsar
         JitML.Test.PulsarBridge
         JitML.Test.PulsarTransport
+        JitML.Test.ProductAggregation
         JitML.Test.ProductLaneJournal
         JitML.Test.ProductScenarioJournal
         JitML.Test.ProductScenarioRunner
@@ -418,6 +419,7 @@ test-suite jitml-unit
     other-modules:
         CheckpointV1Admission
         DurableStateTopology
+        ProductAggregation
         ProductExperimentExactness
         ProductTuneTranscript
         ProtocolCodec

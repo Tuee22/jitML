@@ -27,6 +27,7 @@ module JitML.Test.ProductLaneJournal
   , productLaneJournalRowCompletedTraining
   , productLaneJournalRowContractDigest
   , productLaneJournalRowDeviceWitness
+  , productLaneJournalRowExperimentHash
   , productLaneJournalRowJournalDigest
   , productLaneJournalRowManifestSha
   , productLaneJournalRowMeasuredDigest
@@ -666,6 +667,11 @@ productLaneJournalRowManifestSha :: ProductLaneJournalRow -> Text
 productLaneJournalRowManifestSha row =
   case admittedRowCheckpoint row of
     RetainedCheckpointIdentity _experimentHash manifestSha -> manifestSha
+
+productLaneJournalRowExperimentHash :: ProductLaneJournalRow -> Text
+productLaneJournalRowExperimentHash row =
+  case admittedRowCheckpoint row of
+    RetainedCheckpointIdentity experimentHash _manifestSha -> experimentHash
 
 productLaneJournalRowMeasuredDigest :: ProductLaneJournalRow -> Text
 productLaneJournalRowMeasuredDigest = wireRowMeasuredSha . admittedRowWire

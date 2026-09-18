@@ -829,6 +829,24 @@ measured completion digest, measured device witness, and the full versioned
 SHA-256 of the exact canonical JSON before the embedded completion can refine;
 this portable projection does not recreate the deleted HMAC key or claim to
 re-admit a vanished checkpoint scope.
+The lane owner retains the candidate bytes unchanged under
+`DEVELOPMENT_PLAN/attestations/<substrate>-product-lane-journal.json`, records
+the SHA-256 in its phase evidence, and checks production-reader admission
+before teardown. Status and artifact pins remain owned by the development plan.
+
+`JitML.Test.ProductAggregation` consumes the three pinned retained inputs through
+that reader on `linux-cpu`. It requires the registered path and external digest
+pin, exactly one journal for each substrate,
+checks the complete current per-lane projection, and joins by product-row ID in
+registry order. Every opaque aggregate row carries all three admitted cells;
+PlanIds remain substrate-specific. The versioned
+`DEVELOPMENT_PLAN/attestations/product-aggregate.json` report projects their
+checkpoint identities, completion payloads, counters, and measured metrics.
+Reading this report recomputes its exact canonical bytes from the pinned inputs;
+changing a count, measurement, source binding, or schema version rejects it.
+Seven-column Markdown fragments are presentation checks and cannot supply an
+aggregate cell. The retained identity records the original live Store admission;
+aggregation does not create a new live Store capability after teardown.
 
 The browser-safe catalogue derived from that opaque report has one frozen
 version-`1` transport schema. Its top level is exactly `format`, `version`,

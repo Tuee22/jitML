@@ -364,7 +364,7 @@ allProductPhaseStatuses =
       273
       "Contract-Driven Apple Lane Revalidation"
       "DEVELOPMENT_PLAN/phase-273-contract-driven-apple-lane-revalidation.md"
-      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Active
+      [ sprint "273.1" "Contract-Driven Apple Lane Revalidation" Done
       ]
   , productPhase
       274
@@ -382,7 +382,7 @@ allProductPhaseStatuses =
       276
       "Journal-Derived Product Aggregation"
       "DEVELOPMENT_PLAN/phase-276-journal-derived-product-aggregation.md"
-      [ sprint "276.1" "Journal-Derived Product Aggregation" Blocked
+      [ sprint "276.1" "Journal-Derived Product Aggregation" Active
       ]
   , productPhase
       277

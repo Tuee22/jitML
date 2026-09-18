@@ -61,6 +61,7 @@ import Test.Tasty.QuickCheck qualified as QuickCheck
 
 import CheckpointV1Admission qualified
 import DurableStateTopology (durableStateTopologyTests)
+import ProductAggregation qualified
 import ProductExperimentExactness qualified
 import ProductTuneTranscript qualified
 import ReconcileStamp qualified
@@ -2670,6 +2671,7 @@ unitTestMain =
       "jitml-unit"
       [ CheckpointV1Admission.checkpointV1AdmissionTests
       , durableStateTopologyTests
+      , ProductAggregation.productAggregationTests
       , ProductExperimentExactness.productExperimentExactnessTests
       , ProductTuneTranscript.productTuneTranscriptTests
       , ReconcileStamp.reconcileStampTests

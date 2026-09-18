@@ -31,7 +31,6 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.Cluster.Publication (defaultPublication, publicationEdgePort)
-import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Routes (routeRegistry, routeServiceName)
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Endpoints (EndpointResponse (..))
@@ -64,22 +63,16 @@ import JitML.Test.LivePlan
   , renderLivePlan
   )
 import JitML.Test.Report
-  ( ProductRowReportEvidence (..)
-  , ReportCard (..)
+  ( ReportCard (..)
   , ReportMeasurement (..)
   , ReportMeasurements (..)
-  , aggregateProductLaneAttestations
   , appendInvocation
   , defaultReportCardKnobs
   , deriveSuiteResult
   , emptyInvocationJournal
   , emptyReportMeasurements
-  , loadAggregatedProductLaneAttestations
   , parseReportCardKnobs
   , passedInvocation
-  , productLaneAttestationFailures
-  , productRowReportCoverageFailures
-  , renderProductRowReportEvidence
   , renderReportCard
   , reportStanzas
   , suiteDuration
@@ -290,106 +283,6 @@ main =
           assertBool
             "unavailable measurement"
             ("daemon_healthz: unavailable" `isInfixOf` Text.unpack rendered)
-      , testCase "linux-cpu report card renders per-row evidence and rejects missing cells (Sprint 28.3)" $ do
-          let rows = ProductMatrix.allProductRows
-              nonProducts = ProductMatrix.nonProductRows
-              evidence = fmap completeProductRowReportEvidence rows
-              rendered = renderProductRowReportEvidence rows nonProducts evidence
-          assertBool
-            "row report header"
-            ("row_id\tCatalog\tIntegration\tE2E\tNegative\tDeviceEvidence\tLane" `Text.isInfixOf` rendered)
-          assertBool
-            "row report includes ProductRow"
-            ("mnist-shallow-mlp\tgenerated-matrix" `Text.isInfixOf` rendered)
-          assertBool
-            "row report includes non-product classification"
-            ("tic-tac-toe\tnon-product:" `Text.isInfixOf` rendered)
-          productRowReportCoverageFailures rows nonProducts evidence @?= []
-          case (rows, evidence) of
-            ([], _) -> assertFailure "ProductRow registry is unexpectedly empty"
-            (_, []) -> assertFailure "ProductRow report evidence is unexpectedly empty"
-            (firstRow : _, first : rest) -> do
-              let missingRowFailures = productRowReportCoverageFailures rows nonProducts rest
-              assertBool
-                "missing product row is named"
-                ( ("missing product-row report evidence row: rowId=" <> ProductMatrix.rowId firstRow)
-                    `elem` missingRowFailures
-                )
-              let missingCell = first {prreE2E = ""}
-                  missingCellFailures = productRowReportCoverageFailures rows nonProducts (missingCell : rest)
-              assertBool
-                "missing E2E cell is named"
-                ( ("missing report evidence cell: rowId=" <> prreRowId first <> " column=E2E")
-                    `elem` missingCellFailures
-                )
-              let nonProductEvidence =
-                    ProductRowReportEvidence
-                      { prreRowId = "tic-tac-toe"
-                      , prreCatalog = "generated-matrix"
-                      , prreIntegration = "integration"
-                      , prreE2E = "e2e"
-                      , prreNegative = "fail-closed"
-                      , prreDeviceEvidence = "device:linux-cpu:oneDNN"
-                      , prreLane = "linux-cpu"
-                      }
-                  nonProductFailures = productRowReportCoverageFailures rows nonProducts (evidence <> [nonProductEvidence])
-              assertBool
-                "non-product row is not silently counted as complete"
-                ( any
-                    ("non-product row supplied as product evidence: rowId=tic-tac-toe" `Text.isPrefixOf`)
-                    nonProductFailures
-                )
-      , testCase "product-lane attestation aggregation requires every row on every lane (Phase 31.1)" $ do
-          let rows = ProductMatrix.allProductRows
-              nonProducts = ProductMatrix.nonProductRows
-              lanes = ["linux-cpu", "linux-cuda", "apple-silicon"]
-              evidenceFor lane =
-                fmap
-                  ( \row ->
-                      (completeProductRowReportEvidence row)
-                        { prreLane = lane
-                        , prreDeviceEvidence =
-                            "device:" <> lane <> ":fixed-bridge-or-runtime:update-critical"
-                        }
-                  )
-                  rows
-              allEvidence = concatMap evidenceFor lanes
-              failures = productLaneAttestationFailures lanes rows nonProducts allEvidence
-          failures @?= []
-          case rows of
-            [] -> assertFailure "ProductRow registry is unexpectedly empty"
-            firstRow : _ -> do
-              let missingApple =
-                    filter
-                      ( \evidence ->
-                          not
-                            ( prreLane evidence == "apple-silicon"
-                                && prreRowId evidence == ProductMatrix.rowId firstRow
-                            )
-                      )
-                      allEvidence
-                  missingFailures =
-                    productLaneAttestationFailures lanes rows nonProducts missingApple
-              assertBool
-                "missing Apple row is named"
-                ( ("missing product-lane evidence row: lane=apple-silicon rowId=" <> ProductMatrix.rowId firstRow)
-                    `elem` missingFailures
-                )
-              let renderedInputs =
-                    [ (lane, renderProductRowReportEvidence rows nonProducts (evidenceFor lane))
-                    | lane <- lanes
-                    ]
-              case aggregateProductLaneAttestations renderedInputs of
-                Left err -> assertFailure (Text.unpack err)
-                Right parsed -> length parsed @?= length allEvidence
-      , testCase "committed product-lane attestations aggregate without drift (Phase 31.1)" $ do
-          aggregated <- loadAggregatedProductLaneAttestations
-          case aggregated of
-            Left err -> assertFailure (Text.unpack err)
-            Right parsed ->
-              length parsed
-                @?= length ProductMatrix.allProductRows
-                * length (["linux-cpu", "linux-cuda", "apple-silicon"] :: [Text])
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs
@@ -892,20 +785,6 @@ e2eScopeTranscript step =
           [(duration, "")] -> duration
           _ -> 0
       _ -> 0
-
-completeProductRowReportEvidence
-  :: ProductMatrix.ProductRow state
-  -> ProductRowReportEvidence
-completeProductRowReportEvidence row =
-  ProductRowReportEvidence
-    { prreRowId = ProductMatrix.rowId row
-    , prreCatalog = "generated-matrix"
-    , prreIntegration = ProductMatrix.integrationTest row
-    , prreE2E = ProductMatrix.e2eTest row
-    , prreNegative = "checkpoint-required-fail-closed"
-    , prreDeviceEvidence = "device:linux-cpu:oneDNN:ffi:dispatch"
-    , prreLane = "linux-cpu"
-    }
 
 failingBrowserRuntime :: Text -> BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)
 failingBrowserRuntime reason _request =

@@ -14,43 +14,33 @@
 ## Sprint 274.1: Attestation Join [✅ Done]
 
 **Status**: Done
-**Implementation**: `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/attestations/`
+**Implementation**: `src/JitML/Test/ProductAggregation.hs`, `DEVELOPMENT_PLAN/attestations/`
 **Docs updated**: `system-components.md`, `../documents/engineering/product_completion_contract.md`
 
 ### Objective
 
-`src/JitML/Test/Report.hs` reads the three committed per-lane attestations and
-joins them by `ProductRow.rowId` into one aggregated report card, failing closed
-on any missing, stale, unclassified, or scaffold evidence so that no lane can be
-silently skipped and no historical pass count can stand in for a real row.
+The retained obligation is exact row/lane coverage and a fail-closed join.
+Phase `276` replaces the historical prose-fragment implementation with
+`JitML.Test.ProductAggregation`, which reads the three pinned portable journals,
+admits their complete current lane projections, and joins by ProductRow identity.
+The expanded journal and completed-evidence obligations belong to Sprint `276.1`;
+this ownership transfer does not introduce a backward dependency.
 
 ### Deliverables
 
-- The aggregator reads
-  `DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`,
-  `DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md`, and
-  `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` and joins them by
-  `ProductRow.rowId` against the typed product matrix registry.
-- The join fails on missing per-row evidence, on `rowId`s that are stale relative
-  to the current typed matrix, on stale generated browser contracts, on
-  unsupported rows that lack an explicit non-product classification, and on any
-  active legacy-scaffold row.
-- Every joined row carries the real-ML evidence fields — trained-state deltas
-  (initial/final parameter hashes plus update count), completed-training
-  checkpoint witness with convergence metrics, verified dataset SHA, demo render
-  of the trained artifact, integration id, and e2e id — plus per-lane device
-  evidence, with unsupported-lane rows distinguished from failed supported rows.
-- This retained report-card schema does not establish current checkpoint
-  eligibility. Sprint `31.3` accepts only refreshed journal rows carrying the
-  opaque Store-admitted artifact identity produced through Sprint `10.12` and
-  consumed by Sprint `19.4`.
-- Aggregation uses no accelerator commands: it consumes only committed fragments
-  and `--linux-cpu` runs.
+- Every product row has exactly one admitted cell from each required lane.
+  Missing, duplicated, stale, failed, and not-run cells fail admission.
+- The versioned aggregate retains each cell's plan, admitted checkpoint identity,
+  device witness, refined completion, measured counters, and convergence metrics.
+- Markdown fragments are presentation artifacts checked against live issuance.
+  They cannot supply a completion or aggregate cell.
+- Aggregation runs on `linux-cpu`, consuming retained accelerator inputs without
+  rerunning either accelerator.
 
 ### Validation
 
 ```bash
-docker compose run --rm jitml cabal test jitml-e2e --test-show-details=direct --test-options='-p "committed product-lane attestations aggregate without drift" --hide-successes --color=never'
+docker compose run --rm jitml jitml test jitml-unit --linux-cpu --test-options='-p "Journal-derived product aggregation"'
 docker compose run --rm jitml cabal run exe:jitml -- docs check
 ```
 

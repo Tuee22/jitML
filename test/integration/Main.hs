@@ -234,6 +234,7 @@ import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.LiveEvidence qualified as LiveEvidence
 import JitML.Test.LiveWorkflow qualified as LiveWorkflow
+import JitML.Test.ProductAggregation qualified as ProductAggregation
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Test.ProductScenarioRunner qualified as ProductScenarioRunner
 import JitML.Test.Report qualified as TestReport
@@ -1772,7 +1773,7 @@ phase262BrowserCatalogueTests getAggregate =
               (productScenarioAggregateJournalReport aggregate)
               ProductMatrix.nonProductRows
       path <-
-        case lookup (renderSubstrate lane) TestReport.productLaneAttestationInputs of
+        case lookup (renderSubstrate lane) TestReport.productLaneFragmentPaths of
           Nothing ->
             assertFailure
               ( "no committed lane attestation is registered for "
@@ -2880,6 +2881,16 @@ main = do
             @?= replicate
               (length productScenarioStartupEnvironmentVariableNames)
               Nothing
+      , testCase "Phase 276: retained product aggregate is derived from all three pinned lane journals" $ do
+          result <- ProductAggregation.readRetainedProductAggregation
+          case result of
+            Left errors -> assertFailure (show errors)
+            Right aggregate -> do
+              fmap ProductAggregation.productAggregateRowId (ProductAggregation.productAggregationRows aggregate)
+                @?= fmap ProductMatrix.rowId ProductMatrix.allProductRows
+              ProductAggregation.productAggregationCellCount aggregate
+                @?= 3
+                * length ProductMatrix.allProductRows
       , testCase "runStreaming captures a fixture process" $ do
           outcome <- runStreaming defaultSubprocessEnv (subprocess "/bin/echo" ["subprocess-ok"])
           assertProcessExitCode "echo fixture" ExitSuccess outcome

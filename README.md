@@ -36,9 +36,9 @@ The result is:
 The integration command retains a portable typed lane journal after authenticating
 its completed ProductRow scenarios. Product closure requires retained evidence
 from each real substrate lane and exact admission by the later aggregation.
-The `linux-cpu` and `linux-cuda` journals are both retained and admitted; the
-`apple-silicon` journal is the only one still outstanding, and it can be issued
-only on an Apple Silicon host.
+All three lane journals are retained and admitted. The fresh Apple lifecycle
+passed all ten stanzas and issued the exact portable 55-row journal; the
+CPU-only aggregation consumes these inputs without rerunning accelerator lanes.
 The current execution owner, host prerequisites, validation evidence, and status
 counts live in [DEVELOPMENT_PLAN/README.md → Closure Status](DEVELOPMENT_PLAN/README.md#closure-status).
 
@@ -135,10 +135,11 @@ comparator, and successful Apple teardown. The 2026-09-08 evidence-retention
 audit later reopened Phase `261` Active because that authenticated journal was
 transient and only a Markdown projection survived; it consequently reopened
 Phases `268` and `273` Blocked. Phase `261` has since re-closed with the retained
-typed CPU journal. The exact current open chain is
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`;
-intervening Done phases retain their completed non-topology surfaces. Phases
-`270`–`273` close on the Mac host under standards rule `M(d)`.
+typed CPU journal, and Phase `268` retained the typed CUDA journal on
+2026-09-12. The fresh Apple journal is now retained and admitted. Current
+phase status and the numerical execution chain are maintained in
+[Closure Status](DEVELOPMENT_PLAN/README.md#closure-status); intervening Done
+phases retain their completed non-topology surfaces.
 
 The current worktree renders the one-worker local Kind cluster,
 single-instance platform services, and one profile-driven Linux Engine.
@@ -2517,7 +2518,7 @@ docker compose run --rm \
 | CIFAR-10 | `https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz` | ~170 MB | research use, see Krizhevsky 2009 TR [^krizhevsky2009] |
 | CIFAR-100 | `https://www.cs.toronto.edu/~kriz/cifar-100-binary.tar.gz` | ~170 MB | research use, same TR |
 | Tiny ImageNet | `http://cs231n.stanford.edu/tiny-imagenet-200.zip` | ~237 MB | Stanford CS231N course; derived from ImageNet — abide by ImageNet terms |
-| California Housing (UCI) | `https://www.dcc.fc.up.pt/~ltorgo/Regression/cal_housing.tgz` (or via `sklearn.datasets.fetch_california_housing`) | ~370 KB | public domain (StatLib); cite Pace & Barry 1997 |
+| California Housing (UCI) | `https://ndownloader.figshare.com/files/5976036` (`cal_housing.tgz`, also used by `sklearn.datasets.fetch_california_housing`) | ~432 KiB | public domain (StatLib); cite Pace & Barry 1997 |
 
 ## Threshold methodology
 

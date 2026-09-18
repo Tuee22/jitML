@@ -20,11 +20,31 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-09-12 Apple lane owner).** Phase `273` is the first open
-owner, and it closes only on an Apple Silicon host under standards rule `M(d)`.
-The chain is `273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
-**61 Done / 1 Active / 0 Planned / 8 Blocked**, counted from the 70-entry typed
+**🔄 Active (2026-09-18 UTC; session paused).** Phase `273` is Done after its complete Apple
+lifecycle, retained journal admission, teardown, and container quality gates.
+Phase `276` is the first open owner. The chain is
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
+**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the 70-entry typed
 registry.
+
+Phase `276` has generated and admitted the **55-row / 165-cell** aggregate.
+CPU unit **946 / 946**, focused aggregation **39 / 39**, e2e **27 / 27**,
+negative controls **3 / 3**, model convergence **111 / 111**, and container
+code quality passed. Its full CPU integration invocation has encountered a
+`PPO/mountain-car` convergence failure (**−158** against required **−155**),
+propagating to **71** assertions that share the scenario. At **2026-09-18
+02:46 UTC**, the process was still running the live CLI workflow matrix;
+no terminal exit or full-suite pass was recorded. Work is paused at the user's
+request; the existing run and CPU cluster were left running. Resume details and
+evidence are in [Phase 276 → Session Save Point](phase-276-journal-derived-product-aggregation.md#session-save-point).
+The remaining chain requires Linux CPU/Docker; Phase `273` has completed the
+Mac-specific validation.
+
+`./bootstrap/apple-silicon.sh test` passed **10 / 10** stanzas, **1,436** tests,
+**0** failed and **0** not-run in **101,310.162505 s**. The production reader
+admitted its retained **55 / 55** row journal; bootstrap `up`/`down`,
+`jitml docs check`, and container `jitml check-code` passed. See
+[Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).
 
 Phase `268` closed on 2026-09-12 on the real RTX 5090 host.
 `./bootstrap/linux-cuda.sh test` exited `0` with **10 / 10** stanzas, `0` failed
@@ -39,8 +59,10 @@ projection. See
 [Phase 268 → Closure Evidence](phase-268-contract-driven-cuda-lane-revalidation.md#closure-evidence).
 
 Phase `261` holds the equivalent `linux-cpu` journal with SHA-256
-`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`. Only the
-`apple-silicon` journal is still missing before Phase `276` can aggregate.
+`f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`. The
+`apple-silicon` journal is now retained with SHA-256
+`1496c8632bb62d616ea99990774b2c5c2e2d95e148834a3932b6aae5e31d7621`.
+All three retained journals are available to the CPU-only Phase `276` join.
 
 **Historical Apple validation chronology (superseded by the current status
 above).** Phase `272`'s final-source explicit live Apple e2e gate was green at
@@ -444,9 +466,10 @@ compiled artifacts; the rendered-source path had the same defect.
 
 **Phase `271` closed `Done` on 2026-08-28; Phase `272` closed on 2026-09-07;
 Phase `273` closed on 2026-09-08; the evidence-retention audit subsequently
-reopened Phase `261`, which has now re-closed with the typed CPU journal. Phase
-`268` is the first open owner, Active on the Linux NVIDIA host after its
-stage-0 prerequisite check passed.** The corrected Phase `271`
+reopened Phase `261`, which re-closed with the typed CPU journal. Phase `268`
+subsequently re-closed on 2026-09-12 with the retained typed CUDA journal.
+Phase `273` re-closed on 2026-09-17 with its retained typed Apple journal;
+Phase `276` is the first open owner.** The corrected Phase `271`
 Apple producer exited `0` after
 **5 h 12 min 41.62 s** with `rows: 55`, `eligible: 55`, `unsupported: 0`,
 `errors: 0`, `admitted-inventory-entries: 55`, and one tuning transcript. The
@@ -458,14 +481,13 @@ passed. See
 [Phase 271 → 2026-08-26 Continuation Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-26-continuation-checkpoint).
 
 The Phase `19`–`34` product registry is
-**60 Done / 1 Active / 0 Planned / 9 Blocked**.
+**62 Done / 1 Active / 0 Planned / 7 Blocked**.
 The numerically ordered open chain is
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
-closures. Phase `273` historically closed the hard Apple-Silicon host boundary
-and is now Blocked by Phase `268` before the portable journal produced by Phase
-`261` can be re-issued on the Apple host.
+closures. Phase `273` re-closed the Apple Silicon host boundary on
+2026-09-17 with the retained and admitted portable typed journal.
 Phase `272` is Done. Its final-source explicit live Apple e2e gate exited
 `0` with `jitml-integration` **197 / 197**, Playwright **77 / 77**, and Haskell
 `jitml-e2e` **30 / 30**. The earlier ten-stanza Apple lane passed `10` / `10`,
@@ -548,7 +570,8 @@ gate passed **25 / 25** and non-live e2e passed **30 / 30**. The final container
 documentation and code-quality gates, focused **6 / 6** phase-status registry,
 and **20 / 20** aggregation no-rerun scan are green. Phase `273` subsequently
 closed Done on 2026-09-08. The later evidence-retention audit reopened Phase
-`261`; Phase `276` is Blocked pending durable typed lane journals.
+`261`; Phase `276` was then Blocked pending durable typed lane journals; all three
+are now retained, and current status is recorded in [Closure Status](#closure-status).
 The current attempt is recorded in
 [Phase 272 → 2026-09-05 validation resume](phase-272-apple-integration-e2e-and-attestation.md#2026-09-05-validation-resume).
 
@@ -2178,10 +2201,11 @@ for Metal), and item 18 (empty legacy ledger) was then met after the final
 The retained-cluster, shared-live-interpreter, checkpoint/runtime, and local
 resource repairs are closed. The 2026-09-08 evidence-retention audit reopened
 the numerical roadmap at Phase `261`; that phase has re-closed with the retained
-typed CPU journal. Phase `268` is the first open owner, Active on the Linux
-NVIDIA host after its stage-0 prerequisite check passed. The chain proceeds
+typed CPU journal. Phase `268` re-closed on 2026-09-12 with the retained typed
+CUDA journal. Phase `273` re-closed on 2026-09-17 with the retained typed
+Apple journal. Phase `276` is the first open owner. The chain proceeds
 strictly as
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`:
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`:
 
 1. Sprint `2.9` has restored and validated the typed Kind existence branch,
    retained edge-port authority, and fail-closed recovery publication semantics.
@@ -2224,10 +2248,11 @@ strictly as
    retained the byte-identical 175,023-byte
    `attestations/linux-cuda-product-lane-journal.json`, pinned by SHA-256
    `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`. Phase
-   `273` is Active and reissues the `apple-silicon` journal in its own
-   Mac-host session.
-9. Sprint `31.3` remains Blocked until all three earlier committed lane journals
-   can be admitted and aggregated on `linux-cpu`; Sprint
+   `273` is Done after its Mac lifecycle retained and admitted the exact
+   `apple-silicon` journal, SHA-256
+   `1496c8632bb62d616ea99990774b2c5c2e2d95e148834a3932b6aae5e31d7621`.
+9. Sprint `31.3` is Active: all three retained lane journals are available for
+   admission and aggregation on `linux-cpu`; Sprint
    `32.2` binds external bars to exact served bytes; Sprint `32.4` installs
    protocol/evidence negative controls; Sprint `33.3` closes contract-driven
    per-model measurements; Sprint `34.3` derives plan status; and Sprint `34.4`
@@ -2385,8 +2410,8 @@ obligation exists.
 | 27 | Demo All-Model Rendering | ✅ Done (reclosed 2026-07-06) | [phase-27-demo-all-model-rendering.md](README.md#legacy-to-new-phase-map) |
 | 28 | Per-Model Integration and E2E | ✅ Done (Sprint `28.4` with the authenticated integration journal; Sprint `28.5` / Phase `262` closed browser and Playwright on 2026-08-11) | [phase-28-per-model-integration-and-e2e.md](README.md#legacy-to-new-phase-map) |
 | 29 | Linux CUDA Product Lane | ✅ Done (Sprint `29.5` / Phase `268` closed 2026-09-12 — the real `linux-cuda` lane refreshed through the new contract, with the retained typed lane journal) | [phase-29-linux-cuda-product-lane.md](README.md#legacy-to-new-phase-map) |
-| 30 | Apple Silicon Product Lane | 🔄 Active (Sprint `30.4` / Phase `273` — refresh the real `apple-silicon` lane through the new contract and retain its typed lane journal; Apple host required) | [phase-30-apple-silicon-product-lane.md](README.md#legacy-to-new-phase-map) |
-| 31 | No-Caveat Product Aggregation | ⏸️ Blocked (Sprint `31.3` — `linux-cpu`-only journal aggregation; blocked by `30.4`, with `29.5` transitive) | [phase-31-no-caveat-product-aggregation.md](README.md#legacy-to-new-phase-map) |
+| 30 | Apple Silicon Product Lane | ✅ Done (Sprint `30.4` / Phase `273` closed 2026-09-17 after the real Apple lifecycle and retained typed journal admission) | [phase-30-apple-silicon-product-lane.md](README.md#legacy-to-new-phase-map) |
+| 31 | No-Caveat Product Aggregation | 🔄 Active (Sprint `31.3` — `linux-cpu`-only aggregation of all three retained typed lane journals) | [phase-31-no-caveat-product-aggregation.md](README.md#legacy-to-new-phase-map) |
 | 32 | External-Truth Realness Harness & Negative-Control Gate | ⏸️ Blocked (Sprint `32.2` — exact served-byte provenance, blocked by `31.3`; Sprint `32.4` blocked by `32.2`) | [phase-32-external-truth-realness-harness.md](README.md#legacy-to-new-phase-map) |
 | 33 | Per-Model Convergence & Inference-Performance Tests | ⏸️ Blocked (Sprint `33.3` — contract-driven per-model training/evaluation; blocked by `32.4`) | [phase-33-per-model-convergence-and-inference-tests.md](README.md#legacy-to-new-phase-map) |
 | 34 | Plan-Truth Governance | ⏸️ Blocked (Sprint `34.3` — journal-derived reports and phase status; blocked by `33.3`) | [phase-34-plan-truth-governance.md](README.md#legacy-to-new-phase-map) |
@@ -3032,13 +3057,14 @@ the [Phase Overview](00-overview.md). The 2026-09-08 evidence-retention audit
 reopened Phase `261` because the authenticated lane journals needed by Phase
 `276` were never committed. Phase `261` has re-closed with its retained typed
 CPU journal, and Phase `268` closed on 2026-09-12 with the retained typed CUDA
+journal. Phase `273` re-closed on 2026-09-17 with the retained typed Apple
 journal. The Phase `19`–`34` registry is
-**61 Done / 1 Active / 0 Planned / 8 Blocked**, counted from the typed registry.
+**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the typed registry.
 The complete open chain is
-`273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
-with Phase `273` Active and each later Blocked phase naming its predecessor.
-Phase `273` is an `apple-silicon` obligation and closes only on the Apple host
-under standards rule `M(d)`; no Linux or CUDA session can discharge it.
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
+with Phase `276` Active and each later Blocked phase naming its predecessor.
+Phase `276` consumes the retained accelerator journals on `linux-cpu` under
+standards rule `M(d)`; it does not rerun accelerator lanes.
 Phase `271` closed at 55 / 55 admitted
 Apple rows, Apple backend **25 / 25**, and e2e **30 / 30**; its complete
 evidence is recorded in
@@ -3117,7 +3143,8 @@ focused phase-status registry passed **6 / 6**, and the aggregation no-rerun
 scan inspected **20 / 20** mapped CPU-only validation blocks with **0**
 accelerator invocations. Phase `272` is Done. Phase `273` subsequently closed
 Done on 2026-09-08. The later evidence-retention audit reopened Phase `261`;
-Phase `276` is Blocked pending durable typed lane journals.
+Phase `276` was then Blocked pending durable typed lane journals; all three
+are now retained, and current status is recorded in [Closure Status](#closure-status).
 Current obligations and validation evidence begin in
 [Phase 262](phase-262-contract-driven-live-execution-browser-and-playwright.md); the historical
 material below does not define current status.
@@ -3909,13 +3936,13 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252`, `42`, `53`,
-`69`, `229`, `261`, `262`, and `270`–`272` remain Done. Phase `268` is Active
-on the Linux NVIDIA host after its prerequisite check passed;
-Phases `273`, `276`, `278`, `280`–`282`, `285`, `288`, and `289` are Blocked by
+`69`, `229`, `261`, `262`, `268`, and `270`–`273` remain Done. Phase `276` is
+Active on its CPU-only journal aggregation;
+Phases `278`, `280`–`282`, `285`, `288`, and `289` are Blocked by
 their immediate predecessor in the chain.
 Outside the registry range, Phases `7` and
 `72` re-closed `Done` on 2026-08-13; Phases `77`, `79`, `80`, and `84`

@@ -459,6 +459,20 @@ metadata, respectively. Phases `280`–`282` own contract-negative journal
 coverage, and Phase `285` owns completed-run per-model measurements. Their green
 current forms cannot substitute for those later production obligations.
 
+## Journal Aggregation
+
+`JitML.Test.ProductAggregation` joins the retained, externally pinned portable
+journals after production-reader admission against each current lane projection.
+Only the registered source paths and digest pins can mint an aggregate; callers
+cannot replace that authority with a digest computed from supplied bytes.
+The opaque result contains one completed cell per substrate for every ProductRow.
+The merged report's counts, checkpoint and plan identities, device witnesses,
+counters, and convergence observations come from these typed cells. Reading the
+retained report requires exact regeneration from the pinned journals; prose
+attestations and declared test IDs cannot manufacture completion. This boundary
+retains the original Store-admitted checkpoint identity and does not claim a
+fresh live admission or independent metric recomputation after teardown.
+
 ## Phase Validation Boundary
 
 The product proof follows the project's single-accelerator phase rule and joins

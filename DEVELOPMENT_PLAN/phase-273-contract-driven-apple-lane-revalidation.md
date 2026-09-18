@@ -9,14 +9,12 @@
 
 ## Phase State
 
-🔄 **Active** (reopened 2026-09-08 under standards rules `C` and `N`; unblocked
-2026-09-12 when Sprint `268.1` closed). The prescribed real Apple lifecycle
-completed, but its authenticated journal was not committed; the retained SHA-256
-and Markdown projection cannot reconstruct its typed rows or admitted checkpoint
-identities for Phase `276`. This phase is now the first open owner in the
-numerical chain, and it closes only on the Apple Silicon host: standards rule
-`M(d)` makes `apple-silicon` a single-host obligation, so no Linux or CUDA
-session can discharge it.
+✅ **Done** (2026-09-17). The real Apple lifecycle passed all ten test
+stanzas, retained the exact portable 55-row journal, admitted it through the
+production reader, proved host Metal placement, and completed daemon drain,
+cluster teardown, docs, and container code-quality gates. The evidence-retention
+obligation that reopened this phase is met in the worktree; staging and
+committing remain exclusively the human user's responsibility under `AGENTS.md`.
 
 ### Historical Phase State
 
@@ -25,12 +23,13 @@ the final Phase `273` source, produced the authenticated 55-row journal and
 unchanged committed lane fragment, passed all ten Apple stanzas, and shut down
 the host daemon and Kind workload.
 
-## Sprint 273.1: Contract-Driven Apple Lane Revalidation [🔄 Active]
+## Sprint 273.1: Contract-Driven Apple Lane Revalidation [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Test/RunContract.hs`,
 `src/JitML/Test/Report.hs`, `test/integration/Main.hs`,
-`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`
+`DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md`,
+`DEVELOPMENT_PLAN/attestations/apple-silicon-product-lane-journal.json`
 **Docs to update**: `../README.md`,
 `../documents/engineering/product_completion_contract.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -63,6 +62,14 @@ The binding design is
   `apple-silicon` plus the host's `linux-cpu` support surface.
 
 ### Validation
+
+After `up`, stage all twelve canonical artifacts through `jitml internal
+upload-dataset` as described in [Dataset sources](../README.md#dataset-sources).
+Build and probe the fixed bridge with `./.build/jitml internal
+install-metal-bridge` on a fresh build tree. Start
+`./bootstrap/apple-silicon.sh run-daemon` in a separate foreground session and
+wait for real Metal readiness and all four consumers before running `test`.
+Keep that daemon available throughout the test lane, then stop it before `down`.
 
 ```bash
 ./bootstrap/apple-silicon.sh up
@@ -106,30 +113,132 @@ docker compose run --rm jitml jitml check-code
   preserved at `.build/dist-newstyle-apple-phase273-final-20260908`; the saved
   Linux tree is restored as `dist-newstyle` for the CUDA-machine handoff.
 
+### Closure Evidence
+
+- **2026-09-16 Apple Silicon Mac attempt:** `./bootstrap/apple-silicon.sh doctor`
+  exited `0`; the host is macOS `arm64`, and Docker `29.2.1` is available with
+  33,585,676,288 bytes of VM memory. The previous Linux-host prerequisite gap
+  does not apply to this session. `system_profiler SPDisplaysDataType` reports
+  the 32-core Apple M1 Max and Metal support. Real kernel validation is
+  recorded separately below.
+- The initial `./bootstrap/apple-silicon.sh up` attempt exited `1` after its
+  duplicate in-rollout image build was intentionally cancelled.
+  Its native GHC `9.12.4` build completed and produced the signed `.build/jitml`;
+  all **18 / 18** platform images were pulled and both Kind nodes were created.
+  MinIO and Registry v2 reached Ready and are retained. The initial attempt is
+  not closing evidence.
+- `docker compose build jitml` exited `0`, including its embedded
+  `check-code: ok` gate and browser bundle build. The immutable image is
+  `sha256:7a99fd6655af56f6f3a47aad83d4e21f3640f6b271ce4e14d82ffb74dd652bf4`.
+  Byte comparisons confirm its application, generated Haskell, test, Dhall,
+  bootstrap, browser source, and Cabal inputs match the worktree.
+  `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/apple-silicon.sh up`
+  exited `0`, executing **110** live rollout steps with that image. The
+  supported status command reports every component Ready and the published
+  `apple-silicon` edge at port `9090`.
+- During the resumed rollout, the pinned kube-state-metrics and Grafana
+  sidecar pulls initially timed out inside Kind. A host-image import attempt
+  exited `1` on an unavailable multi-platform content digest; its separate
+  logs are retained as diagnostic evidence. The normal rollout recovered:
+  Pulsar, Grafana, kube-state-metrics, the Prometheus operator, and Prometheus
+  reached Ready with zero restarts. The resumed bootstrap subsequently passed.
+- `./bootstrap/apple-silicon.sh run-daemon` acquired
+  `apple.metal-runtime=yes`, `apple.metal-bridge=yes`, and all **4** consumers,
+  then reported `ready`. It remained available throughout the live Apple validation.
+- The focused `jitml test jitml-backends --apple-silicon` gate
+  exited `1`: **20 / 25** cases failed because this fresh build tree did not
+  yet contain the fixed Metal bridge dylib. `jitml internal install-metal-bridge`
+  then exited `0` with `metal_bridge_probe: ok`; the complete focused backend
+  rerun exited `0`, **25 / 25** tests in **91.37 s**, with an empty stderr.
+  This proves real Metal execution on the current host, but does not replace
+  the full live lane. Separate stdout/stderr logs and terminal exit-code
+  files are retained under `.build/phase273-20260916/`; a command without its
+  terminal exit-code file has no recorded terminal result and supplies no
+  closing evidence.
+- `./bootstrap/apple-silicon.sh test` exited `0` on **2026-09-17** after
+  **101,310.162505 s**. All **10 / 10** stanzas passed, **0** failed and **0**
+  not-run: unit **907 / 907**, integration **197 / 197**, SL canonicals
+  **36 / 36**, RL canonicals **47 / 47**, hyperparameter **26 / 26**, backends
+  **25 / 25**, daemon lifecycle **54 / 54**, e2e **30 / 30**, negative controls
+  **3 / 3**, and model convergence **111 / 111**. The invocation transcript,
+  separate stderr, and terminal exit code are retained in `apple-full-lane.*`.
+- Integration passed all **55 / 55** ProductRow assertions for run
+  `jitml-product-scenario-4d8721b4dc58ac19`, the exact **11 / 39 / 4 / 1**
+  family split, canonical order, persistent aggregate journal round-trip, and
+  Phase `263` comparison with the committed Apple lane fragment. The live CLI
+  workflow matrix passed in **8,184.92 s**. The comparator reproduced the
+  existing fragment exactly, so no fragment rewrite is required.
+- The parent's portable version-`1` journal is retained byte-for-byte at
+  `DEVELOPMENT_PLAN/attestations/apple-silicon-product-lane-journal.json`
+  (**177,591 bytes**) with SHA-256
+  `1496c8632bb62d616ea99990774b2c5c2e2d95e148834a3932b6aae5e31d7621`.
+  Its authenticated source-journal SHA-256 is
+  `355ab2d8def1c1fe9347099a4bd988008d617ad2bf624bad0c1ff14ad28c3c1e`.
+  The production `admitProductLaneJournal` reader exited `0`, admitting the
+  exact current Apple projection with **55 / 55** ordered rows and Metal
+  execution witnesses. Retention and admission logs are in
+  `apple-journal-retention.json` and `apple-journal-admission.*`.
+- The **2026-09-17 21:42 UTC** closing placement snapshot contains **17**
+  running pods, all Ready with **0** container restarts, and only
+  `minio-provisioning`, `pulsar-bookie-init`, and `pulsar-pulsar-init` Jobs.
+  No Metal-backed workload Job exists. The host daemon drained after SIGTERM
+  and exited `0`; `./bootstrap/apple-silicon.sh down` exited `0`, deleting both
+  Kind nodes. Final resource verification found no owned Kind cluster, node
+  container, test process, or daemon process. The retained journal digest is
+  unchanged after teardown. `docker compose run --rm jitml jitml docs check`
+  and `docker compose run --rm jitml jitml check-code` both exited `0`.
+- The focused Mac `jitml test jitml-unit --apple-silicon
+  --test-options='-p "Product phase status registry"'` gate exited `0`,
+  **6 / 6**, with an empty stderr. It verifies all 70 registered phase
+  documents against the typed statuses, forward-only dependencies, concrete
+  validation gates, and single-accelerator validation.
+- The initial and running-lane checkpoint
+  `docker compose run --rm jitml jitml docs check` invocations exited `0`.
+  The container rule-M scan reports **0** backward edges, **0** missing gates,
+  **0** dual-accelerator gates across all 70 registered phases, and **0**
+  accelerator invocations across the 20 aggregation validation blocks.
+- The running-lane cluster snapshot has every running pod Ready with zero
+  restarts and only the three expected provisioning/init Jobs. This snapshot
+  is retained as `running-lane-pods-jobs.txt`; the closing snapshot and resource
+  verification are retained as `closing-pods-jobs.*`, `closing-health.json`,
+  and `teardown-verification.json`.
+- Dataset preparation verifies each original archive against
+  `canonicalArtifactSha256For` before live upload. All **12 / 12** original
+  artifacts match their pins; their identities, byte counts, source URLs, and
+  digests are retained in `.build/phase273-20260916/datasets/verified-datasets.json`.
+  All **12 / 12** uploads through `jitml internal upload-dataset` exited `0`;
+  their separate logs and `dataset-upload-results.json` are retained alongside
+  the manifest. The focused native live inventory test exited `0`, **1 / 1**
+  in **5.82 s**, reading exactly twelve objects through the published edge and
+  verifying each canonical digest. The old README California Housing URL
+  returned HTTP `504` on all three attempts; the README now points to
+  scikit-learn's Figshare source, whose downloaded bytes match the existing
+  `aaa5c9a6afe2225cc2aed2723682ae403280c4a3695a2ddda4ffb5d8215ea681` pin.
+
+- After the status transition, the container `jitml test jitml-unit --linux-cpu
+  --test-options='-p "Product phase status registry"'` gate exited `0`,
+  **6 / 6**. The updated docs check passed and the rule-M scan again reported
+  **0** backward edges, **0** missing gates, **0** dual-accelerator gates, and
+  **0** accelerator invocations across **20** aggregation validation blocks.
+  Closure-bookkeeping logs use the `*-closure.*` names in the evidence directory.
+
 ### Remaining Work
 
-- Rerun the prescribed Apple lifecycle on the Apple Silicon host using the
-  durable journal-projection writer, and commit the authenticated typed input at
-  `DEVELOPMENT_PLAN/attestations/apple-silicon-product-lane-journal.json` with
-  its pinned SHA-256, as Sprint `261.1` did for `linux-cpu` and Sprint `268.1`
-  for `linux-cuda`.
-- Revalidate all 55 row identities, plans, admitted manifests, measured
-  evidence, Metal device witnesses, completion journal digests, and teardown,
-  admitting the retained bytes through the production `admitProductLaneJournal`
-  reader against the current `apple-silicon` projection.
-- Sprint `268.1` is closed, so this sprint carries no unmet upstream blocker.
-  Its only outstanding prerequisite is host access: the lifecycle needs a
-  Metal-capable Apple Silicon Mac, which the current Linux CUDA host is not.
+- None. All phase-owned obligations are met and validated in the worktree.
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- [Typed run contract](../documents/engineering/run_contract.md) and
+  [unit testing policy](../documents/engineering/unit_testing_policy.md) identify
+  the retained portable-journal path and its production-reader admission gate.
 
 **Product docs to create/update:**
 
-- None.
+- [Project README](../README.md): retained-journal status and the verified
+  California Housing source URL.
+- Plan control documents: Phase `273` closure and the next numerical owner.
 
 **Cross-references to add:**
 

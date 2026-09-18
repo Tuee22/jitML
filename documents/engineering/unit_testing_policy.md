@@ -179,7 +179,17 @@ lane-journal candidate to
 `.build/runtime/product-lane-journals/<substrate>.json`. Unit coverage exercises
 its canonical encoding, exact digest pin, current projection order, and refined
 completion identities; only the real substrate lane can issue closure evidence
-for its eventual tracked file.
+for its tracked
+`DEVELOPMENT_PLAN/attestations/<substrate>-product-lane-journal.json` file.
+Retain the candidate byte-for-byte and admit it against the current projection
+with its external digest pin before closing the lane phase.
+
+The CPU-only aggregation tests consume all three retained journals without
+executing accelerator code. They exercise exact lane/row coverage, projection
+identity, digest and schema rejection, incomplete status rejection, and measured
+report regeneration. The integration stanza admits the retained merged artifact
+through this same production boundary. Aggregate counts never come from the
+seven-column Markdown fragments.
 
 Substrate-selected runs serialize stanzas so live tests do not contend over one
 cluster/device. `jitml test <stanza>` uses the same result shape for one target.

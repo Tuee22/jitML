@@ -17,14 +17,22 @@ The inventory documents the authoritative target end state and the present
 checked-in implementation. Phase `261` has re-closed after retaining and
 admitting its exact 55-row typed `linux-cpu` journal, and Phase `268` closed on
 2026-09-12 after its real RTX 5090 lifecycle retained and admitted the
-equivalent 55-row typed `linux-cuda` journal. Phase `273`'s historical Apple
-journal was transient; only its seven-column Markdown projection was committed,
-so Phase `276` cannot yet perform its journal-only aggregation. The Phase
-`19`–`34` product-sprint checkpoint is
-**61 Done / 1 Active / 0 Planned / 8 Blocked**, counted from the typed registry.
-Phase `273` is the first open owner and closes only on the Apple Silicon host
-under standards rule `M(d)`. The exact open chain is
-`273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+equivalent 55-row typed `linux-cuda` journal. Phase `273` re-closed on
+2026-09-17 after its full Apple lifecycle retained and admitted the exact
+55-row portable journal. Phase `276` now owns CPU-only journal aggregation:
+`JitML.Test.ProductAggregation` refines the three pinned inputs and joins by
+row identity; its **55-row / 165-cell** report and admission tests pass. Phase
+closure remains open after the current CPU integration scenario rejected
+`PPO/mountain-car` convergence. The session is paused; see
+[Phase 276 → Session Save Point](phase-276-journal-derived-product-aggregation.md#session-save-point)
+for the observed running-process state and resume obligations.
+The Phase `19`–`34` product-sprint checkpoint is
+**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the typed registry.
+The exact open chain is
+`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+
+Validation evidence lives in
+[Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).
 
 ### Historical Apple Validation Chronicle
 
@@ -102,7 +110,8 @@ code-quality, and focused **6 / 6** phase-status gates passed; the aggregation
 no-rerun scan inspected **20 / 20** mapped CPU-only validation blocks with **0**
 accelerator invocations. Phase `272` is Done. Phase `273` subsequently closed
 Done on 2026-09-08; Phase `268` has since retained the preceding CUDA
-projection, so Phase `273`'s typed Apple journal is the only re-issuance left.
+projection, and Phase `273` re-closed on 2026-09-17 with its retained Apple
+journal. All three inputs are available to Phase `276`.
 
 ### Current Implementation
 
