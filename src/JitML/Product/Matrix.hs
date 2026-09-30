@@ -113,7 +113,6 @@ import JitML.Product.Convergence
   ( ConvergenceBar
   , ConvergenceBarError
   , ValidatedConvergenceBar
-  , barFromObservation
   , classificationAccuracyBar
   , mkConvergenceBar
   , regressionRmseBar
@@ -779,9 +778,11 @@ rlConvergenceRow row =
     ("JitML.RL.Algorithms.Registry.moduleFor/" <> RLConvergence.fbrAlgorithm row)
     (productExperimentConfigPath rowId')
     (canonicalDeviceProductBudget (RLConvergence.fbrBudget row))
-    ( barFromObservation
+    ( mkConvergenceBar
+        "median_final_reward"
+        MetricMaximise
+        (RLConvergence.literatureTarget (RLConvergence.fbrThreshold row))
         (RLConvergence.slack (RLConvergence.fbrThreshold row))
-        (RLConvergence.fbrConvergenceMetric row)
     )
     SubstrateBackedPolicy
     "rl-trajectory"
@@ -799,7 +800,12 @@ herRow =
         "JitML.RL.Algorithms.HerTrainer.trainHer"
         (productExperimentConfigPath rowId')
         (canonicalDeviceProductBudget (RLConvergence.hgmBudget metric))
-        (barFromObservation 0.05 (RLConvergence.hgmSuccessRate metric))
+        ( mkConvergenceBar
+            "goal_success_rate"
+            MetricMaximise
+            (RLConvergence.literatureTarget RLConvergence.herGoalSuccessThreshold)
+            (RLConvergence.slack RLConvergence.herGoalSuccessThreshold)
+        )
         GoalConditionedPolicy
         "rl-trajectory"
 
@@ -816,7 +822,12 @@ alphaZeroRow row =
     "JitML.RL.AlphaZero.SelfPlay"
     (productExperimentConfigPath game)
     (canonicalDeviceProductBudget (RLConvergence.azgBudget row))
-    (barFromObservation 0.05 (RLConvergence.azgArenaWinRate row))
+    ( mkConvergenceBar
+        "arena_win_rate"
+        MetricMaximise
+        (RLConvergence.azTargetWinRate RLConvergence.alphaZeroArenaThreshold)
+        (RLConvergence.azSlack RLConvergence.alphaZeroArenaThreshold)
+    )
     SelfPlayPolicyValueNetwork
     "connect4-human-vs-alphazero"
  where

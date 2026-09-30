@@ -9,6 +9,7 @@ module JitML.Product.Publisher.Supervised
   )
 where
 
+import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List qualified as List
@@ -49,6 +50,7 @@ import JitML.Product.Publisher.Runtime
   ( ProductPublisherRuntime (..)
   , SupervisedPublishRun (..)
   )
+import JitML.Product.ServedMetric qualified as ServedMetric
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
@@ -185,6 +187,10 @@ trainAndPublishSupervisedProductRow invocation runtime row projection experiment
                     validatedPublication = do
                       validateSupervisedPublishDatasetSha problem run
                       metricRows <- supervisedPublishMetricRows row plan run
+                      requireProjectedValue
+                        "supervised exact served-metric evaluation examples"
+                        testLimit
+                        (ServedMetric.heldOutExampleCount (supervisedPublishHeldOutExamples run))
                       artifact <- runtimeArtifact
                       completed <- completedTraining metricRows artifact
                       Right (metricRows, artifact, completed)
@@ -207,18 +213,42 @@ trainAndPublishSupervisedProductRow invocation runtime row projection experiment
                         artifact
                     admission <-
                       admitPublishedProductCheckpoint runtime projection completed stored
-                    pure $
-                      case admission of
-                        Left err ->
-                          productPublishError
-                            projection
-                            ("supervised checkpoint storage succeeded but exact Store admission failed: " <> err)
-                        Right admitted ->
-                          productPublishEligible
-                            projection
-                            admitted
-                            []
-                            "supervised V2 runtime artifact stored and admitted"
+                    case admission of
+                      Left err ->
+                        pure
+                          ( productPublishError
+                              projection
+                              ("supervised checkpoint storage succeeded but exact Store admission failed: " <> err)
+                          )
+                      Right admitted ->
+                        case supervisedPublishHeldOutMetric run of
+                          Nothing ->
+                            pure
+                              ( productPublishError
+                                  projection
+                                  "supervised held-out metric disappeared before served-byte verification"
+                              )
+                          Just (metricName, reported) -> do
+                            served <-
+                              liftIO
+                                ( ServedMetric.assertAdmittedHeldOutMetric
+                                    admitted
+                                    metricName
+                                    reported
+                                    (supervisedPublishHeldOutExamples run)
+                                )
+                            pure $
+                              case served of
+                                Left err ->
+                                  productPublishError
+                                    projection
+                                    ("supervised held-out metric failed exact admitted served-byte verification: " <> err)
+                                Right () ->
+                                  productPublishEligible
+                                    projection
+                                    admitted
+                                    []
+                                    "supervised V2 runtime artifact stored, admitted, and held-out metric recomputed from served bytes"
 
 validateSupervisedPublishUpdateCount
   :: WorkloadPlan.SupervisedPlan

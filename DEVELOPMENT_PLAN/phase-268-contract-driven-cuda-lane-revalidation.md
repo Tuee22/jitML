@@ -14,12 +14,14 @@ on the real RTX 5090 host and the durable typed lane journal it owes Phase `276`
 is retained. `./bootstrap/linux-cuda.sh test` exited `0` with **10 / 10**
 stanzas, `0` failed and `0` not-run; the live browser gate, the 55-row publisher
 and the every-row wall-clock comparison all exited `0`; and the exact
-175,023-byte version-`1` journal is tracked at
+175,023-byte version-`1` journal was tracked at
 [attestations/linux-cuda-product-lane-journal.json](attestations/linux-cuda-product-lane-journal.json)
 with pinned SHA-256
 `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`. The
-production `admitProductLaneJournal` reader admits all **55** rows against the
-current `linux-cuda` projection. Teardown, documentation, code-quality and
+production `admitProductLaneJournal` reader admitted all **55** rows against the
+then-current `linux-cuda` projection. Phase `278` has since replaced the linked
+retained journal with its fresh CUDA run; this digest is historical evidence.
+Teardown, documentation, code-quality and
 phase-status gates passed. Phase `273` is the next owner and needs the Apple
 host.
 

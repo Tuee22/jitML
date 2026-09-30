@@ -149,6 +149,7 @@ library
         JitML.Product.PhaseStatus
         JitML.Product.Pipeline
         JitML.Product.Publisher
+        JitML.Product.ServedMetric
         JitML.Project.Config
         JitML.Proto.Gc
         JitML.Proto.Inference

@@ -63,6 +63,7 @@ import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Publisher qualified as ProductPublisher
+import JitML.Product.ServedMetric qualified as ServedMetric
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -145,6 +146,71 @@ supervisedCheckpointV2Tests =
             (Checkpoint.addressedManifest addressed)
             @?= Just Nothing
     , checkpointStoreAdmissionTests
+    , testCase "Phase 278 rejects a coherently readdressed served-weight substitution" $
+        withSystemTempDirectory "jitml-served-metric-substitution" $ \root -> do
+          baselineFixture <- expectRight =<< makeFixture
+          swappedFixture <-
+            expectRight
+              =<< makeFixtureWithFinalBytes
+                ( \parameterCount ->
+                    WeightCodec.encodeJmw1
+                      ( replicate (parameterCount - 10) 0.0
+                          <> [0.0, 10.0]
+                          <> replicate 8 0.0
+                      )
+                )
+          baseline <- admitCompletedFixture (root <> "/baseline") baselineFixture
+          swapped <- admitCompletedFixture (root <> "/substituted") swappedFixture
+          let baselineCheckpoint = CheckpointStore.admittedCompletedCheckpoint baseline
+              swappedCheckpoint = CheckpointStore.admittedCompletedCheckpoint swapped
+              examples =
+                ServedMetric.HeldOutClassification [(replicate 784 0.0, 0)]
+          assertBool
+            "coherent substituted bytes must have a distinct addressed manifest"
+            ( CheckpointStore.admittedCheckpointManifestSha baselineCheckpoint
+                /= CheckpointStore.admittedCheckpointManifestSha swappedCheckpoint
+            )
+          baselineResult <-
+            ServedMetric.assertAdmittedHeldOutMetric baseline "test_accuracy" 1.0 examples
+          baselineResult @?= Right ()
+          substitutedResult <-
+            ServedMetric.assertAdmittedHeldOutMetric swapped "test_accuracy" 1.0 examples
+          case substitutedResult of
+            Left err ->
+              assertBool
+                "substituted served weights must fail on the rederived metric"
+                ("does not match exact admitted served bytes" `Text.isInfixOf` err)
+            Right () ->
+              assertFailure "coherent served-weight substitution retained the stale metric"
+    , testCase "Phase 278 rejects a coherently readdressed manifest metric substitution" $
+        withSystemTempDirectory "jitml-served-manifest-substitution" $ \root -> do
+          baselineFixture <- expectRight =<< makeFixture
+          swappedFixture <- expectRight =<< makeFixtureWithMetric 0.95
+          fixtureFinalBytes baselineFixture @?= fixtureFinalBytes swappedFixture
+          baseline <- admitCompletedFixture (root <> "/baseline") baselineFixture
+          swapped <- admitCompletedFixture (root <> "/substituted") swappedFixture
+          let baselineCheckpoint = CheckpointStore.admittedCompletedCheckpoint baseline
+              swappedCheckpoint = CheckpointStore.admittedCompletedCheckpoint swapped
+              examples =
+                ServedMetric.HeldOutClassification
+                  (replicate 100 (replicate 784 0.0, 0))
+          assertBool
+            "coherent substituted manifest must have a distinct addressed hash"
+            ( CheckpointStore.admittedCheckpointManifestSha baselineCheckpoint
+                /= CheckpointStore.admittedCheckpointManifestSha swappedCheckpoint
+            )
+          baselineResult <-
+            ServedMetric.assertAdmittedHeldOutMetric baseline "test_accuracy" 1.0 examples
+          baselineResult @?= Right ()
+          substitutedResult <-
+            ServedMetric.assertAdmittedHeldOutMetric swapped "test_accuracy" 0.95 examples
+          case substitutedResult of
+            Left err ->
+              assertBool
+                "substituted manifest metric must fail on the rederived served result"
+                ("does not match exact admitted served bytes" `Text.isInfixOf` err)
+            Right () ->
+              assertFailure "coherent manifest substitution retained the false metric"
     , testCase "canonical training/evaluation dataset digest is admitted for Product and generic V2" $ do
         problem <-
           maybe
@@ -2165,6 +2231,8 @@ makeTrainingCompletionFixture = do
       epochs = Plan.quantityValue (WorkloadPlan.supervisedPlanEpochs plan)
       trainingExamples =
         Plan.quantityValue (WorkloadPlan.supervisedPlanTrainingExamples plan)
+      evaluationExamples =
+        Plan.quantityValue (WorkloadPlan.supervisedPlanEvaluationExamples plan)
       optimizerUpdates =
         Plan.quantityValue (WorkloadPlan.supervisedPlanOptimizerUpdates plan)
       metrics =
@@ -2174,6 +2242,9 @@ makeTrainingCompletionFixture = do
           , TrainingExecution.tmExamplesProcessed =
               fromIntegral (epochs * trainingExamples)
           , TrainingExecution.tmHeldOutMetric = Just (metricName, 1.0)
+          , TrainingExecution.tmHeldOutExamples =
+              ServedMetric.HeldOutClassification
+                (replicate (fromIntegral evaluationExamples) (replicate 784 0.0, 0))
           , TrainingExecution.tmCompletedUnits = epochs
           , TrainingExecution.tmOptimizerUpdatesExecuted = optimizerUpdates
           , TrainingExecution.tmInitialCheckpointWeights = Just initialWeights
@@ -2370,6 +2441,8 @@ supervisedPublishRunFixture metrics =
         TrainingExecution.tmExamplesProcessed metrics
     , ProductPublisher.supervisedPublishHeldOutMetric =
         TrainingExecution.tmHeldOutMetric metrics
+    , ProductPublisher.supervisedPublishHeldOutExamples =
+        TrainingExecution.tmHeldOutExamples metrics
     , ProductPublisher.supervisedPublishCompletedUnits =
         TrainingExecution.tmCompletedUnits metrics
     , ProductPublisher.supervisedPublishOptimizerUpdatesExecuted =
@@ -2435,21 +2508,60 @@ makeFixture =
           (0.25 : replicate (parameterCount - 1) 0.0)
     )
 
+admitCompletedFixture
+  :: FilePath
+  -> Fixture
+  -> IO CheckpointStore.AdmittedCompletedCheckpoint
+admitCompletedFixture root fixture = do
+  graph <- expectRight (fixtureAdmissionObjectGraph fixture)
+  _ <-
+    expectRight
+      =<< CheckpointStore.writeCompletedCheckpointSnapshot
+        root
+        (admissionCompletedTraining graph)
+        (fixtureManifest fixture)
+        [
+          ( admissionLogicalBlobKey graph
+          , LazyByteString.fromStrict (admissionBlobBytes graph)
+          )
+        ]
+        Nothing
+  checkpoint <-
+    expectRight
+      =<< CheckpointStore.admitLocalLatestCheckpoint root (admissionExperiment graph)
+  expectRight (CheckpointStore.requireAdmittedCompletedCheckpoint checkpoint)
+
 -- | The completed ProductRow fixture now needs a device execution witness, and
 -- a witness has no pure constructor, so the fixture mints one over a real
 -- on-disk artifact before assembling the manifest.
 makeFixtureWithFinalBytes
   :: (Int -> LazyByteString.ByteString)
   -> IO (Either Text Fixture)
-makeFixtureWithFinalBytes finalBytesFor = do
+makeFixtureWithFinalBytes = makeFixtureWithMetricAndFinalBytes 1.0
+
+makeFixtureWithMetric :: Double -> IO (Either Text Fixture)
+makeFixtureWithMetric metric =
+  makeFixtureWithMetricAndFinalBytes
+    metric
+    ( \parameterCount ->
+        WeightCodec.encodeJmw1
+          (0.25 : replicate (parameterCount - 1) 0.0)
+    )
+
+makeFixtureWithMetricAndFinalBytes
+  :: Double
+  -> (Int -> LazyByteString.ByteString)
+  -> IO (Either Text Fixture)
+makeFixtureWithMetricAndFinalBytes metric finalBytesFor = do
   witnessResult <- DeviceWitnessFixture.fixtureDeviceExecutionWitness
-  pure (witnessResult >>= \witness -> makeFixtureWithFinalBytesFor witness finalBytesFor)
+  pure (witnessResult >>= \witness -> makeFixtureWithFinalBytesFor witness metric finalBytesFor)
 
 makeFixtureWithFinalBytesFor
   :: DeviceWitness.DeviceExecutionWitness
+  -> Double
   -> (Int -> LazyByteString.ByteString)
   -> Either Text Fixture
-makeFixtureWithFinalBytesFor fixtureWitness finalBytesFor = do
+makeFixtureWithFinalBytesFor fixtureWitness metricValue finalBytesFor = do
   row <-
     maybe
       (Left "missing authoritative mnist-shallow-mlp ProductRow")
@@ -2472,7 +2584,7 @@ makeFixtureWithFinalBytesFor fixtureWitness finalBytesFor = do
       experiment = ProductMatrix.productRowExperimentHash row
       metricName =
         ProductConvergence.convergenceMetricName (ProductMatrix.convergenceBar row)
-      metrics = [(metricName, 1.0)]
+      metrics = [(metricName, metricValue)]
       budget = ProductMatrix.trainingBudget row
       observedUnits = TrainingBudget.trainingBudgetTargetUnits budget
   payload <-

@@ -10175,6 +10175,32 @@ unitTestMain =
                   assertBool
                     "median 449 (just below 475 - 25) fails the assertion"
                     (not (ConvergenceThresholds.passesConvergence threshold 449.0))
+          , testCase "Phase 278 bars reject failed key-door and weak cartpole policies" $ do
+              let requireBar algorithm environment =
+                    maybe
+                      ( assertFailure ("missing cohort bar: " <> Text.unpack algorithm <> "/" <> Text.unpack environment)
+                          >> pure (ConvergenceThresholds.ConvergenceThreshold 0 0)
+                      )
+                      pure
+                      (ConvergenceThresholds.cohortThreshold algorithm environment)
+              ppoKeyDoor <- requireBar "PPO" "key-door-grid"
+              a2cKeyDoor <- requireBar "A2C" "key-door-grid"
+              trpoCartpole <- requireBar "TRPO" "cartpole"
+              assertBool
+                "64-step failed PPO policy must miss the key-door bar"
+                (not (ConvergenceThresholds.passesConvergence ppoKeyDoor (-2.79)))
+              assertBool
+                "learned ten-step PPO policy must clear the key-door bar"
+                (ConvergenceThresholds.passesConvergence ppoKeyDoor 1.43)
+              assertBool
+                "an A2C policy without a goal reward must miss the key-door bar"
+                (not (ConvergenceThresholds.passesConvergence a2cKeyDoor 0.4))
+              assertBool
+                "weak TRPO cartpole return must miss the literature bar"
+                (not (ConvergenceThresholds.passesConvergence trpoCartpole 188.0))
+              assertBool
+                "solved TRPO cartpole return must clear the literature bar"
+                (ConvergenceThresholds.passesConvergence trpoCartpole 500.0)
           , testCase "every catalog algorithm except HER/AlphaZero has at least one cohort" $ do
               let catalogNames =
                     fmap RLAlgorithms.algorithmName RLAlgorithms.algorithmCatalog
@@ -11936,6 +11962,85 @@ unitTestMain =
                 ( any
                     ((== "product-truth.scaffold.seeded-demo-weights") . findingKey)
                     findings
+                )
+          , testCase "ProductTruth scanner rejects measured-derived bars" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/Product/BadBar.hs"
+                      "bar = mkConvergenceBar name MetricMaximise measuredValue 0.05\nthreshold = measuredValue\n"
+              length (filter ((== "product-truth.measured-bar") . findingKey) findings) @?= 2
+          , testCase "ProductTruth scanner follows indirect measured bar aliases" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/Product/AliasedBar.hs"
+                      "let first = coMetricValue observation\nsecond = first\nbar = ProductConvergence.mkConvergenceBar name MetricMaximise second 0.05\nthreshold = second\n"
+              length (filter ((== "product-truth.measured-bar") . findingKey) findings) @?= 2
+          , testCase "ProductTruth scanner rejects measured-derived record literature targets" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/Product/ObservedBar.hs"
+                      "bar = ConvergenceBar { convergenceLiteratureTarget = coMetricValue observation, convergenceSlack = 0.05 }\n"
+              assertBool
+                "a product record target must not derive from a measured observation"
+                (any ((== "product-truth.measured-bar") . findingKey) findings)
+          , testCase "ProductTruth scanner rejects a measured-derived cohort table target" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/RL/BadThresholds.hs"
+                      "let observed = coMetricValue result\ntarget = observed\nrow = ConvergenceThreshold target 0.5\n"
+              assertBool
+                "an indirect cohort target must be rejected"
+                (any ((== "product-truth.measured-bar") . findingKey) findings)
+          , testCase "ProductTruth scanner requires literal cohort table constants" $ do
+              let findings =
+                    ProductTruth.scanProductTruthSourceText
+                      "src/JitML/RL/ConvergenceThresholds.hs"
+                      "cohorts = [((\"PPO\", \"cartpole\"), ConvergenceThreshold hiddenTarget 25.0)]\n"
+              assertBool
+                "a hidden target helper must not enter the canonical table"
+                (any ((== "product-truth.nonliteral-bar") . findingKey) findings)
+          , testCase "RL reward observation without a cohort cannot borrow another cohort's bar" $ do
+              observation <-
+                eitherAssert
+                  (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 450 500)
+              assertBool
+                "a generic reward threshold must carry its cohort identity"
+                (not (null (ProductExternalBars.assertConvergenceObservationsExternal [observation])))
+              case List.find ((== "PPO/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows of
+                Nothing -> assertFailure "PPO/cartpole is absent from ProductMatrix"
+                Just row -> do
+                  borrowed <-
+                    eitherAssert
+                      (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 435 500)
+                  assertBool
+                    "the PPO/cartpole checkpoint rejects A2C/cartpole's passing threshold"
+                    ( not
+                        ( null
+                            ( ProductExternalBars.assertConvergenceObservationsAgainstBar
+                                (ProductMatrix.convergenceBar row)
+                                [borrowed]
+                            )
+                        )
+                    )
+          , testCase "external bar gate rejects non-finite measurements" $ do
+              let bar =
+                    ProductConvergence.mkConvergenceBar
+                      "test_accuracy"
+                      TrainingBudget.MetricMaximise
+                      0.90
+                      0.05
+              assertBool
+                "NaN cannot pass an external bar"
+                (not (null (ProductExternalBars.assertProductBarExternal bar (0 / 0))))
+              assertBool
+                "a threshold substituted from a measurement cannot pass"
+                ( not
+                    ( null
+                        ( ProductExternalBars.assertProductBarExternal
+                            (bar {ProductConvergence.convergenceThreshold = 0.90})
+                            0.90
+                        )
+                    )
                 )
           , testCase "ProductTruth reachability rejects product-reachable scaffold imports" $ do
               let modules =
@@ -14301,11 +14406,12 @@ unitTestMain =
                 (PpoTrainer.resultMeasuredCounters result)
                 @?= 8
           , testCase "product A2C consumes each old-policy rollout once" $ do
-              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantA2C 10 @?= 1
-              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantTRPO 10 @?= 1
-              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantPPO 10 @?= 10
-              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantMaskablePPO 10 @?= 10
-              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantRecurrentPPO 10 @?= 10
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantA2C "key-door-grid" 10 @?= 1
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantTRPO "key-door-grid" 10 @?= 1
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantPPO "key-door-grid" 10 @?= 2
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantPPO "cartpole" 10 @?= 10
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantMaskablePPO "key-door-grid" 10 @?= 10
+              PpoTrainer.productPpoEpochsPerUpdateFor PpoTrainer.VariantRecurrentPPO "key-door-grid" 10 @?= 10
           , testCase "device TRPO reports accepted actor plus value-head optimizer steps" $ do
               let config =
                     PpoTrainer.defaultPpoTrainConfig

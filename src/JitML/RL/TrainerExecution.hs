@@ -445,7 +445,7 @@ runTrainerEpisodesForPlan substrate device atariRomPath plan
                     , PpoTrainer.ppoRolloutSteps =
                         ProductBudget.scheduleOnPolicyRolloutSteps schedule
                     , PpoTrainer.ppoEpochsPerUpdate =
-                        PpoTrainer.productPpoEpochsPerUpdateFor variant epochsPerUpdate
+                        PpoTrainer.productPpoEpochsPerUpdateFor variant envName epochsPerUpdate
                     , PpoTrainer.ppoMaxEpisodeSteps =
                         ProductBudget.scheduleOnPolicyMaxEpisodeSteps schedule
                     , PpoTrainer.ppoActionCount = RLSim.envActionCount environment

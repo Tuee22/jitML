@@ -65,8 +65,8 @@ executor, over the same frozen graph-ordered parameters, so the training-returne
 and Store-loaded *serving* paths are one implementation rather than two.
 
 **Training and serving are not the same implementation today.** Supervised
-training on a real substrate device executes oneDNN `float32` kernels, while
-serving executes the pure `Double` reference executor, so a `float32`-versus-
+training executes the selected substrate's `float32` device kernels, while
+serving executes the pure `Double` reference graph, so a `float32`-versus-
 `Double` skew exists between the trained result and the served result. Phases
 `233`, `241`, and `79` own closing this: see
 [Phase 241](../../DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md)
@@ -75,6 +75,13 @@ not a target. Cross-substrate bit-equality is **not** guaranteed
 — RNG draws and float reduction order differ across substrates — and
 cross-substrate equivalence is **not asserted**: there is no cross-substrate
 numeric-parity check or tolerance band.
+
+Phase `278` compares each supervised trainer metric with a second evaluation
+through the Store-admitted serving graph and exact physical weights. The
+accuracy allowance is at most one borderline class decision and never more
+than `0.01`; standardized regression RMSE allows `0.005 × max(1, |reported|)`.
+Those bounds apply to the device-trained versus pure-served evaluation of one
+artifact. They do not assert cross-substrate numerical equivalence.
 
 Reproducibility is an architectural invariant, not a debugging aid. The
 contract holds across:

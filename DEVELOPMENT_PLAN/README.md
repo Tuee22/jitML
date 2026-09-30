@@ -20,23 +20,30 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-09-18 UTC; session paused).** Phase `273` is Done after its complete Apple
-lifecycle, retained journal admission, teardown, and container quality gates.
-Phase `276` is the first open owner. The chain is
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`, with
-**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the 70-entry typed
-registry.
+**🔄 Active (2026-09-24 UTC).** Phase `276` closed after its CPU-only
+pinned-journal aggregation passed every listed gate. Phase `278` is the first
+open owner; the chain is `278 → 280 → 281 → 282 → 285 → 288 → 289`, with
+**63 Done / 1 Active / 0 Planned / 6 Blocked** in the 70-entry typed registry.
 
-Phase `276` has generated and admitted the **55-row / 165-cell** aggregate.
-CPU unit **946 / 946**, focused aggregation **39 / 39**, e2e **27 / 27**,
-negative controls **3 / 3**, model convergence **111 / 111**, and container
-code quality passed. Its full CPU integration invocation has encountered a
-`PPO/mountain-car` convergence failure (**−158** against required **−155**),
-propagating to **71** assertions that share the scenario. At **2026-09-18
-02:46 UTC**, the process was still running the live CLI workflow matrix;
-no terminal exit or full-suite pass was recorded. Work is paused at the user's
-request; the existing run and CPU cluster were left running. Resume details and
-evidence are in [Phase 276 → Session Save Point](phase-276-journal-derived-product-aggregation.md#session-save-point).
+Phase `278` has passed a fresh real `linux-cuda` **60/60** ProductScenario
+focused integration run covering all **55** rows under its tightened bars. Its
+new retained CUDA journal is pinned by SHA-256
+`5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48`.
+CPU and Apple Silicon journals, the regenerated three-lane aggregate, and the
+full phase validation remain open. The older CUDA digest below is historical
+Phase `268` evidence and is superseded as the retained journal path.
+
+Phase `276` admitted the exact **55-row / 165-cell** aggregate from the three
+retained lane journals without an accelerator rerun. On the current x86_64
+Linux host, `jitml-unit` passed **946 / 946**, live `jitml-integration` passed
+**198 / 198** in **36,037.06 s**, e2e passed **27 / 27**, negative controls
+**3 / 3**, and model convergence **111 / 111**. The full integration suite
+validated all 55 ProductRows, the exact 12-object live dataset inventory, the
+8-cell CLI WorkflowMatrix, and the live daemon and storage cases. Docs and
+container code quality passed. The Phase `276` document records the earlier
+arm64 convergence discrepancy as historical evidence and the full current
+closure evidence: [Phase 276 → Closure Evidence](phase-276-journal-derived-product-aggregation.md#closure-evidence).
+
 The remaining chain requires Linux CPU/Docker; Phase `273` has completed the
 Mac-specific validation.
 
@@ -51,11 +58,11 @@ Phase `268` closed on 2026-09-12 on the real RTX 5090 host.
 and `0` not-run in 36,938.267859688 seconds; the 55-row publisher reported
 **55 eligible / 0 unsupported / 0 errors**; the live browser gate exited `0`
 with `jitml-integration` **197 / 197**, Playwright **77 / 77** and Haskell e2e
-**30 / 30**; and `benchmark-product-row-wall-clock` passed `rows=55`. The exact
-version-`1` CUDA lane journal is retained with SHA-256
+**30 / 30**; and `benchmark-product-row-wall-clock` passed `rows=55`. The historical
+version-`1` CUDA lane journal was retained with SHA-256
 `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`, and the
-production reader admits all 55 rows against the current `linux-cuda`
-projection. See
+production reader admitted all 55 rows against the then-current `linux-cuda`
+projection. Phase `278` has since replaced the retained journal path. See
 [Phase 268 → Closure Evidence](phase-268-contract-driven-cuda-lane-revalidation.md#closure-evidence).
 
 Phase `261` holds the equivalent `linux-cpu` journal with SHA-256
@@ -469,7 +476,7 @@ Phase `273` closed on 2026-09-08; the evidence-retention audit subsequently
 reopened Phase `261`, which re-closed with the typed CPU journal. Phase `268`
 subsequently re-closed on 2026-09-12 with the retained typed CUDA journal.
 Phase `273` re-closed on 2026-09-17 with its retained typed Apple journal;
-Phase `276` is the first open owner.** The corrected Phase `271`
+Phase `276` closed on 2026-09-24.** The corrected Phase `271`
 Apple producer exited `0` after
 **5 h 12 min 41.62 s** with `rows: 55`, `eligible: 55`, `unsupported: 0`,
 `errors: 0`, `admitted-inventory-entries: 55`, and one tuning transcript. The
@@ -481,9 +488,9 @@ passed. See
 [Phase 271 → 2026-08-26 Continuation Checkpoint](phase-271-metal-row-device-evidence.md#2026-08-26-continuation-checkpoint).
 
 The Phase `19`–`34` product registry is
-**62 Done / 1 Active / 0 Planned / 7 Blocked**.
+**63 Done / 1 Active / 0 Planned / 6 Blocked**.
 The numerically ordered open chain is
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`278 → 280 → 281 → 282 → 285 → 288 → 289`.
 Phases `43`–`52` and `54`–`68` retain `Done` on
 their non-topology surfaces; reopening an earlier owner does not erase those
 closures. Phase `273` re-closed the Apple Silicon host boundary on
@@ -2203,9 +2210,10 @@ resource repairs are closed. The 2026-09-08 evidence-retention audit reopened
 the numerical roadmap at Phase `261`; that phase has re-closed with the retained
 typed CPU journal. Phase `268` re-closed on 2026-09-12 with the retained typed
 CUDA journal. Phase `273` re-closed on 2026-09-17 with the retained typed
-Apple journal. Phase `276` is the first open owner. The chain proceeds
+Apple journal. Phase `276` closed on 2026-09-24 after its full CPU validation;
+Phase `278` is the first open owner. The chain proceeds
 strictly as
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`:
+`278 → 280 → 281 → 282 → 285 → 288 → 289`:
 
 1. Sprint `2.9` has restored and validated the typed Kind existence branch,
    retained edge-port authority, and fail-closed recovery publication semantics.
@@ -3058,13 +3066,14 @@ reopened Phase `261` because the authenticated lane journals needed by Phase
 `276` were never committed. Phase `261` has re-closed with its retained typed
 CPU journal, and Phase `268` closed on 2026-09-12 with the retained typed CUDA
 journal. Phase `273` re-closed on 2026-09-17 with the retained typed Apple
-journal. The Phase `19`–`34` registry is
-**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the typed registry.
+journal. Phase `276` closed on 2026-09-24 after its current-source CPU gate
+passed. The Phase `19`–`34` registry is
+**63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from the typed registry.
 The complete open chain is
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
-with Phase `276` Active and each later Blocked phase naming its predecessor.
-Phase `276` consumes the retained accelerator journals on `linux-cpu` under
-standards rule `M(d)`; it does not rerun accelerator lanes.
+`278 → 280 → 281 → 282 → 285 → 288 → 289`,
+with Phase `278` Active and each later Blocked phase naming its predecessor.
+Phase `276` consumed the retained accelerator journals on `linux-cpu` under
+standards rule `M(d)` without rerunning accelerator lanes.
 Phase `271` closed at 55 / 55 admitted
 Apple rows, Apple backend **25 / 25**, and e2e **30 / 30**; its complete
 evidence is recorded in
@@ -3936,13 +3945,13 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252`, `42`, `53`,
-`69`, `229`, `261`, `262`, `268`, and `270`–`273` remain Done. Phase `276` is
-Active on its CPU-only journal aggregation;
-Phases `278`, `280`–`282`, `285`, `288`, and `289` are Blocked by
+`69`, `229`, `261`, `262`, `268`, `270`–`273`, and `276` remain Done. Phase
+`278` is Active after the CPU-only journal aggregation closed;
+Phases `280`–`282`, `285`, `288`, and `289` are Blocked by
 their immediate predecessor in the chain.
 Outside the registry range, Phases `7` and
 `72` re-closed `Done` on 2026-08-13; Phases `77`, `79`, `80`, and `84`
@@ -4238,8 +4247,8 @@ truth the implementer cannot author or tune, and they are owned by Phases `32`�
     `TRPO/cartpole` `185` against literature target `475`). Separately, the bar
     is not wholly external: `literatureTarget` is an external constant but
     `slack` is project-calibrated, as `src/JitML/RL/ConvergenceThresholds.hs`
-    itself records. The implementing sprint is `278.1`, which is `Blocked` by
-    `276.1`; Phases `19`, `21`, and `25` retain `Done` on their other owned
+    itself records. The implementing sprint is `278.1`, which is `Active`
+    after `276.1` closed; Phases `19`, `21`, and `25` retain `Done` on their other owned
     surfaces under rule `M(a)`. See
     [Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
 27. **Evidence-derived status, typed real/declared split.** `jitml docs check`'s

@@ -1996,6 +1996,7 @@ supervisedPublishRunFromTrainingMetrics metrics =
     , ProductPublisher.supervisedPublishValidationLoss = tmValidationLoss metrics
     , ProductPublisher.supervisedPublishExamplesProcessed = tmExamplesProcessed metrics
     , ProductPublisher.supervisedPublishHeldOutMetric = tmHeldOutMetric metrics
+    , ProductPublisher.supervisedPublishHeldOutExamples = tmHeldOutExamples metrics
     , ProductPublisher.supervisedPublishCompletedUnits = tmCompletedUnits metrics
     , ProductPublisher.supervisedPublishOptimizerUpdatesExecuted =
         tmOptimizerUpdatesExecuted metrics

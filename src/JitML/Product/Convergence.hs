@@ -5,7 +5,6 @@ module JitML.Product.Convergence
   , ConvergenceBarError (..)
   , MeasuredMetrics (..)
   , ValidatedConvergenceBar
-  , barFromObservation
   , classificationAccuracyBar
   , evaluateConvergence
   , mkConvergenceBar
@@ -24,10 +23,6 @@ import JitML.SL.ConvergenceThresholds (SlConvergenceThreshold (..))
 import JitML.Training.Budget
   ( ConvergenceObservation
   , MetricGoal (..)
-  , coMetricGoal
-  , coMetricName
-  , coMetricValue
-  , coThreshold
   , measureCriterion
   )
 
@@ -130,16 +125,6 @@ mkConvergenceBar metricName goal target slack =
     case goal of
       MetricMaximise -> target - slack
       MetricMinimise -> target + slack
-
-barFromObservation :: Double -> ConvergenceObservation -> ConvergenceBar
-barFromObservation slack observation =
-  ConvergenceBar
-    { convergenceMetricName = coMetricName observation
-    , convergenceMetricGoal = coMetricGoal observation
-    , convergenceLiteratureTarget = coMetricValue observation
-    , convergenceSlack = slack
-    , convergenceThreshold = coThreshold observation
-    }
 
 classificationAccuracyBar :: Text -> SlConvergenceThreshold -> ConvergenceBar
 classificationAccuracyBar metricName threshold =

@@ -382,7 +382,7 @@ allProductPhaseStatuses =
       276
       "Journal-Derived Product Aggregation"
       "DEVELOPMENT_PLAN/phase-276-journal-derived-product-aggregation.md"
-      [ sprint "276.1" "Journal-Derived Product Aggregation" Active
+      [ sprint "276.1" "Journal-Derived Product Aggregation" Done
       ]
   , productPhase
       277
@@ -397,7 +397,7 @@ allProductPhaseStatuses =
       [ sprint
           "278.1"
           "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
-          Blocked
+          Active
       ]
   , productPhase
       279

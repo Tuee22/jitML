@@ -103,6 +103,7 @@ module JitML.Checkpoint.Store
   , withWeightedCheckpointTyped
   , loadSupervisedRuntimeFromCheckpoint
   , reconstructSupervisedGraphFromCheckpoint
+  , prepareSupervisedGraphCheckpointInference
   , runSupervisedGraphCheckpointInference
   , objectPathForKey
   , prepareCheckpointSnapshot
@@ -6266,26 +6267,33 @@ reconstructSupervisedGraphFromCheckpoint manifest weights = do
 -- path — the linux-cuda and apple-silicon engines delegate to it — and is
 -- substrate-independent (bit-identical across substrates); the V2 token-runtime
 -- engine path has been retired.
+-- | Prepare the same served graph once for a held-out metric recomputation.
+-- Store has already bound the manifest and physical tensor bytes before this
+-- function is called with an admitted checkpoint; the graph refinement is the
+-- same one used for an individual serving request.
+prepareSupervisedGraphCheckpointInference
+  :: CheckpointManifest
+  -> [LoadedWeightTensor]
+  -> Either Text ([Double] -> Either Text [Double])
+prepareSupervisedGraphCheckpointInference manifest weights = do
+  (payload, reloadedGraph) <- reconstructSupervisedGraphFromCheckpoint manifest weights
+  graph <-
+    case LayerGraph.refineReloadedLayerGraph reloadedGraph of
+      Left err -> Left ("reloaded supervised graph refinement failed: " <> err)
+      Right refined -> Right refined
+  pure
+    ( fmap VU.toList
+        . RuntimeArtifact.executeSupervisedGraphRuntime payload graph
+        . VU.fromList
+    )
+
 runSupervisedGraphCheckpointInference
   :: CheckpointManifest
   -> [LoadedWeightTensor]
   -> [Double]
   -> IO (Either Text [Double])
 runSupervisedGraphCheckpointInference manifest weights input =
-  pure $
-    case reconstructSupervisedGraphFromCheckpoint manifest weights of
-      Left err -> Left err
-      Right (payload, reloadedGraph) ->
-        case LayerGraph.refineReloadedLayerGraph reloadedGraph of
-          Left err -> Left ("reloaded supervised graph refinement failed: " <> err)
-          Right graph ->
-            fmap
-              VU.toList
-              ( RuntimeArtifact.executeSupervisedGraphRuntime
-                  payload
-                  graph
-                  (VU.fromList input)
-              )
+  pure (prepareSupervisedGraphCheckpointInference manifest weights >>= ($ input))
 
 validateLoadedManifest
   :: Text

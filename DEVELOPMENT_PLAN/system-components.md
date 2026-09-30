@@ -19,17 +19,15 @@ admitting its exact 55-row typed `linux-cpu` journal, and Phase `268` closed on
 2026-09-12 after its real RTX 5090 lifecycle retained and admitted the
 equivalent 55-row typed `linux-cuda` journal. Phase `273` re-closed on
 2026-09-17 after its full Apple lifecycle retained and admitted the exact
-55-row portable journal. Phase `276` now owns CPU-only journal aggregation:
+55-row portable journal. Phase `276` closed the CPU-only journal aggregation:
 `JitML.Test.ProductAggregation` refines the three pinned inputs and joins by
-row identity; its **55-row / 165-cell** report and admission tests pass. Phase
-closure remains open after the current CPU integration scenario rejected
-`PPO/mountain-car` convergence. The session is paused; see
-[Phase 276 → Session Save Point](phase-276-journal-derived-product-aggregation.md#session-save-point)
-for the observed running-process state and resume obligations.
+row identity; its **55-row / 165-cell** report passed **39 / 39** focused
+adversarial tests and full live CPU integration **198 / 198**. See
+[Phase 276 → Closure Evidence](phase-276-journal-derived-product-aggregation.md#closure-evidence).
 The Phase `19`–`34` product-sprint checkpoint is
-**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the typed registry.
+**63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from the typed registry.
 The exact open chain is
-`276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`278 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Validation evidence lives in
 [Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).
@@ -111,7 +109,7 @@ no-rerun scan inspected **20 / 20** mapped CPU-only validation blocks with **0**
 accelerator invocations. Phase `272` is Done. Phase `273` subsequently closed
 Done on 2026-09-08; Phase `268` has since retained the preceding CUDA
 projection, and Phase `273` re-closed on 2026-09-17 with its retained Apple
-journal. All three inputs are available to Phase `276`.
+journal. Phase `276` consumed all three inputs in its validated CPU-only join.
 
 ### Current Implementation
 
@@ -615,6 +613,12 @@ substrates, plus Apple-only inference forwarding and host-command topics.
 | Trial storage and resume summary surface | `src/JitML/Tune/Catalog.hs` (key/summary helpers) + `src/JitML/Tune/Resume.hs` (`persistTrialTranscript`, `replaySweep` over `HasMinIO`) | ✅ Done; resume round-trip is validated against filesystem-backed `HasMinIO` and live MinIO persistence/replay is validated by `jitml-integration` | Sprint 9.7 / Sprint 15.10 |
 
 ## Checkpoint and Inference Components
+
+Phase `278` is adding `JitML.Product.ServedMetric` at supervised publication:
+the held-out set read from pinned dataset bytes is replayed through Store's
+opaque admitted manifest and physical `supervised.weights` tensor before a
+ProductRow becomes eligible. Coherently readdressed manifest and weight
+substitution controls and fresh lane journals remain required for closure.
 
 | Component | Implementation | Status | Owning Sprint |
 |-----------|----------------|--------|---------------|

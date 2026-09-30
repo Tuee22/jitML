@@ -17,6 +17,12 @@
 
 ## Current Status
 
+This card records the historical Phase `268` lane and its original digest.
+Phase `278` has replaced the linked retained journal with a fresh CUDA run
+under tightened bars, pinned at
+`5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48`.
+The row counts and digest below describe the 2026-09-12 validation only.
+
 **Re-validated 2026-09-12 on a cluster bootstrapped from nothing on a real
 NVIDIA GeForce RTX 5090 host (driver `595.84`, CUDA `13.2`), closing Phase
 [268](../phase-268-contract-driven-cuda-lane-revalidation.md).**

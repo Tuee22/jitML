@@ -265,10 +265,16 @@ trainAndPublishProductProjection invocation runtime prepared@(PreparedProductPro
     -- an otherwise valid deterministic checkpoint from an earlier run cannot
     -- satisfy it.
     Just _ -> pure Nothing
-    Nothing ->
-      publisherReuseAdmittedCheckpoint
-        runtime
-        (ProductMatrix.productProjectionExperimentHash projection)
+    Nothing
+      | ProductMatrix.productProjectionFamily projection == ProductMatrix.Supervised ->
+          -- A prior checkpoint has no held-out example set in its manifest.
+          -- Fresh supervised training carries the verified evaluation inputs
+          -- until the newly admitted served bytes re-derive its metric.
+          pure Nothing
+      | otherwise ->
+          publisherReuseAdmittedCheckpoint
+            runtime
+            (ProductMatrix.productProjectionExperimentHash projection)
   case reuse of
     Just admitted
       | Right () <- validateAdmittedProjectionIdentity projection admitted ->

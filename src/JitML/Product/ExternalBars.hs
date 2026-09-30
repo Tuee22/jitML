@@ -7,16 +7,18 @@
 -- (@mkConvergenceBar name Maximise measuredValue 0.0@ in @JitML.App@), so the
 -- pass check @value >= threshold@ reduced to @value >= value@ — a tautology that
 -- passes at any accuracy. This module is the frozen-external-bar primitive
--- referenced by [Exit Definition item 26](../../DEVELOPMENT_PLAN/README.md#exit-definition)
--- and [phase-32-external-truth-realness-harness.md](../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md):
+-- referenced by [Exit Definition item 26](../../../DEVELOPMENT_PLAN/README.md#exit-definition)
+-- and [Phase 278](../../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md):
 -- a convergence threshold must never be a function of the value it checks.
 --
 -- The literature targets themselves live in the existing external tables
 -- 'JitML.RL.ConvergenceThresholds' and 'JitML.SL.ConvergenceThresholds'; those
 -- are the single source of external ground truth. This module adds the invariant
--- that a product bar is /externally anchored/ (positive slack) so the lint in
--- 'JitML.Lint.ProductTruth' and the negative-control suite can reject a
--- self-referential bar.
+-- that a product bar has positive slack and finite, internally consistent
+-- fields. Those checks are necessary but do not establish provenance: the
+-- source lint and canonical row tables must also rule out a measured-derived
+-- target. Literature targets are external references; their slack values are
+-- project-calibrated tolerances and require separate review.
 module JitML.Product.ExternalBars
   ( barIsSelfReferential
   , assertProductBarExternal
@@ -34,19 +36,20 @@ import Data.Text qualified as Text
 import JitML.Product.Convergence
   ( ConvergenceBar
   , MeasuredMetrics (..)
+  , convergenceLiteratureTarget
+  , convergenceMetricGoal
   , convergenceMetricName
   , convergenceSlack
+  , convergenceThreshold
   , evaluateConvergence
   , mkConvergenceBar
   )
-import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.Training.Budget qualified as TrainingBudget
 
--- | A convergence bar is self-referential (tautological) when its slack is
--- non-positive — so @threshold == literatureTarget@ and the boundary
--- @value >= threshold@ is satisfied by the target itself. Equality between a
--- measured value and a positive-slack external target is allowed: a real run can
--- land exactly on its literature target.
+-- | Reject a bar with non-positive slack. This catches the historical
+-- zero-slack tautology, but positive slack alone cannot prove that the target
+-- came from an external source. A real measurement may equal an external
+-- target exactly, so runtime equality is not evidence of self-reference.
 barIsSelfReferential :: ConvergenceBar -> Double -> Bool
 barIsSelfReferential bar _measuredValue =
   convergenceSlack bar <= 0.0
@@ -54,7 +57,7 @@ barIsSelfReferential bar _measuredValue =
 -- | Fail-list form for the lint / negative-control suite. Returns one message
 -- per violated clause; an externally-anchored bar returns @[]@.
 assertProductBarExternal :: ConvergenceBar -> Double -> [Text]
-assertProductBarExternal bar _measuredValue =
+assertProductBarExternal bar measuredValue =
   [ "convergence bar for "
       <> convergenceMetricName bar
       <> " has non-positive slack ("
@@ -62,7 +65,33 @@ assertProductBarExternal bar _measuredValue =
       <> ") — a self-referential/tautological bar (Exit Definition item 26)"
   | convergenceSlack bar <= 0.0
   ]
-    <> []
+    <> [ "convergence bar for "
+           <> convergenceMetricName bar
+           <> " has non-finite target, slack, threshold, or measurement"
+       | not
+           ( all
+               finite
+               [ convergenceLiteratureTarget bar
+               , convergenceSlack bar
+               , convergenceThreshold bar
+               , measuredValue
+               ]
+           )
+       ]
+    <> [ "convergence bar for "
+           <> convergenceMetricName bar
+           <> " has a threshold inconsistent with its target and slack"
+       | all finite [convergenceLiteratureTarget bar, convergenceSlack bar, convergenceThreshold bar]
+       , let expected =
+               case convergenceMetricGoal bar of
+                 TrainingBudget.MetricMaximise -> convergenceLiteratureTarget bar - convergenceSlack bar
+                 TrainingBudget.MetricMinimise -> convergenceLiteratureTarget bar + convergenceSlack bar
+       , abs (convergenceThreshold bar - expected)
+           > 1.0e-12 * max 1.0 (max (abs expected) (abs (convergenceThreshold bar)))
+       ]
+
+finite :: Double -> Bool
+finite value = not (isNaN value || isInfinite value)
 
 showDouble :: Double -> Text
 showDouble = Text.pack . show
@@ -136,7 +165,9 @@ assertConvergenceObservationsExternal =
  where
   validateObservation observation
     | TrainingBudget.coMetricName observation == rlMedianFinalRewardMetric =
-        assertFrozenRlRewardObservationExternal observation
+        [ "stored RL median_final_reward has no canonical cohort identity; "
+            <> "its external bar cannot be verified"
+        ]
     | otherwise =
         case convergenceObservationForMetric
           (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation) of
@@ -153,40 +184,11 @@ assertConvergenceObservationsExternal =
 
 -- | RL final-return convergence uses a per-(algorithm, environment) literature
 -- anchor rather than a single universal value, so 'convergenceBarForMetric' has
--- no @median_final_reward@ entry (a single universal reward target would be
--- wrong — env rewards differ by orders of magnitude). A stored RL reward
--- observation is externally anchored iff it maximises the return and its
--- threshold is one of the frozen @literatureTarget - slack@ anchors in
--- 'RLConvergence.cohortThresholds' — the single source of external RL ground
--- truth this module's docstring references. Because that set is fixed and
--- value-independent, the threshold can never be a self-referential
--- @threshold == measuredValue@ bar except by an astronomically unlikely
--- coincidence with a frozen anchor.
+-- no @median_final_reward@ entry. The generic fallback has no cohort identity
+-- and must reject a reward observation; canonical rows are checked against
+-- their own ProductRow bar by 'assertConvergenceObservationsAgainstBar'.
 rlMedianFinalRewardMetric :: Text
 rlMedianFinalRewardMetric = "median_final_reward"
-
-frozenRlRewardThresholds :: [Double]
-frozenRlRewardThresholds =
-  [ RLConvergence.literatureTarget threshold - RLConvergence.slack threshold
-  | (_, threshold) <- RLConvergence.cohortThresholds
-  ]
-
-assertFrozenRlRewardObservationExternal
-  :: TrainingBudget.ConvergenceObservation -> [Text]
-assertFrozenRlRewardObservationExternal observation =
-  [ "stored RL "
-      <> rlMedianFinalRewardMetric
-      <> " observation must maximise the environment return"
-  | TrainingBudget.coMetricGoal observation /= TrainingBudget.MetricMaximise
-  ]
-    <> [ "stored RL "
-           <> rlMedianFinalRewardMetric
-           <> " threshold "
-           <> showDouble (TrainingBudget.coThreshold observation)
-           <> " is not a frozen external cohort anchor (literatureTarget - slack)"
-           <> " from JitML.RL.ConvergenceThresholds"
-       | TrainingBudget.coThreshold observation `notElem` frozenRlRewardThresholds
-       ]
 
 assertConvergenceObservationsAgainstBar
   :: ConvergenceBar
@@ -196,15 +198,16 @@ assertConvergenceObservationsAgainstBar bar observations =
   case evaluateConvergence bar (MeasuredMetrics measured) of
     Left err -> [err]
     Right expected ->
-      [ "stored convergence observation for "
-          <> TrainingBudget.coMetricName observation
-          <> " does not match the product-row external bar"
-      | observation <- matchingObservations
-      , TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
-          || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
-          || TrainingBudget.convergencePassed observation
-            /= TrainingBudget.convergencePassed expected
-      ]
+      assertProductBarExternal bar (TrainingBudget.coMetricValue expected)
+        <> [ "stored convergence observation for "
+               <> TrainingBudget.coMetricName observation
+               <> " does not match the product-row external bar"
+           | observation <- matchingObservations
+           , TrainingBudget.coMetricGoal observation /= TrainingBudget.coMetricGoal expected
+               || TrainingBudget.coThreshold observation /= TrainingBudget.coThreshold expected
+               || TrainingBudget.convergencePassed observation
+                 /= TrainingBudget.convergencePassed expected
+           ]
  where
   measured =
     [ (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation)

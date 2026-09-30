@@ -21,11 +21,13 @@
 -- stanza skips it. Atari/ALE remains optional runtime support and is not part
 -- of the required convergence matrix.
 --
--- These are fixed product bars, not per-host empirical curves. They do not vary
--- by substrate (linux-cpu / linux-cuda / apple-silicon). No per-substrate or
--- per-host fixture file is committed; the only source of ground truth is this
--- table. Tightening or loosening a slack requires a code change and a real
--- product-row publisher run.
+-- Literature targets are external references; slack is a project-calibrated
+-- tolerance chosen for the current trainer and budget. The resulting product
+-- bars are versioned code constants, not per-host empirical curves. They do
+-- not vary by substrate (linux-cpu / linux-cuda / apple-silicon). No
+-- per-substrate or per-host fixture file is committed. Tightening or loosening
+-- slack requires a code change and fresh real product-row evidence in every
+-- affected lane.
 --
 -- See [../README.md → Convergence and determinism checks for RL](../../../README.md#convergence-and-determinism-checks-for-rl).
 module JitML.RL.ConvergenceThresholds
@@ -35,6 +37,7 @@ module JitML.RL.ConvergenceThresholds
   , cohortThreshold
   , cohortThresholds
   , fixedBudgetRlConvergenceRows
+  , herGoalSuccessThreshold
   , herGoalMetric
   , passesConvergence
   , AlphaZeroArenaThreshold (..)
@@ -136,15 +139,18 @@ cohortThresholds =
   , (("PPO", "mountain-car"), ConvergenceThreshold (-110.0) 45.0)
   , (("PPO", "acrobot"), ConvergenceThreshold (-100.0) 50.0)
   , (("PPO", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
-  , (("PPO", "key-door-grid"), ConvergenceThreshold 1.0 3.8)
+  , -- KeyDoorGrid must reach the goal: the former negative-return bar admitted
+    -- a 64-step failed policy. The 0.5 floor leaves room for path-length
+    -- variance while rejecting policies that only collect the key/door bonus.
+    (("PPO", "key-door-grid"), ConvergenceThreshold 1.0 0.5)
   , (("PPO", "gridworld-deterministic"), ConvergenceThreshold 1.0 0.20)
   , -- A2C (synchronous A3C; higher variance than PPO).
     (("A2C", "cartpole"), ConvergenceThreshold 475.0 40.0)
   , (("A2C", "mountain-car"), ConvergenceThreshold (-110.0) 45.0)
   , (("A2C", "lunar-lander"), ConvergenceThreshold 200.0 60.0)
-  , (("A2C", "key-door-grid"), ConvergenceThreshold 1.0 4.3)
+  , (("A2C", "key-door-grid"), ConvergenceThreshold 1.0 0.5)
   , -- TRPO (trust-region, conservative updates → similar variance to PPO).
-    (("TRPO", "cartpole"), ConvergenceThreshold 475.0 290.0)
+    (("TRPO", "cartpole"), ConvergenceThreshold 475.0 75.0)
   , (("TRPO", "mountain-car"), ConvergenceThreshold (-110.0) 35.0)
   , (("TRPO", "lunar-lander"), ConvergenceThreshold 200.0 45.0)
   , (("TRPO", "key-door-grid"), ConvergenceThreshold 1.0 0.25)
@@ -201,6 +207,9 @@ fixedBudgetRlConvergenceRows =
   | ((algorithm, environment), threshold) <- cohortThresholds
   ]
 
+herGoalSuccessThreshold :: ConvergenceThreshold
+herGoalSuccessThreshold = ConvergenceThreshold 0.90 0.05
+
 herGoalMetric :: HerGoalMetric
 herGoalMetric =
   HerGoalMetric
@@ -211,7 +220,11 @@ herGoalMetric =
           (canonicalRlBudgetUnits "HER" "goal-reaching")
           Nothing
     , hgmSuccessRate =
-        staticObservation "goal_success_rate" MetricMaximise 0.85 0.90
+        staticObservation
+          "goal_success_rate"
+          MetricMaximise
+          (literatureTarget herGoalSuccessThreshold - slack herGoalSuccessThreshold)
+          (literatureTarget herGoalSuccessThreshold)
     , hgmAchievedGoalDistance =
         staticObservation "achieved_goal_distance" MetricMinimise 0.05 0.04
     }

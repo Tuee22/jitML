@@ -21,6 +21,7 @@ import JitML.Plan.Plan (PlanId)
 import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.ServedMetric qualified as ServedMetric
 import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Framework qualified as Framework
 import JitML.RL.ProductBudget qualified as ProductBudget
@@ -149,6 +150,7 @@ data SupervisedPublishRun = SupervisedPublishRun
   , supervisedPublishValidationLoss :: !Double
   , supervisedPublishExamplesProcessed :: !Int
   , supervisedPublishHeldOutMetric :: !(Maybe (Text, Double))
+  , supervisedPublishHeldOutExamples :: !ServedMetric.HeldOutExamples
   , supervisedPublishCompletedUnits :: !Word64
   , supervisedPublishOptimizerUpdatesExecuted :: !Word64
   , supervisedPublishRuntimeProgram :: !RuntimeArtifact.RawSupervisedRuntime

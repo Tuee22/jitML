@@ -50,6 +50,7 @@ import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Plan (quantityValue, runPlanSeeds, seedCohortValues)
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.DeviceWitness qualified as DeviceWitness
+import JitML.Product.ServedMetric qualified as ServedMetric
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -118,6 +119,10 @@ data TrainingMetrics = TrainingMetrics
   , tmValidationLoss :: !Double
   , tmExamplesProcessed :: !Int
   , tmHeldOutMetric :: !(Maybe (Text, Double))
+  , tmHeldOutExamples :: !ServedMetric.HeldOutExamples
+  -- ^ Exact verified evaluation examples, in the persisted runtime's input
+  -- units, carried only until Store re-admission recomputes the metric from
+  -- the served weight bytes. They are not an independently mintable receipt.
   , tmCompletedUnits :: !Word64
   , tmOptimizerUpdatesExecuted :: !Word64
   -- ^ Exact mini-batch optimizer updates completed by the successful training
@@ -325,10 +330,11 @@ trainingMetricsFor
   -> Architecture.SlRunMetrics
   -> Maybe Double
   -> Text
+  -> Classifier.Dataset
   -> VU.Vector Double
   -> VU.Vector Double
   -> Either Text TrainingMetrics
-trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metricLabel probeInput probeOutput = do
+trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metricLabel heldOutSet probeInput probeOutput = do
   if completedEpochs <= 0
     then Left "supervised completed epoch count must be positive"
     else Right ()
@@ -361,6 +367,11 @@ trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metr
       , tmValidationLoss = Architecture.slmValidationLoss metrics
       , tmExamplesProcessed = Architecture.slmExamplesProcessed metrics
       , tmHeldOutMetric = fmap (metricLabel,) heldOut
+      , tmHeldOutExamples =
+          ServedMetric.HeldOutClassification
+            [ (VU.toList (Classifier.exampleFeatures example), Classifier.exampleLabel example)
+            | example <- heldOutSet
+            ]
       , tmCompletedUnits = fromIntegral completedEpochs
       , tmOptimizerUpdatesExecuted = Architecture.slmOptimizerUpdatesExecuted metrics
       , tmInitialCheckpointWeights = Just initialWeights
@@ -620,7 +631,7 @@ runDeviceMnistTrainingWithSeedAndLimitsAndLearningRate runtime substrate problem
                                       testLimit
                                   case testAccE of
                                     Left err -> pure (Left err)
-                                    Right (testAcc, testArtifacts, probeInput, probeOutput) ->
+                                    Right (testAcc, testArtifacts, testSet, probeInput, probeOutput) ->
                                       let datasetShaAtRead =
                                             Dataset.datasetReadShaForArtifacts
                                               ([imgArtifact, lblArtifact] <> testArtifacts)
@@ -631,6 +642,7 @@ runDeviceMnistTrainingWithSeedAndLimitsAndLearningRate runtime substrate problem
                                             metrics
                                             testAcc
                                             "test_accuracy"
+                                            testSet
                                             probeInput
                                             probeOutput of
                                             Left err -> pure (Left err)
@@ -840,6 +852,7 @@ runDeviceArchiveClassifierTraining substrate problem executionSeed trainRef trai
                                                                 metrics
                                                                 (Just testAcc)
                                                                 "test_accuracy"
+                                                                rawTestSet
                                                                 (Classifier.exampleFeatures rawProbe)
                                                                 (VU.take semanticWidth rawPrediction) of
                                                                 Left err -> pure (Left err)
@@ -1066,6 +1079,14 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                                                         , tmValidationLoss = validationMse
                                                         , tmExamplesProcessed = examplesProcessed
                                                         , tmHeldOutMetric = Just ("rmse", sqrt validationMse)
+                                                        , tmHeldOutExamples =
+                                                            ServedMetric.HeldOutRegression
+                                                              (Regression.regressionTargetScale standardization)
+                                                              [ ( VU.toList (Regression.regressionFeatures example)
+                                                                , Regression.regressionTarget example
+                                                                )
+                                                              | example <- rawValidationSet
+                                                              ]
                                                         , tmCompletedUnits = fromIntegral epochs
                                                         , tmOptimizerUpdatesExecuted = optimizerUpdatesExecuted
                                                         , tmInitialCheckpointWeights = Just initialWeights
@@ -1220,6 +1241,7 @@ evaluateTestSplitDevice
            Text
            ( Maybe Double
            , [Dataset.DatasetArtifactBytes]
+           , Classifier.Dataset
            , VU.Vector Double
            , VU.Vector Double
            )
@@ -1264,6 +1286,7 @@ evaluateTestSplitDevice device minioSettings trainRef trained limit = do
                         Right
                           ( Just accuracy
                           , [tiArtifact, tlArtifact]
+                          , testSet
                           , Classifier.exampleFeatures probe
                           , VU.take semanticWidth rawPrediction
                           )

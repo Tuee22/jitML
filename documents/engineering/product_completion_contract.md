@@ -70,11 +70,20 @@ tune; this section names the obligation and the plan owns the implementation.
    "externally anchored" is the precise claim rather than "wholly external"; see
    [training_metrics_and_splits.md](training_metrics_and_splits.md#current-status)
    for the enforcement boundary.
-3. **The reported metric is recomputed at read time from the served artifact
-   (provenance binding).** Every convergence or inference number shown for the row
-   is recomputed at read time from the served checkpoint bytes, not read back from
-   a declared field. A stand-in is typed `Declared` and can never be surfaced as
-   `Measured`/`Real`.
+3. **The reported metric has exact served-artifact provenance.** For a
+   supervised ProductRow, the publisher carries the verified held-out inputs
+   until Store re-admits the persisted checkpoint. It then prepares the same
+   serving graph from the admitted manifest and physical `supervised.weights`
+   tensor, recomputes accuracy or RMSE across the exact evaluation budget, and
+   blocks eligibility if the completed metric disagrees. A byte replacement at
+   an existing address fails Store admission; coherently readdressed manifest
+   or weight replacements with a stale metric fail the independent served
+   evaluation. The portable aggregate admits authenticated lane journals and
+   their manifest/measurement digests after that live check; it cannot re-fetch
+   a released lane's physical checkpoint scope. The broader read-time
+   recomputation of every displayed product number in the Exit Definition is
+   not claimed by this supervised gate. A stand-in remains typed `Declared` and
+   cannot be surfaced as `Measured`/`Real`.
 4. **RL reward is a rollout of the trained policy.** An RL row's reward is a
    rollout evaluation of the *trained policy* through the production device seam
    (`rleSyntheticTransitionEvidence = False`, median over `k` seeds at or above
@@ -83,10 +92,9 @@ tune; this section names the obligation and the plan owns the implementation.
    to opaque completed-run evidence. A scripted or expert controller reward can
    never close an RL row.
 
-The `Measured`/`Declared` split, the frozen external bars, the
-recompute-at-read-time provenance binding, and the evidence-derived closure guard
-that stops status drifting from reality live in Phases `32`–`34`; this contract
-does not duplicate them.
+The `Measured`/`Declared` split, external bars, served-byte provenance binding,
+and evidence-derived closure guard are owned by Phases `278`–`289`; this
+contract records the current implementation and its limits.
 
 ## Canonical Product Matrix
 
