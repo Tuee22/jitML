@@ -16,6 +16,7 @@ module JitML.Test.LiveEvidence
   , ingestRlLiveEvent
   , ingestSupervisedLiveEvent
   , rlLiveContract
+  , rlLiveContractForSteps
   , supervisedLiveContract
   )
 where
@@ -59,7 +60,14 @@ import JitML.Run.Contract
   , selectContract
   )
 import JitML.Training.Budget
-  ( completedTrainingPlanId
+  ( BudgetKind (..)
+  , CompletedTraining
+  , completedTrainingBudget
+  , completedTrainingObservedUnits
+  , completedTrainingPlanId
+  , renderBudgetKind
+  , trainingBudgetKind
+  , trainingBudgetTargetUnits
   )
 
 data LiveEvidenceViolation
@@ -119,15 +127,73 @@ supervisedLiveContract planId epochs = do
           (\case SupervisedCheckpointEvent event -> Just event; _ -> Nothing)
           (exactlyOne "supervised-completed-checkpoint" planId)
   pure
-    ( mapContract
-        ( \(epochEvidence, checkpointEvidence) ->
-            SupervisedLiveEvidence
-              { supervisedTerminalEpochSnapshot = exactKeyedValues epochEvidence
-              , supervisedCompletedCheckpoint = exactlyOneValue checkpointEvidence
-              }
+    ( refineContract
+        (refineSupervisedLiveEvidence epochs)
+        ( mapContract
+            ( \(epochEvidence, checkpointEvidence) ->
+                SupervisedLiveEvidence
+                  { supervisedTerminalEpochSnapshot = exactKeyedValues epochEvidence
+                  , supervisedCompletedCheckpoint = exactlyOneValue checkpointEvidence
+                  }
+            )
+            (productContract epochContract checkpointContract)
         )
-        (productContract epochContract checkpointContract)
     )
+
+-- | The completed checkpoint is the run's only budget-bearing evidence, so it
+-- must be denominated in the plan's own unit and carry exactly the plan's
+-- epoch total.  A 'PlanId' comparison alone cannot establish that: the id is
+-- a claim the worker stamps on its completion, and a completion of a
+-- smaller (or larger) self-consistent budget under the true id would
+-- otherwise join with a terminal epoch snapshot that names the planned epoch.
+refineSupervisedLiveEvidence
+  :: Word32
+  -> SupervisedLiveEvidence
+  -> Either Text SupervisedLiveEvidence
+refineSupervisedLiveEvidence epochs evidence = do
+  requireCompletedBudget
+    "supervised"
+    SupervisedEpochBudget
+    (Just (fromIntegral epochs))
+    (Training.ccdCompletedTraining (supervisedCompletedCheckpoint evidence))
+  Right evidence
+
+-- | Shared completed-budget relation for the live reducers: the completion's
+-- budget kind must be the reducer's unit and, when the plan fixes the total,
+-- both the declared target and the observed units must equal it exactly.
+requireCompletedBudget
+  :: Text
+  -> BudgetKind
+  -> Maybe Word64
+  -> CompletedTraining
+  -> Either Text ()
+requireCompletedBudget label expectedKind expectedUnits completed
+  | observedKind /= expectedKind =
+      Left
+        ( label
+            <> " completed checkpoint budget kind mismatch: plan "
+            <> renderBudgetKind expectedKind
+            <> ", completed "
+            <> renderBudgetKind observedKind
+        )
+  | Just units <- expectedUnits
+  , observedTarget /= units || observedUnits /= units =
+      Left
+        ( label
+            <> " completed checkpoint budget does not match the plan: plan requires "
+            <> Text.pack (show units)
+            <> ", completed budget targets "
+            <> Text.pack (show observedTarget)
+            <> " with "
+            <> Text.pack (show observedUnits)
+            <> " observed"
+        )
+  | otherwise = Right ()
+ where
+  budget = completedTrainingBudget completed
+  observedKind = trainingBudgetKind budget
+  observedTarget = trainingBudgetTargetUnits budget
+  observedUnits = completedTrainingObservedUnits completed
 
 ingestSupervisedLiveEvent
   :: PlanId
@@ -213,11 +279,34 @@ type RlLiveContract =
     RlLiveProgress
     RlLiveEvidence
 
+-- | The RL contract for a plan whose evaluation cohort has @episodes@ members.
+-- The completed checkpoint must be denominated in environment steps, but this
+-- constructor is given no environment-step total, so it cannot bind the
+-- completion's target to one; use 'rlLiveContractForSteps' where the plan's
+-- exact transition total is known.
 rlLiveContract
   :: PlanId
   -> Word32
   -> Either LiveEvidenceViolation RlLiveContract
-rlLiveContract planId episodes = do
+rlLiveContract planId episodes = rlLiveContractBounded planId episodes Nothing
+
+-- | 'rlLiveContract' that additionally requires the completed checkpoint to
+-- carry exactly @steps@ environment steps, both as its declared budget target
+-- and as its observed units.
+rlLiveContractForSteps
+  :: PlanId
+  -> Word32
+  -> Word64
+  -> Either LiveEvidenceViolation RlLiveContract
+rlLiveContractForSteps planId episodes steps =
+  rlLiveContractBounded planId episodes (Just steps)
+
+rlLiveContractBounded
+  :: PlanId
+  -> Word32
+  -> Maybe Word64
+  -> Either LiveEvidenceViolation RlLiveContract
+rlLiveContractBounded planId episodes expectedSteps = do
   keys <- expectedZeroBasedKeys "RL evaluation episodes" episodes
   let episodeContract =
         selectContract
@@ -233,18 +322,21 @@ rlLiveContract planId episodes = do
           (exactlyOne "rl-completed-checkpoint" planId)
   pure
     ( refineContract
-        refineRlLiveEvidence
+        (refineRlLiveEvidence expectedSteps)
         (productContract (productContract episodeContract metricContract) checkpointContract)
     )
 
 refineRlLiveEvidence
-  :: ( (ExactKeyed Word64 RlEvaluationEvidence, ExactlyOne FiniteMeasurement)
+  :: Maybe Word64
+  -> ( (ExactKeyed Word64 RlEvaluationEvidence, ExactlyOne FiniteMeasurement)
      , ExactlyOne Rl.CompletedCheckpointDoneRL
      )
   -> Either Text RlLiveEvidence
-refineRlLiveEvidence ((episodeEvidence, metricEvidence), checkpointEvidence) = do
+refineRlLiveEvidence expectedSteps ((episodeEvidence, metricEvidence), checkpointEvidence) = do
   let evaluationSet = exactKeyedValues episodeEvidence
       reportedMedian = exactlyOneValue metricEvidence
+      completed =
+        Rl.ccdrlCompletedTraining (exactlyOneValue checkpointEvidence)
   cohortMedian <- medianReward evaluationSet
   if finiteMeasurementValue reportedMedian /= cohortMedian
     then
@@ -254,7 +346,8 @@ refineRlLiveEvidence ((episodeEvidence, metricEvidence), checkpointEvidence) = d
             <> ", derived "
             <> Text.pack (show cohortMedian)
         )
-    else
+    else do
+      requireCompletedBudget "RL" RlEnvironmentStepBudget expectedSteps completed
       Right
         RlLiveEvidence
           { rlCompletedEvaluationSet = evaluationSet

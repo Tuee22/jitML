@@ -52,6 +52,7 @@ import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess, subprocessArguments)
 import JitML.Substrate (Substrate (..), allSubstrates)
 import JitML.Test.LiveE2EScope qualified as LiveE2EScope
+import JitML.Test.LiveMeasurements qualified as LiveMeasurements
 import JitML.Test.LivePlan
   ( BrowserEvidencePlanPaths (..)
   , LivePlanStep (..)
@@ -62,15 +63,18 @@ import JitML.Test.LivePlan
   , liveE2EPlanForBrowserEvidence
   , renderLivePlan
   )
+import JitML.Test.Measurement
+  ( Measurement (..)
+  , UnavailableReason (..)
+  )
 import JitML.Test.Report
   ( ReportCard (..)
-  , ReportMeasurement (..)
   , ReportMeasurements (..)
   , appendInvocation
   , defaultReportCardKnobs
   , deriveSuiteResult
   , emptyInvocationJournal
-  , emptyReportMeasurements
+  , notRequestedMeasurements
   , parseReportCardKnobs
   , passedInvocation
   , renderReportCard
@@ -257,7 +261,7 @@ main =
           Text.count "automountServiceAccountToken: false" deployment @?= 1
       , testCase "report card renders aggregate suite summary" $ do
           let passed = length reportStanzas
-              rendered = renderReportCard (passedReportCard emptyReportMeasurements)
+              rendered = renderReportCard (passedReportCard notRequestedMeasurements)
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
           assertBool "report card passed count" (("passed: " <> show passed) `isInfixOf` Text.unpack rendered)
           assertBool "report card suite status" ("status: passed" `isInfixOf` Text.unpack rendered)
@@ -269,20 +273,76 @@ main =
           assertBool
             "report card lists e2e stanza"
             ("jitml-e2e: PASS" `isInfixOf` Text.unpack rendered)
-      , testCase "live report card renders measured values and unavailable sources (Sprint 15.2)" $ do
-          let measurements =
-                emptyReportMeasurements
-                  { measuredSlFinalLoss = Just (MeasurementAvailable "mnist-shallow-mlp=0.125")
-                  , measuredDaemonHealthz = Just MeasurementUnavailable
-                  }
-              rendered = renderReportCard (passedReportCard measurements)
-          assertBool "measurements block" ("measurements:" `isInfixOf` Text.unpack rendered)
+      , testCase "a requested but unjournaled measurement renders its reason (Sprint 15.2)" $ do
+          -- A requested measurement that no journal can supply is never rendered
+          -- as an absent one: every live run requests the two edge observations
+          -- and reports exactly why neither has evidence.
+          let live =
+                LiveMeasurements.liveMeasurements NotRequested NotRequested
+              rendered = renderReportCard (passedReportCard live)
+              renderedLines = Text.lines rendered
+          assertBool "measurements block" ("measurements:" `elem` renderedLines)
           assertBool
-            "available measurement"
-            ("sl_final_loss: mnist-shallow-mlp=0.125" `isInfixOf` Text.unpack rendered)
+            "daemon healthz names why it is unavailable"
+            ( "  daemon_healthz: unavailable (not journaled: edge /healthz response: the live plan has no step that records it)"
+                `elem` renderedLines
+            )
           assertBool
-            "unavailable measurement"
-            ("daemon_healthz: unavailable" `isInfixOf` Text.unpack rendered)
+            "jit cache names why it is unavailable"
+            ( "  jit_cache_hit_rate: unavailable (not journaled: edge /metrics scrape: the live plan has no step that records it)"
+                `elem` renderedLines
+            )
+          assertBool
+            "an unrequested measurement renders no line"
+            ( not
+                ( any
+                    ( \line ->
+                        any
+                          (`Text.isPrefixOf` line)
+                          [ "  browser_product_matrix:"
+                          , "  sl_final_loss:"
+                          , "  product_row_counts:"
+                          ]
+                    )
+                    renderedLines
+                )
+            )
+      , testCase "a failed live body reports requested measurements unavailable" $ do
+          let request = LiveMeasurements.liveMeasurementRequest ["jitml-integration", "jitml-e2e"]
+              reason = UpstreamNotRun "live-e2e-test/jitml-integration"
+              failed = LiveMeasurements.liveFailureMeasurements request reason
+              rendered = Text.lines (renderReportCard (passedReportCard failed))
+          measuredProductRowEvidence failed @?= Unavailable reason
+          measuredBrowserProductEvidence failed @?= Unavailable reason
+          assertBool
+            "browser matrix names the blocked upstream stage"
+            ( "  browser_product_matrix: unavailable (upstream not run: live-e2e-test/jitml-integration)"
+                `elem` rendered
+            )
+          assertBool
+            "every training-derived line names the same blocked stage"
+            ( all
+                ( \label ->
+                    ( "  "
+                        <> label
+                        <> ": unavailable (upstream not run: live-e2e-test/jitml-integration)"
+                    )
+                      `elem` rendered
+                )
+                [ "sl_final_loss"
+                , "rl_final_reward"
+                , "alphazero_arena_win_rate"
+                , "tune_best_objective"
+                , "product_row_counts"
+                ]
+            )
+          -- A run that selected neither stage has nothing upstream to blame.
+          let unselected =
+                LiveMeasurements.liveFailureMeasurements
+                  (LiveMeasurements.liveMeasurementRequest ["jitml-unit"])
+                  reason
+          measuredProductRowEvidence unselected @?= NotRequested
+          measuredBrowserProductEvidence unselected @?= NotRequested
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs
@@ -400,7 +460,7 @@ main =
               [playwright, cabal]
               ( do
                   modifyIORef' executionOrder (<> ["measurements"])
-                  pure (Right emptyReportMeasurements)
+                  pure (Right notRequestedMeasurements)
               )
           readIORef executionOrder
             >>= (@?= ["bootstrap", "playwright-live", "jitml-e2e", "measurements", "release"])
@@ -413,7 +473,7 @@ main =
                   ReportCard
                     { reportInvocationJournal = invocationJournal
                     , reportScenarioJournals = [scenarioJournal]
-                    , reportMeasurements = emptyReportMeasurements
+                    , reportMeasurements = notRequestedMeasurements
                     }
           suitePassed suite @?= 2
           suiteDuration suite @?= ProcessDuration 50

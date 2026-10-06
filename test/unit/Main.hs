@@ -61,11 +61,16 @@ import Test.Tasty.QuickCheck qualified as QuickCheck
 
 import CheckpointV1Admission qualified
 import DurableStateTopology (durableStateTopologyTests)
+import JournalDerivedStatus qualified
 import ProductAggregation qualified
+import ProductBarProvenance qualified
 import ProductExperimentExactness qualified
+import ProductTruthScanner qualified
 import ProductTuneTranscript qualified
 import ReconcileStamp qualified
 import RegressionStandardization qualified
+import ReportMeasurements qualified
+import ServedMetricVerification qualified
 import SupervisedCheckpointV2 qualified
 import SupervisedTrainingSeed qualified
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase, (@?=))
@@ -217,12 +222,6 @@ import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
 import JitML.Product.Matrix (ModelState (..), ProductRow (..))
 import JitML.Product.Matrix qualified as ProductMatrix
-import JitML.Product.PhaseStatus
-  ( ProductPhaseStatus (..)
-  , ProductSprintStatus (..)
-  , SprintStatus (..)
-  )
-import JitML.Product.PhaseStatus qualified as PhaseStatus
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Product.Publisher qualified as Publisher
 import JitML.Proto.Gc qualified as ProtoGc
@@ -333,6 +332,9 @@ import JitML.Test.LivePlan
   , LiveResourceOwnership (..)
   , ScopedLivePlan (..)
   )
+import JitML.Test.Measurement qualified as Measurement
+import JitML.Test.NegativeControls qualified as NegativeControls
+import JitML.Test.NegativeControls.PerRow qualified as PerRowRegistration
 import JitML.Test.PipedProcess qualified as PipedProcess
 import JitML.Test.ProductLaneJournal qualified as ProductLaneJournal
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
@@ -344,6 +346,7 @@ import JitML.Test.RunContract qualified as RunContractTest
 import JitML.Test.RunPlan qualified as RunPlanTest
 import JitML.Test.RuntimeState qualified as RuntimeStateTest
 import JitML.Test.ScenarioJournal qualified as ScenarioJournal
+import JitML.Test.TrainingMeasurement qualified as TrainingMeasurement
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
 import JitML.Test.Workload qualified as WorkloadTest
 import JitML.Test.WorkloadContract qualified as WorkloadContractTest
@@ -458,138 +461,6 @@ assertCanonicalRlScheduleIsExact row algorithm environment =
         Nothing
         (TrainingBudget.tbTargetUnits (ProductMatrix.trainingBudget row))
         @?= Right canonical
-
-readPlanSprintStatuses :: ProductPhaseStatus -> IO [(Text, SprintStatus)]
-readPlanSprintStatuses phase = do
-  content <- Text.IO.readFile (phaseDocument phase)
-  case parsePlanSprintStatuses (Text.pack (phaseDocument phase)) content of
-    Left err -> assertFailure (Text.unpack err)
-    Right statuses -> pure statuses
-
-parsePlanSprintStatuses :: Text -> Text -> Either Text [(Text, SprintStatus)]
-parsePlanSprintStatuses path =
-  go Nothing [] . Text.lines
- where
-  go _ statuses [] = Right (reverse statuses)
-  go _ statuses (line : rest)
-    | Just sprintId' <- parseSprintHeader line =
-        go (Just sprintId') statuses rest
-  go (Just sprintId') statuses (line : rest)
-    | Just rawStatus <- Text.stripPrefix "**Status**:" (Text.strip line) =
-        case PhaseStatus.parseSprintStatus rawStatus of
-          Just status -> go Nothing ((sprintId', status) : statuses) rest
-          Nothing ->
-            Left $
-              path
-                <> ": unknown sprint status "
-                <> Text.strip rawStatus
-                <> " for "
-                <> sprintId'
-  go activeSprint statuses (_ : rest) =
-    go activeSprint statuses rest
-
-parseSprintHeader :: Text -> Maybe Text
-parseSprintHeader line =
-  case Text.stripPrefix "## Sprint " (Text.strip line) of
-    Nothing -> Nothing
-    Just rest ->
-      let sprintId' = Text.takeWhile isSprintIdChar rest
-       in if Text.null sprintId' then Nothing else Just sprintId'
- where
-  isSprintIdChar char =
-    char == '.' || isDigit char
-
-registrySprintStatuses :: ProductPhaseStatus -> [(Text, SprintStatus)]
-registrySprintStatuses phase =
-  [ (sprintId sprint', sprintStatus sprint')
-  | sprint' <- phaseSprints phase
-  ]
-
--- | Structural facts parsed from a phase document per sprint, used by the
--- automated rule-M enforcement guards (forward-only dependency edges,
--- validation-gate presence, single-accelerator-per-phase). These replace the
--- previously hand-run deterministic scans (development_plan_standards.md
--- "M. Enforcement") with machine checks so plan sizing/ordering cannot silently
--- drift.
-data PlanSprintFacts = PlanSprintFacts
-  { psfId :: Text
-  , psfBlockedBy :: [Text]
-  , psfHasValidationGate :: Bool
-  , psfValidationNamesCuda :: Bool
-  , psfValidationNamesApple :: Bool
-  }
-
-readPlanSprintFacts :: ProductPhaseStatus -> IO [PlanSprintFacts]
-readPlanSprintFacts phase = do
-  content <- Text.IO.readFile (phaseDocument phase)
-  pure (parsePlanSprintFacts content)
-
-parsePlanSprintFacts :: Text -> [PlanSprintFacts]
-parsePlanSprintFacts content =
-  fmap sprintFacts (sprintSections (Text.lines content))
- where
-  -- Group lines into (sprintId, bodyLines) per `## Sprint X.Y` header; a body
-  -- runs until the next level-2 (`## `) heading.
-  sprintSections :: [Text] -> [(Text, [Text])]
-  sprintSections [] = []
-  sprintSections (line : rest)
-    | Just sid <- parseSprintHeader line =
-        let (body, after) = break isLevelTwoHeading rest
-         in (sid, body) : sprintSections after
-    | otherwise = sprintSections rest
-  isLevelTwoHeading line = "## " `Text.isPrefixOf` Text.strip line
-  sprintFacts (sid, body) =
-    let valBlock = validationBlockLines body
-     in PlanSprintFacts
-          { psfId = sid
-          , psfBlockedBy = concatMap extractDottedNumbers (filter isBlockedByLine body)
-          , psfHasValidationGate = any lineNamesGateCommand valBlock
-          , psfValidationNamesCuda = any (lineNamesAny cudaTokens) valBlock
-          , psfValidationNamesApple = any (lineNamesAny appleTokens) valBlock
-          }
-  isBlockedByLine line = "**Blocked by**:" `Text.isPrefixOf` Text.strip line
-  -- The lines of a sprint's `### Validation` block (up to the next heading).
-  validationBlockLines body =
-    case dropWhile (not . isValidationHeading) body of
-      [] -> []
-      (_ : afterHeading) -> takeWhile (not . isAnyHeading) afterHeading
-  isValidationHeading line = "### Validation" `Text.isPrefixOf` Text.strip line
-  isAnyHeading line = "##" `Text.isPrefixOf` Text.strip line
-  lineNamesGateCommand line = any (`Text.isInfixOf` line) ["jitml", "bootstrap", "docker", "cabal"]
-  lineNamesAny toks line = any (`Text.isInfixOf` line) toks
-  cudaTokens = ["--linux-cuda", "-fcuda", "linux-cuda.sh"]
-  appleTokens = ["--apple-silicon", "apple-silicon.sh"]
-
--- | Extract maximal digit/dot tokens containing a dot (i.e. `X.Y` sprint ids).
-extractDottedNumbers :: Text -> [Text]
-extractDottedNumbers =
-  filter (Text.any (== '.')) . Text.split (\c -> not (isDigit c || c == '.'))
-
--- | Compare two dotted numeric ids (e.g. `23.2` vs `24.1`) as `[Int]` tuples.
-compareDottedId :: Text -> Text -> Ordering
-compareDottedId a b = compare (parseNums a) (parseNums b)
- where
-  parseNums =
-    fmap (fromMaybe 0 . readMaybeInt) . filter (not . Text.null) . Text.splitOn "."
-  readMaybeInt t = if Text.all isDigit t && not (Text.null t) then Just (read (Text.unpack t) :: Int) else Nothing
-
-markProductPhaseDone :: ProductPhaseStatus -> ProductPhaseStatus
-markProductPhaseDone phase =
-  phase {phaseSprints = fmap markSprintDone (phaseSprints phase)}
-
-markSprintDone :: ProductSprintStatus -> ProductSprintStatus
-markSprintDone sprint' =
-  sprint' {sprintStatus = Done}
-
-demoteFirstProductSprint :: [ProductPhaseStatus] -> [ProductPhaseStatus]
-demoteFirstProductSprint [] = []
-demoteFirstProductSprint (phase : rest) =
-  phase {phaseSprints = demoteFirstSprint (phaseSprints phase)} : rest
-
-demoteFirstSprint :: [ProductSprintStatus] -> [ProductSprintStatus]
-demoteFirstSprint [] = []
-demoteFirstSprint (sprint' : rest) =
-  sprint' {sprintStatus = Active} : rest
 
 instance FromJSON CommandSchema where
   parseJSON =
@@ -941,6 +812,167 @@ browserJournalExpectedRows =
     Text.cons
       prefix
       (Text.justifyRight 63 '0' (Text.pack (show ordinal)))
+
+-- | The real executed-scenario journal fixture, as the Phase 289 measurement
+-- cases in "ReportMeasurements" see it: the report the scenarios produced and a
+-- reader over the journal they wrote.
+withProductJournalSource :: ReportMeasurements.WithProductJournal
+withProductJournalSource body =
+  withProductScenarioJournalFixture $ \fixture ->
+    body
+      ReportMeasurements.ProductJournalSource
+        { ReportMeasurements.sourceReport = journalFixtureReport fixture
+        , ReportMeasurements.sourceRunId = journalFixtureRunId fixture
+        , ReportMeasurements.sourceRead = readJournalFixture fixture
+        }
+
+-- | Phase 289: the report projects the authenticated ProductScenario journal.
+-- Every line and count below is computed from the completed rows of a real
+-- executed scenario report; nothing is retrained, probed, or declared.
+reportMeasurementJournalTests :: TestTree
+reportMeasurementJournalTests =
+  testGroup
+    "Report measurements from the ProductScenario journal (Phase 289)"
+    [ testCase "a completed report projects its rows and keeps committed blocks" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          let report = journalFixtureReport fixture
+              entries = Report.completedProductScenarioReportEntries report
+              rendered =
+                Text.lines
+                  ( Report.renderReportCardWithKnobs
+                      Report.defaultReportCardKnobs
+                      Report.ReportCard
+                        { Report.reportInvocationJournal = Report.emptyInvocationJournal
+                        , Report.reportScenarioJournals = []
+                        , Report.reportMeasurements =
+                            Report.notRequestedMeasurements
+                              { Report.measuredProductRowEvidence = Measurement.Available report
+                              }
+                        }
+                  )
+              denominator family =
+                Text.pack
+                  (show (length [() | row <- ProductMatrix.allProductRows, ProductMatrix.family row == family]))
+              unavailableFamily label family =
+                "  "
+                  <> label
+                  <> ": unavailable (not journaled: no completed "
+                  <> ProductMatrix.renderRowFamily family
+                  <> " row in the ProductScenario journal)"
+              expectedRlLine =
+                "  rl_final_reward: "
+                  <> Text.intercalate
+                    ", "
+                    [ Report.completedProductScenarioRowId evidence
+                        <> ":"
+                        <> TrainingBudget.coMetricName observation
+                        <> "="
+                        <> Text.pack (show (TrainingBudget.coMetricValue observation))
+                    | evidence <- entries
+                    , observation <-
+                        TrainingBudget.completedTrainingMetrics
+                          (Report.completedProductScenarioCompletedTraining evidence)
+                    ]
+              expectedCountsLine =
+                "  product_row_counts: completed=2/"
+                  <> Text.pack (show ProductMatrix.productRowCount)
+                  <> " supervised=0/"
+                  <> denominator ProductMatrix.Supervised
+                  <> " rl=2/"
+                  <> denominator ProductMatrix.ReinforcementLearning
+                  <> " alphazero=0/"
+                  <> denominator ProductMatrix.AlphaZero
+                  <> " tuning=0/"
+                  <> denominator ProductMatrix.Tuning
+              -- The compact table and the issuable fragment are the unchanged
+              -- committed renderers: the card must embed them byte-for-byte.
+              committedBlocks =
+                ( "product_rows:"
+                    : fmap ("  " <>) (Text.lines (Report.renderCompletedProductScenarioEvidence report))
+                )
+                  <> ( "product_lane_fragment:"
+                         : fmap
+                           ("  " <>)
+                           ( Text.lines
+                               ( Report.renderProductLaneAttestationFragment
+                                   report
+                                   ProductMatrix.nonProductRows
+                               )
+                           )
+                     )
+          length entries @?= 2
+          assertBool
+            ("the RL line is not the journal's own metrics: " <> Text.unpack expectedRlLine)
+            (expectedRlLine `elem` rendered)
+          assertBool
+            "a family with no journal row is not reported unavailable"
+            ( all
+                (`elem` rendered)
+                [ unavailableFamily "sl_final_loss" ProductMatrix.Supervised
+                , unavailableFamily "alphazero_arena_win_rate" ProductMatrix.AlphaZero
+                , unavailableFamily "tune_best_objective" ProductMatrix.Tuning
+                ]
+            )
+          assertBool
+            ("the counts line is not derived from the journal rows: " <> Text.unpack expectedCountsLine)
+            (expectedCountsLine `elem` rendered)
+          assertBool
+            "the committed table and fragment blocks are not embedded byte-for-byte"
+            (committedBlocks `List.isInfixOf` rendered)
+          assertBool
+            "the measurements block does not precede the committed blocks"
+            (List.elemIndex "measurements:" rendered < List.elemIndex "product_rows:" rendered)
+          assertBool
+            "an unrequested edge observation rendered a line"
+            (not (any (Text.isInfixOf "jit_cache_hit_rate") rendered))
+    , testCase "counts follow the journal rows and coverage cannot be fabricated" $
+        withProductScenarioJournalFixture $ \fixture -> do
+          let report = journalFixtureReport fixture
+              entries = Report.completedProductScenarioReportEntries report
+              cartpole = find ((== "DQN/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows
+              completedRl counts =
+                [ TrainingMeasurement.familyCountCompleted count
+                | count <- TrainingMeasurement.productRowCountsByFamily counts
+                , TrainingMeasurement.familyCountFamily count == ProductMatrix.ReinforcementLearning
+                ]
+              countsOf =
+                TrainingMeasurement.deriveProductRowCounts
+                  . Report.completedProductScenarioRowViews
+          case (cartpole, entries) of
+            (Just row, firstEvidence : _rest) -> do
+              oneRowBatch <-
+                case ProductMatrix.projectProductRows Substrate.LinuxCPU [row] of
+                  RunPlan.Success batch -> pure batch
+                  RunPlan.Failure errors -> assertFailure ("one-row projection failed: " <> show errors)
+              oneRowReport <-
+                either
+                  (assertFailure . ("one-row report was rejected: " <>) . show)
+                  pure
+                  (Report.projectCompletedProductScenarioReport oneRowBatch [firstEvidence])
+              completedRl (countsOf report) @?= [2]
+              completedRl (countsOf oneRowReport) @?= [1]
+              TrainingMeasurement.productRowCountsCompleted (countsOf oneRowReport)
+                @?= TrainingMeasurement.productRowCountsCompleted (countsOf report)
+                - 1
+              -- Claiming the two-row batch with one row of evidence is rejected
+              -- by the projection, so no report can carry a coverage total its
+              -- journal rows do not.
+              case Report.projectCompletedProductScenarioReport
+                (journalFixtureBatch fixture)
+                [firstEvidence] of
+                Left errors ->
+                  assertBool
+                    "the rejection does not name the missing row"
+                    ( any
+                        ( \case
+                            Report.MissingCompletedProductScenario missingRow _ -> missingRow == "DQN/mountain-car"
+                            _ -> False
+                        )
+                        errors
+                    )
+                Right _ -> assertFailure "a report with a missing row was constructed"
+            _ -> assertFailure "the journal fixture lost its DQN/cartpole row"
+    ]
 
 browserExpectationOrFail
   :: Text
@@ -2662,7 +2694,7 @@ main :: IO ()
 main =
   lookupEnv "JITML_PRODUCT_SCENARIO_UNIT_FIXTURE_WORKER" >>= \case
     Just "1" -> runProductScenarioFixtureWorker
-    _ -> unitTestMain
+    _ -> JournalDerivedStatus.withCliWorker unitTestMain
 
 unitTestMain :: IO ()
 unitTestMain =
@@ -2672,10 +2704,15 @@ unitTestMain =
       [ CheckpointV1Admission.checkpointV1AdmissionTests
       , durableStateTopologyTests
       , ProductAggregation.productAggregationTests
+      , ProductBarProvenance.productBarProvenanceTests
+      , JournalDerivedStatus.journalDerivedStatusTests
       , ProductExperimentExactness.productExperimentExactnessTests
+      , ProductTruthScanner.productTruthScannerTests
       , ProductTuneTranscript.productTuneTranscriptTests
       , ReconcileStamp.reconcileStampTests
       , RegressionStandardization.regressionStandardizationTests
+      , ServedMetricVerification.servedMetricVerificationTests
+      , ReportMeasurements.reportMeasurementTests withProductJournalSource
       , SupervisedCheckpointV2.supervisedCheckpointV2Tests
       , SupervisedTrainingSeed.supervisedTrainingSeedTests
       , HostWorkloadRegistry.hostWorkloadRegistryTests
@@ -2685,8 +2722,10 @@ unitTestMain =
       , PulsarBridge.pulsarBridgeTests
       , PulsarTransport.pulsarTransportTests
       , RunContractTest.runContractTests
+      , PerRowRegistration.perRowRegistrationTests NegativeControls.allNegativeControls
       , browserEvidenceJournalTests
       , productScenarioJournalTests
+      , reportMeasurementJournalTests
       , RunPlanTest.runPlanTests
       , WorkloadContractTest.workloadContractTests
       , WorkloadPlanTest.workloadPlanTests
@@ -2977,7 +3016,7 @@ unitTestMain =
                       Report.ReportCard
                         { Report.reportInvocationJournal = journal
                         , Report.reportScenarioJournals = []
-                        , Report.reportMeasurements = Report.emptyReportMeasurements
+                        , Report.reportMeasurements = Report.notRequestedMeasurements
                         }
               Report.suitePassed result @?= 1
               Report.suiteFailed result @?= 1
@@ -3023,7 +3062,7 @@ unitTestMain =
                   Report.ReportCard
                     { Report.reportInvocationJournal = journal
                     , Report.reportScenarioJournals = []
-                    , Report.reportMeasurements = Report.emptyReportMeasurements
+                    , Report.reportMeasurements = Report.notRequestedMeasurements
                     }
           Report.suitePassed suite @?= 0
           Report.suiteFailed suite @?= 1
@@ -3490,7 +3529,7 @@ unitTestMain =
                     { Report.reportInvocationJournal = invocationJournal
                     , Report.reportScenarioJournals =
                         [LiveE2EScope.liveE2EScenarioJournal result]
-                    , Report.reportMeasurements = Report.emptyReportMeasurements
+                    , Report.reportMeasurements = Report.notRequestedMeasurements
                     }
           Report.suitePassed suite @?= 0
           Report.suiteFailed suite @?= 1
@@ -3894,15 +3933,16 @@ unitTestMain =
           let claimDoc = "The no-caveat product complete status is current."
               activeDrifts =
                 DocsCheck.checkDocumentClosureClaimsText
-                  False
+                  JournalDerivedStatus.refusedVerdictFixture
                   "docs.md"
                   claimDoc
-              allDone =
-                PhaseStatus.productPhasesDone
-                  (fmap markProductPhaseDone PhaseStatus.allProductPhaseStatuses)
           fmap DocsCheck.driftKey activeDrifts
             @?= ["closure-claim.no-caveat-product-complete"]
-          DocsCheck.checkDocumentClosureClaimsText allDone "docs.md" claimDoc @?= []
+          DocsCheck.checkDocumentClosureClaimsText
+            JournalDerivedStatus.closedVerdictFixture
+            "docs.md"
+            claimDoc
+            @?= []
       , testCase "docs closure-claim check exempts historical and prohibition blocks" $ do
           let historical =
                 Text.unlines
@@ -3911,8 +3951,16 @@ unitTestMain =
                   ]
               prohibition =
                 "No future closure may claim \"all phases done\" until evidence is current."
-          DocsCheck.checkDocumentClosureClaimsText False "docs.md" historical @?= []
-          DocsCheck.checkDocumentClosureClaimsText False "docs.md" prohibition @?= []
+          DocsCheck.checkDocumentClosureClaimsText
+            JournalDerivedStatus.refusedVerdictFixture
+            "docs.md"
+            historical
+            @?= []
+          DocsCheck.checkDocumentClosureClaimsText
+            JournalDerivedStatus.refusedVerdictFixture
+            "docs.md"
+            prohibition
+            @?= []
       , testCase "numerical Dhall schema mirrors the Haskell catalog" $ do
           catalog <- loadNumericsCatalog "."
           validateNumericsCatalog catalog @?= Right ()
@@ -11999,13 +12047,25 @@ unitTestMain =
               assertBool
                 "a hidden target helper must not enter the canonical table"
                 (any ((== "product-truth.nonliteral-bar") . findingKey) findings)
-          , testCase "RL reward observation without a cohort cannot borrow another cohort's bar" $ do
+          , testCase "RL reward observation without a cohort is held to a frozen cohort anchor" $ do
               observation <-
                 eitherAssert
-                  (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 450 500)
+                  (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 451 500)
               assertBool
-                "a generic reward threshold must carry its cohort identity"
+                "a generic reward threshold must be a frozen external cohort anchor"
                 (not (null (ProductExternalBars.assertConvergenceObservationsExternal [observation])))
+              anchored <-
+                eitherAssert
+                  (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 435 500)
+              assertBool
+                "a generic reward observation at a frozen cohort anchor is accepted without borrowing a bar"
+                (null (ProductExternalBars.assertConvergenceObservationsExternal [anchored]))
+              minimising <-
+                eitherAssert
+                  (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMinimise 435 100)
+              assertBool
+                "a generic reward observation must maximise the environment return"
+                (not (null (ProductExternalBars.assertConvergenceObservationsExternal [minimising])))
               case List.find ((== "PPO/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows of
                 Nothing -> assertFailure "PPO/cartpole is absent from ProductMatrix"
                 Just row -> do
@@ -13260,54 +13320,7 @@ unitTestMain =
           , testCase "the worktree carries no unregistered fail-open site" $
               FailOpen.checkFailOpenWildcards >>= (@?= [])
           ]
-      , testGroup
-          "Product phase status registry (Phase 221)"
-          [ testCase "enumerates product phases 220 through 289" $ do
-              PhaseStatus.productPhaseNumbers @?= [220 .. 289]
-              PhaseStatus.validateProductPhaseStatuses PhaseStatus.allProductPhaseStatuses @?= []
-          , testCase "reports incomplete while any product sprint is open" $ do
-              PhaseStatus.allProductPhasesDone @?= False
-              assertBool
-                "an all-Done registry satisfies the predicate"
-                ( PhaseStatus.productPhasesDone
-                    (fmap markProductPhaseDone PhaseStatus.allProductPhaseStatuses)
-                )
-              assertBool
-                "a registry with any non-Done sprint remains incomplete"
-                ( not
-                    ( PhaseStatus.productPhasesDone
-                        (demoteFirstProductSprint PhaseStatus.allProductPhaseStatuses)
-                    )
-                )
-          , testCase "matches the sprint Status headers in phase documents" $ do
-              actual <- concat <$> traverse readPlanSprintStatuses PhaseStatus.allProductPhaseStatuses
-              let expected = concatMap registrySprintStatuses PhaseStatus.allProductPhaseStatuses
-              actual @?= expected
-          , testCase "every dependency edge is forward-only (rule M(a))" $ do
-              facts <- concat <$> traverse readPlanSprintFacts PhaseStatus.allProductPhaseStatuses
-              Control.Monad.forM_ facts $ \sf ->
-                Control.Monad.forM_ (psfBlockedBy sf) $ \ref ->
-                  assertBool
-                    ( Text.unpack (psfId sf)
-                        <> " declares a backward Blocked-by edge to higher-numbered "
-                        <> Text.unpack ref
-                    )
-                    (compareDottedId ref (psfId sf) /= GT)
-          , testCase "every sprint declares a concrete validation gate" $ do
-              facts <- concat <$> traverse readPlanSprintFacts PhaseStatus.allProductPhaseStatuses
-              Control.Monad.forM_ facts $ \sf ->
-                assertBool
-                  (Text.unpack (psfId sf) <> " has no non-empty ### Validation gate")
-                  (psfHasValidationGate sf)
-          , testCase "no sprint validation requires both accelerators (rule M(b))" $ do
-              facts <- concat <$> traverse readPlanSprintFacts PhaseStatus.allProductPhaseStatuses
-              Control.Monad.forM_ facts $ \sf ->
-                assertBool
-                  ( Text.unpack (psfId sf)
-                      <> " validation names both a linux-cuda and an apple-silicon lane"
-                  )
-                  (not (psfValidationNamesCuda sf && psfValidationNamesApple sf))
-          ]
+      , JournalDerivedStatus.productPhaseStatusRegistryTests
       , -- Sprint 12.10 — backend-agnostic invariants relocated out of
         -- jitml-backends (which is now a per-substrate live lane). These
         -- assert pure, substrate-independent properties, so they belong in the
@@ -17487,6 +17500,7 @@ canonicalLeafPaths =
   , ["lint", "all"]
   , ["docs", "check"]
   , ["docs", "generate"]
+  , ["docs", "status"]
   , ["check-code"]
   , ["build"]
   , ["project", "init"]

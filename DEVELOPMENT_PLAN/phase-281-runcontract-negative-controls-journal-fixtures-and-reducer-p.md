@@ -11,10 +11,15 @@
 
 ⏸️ **Blocked**. Blocked by Phase 280 (Sprint 280.1).
 
+The journal fixtures and reducer properties are implemented and pass on the host
+and in the `linux-cpu` container; closure waits on Sprint `280.1`.
+
 ## Sprint 281.1: RunContract Negative Controls - Journal Fixtures and Reducer Properties [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/NegativeControls.hs`,
+`src/JitML/Test/NegativeControls/Journal.hs`,
+`src/JitML/Test/JournalFixtures.hs`, `src/JitML/Test/ReducerProperties.hs`,
 `src/JitML/Test/RunContract.hs`, `test/negative-controls/Main.hs`,
 `test/unit/Main.hs`
 **Blocked by**: Sprint `280.1`
@@ -47,11 +52,26 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 docker compose run --rm jitml jitml check-code
 ```
 
+### Current Partial Validation
+
+- 2026-09-30: **37** journal controls persist a Store-admitted journal in-process
+  through the production writer, then omit, substitute, or mismatch its manifest
+  identity (unsigned, and re-signed by a key holder) and read it back through the
+  production authenticated reader, Store admission, and portable lane-journal
+  admission; storage success without admission and a caller-held completion without
+  an admitted checkpoint are both rejected as ineligible without the harness
+  re-deriving admission. **19** QuickCheck reducer properties (permutation
+  invariance, redelivery idempotence at any position, deterministic conflicting-
+  duplicate rejection that leaves progress unchanged, exact ascending missing keys,
+  left-then-right product diagnostics, wrong-plan rejection by every contract, and
+  `CompletionJoin` laws) run in `jitml-unit`, and a fixed-seed subset of **9** runs
+  inside the standing stanza. Every control family was shown to go red when its
+  guarded check is weakened.
 ### Remaining Work
 
-- Blocked until Sprint `280.1` lands the request/event negative-control fixtures.
-- Add the invalid-evidence journal suite (including
-  storage-success-without-admission cases) and the reducer property suites.
+- Blocked until Sprint `280.1` closes, which waits on Sprint `278.1`.
+- Run the three Validation commands on the final tree in the `linux-cpu` container
+  lane and commit the validation records.
 
 ## Documentation Requirements
 

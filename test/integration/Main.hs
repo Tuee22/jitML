@@ -125,6 +125,7 @@ import JitML.RL.ConvergenceThresholds
   , cohortThreshold
   , passesConvergence
   )
+import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 
@@ -177,8 +178,6 @@ import JitML.SL.Classifier (ClassifierConfig (..), defaultClassifierConfig)
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
   ( BucketName (..)
-  , ConsumerFailure (..)
-  , ConsumerSessionEvent (..)
   , ETag (..)
   , HasImageRegistry (..)
   , HasMinIO (..)
@@ -233,6 +232,7 @@ import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.LiveEvidence qualified as LiveEvidence
+import JitML.Test.LivePulsarTransport (livePulsarTransport, liveSubprocessTransport)
 import JitML.Test.LiveWorkflow qualified as LiveWorkflow
 import JitML.Test.ProductAggregation qualified as ProductAggregation
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
@@ -7242,60 +7242,81 @@ main = do
                         }
                   expectedWire = encodeTopicPayload topic event
               phaseRef <- newIORef (0 :: Int)
-              publishedFirstRef <- newIORef False
               observationsRef <- newIORef ([] :: [(Text, Int)])
+              -- Establish the durable cursor first, publish through it, then
+              -- consume its borrowed view; release it on every exit.  The
+              -- socket-open lifecycle event gates nothing: a reply published
+              -- right after it could precede a cursor the broker has not yet
+              -- created, whereas the acknowledged CREATE cannot.
+              established <-
+                PulsarWebSocketSubprocess.establishReplyCursor
+                  settings
+                  topic
+                  subscription
+              cursor <-
+                case established of
+                  Left err ->
+                    assertFailure
+                      ("live receipt-bound reply cursor CREATE failed: " <> show err)
+                  Right value -> pure value
               consumeTimed <-
-                Timeout.timeout 45_000_000 $
-                  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
-                    pulsarConsumeUntil
-                      subscription
-                      ( \case
-                          ConsumerSessionConnected _ -> do
-                            published <- liftIO (readIORef publishedFirstRef)
-                            if published
-                              then pure ()
-                              else do
-                                liftIO (writeIORef publishedFirstRef True)
-                                publishResult <- pulsarPublish topic event
-                                liftIO $
-                                  case publishResult of
-                                    Right _ -> pure ()
-                                    Left err ->
-                                      assertFailure
-                                        ("initial typed Pulsar publish failed live: " <> show err)
-                          _ -> pure ()
-                      )
-                      ( \delivery -> do
-                          liftIO (deliveryEvent delivery @?= event)
-                          let fingerprint =
-                                deliveryReceiptFingerprint (deliveryReceipt delivery)
-                              redeliveryCount = deliveryRedeliveryCount delivery
-                          liftIO
-                            (modifyIORef' observationsRef ((fingerprint, redeliveryCount) :))
-                          phase <- liftIO (readIORef phaseRef)
-                          case phase of
-                            0 -> do
-                              liftIO (writeIORef phaseRef 1)
-                              pure (continue (nack (RetryRequested "live redelivery proof")))
-                            1 -> do
-                              -- This delivery necessarily follows the Nack:
-                              -- the byte-equal second publication is issued
-                              -- only below.  Pulsar 3.0.7's WebSocket handler
-                              -- can return the same broker message id here
-                              -- while still reporting redeliveryCount = 0, so
-                              -- receipt freshness and phase ordering are the
-                              -- truthful transport-level redelivery proof.
-                              publishResult <- pulsarPublish topic event
-                              liftIO $
-                                case publishResult of
-                                  Right _ -> pure ()
-                                  Left err ->
-                                    assertFailure
-                                      ("second byte-equal typed Pulsar publish failed live: " <> show err)
-                              liftIO (writeIORef phaseRef 2)
-                              pure (continue ack)
-                            _ -> pure (done ack expectedWire)
-                      )
+                ( do
+                    initialPublish <-
+                      PulsarWebSocketSubprocess.publishWithReplyCursor
+                        settings
+                        cursor
+                        (const event)
+                    case initialPublish of
+                      Right _ -> pure ()
+                      Left err ->
+                        assertFailure
+                          ("initial typed Pulsar publish failed live: " <> show err)
+                    Timeout.timeout 45_000_000 $
+                      PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+                        pulsarConsumeUntil
+                          (PulsarWebSocketSubprocess.replyCursorSubscription cursor)
+                          (const (pure ()))
+                          ( \delivery -> do
+                              liftIO (deliveryEvent delivery @?= event)
+                              let fingerprint =
+                                    deliveryReceiptFingerprint (deliveryReceipt delivery)
+                                  redeliveryCount = deliveryRedeliveryCount delivery
+                              liftIO
+                                (modifyIORef' observationsRef ((fingerprint, redeliveryCount) :))
+                              phase <- liftIO (readIORef phaseRef)
+                              case phase of
+                                0 -> do
+                                  liftIO (writeIORef phaseRef 1)
+                                  pure (continue (nack (RetryRequested "live redelivery proof")))
+                                1 -> do
+                                  -- This delivery necessarily follows the Nack:
+                                  -- the byte-equal second publication is issued
+                                  -- only below.  Pulsar 3.0.7's WebSocket handler
+                                  -- can return the same broker message id here
+                                  -- while still reporting redeliveryCount = 0, so
+                                  -- receipt freshness and phase ordering are the
+                                  -- truthful transport-level redelivery proof.
+                                  publishResult <-
+                                    liftIO
+                                      ( PulsarWebSocketSubprocess.publishWithReplyCursor
+                                          settings
+                                          cursor
+                                          (const event)
+                                      )
+                                  liftIO $
+                                    case publishResult of
+                                      Right _ -> pure ()
+                                      Left err ->
+                                        assertFailure
+                                          ("second byte-equal typed Pulsar publish failed live: " <> show err)
+                                  liftIO (writeIORef phaseRef 2)
+                                  pure (continue ack)
+                                _ -> pure (done ack expectedWire)
+                          )
+                )
+                  `SafeException.finally` do
+                    released <- PulsarWebSocketSubprocess.releaseReplyCursor settings cursor
+                    released @?= Right ()
               consumedWire <-
                 case consumeTimed of
                   Nothing ->
@@ -7706,11 +7727,12 @@ main = do
                 AppleSilicon -> do
                   assertAppleHostForwardingSmoke
                     pulsarSettings
+                    topic
                     (topologyTopic TrainingHostCommandRoute AppleSilicon)
                     ("live-training-host-command-sub-" <> uniqueSuffix)
                     experimentHash
                     command
-                    (publishOrFail pulsarSettings topic command "StartTraining")
+                    (publishThroughCursorOrFail topic "StartTraining")
                     20
                   assertJobDoesNotAppear expectedJobName 5
                 _ -> do
@@ -7804,21 +7826,20 @@ main = do
                         AppleSilicon -> do
                           assertAppleHostForwardingSmoke
                             pulsarSettings
+                            topic
                             (topologyTopic TrainingHostCommandRoute AppleSilicon)
                             ("live-training-dedup-host-command-sub-" <> uniqueSuffix)
                             experimentHash
                             command
-                            ( do
-                                publishOrFail
-                                  pulsarSettings
+                            ( \publish -> do
+                                publishThroughCursorOrFail
                                   topic
-                                  command
                                   "first duplicate StartTraining"
-                                publishOrFail
-                                  pulsarSettings
+                                  publish
+                                publishThroughCursorOrFail
                                   topic
-                                  command
                                   "second duplicate StartTraining"
+                                  publish
                             )
                             20
                           assertJobDoesNotAppear expectedJobName 5
@@ -7900,11 +7921,12 @@ main = do
                   AppleSilicon -> do
                     assertAppleHostForwardingSmoke
                       pulsarSettings
+                      commandTopic
                       (topologyTopic RlHostCommandRoute AppleSilicon)
                       ("live-rl-host-command-sub-" <> uniqueSuffix)
                       experimentHash
                       command
-                      (publishOrFail pulsarSettings commandTopic command "StartRLRun")
+                      (publishThroughCursorOrFail commandTopic "StartRLRun")
                       20
                     assertJobDoesNotAppear expectedJobName 5
                   _ -> do
@@ -7923,8 +7945,12 @@ main = do
                           assertFailureWithIO
                             ("invalid compiled RL PlanId: " <> Text.unpack err)
                         Right value -> pure value
+                    plannedSteps <- plannedRlEnvironmentSteps command
                     contract <-
-                      case LiveEvidence.rlLiveContract contractPlanId (fromIntegral evalEpisodes) of
+                      case LiveEvidence.rlLiveContractForSteps
+                        contractPlanId
+                        (fromIntegral evalEpisodes)
+                        plannedSteps of
                         Left err ->
                           assertFailureWithIO
                             ("invalid live RL evidence contract: " <> show err)
@@ -7962,8 +7988,9 @@ main = do
               "live PPO cartpole convergence through daemon dispatch clears the literature threshold (Sprint 13.6)"
               $ do
                 -- Sprint 13.6 closure for the PPO/cartpole cohort. Publishes a
-                -- StartRLRun with a real convergence budget (80 PPO iterations
-                -- × 1024 rollout steps), waits for the daemon-dispatched Job to
+                -- StartRLRun with a real convergence budget (the compiled plan's
+                -- 150 PPO iterations × 2048 rollout steps × 16 vector
+                -- environments), waits for the daemon-dispatched Job to
                 -- complete, collects the exact plan-bound EvaluationOutcome
                 -- cohort off rl.event.<substrate>, and asserts the median of
                 -- the complete cohort clears the in-code literature threshold
@@ -8006,14 +8033,13 @@ main = do
                   AppleSilicon -> do
                     assertAppleHostForwardingSmoke
                       pulsarSettings
+                      commandTopic
                       (topologyTopic RlHostCommandRoute AppleSilicon)
                       ("live-rl-convergence-host-command-sub-" <> uniqueSuffix)
                       experimentHash
                       command
-                      ( publishOrFail
-                          pulsarSettings
+                      ( publishThroughCursorOrFail
                           commandTopic
-                          command
                           "StartRLRun convergence"
                       )
                       20
@@ -8034,8 +8060,12 @@ main = do
                           assertFailureWithIO
                             ("invalid compiled RL PlanId: " <> Text.unpack err)
                         Right value -> pure value
+                    plannedSteps <- plannedRlEnvironmentSteps command
                     contract <-
-                      case LiveEvidence.rlLiveContract contractPlanId (fromIntegral evalEpisodes) of
+                      case LiveEvidence.rlLiveContractForSteps
+                        contractPlanId
+                        (fromIntegral evalEpisodes)
+                        plannedSteps of
                         Left err ->
                           assertFailureWithIO
                             ("invalid live convergence evidence contract: " <> show err)
@@ -9278,11 +9308,12 @@ main = do
                   AppleSilicon -> do
                     assertAppleHostForwardingSmoke
                       pulsarSettings
+                      commandTopic
                       (topologyTopic TuneHostCommandRoute AppleSilicon)
                       ("live-tune-host-command-sub-" <> uniqueSuffix)
                       experimentHash
                       command
-                      (publishOrFail pulsarSettings commandTopic command "StartSweep")
+                      (publishThroughCursorOrFail commandTopic "StartSweep")
                       20
                     assertJobDoesNotAppear expectedJobName 5
                   _ -> do
@@ -9305,8 +9336,8 @@ main = do
                           clusterJobBackend
                             (tuningPlanId plan)
                             expectedJobName
-                            180
-                            180
+                            600
+                            600
                     result <-
                       LiveWorkflow.runLiveWorkflow
                         workflow
@@ -9357,11 +9388,12 @@ main = do
                   AppleSilicon -> do
                     assertAppleHostForwardingSmoke
                       pulsarSettings
+                      commandTopic
                       (topologyTopic RlHostCommandRoute AppleSilicon)
                       ("live-alphazero-host-command-sub-" <> uniqueSuffix)
                       experimentHash
                       command
-                      (publishOrFail pulsarSettings commandTopic command "StartAlphaZeroRun")
+                      (publishThroughCursorOrFail commandTopic "StartAlphaZeroRun")
                       20
                     assertJobDoesNotAppear expectedJobName 5
                   _ -> do
@@ -10451,87 +10483,6 @@ requireTemporaryObjectWrite ref result =
         )
     Right _etag -> pure ()
 
-livePulsarTransport
-  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
-  -> LiveWorkflow.LiveTransport command event
-livePulsarTransport settings =
-  LiveWorkflow.LiveTransport
-    { LiveWorkflow.livePublishCommand = \case
-        LiveWorkflow.ProtocolCommand topic event ->
-          PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-            settings
-            (pulsarPublish topic event)
-        command@LiveWorkflow.ExecutableCommand {} ->
-          pure
-            ( Left
-                ( SETransient
-                    ( "Pulsar transport cannot execute typed command: "
-                        <> LiveWorkflow.liveCommandCanonicalText command
-                    )
-                )
-            )
-    , LiveWorkflow.liveConsumeEvents = \source observe handle ->
-        case LiveWorkflow.liveEventSourceSubscription source of
-          Nothing ->
-            pure
-              ( Left
-                  ( ConsumerProtocolFailure
-                      ( "Pulsar transport cannot consume local evidence source "
-                          <> LiveWorkflow.liveEventSourceName source
-                      )
-                  )
-              )
-          Just subscription ->
-            PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-              settings
-              ( pulsarConsumeUntil
-                  subscription
-                  (liftIO . observe)
-                  (liftIO . handle)
-              )
-    }
-
-liveSubprocessTransport
-  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
-  -> LiveWorkflow.LiveTransport Subprocess event
-liveSubprocessTransport settings =
-  LiveWorkflow.LiveTransport
-    { LiveWorkflow.livePublishCommand = \case
-        LiveWorkflow.ProtocolCommand topic command ->
-          PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-            settings
-            (pulsarPublish topic command)
-        LiveWorkflow.ExecutableCommand command -> do
-          outcome <- runStreaming defaultSubprocessEnv command
-          pure $ case outcome of
-            ProcessSucceeded transcript ->
-              Right (processTranscriptStdout transcript)
-            ProcessFailed _ ->
-              Left
-                ( SETransient
-                    ("live subprocess failed:\n" <> renderProcessOutcome outcome)
-                )
-    , LiveWorkflow.liveConsumeEvents = \source observe handle ->
-        case LiveWorkflow.liveEventSourceSubscription source of
-          Nothing ->
-            pure
-              ( Left
-                  ( ConsumerProtocolFailure
-                      ( "Pulsar subprocess transport cannot consume local evidence source "
-                          <> LiveWorkflow.liveEventSourceName source
-                      )
-                  )
-              )
-          Just subscription ->
-            PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-              settings
-              ( pulsarConsumeUntil
-                  subscription
-                  (liftIO . observe)
-                  (liftIO . handle)
-              )
-    }
-
 clusterJobBackend
   :: PlanId
   -> Text
@@ -10771,30 +10722,33 @@ releaseLivePlacement placement =
       let jobName = LiveWorkflow.jobHandleName handle
       cleanupTemporaryKubernetesJob "live workflow placement" jobName
 
-assertSubscribeBeforePublish
+-- | The event source is established (the broker acknowledged the durable
+-- cursor) before the command is published.  A socket-open lifecycle record is
+-- deliberately not consulted: it is not evidence that the cursor exists.
+assertEstablishBeforePublish
   :: (Show terminal, Show violation, Show missing)
   => LiveWorkflow.CompletedRunEvidence terminal evidence violation missing
   -> Assertion
-assertSubscribeBeforePublish completed = do
+assertEstablishBeforePublish completed = do
   let entries = LiveWorkflow.completedRunJournal completed
-      subscriptionSequences =
+      establishmentSequences =
         [ LiveWorkflow.liveJournalSequence entry
         | entry <- entries
-        , LiveWorkflow.SubscriptionReady _ _ <- [LiveWorkflow.liveJournalEvent entry]
+        , LiveWorkflow.EventSourceEstablished _ _ <- [LiveWorkflow.liveJournalEvent entry]
         ]
       publicationSequences =
         [ LiveWorkflow.liveJournalSequence entry
         | entry <- entries
-        , LiveWorkflow.CommandPublished {} <- [LiveWorkflow.liveJournalEvent entry]
+        , LiveWorkflow.CommandPublicationStarted {} <- [LiveWorkflow.liveJournalEvent entry]
         ]
-  case (subscriptionSequences, publicationSequences) of
-    (subscriptionSequence : _, publicationSequence : _) ->
+  case (establishmentSequences, publicationSequences) of
+    (establishmentSequence : _, publicationSequence : _) ->
       assertBool
-        "live workflow subscription must become ready before command publication"
-        (subscriptionSequence < publicationSequence)
+        "live workflow event source must be established before command publication"
+        (establishmentSequence < publicationSequence)
     _ ->
       assertFailure
-        ("live workflow journal lacks subscribe/publish evidence: " <> show entries)
+        ("live workflow journal lacks establish/publish evidence: " <> show entries)
 
 requireCompletedLiveWorkflow
   :: (Show terminal, Show evidence, Show violation, Show missing)
@@ -10809,62 +10763,108 @@ requireCompletedLiveWorkflow label result =
       assertFailureWithIO
         (Text.unpack label <> " failed:\n" <> show failure)
     Right completed -> do
-      assertSubscribeBeforePublish completed
+      assertEstablishBeforePublish completed
       pure completed
 
 -- | Apple placement smoke only: prove the Coordinator forwarded the exact
 -- decoded typed command to the host route.  This helper intentionally does not
 -- claim host workload completion; evidence-bearing Apple workflows must use a
 -- terminal/event scenario on an Apple runner.
+--
+-- The forwarded command is expected on the host topic, so the reply cursor is
+-- established on the host topic with the Coordinator's command topic as the
+-- request topic.  The acknowledged admin CREATE precedes the publication, which
+-- the start action performs only through the supplied publish-through-cursor
+-- action; a socket-open lifecycle event gates nothing.  The @Owned@ cursor is
+-- released on every exit.
 assertAppleHostForwardingSmoke
   :: (Eq command)
   => PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> Topic command
+  -> Topic command
   -> Text
   -> Text
   -> command
-  -> IO ()
+  -> (IO (Either ServiceError Text) -> IO ())
   -> Int
   -> IO ()
-assertAppleHostForwardingSmoke settings topic subscriptionName experimentHash expectedCommand startAction attempts = do
-  startedRef <- newIORef False
-  let subscription = subscriptionFixture topic subscriptionName FromLatest Owned
-  consumed <-
-    Timeout.timeout (max 1 attempts * 5_000_000) $
-      PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
-        pulsarConsumeUntil
-          subscription
-          ( \case
-              ConsumerSessionConnected _ -> do
-                started <- liftIO (readIORef startedRef)
-                if started
-                  then pure ()
-                  else do
-                    liftIO (writeIORef startedRef True)
-                    liftIO startAction
-              _ -> pure ()
+assertAppleHostForwardingSmoke settings requestTopic hostTopic subscriptionName experimentHash expectedCommand startAction attempts = do
+  let subscription = subscriptionFixture hostTopic subscriptionName FromLatest Owned
+  established <-
+    PulsarWebSocketSubprocess.establishReplyCursor
+      settings
+      requestTopic
+      subscription
+  cursor <-
+    case established of
+      Left err ->
+        assertFailure
+          ( "host workload reply cursor CREATE failed on "
+              <> Text.unpack (topicName hostTopic)
+              <> ": "
+              <> show err
           )
-          ( \delivery -> do
-              if deliveryEvent delivery == expectedCommand
-                then pure (done ack ())
-                else pure (continue ack)
-          )
-  case consumed of
-    Nothing ->
-      assertFailure
-        ( "timed out waiting for host workload command for "
-            <> Text.unpack experimentHash
-            <> " on "
-            <> Text.unpack (topicName topic)
+      Right value -> pure value
+  ( do
+      startAction
+        ( PulsarWebSocketSubprocess.publishWithReplyCursor
+            settings
+            cursor
+            (const expectedCommand)
         )
-    Just (Left err) ->
+      consumed <-
+        Timeout.timeout (max 1 attempts * 5_000_000) $
+          PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $
+            pulsarConsumeUntil
+              (PulsarWebSocketSubprocess.replyCursorSubscription cursor)
+              (const (pure ()))
+              ( \delivery -> do
+                  if deliveryEvent delivery == expectedCommand
+                    then pure (done ack ())
+                    else pure (continue ack)
+              )
+      case consumed of
+        Nothing ->
+          assertFailure
+            ( "timed out waiting for host workload command for "
+                <> Text.unpack experimentHash
+                <> " on "
+                <> Text.unpack (topicName hostTopic)
+            )
+        Just (Left err) ->
+          assertFailure
+            ( "host workload consumer failed on "
+                <> Text.unpack (topicName hostTopic)
+                <> ": "
+                <> show err
+            )
+        Just (Right ()) -> pure ()
+    )
+    `SafeException.finally` do
+      released <- PulsarWebSocketSubprocess.releaseReplyCursor settings cursor
+      released @?= Right ()
+
+-- | Publish through an established reply cursor, naming the request topic and
+-- the typed error when the broker refuses.
+publishThroughCursorOrFail
+  :: Topic command
+  -> Text
+  -> IO (Either ServiceError Text)
+  -> IO ()
+publishThroughCursorOrFail requestTopic label publish = do
+  result <- publish
+  case result of
+    Right _ -> pure ()
+    Left err ->
       assertFailure
-        ( "host workload consumer failed on "
-            <> Text.unpack (topicName topic)
-            <> ": "
-            <> show err
+        ( Text.unpack
+            ( label
+                <> " publish through the reply cursor failed live on "
+                <> topicName requestTopic
+                <> ": "
+                <> Text.pack (show err)
+            )
         )
-    Just (Right ()) -> pure ()
 
 nonFinite :: Double -> Bool
 nonFinite value = isNaN value || isInfinite value
@@ -11019,6 +11019,21 @@ substrateUrlSegment = \case
 -- checker accepts it where the caller expects a plain `IO a`.
 assertFailureWithIO :: String -> IO a
 assertFailureWithIO message = assertFailure message >> error "unreachable"
+
+-- | The environment-step total the compiled plan schedules for a live
+-- @StartRLRun@: the exact count the dispatched worker's completed checkpoint
+-- must carry as both its declared budget target and its observed units.
+plannedRlEnvironmentSteps :: ProtoRl.RlCommand -> IO Word64
+plannedRlEnvironmentSteps command =
+  case command of
+    ProtoRl.RlStart start ->
+      case Workload.rlPlanForStart start of
+        Left err -> assertFailureWithIO ("invalid live RL plan: " <> Text.unpack err)
+        Right plan ->
+          case ProductBudget.compiledRlSchedule plan of
+            Nothing -> assertFailureWithIO "the live RL plan schedules no environment steps"
+            Just schedule -> pure (ProductBudget.scheduleObservedEnvironmentSteps schedule)
+    _ -> assertFailureWithIO "live RL fixture did not build StartRLRun"
 
 expectValidationSuccess :: (Show err) => Validation err value -> IO value
 expectValidationSuccess validation =

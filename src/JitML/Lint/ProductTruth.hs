@@ -1,18 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Product-truth source lints: forbidden scaffolding, product-reachable
+-- scaffold imports, and (through "JitML.Lint.ProductTruthBars") convergence
+-- bars derived from the value they grade.
 module JitML.Lint.ProductTruth
   ( ProductScaffold (..)
   , SourceModule (..)
   , checkProductTruth
+  , checkProductTruthIn
   , nonProductScaffolding
   , productScaffoldRegistry
+  , productTruthSourceFiles
   , reachableModulesFrom
   , scanProductTruthImports
   , scanProductTruthSourceText
   )
 where
 
-import Data.Char (isAlphaNum, isDigit)
+import Data.Char (isAlphaNum)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -22,6 +27,7 @@ import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath ((</>))
 import System.FilePath qualified as FilePath
 
+import JitML.Lint.ProductTruthBars (barSourceFindings)
 import JitML.Lint.Stack.Types (LintFinding (..))
 
 data ProductScaffold = ProductScaffold
@@ -61,19 +67,37 @@ productScaffoldRegistry =
 nonProductScaffolding :: [Text]
 nonProductScaffolding = fmap scaffoldKey productScaffoldRegistry
 
+-- | The lint over the repository rooted at the working directory, which is how
+-- @jitml check-code@ runs it.
 checkProductTruth :: IO [LintFinding]
-checkProductTruth = do
-  files <- sourceFiles
+checkProductTruth = checkProductTruthIn "."
+
+-- | The lint over the repository rooted at @root@. Files are read below @root@
+-- but scanned, and their findings reported, by their path relative to it
+-- (@src/...@): the scanner's exemptions are keyed by repository-relative path.
+checkProductTruthIn :: FilePath -> IO [LintFinding]
+checkProductTruthIn root = do
+  files <- productTruthSourceFiles root
   sourceFindings <-
     concat
       <$> traverse
         ( \path -> do
-            content <- Text.IO.readFile path
+            content <- Text.IO.readFile (root </> path)
             pure (scanProductTruthSourceText path content)
         )
         files
-  modules <- traverse readSourceModule files
+  modules <- traverse (readSourceModule root) files
   pure (sourceFindings <> scanProductTruthImports modules)
+
+-- | The Haskell sources the gate reads: every @.hs@ file below @root/src@, at any
+-- depth, as paths relative to @root@ in path order. A root without a @src@
+-- directory has none, as for the sibling lints.
+productTruthSourceFiles :: FilePath -> IO [FilePath]
+productTruthSourceFiles root = do
+  exists <- doesDirectoryExist (root </> "src")
+  if exists
+    then List.sort . filter isHaskellSource <$> repoFiles root "src"
+    else pure []
 
 scanProductTruthSourceText :: FilePath -> Text -> [LintFinding]
 scanProductTruthSourceText path content
@@ -84,129 +108,7 @@ scanProductTruthSourceText path content
       , needle <- scaffoldNeedles scaffold
       , needle `Text.isInfixOf` content
       ]
-        <> measuredBarFindings path content
-        <> literalCohortBarFindings path content
-
--- This source check guards the product constructor boundary. Runtime equality
--- between a measurement and a literature value cannot establish provenance:
--- a valid run may happen to land exactly on the target. The source declaration
--- must therefore never pass a measured expression as the bar target.
-measuredBarFindings :: FilePath -> Text -> [LintFinding]
-measuredBarFindings path _content
-  | "src/JitML/Test/" `List.isPrefixOf` normalizedPath path = []
-measuredBarFindings path content =
-  [ measuredBarFinding path
-  | tokens <- List.tails (codeTokens content)
-  , case tokens of
-      constructor : _name : _goal : target : _
-        | barConstructor constructor -> tainted target
-      constructor : _name : target : _
-        | regressionBarConstructor constructor -> tainted target
-      constructor : target : _
-        | tableConstructor constructor -> tainted target
-      _ -> False
-  ]
-    <> [ measuredBarFinding path
-       | line <- Text.lines content
-       , let code = Text.strip (fst (Text.breakOn "--" line))
-       , tokens <- List.tails (codeTokens code)
-       , case tokens of
-           field : "=" : value : _ -> targetField field && tainted value
-           _ -> False
-       ]
- where
-  barConstructor name =
-    name == "mkConvergenceBar" || ".mkConvergenceBar" `Text.isSuffixOf` name
-  regressionBarConstructor name =
-    name == "regressionRmseBar" || ".regressionRmseBar" `Text.isSuffixOf` name
-  tableConstructor name =
-    name `elem` ["ConvergenceThreshold", "SlConvergenceThreshold"]
-      || ".ConvergenceThreshold" `Text.isSuffixOf` name
-      || ".SlConvergenceThreshold" `Text.isSuffixOf` name
-  targetField name =
-    name
-      `elem` [ "convergenceLiteratureTarget"
-             , "convergenceThreshold"
-             , "threshold"
-             , "literatureTarget"
-             , "slLiteratureTarget"
-             ]
-  tainted name = measuredName name || name `elem` measuredAliases
-  -- Follow simple value declarations to their fixed point. A measured value
-  -- can be hidden behind multiple `let` or top-level aliases; comparing the
-  -- final numeric bar to a table cannot reveal that source relationship.
-  measuredAliases =
-    let declarations = mapMaybe valueDeclaration (Text.lines content)
-        close aliases =
-          let next =
-                List.nub
-                  ( aliases
-                      <> [ name
-                         | (name, rhs) <- declarations
-                         , any (\token -> measuredName token || token `elem` aliases) rhs
-                         ]
-                  )
-           in if length next == length aliases then aliases else close next
-     in close []
-  valueDeclaration line =
-    case codeTokens (fst (Text.breakOn "--" line)) of
-      name : "=" : rhs | not (null rhs) -> Just (name, rhs)
-      "let" : name : "=" : rhs | not (null rhs) -> Just (name, rhs)
-      _ -> Nothing
-  measuredName name =
-    let lowered = Text.toLower name
-     in "measured" `Text.isInfixOf` lowered
-          || lowered `elem` ["cometricvalue", "metricvalue", "observedvalue"]
-
-codeTokens :: Text -> [Text]
-codeTokens =
-  Text.words
-    . Text.map (\char -> if isAlphaNum char || char `elem` ("._=" :: String) then char else ' ')
-    . Text.unlines
-    . fmap (fst . Text.breakOn "--")
-    . Text.lines
-
-measuredBarFinding :: FilePath -> LintFinding
-measuredBarFinding path =
-  LintFinding
-    path
-    "product-truth.measured-bar"
-    "a product convergence threshold is derived from a measured value"
-    "use a reviewed external target and project-calibrated slack"
-
--- A data-flow name check alone can miss a helper that returns a measurement
--- under an innocuous name. The two authoritative cohort tables therefore
--- require literal target/slack declarations. This rules out arbitrary helper
--- calls at the source of ProductRow convergence bars, including indirect
--- measured-derived values whose identifier carries no useful clue.
-literalCohortBarFindings :: FilePath -> Text -> [LintFinding]
-literalCohortBarFindings path content
-  | normalizedPath path
-      `notElem` [ "src/JitML/RL/ConvergenceThresholds.hs"
-                , "src/JitML/SL/ConvergenceThresholds.hs"
-                ] =
-      []
-  | otherwise =
-      [ LintFinding
-          path
-          "product-truth.nonliteral-bar"
-          "a canonical cohort bar is not declared with literal target and slack"
-          "declare reviewed numeric target and slack constants in the cohort table"
-      | line <- Text.lines content
-      , let code = fst (Text.breakOn "--" line)
-      , "\"" `Text.isInfixOf` code
-      , tokens <- List.tails (codeTokens code)
-      , case tokens of
-          constructor : target : slack : _
-            | constructor `elem` ["ConvergenceThreshold", "SlConvergenceThreshold"] ->
-                not (numericToken target && numericToken slack)
-          _ -> False
-      ]
- where
-  numericToken token =
-    not (Text.null token)
-      && Text.any isDigit token
-      && Text.all (\char -> isDigit char || char == '.') token
+        <> barSourceFindings path content
 
 scanProductTruthImports :: [SourceModule] -> [LintFinding]
 scanProductTruthImports modules =
@@ -231,9 +133,9 @@ reachableModulesFrom roots modules =
   lookupModule name =
     List.find ((== name) . sourceModuleName) modules
 
-readSourceModule :: FilePath -> IO SourceModule
-readSourceModule path = do
-  content <- Text.IO.readFile path
+readSourceModule :: FilePath -> FilePath -> IO SourceModule
+readSourceModule root path = do
+  content <- Text.IO.readFile (root </> path)
   pure
     SourceModule
       { sourceModuleName = moduleNameFromPath path content
@@ -277,23 +179,18 @@ isModuleNameChar :: Char -> Bool
 isModuleNameChar char =
   isAlphaNum char || char == '.' || char == '_'
 
-sourceFiles :: IO [FilePath]
-sourceFiles = do
-  exists <- doesDirectoryExist "src"
-  if exists
-    then filter isHaskellSource <$> repoFiles "src"
-    else pure []
-
-repoFiles :: FilePath -> IO [FilePath]
-repoFiles root = do
-  entries <- listDirectory root
+-- | Every file below @relative@ (a directory of the repository rooted at
+-- @root@), as a path relative to @root@.
+repoFiles :: FilePath -> FilePath -> IO [FilePath]
+repoFiles root relative = do
+  entries <- listDirectory (root </> relative)
   concat
     <$> traverse
       ( \entry -> do
-          let path = root </> entry
-          isDir <- doesDirectoryExist path
+          let path = relative </> entry
+          isDir <- doesDirectoryExist (root </> path)
           if isDir
-            then repoFiles path
+            then repoFiles root path
             else pure [path]
       )
       entries

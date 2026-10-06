@@ -719,7 +719,8 @@ rollout (TRPO ignores PPO's configured epoch count), RecurrentPPO recurrent
 epochs, SAC entropy terms,
 CrossQ target-net removal, and the TQC pooled-quantile critic. The Sprint `25.2`
 collapse guard proves the named update paths do not collapse to identical final
-parameters. Per-model convergence remains a separate evidence obligation. The
+parameters. Per-model convergence is graded separately, from completed-run
+evidence (see the next paragraphs). The
 product A2C contract likewise consumes each sampled rollout exactly once. A2C's
 unclipped actor-critic surrogate has no PPO ratio bound that would make ten
 passes over samples from the old policy safe; `productPpoEpochsPerUpdateFor`
@@ -728,9 +729,11 @@ epoch count for PPO, MaskablePPO, and RecurrentPPO. This selection is
 algorithm-specific and substrate-independent. Measured optimizer counters still
 record the minibatch applications that actually ran; the canonical A2C product
 schedule produces 19,200 applications from its 1,228,800 observed transitions.
-The current `jitml-model-convergence` suite guards case-registry coverage and bar
-metadata only; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
-binds each algorithm/environment case to its own completed trained-policy run.
+The `jitml-model-convergence` suite ([Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md))
+grades each algorithm/environment case's own completed trained-policy run from
+the selected lane's retained journal: its median final reward against a criterion
+re-derived from the RL cohort table, its learning telemetry, and its
+environment-transition count against the plan's budget.
 PPO/CartPole determinism is asserted by `jitml-rl-canonicals` as
 run-to-run equality on the same substrate and seed (two fresh runs compared
 against each other), and Sprint `25.2` adds a trained-parameter/update-path guard
@@ -1126,14 +1129,15 @@ oneofs.
 
 ## Report-Card Measurements
 
-The intended reporting boundary derives workload measurements from the typed
-journals produced by the scenarios that actually ran. The current `--live`
-layer still launches separate post-test probes and represents optional results
-through the legacy absent / `MeasurementUnavailable` /
-`MeasurementAvailable Text` surface. Sprint `34.3` owns replacing those probes
-with journal-bound `NotRequested`, reasoned `Unavailable`, and `Available`
-evidence. Reporting must not substitute fixtures or treat those probes as Phase
-`12` completion evidence. See
+The reporting boundary derives workload measurements from the typed journals
+produced by the scenarios that actually ran. The `--live` layer launches no
+post-test probe: the SL, RL, AlphaZero, and tuning report lines are projections
+of the completed rows of the authenticated ProductScenario journal (each row's
+own `completedTrainingMetrics`, grouped by row family), the row counts are
+derived from those rows over the registry's per-family counts, and every
+measurement is a `NotRequested`, reasoned `Unavailable`, or journal-bound
+`Available` value. Reporting must not substitute fixtures or retrain to obtain a
+value, and must not treat the report as Phase `12` completion evidence. See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
 
 There is no cross-substrate parity field: the determinism contract is

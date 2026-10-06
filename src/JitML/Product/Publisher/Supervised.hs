@@ -6,6 +6,8 @@ module JitML.Product.Publisher.Supervised
   ( supervisedPublishMetricRows
   , trainAndPublishSupervisedProductRow
   , validateSupervisedPublishUpdateCount
+  , validateSupervisedServedMetricExampleCount
+  , verifyAdmittedSupervisedServedMetric
   )
 where
 
@@ -16,6 +18,7 @@ import Data.List qualified as List
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Env.Env (App)
 import JitML.Experiment.Product qualified as ProductExperiment
@@ -187,13 +190,16 @@ trainAndPublishSupervisedProductRow invocation runtime row projection experiment
                     validatedPublication = do
                       validateSupervisedPublishDatasetSha problem run
                       metricRows <- supervisedPublishMetricRows row plan run
-                      requireProjectedValue
-                        "supervised exact served-metric evaluation examples"
+                      -- Total after the line above: a missing held-out metric was
+                      -- already rejected there, so the post-admission check below
+                      -- receives the metric itself rather than a 'Maybe'.
+                      heldOutMetric <- requireHeldOutMetric run
+                      validateSupervisedServedMetricExampleCount
                         testLimit
-                        (ServedMetric.heldOutExampleCount (supervisedPublishHeldOutExamples run))
+                        (supervisedPublishHeldOutExamples run)
                       artifact <- runtimeArtifact
                       completed <- completedTraining metricRows artifact
-                      Right (metricRows, artifact, completed)
+                      Right (metricRows, heldOutMetric, artifact, completed)
                 case validatedPublication of
                   Left err ->
                     pure
@@ -203,7 +209,7 @@ trainAndPublishSupervisedProductRow invocation runtime row projection experiment
                               <> err
                           )
                       )
-                  Right (metricRows, artifact, completed) -> do
+                  Right (metricRows, heldOutMetric, artifact, completed) -> do
                     stored <-
                       publisherWriteCompletedSupervisedCheckpoint
                         runtime
@@ -221,34 +227,62 @@ trainAndPublishSupervisedProductRow invocation runtime row projection experiment
                               ("supervised checkpoint storage succeeded but exact Store admission failed: " <> err)
                           )
                       Right admitted ->
-                        case supervisedPublishHeldOutMetric run of
-                          Nothing ->
-                            pure
-                              ( productPublishError
-                                  projection
-                                  "supervised held-out metric disappeared before served-byte verification"
-                              )
-                          Just (metricName, reported) -> do
-                            served <-
-                              liftIO
-                                ( ServedMetric.assertAdmittedHeldOutMetric
-                                    admitted
-                                    metricName
-                                    reported
-                                    (supervisedPublishHeldOutExamples run)
-                                )
-                            pure $
-                              case served of
-                                Left err ->
-                                  productPublishError
-                                    projection
-                                    ("supervised held-out metric failed exact admitted served-byte verification: " <> err)
-                                Right () ->
-                                  productPublishEligible
-                                    projection
-                                    admitted
-                                    []
-                                    "supervised V2 runtime artifact stored, admitted, and held-out metric recomputed from served bytes"
+                        -- The served-byte gate can only run on an admitted checkpoint, so a
+                        -- rejection here leaves that checkpoint in Store (see the gate).
+                        liftIO
+                          ( verifyAdmittedSupervisedServedMetric
+                              projection
+                              admitted
+                              heldOutMetric
+                              (supervisedPublishHeldOutExamples run)
+                          )
+
+-- | The verified held-out examples the served-metric check replays must be
+-- exactly the plan's evaluation budget: a shorter, longer, or substituted set
+-- would make the recomputed metric a statement about a different evaluation.
+-- This runs before the checkpoint is written, so a mismatch never reaches Store.
+validateSupervisedServedMetricExampleCount
+  :: Int
+  -> ServedMetric.HeldOutExamples
+  -> Either Text ()
+validateSupervisedServedMetricExampleCount plannedExamples evidence =
+  requireProjectedValue
+    "supervised exact served-metric evaluation examples"
+    plannedExamples
+    (ServedMetric.heldOutExampleCount evidence)
+
+-- | The post-admission gate on ProductRow eligibility. It recomputes the
+-- reported held-out metric through the serving graph and physical weights of
+-- the checkpoint Store just re-admitted, and produces the row's publish result:
+-- eligible only when the recomputation agrees with the reported metric, and a
+-- typed publish error carrying the served-versus-reported diagnostic otherwise.
+--
+-- The check runs AFTER the checkpoint was written and admitted, because only an
+-- admitted checkpoint can be served. A rejected checkpoint therefore remains in
+-- Store: the row is denied eligibility, but the persisted objects are not
+-- removed. Reuse of that checkpoint by a later run is closed elsewhere: the
+-- orchestrator never reuses a supervised checkpoint, because a persisted
+-- manifest carries no held-out example set to verify.
+verifyAdmittedSupervisedServedMetric
+  :: ProductMatrix.ProductProjection 'SupervisedTraining
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> (Text, Double)
+  -> ServedMetric.HeldOutExamples
+  -> IO ProductPublishResult
+verifyAdmittedSupervisedServedMetric projection admitted (metricName, reported) evidence = do
+  served <- ServedMetric.assertAdmittedHeldOutMetric admitted metricName reported evidence
+  pure $
+    case served of
+      Left err ->
+        productPublishError
+          projection
+          ("supervised held-out metric failed exact admitted served-byte verification: " <> err)
+      Right () ->
+        productPublishEligible
+          projection
+          admitted
+          []
+          "supervised V2 runtime artifact stored, admitted, and held-out metric recomputed from served bytes"
 
 validateSupervisedPublishUpdateCount
   :: WorkloadPlan.SupervisedPlan
@@ -290,11 +324,7 @@ supervisedPublishMetricRows row plan run = do
             <> Text.pack (show expectedExamples)
             <> ")"
         )
-  heldOutMetric <-
-    maybe
-      (Left "supervised ProductRow publication requires exactly one held-out metric")
-      Right
-      (supervisedPublishHeldOutMetric run)
+  heldOutMetric <- requireHeldOutMetric run
   let expectedHeldOutName =
         ProductConvergence.convergenceMetricName
           (ProductMatrix.convergenceBar row)
@@ -341,6 +371,13 @@ supervisedPublishMetricRows row plan run = do
     | isNaN value || isInfinite value =
         Left ("supervised ProductRow metric " <> name <> " must be finite")
     | otherwise = Right ()
+
+requireHeldOutMetric :: SupervisedPublishRun -> Either Text (Text, Double)
+requireHeldOutMetric run =
+  maybe
+    (Left "supervised ProductRow publication requires exactly one held-out metric")
+    Right
+    (supervisedPublishHeldOutMetric run)
 
 validateSupervisedPublishDatasetSha
   :: SL.CanonicalProblem
@@ -419,3 +456,5 @@ validateSupervisedArtifactCompletion artifact completed = do
 {-# NOINLINE supervisedPublishMetricRows #-}
 {-# NOINLINE trainAndPublishSupervisedProductRow #-}
 {-# NOINLINE validateSupervisedPublishUpdateCount #-}
+{-# NOINLINE validateSupervisedServedMetricExampleCount #-}
+{-# NOINLINE verifyAdmittedSupervisedServedMetric #-}

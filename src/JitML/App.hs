@@ -115,7 +115,6 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
-import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Command qualified as PlanCommand
 import JitML.Plan.Plan
@@ -145,15 +144,13 @@ import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Product.Publisher qualified as ProductPublisher
+import JitML.Product.StatusEvidence (renderStatusReport)
+import JitML.Product.StatusLoader (loadProductStatusReport)
 import JitML.Project.Config qualified as ProjectConfig
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Training qualified as ProtoTraining
 import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Command qualified as RlCommand
-import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
-import JitML.RL.TrainerExecution
-  ( trainerRunEpisodes
-  )
 import JitML.RL.TrainerExecution qualified as TrainerExecution
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Dataset qualified as Dataset
@@ -249,6 +246,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runDocsCheck
   | parsedPath == ["docs", "generate"] =
       runDocsGenerate
+  | parsedPath == ["docs", "status"] =
+      runDocsStatus
   | parsedPath == ["check-code"] =
       runLintCommand "check-code" runCheckCode
   | isLintPath parsedPath =
@@ -407,6 +406,14 @@ runDocsCheck = do
   if null drifts
     then writeLine "docs check: ok"
     else exitWithError (DocsCheckDrift (Text.intercalate "\n" (fmap renderDocsDrift drifts)))
+
+-- | Print the evidence-derived phase status: counts, open chain, and every unmet
+-- obligation with its evidence pointer. Read-only, and always exits zero: it
+-- reports, while @docs check@ is the gate.
+runDocsStatus :: App ()
+runDocsStatus = do
+  report <- liftIO loadProductStatusReport
+  writeText (renderStatusReport report)
 
 runDocsGenerate :: App ()
 runDocsGenerate = do
@@ -1583,17 +1590,14 @@ classifyCheckpointLoadError experimentHash err
       InferenceCheckpointMissing experimentHash
   | otherwise = InvalidConfig ("inference: " <> err)
 
--- Keep report orchestration and its measurement callbacks opaque to App.
+-- Keep report orchestration opaque to App.  The report owns no measurement
+-- effect: it projects the journals the interpreter already captured.
 testCommandRuntime :: TestCommand.TestCommandRuntime
 testCommandRuntime =
   TestCommand.TestCommandRuntime
     { TestCommand.testCommandBootstrapSubstrates = bootstrapSubstrates
     , TestCommand.testCommandHasOption = hasOption
     , TestCommand.testCommandSelectedValue = selectedValue
-    , TestCommand.testCommandMeasureSlFinalLossText =
-        measureTestSlFinalLossText
-    , TestCommand.testCommandMeasureRlFinalRewardText =
-        measureTestRlFinalRewardText
     , TestCommand.testCommandPublishBrowserCatalogue =
         publishTestBrowserCatalogue
     }
@@ -1644,71 +1648,6 @@ publishTestBrowserCatalogue batch authenticated = do
                           Right
                             (BrowserCatalogue.publishedProductBrowserCatalogue value)
             )
-
-measureTestSlFinalLossText :: App (Maybe Text)
-measureTestSlFinalLossText = do
-  substrate <- workerSubstrateBase
-  case SL.canonicalProblems of
-    problem : _ -> do
-      plan <-
-        resolveSupervisedInvocationPlan
-          []
-          Overrides.emptyExperimentOverrides
-          substrate
-          problem
-      result <-
-        TrainingExecution.runDeviceMnistTraining
-          trainingExecutionRuntime
-          substrate
-          problem
-          plan
-      pure $
-        case result of
-          Right metrics ->
-            Just
-              ( SL.problemName problem
-                  <> "="
-                  <> Text.pack (show metrics)
-              )
-          Left _ -> Nothing
-    [] -> pure Nothing
-{-# NOINLINE measureTestSlFinalLossText #-}
-
-measureTestRlFinalRewardText :: App (Maybe Text)
-measureTestRlFinalRewardText = do
-  substrate <- workerSubstrateBase
-  env <- ask
-  episodesE <-
-    liftIO $ do
-      planE <- TrainerExecution.compileTraditionalRlPlan "ppo" "cartpole" 42 4 200 Nothing
-      case planE of
-        Left err -> pure (Left err)
-        Right plan ->
-          TrainerExecution.runTrainerEpisodesForPlan
-            substrate
-            (rlDeviceForSubstrate substrate env)
-            Nothing
-            plan
-  pure $ case episodesE of
-    Left _ -> Nothing
-    Right trainerRun
-      | null (trainerRunEpisodes trainerRun) -> Nothing
-      | otherwise ->
-          Just
-            ( "ppo/cartpole="
-                <> Text.pack
-                  ( show
-                      ( sum
-                          ( fmap
-                              EpisodeEnvelope.simEpisodeReward
-                              (trainerRunEpisodes trainerRun)
-                          )
-                          / fromIntegral
-                            (length (trainerRunEpisodes trainerRun))
-                      )
-                  )
-            )
-{-# NOINLINE measureTestRlFinalRewardText #-}
 
 -- | `jitml internal gc <experiment-hash>` reconciler. When a live
 -- `cluster-publication.json` is present, walks the live MinIO bucket

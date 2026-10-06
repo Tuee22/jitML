@@ -16,6 +16,11 @@ version-1 portable typed projection. The exact 175,172-byte journal is tracked
 at [attestations/linux-cpu-product-lane-journal.json](attestations/linux-cpu-product-lane-journal.json)
 with pinned SHA-256
 `f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
+That 2026-09-08 journal and digest are historical: Phase `278` tightened three
+convergence bars, and its fresh `linux-cpu` run of this sprint's subtree
+replaced the retained journal with the 175,168-byte artifact pinned by SHA-256
+`438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff`; see
+[Phase 278 → Current Partial Validation](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-partial-validation).
 
 ## Sprint 261.1: Contract-Driven Live Execution - Integration Journal [✅ Done]
 

@@ -24,8 +24,10 @@ transferred to Phases `280`–`282`; this phase does not claim those later gates
 A committed set of hand-built known-fake records, each paired with the pure gate
 that must reject it. The `jitml-negative-controls` stanza (wired into
 `jitml test all`) fails the build if any retained gate-soundness fake is
-accepted and separately requires the transferred production-path work to remain
-explicitly enumerated.
+accepted and, while that work was outstanding, separately required the
+transferred production-path categories to remain explicitly enumerated (as of
+2026-09-30 Phases `280`–`282` implement them and the stanza asserts the pending
+list is empty).
 
 ### Deliverables
 
@@ -34,8 +36,8 @@ explicitly enumerated.
   evidence, collapsed operators, and algorithm-specific gate violations.
 - Assert each pure gate returns *reject* for its known-fake; a gate that cannot
   reject its known-fake is a failure, not a pass.
-- Keep the outstanding production-path categories non-empty and explicit.
-  Phases `280`–`282` own invalid request/event fixtures, journal/reducer
+- Keep the outstanding production-path categories explicit while they are
+  outstanding. Phases `280`–`282` own invalid request/event fixtures, journal/reducer
   properties, lifecycle failures, and mandatory per-ProductRow registration.
 
 ### Validation

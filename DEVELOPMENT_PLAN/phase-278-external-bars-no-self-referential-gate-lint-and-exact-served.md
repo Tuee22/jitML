@@ -9,19 +9,28 @@
 
 ## Phase State
 
-🔄 **Active** (2026-09-24 UTC). Phase `276` / Sprint `276.1` is Done. This phase
-is implementing the external-bar, anti-self-reference, and exact served-byte
-checks below.
+🔄 **Active** (2026-09-30 UTC). The implementation is complete on the Linux host:
+the external-bar, anti-self-reference, and exact served-byte checks pass their
+unit and container gates, and the `linux-cuda` and `linux-cpu` journals are
+re-issued under the tightened bars. Open: the `apple-silicon` journal re-issue,
+the aggregate regeneration, and the final gates (see Remaining Work). Phase `276`
+/ Sprint `276.1` remains Done on its retained join mechanism.
 
 ## Sprint 278.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [🔄 Active]
 
 **Status**: Active
 **Implementation**: `src/JitML/Product/ExternalBars.hs`,
 `src/JitML/Product/ServedMetric.hs`, `src/JitML/Lint/ProductTruth.hs`,
+`src/JitML/Lint/ProductTruthBars.hs`, `src/JitML/Lint/HaskellTokens.hs`,
 `src/JitML/Checkpoint/Store.hs`, `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Product/Publisher/Supervised.hs`, `test/unit/Main.hs`,
-`test/unit/SupervisedCheckpointV2.hs`
-**Docs to update**: `../documents/engineering/product_completion_contract.md`, `../documents/engineering/determinism_contract.md`, `system-components.md`
+`test/unit/SupervisedCheckpointV2.hs`, `test/unit/ServedMetricVerification.hs`,
+`test/unit/ProductBarProvenance.hs`, `test/unit/ProductTruthScanner.hs`
+**Docs to update**: `../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/determinism_contract.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/code_quality.md`, `system-components.md`
 
 ### Objective
 
@@ -146,11 +155,12 @@ docker compose run --rm jitml jitml check-code
   the changed tables and builders returned **No hints**. The scanner also
   guards `convergenceLiteratureTarget` assignments inside record constructors;
   its focused `ProductTruth` unit group passed **9/9**, including the new
-  measured-derived record-target control. The final current-source container
-  image, including the record-field scanner fix, passed its embedded
-  `jitml check-code` gate. The phase's standalone
+  measured-derived record-target control. On 2026-09-24 the then-current-source
+  container image, including the record-field scanner fix, passed its embedded
+  `jitml check-code` gate, and the standalone
   `docker compose run --rm jitml jitml check-code` and `jitml docs check`
-  commands also passed against that image; the lane evidence is still pending.
+  commands also passed against that image; the lane evidence was still pending
+  then. The 2026-09-30 tree's gates are recorded below.
 - Fresh `A2C/key-door-grid` CUDA training also cleared the new `0.5` bar:
   all **20** evaluation episodes returned **1.43**, and Store admitted manifest
   `37a30367969f29c7df1901b74118548dda29e5d063fa222aa01472f44d2a66cf`.
@@ -168,40 +178,158 @@ docker compose run --rm jitml jitml check-code
   and retained byte SHA-256
   `5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48`.
   The source pin and retained CUDA journal now carry those exact issued bytes.
-  This closes the CUDA lane refresh; CPU and Apple lane refreshes and the
-  three-lane aggregate remain open.
+  This closed the CUDA lane refresh on 2026-09-24; the CPU refresh (below) has
+  since completed, and the Apple refresh and the three-lane aggregate remain open.
 - On the real `linux-cpu` host, the existing Kind cluster was recovered and
   `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cpu.sh up` passed all
   **118** live rollout steps. Its publication identifies `linux-cpu`, edge
-  port **9091**, and all **8** components Ready. The fresh Phase `261`
-  ProductScenario is running against that cluster; no CPU journal has been
-  accepted or pinned yet.
+  port **9091**, and all **8** components Ready. A first Phase `261`
+  ProductScenario was started against that cluster; it was superseded by the
+  fresh run below, which is the one that was accepted and pinned.
+
+- The 2026-09-30 hardening closed the gaps that needed no hardware. The
+  served-metric verification has unit coverage for the regression path (matching
+  and substituted weights), both tolerances at their boundaries, the small-set
+  fail-closed cap, and every typed rejection, and the post-admission gate is an
+  extracted, tested function; `assertConvergenceObservationsAgainstBar` requires
+  exactly one observation of the bar's metric and compares its value, with a
+  permanent regression net that admits the pinned `linux-cuda` journal and grades
+  all **55** rows; a token-stream `ProductTruth` scanner catches multi-line record
+  fields, helper-wrapped targets, renamed measured values, and split cohort
+  constructors with zero findings on the tree; and an independent 55-row bar
+  cross-check rebuilds every bar from the canonical tables. The three new
+  `jitml-unit` groups hold **182** cases (`Served-metric verification` 62,
+  `ProductTruth bar scanner` 99, `External bar provenance` 21); 96 mutants were
+  run and 94 killed (round one 54/52, round two 42/42), with both survivors
+  explained. The served-metric tolerance is proven on `linux-cuda` and
+  `linux-cpu` (all eleven supervised rows passed the post-admission check in both
+  60/60 runs) and is unproven on `apple-silicon`; the remaining residue is in
+  Remaining Work.
+- The fresh real `linux-cpu` ProductScenario then passed **60/60** focused
+  integration assertions in **45,478.60 s** (Kind cluster `jitml-linux-cpu`, edge
+  port `9091`, **115** rollout steps, all **12** datasets staged, image built at
+  commit `0606cc7`), including all **55** eligible ProductRows, the **11/39/4/1**
+  family split, canonical order, and exact journal round-trip.
+  `PPO/key-door-grid`, `A2C/key-door-grid`, and `TRPO/cartpole` cleared the
+  tightened bars on oneDNN, and every supervised row passed the post-admission
+  served-metric check. The issued version-`1` journal has run ID `jitml-product-scenario-94ef228449661943`,
+  source-journal SHA-256 `5bd776cfb5f690b2dde070cd3cfd9f69449744df1b1b9ca44239251134e8201a`, and retained byte SHA-256
+  `438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff`
+  (175,168 bytes), tracked at
+  [attestations/linux-cpu-product-lane-journal.json](attestations/linux-cpu-product-lane-journal.json)
+  and pinned in `src/JitML/Test/ProductAggregation.hs`. All 55 contract digests
+  equal the `linux-cuda` journal's, and every device witness is byte-identical to
+  the superseded journal. With it,
+  `JITML_SUBSTRATE=linux-cpu jitml-model-convergence` admits the lane and passes
+  all **390** cases, and the aggregation group rejects only the `apple-silicon`
+  lane. The `linux-cpu` re-issue is complete.
+
+- The first full live integration pass against the `linux-cpu` cluster (raw
+  `cabal test jitml-integration` excluding this matrix, run with the image built
+  at `0606cc7`) found a regression in this sprint's own gate:
+  `assertConvergenceObservationsExternal` rejected **every** stored RL
+  `median_final_reward` with "no canonical cohort identity", so the generic
+  (non-ProductRow) RL path failed closed at completed-checkpoint write. The
+  Sprint `12.11` live `WorkflowMatrix` cell `jitml rl train
+  experiments/cartpole.dhall --substrate linux-cpu` exited `2` after 190 s, and
+  the live daemon `StartRLRun` scenario failed the same way; no unit case had
+  exercised the generic path because ProductRow completions carry their row's
+  bar. The generic fallback now verifies what it can — the observation maximises
+  the return and its threshold is a frozen external cohort anchor
+  (`literatureTarget - slack`) — but it cannot identify the cohort, so it accepts
+  a threshold equal to any frozen anchor, including another cohort's (even the
+  loosest); ProductRow completions remain checked against their own row bar. Unit
+  coverage pins the accepted anchor, the rejected non-anchor, and the rejected
+  minimising goal. A strict generic path would carry `(algorithm, environment)`
+  in the completion so the cohort's own bar applies; that remains open and is
+  recorded in the legacy ledger.
+- The same raw live integration pass was repeated on the corrected tree (image
+  rebuilt and reloaded into the Kind cluster): **138** cases in **6,739 s**, **125**
+  passed. They include the 8-cell `WorkflowMatrix` (**5,259 s**, `jitml rl train`
+  accepted again), the live daemon `StartTraining` (375 s), `StartRLRun` (220 s),
+  PPO `cartpole` convergence through the daemon (608 s), and AlphaZero dispatch
+  (34 s), which drive the establish-before-publish transport of Sprint `282.1`, and
+  the reply-cursor, registry, GC, and MinIO cases. **13** failed for reasons outside
+  the code under test: the `Phase 276` aggregation case (stale `apple-silicon`
+  journal); **11** `Phase 262`/`Phase 263` catalogue and lane-fragment cases that
+  need the same invocation's completed ProductScenario aggregate and its
+  orchestrator-supplied startup capability, which a raw `cabal test` excluding the
+  matrix cannot provide (they run only inside a full
+  `jitml test jitml-integration --linux-cpu` lane, whose ProductScenario subtree
+  alone took 12.6 h, and were not re-run); and the live Tune daemon dispatch,
+  whose 180 s window was too tight on this loaded host for the registered 128-trial
+  MNIST sweep (none of its trials had finished in that run; a focused rerun
+  finished 81 of 128 in the window while the host was loaded by other work). With
+  a 900 s window in the lane copy it passed in **232.93 s**, so the committed
+  window in `test/integration/Main.hs` is now 600 s, like the `StartTraining` and
+  `StartRLRun` cases (the AlphaZero case keeps 180 s and PPO convergence 7,200 s).
+  Re-run with the committed 600 s window on a quieter host, the Tune case passed
+  in **152.62 s** and the AlphaZero case in 4.51 s, so the 180 s failure was host
+  load, not a functional defect.
+- The complete orchestrated integration lane on the final tree (fresh cluster, capped
+  container) passed **197 / 198** cases, including the admitted inventory, all 55 rows,
+  the four aggregate cases, the eleven catalogue and lane-fragment cases, the
+  8-cell `WorkflowMatrix` (5,017 s), the daemon cases, and PPO convergence; the one
+  failure is the Phase `276` aggregate case, which fails while the Apple journal is
+  stale. The live e2e lane built on it is recorded in Phase `289`.
+- The remaining stanzas also passed on the final tree in the `linux-cpu` container,
+  with their hours-long `Live` cases excluded because the integration live pass above
+  covers those paths: `jitml-rl-canonicals` **47 / 47**, `jitml-hyperparameter`
+  **26 / 26**, `jitml-backends` (`linux-cpu` lane) **37 / 37**, and
+  `jitml-daemon-lifecycle` **49 / 49**; `jitml-sl-canonicals` passed its **32**
+  non-live cases and its four `Live` cases were not run (without a cluster they fail
+  by design, and with one they retrain all eleven SL rows, hours on this host).
+  The first live e2e attempt is recorded in Phase `289`.
 
 ### Remaining Work
 
-- Re-run the CPU and Apple Silicon scenarios after the focused
-  exact-admitted-byte supervised checks and Store-admitted substitution
-  controls. The CUDA scenario and its issued journal passed; the other two
-  lanes and aggregate still need fresh evidence.
-- **Retire the vacuous bars.** Three rows are unfalsifiable or near it against
-  their own environments in the retained aggregate: `PPO/key-door-grid` and
-  `A2C/key-door-grid` used bars of `-2.8` and `-3.3`, while `TRPO/cartpole`
-  used `185` against a literature target of `475`. The worktree now declares
-  `0.5` for both key-door rows and `400` for TRPO/cartpole, and CUDA's focused
-  PPO experiment cleared `0.5` with a `1.43` median. These new constants and
-  the trainer change still need the phase validation commands and new real
-  lane evidence. The retained `A2C/key-door-grid` measurements were `1.43`
-  in all lanes; `TRPO/cartpole` reported `500`, `500`, and `188` on
-  `linux-cpu`, `linux-cuda`, and `apple-silicon` respectively, so Apple needs
-  fresh passing TRPO training before this phase can close.
-- Re-run the affected ProductRows on real CPU and Apple Silicon hardware,
-  reissue those immutable lane journals, and regenerate the pinned Phase `276`
-  aggregate after the bar and trainer changes. Existing admitted manifest
-  hashes and completion bytes cannot be relabelled under new thresholds. This
-  host is `x86_64` and exposes an NVIDIA device; access to an Apple Silicon
-  execution context is pending.
-- Pass the phase's three Validation commands after the remaining implementation
-  and evidence work is complete.
+- **`apple-silicon` lane journal re-issue (Mac host only).** The retained Apple
+  journal (SHA-256 `1496c863…`) carries the pre-tightening contract digests for
+  `PPO/key-door-grid`, `A2C/key-door-grid`, and `TRPO/cartpole`, and its
+  `TRPO/cartpole` median is **188** against the new **400** bar. Apple training is
+  deterministic within a substrate, so the same source is expected to reproduce
+  that result: after `./bootstrap/apple-silicon.sh up` and staging the twelve
+  datasets with `jitml internal upload-dataset`, run the three changed rows singly
+  first (`jitml internal train-and-publish-product-rows --apple-silicon --row <id>`)
+  before spending a full lane. The Apple device MLP kernels are aligned with the
+  Linux lanes (glibc `tanhf`/`expm1f` port, Phase `271`), but host-side `Double`
+  math (simulator physics, softmax/log-prob, final-evaluation forward tanh) uses
+  the platform libm, and `TRPO/cartpole` evaluates one deterministic trajectory
+  from the exact-zero start, so a first-divergence trace between a Linux and an
+  Apple run of that row is the diagnostic that separates a libm effect from a
+  Metal defect. Issue the journal with the focused route
+  `jitml test jitml-integration --apple-silicon --test-options='-p "Phase 261 ProductRow contract-driven integration matrix"'`;
+  `bootstrap/apple-silicon.sh test` fail-fasts at the red `jitml-unit` stanza.
+  Then retain and pin the Apple journal the same way as the other lanes. While the
+  Apple cluster is up, also run
+  `jitml test jitml-integration --apple-silicon --test-options='-p Live'` once: it
+  executes the Apple host-forwarding observers of Sprint `282.1`, whose Apple half
+  is compile-only on Linux, and its outcome is recorded in Phase `282`.
+- **Exit Definition item 26 residue (owner decision).** Supervised bars that were
+  set to be cleared by a measured result (for example `tiny-imagenet-resnet50`
+  `0.008`, `cifar10-resnet20`, `cifar10-vit`, and California Housing's
+  standardized RMSE `<= 1.0`, which a predict-the-mean model meets), the generic
+  metric literals duplicated in `convergenceBarForMetric`, and the generic RL
+  fallback that cannot identify its cohort remain open. Replacing them with
+  independently reviewed external anchors changes contract digests, so all three
+  lane journals (about 6.2 h, 12.6 h, and 30 h) would be re-issued once afterwards;
+  the owner decides whether this sprint closes on the current bars or waits for
+  that review.
+- **Regenerate the aggregate and close, in this order.** Land every `src/` and
+  `test/` edit first, because each validation record binds the source digest of
+  `app/`, `gen/`, `src/`, and `test/`, and a record taken against an older tree is
+  judged `Stale`: pin the Apple journal in `ProductAggregation.hs` and delete the
+  `ExternalContext "Apple Silicon execution context"` obligation in
+  `PhaseStatus.hs`. Then regenerate `attestations/product-aggregate.json` from
+  `productAggregationBytes` (`loadProductAggregation`; no committed generator
+  exists) and pass the three Validation commands on that tree: the nine
+  `Journal-derived product aggregation (Phase 276)` cases are the only expected
+  `jitml-unit` failures today and turn green once all three journals admit. Copy
+  the `jitml-unit` record from `.build/runtime/validation/` into
+  `attestations/validation/`. Only documentation and attestation files change
+  afterwards: set this phase's headers to the status `jitml docs status` derives,
+  update the tallies in `README.md`, `00-overview.md`, `system-components.md`, and
+  `development_plan_standards.md` (grep `Done / `), and promote Phase `280`.
 
 ## Documentation Requirements
 

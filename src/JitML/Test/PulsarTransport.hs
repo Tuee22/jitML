@@ -6,9 +6,9 @@ module JitML.Test.PulsarTransport
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (async, cancel, waitCatch)
+import Control.Concurrent.Async (AsyncCancelled (..), async, cancel, waitCatch)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, bracket)
+import Control.Exception (SomeException, bracket, fromException)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString (ByteString)
@@ -37,6 +37,7 @@ import JitML.Coordinator.Topology
   , topicFor
   , topicName
   )
+import JitML.Plan.Plan (PlanId, Validation (..), planIdFromCanonicalText)
 import JitML.Service.Capabilities
   ( ConsumerFailure (..)
   , ConsumerSessionEvent (..)
@@ -110,8 +111,11 @@ import JitML.Sub.Outcome
   , processFailureWorkingDirectory
   )
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Subprocess (Subprocess (..))
+import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate (Substrate (..))
+import JitML.Test.LivePulsarTransport (livePulsarTransport, liveSubprocessTransport)
+import JitML.Test.LiveWorkflow qualified as LiveWorkflow
+import JitML.Test.LiveWorkflowEstablishment (completedMilestones, journalMilestones)
 
 pulsarTransportTests :: TestTree
 pulsarTransportTests =
@@ -784,6 +788,279 @@ pulsarTransportTests =
                   requests <- withinFixtureTimeout (takeMVar requestsObserved)
                   length requests @?= 1
                   doesFileExist publishMarker >>= (@?= False)
+    , testCase
+        "harness transport creates the reply cursor before the first publish and deletes it after the consumer stops"
+        $ withWorkflowFixture Owned
+        $ \topic event _fixtureSubscription ->
+          withReplySubscription topic "harness-cursor-order" $ \subscription ->
+            withSystemTempDirectory "jitml-harness-cursor-order" $ \directory -> do
+              let paths = harnessPaths directory
+              withFakeNode (liveWorkflowBrokerScript validWorkflowPayload paths) $ \nodeSettings ->
+                withAdminResponseEffects
+                  [ (httpNoContent, harnessCreateCursor paths)
+                  , (httpNoContent, harnessAppend paths "delete")
+                  ]
+                  $ \adminEndpoint requestsObserved -> do
+                    let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                    result <-
+                      withinFixtureTimeout $
+                        harnessProtocolWorkflow
+                          settings
+                          topic
+                          event
+                          subscription
+                    completed <- expectHarnessCompleted result
+                    -- The broker's own order: CREATE, then the first publish
+                    -- (which finds the cursor), then the delivery, then DELETE.
+                    events <- Text.lines <$> Text.IO.readFile (harnessEventLog paths)
+                    events @?= ["create", "publish-with-cursor", "delivery", "delete"]
+                    requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                    requestMethods requests @?= ["PUT", "DELETE"]
+                    -- CREATE and DELETE name the very subscription the consumer
+                    -- attached to, and the DELETE is the forced owned cleanup.
+                    let resource =
+                          "/admin/v2/persistent/public/default/workflow.status.linux-cpu/subscription/harness-cursor-order"
+                    case fmap Text.Encoding.decodeUtf8 requests of
+                      [createRequest, deleteRequest] -> do
+                        assertBool
+                          ("CREATE did not target the subscription resource: " <> Text.unpack createRequest)
+                          (("PUT " <> resource <> " ") `Text.isPrefixOf` createRequest)
+                        assertBool
+                          ("DELETE was not the forced cleanup of the same resource: " <> Text.unpack deleteRequest)
+                          (("DELETE " <> resource <> "?force=true ") `Text.isPrefixOf` deleteRequest)
+                      other -> assertFailure ("unexpected admin requests: " <> show other)
+                    consumerUrl <- Text.IO.readFile (harnessConsumerUrl paths)
+                    assertBool
+                      ("the consumer did not attach to the established subscription: " <> Text.unpack consumerUrl)
+                      ( "/consumer/persistent/public/default/workflow.status.linux-cpu/harness-cursor-order?"
+                          `Text.isInfixOf` consumerUrl
+                      )
+                    -- The interpreter's own order agrees.
+                    journalMilestones (LiveWorkflow.completedRunJournal completed)
+                      @?= completedMilestones
+    , testCase "harness transport does not publish when the cursor CREATE is refused" $
+        withWorkflowFixture Owned $ \topic event _fixtureSubscription ->
+          withReplySubscription topic "harness-cursor-refused" $ \subscription ->
+            withSystemTempDirectory "jitml-harness-cursor-refused" $ \directory -> do
+              let paths = harnessPaths directory
+                  nodeInvoked = directory </> "node-invoked"
+              withFakeNode (publisherInvocationMarkerScript nodeInvoked) $ \nodeSettings ->
+                withAdminResponses [httpInternalError] $ \adminEndpoint requestsObserved -> do
+                  let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                  result <-
+                    withinFixtureTimeout $
+                      harnessProtocolWorkflow settings topic event subscription
+                  failure <- expectHarnessFailure result
+                  case LiveWorkflow.liveFailurePrimary failure of
+                    Just (LiveWorkflow.LiveEstablishFailed (SETransient detail)) ->
+                      assertBool
+                        "the refused CREATE status was lost"
+                        ("500" `Text.isInfixOf` detail)
+                    other -> assertFailure ("unexpected primary failure: " <> show other)
+                  LiveWorkflow.liveFailureCompletion failure @?= Nothing
+                  journalMilestones (LiveWorkflow.liveFailureJournal failure)
+                    @?= [ "placement-acquired"
+                        , "source-establishment-failed"
+                        , "diagnostics"
+                        , "placement-released"
+                        ]
+                  -- Neither a publisher nor a consumer process ever started,
+                  -- and there is no cursor to DELETE.
+                  doesFileExist nodeInvoked >>= (@?= False)
+                  doesFileExist (harnessEventLog paths) >>= (@?= False)
+                  requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                  length requests @?= 1
+    , testCase "harness transport refuses a borrowed source before any broker call" $
+        withWorkflowFixture Owned $ \topic event _fixtureSubscription ->
+          case mkSubscription topic "harness-borrowed" FromLatest Borrowed of
+            Left err -> assertFailure ("failed to build borrowed subscription: " <> show err)
+            Right borrowed -> do
+              -- testSettings points at unresolvable hosts: any attempted broker
+              -- call would surface as a transient transport failure instead of
+              -- the typed refusal asserted here.
+              result <-
+                withinFixtureTimeout $
+                  harnessProtocolWorkflow testSettings topic event borrowed
+              failure <- expectHarnessFailure result
+              LiveWorkflow.liveFailurePrimary failure
+                @?= Just
+                  ( LiveWorkflow.LiveEstablishFailed
+                      (SEConflict "reply cursor subscription must be Owned")
+                  )
+    , testCase
+        "harness transport refuses a typed executable on the protocol transport before any broker call"
+        $ withWorkflowFixture Owned
+        $ \_topic _event subscription -> do
+          planId <- harnessPlan
+          handle <- expectHarnessRight (LiveWorkflow.mkHostRunHandle planId "harness-executable-refused")
+          let command = LiveWorkflow.ExecutableCommand (subprocess "/usr/bin/true" [])
+          result <-
+            withinFixtureTimeout $
+              LiveWorkflow.runLiveWorkflow
+                (harnessWorkflow planId command (LiveWorkflow.pulsarEventSource subscription))
+                (livePulsarTransport testSettings)
+                (harnessBackend (LiveWorkflow.HostRun handle) LiveWorkflow.ObserveIndependentWorkload)
+          failure <- expectHarnessFailure result
+          case LiveWorkflow.liveFailurePrimary failure of
+            Just (LiveWorkflow.LiveEstablishFailed (SETransient detail)) ->
+              assertBool
+                "the typed-executable refusal was lost"
+                ("cannot execute typed command" `Text.isInfixOf` detail)
+            other -> assertFailure ("unexpected primary failure: " <> show other)
+    , testCase "harness transport retains a failed cursor DELETE and withholds completion" $
+        withWorkflowFixture Owned $ \topic event _fixtureSubscription ->
+          withReplySubscription topic "harness-cursor-delete-failure" $ \subscription ->
+            withSystemTempDirectory "jitml-harness-cursor-delete-failure" $ \directory -> do
+              let paths = harnessPaths directory
+              withFakeNode (liveWorkflowBrokerScript validWorkflowPayload paths) $ \nodeSettings ->
+                withAdminResponseEffects
+                  [ (httpNoContent, harnessCreateCursor paths)
+                  , (httpInternalError, harnessAppend paths "delete-refused")
+                  ]
+                  $ \adminEndpoint requestsObserved -> do
+                    let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                    result <-
+                      withinFixtureTimeout $
+                        harnessProtocolWorkflow settings topic event subscription
+                    failure <- expectHarnessFailure result
+                    LiveWorkflow.liveFailurePrimary failure @?= Nothing
+                    LiveWorkflow.liveFailureCompletion failure
+                      @?= Just (LiveWorkflow.RequestResponseCompleted, ())
+                    case LiveWorkflow.liveFailureCleanupIssues failure of
+                      [LiveWorkflow.CleanupIssue detail] -> do
+                        assertContains "cleanup status" "unexpected HTTP status" detail
+                        assertContains "cleanup response" "500" detail
+                      issues -> assertFailure ("unexpected cleanup issues: " <> show issues)
+                    -- The refused DELETE is never journalled as a release.
+                    journalMilestones (LiveWorkflow.liveFailureJournal failure)
+                      @?= [ "placement-acquired"
+                          , "source-established"
+                          , "publication-started"
+                          , "published"
+                          , "evidence-completed"
+                          , "diagnostics"
+                          , "placement-released"
+                          ]
+                    events <- Text.lines <$> Text.IO.readFile (harnessEventLog paths)
+                    events @?= ["create", "publish-with-cursor", "delivery", "delete-refused"]
+                    requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                    length requests @?= 2
+    , testCase "harness transport releases the cursor when a cancellation races its CREATE" $
+        withWorkflowFixture Owned $ \topic event _fixtureSubscription ->
+          withReplySubscription topic "harness-cursor-cancelled" $ \subscription ->
+            withSystemTempDirectory "jitml-harness-cursor-cancelled" $ \directory -> do
+              let paths = harnessPaths directory
+              createReceived <- newEmptyMVar
+              withFakeNode idleConsumerScript $ \nodeSettings ->
+                withAdminResponseEffects
+                  [
+                    ( httpNoContent
+                    , do
+                        -- The broker has the CREATE and is still creating the
+                        -- cursor when the cancellation arrives.
+                        putMVar createReceived ()
+                        threadDelay 300000
+                        harnessCreateCursor paths
+                    )
+                  , (httpNoContent, harnessAppend paths "delete")
+                  ]
+                  $ \adminEndpoint requestsObserved -> do
+                    let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                    runner <-
+                      async (harnessProtocolWorkflow settings topic event subscription)
+                    withinFixtureTimeout (takeMVar createReceived)
+                    -- The CREATE is uninterruptible, so this cancellation is
+                    -- delivered once the cursor token exists and the
+                    -- interpreter releases it exactly once.
+                    cancel runner
+                    cancelled <- withinFixtureTimeout (waitCatch runner)
+                    requireHarnessCancellation cancelled
+                    readHarnessEvents paths >>= (@?= ["create", "delete"])
+                    requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                    requestMethods requests @?= ["PUT", "DELETE"]
+    , testCase
+        "harness transport releases the subscription-only cursor when a cancellation races a typed executable's CREATE"
+        $ withWorkflowFixture Owned
+        $ \topic _event _fixtureSubscription ->
+          withReplySubscription topic "harness-executable-cancelled" $ \subscription ->
+            withSystemTempDirectory "jitml-harness-executable-cancelled" $ \directory -> do
+              let paths = harnessPaths directory
+              createReceived <- newEmptyMVar
+              withFakeNode idleConsumerScript $ \nodeSettings ->
+                withAdminResponseEffects
+                  [
+                    ( httpNoContent
+                    , do
+                        -- The broker has the CREATE and is still creating the
+                        -- cursor when the cancellation arrives.
+                        putMVar createReceived ()
+                        threadDelay 300000
+                        harnessCreateCursor paths
+                    )
+                  , (httpNoContent, harnessAppend paths "delete")
+                  ]
+                  $ \adminEndpoint requestsObserved -> do
+                    let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                    planId <- harnessPlan
+                    handle <- expectHarnessRight (LiveWorkflow.mkHostRunHandle planId "harness-executable-cancelled")
+                    runner <-
+                      async
+                        ( LiveWorkflow.runLiveWorkflow
+                            ( harnessWorkflow
+                                planId
+                                (LiveWorkflow.ExecutableCommand (harnessExecutable paths))
+                                (LiveWorkflow.pulsarEventSource subscription)
+                            )
+                            (liveSubprocessTransport settings)
+                            (harnessBackend (LiveWorkflow.HostRun handle) LiveWorkflow.ObserveIndependentWorkload)
+                        )
+                    withinFixtureTimeout (takeMVar createReceived)
+                    -- The subscription-only CREATE of a typed executable is
+                    -- uninterruptible exactly like the correlated one: this
+                    -- cancellation is delivered once the token exists, where
+                    -- the interpreter releases the cursor exactly once.
+                    cancel runner
+                    cancelled <- withinFixtureTimeout (waitCatch runner)
+                    requireHarnessCancellation cancelled
+                    -- The cursor was created, the executable never ran (it
+                    -- would have logged "execute"), and the cursor was deleted.
+                    readHarnessEvents paths >>= (@?= ["create", "delete"])
+                    requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                    requestMethods requests @?= ["PUT", "DELETE"]
+    , testCase "harness transport establishes a subscription-only cursor before a typed executable runs" $
+        withWorkflowFixture Owned $ \topic _event _fixtureSubscription ->
+          withReplySubscription topic "harness-executable-order" $ \subscription ->
+            withSystemTempDirectory "jitml-harness-executable-order" $ \directory -> do
+              let paths = harnessPaths directory
+                  executable = harnessExecutable paths
+              withFakeNode (liveWorkflowBrokerScript validWorkflowPayload paths) $ \nodeSettings ->
+                withAdminResponseEffects
+                  [ (httpNoContent, harnessCreateCursor paths)
+                  , (httpNoContent, harnessAppend paths "delete")
+                  ]
+                  $ \adminEndpoint requestsObserved -> do
+                    let settings = nodeSettings {pulsarAdminEndpoint = adminEndpoint}
+                    planId <- harnessPlan
+                    handle <- expectHarnessRight (LiveWorkflow.mkHostRunHandle planId "harness-executable")
+                    result <-
+                      withinFixtureTimeout $
+                        LiveWorkflow.runLiveWorkflow
+                          ( harnessWorkflow
+                              planId
+                              (LiveWorkflow.ExecutableCommand executable)
+                              (LiveWorkflow.pulsarEventSource subscription)
+                          )
+                          (liveSubprocessTransport settings)
+                          (harnessBackend (LiveWorkflow.HostRun handle) LiveWorkflow.ObserveIndependentWorkload)
+                    completed <- expectHarnessCompleted result
+                    -- CREATE precedes the executable, which has no request
+                    -- topic and no producer of its own.
+                    events <- Text.lines <$> Text.IO.readFile (harnessEventLog paths)
+                    events @?= ["create", "execute", "delivery", "delete"]
+                    requests <- withinFixtureTimeout (takeMVar requestsObserved)
+                    requestMethods requests @?= ["PUT", "DELETE"]
+                    journalMilestones (LiveWorkflow.completedRunJournal completed)
+                      @?= completedMilestones
     , testCase "publisher failure retains the complete process outcome" $
         withWorkflowFixture Borrowed $ \topic event _subscription ->
           withFakeNode publisherFailureScript $ \settings -> do
@@ -1914,6 +2191,225 @@ replyCursorBrokerScript payload cursorPath messagePath eventLogPath =
     , "    ;;"
     , "esac"
     ]
+
+-- | The files the fake broker and fake admin API share for one harness run.
+data HarnessPaths = HarnessPaths
+  { harnessCursor :: FilePath
+  , harnessMessage :: FilePath
+  , harnessEventLog :: FilePath
+  , harnessConsumerUrl :: FilePath
+  }
+
+harnessPaths :: FilePath -> HarnessPaths
+harnessPaths directory =
+  HarnessPaths
+    { harnessCursor = directory </> "cursor-created"
+    , harnessMessage = directory </> "cursor-message"
+    , harnessEventLog = directory </> "cursor-events.log"
+    , harnessConsumerUrl = directory </> "consumer-url"
+    }
+
+harnessAppend :: HarnessPaths -> Text -> IO ()
+harnessAppend paths eventName =
+  Text.IO.appendFile (harnessEventLog paths) (eventName <> "\n")
+
+-- | The fake admin API's CREATE: the cursor now exists for later publishers.
+harnessCreateCursor :: HarnessPaths -> IO ()
+harnessCreateCursor paths = do
+  Text.IO.writeFile (harnessCursor paths) "created"
+  harnessAppend paths "create"
+
+-- | The broker-side event log of a harness run, oldest first.  A run that never
+-- reached the broker has no log yet, which reads as no events, so an assertion
+-- on the order fails with the actual (empty) sequence rather than an
+-- exception about a missing file.
+readHarnessEvents :: HarnessPaths -> IO [Text]
+readHarnessEvents paths = do
+  exists <- doesFileExist (harnessEventLog paths)
+  if exists
+    then Text.lines <$> Text.IO.readFile (harnessEventLog paths)
+    else pure []
+
+-- | The HTTP method of each admin request the fake admin API received.
+requestMethods :: [ByteString] -> [Text]
+requestMethods = fmap (Text.takeWhile (/= ' ') . Text.Encoding.decodeUtf8)
+
+-- | A typed executable that appends @execute@ to the broker event log and
+-- writes the message the fake consumer delivers: it is the publisher of a
+-- typed-executable workflow, and the log records whether it ever ran.
+harnessExecutable :: HarnessPaths -> Subprocess
+harnessExecutable paths =
+  subprocess
+    "/bin/sh"
+    [ "-c"
+    , "printf '%s\\n' 'execute' >> "
+        <> shellQuote (Text.pack (harnessEventLog paths))
+        <> "; printf '%s' 'published-by-executable' > "
+        <> shellQuote (Text.pack (harnessMessage paths))
+    ]
+
+-- | A cancelled harness run must end by rethrowing exactly 'AsyncCancelled',
+-- not a wrapped or converted exception and not a workflow result.
+requireHarnessCancellation :: Either SomeException HarnessResult -> Assertion
+requireHarnessCancellation outcome =
+  case outcome of
+    Left exception
+      | Just AsyncCancelled <- fromException exception -> pure ()
+      | otherwise ->
+          assertFailure ("cancellation changed identity: " <> show exception)
+    Right _result ->
+      assertFailure "cancellation produced a workflow result"
+
+-- | A fake node for @runLiveWorkflow@ over the harness transport.  The
+-- producer records whether the reply cursor already exists when it is invoked
+-- and keeps the published message; the consumer reports its socket open at once
+-- (as a real socket would), delivers only after a publication has landed, and
+-- then idles until the interpreter stops it.  The producer appends its event
+-- log line BEFORE the message becomes visible to the consumer: the consumer
+-- polls the message file from another process, so logging afterwards would let
+-- a delivery be logged ahead of the publication that caused it.
+liveWorkflowBrokerScript :: Text -> HarnessPaths -> Text
+liveWorkflowBrokerScript payload paths =
+  shellScript
+    [ "case \"$3\" in"
+    , "  */producer/*)"
+    , "    if [ -e " <> shellQuote (Text.pack (harnessCursor paths)) <> " ]; then"
+    , "      printf '%s\\n' 'publish-with-cursor' >> " <> shellQuote (Text.pack (harnessEventLog paths))
+    , "      cat > " <> shellQuote (Text.pack (harnessMessage paths))
+    , "    else"
+    , "      cat >/dev/null"
+    , "      printf '%s\\n' 'publish-without-cursor' >> "
+        <> shellQuote (Text.pack (harnessEventLog paths))
+    , "    fi"
+    , "    printf '%s' 'reply-publish-ack'"
+    , "    ;;"
+    , "  */consumer/*)"
+    , "    printf '%s' \"$3\" > " <> shellQuote (Text.pack (harnessConsumerUrl paths))
+    , emitFrame (Connected 1)
+    , "    waited=0"
+    , "    while [ ! -s " <> shellQuote (Text.pack (harnessMessage paths)) <> " ]; do"
+    , "      waited=$((waited + 1))"
+    , "      if [ \"$waited\" -gt 400 ]; then echo 'no publication reached the fake broker' >&2; exit 42; fi"
+    , "      sleep 0.05"
+    , "    done"
+    , "    printf '%s\\n' 'delivery' >> " <> shellQuote (Text.pack (harnessEventLog paths))
+    , emitFrame (Delivery receipt1 (Text.Encoding.encodeUtf8 payload) 0)
+    , readCommand "settlement" "settle"
+    , requireCommandKind "settlement" "ack"
+    , emitFrame (Settled receipt1 AckKind)
+    , "    IFS= read -r idle || true"
+    , "    ;;"
+    , "  *)"
+    , "    echo 'unexpected fake harness URL' >&2"
+    , "    exit 41"
+    , "    ;;"
+    , "esac"
+    ]
+
+-- | A fake node whose consumer opens its socket and then waits for the
+-- interpreter to stop it: no delivery ever arrives.
+idleConsumerScript :: Text
+idleConsumerScript =
+  shellScript
+    [ "case \"$3\" in"
+    , "  */consumer/*)"
+    , emitFrame (Connected 1)
+    , "    IFS= read -r idle || true"
+    , "    ;;"
+    , "  *)"
+    , "    echo 'unexpected fake idle URL' >&2"
+    , "    exit 41"
+    , "    ;;"
+    , "esac"
+    ]
+
+type HarnessResult =
+  Either
+    (LiveWorkflow.LiveRunFailure Text () Text Text)
+    (LiveWorkflow.CompletedRunEvidence Text () Text Text)
+
+-- | A request/reply protocol workflow over the real harness transport: the
+-- first delivery is the completed evidence.
+harnessProtocolWorkflow
+  :: PulsarWebSocketSettings
+  -> Topic WorkflowStatusMessage
+  -> WorkflowStatusMessage
+  -> Subscription WorkflowStatusMessage
+  -> IO HarnessResult
+harnessProtocolWorkflow settings topic event subscription = do
+  planId <- harnessPlan
+  handle <- expectHarnessRight (LiveWorkflow.mkRequestHandle planId "harness-request")
+  LiveWorkflow.runLiveWorkflow
+    ( harnessWorkflow
+        planId
+        (LiveWorkflow.ProtocolCommand topic event)
+        (LiveWorkflow.pulsarEventSource subscription)
+    )
+    (livePulsarTransport settings)
+    (harnessBackend (LiveWorkflow.RequestReply handle) LiveWorkflow.ResponseCompletesRequest)
+
+harnessWorkflow
+  :: PlanId
+  -> LiveWorkflow.LiveCommand command
+  -> LiveWorkflow.LiveEventSource command WorkflowStatusMessage
+  -> LiveWorkflow.LiveWorkflow command WorkflowStatusMessage Bool () Text Text
+harnessWorkflow planId command source =
+  LiveWorkflow.LiveWorkflow
+    { LiveWorkflow.liveWorkflowPlanId = planId
+    , LiveWorkflow.liveWorkflowCommand = command
+    , LiveWorkflow.liveWorkflowEventSource = source
+    , LiveWorkflow.liveWorkflowInitialProgress = False
+    , LiveWorkflow.liveWorkflowIngest = \_ _ -> Right True
+    , LiveWorkflow.liveWorkflowFinish = \seen ->
+        if seen then Success () else Failure "no evidence observed"
+    , LiveWorkflow.liveWorkflowRenderViolation = id
+    }
+
+harnessBackend
+  :: LiveWorkflow.Placement
+  -> LiveWorkflow.LiveCompletionMode
+  -> LiveWorkflow.LiveBackend Text
+harnessBackend placement completionMode =
+  LiveWorkflow.LiveBackend
+    { LiveWorkflow.liveAcquirePlacement = pure (Right placement)
+    , LiveWorkflow.liveCompletionMode = completionMode
+    , LiveWorkflow.liveObserveWorkload =
+        const (pure (LiveWorkflow.Succeeded "unused-harness-terminal"))
+    , LiveWorkflow.liveGatherDiagnostics =
+        const (pure (Right [LiveWorkflow.LiveDiagnostic "harness diagnostics"]))
+    , LiveWorkflow.liveReleasePlacement = const (pure [])
+    , LiveWorkflow.liveObservationAttempts = 1
+    , LiveWorkflow.liveObservationDelayMicros = 0
+    , LiveWorkflow.liveWorkflowTimeoutMicros = fixtureTimeoutMicroseconds
+    }
+
+harnessPlan :: IO PlanId
+harnessPlan =
+  case planIdFromCanonicalText "pulsar-transport-harness-plan" of
+    Success planId -> pure planId
+    Failure errors -> assertFailure ("invalid harness fixture plan: " <> show errors)
+
+expectHarnessRight :: (Show err) => Either err value -> IO value
+expectHarnessRight result =
+  case result of
+    Right value -> pure value
+    Left err -> assertFailure ("expected Right, got Left " <> show err)
+
+expectHarnessCompleted
+  :: HarnessResult
+  -> IO (LiveWorkflow.CompletedRunEvidence Text () Text Text)
+expectHarnessCompleted result =
+  case result of
+    Right completed -> pure completed
+    Left failure -> assertFailure ("expected a completed harness workflow, got " <> show failure)
+
+expectHarnessFailure
+  :: HarnessResult
+  -> IO (LiveWorkflow.LiveRunFailure Text () Text Text)
+expectHarnessFailure result =
+  case result of
+    Left failure -> pure failure
+    Right completed -> assertFailure ("expected a failed harness workflow, got " <> show completed)
 
 fatalProtocolScript :: Text
 fatalProtocolScript =

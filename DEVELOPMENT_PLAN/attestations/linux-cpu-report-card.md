@@ -17,6 +17,16 @@
 > M(b)/(d)). Phase `28` re-attests this lane for the row-complete product
 > matrix on `linux-cpu`.
 
+## Current Status
+
+This card records the 2026-08-12 Phase `263` fragment-issuance validation and
+older dated measurements. The Phase `261` lane journal committed beside it,
+`linux-cpu-product-lane-journal.json`, was replaced on 2026-09-30 by Phase `278`'s
+fresh **60 / 60** `linux-cpu` run under the tightened bars (SHA-256
+`438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff`). That run's
+per-row device witnesses are byte-identical to the superseded journal's, which are
+the only journal-derived content here.
+
 ## Topology Scope
 
 The HA/multi-worker measurements retained in this attestation are historical

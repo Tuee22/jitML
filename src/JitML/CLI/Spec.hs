@@ -400,7 +400,7 @@ lintCommand =
     "Run lint checks."
     "Runs source, docs, Haskell, chart, proto, PureScript, or aggregate lint checks."
     [ lintLeaf "files" "Run file hygiene checks."
-    , lintLeaf "docs" "Run generated documentation checks."
+    , lintLeaf "docs" "Run the documentation checks that docs check runs."
     , lintLeaf "proto" "Run protobuf schema lint checks."
     , lintLeaf "chart" "Run Helm chart shape checks."
     , lintLeaf "haskell" "Run Haskell lint configuration and primitive checks."
@@ -418,19 +418,25 @@ docsCommand =
   group
     "docs"
     "Check or generate tracked documentation."
-    "Generated-section reconciler commands."
+    "Documentation commands: check or regenerate generated sections, and print the evidence-derived phase status."
     [ leaf
         "check"
-        "Check generated docs."
-        "Fails if generated documentation has drifted."
+        "Check generated docs and plan status."
+        "Fails if generated documentation has drifted, a governed document breaks the documentation standards, or the plan's status headers, structure, or closure claims disagree with the evidence-derived status."
         []
-        [Example "jitml docs check" "Check generated documentation drift."]
+        [Example "jitml docs check" "Check generated documentation drift and plan status."]
     , leaf
         "generate"
         "Generate docs."
         "Updates tracked generated documentation."
         []
         [Example "jitml docs generate" "Regenerate tracked documentation."]
+    , leaf
+        "status"
+        "Print the evidence-derived phase status."
+        "Projects the phase status catalogue over the committed validation evidence and prints the sprint tally, the open chain, and every unmet obligation with its evidence pointer. Read-only; use docs check as the gate."
+        []
+        [Example "jitml docs status" "Print derived phase status and unmet obligations."]
     ]
 
 projectCommand :: CommandSpec
@@ -707,7 +713,7 @@ testStanzaCommand stanzaName =
   liveDescription =
     if stanzaName == "jitml-e2e"
       then
-        " `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge."
+        " `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge; its integration producer always runs as the standing invocation, so `--test-options` reaches only the e2e stanza."
       else ""
   liveOptions =
     [ flag "live" Nothing False "Run the live Playwright matrix after selecting the live substrate."

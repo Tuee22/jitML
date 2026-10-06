@@ -1,17 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Docs.Check
-  ( DocsDrift (..)
+  ( DocsCheckEnvironment (..)
+  , DocsDrift (..)
+  , catalogueProblemDrifts
   , checkDocs
+  , checkDocsWith
   , checkDocumentClosureClaimsText
   , checkDocumentMetadataText
   , checkRootDocMetadataText
+  , closureStatusDrifts
   , docNameConforms
   , docsCategoryAllowed
   , docsDriftRemedy
+  , phaseCoverageDrifts
   , phaseLinkTargets
+  , productionDocsEnvironment
   , renderDocsDrift
   , replaceGeneratedSection
+  , statusProjectionDrifts
   )
 where
 
@@ -39,6 +46,30 @@ import JitML.Lint.Docs
   , scanClosureClaims
   )
 import JitML.Product.PhaseStatus qualified as PhaseStatus
+import JitML.Product.PlanDoc
+  ( PlanIssue (..)
+  , closureStatusLengthIssue
+  , closureStatusLineCap
+  , planDocumentIssues
+  , unregisteredPhaseDocuments
+  )
+import JitML.Product.StatusEvidence
+  ( ClosureVerdict
+  , PhaseEntry (..)
+  , SprintEntry (..)
+  , SprintProjection (..)
+  , StatusReport
+  , closureVerdictSummary
+  , reportProjections
+  , reportVerdict
+  )
+import JitML.Product.StatusLoader
+  ( listCommittedValidationFilesIn
+  , loadProductStatusReport
+  , underRoot
+  , unexpectedValidationFiles
+  )
+import JitML.Product.ValidationRecord (committedValidationDirectory)
 
 data DocsDrift = DocsDrift
   { driftPath :: FilePath
@@ -47,27 +78,77 @@ data DocsDrift = DocsDrift
   }
   deriving stock (Eq, Show)
 
+-- | Everything one @docs check@ pass reads that is not compiled into the binary:
+-- the repository root, the Closure Status length cap, and how the evidence
+-- projection is obtained. The production pass is 'productionDocsEnvironment';
+-- a test supplies a fixture tree, a cap, and where a case needs it a fixed
+-- report, so the whole composed check runs without touching the working
+-- directory.
+data DocsCheckEnvironment = DocsCheckEnvironment
+  { docsRoot :: FilePath
+  -- ^ every governed file is read below this directory; drift paths stay
+  -- relative to it
+  , docsClosureStatusLineCap :: Maybe Int
+  -- ^ the cap on the plan README's Closure Status section, if it is enforced
+  , docsCatalogueProblems :: [Text]
+  -- ^ the status catalogue's own structural problems, each reported as a drift
+  , docsStatusReport :: IO StatusReport
+  -- ^ the projection every status and closure check consumes
+  }
+
+-- | The production pass: the working directory is the repository root, the cap
+-- is the one constant in "JitML.Product.PlanDoc", the catalogue problems are those
+-- of the real catalogue, and the projection is read from the evidence committed in
+-- that tree.
+productionDocsEnvironment :: DocsCheckEnvironment
+productionDocsEnvironment =
+  DocsCheckEnvironment
+    { docsRoot = "."
+    , docsClosureStatusLineCap = closureStatusLineCap
+    , docsCatalogueProblems = PhaseStatus.validateProductStatusCatalogue
+    , docsStatusReport = loadProductStatusReport
+    }
+
 checkDocs :: IO [DocsDrift]
-checkDocs = do
-  sectionDrifts <- concat <$> traverse checkGeneratedSection generatedSectionRules
-  pathDrifts <- concat <$> traverse checkTrackedGeneratedPath trackingGeneratedPaths
-  governedPaths <- governedMarkdownPaths
-  metadataDrifts <- concat <$> traverse checkDocumentMetadata governedPaths
-  closureClaimDrifts <- concat <$> traverse checkDocumentClosureClaims governedPaths
-  phaseLinkDrifts <- concat <$> traverse checkDocumentPhaseLinks governedPaths
-  orphanDrifts <- checkOrphanedGeneratedTemplates
-  taxonomyDrifts <- checkDocumentsTaxonomy
-  namingDrifts <- checkDocumentsNaming
+checkDocs = checkDocsWith productionDocsEnvironment
+
+-- | The composed check. The status projection is read once; the closure-claim
+-- scan and the phase-document comparison consume the same report.
+checkDocsWith :: DocsCheckEnvironment -> IO [DocsDrift]
+checkDocsWith environment = do
+  sectionDrifts <- concat <$> traverse (checkGeneratedSection root) generatedSectionRules
+  pathDrifts <- concat <$> traverse (checkTrackedGeneratedPath root) trackingGeneratedPaths
+  governedPaths <- governedMarkdownPaths root
+  metadataDrifts <- concat <$> traverse (checkDocumentMetadata root) governedPaths
+  report <- docsStatusReport environment
+  closureClaimDrifts <-
+    concat <$> traverse (checkDocumentClosureClaims root (reportVerdict report)) governedPaths
+  let catalogueDrifts = catalogueProblemDrifts (docsCatalogueProblems environment)
+  projectionDrifts <- checkStatusProjection root report
+  coverageDrifts <- checkPhaseDocumentCoverage root
+  validationFileDrifts <- checkValidationDirectory root
+  thinStatusDrifts <- checkClosureStatusThin root (docsClosureStatusLineCap environment)
+  phaseLinkDrifts <- concat <$> traverse (checkDocumentPhaseLinks root) governedPaths
+  orphanDrifts <- checkOrphanedGeneratedTemplates root
+  taxonomyDrifts <- checkDocumentsTaxonomy root
+  namingDrifts <- checkDocumentsNaming root
   pure
     ( sectionDrifts
         <> pathDrifts
         <> metadataDrifts
         <> closureClaimDrifts
+        <> catalogueDrifts
+        <> projectionDrifts
+        <> coverageDrifts
+        <> validationFileDrifts
+        <> thinStatusDrifts
         <> phaseLinkDrifts
         <> orphanDrifts
         <> taxonomyDrifts
         <> namingDrifts
     )
+ where
+  root = docsRoot environment
 
 renderDocsDrift :: DocsDrift -> Text
 renderDocsDrift drift =
@@ -86,16 +167,26 @@ docsDriftRemedy drift
       "remove the current product-closure claim, or mark dated historical evidence explicitly"
   | "phase-link." `Text.isPrefixOf` driftKey drift =
       "repoint the citation at an existing phase document; a renumber moves every target"
+  | "status-projection." `Text.isPrefixOf` driftKey drift =
+      "make the sprint header say the status the evidence derives, or land or refresh the evidence the projection reads (`jitml docs status` lists every unmet obligation)"
+  | "plan-structure." `Text.isPrefixOf` driftKey drift =
+      "repair the sprint block: Status, Blocked by, Remaining Work, and Validation follow development-plan standards rules C, H, and M"
+  | "validation-record." `Text.isPrefixOf` driftKey drift =
+      "rename or delete the file: the validation directory holds exactly one `<gate>.<substrate>.json` record per gate and substrate"
+  | "status-catalogue." `Text.isPrefixOf` driftKey drift =
+      "repair the status catalogue in src/JitML/Product/PhaseStatus.hs; legacy attestation is frozen and shrink-only"
+  | "closure-status." `Text.isPrefixOf` driftKey drift =
+      "move dated narrative below the thin Closure Status section into the historical diary"
   | "orphan-template." `Text.isPrefixOf` driftKey drift =
       "delete the stale generated template, or restore the registry entry that produced it"
   | otherwise = "run `jitml docs generate` to update"
 
-checkGeneratedSection :: GeneratedSectionRule -> IO [DocsDrift]
-checkGeneratedSection rule = do
-  exists <- doesFileExist (rulePath rule)
+checkGeneratedSection :: FilePath -> GeneratedSectionRule -> IO [DocsDrift]
+checkGeneratedSection root rule = do
+  exists <- doesFileExist (underRoot root (rulePath rule))
   if exists
     then do
-      current <- Text.IO.readFile (rulePath rule)
+      current <- Text.IO.readFile (underRoot root (rulePath rule))
       case replaceGeneratedSection rule current of
         Left reason -> pure [sectionDrift rule reason]
         Right expected
@@ -103,22 +194,23 @@ checkGeneratedSection rule = do
           | otherwise -> pure [sectionDrift rule "generated section drift"]
     else pure [sectionDrift rule "file is missing"]
 
-checkTrackedGeneratedPath :: TrackedGeneratedPath -> IO [DocsDrift]
-checkTrackedGeneratedPath tracked = do
-  exists <- doesFileExist (trackedPath tracked)
+checkTrackedGeneratedPath :: FilePath -> TrackedGeneratedPath -> IO [DocsDrift]
+checkTrackedGeneratedPath root tracked = do
+  exists <- doesFileExist (underRoot root (trackedPath tracked))
   if exists
     then do
-      current <- Text.IO.readFile (trackedPath tracked)
+      current <- Text.IO.readFile (underRoot root (trackedPath tracked))
       if current == ensureFinalNewline (trackedRendered tracked)
         then pure []
         else pure [pathDrift tracked "tracked-generated file drift"]
     else pure [pathDrift tracked "tracked-generated file is missing"]
 
-governedMarkdownPaths :: IO [FilePath]
-governedMarkdownPaths = do
-  rootDocs <- concat <$> traverse markdownFileIfPresent rootDocNames
-  planDocs <- markdownFilesUnder "DEVELOPMENT_PLAN"
-  governedDocs <- markdownFilesUnder "documents"
+-- | The governed Markdown files below @root@, as paths relative to it.
+governedMarkdownPaths :: FilePath -> IO [FilePath]
+governedMarkdownPaths root = do
+  rootDocs <- concat <$> traverse (markdownFileIfPresent root) rootDocNames
+  planDocs <- markdownFilesUnder root "DEVELOPMENT_PLAN"
+  governedDocs <- markdownFilesUnder root "documents"
   pure (sort (rootDocs <> planDocs <> governedDocs))
 
 rootDocNames :: [FilePath]
@@ -127,20 +219,20 @@ rootDocNames = ["README.md", "AGENTS.md", "CLAUDE.md"]
 isRootDoc :: FilePath -> Bool
 isRootDoc path = path `elem` rootDocNames
 
-markdownFileIfPresent :: FilePath -> IO [FilePath]
-markdownFileIfPresent path = do
-  exists <- doesFileExist path
+markdownFileIfPresent :: FilePath -> FilePath -> IO [FilePath]
+markdownFileIfPresent root path = do
+  exists <- doesFileExist (underRoot root path)
   pure [path | exists, takeExtension path == ".md"]
 
-markdownFilesUnder :: FilePath -> IO [FilePath]
-markdownFilesUnder path = do
-  fileExists <- doesFileExist path
-  dirExists <- doesDirectoryExist path
+markdownFilesUnder :: FilePath -> FilePath -> IO [FilePath]
+markdownFilesUnder root path = do
+  fileExists <- doesFileExist (underRoot root path)
+  dirExists <- doesDirectoryExist (underRoot root path)
   case (fileExists, dirExists) of
-    (True, _) -> markdownFileIfPresent path
+    (True, _) -> markdownFileIfPresent root path
     (_, True) -> do
-      entries <- sort <$> listDirectory path
-      concat <$> traverse (markdownFilesUnder . (path </>)) entries
+      entries <- sort <$> listDirectory (underRoot root path)
+      concat <$> traverse (markdownFilesUnder root . (path </>)) entries
     _ -> pure []
 
 -- | A generated chart template with no registry entry behind it is stale.
@@ -151,13 +243,13 @@ markdownFilesUnder path = do
 -- disk. Helm would keep deploying it. Removing the Harbor routes left exactly
 -- four such orphans. The generated prefixes are enumerated rather than globbed
 -- so an unrelated hand-written template is never mistaken for an orphan.
-checkOrphanedGeneratedTemplates :: IO [DocsDrift]
-checkOrphanedGeneratedTemplates = do
-  dirExists <- doesDirectoryExist templateDirectory
+checkOrphanedGeneratedTemplates :: FilePath -> IO [DocsDrift]
+checkOrphanedGeneratedTemplates root = do
+  dirExists <- doesDirectoryExist (underRoot root templateDirectory)
   if not dirExists
     then pure []
     else do
-      entries <- listDirectory templateDirectory
+      entries <- listDirectory (underRoot root templateDirectory)
       let tracked =
             Set.fromList (fmap trackedPath trackingGeneratedPaths)
           orphans =
@@ -192,14 +284,14 @@ orphanTemplateDrift path =
 -- renumber left a long tail of exactly those. Resolving each target against the
 -- citing document\'s own directory makes a renumber fail closed here instead of
 -- silently degrading the plan\'s cross-references.
-checkDocumentPhaseLinks :: FilePath -> IO [DocsDrift]
-checkDocumentPhaseLinks path = do
-  contents <- Text.IO.readFile path
+checkDocumentPhaseLinks :: FilePath -> FilePath -> IO [DocsDrift]
+checkDocumentPhaseLinks root path = do
+  contents <- Text.IO.readFile (underRoot root path)
   let base = takeDirectory path
   concat <$> traverse (resolve base) (phaseLinkTargets contents)
  where
   resolve base target = do
-    exists <- doesFileExist (base </> target)
+    exists <- doesFileExist (underRoot root (base </> target))
     pure [phaseLinkDrift path target | not exists]
 
 -- | The distinct @phase-N-slug.md@ link targets a markdown document cites.
@@ -250,14 +342,14 @@ phaseLinkDrift path target =
     , driftReason = "cited phase document does not exist: " <> Text.pack target
     }
 
-checkDocumentsTaxonomy :: IO [DocsDrift]
-checkDocumentsTaxonomy = do
-  dirExists <- doesDirectoryExist "documents"
+checkDocumentsTaxonomy :: FilePath -> IO [DocsDrift]
+checkDocumentsTaxonomy root = do
+  dirExists <- doesDirectoryExist (underRoot root "documents")
   if not dirExists
     then pure []
     else do
-      entries <- sort <$> listDirectory "documents"
-      subdirs <- filterM (doesDirectoryExist . ("documents" </>)) entries
+      entries <- sort <$> listDirectory (underRoot root "documents")
+      subdirs <- filterM (doesDirectoryExist . underRoot root . ("documents" </>)) entries
       pure
         [ metadataDrift
             ("documents" </> name)
@@ -270,9 +362,9 @@ checkDocumentsTaxonomy = do
 docsCategoryAllowed :: FilePath -> Bool
 docsCategoryAllowed name = name `elem` ["cli", "engineering"]
 
-checkDocumentsNaming :: IO [DocsDrift]
-checkDocumentsNaming = do
-  paths <- markdownFilesUnder "documents"
+checkDocumentsNaming :: FilePath -> IO [DocsDrift]
+checkDocumentsNaming root = do
+  paths <- markdownFilesUnder root "documents"
   pure
     [ metadataDrift
         path
@@ -291,21 +383,145 @@ docNameConforms name
   base = takeBaseName name
   conformingChar c = isAsciiLower c || isDigit c || c == '_'
 
-checkDocumentMetadata :: FilePath -> IO [DocsDrift]
-checkDocumentMetadata path =
-  metadataChecker path <$> Text.IO.readFile path
+checkDocumentMetadata :: FilePath -> FilePath -> IO [DocsDrift]
+checkDocumentMetadata root path =
+  metadataChecker path <$> Text.IO.readFile (underRoot root path)
  where
   metadataChecker
     | isRootDoc path = checkRootDocMetadataText
     | otherwise = checkDocumentMetadataText
 
-checkDocumentClosureClaims :: FilePath -> IO [DocsDrift]
-checkDocumentClosureClaims path =
-  checkDocumentClosureClaimsText PhaseStatus.allProductPhasesDone path <$> Text.IO.readFile path
+checkDocumentClosureClaims :: FilePath -> ClosureVerdict -> FilePath -> IO [DocsDrift]
+checkDocumentClosureClaims root verdict path =
+  checkDocumentClosureClaimsText verdict path <$> Text.IO.readFile (underRoot root path)
 
-checkDocumentClosureClaimsText :: Bool -> FilePath -> Text -> [DocsDrift]
-checkDocumentClosureClaimsText productPhasesDone path =
-  fmap closureClaimDrift . scanClosureClaims productPhasesDone path
+-- | Closure claims are allowed only when the evidence projection closes; a
+-- refused verdict rejects them whatever any status literal says.
+checkDocumentClosureClaimsText :: ClosureVerdict -> FilePath -> Text -> [DocsDrift]
+checkDocumentClosureClaimsText verdict path =
+  fmap (closureClaimDrift verdict) . scanClosureClaims verdict path
+
+-- | Compare every phase document with the status the evidence derives, and
+-- apply the plan-structure rules to each sprint block.
+checkStatusProjection :: FilePath -> StatusReport -> IO [DocsDrift]
+checkStatusProjection root report = do
+  documents <- traverse readPhaseDocument PhaseStatus.productStatusCatalogue
+  pure (statusProjectionDrifts report documents)
+ where
+  readPhaseDocument phase = do
+    let path = underRoot root (entryPhaseDocument phase)
+    exists <- doesFileExist path
+    content <- traverse Text.IO.readFile (if exists then Just path else Nothing)
+    pure (phase, content)
+
+-- | Every plan document from the first product phase on must be in the status
+-- catalogue: a phase dropped from the catalogue would leave every closure
+-- verdict while its document stayed in the plan.
+checkPhaseDocumentCoverage :: FilePath -> IO [DocsDrift]
+checkPhaseDocumentCoverage root = do
+  exists <- doesDirectoryExist (underRoot root planDirectory)
+  names <- if exists then sort <$> listDirectory (underRoot root planDirectory) else pure []
+  pure (phaseCoverageDrifts names)
+
+planDirectory :: FilePath
+planDirectory = "DEVELOPMENT_PLAN"
+
+-- | The pure core of 'checkPhaseDocumentCoverage' over the file names found in
+-- the plan directory.
+phaseCoverageDrifts :: [FilePath] -> [DocsDrift]
+phaseCoverageDrifts names =
+  [ DocsDrift
+      { driftPath = planDirectory </> name
+      , driftKey = issueKey issue
+      , driftReason = issueMessage issue
+      }
+  | (name, issue) <-
+      unregisteredPhaseDocuments
+        PhaseStatus.firstProductPhase
+        PhaseStatus.productPhaseNumbers
+        names
+  ]
+
+-- | A file in the committed validation directory that is not a record name is
+-- misplaced evidence: the projection would read it as absent.
+checkValidationDirectory :: FilePath -> IO [DocsDrift]
+checkValidationDirectory root = do
+  names <- listCommittedValidationFilesIn root
+  pure
+    [ DocsDrift
+        { driftPath = committedValidationDirectory </> name
+        , driftKey = "validation-record." <> Text.pack name
+        , driftReason =
+            "not a <gate>.<substrate>.json validation record name, so the status projection ignores it"
+        }
+    | name <- unexpectedValidationFiles names
+    ]
+
+-- | Each structural problem of the status catalogue as a drift against the file
+-- that holds the catalogue. The key is a stable slug of the problem's opening.
+catalogueProblemDrifts :: [Text] -> [DocsDrift]
+catalogueProblemDrifts problems =
+  [ DocsDrift
+      { driftPath = "src/JitML/Product/PhaseStatus.hs"
+      , driftKey = "status-catalogue." <> Text.take 60 (Text.map keyChar problem)
+      , driftReason = problem
+      }
+  | problem <- problems
+  ]
+ where
+  keyChar char
+    | isAsciiLower char || isDigit char = char
+    | otherwise = '-'
+
+-- | The pure core of 'checkStatusProjection': each catalogue phase paired with
+-- its document text, or 'Nothing' when the document is missing.
+statusProjectionDrifts :: StatusReport -> [(PhaseEntry, Maybe Text)] -> [DocsDrift]
+statusProjectionDrifts report =
+  concatMap phaseDrifts
+ where
+  phaseDrifts (phase, Nothing) =
+    [ DocsDrift
+        { driftPath = entryPhaseDocument phase
+        , driftKey = "status-projection." <> entrySprintId sprint
+        , driftReason = "the phase document for sprint " <> entrySprintId sprint <> " is missing"
+        }
+    | sprint <- take 1 (entrySprints phase)
+    ]
+  phaseDrifts (phase, Just content) =
+    fmap
+      (planIssueDrift (entryPhaseDocument phase))
+      (planDocumentIssues (projectionsOf phase) content)
+  projectionsOf phase =
+    [ projection
+    | projection <- reportProjections report
+    , projectionSprint projection `elem` fmap entrySprintId (entrySprints phase)
+    ]
+
+planIssueDrift :: FilePath -> PlanIssue -> DocsDrift
+planIssueDrift path issue =
+  DocsDrift
+    { driftPath = path
+    , driftKey = issueKey issue
+    , driftReason = issueMessage issue
+    }
+
+-- | The plan README's Closure Status section must stay thin once the cap in
+-- 'closureStatusLineCap' is set; while the cap is off nothing is read.
+checkClosureStatusThin :: FilePath -> Maybe Int -> IO [DocsDrift]
+checkClosureStatusThin root cap =
+  case cap of
+    Nothing -> pure []
+    Just _ -> do
+      let path = "DEVELOPMENT_PLAN" </> "README.md"
+      exists <- doesFileExist (underRoot root path)
+      if exists
+        then closureStatusDrifts cap path <$> Text.IO.readFile (underRoot root path)
+        else pure []
+
+-- | The pure core of 'checkClosureStatusThin' for a given cap and README text.
+closureStatusDrifts :: Maybe Int -> FilePath -> Text -> [DocsDrift]
+closureStatusDrifts cap path content =
+  fmap (planIssueDrift path) (closureStatusLengthIssue cap content)
 
 checkDocumentMetadataText :: FilePath -> Text -> [DocsDrift]
 checkDocumentMetadataText path content =
@@ -443,17 +659,25 @@ metadataDrift path key reason =
     , driftReason = reason
     }
 
-closureClaimDrift :: ClosureClaim -> DocsDrift
-closureClaimDrift claim =
+closureClaimDrift :: ClosureVerdict -> ClosureClaim -> DocsDrift
+closureClaimDrift verdict claim =
   DocsDrift
     { driftPath = closureClaimPath claim
     , driftKey = closureClaimKey claim
     , driftReason =
-        "product closure claim before Phases 220-287 are Done at line "
+        "product closure claim before Phases "
+          <> Text.pack (show first)
+          <> "-"
+          <> Text.pack (show final)
+          <> " are Done ("
+          <> closureVerdictSummary verdict
+          <> ") at line "
           <> Text.pack (show (closureClaimLineNumber claim))
           <> ": "
           <> closureClaimLine claim
     }
+ where
+  (first, final) = PhaseStatus.productPhaseRange
 
 parseGeneratedSectionsMetadata :: Text -> Either Text [Text]
 parseGeneratedSectionsMetadata value

@@ -88,13 +88,17 @@ import System.IO
   )
 import System.IO.Error (isDoesNotExistError)
 
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 browserEvidenceJournalWireVersion :: Word64
 browserEvidenceJournalWireVersion = 1
 
+-- | One browser row per registered ProductRow.  The denominator is the
+-- registry's own row count, not a literal, so it cannot drift from the rows the
+-- ProductScenario journal and the catalogue derived from it carry.
 browserEvidenceCanonicalRowCount :: Int
-browserEvidenceCanonicalRowCount = 55
+browserEvidenceCanonicalRowCount = ProductMatrix.productRowCount
 
 browserEvidenceJournalFormat :: Text
 browserEvidenceJournalFormat = "jitml-browser-result-journal"
@@ -481,7 +485,7 @@ writeInitialBrowserEvidenceJournalAtomic key path expectation =
     path
     expectation
     ( replicate
-        browserEvidenceCanonicalRowCount
+        (length (browserEvidenceExpectedRows expectation))
         ( BrowserEvidenceObservation
             BrowserNotRun
             "Playwright invocation did not produce a final row result"

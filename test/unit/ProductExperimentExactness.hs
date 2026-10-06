@@ -698,6 +698,9 @@ opaqueReadAccessorContracts =
       , "completedRunEvidence"
       , "completedRunDiagnostics"
       , "completedRunJournal"
+      , "establishedEventSourceView"
+      , "livePublishCommand"
+      , "liveReleaseEventSource"
       ]
     )
   ,
@@ -749,6 +752,31 @@ opaqueReadAccessorContracts =
       , "evidenceFinalWeightHash"
       , "evidenceUpdateCount"
       , "evidenceDatasetShaAtRead"
+      ]
+    )
+  ,
+    ( "src/JitML/Test/ModelEvidence/Internal.hs"
+    ,
+      [ "modelEvidenceRowId"
+      , "modelEvidencePlanId"
+      , "modelEvidenceLane"
+      , "modelEvidenceExperimentHash"
+      , "modelEvidenceManifestSha"
+      , "modelEvidenceContractDigest"
+      , "modelEvidenceRowClass"
+      , "modelEvidenceFamily"
+      , "modelEvidenceSeedEvidence"
+      , "modelEvidenceSeeds"
+      , "modelEvidenceSetLane"
+      , "modelEvidenceSetRows"
+      , "someModelEvidenceRowId"
+      , "seedEvidenceSeed"
+      , "seedEvidenceLearning"
+      , "seedEvidenceFinalQuality"
+      , "learningTelemetryBudgetKind"
+      , "learningTelemetryObservedUnits"
+      , "learningTelemetryUpdateCount"
+      , "finalQualityObservations"
       ]
     )
   ]

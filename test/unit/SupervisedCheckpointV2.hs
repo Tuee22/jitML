@@ -5,8 +5,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module SupervisedCheckpointV2
-  ( supervisedCheckpointV2Tests
+  ( Fixture (..)
+  , FixtureRow (..)
+  , admitCompletedFixture
+  , authoritativeSupervisedProjection
+  , californiaFixtureRow
+  , expectRight
   , main
+  , makeFixture
+  , makeFixtureForRowAndBytes
+  , makeFixtureWithFinalBytes
+  , makeTrainingCompletionFixture
+  , mnistFixtureRow
+  , substitutedSupervisedPublisherRuntime
+  , supervisedCheckpointV2Tests
+  , supervisedPublishRunFixture
   )
 where
 
@@ -2552,31 +2565,66 @@ makeFixtureWithMetricAndFinalBytes
   :: Double
   -> (Int -> LazyByteString.ByteString)
   -> IO (Either Text Fixture)
-makeFixtureWithMetricAndFinalBytes metric finalBytesFor = do
-  witnessResult <- DeviceWitnessFixture.fixtureDeviceExecutionWitness
-  pure (witnessResult >>= \witness -> makeFixtureWithFinalBytesFor witness metric finalBytesFor)
+makeFixtureWithMetricAndFinalBytes = makeFixtureForRowAndBytes mnistFixtureRow
 
-makeFixtureWithFinalBytesFor
-  :: DeviceWitness.DeviceExecutionWitness
+-- | Build a fixture for any canonical supervised row this module can describe.
+-- The reported completion metric and the physical final weight bytes are
+-- independent inputs, so a caller can pair an honest metric with substituted
+-- weights, or the reverse.
+makeFixtureForRowAndBytes
+  :: FixtureRow
+  -> Double
+  -> (Int -> LazyByteString.ByteString)
+  -> IO (Either Text Fixture)
+makeFixtureForRowAndBytes fixtureRow metric finalBytesFor = do
+  witnessResult <- DeviceWitnessFixture.fixtureDeviceExecutionWitness
+  pure
+    ( witnessResult
+        >>= \witness -> makeFixtureForRowWithWitness fixtureRow witness metric finalBytesFor
+    )
+
+-- | The canonical supervised row a fixture is built for: its ProductRow id, the
+-- trained graph's metadata, and the runtime program (transforms) it serves with.
+data FixtureRow = FixtureRow
+  { fixtureRowId :: Text
+  , fixtureRowGraphMetadata :: LayerGraphMetadata.LayerGraphMetadata
+  , fixtureRowRuntime :: Runtime.RawSupervisedRuntime
+  }
+
+mnistFixtureRow :: FixtureRow
+mnistFixtureRow = FixtureRow "mnist-shallow-mlp" fixtureGraphMetadata rawRuntime
+
+-- | The regression row: standardized eight-feature input, one destandardized
+-- output (mean 100, scale 5), and the graph-ordered flat weights of the 8-32-1
+-- MLP, whose final parameter is the single output bias.
+californiaFixtureRow :: FixtureRow
+californiaFixtureRow =
+  FixtureRow "california-housing-mlp" californiaFixtureGraphMetadata californiaRawRuntime
+
+makeFixtureForRowWithWitness
+  :: FixtureRow
+  -> DeviceWitness.DeviceExecutionWitness
   -> Double
   -> (Int -> LazyByteString.ByteString)
   -> Either Text Fixture
-makeFixtureWithFinalBytesFor fixtureWitness metricValue finalBytesFor = do
+makeFixtureForRowWithWitness fixtureRow fixtureWitness metricValue finalBytesFor = do
   row <-
     maybe
-      (Left "missing authoritative mnist-shallow-mlp ProductRow")
+      (Left ("missing authoritative " <> fixtureRowId fixtureRow <> " ProductRow"))
       Right
-      (find ((== "mnist-shallow-mlp") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+      (find ((== fixtureRowId fixtureRow) . ProductMatrix.rowId) ProductMatrix.allProductRows)
   problem <-
     maybe
-      (Left "missing authoritative mnist-shallow-mlp canonical problem")
+      (Left ("missing authoritative " <> fixtureRowId fixtureRow <> " canonical problem"))
       Right
-      (find ((== "mnist-shallow-mlp") . SL.problemName) SL.canonicalProblems)
+      (find ((== fixtureRowId fixtureRow) . SL.problemName) SL.canonicalProblems)
   projection <- authoritativeSupervisedProjection Substrate.LinuxCPU row
   optimizerUpdates <- supervisedProjectionOptimizerUpdates projection
   datasetSha <- Dataset.canonicalDatasetReadShaForProblem problem
   let planId = ProductMatrix.productProjectionPlanId projection
-      parameterCount = mnistFixtureParameterCount
+      parameterCount =
+        LayerGraphMetadata.layerGraphMetadataParameterCount
+          (fixtureRowGraphMetadata fixtureRow)
       initialBytes = WeightCodec.encodeJmw1 (replicate parameterCount 0.0)
       finalBytes = finalBytesFor parameterCount
       initialSha = WeightCodec.jmw1ContentSha initialBytes
@@ -2596,8 +2644,9 @@ makeFixtureWithFinalBytesFor fixtureWitness metricValue finalBytesFor = do
         , Runtime.rawRuntimePayloadDatasetSha256 = datasetSha
         , Runtime.rawRuntimePayloadInitialJmw1Sha256 = initialSha
         , Runtime.rawRuntimePayloadFinalJmw1Sha256 = finalSha
-        , Runtime.rawRuntimePayloadRuntime = rawRuntime
-        , Runtime.rawRuntimePayloadLayerGraphMetadata = Just fixtureGraphMetadata
+        , Runtime.rawRuntimePayloadRuntime = fixtureRowRuntime fixtureRow
+        , Runtime.rawRuntimePayloadLayerGraphMetadata =
+            Just (fixtureRowGraphMetadata fixtureRow)
         }
   metadata <- Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload
   completed <-
@@ -2619,7 +2668,7 @@ makeFixtureWithFinalBytesFor fixtureWitness metricValue finalBytesFor = do
           [parameterCount]
           (Checkpoint.blobKey experiment finalSha)
       base =
-        (Checkpoint.emptyManifest "mnist-shallow-mlp-complete" experiment [tensor])
+        (Checkpoint.emptyManifest (fixtureRowId fixtureRow <> "-complete") experiment [tensor])
           { Checkpoint.manifestModelFamily = Checkpoint.SupervisedModelFamily
           , Checkpoint.manifestArchitecture =
               Checkpoint.supervisedRuntimeArchitectureMetadata metadata
@@ -2726,18 +2775,21 @@ makeCaliforniaPayload = do
       , Runtime.rawRuntimePayloadDatasetSha256 = datasetSha
       , Runtime.rawRuntimePayloadInitialJmw1Sha256 = Text.replicate 64 "c"
       , Runtime.rawRuntimePayloadFinalJmw1Sha256 = Text.replicate 64 "d"
-      , Runtime.rawRuntimePayloadRuntime =
-          Runtime.RawSupervisedRuntime
-            { Runtime.rawSupervisedRuntimeTask =
-                Runtime.RawRegressionRuntimeTask 1
-            , Runtime.rawSupervisedRuntimeInputTransform =
-                Runtime.RawStandardizeInput (replicate 8 0.0) (replicate 8 1.0)
-            , Runtime.rawSupervisedRuntimeOutputTransform =
-                Runtime.RawDestandardizeOutput [100.0] [5.0]
-            }
+      , Runtime.rawRuntimePayloadRuntime = californiaRawRuntime
       , Runtime.rawRuntimePayloadLayerGraphMetadata =
           Just californiaFixtureGraphMetadata
       }
+
+californiaRawRuntime :: Runtime.RawSupervisedRuntime
+californiaRawRuntime =
+  Runtime.RawSupervisedRuntime
+    { Runtime.rawSupervisedRuntimeTask =
+        Runtime.RawRegressionRuntimeTask 1
+    , Runtime.rawSupervisedRuntimeInputTransform =
+        Runtime.RawStandardizeInput (replicate 8 0.0) (replicate 8 1.0)
+    , Runtime.rawSupervisedRuntimeOutputTransform =
+        Runtime.RawDestandardizeOutput [100.0] [5.0]
+    }
 
 authoritativeSupervisedPlanId
   :: Substrate.Substrate

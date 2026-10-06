@@ -5,9 +5,11 @@
 -- | The single resource-safe interpreter used by live workflow tests.
 --
 -- The protocol and evidence reducer stay pure.  This module owns only the IO
--- shell: it acquires a validated placement, waits for the typed subscription
--- to connect before publishing, settles every receipt through the persistent
--- consumer, and gathers diagnostics before releasing owned resources.
+-- shell: it acquires a validated placement, has the transport establish the
+-- typed event source (for a broker source, the durable cursor that will
+-- receive the reply) before anything is published, settles every receipt
+-- through the persistent consumer, and gathers diagnostics before releasing
+-- owned resources.
 -- Workload workflows join independently observed terminal success with the
 -- latest complete evidence; typed executable commands use successful process
 -- completion, while request/reply workflows treat their validated response as
@@ -18,6 +20,7 @@ module JitML.Test.LiveWorkflow
   , CompletedRunEvidence
   , CompletionJoin
   , CompletionJoinError (..)
+  , EstablishedEventSource
   , HostRunHandle
   , JobHandle
   , LiveBackend (..)
@@ -50,6 +53,8 @@ module JitML.Test.LiveWorkflow
   , completionJoinEvidence
   , completionJoinTerminal
   , emptyCompletionJoin
+  , establishedEventSource
+  , establishedEventSourceView
   , hostRunHandleKey
   , hostRunHandlePlanId
   , jobHandleName
@@ -60,6 +65,8 @@ module JitML.Test.LiveWorkflow
   , liveEventSourceName
   , liveEventSourceRender
   , liveEventSourceSubscription
+  , livePublishCommand
+  , liveReleaseEventSource
   , localEventSource
   , mkHostRunHandle
   , mkJobHandle
@@ -74,6 +81,7 @@ module JitML.Test.LiveWorkflow
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
   ( Async
@@ -100,7 +108,7 @@ import Control.Exception
   , try
   )
 import Control.Exception.Safe (generalBracket)
-import Control.Monad (void, when)
+import Control.Monad (void)
 import Data.Char (isAsciiLower, isDigit)
 import Data.IORef
   ( IORef
@@ -342,12 +350,35 @@ data LiveCommand command where
   -- cannot supply a second raw label/payload that can drift from execution.
   ExecutableCommand :: Subprocess -> LiveCommand Subprocess
 
+-- | The transport boundary.  A broker transport has exactly two hooks, and the
+-- second is unusable without the first:
+--
+-- * 'liveEstablishEventSource' makes the evidence source real at the broker
+--   and returns the only 'EstablishedEventSource' the interpreter will accept.
+--   For a broker subscription that means the durable cursor exists, so a reply
+--   published afterwards cannot be missed; a socket-open lifecycle event proves
+--   nothing of the kind.  The hook runs masked and must either return a token
+--   or leave nothing behind: it is the sole owner of anything it created until
+--   it returns, so a hook whose broker step can complete at an unobservable
+--   instant must not be interruptible around that step.
+-- * 'liveConsumeEvents' consumes the established (borrowed) view of the source.
+--
+-- Publication ('livePublishCommand') and release ('liveReleaseEventSource') are
+-- operations of the token itself, because both act on transport-private state
+-- (the cursor) that only establishment can produce.
+--
+-- A local executable transport has no broker source to establish.  Its
+-- evidence source carries no subscription, so the establishment hook is never
+-- consulted for it and the interpreter journals no establishment or release.
 data LiveTransport command event where
   LiveTransport
-    :: { livePublishCommand :: LiveCommand command -> IO (Either ServiceError Text)
+    :: { liveEstablishEventSource
+           :: LiveCommand command
+           -> LiveEventSource command event
+           -> IO (Either ServiceError (EstablishedEventSource command event))
        , liveConsumeEvents
            :: forall result
-            . LiveEventSource command event
+            . EstablishedEventSource command event
            -> (ConsumerSessionEvent -> IO ())
            -> (Delivery event -> IO (ConsumerDecision result))
            -> IO (Either ConsumerFailure result)
@@ -421,6 +452,58 @@ liveEventSourceRender source event =
       encodeTopicPayload (subscriptionTopic subscription) event
     LocalEventSource _name _address renderEvent -> renderEvent event
 
+-- | Proof that a transport has established the evidence source of one workflow.
+-- The constructor is private.  A transport mints a token with
+-- 'establishedEventSource' from inside its 'liveEstablishEventSource' hook,
+-- after the broker acknowledged the source, and the interpreter obtains a token
+-- nowhere else.  The token is the only way to publish the workflow's command,
+-- to start its consumer, and to release whatever establishment created, so
+-- publication before establishment, and a release of something that was never
+-- established, are unrepresentable in the interpreter rather than merely
+-- discouraged.  It carries the transport-private cursor as closures, which
+-- keeps the interpreter free of any transport-specific type.
+data EstablishedEventSource command event = EstablishedEventSource
+  { establishedViewValue :: LiveEventSource command event
+  , establishedPublishValue :: LiveCommand command -> IO (Either ServiceError Text)
+  , establishedReleaseValue :: IO (Either ConsumerFailure ())
+  }
+
+-- | Mint the token for a source the transport has just established.  The three
+-- arguments are the consumer view of the source (borrowed: consuming it never
+-- deletes anything), the publication through the established source, and the
+-- single release of what establishment created.  A source that needs no
+-- broker-side state releases with @pure (Right ())@.
+establishedEventSource
+  :: LiveEventSource command event
+  -> (LiveCommand command -> IO (Either ServiceError Text))
+  -> IO (Either ConsumerFailure ())
+  -> EstablishedEventSource command event
+establishedEventSource = EstablishedEventSource
+
+-- These are ordinary read-only functions rather than exported record labels: a
+-- hidden constructor is still record-updateable downstream when one of its
+-- labels is exported, which would let an established token be re-pointed at a
+-- different view, publication, or release.
+establishedEventSourceView
+  :: EstablishedEventSource command event
+  -> LiveEventSource command event
+establishedEventSourceView = establishedViewValue
+
+-- | Publish a command through an established source.
+livePublishCommand
+  :: EstablishedEventSource command event
+  -> LiveCommand command
+  -> IO (Either ServiceError Text)
+livePublishCommand = establishedPublishValue
+
+-- | Release whatever establishment created.  The interpreter runs this exactly
+-- once per token, after diagnostics have been journalled and before the
+-- placement is released.
+liveReleaseEventSource
+  :: EstablishedEventSource command event
+  -> IO (Either ConsumerFailure ())
+liveReleaseEventSource = establishedReleaseValue
+
 -- | Pure protocol/evidence surface for one already-refined plan.  Protocol
 -- topic witnesses render bytes, while executable commands use the canonical
 -- typed subprocess renderer.  No second caller-supplied payload is accepted.
@@ -464,10 +547,16 @@ data LiveTerminalFact terminal
   | RequestResponseCompleted
   deriving stock (Eq, Show)
 
+-- | 'ConsumerSessionObserved' is a diagnostic record of the consumer's socket
+-- lifecycle and gates nothing.  'EventSourceEstablished' is the proof-bearing
+-- record: the transport returned an 'EstablishedEventSource' (the broker holds
+-- the durable cursor), and it precedes 'CommandPublicationStarted' in every
+-- journal.
 data LiveJournalEvent terminal violation missing
   = PlacementAcquired Placement
   | ConsumerSessionObserved ConsumerSessionEvent
-  | SubscriptionReady Text Text
+  | EventSourceEstablished Text Text
+  | EventSourceEstablishmentFailed ServiceError
   | SubscriptionReleased Text
   | LocalEvidenceSourceReady Text Text
   | LocalPreconditionObserved Text
@@ -504,6 +593,7 @@ data LiveJournalRecord terminal violation missing = LiveJournalRecord
 data LivePrimaryFailure terminal violation missing
   = LiveAcquireFailed ResourceFailure
   | LivePlacementPlanMismatch PlanId PlanId
+  | LiveEstablishFailed ServiceError
   | LivePublishFailed ServiceError
   | LiveConsumerFailed ConsumerFailure
   | LiveReducerRejected violation
@@ -874,10 +964,11 @@ runPlaced
   -> IO (PlacedRunResult terminal evidence violation missing)
 runPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeRelease placement =
   case (liveWorkflowEventSource workflow, transport) of
-    (PulsarEventSource _subscription, brokerTransport@LiveTransport {}) ->
+    (PulsarEventSource _subscription, LiveTransport establish consume) ->
       runSubscribedPlaced
         workflow
-        brokerTransport
+        establish
+        consume
         backend
         record
         subscriptionCleanupRef
@@ -921,17 +1012,43 @@ runPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeR
         , placedRunCompletion = Nothing
         }
 
+-- | The broker transport's establishment hook, opened by 'runPlaced' so that no
+-- partial GADT field selector is applied to a possibly-local transport.
+type EstablishSource command event =
+  LiveCommand command
+  -> LiveEventSource command event
+  -> IO (Either ServiceError (EstablishedEventSource command event))
+
+-- | The broker transport's consumption hook, opened by 'runPlaced'.
+type ConsumeSource command event =
+  forall result
+   . EstablishedEventSource command event
+  -> (ConsumerSessionEvent -> IO ())
+  -> (Delivery event -> IO (ConsumerDecision result))
+  -> IO (Either ConsumerFailure result)
+
+-- | Establish the event source, publish through it, consume, and release it.
+--
+-- The whole scope is masked.  The establishment hook is the only source of the
+-- 'EstablishedEventSource' token, and the token is released exactly once on
+-- every exit after it exists: normal completion, a primary failure, a
+-- synchronous exception, or cancellation at any point after establishment.  A
+-- cancellation therefore cannot separate a broker-side cursor from its owner.
+-- On every path the release follows the gathered diagnostics and precedes the
+-- placement release performed by the caller's bracket.  A failed establishment
+-- never reaches 'CommandPublicationStarted'.
 runSubscribedPlaced
   :: (Eq terminal, Eq evidence)
   => LiveWorkflow command event progress evidence violation missing
-  -> LiveTransport command event
+  -> EstablishSource command event
+  -> ConsumeSource command event
   -> LiveBackend terminal
   -> (LiveJournalEvent terminal violation missing -> IO ())
   -> IORef [CleanupIssue]
   -> IO ()
   -> Placement
   -> IO (PlacedRunResult terminal evidence violation missing)
-runSubscribedPlaced workflow transport backend record subscriptionCleanupRef gatherBeforeRelease placement = do
+runSubscribedPlaced workflow establishSource consumeSource backend record subscriptionCleanupRef gatherBeforeRelease placement = do
   case validateCompletionBoundary
     (liveWorkflowCommand workflow)
     (liveCompletionMode backend)
@@ -944,135 +1061,154 @@ runSubscribedPlaced workflow transport backend record subscriptionCleanupRef gat
           , placedRunCompletion = Nothing
           }
     Right () -> do
-      connected <- newEmptyMVar
       published <- newEmptyMVar
       evidenceReady <- newEmptyMVar
       evidenceRef <- newIORef Nothing
       progressRef <- newIORef (liveWorkflowInitialProgress workflow)
       observationRef <- newIORef Nothing
-      let consume =
-            consumeEvidence
-              workflow
-              transport
-              record
-              connected
-              published
-              evidenceReady
-              evidenceRef
-              progressRef
-      withAsync consume $ \consumer ->
-        -- Keep cancellation masked around the ownership hand-off.  The body is
-        -- restored to its normal interruptibility, but every exit then cancels
-        -- and reads the Async result before the outer scope can discard it.
-        mask $ \restore -> do
-          bodyAttempt <-
-            tryAny . restore $
-              withAsync (readMVar connected) $ \connection -> do
-                connectionResult <- waitEitherCatch connection consumer
-                case connectionResult of
-                  Left (Left exception) ->
-                    pure (Left (LiveInterpreterException (exceptionText exception)))
-                  Left (Right ()) -> do
-                    let (commandAddress, commandPayload) =
-                          renderLiveCommand (liveWorkflowCommand workflow)
-                    record (CommandPublicationStarted commandAddress commandPayload)
-                    publication <-
-                      livePublishCommand
-                        transport
-                        (liveWorkflowCommand workflow)
-                    case publication of
-                      Left failure -> do
-                        record (CommandPublicationFailed failure)
-                        pure (Left (LivePublishFailed failure))
-                      Right acknowledgement -> do
-                        record
-                          ( CommandPublished
-                              commandAddress
-                              commandPayload
-                              acknowledgement
+      mask $ \restore -> do
+        establishment <-
+          establishSource
+            (liveWorkflowCommand workflow)
+            (liveWorkflowEventSource workflow)
+        case establishment of
+          Left failure -> do
+            record (EventSourceEstablishmentFailed failure)
+            pure
+              PlacedRunResult
+                { placedRunPrimary = Just (LiveEstablishFailed failure)
+                , placedRunCompletion = Nothing
+                }
+          Right established -> do
+            record
+              ( EventSourceEstablished
+                  (liveEventSourceName (liveWorkflowEventSource workflow))
+                  (liveEventSourceAddress (liveWorkflowEventSource workflow))
+              )
+            let consume =
+                  consumeEvidence
+                    workflow
+                    consumeSource
+                    established
+                    record
+                    published
+                    evidenceReady
+                    evidenceRef
+                    progressRef
+                publishAndAwait consumer = do
+                  let (commandAddress, commandPayload) =
+                        renderLiveCommand (liveWorkflowCommand workflow)
+                  record (CommandPublicationStarted commandAddress commandPayload)
+                  publication <-
+                    livePublishCommand
+                      established
+                      (liveWorkflowCommand workflow)
+                  case publication of
+                    Left failure -> do
+                      record (CommandPublicationFailed failure)
+                      pure (Left (LivePublishFailed failure))
+                    Right acknowledgement -> do
+                      record
+                        ( CommandPublished
+                            commandAddress
+                            commandPayload
+                            acknowledgement
+                        )
+                      putMVar published ()
+                      joined <-
+                        Timeout.timeout
+                          (max 1 (liveWorkflowTimeoutMicros backend))
+                          ( case liveWorkflowCommand workflow of
+                              ExecutableCommand _ ->
+                                awaitEvidenceWhileConsuming
+                                  consumer
+                                  evidenceReady
+                                  evidenceRef
+                                  (ExecutableCommandSucceeded acknowledgement)
+                              ProtocolCommand _ _ ->
+                                case liveCompletionMode backend of
+                                  ResponseCompletesRequest ->
+                                    awaitEvidenceWhileConsuming
+                                      consumer
+                                      evidenceReady
+                                      evidenceRef
+                                      RequestResponseCompleted
+                                  ObserveIndependentWorkload ->
+                                    awaitIndependentCompletion
+                                      backend
+                                      record
+                                      observationRef
+                                      placement
+                                      consumer
+                                      evidenceReady
+                                      evidenceRef
                           )
-                        putMVar published ()
-                        joined <-
-                          Timeout.timeout
-                            (max 1 (liveWorkflowTimeoutMicros backend))
-                            ( case liveWorkflowCommand workflow of
-                                ExecutableCommand _ ->
-                                  awaitEvidenceWhileConsuming
-                                    consumer
-                                    evidenceReady
-                                    evidenceRef
-                                    (ExecutableCommandSucceeded acknowledgement)
-                                ProtocolCommand _ _ ->
-                                  case liveCompletionMode backend of
-                                    ResponseCompletesRequest ->
-                                      awaitEvidenceWhileConsuming
-                                        consumer
-                                        evidenceReady
-                                        evidenceRef
-                                        RequestResponseCompleted
-                                    ObserveIndependentWorkload ->
-                                      awaitIndependentCompletion
-                                        backend
-                                        record
-                                        observationRef
-                                        placement
-                                        consumer
-                                        evidenceReady
-                                        evidenceRef
-                            )
-                        case joined of
-                          Just result -> pure result
-                          Nothing -> do
-                            progress <- readIORef progressRef
-                            latestObservation <- readIORef observationRef
-                            let missing =
-                                  case liveWorkflowFinish workflow progress of
-                                    Failure value -> Just value
-                                    Success _ -> Nothing
-                            pure (Left (LiveTimedOut missing latestObservation))
-                  Right consumerResult -> do
-                    cancel connection
-                    pure (unexpectedConsumerCompletion "before command publication" consumerResult)
-          -- Diagnostics belong to the still-live ownership scope.  A masked
-          -- region can still receive cancellation at an interruptible
-          -- diagnostics subprocess, so catch that exact exception, complete a
-          -- masked retry while the consumer is still owned, and rethrow only
-          -- after subscription shutdown.  The usual single-cancellation
-          -- bracket guarantee therefore cannot let 'withAsync' release the
-          -- subscription ahead of diagnostics.
-          firstDiagnosticsAttempt <- tryAny gatherBeforeRelease
-          diagnosticsCancellation <-
-            case firstDiagnosticsAttempt of
-              Right () -> pure Nothing
-              Left exception ->
-                case (fromException exception :: Maybe SomeAsyncException) of
-                  Nothing -> pure (Just exception)
-                  Just _asyncException -> do
-                    gatherBeforeRelease
-                    pure (Just exception)
-          shutdownFailure <-
-            shutdownEvidenceConsumer
+                      case joined of
+                        Just result -> pure result
+                        Nothing -> do
+                          progress <- readIORef progressRef
+                          latestObservation <- readIORef observationRef
+                          let missing =
+                                case liveWorkflowFinish workflow progress of
+                                  Failure value -> Just value
+                                  Success _ -> Nothing
+                          pure (Left (LiveTimedOut missing latestObservation))
+            -- The consumer runs on the established view and never owns its
+            -- deletion.  Keep cancellation masked around the ownership
+            -- hand-off: the body is restored to its normal interruptibility,
+            -- but every exit then cancels and reads the Async result before
+            -- the source is released.
+            scoped <-
+              tryAny $
+                withAsync (restore consume) $ \consumer -> do
+                  bodyAttempt <- tryAny . restore $ publishAndAwait consumer
+                  -- Diagnostics belong to the still-owned scope.  A masked
+                  -- region can still receive cancellation at an interruptible
+                  -- diagnostics subprocess, so catch that exact exception,
+                  -- complete a masked retry while the source is still
+                  -- established, and rethrow only after it is released.
+                  diagnosticsCancellation <-
+                    gatherRetryingCancellation gatherBeforeRelease
+                  shutdownFailure <-
+                    shutdownEvidenceConsumer
+                      workflow
+                      record
+                      subscriptionCleanupRef
+                      consumer
+                  pure (bodyAttempt, diagnosticsCancellation, shutdownFailure)
+            -- Repeated cancellation can end the consumer scope before its own
+            -- gather completed; the guarded gather is otherwise a no-op, and
+            -- an exception it raises is retained rather than allowed to skip
+            -- the release below.  Diagnostics therefore precede the release
+            -- on every path that can still gather them, and the release runs
+            -- on every path.
+            lateAttempt <- tryAny (gatherRetryingCancellation gatherBeforeRelease)
+            let lateDiagnosticsCancellation = either Just id lateAttempt
+            releaseEstablishedSource
               workflow
               record
               subscriptionCleanupRef
-              consumer
-          case bodyAttempt of
-            Left exception -> throwIO exception
-            Right bodyResult ->
-              case diagnosticsCancellation of
-                Just exception -> throwIO exception
-                Nothing ->
-                  pure $ case bodyResult of
-                    Left primary ->
-                      PlacedRunResult
-                        { placedRunPrimary = Just primary
-                        , placedRunCompletion = Nothing
-                        }
-                    Right completion ->
-                      PlacedRunResult
-                        { placedRunPrimary = shutdownFailure
-                        , placedRunCompletion = Just completion
-                        }
+              established
+            case scoped of
+              Left exception -> throwIO exception
+              Right (bodyAttempt, diagnosticsCancellation, shutdownFailure) ->
+                case bodyAttempt of
+                  Left exception -> throwIO exception
+                  Right bodyResult ->
+                    case diagnosticsCancellation <|> lateDiagnosticsCancellation of
+                      Just exception -> throwIO exception
+                      Nothing ->
+                        pure $ case bodyResult of
+                          Left primary ->
+                            PlacedRunResult
+                              { placedRunPrimary = Just primary
+                              , placedRunCompletion = Nothing
+                              }
+                          Right completion ->
+                            PlacedRunResult
+                              { placedRunPrimary = shutdownFailure
+                              , placedRunCompletion = Just completion
+                              }
 
 -- | Observe the local negative-control precondition, execute a host command,
 -- and resolve exactly one typed local evidence value from the successful
@@ -1300,35 +1436,25 @@ unexpectedConsumerCompletion context consumerResult =
 
 consumeEvidence
   :: LiveWorkflow command event progress evidence violation missing
-  -> LiveTransport command event
+  -> ConsumeSource command event
+  -> EstablishedEventSource command event
   -> (LiveJournalEvent terminal violation missing -> IO ())
-  -> MVar ()
   -> MVar ()
   -> MVar ()
   -> IORef (Maybe evidence)
   -> IORef progress
   -> IO (Either (LivePrimaryFailure terminal violation missing) evidence)
-consumeEvidence workflow transport record connected published evidenceReady evidenceRef progressRef = do
+consumeEvidence workflow consumeSource established record published evidenceReady evidenceRef progressRef = do
   result <-
-    liveConsumeEvents
-      transport
-      source
+    consumeSource
+      established
       observeSession
       handleDelivery
   pure (consumerResultToPrimary result)
  where
-  observeSession event = do
-    record (ConsumerSessionObserved event)
-    case event of
-      ConsumerSessionConnected _generation -> do
-        firstConnection <- tryPutMVar connected ()
-        when firstConnection $
-          record
-            ( SubscriptionReady
-                (liveEventSourceName source)
-                (liveEventSourceAddress source)
-            )
-      _ -> pure ()
+  -- The socket lifecycle is journalled for diagnosis only.  Publication does
+  -- not wait for it: the established source already holds the durable cursor.
+  observeSession event = record (ConsumerSessionObserved event)
 
   handleDelivery delivery = do
     -- No delivery can enter the reducer until publication has succeeded.
@@ -1370,11 +1496,12 @@ consumeEvidence workflow transport record connected published evidenceReady evid
             pure (continue ack)
   source = liveWorkflowEventSource workflow
 
--- | Cancel the scoped event consumer and inspect its durable transport result.
--- 'consumePersistent' rethrows cancellation only after successful cleanup; an
--- owned-subscription deletion failure instead returns a typed cleanup failure.
--- Consequently an async exception confirms release, while the two cleanup
--- constructors must be retained and may never mint completed evidence.
+-- | Cancel the scoped event consumer and inspect its transport result.
+-- The consumer runs on the established (borrowed) view, so it never deletes
+-- the source: its release is 'releaseEstablishedSource', which runs after this
+-- join.  A transport that nevertheless reports a cleanup failure from the
+-- consumer is retained: the two cleanup constructors must be recorded and may
+-- never mint completed evidence.  Cancellation confirms a clean stop.
 shutdownEvidenceConsumer
   :: LiveWorkflow command event progress evidence violation missing
   -> (LiveJournalEvent terminal violation missing -> IO ())
@@ -1387,47 +1514,117 @@ shutdownEvidenceConsumer workflow record cleanupRef consumer = do
   case result of
     Left exception ->
       case (fromException exception :: Maybe SomeAsyncException) of
-        Just _asyncException -> released >> pure Nothing
+        Just _asyncException -> pure Nothing
         Nothing -> do
           let issue =
                 CleanupIssue
-                  ( "subscription cleanup was not confirmed after consumer exception for "
-                      <> subscriptionLabel
+                  ( "consumer stopped with an exception for "
+                      <> subscriptionLabel workflow
                       <> ": "
                       <> exceptionText exception
                   )
-          retain issue
+          retainCleanupIssue record cleanupRef issue
           pure (Just (LiveInterpreterException (exceptionText exception)))
-    Right (Right _evidence) -> released >> pure Nothing
+    Right (Right _evidence) -> pure Nothing
     Right (Left primary) ->
       case primary of
         LiveConsumerFailed (ConsumerCleanupFailure cleanupError) -> do
-          retain (cleanupIssue cleanupError)
+          retainCleanupIssue record cleanupRef (consumerCleanupIssue workflow cleanupError)
           pure Nothing
         LiveConsumerFailed (ConsumerCleanupContextFailure consumerPrimary cleanupError) -> do
-          retain (cleanupIssue cleanupError)
+          retainCleanupIssue record cleanupRef (consumerCleanupIssue workflow cleanupError)
           pure (Just (LiveConsumerFailed consumerPrimary))
-        _ -> released >> pure (Just primary)
+        _ -> pure (Just primary)
+
+-- | Release the established source: the single, journalled release of whatever
+-- establishment created.  A release failure (typed or thrown) is retained as a
+-- cleanup issue and is never journalled as a release, so it can neither mint
+-- completed evidence nor be mistaken for one; an asynchronous exception keeps
+-- its identity.
+releaseEstablishedSource
+  :: LiveWorkflow command event progress evidence violation missing
+  -> (LiveJournalEvent terminal violation missing -> IO ())
+  -> IORef [CleanupIssue]
+  -> EstablishedEventSource command event
+  -> IO ()
+releaseEstablishedSource workflow record cleanupRef established = do
+  outcome <- trySync (liveReleaseEventSource established)
+  case outcome of
+    Left exception ->
+      retainCleanupIssue
+        record
+        cleanupRef
+        ( CleanupIssue
+            ( "subscription release threw for "
+                <> subscriptionLabel workflow
+                <> ": "
+                <> exceptionText exception
+            )
+        )
+    Right (Left (ConsumerCleanupFailure cleanupError)) ->
+      retainCleanupIssue record cleanupRef (consumerCleanupIssue workflow cleanupError)
+    Right (Left failure) ->
+      retainCleanupIssue
+        record
+        cleanupRef
+        ( CleanupIssue
+            ( "subscription cleanup failed for "
+                <> subscriptionLabel workflow
+                <> ": "
+                <> Text.pack (show failure)
+            )
+        )
+    Right (Right ()) ->
+      record
+        ( SubscriptionReleased
+            (liveEventSourceName (liveWorkflowEventSource workflow))
+        )
+
+subscriptionLabel
+  :: LiveWorkflow command event progress evidence violation missing
+  -> Text
+subscriptionLabel workflow =
+  liveEventSourceName source <> " on " <> liveEventSourceAddress source
  where
   source = liveWorkflowEventSource workflow
-  subscriptionLabel =
-    liveEventSourceName source
-      <> " on "
-      <> liveEventSourceAddress source
 
-  released = record (SubscriptionReleased (liveEventSourceName source))
+consumerCleanupIssue
+  :: LiveWorkflow command event progress evidence violation missing
+  -> ServiceError
+  -> CleanupIssue
+consumerCleanupIssue workflow cleanupError =
+  CleanupIssue
+    ( "subscription cleanup failed for "
+        <> subscriptionLabel workflow
+        <> ": "
+        <> Text.pack (show cleanupError)
+    )
 
-  cleanupIssue cleanupError =
-    CleanupIssue
-      ( "subscription cleanup failed for "
-          <> subscriptionLabel
-          <> ": "
-          <> Text.pack (show cleanupError)
-      )
+retainCleanupIssue
+  :: (LiveJournalEvent terminal violation missing -> IO ())
+  -> IORef [CleanupIssue]
+  -> CleanupIssue
+  -> IO ()
+retainCleanupIssue record cleanupRef issue = do
+  atomicModifyIORef' cleanupRef $ \issues -> (issues <> [issue], ())
+  record (CleanupRecorded issue)
 
-  retain issue = do
-    atomicModifyIORef' cleanupRef $ \issues -> (issues <> [issue], ())
-    record (CleanupRecorded issue)
+-- | Run the guarded diagnostics gather.  A cancellation that lands inside the
+-- interruptible diagnostics subprocess is caught, the gather is retried once
+-- while the caller still owns its resources, and the exception is returned so
+-- the caller rethrows it, with its identity, only after those resources are
+-- released.
+gatherRetryingCancellation :: IO () -> IO (Maybe SomeException)
+gatherRetryingCancellation gather = do
+  firstAttempt <- tryAny gather
+  case firstAttempt of
+    Right () -> pure Nothing
+    Left exception ->
+      case (fromException exception :: Maybe SomeAsyncException) of
+        Nothing -> pure (Just exception)
+        Just _asyncException -> do
+          gather
+          pure (Just exception)
 
 observeTerminal
   :: LiveBackend terminal

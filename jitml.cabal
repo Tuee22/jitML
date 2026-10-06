@@ -112,7 +112,9 @@ library
         JitML.Lint.Docs
         JitML.Lint.FailOpen
         JitML.Lint.ForbiddenPaths
+        JitML.Lint.HaskellTokens
         JitML.Lint.ProductTruth
+        JitML.Lint.ProductTruthBars
         JitML.Lint.Stack
         JitML.Lint.Stack.Types
         JitML.Numerics.Autodiff
@@ -148,8 +150,13 @@ library
         JitML.Product.Matrix
         JitML.Product.PhaseStatus
         JitML.Product.Pipeline
+        JitML.Product.PlanDoc
         JitML.Product.Publisher
         JitML.Product.ServedMetric
+        JitML.Product.SourceDigest
+        JitML.Product.StatusEvidence
+        JitML.Product.StatusLoader
+        JitML.Product.ValidationRecord
         JitML.Project.Config
         JitML.Proto.Gc
         JitML.Proto.Inference
@@ -276,14 +283,32 @@ library
         JitML.Substrate
         JitML.Test.BrowserEvidenceJournal
         JitML.Test.Command
+        JitML.Test.ContractFixtures
+        JitML.Test.ControlFixtures
         JitML.Test.HostWorkloadRegistry
         JitML.Test.InferenceBatch
+        JitML.Test.JournalFixtures
+        JitML.Test.LifecycleFixtures
         JitML.Test.LiveEvidence
+        JitML.Test.LiveEvidenceBudget
         JitML.Test.LiveE2EScope
+        JitML.Test.LiveMeasurements
         JitML.Test.LivePlan
+        JitML.Test.LivePulsarTransport
         JitML.Test.LiveWorkflow
+        JitML.Test.LiveWorkflowEstablishment
+        JitML.Test.Measurement
         JitML.Test.ModelConvergence
+        JitML.Test.ModelEvidence
+        JitML.Test.ModelEvidence.Raw
         JitML.Test.NegativeControls
+        JitML.Test.NegativeControls.Core
+        JitML.Test.NegativeControls.Event
+        JitML.Test.NegativeControls.Journal
+        JitML.Test.NegativeControls.Lifecycle
+        JitML.Test.NegativeControls.Pending
+        JitML.Test.NegativeControls.PerRow
+        JitML.Test.NegativeControls.Request
         JitML.Test.PipedProcess
         JitML.Test.Pulsar
         JitML.Test.PulsarBridge
@@ -293,6 +318,7 @@ library
         JitML.Test.ProductScenarioJournal
         JitML.Test.ProductScenarioRunner
         JitML.Test.DeviceWitnessFixture
+        JitML.Test.ReducerProperties
         JitML.Test.Report
         JitML.Test.RunContract
         JitML.Test.RunPlan
@@ -300,6 +326,8 @@ library
         JitML.Test.WorkloadPlan
         JitML.Test.RuntimeState
         JitML.Test.ScenarioJournal
+        JitML.Test.TrainingMeasurement
+        JitML.Test.ValidationEvidence
         JitML.Test.RowAssertions
         JitML.Test.Workload
         JitML.Test.WorkflowMatrix
@@ -338,6 +366,7 @@ library
         JitML.Service.Pulsar.Bridge
         JitML.Service.Pulsar.Internal
         JitML.Sub.Piped
+        JitML.Test.ModelEvidence.Internal
         JitML.Test.ProductScenarioAuthorization
         JitML.Test.ProductScenarioInterpreter.Internal
 
@@ -420,12 +449,17 @@ test-suite jitml-unit
     other-modules:
         CheckpointV1Admission
         DurableStateTopology
+        JournalDerivedStatus
         ProductAggregation
+        ProductBarProvenance
         ProductExperimentExactness
+        ProductTruthScanner
         ProductTuneTranscript
         ProtocolCodec
         ReconcileStamp
         RegressionStandardization
+        ReportMeasurements
+        ServedMetricVerification
         SupervisedCheckpointV2
         SupervisedTrainingSeed
 
@@ -665,6 +699,13 @@ test-suite jitml-model-convergence
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/model-convergence
+    other-modules:
+        ControlSupport
+        Controls
+        GateControls
+        SourceScan
+        WiringControls
+
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
@@ -674,6 +715,9 @@ test-suite jitml-model-convergence
 
     build-depends:
         base >=4.21 && <4.22,
+        bytestring,
+        directory,
+        filepath,
         jitml,
         tasty,
         tasty-hunit,

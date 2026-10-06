@@ -379,8 +379,39 @@ target, and exercised by `test/unit/Main.hs`. It verifies:
   tracked-generated-path integrity;
 - the closure-claim scan (`src/JitML/Lint/Docs.hs`): governed docs must not assert
   current product closure (`production ready`, `all phases done`, `no-caveat product
-  complete`, …) while the product phases are not all Done — dated historical
-  evidence and prohibitions are exempt when their block names them as such;
+  complete`, …) unless the evidence-derived `ClosureVerdict` is closed — dated
+  historical evidence and prohibitions are exempt when their block names them as
+  such. The verdict is projected from committed validation evidence, never from a
+  status literal or from what a document says (see the status projection below),
+  and its constructors are private to the projection, so no caller can write a
+  closed verdict down;
+- the **status projection** (`src/JitML/Product/PhaseStatus.hs`,
+  `StatusEvidence.hs`, `StatusLoader.hs`): every product sprint is either a
+  frozen, shrink-only legacy attestation that cites a closure section of its phase
+  document, or owns obligations (gate transcripts, pinned lane journals, the
+  three-lane aggregate, absence of pending production controls, external
+  prerequisites) that must be proven by committed evidence. `docs check` compares
+  each phase document with the derived status: a header that says Done without
+  proof (`status-projection.<sprint>`), proof that outruns a non-Done header
+  (`status-projection.<sprint>`), a Blocked sprint whose `**Blocked by**:` line
+  omits an unproven upstream sprint, and any violated structure rule
+  (`plan-structure.<sprint>.<rule>`: bare-word `**Status**:` agreeing with the
+  heading and `## Phase State`, forward-only Blocked-by edges that the catalogue
+  also lists, a Blocked-by line for Blocked and none for Planned or Done, a
+  non-empty `### Remaining Work` for Active, a concrete `### Validation` gate that
+  never names both accelerators, and every `jitml test <stanza> --<substrate>` the
+  Validation block of an evidenced sprint runs being one of that sprint's
+  gate-transcript obligations) are drifts, and so is a plan document from Phase
+  `220` on that the catalogue does not list (`status-catalogue.unregistered-phase-<n>`),
+  which would otherwise let a phase leave every closure verdict. `jitml docs status`
+  prints the derived tally, the open chain, and every unmet obligation with its
+  evidence pointer. `docs check` and `check-code` are computed when they run and are
+  never attested by a file;
+- the thin `## Closure Status` section of `DEVELOPMENT_PLAN/README.md`
+  (development-plan standards rule N): its length is capped by the single constant
+  `closureStatusLineCap` in `src/JitML/Product/PlanDoc.hs` (`Nothing` disables the
+  check; it is `Just 60` since the README narrative moved to its historical diary
+  on 2026-09-30);
 - the canonical `documents/` taxonomy (top-level categories ∈ `cli`, `engineering`)
   and lowercase `snake_case` naming under `documents/` (`README.md` exempt).
 

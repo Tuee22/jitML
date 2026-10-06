@@ -20,6 +20,60 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**🔄 Active (2026-09-30 UTC).** Current status is derived from committed evidence,
+not typed here. `jitml docs status` prints the sprint-status counts, the open
+chain, and every unmet obligation with its evidence pointer, and `jitml docs check`
+refuses a closure claim while any obligation is unmet. At this checkpoint the
+derived registry is **63 Done / 1 Active / 0 Planned / 6 Blocked** across 70
+sprints and the open chain is `278 → 280 → 281 → 282 → 285 → 288 → 289`.
+
+**Why the chain is open.** Phase
+[`278`](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)
+(Active) tightened the `PPO/key-door-grid`, `A2C/key-door-grid`, and
+`TRPO/cartpole` bars, which made the retained lane journals stale for those rows'
+contract digests. The `linux-cuda` journal (2026-09-24, pin `5637c4dc…`) and the
+`linux-cpu` journal (2026-09-30, **60 / 60** in 45,478.60 s, pin `438931ad…`) were
+re-issued on the repository's Linux host. The `apple-silicon` journal needs a Mac
+session, so the three-lane aggregate cannot be regenerated and the nine
+`Journal-derived product aggregation (Phase 276)` unit cases stay red until it is.
+Under standards rule `M(c)` the later phases cannot close first, so `280`, `281`,
+`282`, `285`, `288`, and `289` stay Blocked although their implementations are in
+the worktree and pass their own stanzas.
+
+**Next steps, in order.** (1) On a Mac, run the three changed `apple-silicon` rows
+singly, then issue the journal with the focused Phase `261` route
+([Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work)).
+(2) Pin the Apple journal, regenerate `attestations/product-aggregate.json`, and run
+each phase's Validation block in its container lane; the derived registry flips a
+phase only when its transcript records and journals exist. (3) Close `278 → 289` in
+numerical order, re-running the gates on the final tree each time.
+
+**Validation at this checkpoint (2026-10-06, final tree).** `jitml test
+jitml-negative-controls --linux-cpu` **578 / 578**; `jitml test
+jitml-model-convergence --linux-cpu` **390 / 390** against the re-issued
+`linux-cpu` journal (the `apple-silicon` lane fails its 222 lane-dependent cases by
+design until a Mac re-issues its journal); `jitml test jitml-e2e --linux-cpu`
+**28 / 28** non-live; `jitml test jitml-unit --linux-cpu` **1,474 / 1,483**, the nine
+failures being the `Journal-derived product aggregation (Phase 276)` cases; `jitml
+docs check` ok, and the image build's embedded `jitml check-code` ok. The complete
+orchestrated live lane on a fresh `linux-cpu` cluster passed **197 / 198** integration
+cases, the one failure being the Apple aggregate case; with that case excluded as a
+diagnostic, Playwright (**77 / 77**) and the Haskell e2e suite (**28 / 28**) also pass
+end to end ([Phase 289](phase-289-evidence-typed-report-measurements.md#current-partial-validation)
+records the runs).
+
+**Evidence and history.** Per-phase results live in the phase documents and the
+`attestations/` directory. The long closure narrative that used to fill this section
+is preserved in the
+[Historical Current-Status Diary](#historical-current-status-diary), moved verbatim
+except for one corrected paragraph.
+
+## Historical Current-Status Diary
+
+**Historical evidence only; this section does not define current status.**
+
+### Closure Status narrative as of 2026-09-24 (moved 2026-09-30)
+
 **🔄 Active (2026-09-24 UTC).** Phase `276` closed after its CPU-only
 pinned-journal aggregation passed every listed gate. Phase `278` is the first
 open owner; the chain is `278 → 280 → 281 → 282 → 285 → 288 → 289`, with
@@ -44,8 +98,13 @@ container code quality passed. The Phase `276` document records the earlier
 arm64 convergence discrepancy as historical evidence and the full current
 closure evidence: [Phase 276 → Closure Evidence](phase-276-journal-derived-product-aggregation.md#closure-evidence).
 
-The remaining chain requires Linux CPU/Docker; Phase `273` has completed the
-Mac-specific validation.
+Every phase after `278` validates in the `linux-cpu` lane, but none can close
+before Phase `278` does, and Phase `278` cannot close on a Linux host. Its tightened
+bars invalidated the retained Apple Silicon journal (Phase `273`'s 2026-09-17
+evidence is historical for the three re-barred rows), so closure needs one more
+Mac-specific lane run, after which the three-lane aggregate is regenerated; Phase
+`282`'s Apple host-forwarding observer also runs only on a Mac. See Sprint `278.1`
+Remaining Work.
 
 `./bootstrap/apple-silicon.sh test` passed **10 / 10** stanzas, **1,436** tests,
 **0** failed and **0** not-run in **101,310.162505 s**. The production reader
@@ -635,10 +694,6 @@ The latest closed product predecessor, Phase `261`, passed integration **161 / 1
 re-admission, **9** live components, **12** SHA-verified dataset objects, docs,
 and code quality. Older audit and image chronology is retained only in
 [Historical Reopen and Closure Context](#historical-reopen-and-closure-context).
-
-## Historical Current-Status Diary
-
-**Historical evidence only; this section does not define current status.**
 
 **The IR-single-owner + one-envelope redesign has
 reopened and restructured the supervised chain (see the dated renumber note and
@@ -2251,20 +2306,28 @@ strictly as
    portable typed journal, and retained the byte-identical 175,172-byte file at
    `attestations/linux-cpu-product-lane-journal.json`, pinned by SHA-256
    `f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273`.
+   Historical: Phase `278`'s fresh run superseded that file (175,168 bytes,
+   SHA-256 `438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff`).
 8. Phases `42`, `53`, `69`, `262`, and `263` remain Done on their validated
    surfaces. Phase `268` / Sprint `29.5` is Done: its real Linux NVIDIA lane
    retained the byte-identical 175,023-byte
    `attestations/linux-cuda-product-lane-journal.json`, pinned by SHA-256
-   `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`. Phase
+   `e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea`
+   (historical: Phase `278`'s fresh run superseded it, 175,019 bytes, SHA-256
+   `5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48`). Phase
    `273` is Done after its Mac lifecycle retained and admitted the exact
    `apple-silicon` journal, SHA-256
    `1496c8632bb62d616ea99990774b2c5c2e2d95e148834a3932b6aae5e31d7621`.
-9. Sprint `31.3` is Active: all three retained lane journals are available for
-   admission and aggregation on `linux-cpu`; Sprint
-   `32.2` binds external bars to exact served bytes; Sprint `32.4` installs
-   protocol/evidence negative controls; Sprint `33.3` closes contract-driven
-   per-model measurements; Sprint `34.3` derives plan status; and Sprint `34.4`
-   closes evidence-typed report measurements.
+9. Sprint `31.3` (Phase `276`) is Done on its retained join surface: its
+   aggregation admits three pinned lane journals, and its nine aggregation cases
+   stay red until the `apple-silicon` journal is re-issued under Phase `278`.
+   Sprint `32.2` (Phase `278`) is Active: it binds external bars to exact served
+   bytes. Sprints `32.4`–`32.6` (Phases `280`–`282`) install the request, event,
+   journal, lifecycle, and per-row negative controls; Sprint `33.3` (Phase `285`)
+   closes contract-driven per-model measurements; Sprint `34.3` (Phase `288`)
+   derives plan status; and Sprint `34.4` (Phase `289`) closes evidence-typed
+   report measurements. All are implemented in the worktree apart from the
+   Mac-only runs and stay Blocked behind Phase `278`.
 
 ### Historical roadmaps
 
@@ -2419,10 +2482,10 @@ obligation exists.
 | 28 | Per-Model Integration and E2E | ✅ Done (Sprint `28.4` with the authenticated integration journal; Sprint `28.5` / Phase `262` closed browser and Playwright on 2026-08-11) | [phase-28-per-model-integration-and-e2e.md](README.md#legacy-to-new-phase-map) |
 | 29 | Linux CUDA Product Lane | ✅ Done (Sprint `29.5` / Phase `268` closed 2026-09-12 — the real `linux-cuda` lane refreshed through the new contract, with the retained typed lane journal) | [phase-29-linux-cuda-product-lane.md](README.md#legacy-to-new-phase-map) |
 | 30 | Apple Silicon Product Lane | ✅ Done (Sprint `30.4` / Phase `273` closed 2026-09-17 after the real Apple lifecycle and retained typed journal admission) | [phase-30-apple-silicon-product-lane.md](README.md#legacy-to-new-phase-map) |
-| 31 | No-Caveat Product Aggregation | 🔄 Active (Sprint `31.3` — `linux-cpu`-only aggregation of all three retained typed lane journals) | [phase-31-no-caveat-product-aggregation.md](README.md#legacy-to-new-phase-map) |
-| 32 | External-Truth Realness Harness & Negative-Control Gate | ⏸️ Blocked (Sprint `32.2` — exact served-byte provenance, blocked by `31.3`; Sprint `32.4` blocked by `32.2`) | [phase-32-external-truth-realness-harness.md](README.md#legacy-to-new-phase-map) |
-| 33 | Per-Model Convergence & Inference-Performance Tests | ⏸️ Blocked (Sprint `33.3` — contract-driven per-model training/evaluation; blocked by `32.4`) | [phase-33-per-model-convergence-and-inference-tests.md](README.md#legacy-to-new-phase-map) |
-| 34 | Plan-Truth Governance | ⏸️ Blocked (Sprint `34.3` — journal-derived reports and phase status; blocked by `33.3`) | [phase-34-plan-truth-governance.md](README.md#legacy-to-new-phase-map) |
+| 31 | No-Caveat Product Aggregation | ✅ Done on its retained join surface (Sprint `31.3` — `linux-cpu`-only aggregation of the three pinned typed lane journals, closed 2026-09-24; its nine aggregation cases stay red until the `apple-silicon` journal is re-issued under Sprint `32.2`) | [phase-31-no-caveat-product-aggregation.md](README.md#legacy-to-new-phase-map) |
+| 32 | External-Truth Realness Harness & Negative-Control Gate | 🔄 Active (Sprint `32.2` — exact served-byte provenance, implemented and awaiting the `apple-silicon` journal re-issue; Sprints `32.4`–`32.6` are Blocked, each by its predecessor, starting with `32.2`) | [phase-32-external-truth-realness-harness.md](README.md#legacy-to-new-phase-map) |
+| 33 | Per-Model Convergence & Inference-Performance Tests | ⏸️ Blocked (Sprint `33.3` — contract-driven per-model training/evaluation; blocked by `32.6`) | [phase-33-per-model-convergence-and-inference-tests.md](README.md#legacy-to-new-phase-map) |
+| 34 | Plan-Truth Governance | ⏸️ Blocked (Sprint `34.3` — journal-derived status registry, blocked by `33.3`; Sprint `34.4` — evidence-typed report measurements, blocked by `34.3`) | [phase-34-plan-truth-governance.md](README.md#legacy-to-new-phase-map) |
 
 ## Reopened phases (2026-07-12 — typed run contracts and exact evidence)
 
@@ -4236,20 +4299,23 @@ truth the implementer cannot author or tune, and they are owned by Phases `32`�
     checkpoint. RL reward is a rollout of the trained policy, never a scripted
     controller. (Phases `19`, `21`, `25`, `32`.)
 
-    **Not met as of 2026-08-16.** Only the slack-positivity half is enforced.
-    `barIsSelfReferential bar _measuredValue = convergenceSlack bar <= 0.0` in
-    `src/JitML/Product/ExternalBars.hs` discards the measured value, so a
-    positive-slack bar set equal to the value it grades passes; and the
-    frozen-anchor test is list membership across *all* cohorts rather than the
-    observation's own cohort. Three bars are unfalsifiable against their
-    environments on that basis (`PPO/key-door-grid` `-2.8` and
-    `A2C/key-door-grid` `-3.3` where the success reward is `1.0`;
-    `TRPO/cartpole` `185` against literature target `475`). Separately, the bar
-    is not wholly external: `literatureTarget` is an external constant but
-    `slack` is project-calibrated, as `src/JitML/RL/ConvergenceThresholds.hs`
-    itself records. The implementing sprint is `278.1`, which is `Active`
-    after `276.1` closed; Phases `19`, `21`, and `25` retain `Done` on their other owned
-    surfaces under rule `M(a)`. See
+    **Not met as of 2026-09-30.** Phase `278` enforces the invariant in code:
+    `assertProductBarExternal` (positive slack, finite and self-consistent bar),
+    `assertConvergenceObservationsAgainstBar` (exactly one observation of the row's
+    metric, whose criterion and value agree with the row's own bar), a token-stream
+    `ProductTruth` lint that rejects a bar derived from a measured value, and the
+    post-admission served-metric recomputation for the supervised rows; the three
+    previously unfalsifiable bars are now `0.5` (`PPO/key-door-grid`,
+    `A2C/key-door-grid`) and `400` (`TRPO/cartpole`), and the `linux-cuda` and
+    `linux-cpu` journals were re-issued under them. Still open: the `apple-silicon`
+    journal re-issue under the tightened bars, bars calibrated to measured values in
+    the supervised table, the generic (non-ProductRow) RL fallback that cannot
+    identify its cohort, and the `apple-silicon` fit of the served-metric
+    tolerance (proven on `linux-cuda` and `linux-cpu`); and the bar is not wholly external because
+    `literatureTarget` is an external constant while `slack` is project-calibrated,
+    as `src/JitML/RL/ConvergenceThresholds.hs` itself records. The implementing
+    sprint is `278.1`, which is `Active`; Phases `19`, `21`, and `25` retain `Done`
+    on their other owned surfaces under rule `M(a)`. See
     [Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
 27. **Evidence-derived status, typed real/declared split.** `jitml docs check`'s
     closure guard recomputes phase/sprint status from machine-checkable evidence, not

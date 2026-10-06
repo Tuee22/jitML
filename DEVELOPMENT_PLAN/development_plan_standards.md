@@ -467,12 +467,13 @@ only Markdown projections and that none retained the typed scenario journal
 needed for later exact admission. That audit opened the chain
 `261 → 268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phase `261`
 has since re-closed after retaining and admitting the exact typed CPU journal;
-the current chain is `268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`,
-with each later member Blocked by its immediate executable prerequisite. Phase
-`268` is Active on the Linux x86_64 RTX 5090 host after the 2026-09-09
-CUDA prerequisite check passed; its prescribed lifecycle remains open.
-The Phase `19`–`34` registry is **60 Done / 1 Active / 0 Planned / 9 Blocked**,
-counted from its 70 entries.
+Phases `268`, `273`, and `276` have since closed. The current chain is
+`278 → 280 → 281 → 282 → 285 → 288 → 289`, with each later member Blocked by its
+immediate executable prerequisite. Phase `278` is Active: its tightened bars
+invalidated the retained lane journals, the `linux-cuda` journal has been
+re-issued, the `linux-cpu` journal was re-issued on the Linux host on 2026-09-30
+(pin `438931ad…`), and the `apple-silicon` re-issue needs a Mac session. The Phase `19`–`34` registry is
+**63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from its 70 entries.
 Phases `42`, `53`, `69`, `229`, and `262` remain Done. At the dated
 2026-08-12 execution-architecture checkpoint, the audit had returned Phases
 `229`, `233`, `241`, `263`, `264`, `265`, and `270` to Active and moved Phase
@@ -797,7 +798,7 @@ deterministic scan over `phase-*.md` (no model judgement required):
    lane re-runs. Pass condition: per such phase, accelerator-invocation count == 0.
 
 Scans 1 and 2 are implemented as the `jitml-unit` phase-status guards named
-above (`test/unit/Main.hs`, parsing `**Blocked by**:` edges and `### Validation`
+above (`test/unit/JournalDerivedStatus.hs`, registered from `test/unit/Main.hs`, parsing `**Blocked by**:` edges and `### Validation`
 blocks per registered phase document); a plan change that introduces a backward
 edge, a sprint with no validation gate, or a dual-accelerator gate fails
 `jitml-unit`. Scan 3 (aggregation no-rerun) remains the documented deterministic

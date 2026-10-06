@@ -51,8 +51,43 @@ Only the CUDA renderer moved: Sprint `263.1` pins the `linux-cpu` artifact's
 SHA-256 in 45 of the 55 committed lane-fragment rows, so that lane's rendered
 text is byte-identical. A standing `jitml-backends --linux-cuda` case asserts the
 two lanes' four parameter gradients are exactly equal, and fails closed if they
-drift apart again. The `apple-silicon` lane remains outside any cross-substrate
-numeric claim.
+drift apart again.
+
+**Apple Silicon: the device MLP kernels are aligned, the host `Double` math is
+not.** Phase `271` gave `JitML.Codegen.MlpMetal` the same hidden activation as
+the Linux lanes: it renders glibc's flt-32 `expm1f`/`tanhf` operation sequence in
+Metal Shading Language and disables floating-point contraction
+(`#pragma clang fp contract(off)`), and the fixed host bridge compiles it with
+fast-math off. The two hidden-layer kernels (single-sample and batched) evaluate
+that activation, and every Metal MLP kernel (forward, backward, batched forward,
+batched gradient, and input gradient) accumulates in plain sequential per-thread
+`float` loops, with no atomics or threadgroup reductions. The renderers declare
+those loops to mirror one another (Metal mirrors the CUDA kernels one for one,
+and the oneDNN batched reduction matches CUDA's order). That is a property of the
+rendered kernel source. Two `jitml-backends` cases in the `apple-silicon` lane
+check it, and both run only on a Mac: a real-Metal case that runs one batched
+gradient (batch 32, hidden width 64) and compares the four summed gradient
+tensors bit for bit with a host-side aligned `Float` oracle, and a
+rendered-source guard that requires the aligned activation's definition and call
+and the contraction pragma and rejects a `= tanh(` call. There is no exhaustive
+per-float verification like the CUDA port's, and no standing case compares
+Apple's gradients with the Linux lanes'.
+
+The `Double` math that the trainers and evaluators run on the host is a
+different matter: it calls the host libm and is **not** aligned across
+substrates. That covers the simulator dynamics (the trigonometric functions
+`sin` and `cos` in the cart-pole, mountain-car, acrobot, pendulum, and
+lunar-lander physics), the softmax and log-probability (`exp` and `log`), the
+pure-Haskell MLP forward whose `tanh` produces the final RL policy evaluation,
+and the pure `Double` graph executor that serves supervised checkpoints. macOS
+libm and glibc are separate implementations that are not guaranteed to round
+identically, and a rollout over many steps can amplify any such difference.
+Cross-lane bit identity of host-side
+`Double` math is therefore **not** claimed for Apple Silicon, and no test asserts
+that Apple's training results equal the Linux lanes'. Each lane's journal is an
+independent measurement, and each row is graded against its bar on its own lane.
+The `apple-silicon` lane accordingly stays outside any cross-substrate numeric
+claim beyond the alignment of the MLP device kernels stated above.
 
 ## The Contract
 
@@ -78,10 +113,26 @@ numeric-parity check or tolerance band.
 
 Phase `278` compares each supervised trainer metric with a second evaluation
 through the Store-admitted serving graph and exact physical weights. The
-accuracy allowance is at most one borderline class decision and never more
-than `0.01`; standardized regression RMSE allows `0.005 × max(1, |reported|)`.
-Those bounds apply to the device-trained versus pure-served evaluation of one
-artifact. They do not assert cross-substrate numerical equivalence.
+accuracy allowance is `min 0.01 (1/n + 1e-9)` for `n` held-out examples: at most
+one borderline class decision, never more than `0.01`. Every canonical supervised
+row evaluates exactly 1,000 examples, where that is one decision (`0.001`): one
+flipped decision passes and two fail. For a held-out set smaller than 100
+examples one decision is worth more than the cap, so the check rejects even a
+single flipped decision. That is intentional and fails closed: the cap exists
+because an earlier, uncapped allowance let a one-example held-out set accept an
+accuracy a whole point from the served one (the failing attempt is recorded in
+[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)).
+At exactly `n = 100` the cap and one decision coincide, so a single flip passes
+or fails with the float rounding of the difference. Standardized
+regression RMSE is compared in the trainer's unit (the raw served-versus-target
+error divided by the positive target scale) with allowance
+`0.005 × max(1, |reported|)`: an absolute `0.005` up to a reported RMSE of 1 and
+half a percent above it. A non-finite reported metric, non-finite regression
+target, non-positive or non-finite scale, empty example set, class label outside
+the runtime output, or a metric name that does not belong to the evidence kind is
+a typed rejection rather than a measurement. Those bounds apply to the
+device-trained versus pure-served evaluation of one artifact. They do not assert
+cross-substrate numerical equivalence.
 
 Reproducibility is an architectural invariant, not a debugging aid. The
 contract holds across:
@@ -762,10 +813,13 @@ fabricated kernel that returns a fixed buffer is perfectly bit-deterministic.
 Reproducibility is therefore paired with a metamorphic/differential discipline
 that a stub cannot satisfy. The pure gate-soundness slice owned by
 [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md) makes
-`jitml-negative-controls` reject hand-built known fakes and requires
-`pendingProductionControls` to remain non-empty. It does not by itself exercise
-production requests, events, journals, reducers, lifecycle failures, or every
-ProductRow. The production-path owners are
+`jitml-negative-controls` reject hand-built known fakes. That slice by itself
+exercises no production request, event, journal, reducer, lifecycle failure, or
+ProductRow; the same stanza also commits the request, event, journal, and
+reducer-property controls of Phases `280` and `281` and the lifecycle and
+per-row controls of Phase `282`, so `pendingProductionControls` is empty and a
+pending control is a failure, never a green assertion. The production-path
+owners are
 [Phase 280](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md),
 [Phase 281](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md),
 and [Phase 282](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md),

@@ -67,8 +67,12 @@ traditional-RL, Tune, AlphaZero, GC, and inference scenarios. The Sprint
 does not invent an outer subscription for commands that own their reply or
 produce no correlated event. Direct Apple forwarding and daemon-dedup cases are
 explicitly scoped transport/placement smokes and are not treated as completion
-evidence. Stanza-specific sections below state the required verification
-boundary and identify current stand-ins where relevant.
+evidence. The interpreter's transport establishes the event source (for a broker
+source, an acknowledged admin `CREATE` of the reply cursor) before it publishes
+and releases exactly what it established; the diagnostic
+`ConsumerSessionConnected` socket-open event gates nothing. Stanza-specific
+sections below state the required verification boundary and identify current
+stand-ins where relevant.
 
 The supervised live adapter tests the protocol the worker actually emits: one
 exact terminal-epoch snapshot plus the proof-bearing completed checkpoint.  It
@@ -110,7 +114,7 @@ successful write receipt as eligibility.
 
 | Stanza | Verification boundary | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, deterministic snapshot preparation, canonical original/scoped/payload-SHA descriptor reconstruction and tamper rejection, zero-payload-object commit admission/GC, unique reservation attempts plus marker-conflict/leaked-entry/marker roots, the canonical versioned `ExperimentGcFence` path and experiment/revision/writer-root-epoch/reservation/history validation, contiguous generation histories, experiment-scoped writer/GC CAS transitions including cross-snapshot parent overlap, epoch increments on reservation register/unregister, complete-root-view epoch bracketing, exact fresh-plan missing-intent discovery/persistence and whole-view restart before no-op, late ready/published-transient recovery classification and cleanup, absent-target rejection without exact `Executing`/`Reaped` history, exact-epoch `Open`/`Cancelled` → `Planned` despite sibling GC-only revisions, `Planned` → `Cancelling` writer insertion, durable byte-identical immutable cancellation-artifact settlement without semantic-intent deletion to complete `Cancelled`, delayed-helper idempotence, no premature re-arm, executing/reaped writer rejection, post-`Reaped` intent cleanup, and helpable exact-executing authorization through Store's sole destructive `executeAuthorizedGcIntents` export without cancellation-artifact retirement, whole-intent cancellation and terminal-state contradictions, commit-inclusive one-snapshot GC events, strict protobuf-hex decoding, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, frontend bundle/panel/demo-route surfaces, the structural `ValidatedCheckpointCompletion` boundary plus Store-admitted completed-checkpoint gate, total ProductRow projection/batch identity, opaque completed-product report admission, pure all-model workflow-matrix enumeration, and inference-reply matching by both `callId` and experiment hash. It also checks all eleven canonical supervised learning rates (`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight rows), rejects zero/negative/NaN/infinite values, proves rate-sensitive `PlanId` identity, and observes exact Publisher callback propagation. | Pure Logic + Parser + Property + Snapshot | Sprint 10.6 / Sprint 12.1 / Sprint 19.4 / Phase 262 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, deterministic snapshot preparation, canonical original/scoped/payload-SHA descriptor reconstruction and tamper rejection, zero-payload-object commit admission/GC, unique reservation attempts plus marker-conflict/leaked-entry/marker roots, the canonical versioned `ExperimentGcFence` path and experiment/revision/writer-root-epoch/reservation/history validation, contiguous generation histories, experiment-scoped writer/GC CAS transitions including cross-snapshot parent overlap, epoch increments on reservation register/unregister, complete-root-view epoch bracketing, exact fresh-plan missing-intent discovery/persistence and whole-view restart before no-op, late ready/published-transient recovery classification and cleanup, absent-target rejection without exact `Executing`/`Reaped` history, exact-epoch `Open`/`Cancelled` → `Planned` despite sibling GC-only revisions, `Planned` → `Cancelling` writer insertion, durable byte-identical immutable cancellation-artifact settlement without semantic-intent deletion to complete `Cancelled`, delayed-helper idempotence, no premature re-arm, executing/reaped writer rejection, post-`Reaped` intent cleanup, and helpable exact-executing authorization through Store's sole destructive `executeAuthorizedGcIntents` export without cancellation-artifact retirement, whole-intent cancellation and terminal-state contradictions, commit-inclusive one-snapshot GC events, strict protobuf-hex decoding, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, frontend bundle/panel/demo-route surfaces, the structural `ValidatedCheckpointCompletion` boundary plus Store-admitted completed-checkpoint gate, total ProductRow projection/batch identity, opaque completed-product report admission, the generated reducer-property suite (`JitML.Test.ReducerProperties`), the per-row negative-control registration guard (`JitML.Test.NegativeControls.PerRow`, the twin of the guard the negative-controls stanza runs beside the controls it guards), pure all-model workflow-matrix enumeration, and inference-reply matching by both `callId` and experiment hash. It also checks all eleven canonical supervised learning rates (`3e-3` for `fashion-mnist-resnet`, `1.1e-3` for `cifar10-resnet20`, `1.5e-3` for `cifar10-vit`, and `1e-3` for the other eight rows), rejects zero/negative/NaN/infinite values, proves rate-sensitive `PlanId` identity, and observes exact Publisher callback propagation. | Pure Logic + Parser + Property + Snapshot | Sprint 10.6 / Sprint 12.1 / Sprint 19.4 / Phase 262 |
 | `jitml-integration` | `test/integration/Main.hs` covers typed process results, bootstrap/live-rollout renderers, route-table snapshots, real-binary spawn, filesystem-backed MinIO checkpoint/inference/resume, local Linux CPU weighted checkpoint inference, partial-manifest rejection, routed MinIO/Pulsar behavior, exact 34-topic bootstrap evidence, daemon settings, Kind/RBAC rendering, Dhall numerics, oneDNN probing, and typed service command shapes. Its checkpoint/GC boundary covers scoped candidate conflicts, complete fail-closed ListObjectsV2 pagination and token echo/global ordering, atomic MinIO byte-plus-ETag coordination reads and CAS, canonical `ExperimentGcFence` path/identity/revision/writer-root-epoch/reservation/history validation, cross-snapshot writer/GC authorization and recovery, marker-conflict retained-entry protection, epoch increments on reservation register/unregister, complete-root-view epoch bracketing, exact-epoch planning with sibling GC-only revision tolerance, `Planned` → `Cancelling` crash recovery through byte-identical immutable cancellation persistence without intent removal, complete `Cancelled`, delayed-helper idempotence, exact-executing help without cancellation-artifact retirement, post-`Reaped` ready/published intent cleanup, durable cancelled/ready/published recovery, commit-inclusive exact deletion outcomes, idempotent already-absent DELETE, stored-substrate ready replay, and pre-capability weighted/unweighted Workload rejection of noncanonical bucket/key aliases and Store-owned control prefixes. The independent Product inventory uses one self-describing envelope: supervised rows carry supervised-graph bodies with no companion pointer; RL, AlphaZero, and tuning rows carry weight-only bodies with exactly one family-appropriate content-addressed companion pointer. The independently versioned `tuning-v2` transcript payload is re-read and header-bound separately; it is not a checkpoint-envelope version. Missing, duplicate, orphaned, and substituted pointer mutations fail. Its evidence-bearing live workflow cases execute `runLiveWorkflow` over typed topics/subscriptions, exact reducers, closed workload observations, a terminal/evidence join, diagnostics-before-cleanup, and retained journals. The command-owned startup capability, complete projection-batch ProductScenario resource, invocation-bound version-2 `RawCompletedTraining` completion DTO (not a checkpoint-envelope version), version-`3` authenticated journal, and parent-side exact Store re-admission bind every ordered ProductRow record. The uniform WorkflowMatrix remains public-CLI executable-outcome coverage, while exact Apple forwarding and duplicate-delivery cases are explicitly non-completion transport/placement smokes. Dated counts and current gate evidence live in the owning phase files. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 / Sprint 5.18 / Sprint 12.16 / Sprint 19.4 / Phases 261–262 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix, dataset parsing, Training command/event envelope round-trips, exact canonical epoch-permutation replay, and every row's read-time SHA verification, literal trained-`LayerGraph` feature/block parity, fixed `TrainingBudget`, measured update proof, completed-training witness, convergence statistics, single-envelope checkpoint write/reload, trained-versus-Store-loaded inference parity, and infer-before-complete rejection. The current `cifar10-vit` assertion derives its 8×8-patch/16-token graph parameter count and one physical graph-ordered `supervised.weights` shape from the literal graph; the obsolete Sprint `10.6` 123,595-parameter frozen-Mixer slices are not used as current truth. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 10.6 / Sprint 12.3 / Phases 24, 235–246, and 28 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, canonical-game surface, RL command/event envelope round-trips, representative measured convergence, and AlphaZero metrics. Sprint `20.1` relocated the deterministic `runRLLoop`, simulator-loop runners, and `deterministicStep` into `test/rl-canonicals/Support/`; tests that exercise them carry a `scaffolding:` title prefix and are not product evidence. Phase `25`/`28` make this row-complete: every documented algorithm/env row dispatches to its named environment, updates learned state where applicable, writes completed artifacts, and has named integration/e2e evidence. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 / Sprint 20.1 / Phase 25 / Phase 28 |
@@ -118,8 +122,8 @@ successful write receipt as eligibility.
 | `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, symmetric across all three backends for the family and MLP surfaces: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/{Main,SigtermRegression}.hs` covers lifecycle ordering, endpoints, opaque role-derived borrowed subscriptions, receipt-bound equal-payload delivery, strict decode failure, handler and settlement failure, owned cleanup, bounded persistent consumption, exact Coordinator topic/readiness state, role/domain dispatch separation, per-command dedup commits that survive later batch cancellation, Engine publication-entry refusal after the captured deadline, and actual compiled Engine/Webapp processes. Its companion unit groups cover dynamic log/retry/batch/SLO policy and the keyed Apple host workload registry, including duplicate/unknown/terminal Stops and bounded drain. Process cases exercise adjacent LiveConfig fail-closed loading; unchanged, valid changed, malformed-live, and immutable-Boot SIGHUP decisions; dynamically resized/expired dedup state; SIGTERM readiness loss; configured drain deadlines; forced-cleanup joins; and clean Webapp reload/termination. | Daemon Lifecycle | Sprint 12.7 / Sprint 5.18 / Sprint 12.16 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` is present and the active Docker context answers `docker info`, typed live-plan surfaces, browser-evidence mount/capability isolation, reporter wiring, and structural workflow assertions. Live execution borrows an existing publication without deletion or owns an auto-bootstrapped cluster and always releases it; primary failure is preserved when cleanup also fails. Phase `262` creates exactly 55 positive tests from the command-owned catalogue, binds their exact row/PlanId/artifact/measured identities through the real API/UI path, and returns a separately authenticated browser journal. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.16 / Phase 27 / Phase 28 / Phase 262 |
-| `jitml-negative-controls` | **Owned by [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md) and wired into `jitml test all`.** The current `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs`) rejects hand-built known fakes with pure gate logic and requires the remaining production-path controls to stay explicitly enumerated. That pure gate-soundness scope does not mutate contract-driven production journals or require one negative case per `ProductRow`; Phases `280`–`282` own those production boundaries. Current status and validation evidence live in the development plan. | Integration (project-specific) | Phase 277 (legacy Sprint 32.1) / Phases 279–281 (legacy Sprints 32.4–32.6) |
-| `jitml-model-convergence` | **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map); declared and wired into `jitml test all`.** The current lightweight guard enumerates one case per `ProductRow` from `JitML.Product.Matrix.allProductRows` and validates row identity, named integration/e2e handles, external bars, and positive non-wall-clock performance floors. It does not train, reload, recompute served metrics, or infer; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md) owns migration to opaque completed-run evidence. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 285 |
+| `jitml-negative-controls` | **Owned by [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md) and wired into `jitml test all`; extended by Phases [`280`](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md), [`281`](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), and [`282`](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md).** `test/negative-controls/Main.hs` (backed by `src/JitML/Test/NegativeControls.hs` and its `Core`, `Request`, `Event`, `Journal`, `Lifecycle`, and `PerRow` modules) commits one tasty case per known-invalid fixture, grouped by pipeline stage (`Gate`, `Request`, `Event`, `Journal`, `Lifecycle`, `PerRow`; every stage is populated and none is deferred). A control passes only when the production gate rejects its fixture **for the reason it names**: acceptance, a rejection for a different reason, and an unbuildable baseline each fail the stanza. `Request` controls drive valid-baseline-plus-injected-defect raw requests through `resolveRun`, the workload plan resolvers and transport parsers, `projectProductRow`, and `mkCohort`; `Event` controls drive gap, duplicate, wrong-plan, malformed, non-finite, missing-terminal, and completion-before-budget streams through the contract combinators and the live supervised/RL, tuning, and AlphaZero reducers; `Journal` controls persist a Store-admitted journal in-process, then omit, substitute, or mismatch its manifest identity (unsigned, and re-signed by a key holder) and read it back through the production reader, Store admission, and portable lane-journal admission. `Lifecycle` controls run the production live interpreter over scripted scenarios that each make one thing go wrong (a refused establishment, a failed settlement, a workload that never terminates, a cleanup that fails) and require it to withhold completion for the specific reason named, and `PerRow` controls run three known-invalid fixtures for every `ProductRow` of the registry (an invalid request, a wrong-plan event, and a foreign Store admission), derived from the registry so a new row is registered without anyone remembering to. A fixed-seed subset of the reducer properties also runs here. `pendingProductionControls` is empty and a stanza case fails if it is not. Current status and validation evidence live in the development plan. | Integration (project-specific) | Phase 277 (legacy Sprint 32.1) / Phases 280–282 (legacy Sprints 32.4–32.6) |
+| `jitml-model-convergence` | **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map); declared and wired into `jitml test all`.** [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md) makes it a contract-driven grader: it reads `JITML_SUBSTRATE` (default `linux-cpu`), admits that lane's pinned retained journal through the production reader against the validated projection, and per `ProductRow` asserts convergence against an independent external criterion, learning telemetry, committed deterministic performance bounds bound to the artifact identity, and plan/experiment/manifest/cohort binding, with typed missing/duplicate/cross-plan failures and mutation controls. It fails closed when the lane's journal is stale, trains and infers nothing, and cannot recover what the journals do not retain. | Integration (project-specific) | Sprint 33.1 / Sprint 33.2 / Phase 285 |
 
 Sprint `10.6` records historical pre-IR execution counts and diagnostics. The
 current policy requires the complete unit run to include the graph-runtime,
@@ -127,10 +131,12 @@ permuted-training/fitted-transform, typed-rate recipe/refinement, `PlanId`
 sensitivity, and Publisher propagation checks; structural passes cannot replace
 the phase-owned live/integration, standing, docs, and code-quality gates.
 
-The table states the current verification boundary, not phase status. The
-standing realness stanzas are green lightweight guards, not substitutes for the
-contract-driven production evidence still owned by Phases `280`–`285`. Current
-closure evidence lives only in the Development Plan.
+The table states the current verification boundary, not phase status.
+`jitml-negative-controls` grades known-invalid fixture rejection through the
+production gates but is not a substitute for the contract-driven production
+evidence of the live lanes; `jitml-model-convergence` is only as current as the
+retained lane journals it grades. Current closure evidence lives only in the
+Development Plan.
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -160,8 +166,8 @@ results. Each target becomes `Passed transcript`, `Failed failure`, or
 for work that never ran. Failures retain the command, stdout, stderr, non-zero
 exit, and duration. Suite status, counts, and duration are a pure projection of
 the append-only invocation journal. Live workflow journals remain inside their
-own test cases; the current `--live` measurement layer still launches
-post-test probes and is tracked for replacement by Sprint `34.3`. See
+own test cases; the `--live` measurement layer launches no post-test probe and
+only projects those journals (see [Live Report Card](#live-report-card)). See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
 
 For the Apple product lane, `jitml test all --apple-silicon` is the host-native
@@ -324,14 +330,59 @@ deterministic enforcement, by
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
 Phase order, blockers, and closure status live in the development plan, not here.
 The unit suite owns the executable product-truth guardrails for that plan:
-`test/unit/Main.hs` checks the `ProductRow` matrix floor, the Phase `19`–`34`
-typed status registry against the sprint `**Status**` headers, and the
-docs-check closure-claim scanner. The unit suite demotes a synthetic sprint to
-prove the scanner rejects product-closure language for an unfinished registry.
+`test/unit/Main.hs` checks the `ProductRow` matrix floor, and `test/unit/JournalDerivedStatus.hs`
+checks the evidence-derived status registry: the status relation over fixtures (one
+case per `Unmet` reason, each proving a closure claim is refused), the frozen
+legacy-attested class and the pinned obligations of every evidenced sprint, the
+plan-structure rules, the validation record's tamper controls, the source digest
+against golden vectors computed by an independent implementation, and the worktree's
+phase documents against the projection of the committed evidence. Projection tests
+are fixture-driven so they cannot go red when committed evidence goes stale; exactly
+one test admits a committed lane journal.
+
+The I/O seams that turn committed files into that projection are covered over
+temporary repository trees, not by their pure cores alone. The evidence loader has
+an `...In root` form (`loadEvidenceIndexIn`), and the composed `docs check`
+(`checkDocsWith`) takes its root, cap, catalogue problems, and report source in a
+`DocsCheckEnvironment`, so the unit suite runs the real disk reads and the real
+composition over a fixture tree and asserts the specific drift keys: a closure claim
+while the verdict is refused, a lying phase header, an unlisted plan document, a
+misnamed validation record, and an over-cap Closure Status. `jitml test` and `jitml
+docs status` are covered through the production entry point: the unit binary doubles
+as a `jitml` executable when `JITML_UNIT_CLI_WORKER=1`, and the cases run the real
+command line as a child of it, in a fixture repository with a fake `cabal` on its
+`PATH`, so the test process's own working directory, `PATH`, and standard streams
+are never touched. The two worktree-parity cases of the registry group run the
+production loader on the worktree on purpose: they are the `jitml-unit` face of the
+`docs check` header-versus-projection rule, so they are expected to change together
+with a sprint document header when committed evidence changes.
 It also covers the Sprint `20.2` ProductTruth lint boundary: direct product
 source mentions of enforced fossils are rejected, product-reachable imports of
 relocated scaffold modules fail, and no `ProductRow` implementation names an
 entry from `nonProductScaffolding`.
+Phase `278` adds three suites. The ProductTruth bar-scanner controls pair every
+layout the scanner must see through (a field split over lines, a helper around a
+target, a renamed measurement, a split cohort constructor, an operator before the
+last argument, a table projection with something added to it, the positional bar
+constructor) with a benign twin. They excuse constructor and record patterns
+while keeping every expression that merely resembles one rejected, and they run
+the gate itself over a temporary repository tree so that its file walk,
+repository-relative exemptions, and import walk are seen through findings rather
+than through their absence. A zero-finding control covers the repository's own
+`src/` (with the size of the gate's own walk asserted, since a gate that read
+nothing also reports nothing), and further controls mutate the real registry and
+table sources to prove they are analysed rather than skipped. The served-metric
+suite runs the exact served-byte check against real Store-admitted checkpoints:
+tolerance boundaries (including that the regression allowance scales with the
+reported value), typed rejections, replay of each example's own input (a
+classification checkpoint whose served class and a regression checkpoint whose
+served value depend on the input, over interleaved, asymmetric evidence, so a
+replay that reuses one input or misaligns labels or targets cannot reproduce the
+honest metric), the extracted post-admission gate, and the supervised publisher
+over a real local Store. The
+external-bar suite admits the retained `linux-cuda` lane journal through the
+production reader as a regression net for the observation gate and rebuilds all
+55 ProductRow bars from the canonical tables.
 Current lane evidence and any withdrawn historical evidence live in the
 development plan and its attestations, not in this policy.
 
@@ -356,34 +407,187 @@ cross-substrate drift check and no tolerance band. See
 **The retained pure gate-soundness scope is owned by
 [Phase 277](../../DEVELOPMENT_PLAN/phase-277-negative-control-suite.md)
 (legacy Sprint `32.1`; declared in `jitml.cabal` and exposed through
-`jitml test all`).** The realness contract requires a gate that is not
-self-authored or self-referential. The current
-`test/negative-controls/Main.hs` (backed by
-`src/JitML/Test/NegativeControls.hs`) commits hand-built gate-soundness fakes,
-pairs each with pure gate logic that must reject it, and **fails the build if
-any fake is accepted**. It also asserts that `pendingProductionControls` is
-non-empty, so blocked production-path coverage cannot disappear silently. It
-does not yet mutate the contract's real request/event journals, cover the full
-lifecycle, or require a negative control per `ProductRow`. Phases `280`–`282`
-own those production boundaries: request
-and event fixtures in Phase `280`, journal/reducer coverage in Phase `281`, and
-lifecycle plus mandatory per-row registration in Phase `282`.
+`jitml test all`); the request, event, and journal controls and the reducer
+properties are the Phase `280` and `281` extension of the same stanza, and the
+lifecycle and per-row controls are Phase `282`'s.** The
+realness contract requires a gate that is not self-authored or
+self-referential. `test/negative-controls/Main.hs` therefore commits known-invalid
+artifacts, pairs each with the production gate that must reject it, and **fails
+the build if any fixture is accepted or is rejected for a reason other than the
+one its control names**.
 
-### `jitml-model-convergence` — per-model case-registry guard
+Each control is one tasty case named after it, tagged with the pipeline stage it
+exercises:
+
+| Stage | Fixtures | Production gate driven |
+|-------|----------|------------------------|
+| `Gate` | Hand-built known-fake row evidence, bars, and codegen text | `RowAssertions`, `ExternalBars`, codegen renderers |
+| `Request` | Valid raw request plus one defect: zero/negative/out-of-range quantities per run kind, blank identities, run-plan and transport versions, invalid placement, empty/duplicate seeds, derived-quantity and cardinality relations, tuning-spec dimensions, incompatible or unknown algorithm/environment pairs, unknown game/sampler/scheduler/pruner, completed-training kind/unit dimensions | `resolveRun`, the workload plan resolvers and transport parsers, `projectProductRow`, `mkCohort`, `refineCompletedTraining` |
+| `Event` | Valid event stream plus one defect: gaps, conflicting duplicates, wrong plan, malformed and undecodable payloads, non-finite measurements, missing terminals, completion below or beyond its declared budget | `JitML.Run.Contract` combinators, live supervised/RL reducers, tuning and AlphaZero completion contracts, protobuf event decoders |
+| `Journal` | A journal written by the production writer from Store-admitted evidence, then corrupted: storage success without admission, caller-held or another row's completion at the inference-eligibility gate, manifest identity omitted, zeroed, foreign, or mismatched with inference (unsigned and re-signed by a key holder), cross-row/substrate admission, stale-invocation copy, lane-journal digest/content/canonical drift | `Checkpoint.Store` admission, `Pipeline.markInferenceEligible`, `Report.productScenarioCompletion`, `ProductScenarioJournal` reader, `ProductLaneJournal` admission |
+| `Lifecycle` | The live interpreter run over a scripted scenario that makes exactly one thing go wrong: an acquisition, establishment, or publication that fails or throws; a placement, source, or transport that does not fit the completion boundary; a reducer rejection (which must be nacked), a settlement that fails before completion or at the final acknowledgement, each transport failure a consumer can report; a workload that fails, whose probe fails (never treated as absence), or that never terminates (each observation state, and a timeout with the terminal but no evidence, the evidence but no terminal, or no response); local precondition, command, evidence-resolution, incompleteness, and reducer failures; a placement, event-source, owned-object, or diagnostics cleanup that fails or throws; and the conflicts of the pure terminal/evidence join | `runLiveWorkflow` (with `withOwnedCleanup`) and the completion join of `JitML.Test.LiveWorkflow` |
+| `PerRow` | For every `ProductRow`: its own request with a zeroed budget quantity, its own plan fed into its kind's live contract with another row's plan stamped on the event, and a completed checkpoint the Store admitted for another row | `projectProductRow`, the supervised and RL live reducers, the tuning and AlphaZero completion contracts, `Report.productScenarioCompletion` |
+
+Pure controls stay pure; controls that need a file system or a Store are
+effectful (`effectfulControl`) and their check runs in `IO`. Request and Event
+controls are valid-baseline-plus-injected-defect perturbations whose
+accumulated rejection is compared whole, so such a control cannot pass because
+its baseline was already invalid or because a second defect was reported beside
+the injected one. Two payload kinds are matched more loosely: the plan-id
+mismatch transport controls pin the single error and the tampered id but not the
+derived hash, and the protobuf wire-decoder controls match the start of the
+decoder's free-text message. Journal and Gate controls assert the specific
+constructor or message that names the guard with a weaker comparison: a Journal
+control compares the whole rejection where its payloads are stable and
+otherwise pins the constructor names or one message fragment
+(`singleJournalError` also requires it to be the only error), and a Gate
+control requires each expected failure message to be named while tolerating
+further messages beside them. A Lifecycle control compares a whole rejection (the
+primary failure with its payload, the placement kept, the completion facts that
+survived, the diagnostics, the retained cleanup issues, the hooks the interpreter
+drove, and the milestone order of its journal), so it also proves the run was not
+rejected for some other reason; a run the interpreter completes is reported as an
+accepted fixture. A PerRow control compares the whole rejection its kind yields
+(an invalid request), the kind's specific plan-mismatch violation after accepting
+the row's own event (a wrong-plan event), or the four identity mismatches
+(experiment, plan, canonical row, manifest plan) of a foreign admission. The
+stanza additionally asserts that every request baseline refines, that the
+journal baseline is admitted by the production reader, that the lifecycle
+baselines complete and both arrival orders of the workload terminal and the
+completed evidence mint the same completion (the same placement, terminal fact,
+evidence, diagnostics, and set of journal records, with each order's evidence
+equal to the events the scenario delivered; the evidence is a real value, the
+events the reducer accepted, so a different evidence is a difference), and that
+every registry row is a sound baseline for its controls. A registry guard
+requires every non-deferred category to have controls (and a deferred category to
+have none), control names to be unique, and `pendingProductionControls` to be
+empty: a pending control is a failure, never a green assertion. A harness self-test proves that an accepted
+fixture, a wrong-reason rejection, and an unbuildable baseline each fail a real
+tasty run, and pins the verdict helpers every control's verdict comes from (`rejectedWith`,
+`rejectedWhere`, `rejectedOnlyWhere`, `withFixture`, `gateRejected`) on the
+inputs they must not pass, so a helper that waved a defect through cannot turn
+the controls built on it into controls that pass for any reason.
+
+Some illegal states cannot be produced by the production adapters and are
+covered at the boundary that stops them rather than by a fixture that cannot be
+written: `Quantity` units are type-indexed, so unit-swapped quantities are
+compile-time errors; and an `EventId` is derived from plan, kind, and key, so
+the workload adapters cannot emit a same-key/different-id duplicate (the
+duplicate rule is exercised on the generic combinators). A tuning completion
+whose proof disagrees with its sweep's plan, budget kind, or trial total is
+refused by `completeSweep`, and the controls assert that refusal; because the
+sweep type's field selectors are exported, a record update can still forge such
+a terminal, so the controls also feed a forged terminal to the tuning reducer,
+which re-checks the proof itself.
+
+The reducer laws (permutation invariance, identical-redelivery idempotence,
+deterministic conflicting-duplicate rejection, exact ascending missing-key
+diagnostics, left-then-right product diagnostics, wrong-plan rejection, and the
+commutative/idempotent/conflict-rejecting terminal-evidence join) are QuickCheck
+properties in `JitML.Test.ReducerProperties`, registered in the `jitml-unit`
+RunContract group, with a fixed-seed subset in this stanza.
+
+The Lifecycle scenarios are scripted (`JitML.Test.LifecycleFixtures`): the
+transport, backend, and consumer hooks are values a control supplies, and the
+interpreter is the production one. Where an outcome depends on whether the
+workload terminal or the completed evidence arrives first, the scenario forces the
+order with gates (the observer waits until the evidence is recorded, or the
+consumer waits until the observer thread has finished), so the order is a fact of
+the scenario and not of the scheduler; where only the outcome matters, the
+scenario removes the race instead. The interpreter's failure vocabulary is a
+family of closed sums, and every constructor must be provoked and pinned by a
+control: each constructor of the run's primary failure (through a classifier
+total under `-Werror=incomplete-patterns`, so a new constructor does not compile
+until it is classified, and a new classification without a control fails the
+stanza), each workload observation state, each transport failure as the run
+reports it, each cleanup site, successful and failed settlement, and each
+conflict of the terminal/evidence join. A control's coverage is derived from what
+it pins, never declared beside it.
+
+Per-row registration is derived, not hand-authored: a row's registration is
+computed from its family (a closed sum, so a new run kind cannot be left without
+specs), every registered spec becomes one control named
+`row-<id>-invalid-request`, `row-<id>-wrong-plan-event`, or
+`row-<id>-foreign-admission`, and a new row in `allProductRows` is registered
+without anyone remembering to add it. The foreign-admission controls share one
+Store-admitted fixture (two supervised rows' completed checkpoints, so every row
+has an admission that is not its own) built once through tasty `withResource`. A
+guard compares four views of the rows: the registry, the `projectProductRows`
+batch, the registrations, and the `PerRow` controls of the committed control list
+the stanza runs (`allNegativeControls`). The control view is read from that list,
+never from the per-row module's own control function, because the registrations
+and that function are both derived from the registry and so could not notice a
+per-row control dropped from, or filed under another category in, the list the
+stanza really runs. The guard fails the stanza on a row without a registration, a
+row registered twice, a registration or control that names no row, a run kind
+without every spec kind, a spec whose family is not its row's, and a registered
+spec whose control the committed list lacks; the same guard, over the same list,
+runs in `jitml-unit`, so adding a row to the registry without its controls, or
+losing a per-row control from the stanza, fails the always-on gate too. The
+lifecycle specs are bound to the same list (every spec is a committed control,
+and every committed lifecycle control is a spec), so a lifecycle control dropped
+from the stanza cannot keep counting as covered by the closed-sum table.
+
+### `jitml-model-convergence` — per-model completed-run evidence
 
 **Established under [legacy Phase 33](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
-and currently owned for production evidence by
+and owned for production evidence by
 [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 (declared in `jitml.cabal` and exposed through `jitml test all`).** The realness
 audit found that artifact readers and declared evidence handles are not training
-drivers. The current `test/model-convergence/Main.hs` (backed by
-`src/JitML/Test/ModelConvergence.hs`) is a lightweight registry guard: it owns
-one case per `ProductRow`, enumerated from
-`JitML.Product.Matrix.allProductRows`, and validates coverage, row identity,
-named integration/e2e handles, externally anchored bar metadata (anchored in the sense of `literatureTarget - slack`; the slack is project-calibrated), and positive
-non-wall-clock performance floors. No current case trains, reloads a completed
-artifact, recomputes its served metric, or performs inference. Phase `285`
-owns that completed-run-evidence migration and its validation record.
+drivers, so the stanza no longer rebuilds a bar from a registry row and grades
+its own target. `test/model-convergence/Main.hs` (backed by
+`src/JitML/Test/ModelConvergence.hs` and `src/JitML/Test/ModelEvidence.hs`) reads
+`JITML_SUBSTRATE` (default `linux-cpu`), loads that lane's pinned retained
+journal through the production reader, admits it against the current validated
+projection, and grades an opaque `ModelRowEvidence` minted only from that
+projection and the admitted journal row. Per `ProductRow` it asserts, as separate
+cases: final-quality convergence against a criterion re-derived independently
+from the canonical threshold tables; learning telemetry (budget exhausted
+exactly, updates applied, weights moved), kept a distinct type and failure sum
+from final quality; committed `AtLeast`/`AtMost` performance bounds over
+deterministic non-wall-clock work counts, bound to the row's plan, experiment,
+and admitted manifest identity; and plan, experiment, manifest, contract, and
+seed-cohort binding. Missing, duplicate, orphan, cross-plan, wrong-lane, and
+stale-contract evidence are typed failures. A stale, missing, or inadmissible
+journal fails every lane-dependent case by design; which lanes currently admit
+is development-plan status, not stated here.
+
+The stanza also carries lane-independent guards (canonical criteria agree with
+the registry bars, committed bounds equal the plan's quantities, the registry
+projects to exactly its rows, k > 1 seed-cohort fixtures) and mutation controls
+that corrupt one field of a real retained `linux-cuda` row (drop, duplicate,
+orphan, cross-plan, wrong-lane, stale contract, seed gap, non-finite, below-bar,
+criterion mismatch, wrong-channel payload, manifest-identity mismatch,
+performance overrun and underrun, and each identity field the mint compares,
+offered wrong on its own). Wiring controls rebuild the lane evidence around one
+corrupted row and require each of the four per-row checks to report exactly its
+own channel's failures, so a case that silently dropped an assertion cannot stay
+green on clean evidence. Boundary controls pin the closed rules one
+representable step either side (at-least and at-most inclusive, the exclusion
+band symmetric and edge-inclusive), registry drift is pinned per component (name,
+goal, threshold), and a three-seed plan cohort is minted and graded end to end.
+Gate controls offer each of the gate's own fail-closed guards a defective input
+by hand, after proving the well-formed input is accepted: loading a lane (no
+registered journal, an unreadable path, a registry that does not project, a
+wrong or non-canonical pin, a copy altered by one byte, an admitted journal that
+does not join), the criterion lookup (every table-miss arm, and a row with no
+canonical criterion reaching the convergence assertion), and the receipt binding
+(each identity dimension on its own, a missing receipt, a receipt for a row the
+journal does not hold). Each control first proves its unmutated baseline grades
+clean and then asserts the specific typed failure. The forgeable raw boundary
+(`JitML.Test.ModelEvidence.Raw`) carries a compile-time warning that the
+`-Werror` build turns into an error for any importer that has not opted out, and
+the stanza asserts, with a tokenising source scan that reads UTF-8 whatever the
+locale, that exactly its own control modules import it and opt out. Because lane
+admission refines exact budget units, the observed-unit bounds hold by
+construction on a retained row and guard the evidence boundary rather than
+measure performance. The stanza executes no inference and runs no rerun:
+same-seed determinism assertions stay in the canonical and backend stanzas, and
+the journals retain no per-iteration curve, per-episode evaluation set, or
+served-artifact measurement (see
+[training_metrics_and_splits.md → Per-Model Completed-Run Evidence](training_metrics_and_splits.md#per-model-completed-run-evidence)).
+The stanza runs in well under a second and needs no cluster, oneDNN, or device.
 
 ### `jitml-daemon-lifecycle`
 
@@ -428,7 +632,17 @@ is cancelled and nacked before publication and an over-deadline isolated control
 can complete and ack exactly once; it also covers redirect-safe owned cleanup,
 under-capacity dispatch, cancellation
 settlement/drain/process/cleanup failure precedence, and an actual Node bridge
-drain race whose hidden Nack flushes before `Drained`. The four `inference reply
+drain race whose hidden Nack flushes before `Drained`. The harness-transport
+cases (`JitML.Test.LivePulsarTransport`) drive `runLiveWorkflow` against the
+same fake node and fake admin API: the admin `CREATE` reaches the broker before
+the first publish and the `DELETE` follows the consumer's stop; a refused
+`CREATE` publishes nothing and starts no consumer; a borrowed source, or a typed
+executable on the protocol transport, is refused before any broker call; a
+failed `DELETE` is retained beside the completed facts; a cancellation that
+races the `CREATE`, whether the correlated one or a typed executable's
+subscription-only one, still deletes the cursor exactly once with its identity
+unchanged; and a typed executable's subscription-only cursor exists before the
+executable runs. The four `inference reply
 scope` branches prove the CLI cancels and
 joins its `Async` reply worker, treats the expected joined `AsyncCancelled` as a
 clean release, preserves a typed DELETE failure beside a normal primary failure,
@@ -520,8 +734,19 @@ Cluster acquisition and release use one outer resource scope; every seeded
 workflow owns its subscription, placement, evidence journal, diagnostics, and
 cleanup through the nested scope in
 [Functional Core, Imperative Shell](run_contract.md#functional-core-imperative-shell).
-Assertions cannot bypass teardown. Evidence-bearing workflows journal
-diagnostics before subscription release and placement release. Live integration
+Assertions cannot bypass teardown. Evidence-bearing workflows establish their
+event source before publishing and journal diagnostics before the established
+source's release and the placement's release; the `RunContract` group's
+`LiveWorkflow event-source establishment` cases drive a scripted transport to
+prove the strict establish-before-publish order, exactly-once release under
+completion, publication failure, consumer failure, and cancellation (including
+a cancellation that races an uninterruptible establishment), typed establishment
+failure (and an establishment hook that throws) with no publication, that a
+release that fails, whatever its typed failure, or throws is retained beside the
+completed facts, withholds completion, and is never journalled as a release,
+that a cleanup failure reported by the consumer is likewise retained and
+withholds completion, and that a local evidence source never reaches the
+establishment hook. Live integration
 fixtures created directly in MinIO, plus the duplicate-Start smoke's raw Job and
 derived `runconfig-<jobName>` ConfigMap, use exception-safe outer ownership;
 every typed deletion failure remains visible beside an assertion failure rather
@@ -537,26 +762,54 @@ Cabal stanzas and derives the report card from actual `Passed`, `Failed`, and
 the exact command that a fail-fast suffix would have run; aggregate status,
 counts, and duration are derived from that journal.
 
-The current `--live` layer is deliberately documented as legacy: after all
-selected stanza invocations pass, it launches separate probes for SL held-out
-loss, RL return, AlphaZero arena win rate, tuning objective, JIT cache, daemon
-health, and the browser matrix. Those seven generic probes remain Sprint `34.3`
-legacy: an absent optional field means the measurement was not requested,
-`MeasurementUnavailable` carries no reason, and `MeasurementAvailable Text` is
-not yet tied to the scenario journal. Product-row evidence is stricter: it can
-only be an opaque `CompletedProductScenarioReport`, and when selected targets
-request it without the exact authenticated cross-process journal, collection
-fails closed instead of silently omitting rows. The command-owned writer/reader
-boundary gives only the integration
-child receives the current run, `0600` key-file capability, journal path, and
-canonical executable identity; startup consumes and clears that capability
-before Tasty; and the parent authenticates the returned aggregate before exact
-Store re-admission. Phase `262` owns
-the separate browser/Playwright consumption boundary described above; it cannot
-mint or replace the integration journal. Sprint `34.3` replaces the remaining generic probes with
-`NotRequested`, reasoned `Unavailable`, and journal-bound `Available` evidence. Failed invocations
-already retain their complete subprocess transcript/failure and block post-test
-measurement. See
+The `--live` layer launches nothing after the selected stanza invocations. Every
+report measurement is a projection of a journal the interpreter already captured
+and is exactly one of `NotRequested`, reasoned `Unavailable`, or journal-bound
+`Available` (`JitML.Test.Measurement`). Product-row evidence can only be an
+opaque `CompletedProductScenarioReport`, and when selected targets request it
+without the exact authenticated cross-process journal, collection fails closed
+instead of silently omitting rows. The command-owned writer/reader boundary
+gives only the integration child the current run, `0600` key-file capability,
+journal path, and canonical executable identity; startup consumes and clears
+that capability before Tasty; and the parent authenticates the returned
+aggregate before exact Store re-admission. Phase `262` owns the separate
+browser/Playwright consumption boundary described above; it cannot mint or
+replace the integration journal.
+
+The SL, RL, AlphaZero, and tuning lines and the `product_row_counts` line are
+pure projections of that one product-row journal measurement: each family line
+lists its rows' own completed metrics in journal order, and each count is derived
+from the journal rows over the registry's per-family row count, so no line or
+total is a separate field or a literal. The browser matrix is the authenticated
+browser result journal, whose row denominator is the registry's row count. A
+requested measurement whose evidence was not collected renders
+`unavailable (<reason>)` and is never rendered as unrequested. Failed invocations
+retain their complete subprocess transcript/failure and make every requested
+measurement unavailable with the stage that stopped the live scope as the
+reason, spelled exactly as the `NOT-RUN` rows spell their blocker; that is the
+stage that stopped collection, which need not be the stage that produces the
+measurement, because the interpreter skips its post-body collection after any
+failed invocation. A rejected journal refinement is named as such, ahead of a
+process failure that preceded it, as the invocation journal's
+`NotRunAfterRefinement` rows already blame it. The two daemon-edge observations
+(`jit_cache_hit_rate`, `daemon_healthz`) have no journaled source, so they render
+`unavailable (not journaled: ...)` on every live run until a live-plan step
+records them.
+
+Every decision the test command makes about a measurement is a function of
+`JitML.Test.LiveMeasurements` that it calls verbatim, and the unit coverage
+(`test/unit/ReportMeasurements.hs` and the ProductScenario-journal report cases)
+runs those functions over real live scopes and over a journal a real executed
+scenario wrote. It pins each measurement state and each unavailable reason, that
+a failed live scope never reports a requested measurement as unrequested, that
+counts and lines move with the journal rows (including rows with several
+observations), that a card without product evidence renders no product block and
+keeps its exact pre-Phase-289 text, and that no removed probe or literal row
+denominator reappears. Only the effect lines of `Test/Command.hs` (retiring the
+signing capability, building the journal reader from the private scope, and
+threading the selected targets in) run solely in a live run; a source guard pins
+that the command names no measurement state itself and pins the exact calls that
+supply those functions. See
 [Evidence Journals and Reporting](run_contract.md#evidence-journals-and-reporting).
 
 ### Playwright

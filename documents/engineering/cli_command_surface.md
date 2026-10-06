@@ -692,7 +692,7 @@ jitml test jitml-e2e
 
 Run jitml-e2e.
 
-Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable. `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge.
+Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable. `jitml test jitml-e2e --live --<substrate>` also runs the live Playwright matrix against that substrate's edge; its integration producer always runs as the standing invocation, so `--test-options` reaches only the e2e stanza.
 
 Usage:
   jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--live] [--test-options <text>]
@@ -790,9 +790,9 @@ Examples:
 ```text
 jitml lint docs
 
-Run generated documentation checks.
+Run the documentation checks that docs check runs.
 
-Run generated documentation checks.
+Run the documentation checks that docs check runs.
 
 Usage:
   jitml lint docs [--write]
@@ -803,7 +803,7 @@ Options:
 
 Examples:
   jitml lint docs
-      Run generated documentation checks.
+      Run the documentation checks that docs check runs.
 ```
 
 ### `jitml lint proto`
@@ -916,9 +916,9 @@ Examples:
 ```text
 jitml docs check
 
-Check generated docs.
+Check generated docs and plan status.
 
-Fails if generated documentation has drifted.
+Fails if generated documentation has drifted, a governed document breaks the documentation standards, or the plan's status headers, structure, or closure claims disagree with the evidence-derived status.
 
 Usage:
   jitml docs check
@@ -927,7 +927,7 @@ Usage:
 
 Examples:
   jitml docs check
-      Check generated documentation drift.
+      Check generated documentation drift and plan status.
 ```
 
 ### `jitml docs generate`
@@ -947,6 +947,25 @@ Usage:
 Examples:
   jitml docs generate
       Regenerate tracked documentation.
+```
+
+### `jitml docs status`
+
+```text
+jitml docs status
+
+Print the evidence-derived phase status.
+
+Projects the phase status catalogue over the committed validation evidence and prints the sprint tally, the open chain, and every unmet obligation with its evidence pointer. Read-only; use docs check as the gate.
+
+Usage:
+  jitml docs status
+
+
+
+Examples:
+  jitml docs status
+      Print derived phase status and unmet obligations.
 ```
 
 ### `jitml check-code`

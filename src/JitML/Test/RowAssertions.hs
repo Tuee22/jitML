@@ -1,11 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Executable row-evidence gates.
+--
+-- Two paths live here, and they are not interchangeable:
+--
+-- * 'assertCompletedRowEvidence' consumes the opaque, kind-indexed
+--   'ModelRowEvidence' that "JitML.Test.ModelEvidence" mints only from a
+--   validated ProductRow projection and an admitted lane-journal row. This is
+--   the path for completed ProductRow evidence (Phase 285).
+-- * The record types below ('SupervisedRowEvidence', 'RlRowEvidence',
+--   'AlphaZeroRowEvidence', 'LearnedStateEvidence') are forgeable, hand-built
+--   values. They exist for the toy-configuration canonical stanzas and the
+--   hand-built negative-control fixtures, whose whole point is to feed a gate
+--   values that no real run produced. They must not be used to grade a
+--   completed ProductRow: nothing binds them to a plan, artifact, or lane.
 module JitML.Test.RowAssertions
   ( AlphaZeroRowEvidence (..)
   , LearnedStateEvidence (..)
   , SupervisedRowEvidence (..)
   , RlRowEvidence (..)
   , assertAlphaZeroRowEvidence
+  , assertCompletedRowEvidence
   , assertLearnedStateChanged
   , assertRealLoss
   , assertRlRowEvidence
@@ -25,6 +40,15 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64, Word8)
 
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Test.ModelEvidence
+  ( ModelRowEvidence
+  , assertModelConvergence
+  , assertModelLearning
+  , assertModelPerformance
+  , renderFinalQualityFailure
+  , renderLearningFailure
+  , renderPerformanceFailure
+  )
 import JitML.Training.Budget
   ( CompletedTraining
   , MetricGoal (..)
@@ -102,6 +126,18 @@ data LearnedStateEvidence = LearnedStateEvidence
   , lseUpdateCount :: !Word64
   }
   deriving stock (Eq, Show)
+
+-- | Grade completed ProductRow evidence: the final-quality channel against the
+-- independent external criterion, the learning channel, and the committed
+-- deterministic performance bounds. Each family of failure keeps its own
+-- prefix so a reader can tell which channel failed; an empty list means every
+-- assertion held. Identity binding needs the row's projection and is asserted
+-- with 'JitML.Test.ModelEvidence.assertModelBinding'.
+assertCompletedRowEvidence :: ModelRowEvidence kind -> [Text]
+assertCompletedRowEvidence evidence =
+  fmap (("final quality: " <>) . renderFinalQualityFailure) (assertModelConvergence evidence)
+    <> fmap (("learning: " <>) . renderLearningFailure) (assertModelLearning evidence)
+    <> fmap (("performance: " <>) . renderPerformanceFailure) (assertModelPerformance evidence)
 
 paramHash :: [Double] -> Text
 paramHash =

@@ -106,6 +106,38 @@ weights and degenerate Metal convolution scaffolds. Those future entries are
 exposed as `nonProductScaffolding` so the unit suite can prove no `ProductRow`
 implementation names them before their owning phases remove the source paths.
 
+The lint also guards the convergence-bar boundary (Phase `278`).
+`JitML.Lint.ProductTruthBars` reads each `src/` file that mentions a bar
+constructor or target field through the permissive tokenizer
+`JitML.Lint.HaskellTokens`, so formatting cannot hide a violation. Outside
+`src/JitML/Test/` (which builds known-fake bars on purpose) it reports
+`product-truth.measured-bar` when a bar target, slack, or threshold mentions a
+measured value (recognised by name), directly or through simple bindings that
+are local to its declaration or top-level: an argument of `mkConvergenceBar`,
+`regressionRmseBar`, the positional `ConvergenceBar` constructor, or a
+cohort-threshold constructor, or an assignment to `convergenceLiteratureTarget`,
+`convergenceThreshold`, `threshold`, `literatureTarget`, or `slLiteratureTarget`.
+It reports `product-truth.nonliteral-bar` when a numeric bar argument is neither
+a numeric literal nor a projection of the canonical threshold tables, a selector
+applied as the whole argument (the cohort-threshold constructors accept literals
+only), because a helper-wrapped or renamed value, or a table value with a
+helper's value added to it, has no provenance the lint can see.
+
+Every numeric position present before an application ends is checked whether or
+not the application is saturated, and a `$` hands the rest of the expression over
+as the last argument, so a flipped, piped, or `$`-applied call cannot hide its
+target. A constructor or record pattern declares nothing and is not reported when
+its `=`, `->`, or `<-` sits on the line where the pattern ends (a function head,
+case alternative, lambda, `let`, bind statement, or generator); a pattern whose
+arrow or guard is on a later line is read as an application, so a threshold is
+best taken apart with its field selectors. The lint is lexical and deliberately
+fail-closed; the
+[Product Completion Contract](product_completion_contract.md#realness-completion-bar-2026-07-05)
+states what it does and does not establish. The gate takes the repository root
+(`checkProductTruthIn`; `checkProductTruth` is the same gate rooted at the working
+directory), so the unit suite runs its real file walk, relative-path exemptions,
+and import walk over a temporary tree.
+
 ### Execution-Path Fail-Open Lint (`jitml lint haskell`)
 
 Owned by `src/JitML/Lint/FailOpen.hs` (Sprint `7.1`). A *fail-open wildcard* is
@@ -214,6 +246,13 @@ governed Markdown files missing `Status`, `Supersedes`, `Referenced by`,
 `Generated sections`, or `Purpose`, and verifies that `Generated sections`
 agrees with physical generated-region markers and the generated-section
 registry.
+
+Phase 288 extends the same command with the evidence-derived status projection:
+each phase document's status, `**Blocked by**:` edges, `### Remaining Work`, and
+`### Validation` block are compared with the status projected from committed
+validation evidence (`status-projection.<sprint>` and `plan-structure.<sprint>.<rule>`
+drifts), and product-closure claims are rejected unless the evidence-derived
+closure verdict is closed. `jitml docs status` prints that projection.
 
 ## Container-Exclusive Code Quality
 

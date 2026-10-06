@@ -16,6 +16,8 @@ module JitML.Product.Publisher
   , validateProductCompletedTrainingPlanId
   , supervisedPublishMetricRows
   , validateSupervisedPublishUpdateCount
+  , validateSupervisedServedMetricExampleCount
+  , verifyAdmittedSupervisedServedMetric
   )
 where
 
@@ -42,5 +44,7 @@ import JitML.Product.Publisher.Runtime
 import JitML.Product.Publisher.Supervised
   ( supervisedPublishMetricRows
   , validateSupervisedPublishUpdateCount
+  , validateSupervisedServedMetricExampleCount
+  , verifyAdmittedSupervisedServedMetric
   )
 import JitML.Product.Publisher.TuningTranscript (productTuneTrialArtifact)

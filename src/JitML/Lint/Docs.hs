@@ -10,6 +10,8 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Product.StatusEvidence (ClosureVerdict, closureOutcome)
+
 data ClosureClaim = ClosureClaim
   { closureClaimPath :: FilePath
   , closureClaimLineNumber :: Int
@@ -18,11 +20,14 @@ data ClosureClaim = ClosureClaim
   }
   deriving stock (Eq, Show)
 
-scanClosureClaims :: Bool -> FilePath -> Text -> [ClosureClaim]
-scanClosureClaims productPhasesDone path content
-  | productPhasesDone = []
-  | otherwise =
-      concatMap scanBlock (markdownBlocks content)
+-- | Scan a governed document for current product-closure claims. A closed
+-- verdict, derived from machine evidence, permits them; a refused verdict does
+-- not, whatever the prose or the status literals say.
+scanClosureClaims :: ClosureVerdict -> FilePath -> Text -> [ClosureClaim]
+scanClosureClaims verdict path content =
+  case closureOutcome verdict of
+    Right _legacy -> []
+    Left _refusals -> concatMap scanBlock (markdownBlocks content)
  where
   scanBlock block
     | closureClaimBlockExempt block = []

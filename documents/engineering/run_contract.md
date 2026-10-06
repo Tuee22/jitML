@@ -20,6 +20,10 @@ manifest before inference or report eligibility. The former Product V1/V2
 served-byte split is historical and has no current parallel wire. Current phase
 status and validation evidence live in the development plan.
 
+The live RL integration scenarios bind the compiled plan's exact environment-step
+total through `rlLiveContractForSteps`; the step-free `rlLiveContract` remains for a
+caller that cannot supply a total and binds only the checkpoint's budget kind.
+
 ## Scope and Ownership
 
 This document is the single source of truth for the common contract followed by
@@ -410,6 +414,16 @@ does not equal that derived cohort median; that terminal metric event and the
 completed checkpoint witness must both carry the same plan identity derived
 from the compiled RL plan.
 
+The retained lane journals keep neither channel in its per-iteration or
+per-episode form: they carry only the refined `CompletedTraining` (observed
+budget units, trainer-observed update count, weight hashes, and the passed
+cohort measurements). The per-model evidence layer
+(`JitML.Test.ModelEvidence`) therefore holds the learning channel
+(`LearningTelemetry`) and the final-evaluation channel (`FinalQuality`) as two
+distinct types with distinct assertions and failure sums, rejects a payload
+offered in the wrong slot, and does not claim to have re-derived a median from
+episodes or a curve from iterations.
+
 ## Lifecycle State Machine
 
 Placement is a closed sum, never a `Maybe` handle:
@@ -560,19 +574,50 @@ The interpreter:
 
 1. acquires the validated, plan-bound Job, host-run, or request/reply
    placement;
-2. opens the scoped typed subscription and waits for its persistent session to
-   report connected before publishing the command;
+2. has the transport establish the typed event source before anything is
+   published. For a broker source that is an acknowledged admin `CREATE` of the
+   `Owned`, `FromLatest` cursor which mints the opaque
+   `EstablishedEventSource`; the socket-open `ConsumerSessionConnected` event is
+   a journalled diagnostic that gates nothing. A source that has no broker
+   subscription (the local executable channel) needs no establishment and never
+   reaches the establishment hook;
 3. renders commands and topics only through their protocol/topology owners;
-4. consumes receipt-bearing deliveries through that session and feeds the pure
-   reducer;
+4. publishes the command through the established source, and consumes
+   receipt-bearing deliveries through the established (borrowed) view of it,
+   feeding the pure reducer;
 5. observes terminal workload state and complete protocol evidence without
    assuming which arrives first;
-6. captures diagnostics while the event subscription and placement are both
-   still owned;
+6. captures diagnostics while the event source and placement are both still
+   owned;
 7. settles each delivery exactly once; and
-8. releases the subscription, then the Job, host-run, or request/reply
+8. releases the established source, then the Job, host-run, or request/reply
    placement, then any outer temporary-object fixtures under
    `bracket`/supervised-`Async` semantics.
+
+The transport boundary is deliberately small. A broker `LiveTransport` supplies
+`liveEstablishEventSource`, which returns the only `EstablishedEventSource` the
+interpreter accepts, and `liveConsumeEvents`, which consumes the established
+view. Publication (`livePublishCommand`) and release (`liveReleaseEventSource`)
+are operations of that token, because both act on transport-private state (the
+cursor) that only establishment can produce: publishing before establishment,
+and releasing something that was never established, are unrepresentable. The
+establishment hook runs inside the interpreter's masked ownership scope and must
+either return a token or leave nothing behind; the Pulsar harness transport
+therefore runs its bounded admin `CREATE` uninterruptibly, so a cancellation
+that races it is delivered once the token exists and the interpreter releases
+the cursor. The token is released exactly once on every exit after it exists
+(completion, primary failure, synchronous exception, or cancellation), after the
+diagnostics are journalled and before the placement is released; a failed
+establishment journals `EventSourceEstablishmentFailed`, reports the typed
+`LiveEstablishFailed` primary, never reaches `CommandPublicationStarted`, and
+still releases the placement exactly once (a hook that throws instead of
+returning a typed refusal is a `LiveInterpreterException` with the same
+guarantees). The harness transports live in
+`JitML.Test.LivePulsarTransport`: `livePulsarTransport` establishes the
+`ReplyCursor` for a protocol command's request topic and publishes through it,
+and `liveSubprocessTransport` additionally establishes a subscription-only
+cursor for a typed executable, which has no request topic and publishes its
+result out of band.
 
 The Sprint `12.11` `WorkflowMatrix` is a different boundary: it executes every
 public CLI leaf as a typed `Subprocess` and validates the real process outcome
@@ -587,8 +632,9 @@ Resource ownership is explicit (`Borrowed` or `Owned`). An interpreter never
 deletes a developer-owned cluster or another run's Job/RunConfig pair. Assertions live outside
 the resource scope so an exception cannot bypass cleanup. The journal fixes the
 successful release order as `DiagnosticsGathered` → `SubscriptionReleased` →
-`PlacementReleased`; a failed release records its typed cleanup issue at the
-same position instead of falsely recording release. Integration-only MinIO
+`PlacementReleased`, and `EventSourceEstablished` always precedes
+`CommandPublicationStarted`; a failed release records its typed cleanup issue at
+the same position instead of falsely recording release. Integration-only MinIO
 fixtures and raw smoke-test Jobs plus their derived `runconfig-<jobName>`
 ConfigMaps use an outer `generalBracket` owner that tries every deletion. A
 synchronous assertion and its deletion failures are retained
@@ -600,7 +646,7 @@ diagnostic observer rather than replacing or wrapping cancellation.
 ## Evidence Journals and Reporting
 
 Every interpreted live run produces an append-only typed journal containing
-placement acquisition, consumer-session state, subscribe-before-publish
+placement acquisition, consumer-session diagnostics, establish-before-publish
 ordering, command publication, receipt fingerprints and redelivery counts,
 reducer decisions, delivery dispositions, workload observations, diagnostics,
 placement release, and cleanup issues. Sequence numbers are assigned only by
@@ -729,9 +775,29 @@ body's last action and its return.
 The binding measurement boundary is likewise a projection of evidence already
 gathered by the scenario that ran: reporting must not launch a second probe,
 invent a declaration row, or collapse not-requested and unavailable-with-reason
-states. The invocation-journal half of this boundary is implemented. The
-surviving post-test global measurement probes are a separately owned legacy row;
-see [Legacy Tracking → Pending Removal](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md#pending-removal).
+states. Both halves are implemented. Every `ReportMeasurements` field is a
+`Measurement evidence` (`JitML.Test.Measurement`) that is exactly one of
+`NotRequested`, `Unavailable reason`, or `Available evidence`, with a closed
+`UnavailableReason`: `UpstreamNotRun` names the failed or blocked stage that
+stopped the live scope before the evidence was collected, with the same blocker
+text as the invocation journal's `NOT-RUN` rows (it is the stage that stopped
+collection, which is not necessarily the stage that produces the measurement,
+because the interpreter skips its post-body collection after any failed
+invocation); `EvidenceRejected` carries a journal refinement's own rejection and
+is named ahead of a process failure that preceded it, as the invocation
+journal's `NotRunAfterRefinement` rows already blame the rejection; and
+`NotJournaled` names an observation no interpreter step records. The live
+command launches nothing after the tested invocations: a failed live body makes
+every requested measurement `Unavailable` with one of those reasons, never
+`NotRequested`, and the report renders `unavailable (<reason>)` rather than a
+bare marker. Every decision the command makes about a measurement (which fields
+the selected targets request, how a failed scope is reported, how a journal read
+becomes a measurement, how the browser refinement is gated) is a function of
+`JitML.Test.LiveMeasurements` that the command calls verbatim; the command keeps
+only the effects that supply them. The two daemon-edge observations
+(`jit_cache_hit_rate`, `daemon_healthz`) have no journaled source — the edge port
+is leased during bootstrap, after the live plan is fixed — so they have no
+evidence type and render `unavailable (not journaled: ...)` on every live run.
 
 ### Product registry projection and report admission
 
@@ -799,12 +865,21 @@ retains the admitted manifest SHA. Joining those values against the common
 rejects missing, duplicate, orphaned, wrong-plan, or wrong-lane evidence.
 Registry ids, declared test ids, generic payloads, and the legacy seven-column
 lane table cannot populate `ReportMeasurements`.
-`measuredProductRowEvidence = Nothing` means product evidence was not requested;
-when the selected live targets request product evidence and no opaque
-cross-process completed-scenario journal is available, collection fails closed
-before launching measurement effects. Phase `261` supplies the authenticated
-current-run journal writer, reader, executable-identity checks, and report
-re-admission boundary.
+`measuredProductRowEvidence` is a `Measurement CompletedProductScenarioReport`:
+`NotRequested` when the selected targets have no stage that produces product
+evidence, `Available` only for the opaque report, and `Unavailable` (naming the
+stage that stopped collection or the journal rejection) when the selected live
+targets request it and no opaque cross-process completed-scenario journal is
+available.
+The report's SL, RL, AlphaZero, and tuning lines and its completed/eligible row
+counts are pure projections of that one field: each family line lists its rows'
+own `completedTrainingMetrics` in journal order, grouped by the family the
+completion's budget kind proves, and each count is derived from the journal rows
+over the registry's own per-family row count, so no line or total is a separate
+field or a literal. The browser gate's row denominator is likewise the registry's
+row count, and its failure text counts the authenticated browser journal's own
+rows. Phase `261` supplies the authenticated current-run journal writer, reader,
+executable-identity checks, and report re-admission boundary.
 
 The version-`3` journal writer accepts only the opaque, projection-ordered
 `CompletedProductScenarioReport`, covers the complete aggregate and every
@@ -834,6 +909,73 @@ The lane owner retains the candidate bytes unchanged under
 the SHA-256 in its phase evidence, and checks production-reader admission
 before teardown. Status and artifact pins remain owned by the development plan.
 
+Every `jitml test <stanza> --<substrate>` invocation is likewise persisted as a
+`jitml-validation-record` candidate under `.build/runtime/validation/`, one file
+`<gate>.<substrate>.json` per invocation, written by the same command that writes
+the lane-journal candidate. The record is canonical version-`1` JSON with exactly
+`format`, `version`, `gate`, `substrate`, `command` (the exact rendered command),
+`executable_sha256`, `source_digest_algorithm`, `source_sha256`, `outcome`
+(`Passed`, `Failed`, or `NotRun`), `exit_code`, `stdout`, `stderr`, `stdout_sha256`,
+`stderr_sha256`, `exception`, `blocked_by_stanza`, and `blocked_by_detail`. The
+outcome fixes which of those may be present. A `Passed` run records exit code `0` and
+the digests of its streams, not the streams. A `Failed` run retains both complete
+streams and their digests, or the exception text when the runner raised before an
+exit status existed; a stream that capture did not complete is `null`. A `NotRun`
+fail-fast target records the stanza that blocked it. There is no clock and no
+duration. The source digest is algorithm version `1` over `app/`, `gen/`, `src/`,
+`test/`, `cabal.project`, and `jitml.cabal` (see `JitML.Product.SourceDigest`): the
+`hs-source-dirs` of every stanza plus the two project files, so everything the
+Haskell build compiles is covered; files ordered by path, CRLF normalised to LF,
+symbolic links rejected, and only the recorded extensions counted. Data files the
+tests merely read (`dhall/`, `proto/`, `chart/`, `documents/`, `DEVELOPMENT_PLAN/`)
+are outside the digest. It is taken before the first invocation and again after the
+last, and no record is written when the two differ. No record is written either when
+the environment sets a `TASTY_*` variable that changes which tests run or how they are
+judged (`TASTY_PATTERN`, `TASTY_TIMEOUT`, `TASTY_QUICKCHECK_*`, and any other than the
+presentational `TASTY_COLOR`, `TASTY_HIDE_SUCCESSES`, `TASTY_ANSI_TRICKS`, and
+`TASTY_NUM_THREADS`), because the recorded command cannot show it. Admission decodes strictly,
+re-checks every cross-field rule, and requires the value to re-render to the exact
+bytes. The record is not signed and no digest of a record is pinned in `src/`
+(that would change the source digest the record binds); integrity rests on that
+consistency and on the reviewed commit that adds it under
+`DEVELOPMENT_PLAN/attestations/validation/<gate>.<substrate>.json`. `jitml docs check`
+and `jitml check-code` are never recorded: they are computed when the closure is
+evaluated.
+
+`JitML.Product.StatusLoader` reads those records, the pinned lane journals, and the
+retained aggregate through the production readers and maps every typed reader error
+to an `Unmet` reason by constructor. A record proves a gate only if its command is the
+one `jitml test` plans for that gate and substrate: a cabal executable whose resolved
+file name is `cabal` or `cabal-<version>` (a ghcup link resolves to the versioned
+file, and `jitml test` records the resolved path), optionally under the live `nice`
+wrapper, followed by exactly the planned arguments. The end-to-end stanza is the one
+gate whose passing record must carry that wrapper: only a `--live` run executes the
+live orchestration (the measurement glue in `JitML.Test.Command`) that gate stands
+for, so a non-live pass is `Incomplete`.
+The reasons are: `Stale` (a row
+whose `contract_sha256` differs from the current projection, the retained aggregate
+embedding another pin, or a standing transcript recorded for another source tree),
+`Mismatched` (a pin that differs from the retained bytes, non-canonical or malformed
+bytes, another gate, substrate, or command), `FailedRun`, `Incomplete`, `Missing`,
+`AwaitsSprint`, and `External`. `JitML.Product.PhaseStatus` projects each sprint from
+those reasons:
+Done only when every obligation is proven and every upstream sprint is Done;
+Blocked when an upstream sprint is unproven, or an external prerequisite is open and
+work has not started; Active or Planned otherwise, by the one declaration a person
+makes. `jitml docs status` prints the projection.
+
+Closing a sprint therefore never edits a status by hand. The person closing it first
+lands every `app/`, `gen/`, `src/`, and `test/` change, because the validation records
+bind that source digest: re-pinning a lane journal, and deleting an `ExternalContext`
+obligation in the same change that lands the machine-observable evidence replacing
+it. They then re-issue the lane journal or aggregate the sprint owns, run the sprint's
+gates in the container lane its phase names, copy the
+`.build/runtime/validation/<gate>.<substrate>.json` candidates it needs into
+`DEVELOPMENT_PLAN/attestations/validation/`, and only then set the sprint document's
+`**Status**:`, heading, and `## Phase State` to the status `jitml docs status`
+derives; `jitml docs check` refuses the change when any step is missing. Only that
+person stages and commits.
+
 `JitML.Test.ProductAggregation` consumes the three pinned retained inputs through
 that reader on `linux-cpu`. It requires the registered path and external digest
 pin, exactly one journal for each substrate,
@@ -847,6 +989,19 @@ changing a count, measurement, source binding, or schema version rejects it.
 Seven-column Markdown fragments are presentation checks and cannot supply an
 aggregate cell. The retained identity records the original live Store admission;
 aggregation does not create a new live Store capability after teardown.
+
+`JitML.Test.ModelEvidence` is a second consumer of one admitted lane journal. It
+projects the current registry for the selected lane, admits that lane's pinned
+journal through the same production reader, and mints an opaque, kind-indexed
+`ModelRowEvidence` per row through a typed join (`Missing`, `Duplicate`,
+`Orphan`, `WrongPlan`, `WrongLane`, `StaleContract`) whose minting re-checks
+plan, experiment, manifest, contract-digest, completion, and seed-cohort
+identity. The `jitml-model-convergence` stanza grades that evidence; it adds no
+journal field and no wire version. Because admission is all-or-nothing per
+lane, a lane whose retained journal is stale under the current bars yields no
+evidence and every lane-dependent case fails closed. The evidence layer is
+specified in
+[training_metrics_and_splits.md → Per-Model Completed-Run Evidence](training_metrics_and_splits.md#per-model-completed-run-evidence).
 
 The browser-safe catalogue derived from that opaque report has one frozen
 version-`1` transport schema. Its top level is exactly `format`, `version`,
@@ -942,6 +1097,76 @@ devices. Required properties cover:
 - workload-failure, probe-failure, timeout, settlement-failure, drain/process-
   failure, and cleanup-failure preservation; and
 - both terminal-before-evidence and evidence-before-terminal sequences.
+
+`JitML.Test.ReducerProperties` states the permutation, identical-redelivery,
+conflicting-duplicate, missing-key, wrong-plan, product-diagnostic-order, and
+terminal/evidence-join laws as QuickCheck properties over valid generated
+streams (registered in the `jitml-unit` RunContract group; a fixed-seed subset
+also runs in `jitml-negative-controls`). Malformed, non-finite, extra, and
+out-of-range events are not generated: they are committed known-invalid
+controls in `jitml-negative-controls`. An empty exact-key aggregate cannot be
+constructed, because the combinator takes a `NonEmpty` key set. Workload-
+failure, probe-failure, timeout, settlement-failure, drain/process-failure, and
+cleanup-failure preservation belongs to the lifecycle interpreter, whose
+standing controls are described below.
+
+The standing `jitml-negative-controls` stanza is the adversarial boundary of
+this contract. It commits known-invalid raw requests, event streams,
+storage/completion journals, lifecycle scenarios, and per-row fixtures, drives
+each through the production refinement, reducer, Store admission, journal reader,
+or live interpreter, and requires the specific rejection its control names: a
+fixture that is accepted, or rejected for a different reason than the one its
+control names, fails the stanza. Request and event controls compare the
+accumulated rejection whole, so no other defect may be reported beside the
+injected one (a derived hash and a decoder's free-text
+message are matched more loosely); journal and gate controls assert the specific
+constructor or message that names the guard. A journal control never rebuilds
+admission logic; it writes a journal from Store-admitted
+evidence with the production writer, corrupts the persisted bytes (unsigned, or
+re-signed by a key holder) or the Store beneath them, and reads it back with the
+production reader. A `PlanId` match alone does not bind a completion's own
+budget to the plan, so the live reducers check the completed checkpoint's
+budget as well. The supervised reducer requires an epoch-denominated checkpoint
+that carries exactly the plan's epoch total. The RL reducer requires an
+environment-step-denominated checkpoint and, when its caller supplies the plan's
+exact transition total (`rlLiveContractForSteps`), a checkpoint that carries
+exactly that total. The tuning reducer independently re-checks the completion
+proof's plan, budget kind, trial total, and seed instead of trusting the sweep
+terminal's constructor.
+
+The lifecycle interpreter has its own standing controls. Each runs
+`runLiveWorkflow` over a scripted scenario that makes exactly one thing go wrong
+and requires the interpreter to withhold completion for the specific reason
+named, comparing a whole rejection (the primary failure with its payload, the
+placement kept, the completion facts that survived, the diagnostics, the retained
+cleanup issues, the hooks the interpreter drove, and its journal's milestone
+order). They cover successful and failed settlement (a reducer rejection is
+nacked; a settlement failure before completion, or of the final acknowledgement,
+ends the run; every transport failure a consumer can report is reported as a
+consumer failure), timeouts (the terminal without evidence, the evidence without
+the terminal, and a response that never arrives), observation exhaustion for each
+non-terminal workload state, a failed probe that is never mistaken for an absent
+workload, a workload that fails after its evidence completed, cleanup failures of
+the placement, the event source, an owned object, and the diagnostics gather
+(each retained beside completed facts, none of them minting completion or
+replacing the primary failure), and terminal ordering: the terminal-before-evidence
+and evidence-before-terminal orders are forced with gates and must mint the same
+completion (placement, terminal fact, evidence, diagnostics, and the set of
+journal records), and either fact alone is never a completion. Each constructor
+of the run's primary failure, each workload observation state, each transport
+failure, each cleanup site, both dispositions, and both join conflicts must be
+covered by at least one control, so a failure the interpreter learns to report
+cannot go unexercised.
+
+Contract-negative coverage is mandatory for every product workflow row. A row's
+registration is derived from its family (a closed sum), and each registered row
+commits three controls: its own request with a zeroed budget quantity is
+rejected by the ProductRow projection; its own plan fed into its kind's live
+contract rejects an event stamped with another row's plan; and a completed
+checkpoint the Store admitted for another row does not satisfy the row's
+completion. A guard fails the stanza when a row, a registration, or a control has
+no counterpart in the registry, the projection batch, or the committed control
+list the stanza runs, and the lifecycle specs are bound to that same list.
 
 Integration tests fault-inject the effect boundary and validate resource
 ownership, receipt settlement, diagnostics, and journal projection. Live tests

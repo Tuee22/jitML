@@ -23,6 +23,7 @@ module JitML.Test.LiveE2EScope
   , liveE2EScopeFailure
   , liveE2ESecondaryFailures
   , liveE2EDiagnosticsRequired
+  , liveE2EFailureBlockerName
   , runLiveE2EScope
   , runStagedLiveE2EScope
   )
@@ -87,8 +88,8 @@ data LiveE2ERefinement value = LiveE2ERefinement
 
 -- | A refinement can succeed, reject its input entirely, or retain an exact
 -- refined value while also raising a gate issue.  The last case is required by
--- the browser report: 55 explicit row statuses remain renderable even when one
--- or more cells are Failed/NotRun and therefore fail the command.
+-- the browser report: every explicit row status remains renderable even when
+-- one or more cells are Failed/NotRun and therefore fail the command.
 data LiveE2ERefinementOutcome value
   = LiveE2ERefined !value
   | LiveE2ERefinedWithIssue !value !Text
@@ -714,12 +715,15 @@ appendBlockedInvocations journal invocations failure =
       ( notRunObservedInvocation
           (plannedTestStanza planned)
           (renderSubprocess (plannedTestCommand planned))
-          (failureBlockerName failure)
+          (liveE2EFailureBlockerName failure)
           (liveE2EFailureProcess failure)
       )
 
-failureBlockerName :: LiveE2EScopeFailure -> Text
-failureBlockerName failure =
+-- | The blocker name the invocation journal records for work this failure kept
+-- from running (@live-e2e-test/jitml-integration@).  Report measurements name
+-- their unavailable upstream stage with the same text.
+liveE2EFailureBlockerName :: LiveE2EScopeFailure -> Text
+liveE2EFailureBlockerName failure =
   renderFailurePhase (liveE2EFailurePhase failure)
     <> "/"
     <> liveE2EFailureStep failure

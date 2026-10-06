@@ -11,7 +11,6 @@ module JitML.Test.Report
   , InvocationRecord
   , InvocationResult (..)
   , ReportCard (..)
-  , ReportMeasurement (..)
   , ReportMeasurements (..)
   , ReportCardKnobs (..)
   , SuiteResult
@@ -39,6 +38,7 @@ module JitML.Test.Report
   , completedProductScenarioCompletedTraining
   , completedProductScenarioPlanId
   , completedProductScenarioRowId
+  , completedProductScenarioRowViews
   , completedProductScenarioRunId
   , completedProductScenarioCommand
   , completedProductScenarioDeviceWitness
@@ -58,7 +58,6 @@ module JitML.Test.Report
   , defaultReportCardKnobs
   , deriveSuiteResult
   , emptyInvocationJournal
-  , emptyReportMeasurements
   , failedInvocation
   , failedObservedInvocation
   , firstInvocationFailure
@@ -71,6 +70,7 @@ module JitML.Test.Report
   , refinementBlockerName
   , refinementBlockerStanza
   , loadReportCardKnobs
+  , notRequestedMeasurements
   , notRunInvocation
   , notRunAfterRefinement
   , notRunObservedInvocation
@@ -119,11 +119,12 @@ import Data.Char (isControl)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
+import Data.Void (Void, absurd)
 import Data.Word (Word64)
 import System.Directory
   ( canonicalizePath
@@ -189,6 +190,10 @@ import JitML.Test.LiveWorkflow
   , hostRunHandleKey
   , hostRunHandlePlanId
   )
+import JitML.Test.Measurement
+  ( Measurement (..)
+  , renderMeasurementLine
+  )
 import JitML.Test.ProductScenarioAuthorization
   ( AuthenticatedProductScenarioJournalRow
   , authenticatedProductScenarioJournalRowMaterialMatches
@@ -214,6 +219,13 @@ import JitML.Test.ScenarioJournal
   , scenarioRecordOutcome
   , scenarioRecordPhase
   , scenarioRecordStep
+  )
+import JitML.Test.TrainingMeasurement
+  ( CompletedRowView (..)
+  , productRowCountsMeasurement
+  , renderFamilyMetrics
+  , renderProductRowCounts
+  , trainingFamilyMeasurements
   )
 import JitML.Training.Budget
   ( BudgetKind (..)
@@ -491,27 +503,32 @@ invocationDurationNanoseconds (Failed failure) =
 invocationDurationNanoseconds (NotRun _) = 0
 invocationDurationNanoseconds (NotRunAfterRefinement _) = 0
 
-data ReportMeasurement
-  = MeasurementAvailable Text
-  | MeasurementUnavailable
-  deriving stock (Eq, Show)
-
+-- | Every report measurement is a projection of execution evidence, in one of
+-- the three 'Measurement' states.  There is one source for everything a
+-- training run measured — the completed-scenario journal below — so the
+-- SL/RL/AlphaZero/tuning lines and the row counts are derived from it at render
+-- time ('trainingFamilyMeasurements', 'productRowCountsMeasurement') rather
+-- than held as separate fields that could disagree with it.
 data ReportMeasurements = ReportMeasurements
-  { measuredSlFinalLoss :: Maybe ReportMeasurement
-  , measuredRlFinalReward :: Maybe ReportMeasurement
-  , measuredAlphaZeroArenaWinRate :: Maybe ReportMeasurement
-  , measuredTuneBestObjective :: Maybe ReportMeasurement
-  , measuredJitCacheHitRate :: Maybe ReportMeasurement
-  , measuredDaemonHealthz :: Maybe ReportMeasurement
-  , measuredBrowserProductEvidence :: Maybe BrowserEvidenceJournal.BrowserEvidenceReport
+  { measuredProductRowEvidence :: Measurement CompletedProductScenarioReport
+  -- ^ Opaque live-interpreter completion projections keyed by ProductRow and
+  -- semantic PlanId.  'NotRequested' means the run selected no stage that
+  -- produces them; declarations and legacy lane attestations are intentionally
+  -- not accepted here.  The training metrics and row counts of the report are
+  -- projections of this one field.
+  , measuredJitCacheHitRate :: Measurement Void
+  -- ^ The daemon edge's JIT cache counters.  No interpreter step journals a
+  -- @/metrics@ scrape (the edge port is leased during bootstrap, so no static
+  -- live-plan step can name it), so there is no evidence type to hold an
+  -- @Available@ value: the field can only be 'NotRequested' or a reasoned
+  -- 'Unavailable'.
+  , measuredDaemonHealthz :: Measurement Void
+  -- ^ The daemon edge's @/healthz@ response, journaled by no interpreter step
+  -- for the same reason as 'measuredJitCacheHitRate'.
+  , measuredBrowserProductEvidence :: Measurement BrowserEvidenceJournal.BrowserEvidenceReport
   -- ^ Opaque authenticated browser results, exactly ordered and bound to the
   -- same catalogue rowId/PlanId/manifest/e2e identities.  A substring count or
   -- green child exit cannot inhabit this field.
-  , measuredProductRowEvidence :: Maybe CompletedProductScenarioReport
-  -- ^ Opaque live-interpreter completion projections keyed by ProductRow and
-  -- semantic PlanId. Empty means the report received no cross-process
-  -- completed-scenario journal; declarations and legacy lane attestations are
-  -- intentionally not accepted here.
   }
   deriving stock (Eq, Show)
 
@@ -1421,6 +1438,20 @@ completedProductScenarioReportEntries
   :: CompletedProductScenarioReport
   -> [CompletedProductScenarioEvidence]
 completedProductScenarioReportEntries (CompletedProductScenarioReport evidence) = evidence
+
+-- | The completed rows of a validated report as the shared journal-row view the
+-- training measurements and counts derive from.  The refined 'CompletedTraining'
+-- is the journal's own value, so nothing is re-measured.
+completedProductScenarioRowViews
+  :: CompletedProductScenarioReport
+  -> [CompletedRowView]
+completedProductScenarioRowViews report =
+  [ CompletedRowView
+      { completedRowId = completedProductScenarioRowId evidence
+      , completedRowTraining = completedProductScenarioCompletedTraining evidence
+      }
+  | evidence <- completedProductScenarioReportEntries report
+  ]
 
 data ProductScenarioReportError
   = MissingCompletedProductScenario !Text !PlanId
@@ -2389,17 +2420,16 @@ defaultReportCardKnobs =
     , knobCrossClusterKindNodes = 2
     }
 
-emptyReportMeasurements :: ReportMeasurements
-emptyReportMeasurements =
+-- | The report of a run that requested no measurement.  Every field is
+-- explicitly 'NotRequested'; a requested measurement that could not be produced
+-- is a reasoned 'Unavailable', never this.
+notRequestedMeasurements :: ReportMeasurements
+notRequestedMeasurements =
   ReportMeasurements
-    { measuredSlFinalLoss = Nothing
-    , measuredRlFinalReward = Nothing
-    , measuredAlphaZeroArenaWinRate = Nothing
-    , measuredTuneBestObjective = Nothing
-    , measuredJitCacheHitRate = Nothing
-    , measuredDaemonHealthz = Nothing
-    , measuredBrowserProductEvidence = Nothing
-    , measuredProductRowEvidence = Nothing
+    { measuredProductRowEvidence = NotRequested
+    , measuredJitCacheHitRate = NotRequested
+    , measuredDaemonHealthz = NotRequested
+    , measuredBrowserProductEvidence = NotRequested
     }
 
 reportStanzas :: [Text]
@@ -2767,55 +2797,45 @@ renderExitCode (ExitFailure code) = showText code
 
 renderMeasurements :: ReportMeasurements -> [Text]
 renderMeasurements measurements
-  | not (hasMeasurements measurements) = []
-  | otherwise =
-      [ "measurements:"
-      ]
-        <> measurementLine "sl_final_loss" (measuredSlFinalLoss measurements)
-        <> measurementLine "rl_final_reward" (measuredRlFinalReward measurements)
-        <> measurementLine "alphazero_arena_win_rate" (measuredAlphaZeroArenaWinRate measurements)
-        <> measurementLine "tune_best_objective" (measuredTuneBestObjective measurements)
-        <> measurementLine "jit_cache_hit_rate" (measuredJitCacheHitRate measurements)
-        <> measurementLine "daemon_healthz" (measuredDaemonHealthz measurements)
-        <> browserEvidenceMeasurementLine (measuredBrowserProductEvidence measurements)
-        <> renderBrowserEvidenceTable (measuredBrowserProductEvidence measurements)
-
-hasMeasurements :: ReportMeasurements -> Bool
-hasMeasurements measurements =
-  any
-    isMeasured
-    [ measuredSlFinalLoss measurements
-    , measuredRlFinalReward measurements
-    , measuredAlphaZeroArenaWinRate measurements
-    , measuredTuneBestObjective measurements
-    , measuredJitCacheHitRate measurements
-    , measuredDaemonHealthz measurements
-    ]
-    || isJust (measuredBrowserProductEvidence measurements)
+  | null measurementLines = []
+  | otherwise = "measurements:" : measurementLines
  where
-  isMeasured Nothing = False
-  isMeasured (Just _) = True
+  -- The four training lines and the row counts are projections of the single
+  -- product-row journal measurement, so they can never disagree with the rows
+  -- the report carries.  The edge observations have no journaled evidence type
+  -- and therefore only ever render a reason.  A block with no line at all means
+  -- nothing was requested, and renders no header.
+  journalRows =
+    fmap completedProductScenarioRowViews (measuredProductRowEvidence measurements)
+  measurementLines =
+    concat
+      [ renderMeasurementLine label renderFamilyMetrics measurement
+      | (label, measurement) <- trainingFamilyMeasurements journalRows
+      ]
+      <> renderMeasurementLine
+        "product_row_counts"
+        renderProductRowCounts
+        (productRowCountsMeasurement journalRows)
+      <> renderMeasurementLine "jit_cache_hit_rate" absurd (measuredJitCacheHitRate measurements)
+      <> renderMeasurementLine "daemon_healthz" absurd (measuredDaemonHealthz measurements)
+      <> renderBrowserEvidenceMeasurement (measuredBrowserProductEvidence measurements)
 
-measurementLine :: Text -> Maybe ReportMeasurement -> [Text]
-measurementLine _ Nothing = []
-measurementLine label (Just measurement) =
-  ["  " <> label <> ": " <> renderMeasurement measurement]
-
-renderMeasurement :: ReportMeasurement -> Text
-renderMeasurement (MeasurementAvailable value) = value
-renderMeasurement MeasurementUnavailable = "unavailable"
-
-browserEvidenceMeasurementLine
-  :: Maybe BrowserEvidenceJournal.BrowserEvidenceReport
+renderBrowserEvidenceMeasurement
+  :: Measurement BrowserEvidenceJournal.BrowserEvidenceReport
   -> [Text]
-browserEvidenceMeasurementLine Nothing = []
-browserEvidenceMeasurementLine (Just report) =
-  [ "  browser_product_matrix: "
-      <> showText passed
-      <> "/"
-      <> showText (length entries)
-      <> " Passed"
-  ]
+renderBrowserEvidenceMeasurement measurement =
+  renderMeasurementLine "browser_product_matrix" renderBrowserEvidenceSummary measurement
+    <> case measurement of
+      Available report -> renderBrowserEvidenceTable report
+      NotRequested -> []
+      Unavailable _ -> []
+
+renderBrowserEvidenceSummary :: BrowserEvidenceJournal.BrowserEvidenceReport -> Text
+renderBrowserEvidenceSummary report =
+  showText passed
+    <> "/"
+    <> showText (length entries)
+    <> " Passed"
  where
   entries = BrowserEvidenceJournal.browserEvidenceReportEntries report
   passed =
@@ -2827,10 +2847,9 @@ browserEvidenceMeasurementLine (Just report) =
       ]
 
 renderBrowserEvidenceTable
-  :: Maybe BrowserEvidenceJournal.BrowserEvidenceReport
+  :: BrowserEvidenceJournal.BrowserEvidenceReport
   -> [Text]
-renderBrowserEvidenceTable Nothing = []
-renderBrowserEvidenceTable (Just report) =
+renderBrowserEvidenceTable report =
   "browser_rows:"
     : "  ordinal\trow_id\tplan_id\texperiment_hash\tmanifest_sha256\te2e_test\tstatus\tdetail"
     : fmap renderEntry (BrowserEvidenceJournal.browserEvidenceReportEntries report)
@@ -2853,8 +2872,11 @@ renderBrowserEvidenceTable (Just report) =
 renderProductRowEvidenceTable :: ReportMeasurements -> [Text]
 renderProductRowEvidenceTable measurements =
   case measuredProductRowEvidence measurements of
-    Nothing -> []
-    Just report ->
+    -- An unavailable journal renders its reason with the measurement lines; it
+    -- has no rows to tabulate.
+    NotRequested -> []
+    Unavailable _ -> []
+    Available report ->
       ( "product_rows:"
           : fmap
             ("  " <>)

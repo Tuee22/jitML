@@ -36,9 +36,11 @@ The result is:
 The integration command retains a portable typed lane journal after authenticating
 its completed ProductRow scenarios. Product closure requires retained evidence
 from each real substrate lane and exact admission by the later aggregation.
-All three lane journals are retained and admitted. The fresh Apple lifecycle
-passed all ten stanzas and issued the exact portable 55-row journal; the
-CPU-only aggregation consumes these inputs without rerunning accelerator lanes.
+All three lane journals are retained. The `linux-cuda` (2026-09-24) and
+`linux-cpu` (2026-09-30) journals were re-issued under the tightened convergence
+bars and are admitted; the `apple-silicon` journal (2026-09-17) predates those
+bars and is rejected until a Mac re-issues it, so the CPU-only aggregation cannot
+yet be regenerated.
 The current execution owner, host prerequisites, validation evidence, and status
 counts live in [DEVELOPMENT_PLAN/README.md → Closure Status](DEVELOPMENT_PLAN/README.md#closure-status).
 
@@ -1603,6 +1605,7 @@ mindmap
     docs
       check
       generate
+      status
     check-code
     build
     project
@@ -1657,14 +1660,15 @@ mindmap
 | `jitml test jitml-negative-controls` | Run jitml-negative-controls. | `jitml test jitml-negative-controls [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml test jitml-model-convergence` | Run jitml-model-convergence. | `jitml test jitml-model-convergence [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
-| `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
+| `jitml lint docs` | Run the documentation checks that docs check runs. | `jitml lint docs [--write]` |
 | `jitml lint proto` | Run protobuf schema lint checks. | `jitml lint proto [--write]` |
 | `jitml lint chart` | Run Helm chart shape checks. | `jitml lint chart [--write]` |
 | `jitml lint haskell` | Run Haskell lint configuration and primitive checks. | `jitml lint haskell [--write]` |
 | `jitml lint purescript` | Run PureScript contract and format checks. | `jitml lint purescript [--write]` |
 | `jitml lint all` | Run every currently implemented lint check. | `jitml lint all [--write]` |
-| `jitml docs check` | Check generated docs. | `jitml docs check` |
+| `jitml docs check` | Check generated docs and plan status. | `jitml docs check` |
 | `jitml docs generate` | Generate docs. | `jitml docs generate` |
+| `jitml docs status` | Print the evidence-derived phase status. | `jitml docs status` |
 | `jitml check-code` | Run the code quality gate. | `jitml check-code` |
 | `jitml build` | Build inside the substrate container. | `jitml build [--substrate <substrate>] [--dry-run] [--plan-file <path>]` |
 | `jitml project init` | Generate a default jitml.dhall durable-state config. | `jitml project init [--output <path>] [--force]` |
@@ -1705,7 +1709,7 @@ checkpoint plus `alphazero-transcript` keys, and `jitml tune` emits
 
 ### Generated documentation flow
 
-**`docs *` vs `lint *` — distinct surfaces, no overlap.** Per doctrine §Generated Artifacts, `docs check` / `docs generate` cover artifacts that are *rendered from typed Haskell source* into a committed file or marker region — CLI help/reference outputs, route tables, daemon/numerical/training catalog tables, chart routes, Grafana dashboards, the Prometheus scrape config, and PureScript contracts. Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` covers *hand-written* source: Haskell (`fourmolu --mode check` + `hlint`), PureScript (`purs format` round-trip), proto schemas, chart structural invariants, and file-hygiene rules. The two surfaces do not overlap; an artifact owned by `docs *` is never lint-managed, and vice versa. When adding a new marker-delimited generated section, extend the `GeneratedSectionRule` registry; when adding a whole-file generated artifact, extend the `TrackedGeneratedPath` registry; when adding a new lint rule, extend the appropriate `LintCommand` constructor.
+**`docs *` vs `lint *` — distinct surfaces, one shared check.** Per doctrine §Generated Artifacts, `docs check` / `docs generate` cover artifacts that are *rendered from typed Haskell source* into a committed file or marker region — CLI help/reference outputs, route tables, daemon/numerical/training catalog tables, chart routes, Grafana dashboards, the Prometheus scrape config, and PureScript contracts. Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` covers *hand-written* source: Haskell (`fourmolu --mode check` + `hlint`), PureScript (`purs format` round-trip), proto schemas, chart structural invariants, and file-hygiene rules. The surfaces own different artifacts, although `lint files` and `lint docs` report the findings of the same documentation check that `docs check` runs, so a drifted generated file fails all three and the remedy is always `docs generate`. When adding a new marker-delimited generated section, extend the `GeneratedSectionRule` registry; when adding a whole-file generated artifact, extend the `TrackedGeneratedPath` registry; when adding a new lint rule, extend the appropriate `LintCommand` constructor.
 
 Per doctrine §Automatically Generated Documentation and §Generated Artifacts, `CommandSpec` fans out to several artifact families:
 
@@ -2005,6 +2009,28 @@ of append-only scenario journals and actual invocation outcomes (`Passed`,
 Secondary probes, fabricated counts, empty-aggregate defaults, and stdout-prefix
 assertions are not completion evidence.
 
+Plan status is a projection of the same evidence, not a literal. The status
+catalogue in `src/JitML/Product/PhaseStatus.hs` records for every product sprint
+either a frozen, shrink-only legacy attestation (a sprint closed before machine
+evidence existed, which can never be used to mint a new Done and is disclosed by
+every closed verdict) or the obligations it owns: committed gate transcripts,
+pinned lane journals, the three-lane aggregate, the absence of pending production
+controls, and external prerequisites. A gate transcript is a versioned
+`jitml-validation-record` — one canonical JSON file per gate and substrate under
+`DEVELOPMENT_PLAN/attestations/validation/`, holding the exact rendered command,
+`Passed`, `Failed`, or `NotRun`, stream digests (both complete streams when the run
+failed), and the digests of the executable and the code roots it ran against, with
+no clock. `jitml test <stanza> --<substrate>` writes each invocation's candidate to
+`.build/runtime/validation/`; a person copies the records they intend to keep into
+the tree. A sprint is Done only when every obligation is proven by such evidence and
+every upstream sprint is Done; a missing, stale, mismatched, failed, or incomplete
+artifact leaves it unproven, whatever a status literal or a document says.
+`jitml docs status` prints the derived tally, the open chain, and every unmet
+obligation with its evidence pointer, and `jitml docs check` refuses a phase
+document that disagrees with the projection and any product-closure claim unless the
+closure verdict is closed. `jitml docs check` and `jitml check-code` are computed when
+they run and are never attested by a file that would sit inside the tree they check.
+
 Inference batching has two monotonic boundaries. Admission captures a
 handler/publication-entry deadline at the configured latency, while sparse
 collection closes at `admission + min(1 ms, latency / 10)` so an under-capacity
@@ -2065,7 +2091,7 @@ surface. The composable schema is owned by
 [Phase 77](DEVELOPMENT_PLAN/phase-77-dhall-schemas-and-cross-type-audit.md) and its
 consumption by
 [Phase 233](DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md).
-The worked example under [Experiment configuration](#experiment-configuration)
+The worked example under [Concrete Dhall worked example](#concrete-dhall-worked-example)
 illustrates that target.
 
 - **Dense / Linear.** With or without bias; optional spectral norm.
@@ -3649,8 +3675,8 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: catalog properties, run-to-run trajectory determinism, fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is symmetric across all three backends for the family and MLP surfaces (see [unit_testing_policy.md](documents/engineering/unit_testing_policy.md) for the per-surface scope): generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
-| `jitml-negative-controls` | Integration (project-specific) | `TestNegativeControls` | current lightweight gate-soundness controls apply pure gates to hand-built known-fakes and require rejection; production-path contract mutations are enumerated as pending rather than silently treated as covered, with Phases `280`–`282` owning that live evidence |
-| `jitml-model-convergence` | Integration (project-specific) | `TestModelConvergence` | current lightweight metadata/case-registry guard: one case per ProductRow, externally anchored bar metadata, named integration/e2e evidence, and a non-wall-clock performance-floor declaration; it does not train, reload, serve, or infer, and Phase `285` owns completed-run convergence/performance evidence |
+| `jitml-negative-controls` | Integration (project-specific) | `TestNegativeControls` | committed known-invalid fixtures, each rejected by its production gate for the specific reason its control names and grouped by pipeline stage: hand-built pure gate-soundness fakes, raw requests, event streams, Store-admission journals, the live interpreter's lifecycle (settlement, timeout, cleanup, terminal ordering) over scripted scenarios that must cover every constructor of its failure vocabulary, and three controls for every `ProductRow` derived from the registry (an invalid request, a wrong-plan event, a foreign admission); a registration guard fails the stanza when a row, a registration, or a control has no counterpart, and no production-path control is pending |
+| `jitml-model-convergence` | Integration (project-specific) | `TestModelConvergence` | per-ProductRow grader of opaque completed-run evidence minted only from the validated projection and the selected lane's admitted retained journal (`JITML_SUBSTRATE`, default `linux-cpu`): convergence against an independently re-derived external criterion, learning telemetry, committed deterministic performance bounds bound to the artifact identity, and plan/manifest/cohort binding, with typed missing/duplicate/cross-plan failures and mutation controls; it fails closed when the lane's journal is stale, and it trains, serves, and infers nothing (Phase `285`) |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | probe the actual production binary with `+RTS -N1`, spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Local route/bucket/publication/contract/demo checks plus the target contract-driven live path: acquire an ephemeral Kind cluster, execute the scenario matrix through `runLiveWorkflow`, project browser assertions from completed journals, and release every owned resource; see [E2E cohorts](#e2e-cohorts) below. |
 
@@ -3878,11 +3904,11 @@ invocation_journal:
 
 `jitml test all` is a Plan/Apply command per doctrine §Plan / Apply.
 `--dry-run` prints the rendered plan and exits 0. The invocation runner no
-longer declares pass counts or fabricates green rows. `--live` still appends
-some post-test global measurements rather than importing them from the stanza
-scenario journals; that separate reporting residue remains tracked by Sprint
-`34.3` in the
-[legacy ledger](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+longer declares pass counts or fabricates green rows. `--live` launches no
+post-test probe: every report measurement is a `NotRequested`, reasoned
+`Unavailable`, or journal-bound `Available` projection of the stanza scenario
+journals, and a requested measurement whose journal is missing renders
+`unavailable (<reason>)` rather than disappearing.
 
 **Substrate selection.** Passing one of `--apple-silicon | --linux-cpu |
 --linux-cuda` (mirroring `jitml bootstrap`) restricts the substrate-partitioned

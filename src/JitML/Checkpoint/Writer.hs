@@ -6,6 +6,7 @@ module JitML.Checkpoint.Writer
   , SupervisedRuntimeCompletion (..)
   , admitLocalStoredCompletedCheckpoint
   , attemptGenericSupervisedRuntimeForTraining
+  , buildCompletedSupervisedCheckpointSnapshot
   , checkpointTrainingBudgetForTensor
   , completedSupervisedRuntimeForTraining
   , completedTrainingForSupervisedProblem

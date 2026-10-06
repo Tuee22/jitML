@@ -202,7 +202,13 @@ evidence that the cursor exists. The acknowledged `CREATE` is that evidence, and
 it is the sole mint for an opaque `ReplyCursor`. The correlated publish takes
 that token and reads the request topic and the reply-topic text out of it, so
 neither "publish before the cursor exists" nor "publish a request naming a reply
-topic the subscription does not cover" is expressible. Uncorrelated publishes —
+topic the subscription does not cover" is expressible. The acknowledged `CREATE`
+lives in one subscription-only core, `establishSubscription`, which mints an
+`EstablishedSubscription`; a `ReplyCursor` is that token plus the request topic.
+The live-workflow harness uses the same core: `runLiveWorkflow` publishes only
+through the token its transport establishes, and a typed executable, which has
+no request topic and publishes its result out of band, uses the subscription-only
+token directly. Uncorrelated publishes —
 those whose result is consumed by an independently established cursor, such as
 the browser's own websocket bridge — remain ordinary publishes and are marked as
 such at their call sites. Settlement, drain/protocol, bridge-process, and cleanup failures

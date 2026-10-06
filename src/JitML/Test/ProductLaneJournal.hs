@@ -146,6 +146,13 @@ data RetainedCheckpointIdentity = RetainedCheckpointIdentity !Text !Text
 
 data ProductLaneJournalError
   = ProductLaneJournalSourceRejected !Text
+  | -- | A row's @contract_sha256@ differs from the digest of the contract the
+    -- current projection derives: the row id, the digest the current projection
+    -- requires, and the digest the journal carries. The journal is well formed
+    -- but was issued under another contract, so it is stale rather than
+    -- corrupt. Read-side classification only: it rejects exactly what the
+    -- untyped rejection it replaces rejected.
+    ProductLaneJournalContractStale !Text !Text !Text
   | ProductLaneJournalMalformed !Text
   | ProductLaneJournalNonCanonical
   | ProductLaneJournalDigestMismatch !Text !Text
@@ -296,12 +303,7 @@ buildProductLaneJournal batch authenticated = do
               }
       case validateWire batch journal of
         [] -> Right (IssuedProductLaneJournal journal)
-        failure : failures ->
-          Left
-            ( fmap
-                ProductLaneJournalSourceRejected
-                (failure :| failures)
-            )
+        failure : failures -> Left (failure :| failures)
  where
   buildRow (ordinal, someProjection, evidence) =
     case someProjection of
@@ -426,8 +428,7 @@ admitProductLaneJournal expectedSha batch bytes = do
   unless (canonicalBytes journal == bytes) $
     Left (ProductLaneJournalNonCanonical :| [])
   case NonEmpty.nonEmpty (validateWire batch journal) of
-    Just failures ->
-      Left (fmap ProductLaneJournalSourceRejected failures)
+    Just failures -> Left failures
     Nothing -> do
       rows <-
         case traverse (admitRow (wireRunId journal)) (wireRows journal) of
@@ -567,9 +568,10 @@ validateCompletedRow runId row plan lane witness completed =
 validateWire
   :: ProductMatrix.ProductProjectionBatch
   -> ProductLaneJournalWire
-  -> [Text]
+  -> [ProductLaneJournalError]
 validateWire batch journal =
-  aggregateFailures <> coverageFailures <> concat (zipWith validateProjected projections rows)
+  fmap ProductLaneJournalSourceRejected (aggregateFailures <> coverageFailures)
+    <> concat (zipWith validateProjected projections rows)
  where
   rows = wireRows journal
   projections = ProductMatrix.productProjectionBatchProjections batch
@@ -616,30 +618,36 @@ validateWire batch journal =
               , ("completion_journal_sha256", wireRowJournalSha row)
               , ("measured_sha256", wireRowMeasuredSha row)
               ]
-         in [ rowId <> ": plan_id differs from the current projection"
-            | wireRowPlanId row
-                /= planIdText (ProductMatrix.productProjectionPlanId projection)
-            ]
-              <> [ rowId <> ": substrate differs from the current projection"
-                 | wireRowSubstrate row
-                     /= renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+            currentContractDigest = Report.productScenarioProjectionContractDigest projection
+         in fmap
+              ProductLaneJournalSourceRejected
+              ( [ rowId <> ": plan_id differs from the current projection"
+                | wireRowPlanId row
+                    /= planIdText (ProductMatrix.productProjectionPlanId projection)
+                ]
+                  <> [ rowId <> ": substrate differs from the current projection"
+                     | wireRowSubstrate row
+                         /= renderSubstrate (ProductMatrix.productProjectionSubstrate projection)
+                     ]
+                  <> [ rowId <> ": experiment_hash differs from the current projection"
+                     | wireRowExperimentHash row
+                         /= ProductMatrix.productProjectionExperimentHash projection
+                     ]
+              )
+              <> [ ProductLaneJournalContractStale rowId currentContractDigest (wireRowContractSha row)
+                 | wireRowContractSha row /= currentContractDigest
                  ]
-              <> [ rowId <> ": experiment_hash differs from the current projection"
-                 | wireRowExperimentHash row
-                     /= ProductMatrix.productProjectionExperimentHash projection
-                 ]
-              <> [ rowId <> ": contract_sha256 differs from the current projection"
-                 | wireRowContractSha row
-                     /= Report.productScenarioProjectionContractDigest projection
-                 ]
-              <> [rowId <> ": status is not Passed" | wireRowStatus row /= "Passed"]
-              <> [ rowId <> ": device_witness is empty or untrimmed"
-                 | invalidText (wireRowDeviceWitness row)
-                 ]
-              <> [ rowId <> ": " <> label <> " is not canonical SHA-256"
-                 | (label, value) <- digestFields
-                 , not (isCanonicalSha256 value)
-                 ]
+              <> fmap
+                ProductLaneJournalSourceRejected
+                ( [rowId <> ": status is not Passed" | wireRowStatus row /= "Passed"]
+                    <> [ rowId <> ": device_witness is empty or untrimmed"
+                       | invalidText (wireRowDeviceWitness row)
+                       ]
+                    <> [ rowId <> ": " <> label <> " is not canonical SHA-256"
+                       | (label, value) <- digestFields
+                       , not (isCanonicalSha256 value)
+                       ]
+                )
 
 admittedProductLaneJournalRows
   :: AdmittedProductLaneJournal -> [ProductLaneJournalRow]

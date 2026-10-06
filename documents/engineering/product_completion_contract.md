@@ -25,7 +25,11 @@ versus-V1 distinction is historical and has no current parallel wire.
 Current phase state, remaining work, blockers, and validation evidence live only
 in [Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status).
 This document states the product bar and does not infer closure from historical
-pass counts or committed report artifacts.
+pass counts or committed report artifacts. That state is projected from committed
+validation evidence rather than typed: `jitml docs status` derives each sprint's
+status, the open chain, and every unmet obligation, and a sprint is Done only when
+its obligations are proven by evidence (see
+[Typed Run Contract → validation records](run_contract.md)).
 
 The product contract carries a lasting realness constraint: a product
 gate must not be satisfiable by a self-authored measured value, fabricated
@@ -56,11 +60,16 @@ tune; this section names the obligation and the plan owns the implementation.
    requires each row to own a committed known-fake artifact — an untrained
    random-init checkpoint, a below-bar trained model, a scripted-controller RL
    trace, or a dense layer mislabelled as convolution — paired with the gate that
-   must *reject* it. The current `jitml-negative-controls` stanza exercises
-   hand-built pure gate-soundness controls and keeps production gaps explicit;
-   Phases `280`–`282` own contract-journal mutation and mandatory per-row
-   registration. A gate that cannot reject its own known-fake is a failure, not
-   a pass.
+   must *reject* it. The current `jitml-negative-controls` stanza commits
+   hand-built pure gate-soundness controls together with known-invalid
+   requests, event streams, and Store-admission journals (missing, zeroed,
+   foreign, or mismatched manifest identity, caller-held completion, storage
+   without admission), each rejected for the specific reason it names, plus
+   the live interpreter's lifecycle (settlement, timeout, cleanup, terminal
+   ordering) and, for every `ProductRow`, an invalid request, a wrong-plan
+   event, and a foreign admission, with a guard that fails the stanza when a
+   row has no registered controls. A gate that cannot reject its own
+   known-fake, or rejects it for the wrong reason, is a failure, not a pass.
 2. **The convergence bar is externally anchored and structurally independent of
    the measurement.** The row's `convergenceBar` is `literatureTarget − slack`:
    an external, checked-in published target less a project-calibrated per-cohort
@@ -69,7 +78,50 @@ tune; this section names the obligation and the plan owns the implementation.
    slack is the calibrated part and is not itself an external constant, so
    "externally anchored" is the precise claim rather than "wholly external"; see
    [training_metrics_and_splits.md](training_metrics_and_splits.md#current-status)
-   for the enforcement boundary.
+   for the enforcement boundary. Three checks enforce it, and none is a proof of
+   provenance on its own:
+   - *Source lint.* `JitML.Lint.ProductTruth` (run by `jitml check-code`) reads
+     each `src/` file that mentions a bar constructor or target field as a token
+     stream, so a field split over lines, an argument on its own line, or a value
+     bound in a `let` or `where` block cannot hide a violation. Outside
+     test-support code (`src/JitML/Test/`, which builds known-fake bars on
+     purpose), no bar target, slack, or threshold may mention a measured value,
+     directly or through any chain of bindings in its declaration. A measured
+     value is recognised by name: an identifier containing `measured`, or one of
+     the observation accessors `coMetricValue`, `metricValue`, and
+     `observedValue`. Every numeric argument of `mkConvergenceBar`,
+     `regressionRmseBar`, the positional `ConvergenceBar` constructor, or a bar
+     record must be a numeric literal or a projection of the canonical threshold
+     tables, a selector applied as the whole argument; the cohort-threshold
+     constructors accept literals only. A helper-wrapped or renamed value, or a
+     table value with a helper's value added to it, has no provenance the lint
+     can see, so it is rejected rather than trusted. The lint is lexical. It
+     checks every numeric position a constructor names, saturated or not, and
+     reads what follows a `$` as the last argument, but it does not follow a
+     partially applied or aliased constructor through `uncurry`, an operator
+     section, an applicative chain, or a local alias. It excuses a constructor or record pattern whose `=`,
+     `->`, or `<-` is on the line where the pattern ends, and reads a pattern
+     whose arrow or guard is on a later line as an application. It reads a
+     binding only when its `=` or `<-` shares the binder's line (the layout
+     fourmolu produces), and cannot tell a literal calibrated to a measurement
+     from one that was not. It walks `src/` only, the file set of
+     `checkProductTruth`.
+   - *Registry cross-check.* A unit test rebuilds all 55 ProductRow bars from the
+     canonical tables without calling the code that builds them (the regression
+     and tuning rows have no table, so their constants are pinned in the test) and
+     requires the metric name, goal, literature target, slack, and threshold to be
+     equal, so a registry constant that is not a table constant fails. It does not
+     pin the table values themselves.
+   - *Completion gate.* `assertConvergenceObservationsAgainstBar` is called by
+     `validateCheckpointCompletion`, which Store runs on every completed
+     checkpoint it writes or admits, whenever the manifest resolves to a
+     ProductRow. It admits a completed run only when the run carries exactly one
+     observation of the row's metric, whose goal, threshold, value, and
+     re-derived verdict agree with the row's own bar. (With a single observation
+     the value comparison holds by construction; it bites when the metric is
+     observed twice, where it names the second value.) The retained `linux-cuda`
+     lane journal is admitted through the production reader in a permanent unit
+     test that requires all 55 of its rows to pass this gate.
 3. **The reported metric has exact served-artifact provenance.** For a
    supervised ProductRow, the publisher carries the verified held-out inputs
    until Store re-admits the persisted checkpoint. It then prepares the same
@@ -78,19 +130,40 @@ tune; this section names the obligation and the plan owns the implementation.
    blocks eligibility if the completed metric disagrees. A byte replacement at
    an existing address fails Store admission; coherently readdressed manifest
    or weight replacements with a stale metric fail the independent served
-   evaluation. The portable aggregate admits authenticated lane journals and
-   their manifest/measurement digests after that live check; it cannot re-fetch
-   a released lane's physical checkpoint scope. The broader read-time
-   recomputation of every displayed product number in the Exit Definition is
-   not claimed by this supervised gate. A stand-in remains typed `Declared` and
-   cannot be surfaced as `Measured`/`Real`.
+   evaluation. The comparison allows `min 0.01 (1/n + 1e-9)` for classification
+   accuracy over `n` held-out examples and `0.005 × max(1, |reported|)` for
+   standardized regression RMSE (the raw served-versus-target error divided by
+   the positive target scale). Every supervised row evaluates exactly 1,000
+   examples, where the accuracy allowance is one flipped decision; for fewer than
+   100 examples one decision exceeds the cap, so even a single flip is rejected,
+   which is intentional. The full statement of the bounds, and of what they do
+   not claim across substrates, is in
+   [determinism_contract.md](determinism_contract.md#the-contract). A non-finite
+   reported metric or regression target, a non-positive scale, an empty example
+   set, a class label outside the runtime output, and a metric name that does not
+   fit the evidence kind are typed rejections, not measurements. The check runs
+   after the checkpoint is written and admitted, because only an admitted
+   checkpoint can be served: a rejected checkpoint remains in Store, the row is
+   denied eligibility, and the supervised publisher never reuses a prior
+   checkpoint because a persisted manifest carries no held-out example set. Only
+   the 11 supervised rows are recomputed from served bytes; RL, HER, AlphaZero,
+   and tuning metrics are not. The portable aggregate admits authenticated lane
+   journals and their manifest/measurement digests after that live check; it
+   cannot re-fetch a released lane's physical checkpoint scope. The broader
+   read-time recomputation of every displayed product number in the Exit
+   Definition is not claimed by this supervised gate. A stand-in remains typed
+   `Declared` and cannot be surfaced as `Measured`/`Real`.
 4. **RL reward is a rollout of the trained policy.** An RL row's reward is a
    rollout evaluation of the *trained policy* through the production device seam
    (`rleSyntheticTransitionEvidence = False`, median over `k` seeds at or above
-   the external bar). The current `jitml-model-convergence` stanza checks the
-   per-row case registry and bar metadata; Phase `285` owns binding those cases
-   to opaque completed-run evidence. A scripted or expert controller reward can
-   never close an RL row.
+   the external bar). The `jitml-model-convergence` stanza
+   ([Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md))
+   grades each row's opaque completed-run evidence, minted only from the
+   validated projection and the admitted retained lane-journal row, against a
+   criterion re-derived independently from the canonical tables; the journal
+   retains the median final reward, not the per-episode evaluation set (see
+   [training_metrics_and_splits.md](training_metrics_and_splits.md#per-model-completed-run-evidence)).
+   A scripted or expert controller reward can never close an RL row.
 
 The `Measured`/`Declared` split, external bars, served-byte provenance binding,
 and evidence-derived closure guard are owned by Phases `278`–`289`; this
@@ -461,11 +534,18 @@ Every product row owns all of the following test evidence:
 
 Coverage reports must name missing row/test pairs. A pass count without row
 identity is not enough to close a phase. The current ProductScenario journal
-supplies row-identified integration evidence, while the two standing realness
-stanzas remain lightweight guards: pure known-fake rejection and per-row case
-metadata, respectively. Phases `280`–`282` own contract-negative journal
-coverage, and Phase `285` owns completed-run per-model measurements. Their green
-current forms cannot substitute for those later production obligations.
+supplies row-identified integration evidence. Of the two standing realness
+stanzas, `jitml-negative-controls` grades known-invalid fixture rejection for the
+reason each fixture names (request, event, journal-identity, and lifecycle
+controls, and three controls for every `ProductRow` registered from the
+registry), while `jitml-model-convergence` grades each row's
+completed-run evidence from the selected lane's retained journal (convergence
+against an independent criterion, learning telemetry, committed deterministic
+performance bounds, and plan/artifact binding, with typed
+missing/duplicate/cross-plan failures). The convergence stanza is exactly as
+current as the retained journals: it fails closed for a lane whose journal is
+stale, and it executes no inference. Neither stanza substitutes for the live
+lanes' production obligations.
 
 ## Journal Aggregation
 

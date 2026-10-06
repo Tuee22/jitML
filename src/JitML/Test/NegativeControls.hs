@@ -1,28 +1,64 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Phase 277 — the retained pure gate-soundness negative-control suite.
+-- | The standing negative-control suite for the validated-plan and evidence
+-- contract.
 --
 -- The audit's root-cause finding was that "Done" was graded by self-authored,
 -- self-referential gates. A negative control inverts that: it commits a
--- KNOWN-FAKE artifact and asserts the gate __rejects__ it. A gate that cannot
--- reject its known-fake is not a gate — the build fails.
+-- KNOWN-INVALID artifact and asserts the production gate __rejects it for the
+-- right reason__. A gate that cannot reject its known-invalid input is not a
+-- gate — the build fails; a gate that rejects it for a different reason is
+-- not the guard the control names — the build fails.
 -- See the current external-truth obligations in the development-plan Exit
--- Definition and Phase 277.
+-- Definition and Phases 277, 280, and 281.
 --
--- The controls below are __gate-soundness__ controls: they exercise the pure
--- gate logic (`RowAssertions`, `ExternalBars`) against hand-built known-fakes and
--- assert rejection. They pass today because those pure gates are sound in
--- isolation. The gates that are __broken in the production path__ (RL reward
--- provenance, the all-zeros initial-weight hash, the residual-MLP-as-CNN
--- topology) require production-path fixtures and lifecycle coverage; those are
--- enumerated in 'pendingProductionControls' and owned by Phases 279–281.
+-- The suite is organised by pipeline stage ('ControlCategory'):
+--
+-- * 'Gate' ('gateSoundnessControls') — pure gate logic (`RowAssertions`,
+--   `ExternalBars`, codegen text) against hand-built known-fakes;
+-- * 'Request' ("JitML.Test.NegativeControls.Request") — raw requests driven
+--   through plan refinement;
+-- * 'Event' ("JitML.Test.NegativeControls.Event") — event streams driven
+--   through the contract reducers;
+-- * 'Journal' ("JitML.Test.NegativeControls.Journal") — storage/completion
+--   journals driven through Store admission and journal refinement;
+-- * 'Lifecycle' ("JitML.Test.NegativeControls.Lifecycle") — the live
+--   interpreter's settlement, timeout, cleanup, and terminal ordering, driven
+--   through scripted scenarios;
+-- * 'PerRow' ("JitML.Test.NegativeControls.PerRow") — three controls for every
+--   product workflow row, derived from the registry.
+--
+-- Every category is populated, so 'deferredCategories' and
+-- 'pendingProductionControls' are empty and the suite carries no pass-on-pending
+-- sentinel.
+--
+-- Pure controls stay pure; controls that need the file system or a workflow
+-- interpreter use the explicit effectful constructor
+-- ('JitML.Test.NegativeControls.Core.effectfulControl').
 module JitML.Test.NegativeControls
-  ( ControlOutcome (..)
+  ( ControlCategory (..)
+  , ControlCheck (..)
+  , ControlOutcome (..)
   , NegativeControl (..)
-  , controlRejected
+  , allControlCategories
+  , allNegativeControls
+  , allNegativeControlsWith
+  , categoryCoverageFailures
+  , controlFailure
+  , controlTestCase
+  , controlsInCategory
+  , deferredCategories
+  , duplicateControlNames
+  , eventControls
   , gateSoundnessControls
-  , runNegativeControls
+  , journalControls
+  , lifecycleControls
   , pendingProductionControls
+  , perRowControls
+  , renderControlCategory
+  , requestControls
+  , runControl
+  , runNegativeControls
   )
 where
 
@@ -41,98 +77,126 @@ import JitML.Product.ExternalBars qualified as ExternalBars
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
+import JitML.Test.NegativeControls.Core
+import JitML.Test.NegativeControls.Event (eventControls)
+import JitML.Test.NegativeControls.Journal (journalControls)
+import JitML.Test.NegativeControls.Lifecycle (lifecycleControls)
+import JitML.Test.NegativeControls.Pending (pendingProductionControls)
+import JitML.Test.NegativeControls.PerRow (PerRowFixture, buildPerRowFixture, perRowControls)
+import JitML.Test.NegativeControls.Request (requestControls)
 import JitML.Test.RowAssertions qualified as RowAssertions
 import JitML.Training.Budget (MetricGoal (..))
 
--- | Whether a gate accepted or rejected a known-fake artifact.
-data ControlOutcome
-  = Rejected
-  | Accepted
-  deriving stock (Eq, Show)
+-- | Every committed control, in category order: the list the standing stanza
+-- runs, and the list the registration guards read ('realRowRegistryFacts',
+-- 'lifecycleCommitmentFailures'), so a control dropped from it is reported
+-- instead of vanishing silently.  A per-row foreign-admission control that is
+-- run through this list builds its own Store-admitted fixture; the standing
+-- stanza shares one through 'allNegativeControlsWith'.
+allNegativeControls :: [NegativeControl]
+allNegativeControls = allNegativeControlsWith buildPerRowFixture
 
--- | A committed known-fake paired with the observed gate outcome. The control
--- passes iff the gate 'Rejected' the fake.
-data NegativeControl = NegativeControl
-  { ncName :: Text
-  , ncDescription :: Text
-  , ncOutcome :: ControlOutcome
-  }
-  deriving stock (Eq, Show)
+-- | Every committed control, with the per-row controls reading their shared
+-- Store-admitted fixture through the given action.  Enumerating the controls
+-- (their names and categories) never runs the action.
+allNegativeControlsWith :: IO PerRowFixture -> [NegativeControl]
+allNegativeControlsWith perRowFixture =
+  gateSoundnessControls
+    <> requestControls
+    <> eventControls
+    <> journalControls
+    <> lifecycleControls
+    <> perRowControls perRowFixture
 
-controlRejected :: NegativeControl -> Bool
-controlRejected nc = ncOutcome nc == Rejected
+controlsInCategory :: ControlCategory -> [NegativeControl] -> [NegativeControl]
+controlsInCategory category = filter ((== category) . ncCategory)
 
--- | Return one failure message per control whose gate ACCEPTED its known-fake
--- (i.e. the gate is broken). An empty list means every known-fake was rejected.
-runNegativeControls :: [NegativeControl] -> [Text]
-runNegativeControls = concatMap check
- where
-  check nc
-    | controlRejected nc = []
-    | otherwise =
-        [ "negative control ACCEPTED a known fake (gate is broken): "
-            <> ncName nc
-            <> " — "
-            <> ncDescription nc
-        ]
+-- | Categories whose controls are owned by a later phase.  The coverage guard
+-- ('categoryCoverageFailures') requires every category NOT listed here to have
+-- at least one control, and flags a listed category that already has some, so
+-- an owner cannot land controls without un-deferring the category (or the
+-- reverse).  Every category is populated, so nothing is deferred.
+deferredCategories :: [ControlCategory]
+deferredCategories = []
 
--- | A gate that returns a non-empty failure list has rejected the artifact.
-outcomeOf :: [Text] -> ControlOutcome
-outcomeOf failures
-  | null failures = Accepted
-  | otherwise = Rejected
-
+-- | The pure gate-soundness controls.  Each asserts the specific failure the
+-- gate must report, so a gate that rejects a fake for an unrelated reason is
+-- reported as such instead of passing.
+--
+-- Controls 6-12 encode a property of a production surface (a Conv2D that is
+-- not a Dense affine, an adaptive SAC temperature, ...) as a failure list
+-- that is non-empty exactly when the property holds; the expected message
+-- names the property.
 gateSoundnessControls :: [NegativeControl]
 gateSoundnessControls =
-  [ NegativeControl
+  [ gate
       "untrained-learned-state"
       "an init == final parameter hash (no weight movement) must be rejected"
-      (outcomeOf (RowAssertions.assertLearnedStateChanged untrainedLearnedState))
-  , NegativeControl
+      ["final parameter hash equals initial parameter hash"]
+      (RowAssertions.assertLearnedStateChanged untrainedLearnedState)
+  , gate
       "self-referential-convergence-bar"
       "a slack-0 bar built from the measured value (value >= value) must be rejected"
-      (outcomeOf (ExternalBars.assertProductBarExternal selfReferentialBar selfReferentialMeasured))
-  , NegativeControl
+      ["has non-positive slack"]
+      (ExternalBars.assertProductBarExternal selfReferentialBar selfReferentialMeasured)
+  , gate
       "synthetic-rl-transition"
       "RL row evidence flagged as synthetic-transition must be rejected"
-      (outcomeOf (RowAssertions.assertRlRowEvidence syntheticRlEvidence))
-  , NegativeControl
+      ["synthetic-transition evidence is not valid product evidence"]
+      (RowAssertions.assertRlRowEvidence syntheticRlEvidence)
+  , gate
       "below-threshold-supervised"
       "an SL test metric below (threshold - slack) must fail convergence"
-      (outcomeOf (RowAssertions.assertSupervisedRowEvidence belowThresholdSl))
-  , NegativeControl
+      ["test_accuracy failed convergence"]
+      (RowAssertions.assertSupervisedRowEvidence belowThresholdSl)
+  , gate
       "untrained-supervised-weights"
       "an SL init == final weight hash (no weight movement) must be rejected"
-      (outcomeOf (RowAssertions.assertSupervisedRowEvidence untrainedSl))
-  , NegativeControl
+      ["final weight hash equals initial weight hash"]
+      (RowAssertions.assertSupervisedRowEvidence untrainedSl)
+  , gate
       "conv2d-not-dense"
       "a Conv2D node must not collapse to a Dense node with the same parameters"
-      (outcomeOf conv2dNotDenseFailures)
-  , NegativeControl
+      ["Conv2D output differs from a Dense affine"]
+      conv2dNotDenseFailures
+  , gate
       "sac-alpha-adaptive"
       "SAC evidence must reject a fixed-temperature actor-critic update"
-      (outcomeOf sacAlphaAdaptiveFailures)
-  , NegativeControl
+      ["SAC temperature changed from the fixed initial alpha"]
+      sacAlphaAdaptiveFailures
+  , gate
       "tqc-drop-enabled"
       "TQC evidence must reject the drop=0 scalar-critic stand-in"
-      (outcomeOf tqcDropEnabledFailures)
-  , NegativeControl
+      ["TQC default drops top quantile atoms"]
+      tqcDropEnabledFailures
+  , gate
       "crossq-renorm-not-identity"
       "CrossQ evidence must reject identity batch-renormalization"
-      (outcomeOf crossQRenormFailures)
-  , NegativeControl
+      ["CrossQ batch renormalization changes non-normalized Q values"]
+      crossQRenormFailures
+  , gate
       "alphazero-all-draw-rejected"
       "AlphaZero arena evidence must reject an all-draw 0.5 win-rate artifact"
-      (outcomeOf alphaZeroAllDrawFailures)
-  , NegativeControl
+      ["AlphaZero all-draw arena result is below the strict win-margin bar"]
+      alphaZeroAllDrawFailures
+  , gate
       "cuda-windowed-conv-rendered"
       "CUDA Conv2D/Conv3D evidence must reject scalar 1x1 cuDNN source"
-      (outcomeOf cudaWindowedConvFailures)
-  , NegativeControl
+      [ "CUDA Conv2D uses a 3x3 cuDNN filter and padded/cropped spatial tensors"
+      , "CUDA Conv3D uses a 3x3x3 cuDNN filter and padded/cropped spatial tensors"
+      ]
+      cudaWindowedConvFailures
+  , gate
       "metal-windowed-conv-rendered"
       "Metal Conv2D/Conv3D evidence must reject scalar 1x1 weighted source"
-      (outcomeOf metalWindowedConvFailures)
+      [ "Metal Conv2D weighted source has only windowed 3x3 convolution"
+      , "Metal Conv3D weighted source has only windowed 3x3x3 convolution"
+      ]
+      metalWindowedConvFailures
   ]
+ where
+  gate name description expectedFragments failures =
+    pureControl Gate name description (gateRejected expectedFragments failures)
 
 -- Known-fake fixtures -------------------------------------------------------
 
@@ -209,16 +273,6 @@ untrainedSl =
     { RowAssertions.sreFinalWeightHash =
         RowAssertions.sreInitialWeightHash validSupervisedBase
     }
-
--- | Controls that require external production evidence not available in this
--- session. The suite keeps this explicit so a blocked live lane is not mistaken
--- for a green negative-control surface.
-pendingProductionControls :: [Text]
-pendingProductionControls =
-  [ "Phase 280: invalid raw request and event-stream fixtures"
-  , "Phase 281: invalid admitted-evidence journals and reducer properties"
-  , "Phase 282: settlement, timeout, cleanup, terminal-order, and mandatory per-row controls"
-  ]
 
 conv2dNotDenseFailures :: [Text]
 conv2dNotDenseFailures =

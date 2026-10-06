@@ -17,11 +17,9 @@ import Control.Monad (unless, when)
 import Control.Monad.Reader (ask, liftIO, runReaderT)
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.ByteString qualified
-import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.Foldable qualified as Foldable
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -46,20 +44,6 @@ import System.Posix.IO
   , fdWrite
   , openFd
   )
-import Text.Read (readMaybe)
-
-import Network.Socket
-  ( AddrInfo (..)
-  , Socket
-  , SocketType (Stream)
-  , close
-  , connect
-  , defaultHints
-  , getAddrInfo
-  , socket
-  , withSocketsDo
-  )
-import Network.Socket.ByteString (recv, sendAll)
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap (readExistingLivePublication)
@@ -74,12 +58,9 @@ import JitML.Engines.OneDnnRuntime
   , probeOneDnnRuntime
   )
 import JitML.Env.Env (App, Env)
-import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Plan (Validation (..))
 import JitML.Product.BrowserCatalogue qualified as BrowserCatalogue
 import JitML.Product.Matrix qualified as ProductMatrix
-import JitML.RL.AlphaZero qualified as AlphaZero
-import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.Sub.Outcome
   ( ObservedProcessFailure (..)
   , ObservedProcessOutcome (..)
@@ -93,10 +74,11 @@ import JitML.Sub.Stream
   , runStreamingObserved
   , subprocessEnvOverrideAndRemove
   )
-import JitML.Sub.Subprocess (Subprocess (..), subprocess)
+import JitML.Sub.Subprocess (subprocess, underNice)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.BrowserEvidenceJournal qualified as BrowserEvidenceJournal
 import JitML.Test.LiveE2EScope qualified as LiveE2EScope
+import JitML.Test.LiveMeasurements qualified as LiveMeasurements
 import JitML.Test.LivePlan
   ( BrowserEvidencePlanPaths (..)
   , LivePlanStep (..)
@@ -109,17 +91,15 @@ import JitML.Test.ProductLaneJournal qualified as ProductLaneJournal
 import JitML.Test.ProductScenarioAuthorization qualified as ProductScenarioAuthorization
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Test.Report
-  ( CompletedProductScenarioReport
-  , InvocationJournal
+  ( InvocationJournal
   , ReportCard (..)
-  , ReportMeasurement (..)
-  , ReportMeasurements (..)
+  , ReportMeasurements
   , appendInvocation
   , emptyInvocationJournal
-  , emptyReportMeasurements
   , failedObservedInvocation
   , firstObservedInvocationFailure
   , loadReportCardKnobs
+  , notRequestedMeasurements
   , notRunObservedInvocation
   , passedInvocation
   , renderReportCardWithKnobs
@@ -127,17 +107,17 @@ import JitML.Test.Report
   , substrateRuntimeStanzas
   , substrateTestInvocations
   )
-import JitML.Tune.Catalog qualified as Tune
+import JitML.Test.ValidationEvidence qualified as ValidationEvidence
 
--- | App-owned option resolution and worker measurements consumed by the test
--- command. Keeping these effects explicit lets the command/report orchestration
--- compile independently without importing "JitML.App".
+-- | App-owned option resolution and browser-catalogue publication consumed by
+-- the test command. Keeping these effects explicit lets the command/report
+-- orchestration compile independently without importing "JitML.App". The
+-- report itself owns no measurement effect: every value it renders is a
+-- projection of journals the interpreter already captured.
 data TestCommandRuntime = TestCommandRuntime
   { testCommandBootstrapSubstrates :: [ParsedOption] -> [Text]
   , testCommandHasOption :: Text -> [ParsedOption] -> Bool
   , testCommandSelectedValue :: Text -> Text -> [ParsedOption] -> Text
-  , testCommandMeasureSlFinalLossText :: App (Maybe Text)
-  , testCommandMeasureRlFinalRewardText :: App (Maybe Text)
   , testCommandPublishBrowserCatalogue
       :: ProductMatrix.ProductProjectionBatch
       -> ProductScenarioJournal.AuthenticatedProductScenarioReport
@@ -310,6 +290,8 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
   case loadedKnobs of
     Left err -> exitWithError (InvalidConfig err)
     Right knobs -> do
+      validationBaseline <-
+        liftIO (ValidationEvidence.captureValidationBaseline selectedTestSubstrate)
       planned <-
         case pairPlannedInvocations targets invocations of
           Nothing ->
@@ -354,7 +336,8 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
             case verification of
               Left detail -> exitWithError (InvalidConfig detail)
               Right () ->
-                pure (observed, [], emptyReportMeasurements, Nothing)
+                pure (observed, [], notRequestedMeasurements, Nothing)
+      liftIO (ValidationEvidence.writeValidationRecords validationBaseline journal)
       writeText
         ( renderReportCardWithKnobs
             knobs
@@ -550,8 +533,6 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
                                     "browser-result-journal"
                                 , LiveE2EScope.liveE2ERefinementAction =
                                     refineBrowserEvidenceAndMeasurements
-                                      env
-                                      runtime
                                       selectedTargets
                                       scenarioScope
                                       browserScope
@@ -587,12 +568,12 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
                       (liveE2EScopeBackend substrate scenarioScope Nothing)
                       scopePlan
                       cabalInvocations
-                      (collectMeasurements env selectedTargets scenarioScope Nothing)
+                      (collectMeasurements selectedTargets scenarioScope)
             )
         pure
           ( LiveE2EScope.liveE2EInvocationJournal scoped
           , [LiveE2EScope.liveE2EScenarioJournal scoped]
-          , fromMaybe emptyReportMeasurements (LiveE2EScope.liveE2EPostBodyResult scoped)
+          , LiveMeasurements.liveScopeMeasurements selectedTargets scoped
           , liveScopeAppError scoped
           )
 
@@ -607,32 +588,19 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
             scenarioScope
       }
 
-  collectMeasurements env selectedTargets scenarioScope browserEvidence = do
+  -- The non-browser live scope's post-body.  There is no other measurement
+  -- path: this only retires the signing capability and supplies the journal
+  -- reader, and 'LiveMeasurements.productRowsPostBody' decides everything else.
+  collectMeasurements selectedTargets scenarioScope = do
     keyRemoval <-
       tryAny (removeProductScenarioJournalKeyFileIfPresent scenarioScope)
     case keyRemoval of
       Left _cleanupException ->
         pure (Left "could not remove the ProductScenario journal key file")
-      Right () -> do
-        measured <-
-          tryAny
-            ( runReaderT
-                ( collectLiveReportMeasurements
-                    runtime
-                    selectedTargets
-                    scenarioScope
-                    browserEvidence
-                )
-                env
-            )
-        pure $
-          case measured of
-            Left exception ->
-              Left
-                ( "live report measurement collection failed: "
-                    <> Text.pack (displayException exception)
-                )
-            Right values -> Right values
+      Right () ->
+        LiveMeasurements.productRowsPostBody
+          selectedTargets
+          (productScenarioRead <$> scenarioScope)
 
   productScenarioBatchFor selectedTargets substrateMaybe
     | not (productScenarioAcquisitionRequired selectedTargets) = pure Nothing
@@ -757,23 +725,8 @@ runCabalInvocations runtime parsedOptions targets selectedTestSubstrate invocati
 
   prioritizeLiveCabal live command
     | not live = command
-    | otherwise =
-        ( subprocess
-            "/usr/bin/nice"
-            ( "-n"
-                : "10"
-                : Text.pack (subprocessPath command)
-                : subprocessArguments command
-            )
-        )
-          { subprocessWorkingDirectory = subprocessWorkingDirectory command
-          , subprocessStdin = subprocessStdin command
-          }
+    | otherwise = underNice command
 {-# NOINLINE runCabalInvocations #-}
-
-productScenarioEvidenceRequired :: [Text] -> Bool
-productScenarioEvidenceRequired targets =
-  "jitml-integration" `elem` targets || "jitml-e2e" `elem` targets
 
 productScenarioAcquisitionRequired :: [Text] -> Bool
 productScenarioAcquisitionRequired = elem "jitml-integration"
@@ -1097,19 +1050,18 @@ browserExpectationFromCatalogue catalogue =
       }
 
 -- | Consume the browser key before parsing the untrusted result, authenticate
--- and join all 55 rows to the published catalogue expectation, then retain the
--- exact row report even when explicit Failed/NotRun statuses make the gate
--- non-green.  Measurement failures likewise keep both authenticated row sets.
+-- and join every catalogue row to the published catalogue expectation, then
+-- retain the exact row report even when explicit Failed/NotRun statuses make
+-- the gate non-green.  The report's measurements are projections of the two
+-- authenticated journals alone: the browser journal just refined and the
+-- ProductScenario journal that produced the catalogue.  A failure to re-read the
+-- latter keeps the ProductScenario report the parent already authenticated.
 refineBrowserEvidenceAndMeasurements
-  :: Env
-  -> TestCommandRuntime
-  -> [Text]
+  :: [Text]
   -> Maybe ProductScenarioCommandScope
   -> BrowserEvidenceCommandScope
   -> IO (LiveE2EScope.LiveE2ERefinementOutcome ReportMeasurements)
 refineBrowserEvidenceAndMeasurements
-  env
-  runtime
   targets
   scenarioScope
   browserScope = do
@@ -1140,75 +1092,18 @@ refineBrowserEvidenceAndMeasurements
                   )
               )
           Right browserReport -> do
-            measured <-
-              tryAny
-                ( runReaderT
-                    ( collectLiveReportMeasurements
-                        runtime
-                        targets
-                        scenarioScope
-                        (Just browserReport)
-                    )
-                    env
-                )
-            case measured of
-              Left exception ->
-                pure
-                  ( LiveE2EScope.LiveE2ERefinedWithIssue
-                      ( retainedBrowserMeasurements
-                          authenticatedSource
-                          browserReport
-                      )
-                      ( "live report measurement collection failed after browser refinement: "
-                          <> Text.pack (displayException exception)
-                      )
+            reread <-
+              LiveMeasurements.productRowsMeasurement
+                targets
+                (productScenarioRead <$> scenarioScope)
+            pure
+              ( LiveMeasurements.browserRefinementOutcome
+                  ( ProductScenarioJournal.authenticatedProductScenarioReport
+                      authenticatedSource
                   )
-              Right measurements
-                | BrowserEvidenceJournal.browserEvidenceReportAllPassed browserReport ->
-                    pure (LiveE2EScope.LiveE2ERefined measurements)
-                | otherwise ->
-                    pure
-                      ( LiveE2EScope.LiveE2ERefinedWithIssue
-                          measurements
-                          (browserEvidenceGateFailure browserReport)
-                      )
-
-retainedBrowserMeasurements
-  :: ProductScenarioJournal.AuthenticatedProductScenarioReport
-  -> BrowserEvidenceJournal.BrowserEvidenceReport
-  -> ReportMeasurements
-retainedBrowserMeasurements authenticatedSource browserReport =
-  emptyReportMeasurements
-    { measuredBrowserProductEvidence = Just browserReport
-    , measuredProductRowEvidence =
-        Just
-          ( ProductScenarioJournal.authenticatedProductScenarioReport
-              authenticatedSource
-          )
-    }
-
-browserEvidenceGateFailure
-  :: BrowserEvidenceJournal.BrowserEvidenceReport
-  -> Text
-browserEvidenceGateFailure report =
-  "browser evidence gate requires exactly 55 Passed rows; observed Passed="
-    <> count BrowserEvidenceJournal.BrowserPassed
-    <> ", Failed="
-    <> count BrowserEvidenceJournal.BrowserFailed
-    <> ", NotRun="
-    <> count BrowserEvidenceJournal.BrowserNotRun
- where
-  entries = BrowserEvidenceJournal.browserEvidenceReportEntries report
-  count status =
-    Text.pack
-      ( show
-          ( length
-              ( filter
-                  ((== status) . BrowserEvidenceJournal.browserEvidenceResultStatus)
-                  entries
+                  reread
+                  browserReport
               )
-          )
-      )
 
 -- | Only the integration acquisition process receives the signing capability.
 -- The parent retains its in-memory key for the optional post-body read; the E2E
@@ -1289,72 +1184,24 @@ browserEvidenceEnvironmentVariableNames =
   , "PLAYWRIGHT_TEST_RESULTS_DIR"
   ]
 
-collectLiveReportMeasurements
-  :: TestCommandRuntime
-  -> [Text]
-  -> Maybe ProductScenarioCommandScope
-  -> Maybe BrowserEvidenceJournal.BrowserEvidenceReport
-  -> App ReportMeasurements
-collectLiveReportMeasurements runtime targets scenarioScope browserEvidence = do
-  productRowEvidence <-
-    collectProductScenarioEvidence targets scenarioScope
-  slLoss <- measureSlFinalLoss runtime
-  rlReward <- measureRlFinalReward runtime
-  alphaZeroWinRate <- measureAlphaZeroArenaWinRate
-  tuneObjective <- measureTuneBestObjective
-  cacheHitRate <- measureJitCacheHitRate
-  daemonHealth <- measureDaemonHealthz
-  pure
-    ReportMeasurements
-      { measuredSlFinalLoss = Just slLoss
-      , measuredRlFinalReward = Just rlReward
-      , measuredAlphaZeroArenaWinRate = Just alphaZeroWinRate
-      , measuredTuneBestObjective = Just tuneObjective
-      , measuredJitCacheHitRate = Just cacheHitRate
-      , measuredDaemonHealthz = Just daemonHealth
-      , measuredBrowserProductEvidence = browserEvidence
-      , measuredProductRowEvidence = productRowEvidence
-      }
-{-# NOINLINE collectLiveReportMeasurements #-}
-
--- | Every green integration run must yield product evidence, whether or not an
--- E2E stanza follows it.  Read and fully refine the untrusted cross-process
--- receipt before any metric probe runs, so stale, missing, or foreign evidence
--- fails closed without producing a partially measured report card.
-collectProductScenarioEvidence
-  :: [Text]
-  -> Maybe ProductScenarioCommandScope
-  -> App (Maybe CompletedProductScenarioReport)
-collectProductScenarioEvidence targets scenarioScope
-  | not (productScenarioEvidenceRequired targets) = pure Nothing
-  | otherwise =
-      case scenarioScope of
-        Nothing ->
-          exitWithError
-            ( InvalidConfig
-                "live product evidence requires an initialized command-owned scenario scope"
-            )
-        Just scope -> do
-          loaded <-
-            liftIO
-              ( ProductScenarioJournal.readProductScenarioJournal
-                  (productScenarioJournalKey scope)
-                  (productScenarioJournalPath scope)
-                  (productScenarioCheckpointRoot scope)
-                  (productScenarioRunId scope)
-                  (productScenarioExecutablePath scope)
-                  (productScenarioExecutableSha256 scope)
-                  (productScenarioProjectionBatch scope)
-              )
-          case loaded of
-            Left errors ->
-              exitWithError
-                ( InvalidConfig
-                    ( "live product scenario journal refinement failed: "
-                        <> Text.pack (show (NonEmpty.toList errors))
-                    )
-                )
-            Right report -> pure (Just report)
+-- | The command-owned re-read of the authenticated cross-process ProductScenario
+-- journal.  This is the only function that names the private scope's fields for
+-- the report: whether and how its result becomes a report measurement is decided
+-- in "JitML.Test.LiveMeasurements", which the unit tests exercise.
+productScenarioRead
+  :: ProductScenarioCommandScope
+  -> LiveMeasurements.ProductScenarioRead
+productScenarioRead scope =
+  LiveMeasurements.refinedProductScenarioRead
+    ( ProductScenarioJournal.readProductScenarioJournal
+        (productScenarioJournalKey scope)
+        (productScenarioJournalPath scope)
+        (productScenarioCheckpointRoot scope)
+        (productScenarioRunId scope)
+        (productScenarioExecutablePath scope)
+        (productScenarioExecutableSha256 scope)
+        (productScenarioProjectionBatch scope)
+    )
 
 writeProductScenarioJournalKeyFile
   :: FilePath
@@ -1443,181 +1290,3 @@ productScenarioHexBytes = Text.pack . concatMap byteHex . Data.ByteString.unpack
      in [ alphabet !! (value `div` 16)
         , alphabet !! (value `mod` 16)
         ]
-
-measureSlFinalLoss :: TestCommandRuntime -> App ReportMeasurement
-measureSlFinalLoss runtime =
-  maybe MeasurementUnavailable MeasurementAvailable
-    <$> testCommandMeasureSlFinalLossText runtime
-
-measureRlFinalReward :: TestCommandRuntime -> App ReportMeasurement
-measureRlFinalReward runtime =
-  maybe MeasurementUnavailable MeasurementAvailable
-    <$> testCommandMeasureRlFinalRewardText runtime
-
-measureAlphaZeroArenaWinRate :: App ReportMeasurement
-measureAlphaZeroArenaWinRate =
-  let net = PolicyValueNet.initPolicyValueNet 43 7 16 31
-      adam = PolicyValueNet.initAdamFor net
-      result =
-        PolicyValueNet.runOneGenerationOfSelfPlay
-          net
-          adam
-          2
-          (AlphaZero.maxPliesFor "connect4")
-          8
-          4
-          4
-          99
-   in pure (measuredShow "connect4/gen0=" (PolicyValueNet.genArenaWinRate result))
-
-measureTuneBestObjective :: App ReportMeasurement
-measureTuneBestObjective = do
-  env <- ask
-  cluster <- liftIO (readExistingLivePublication ".")
-  loaded <- liftIO (Tune.loadTuningExperiment "experiments/mnist-tune.dhall")
-  case (cluster, loaded >>= maybe (Left "missing tuning block") Right . Tune.tuningExperimentConfig) of
-    (Just publication, Right config) -> do
-      let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
-          scheduler = Tune.tuningSchedulerKind (Tune.tuningConfigScheduler config)
-          pruner = Tune.tuningPrunerKind (Tune.tuningConfigPruner config)
-          trialCount = fromIntegral (Tune.tuningConfigTrials config)
-          device = mlpDeviceForSubstrate (Publication.publicationSubstrate publication) env
-      valuesE <-
-        liftIO
-          ( fmap
-              (fmap (fmap Tune.trialResultObjective))
-              (Tune.trialObjectiveResultsWithDeviceForAxes device sampler scheduler pruner trialCount)
-          )
-      pure $
-        case valuesE of
-          Left _ -> MeasurementUnavailable
-          Right [] -> MeasurementUnavailable
-          Right values -> measuredShow (Text.pack (show sampler) <> "=") (maximum values)
-    _ -> pure MeasurementUnavailable
-
-measureJitCacheHitRate :: App ReportMeasurement
-measureJitCacheHitRate = do
-  cluster <- liftIO (readExistingLivePublication ".")
-  case cluster of
-    Nothing -> pure MeasurementUnavailable
-    Just publication -> do
-      response <- liftIO (httpGetLocal (Publication.publicationEdgePort publication) "/metrics")
-      pure $
-        case response >>= httpOkBody >>= readCacheHitRate of
-          Left _ -> MeasurementUnavailable
-          Right rendered -> MeasurementAvailable rendered
-
-measureDaemonHealthz :: App ReportMeasurement
-measureDaemonHealthz = do
-  cluster <- liftIO (readExistingLivePublication ".")
-  case cluster of
-    Nothing -> pure MeasurementUnavailable
-    Just publication -> do
-      let edgePort = Publication.publicationEdgePort publication
-      response <- liftIO (httpGetLocal edgePort "/healthz")
-      pure $
-        case response >>= httpOkBody of
-          Right body
-            | Text.strip body == "ok" ->
-                MeasurementAvailable
-                  ("http://127.0.0.1:" <> Text.pack (show edgePort) <> "/healthz status=200")
-          _ -> MeasurementUnavailable
-
-measuredShow :: (Show a) => Text -> a -> ReportMeasurement
-measuredShow prefix value =
-  MeasurementAvailable (prefix <> Text.pack (show value))
-
-httpGetLocal :: Int -> Text -> IO (Either Text Text)
-httpGetLocal port path = do
-  result <-
-    tryAny $
-      withSocketsDo $ do
-        addresses <-
-          getAddrInfo
-            (Just defaultHints {addrSocketType = Stream})
-            (Just "127.0.0.1")
-            (Just (show port))
-        case addresses of
-          [] -> ioError (userError "no address for jitml live report probe")
-          addr : _ ->
-            bracket (openLocalSocket addr) close $ \client -> do
-              sendAll client (httpGetRequest path)
-              Text.pack . ByteString.Char8.unpack <$> recvAll client
-  pure $
-    case result of
-      Left err -> Left (Text.pack (displayException err))
-      Right response -> Right response
-
-openLocalSocket :: AddrInfo -> IO Socket
-openLocalSocket addr = do
-  client <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
-  connect client (addrAddress addr)
-  pure client
-
-httpGetRequest :: Text -> Data.ByteString.ByteString
-httpGetRequest path =
-  ByteString.Char8.pack $
-    "GET "
-      <> Text.unpack path
-      <> " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
-
-recvAll :: Socket -> IO Data.ByteString.ByteString
-recvAll client = do
-  chunk <- recv client 65536
-  if Data.ByteString.null chunk
-    then pure Data.ByteString.empty
-    else (chunk <>) <$> recvAll client
-
-httpOkBody :: Text -> Either Text Text
-httpOkBody response =
-  case httpResponseStatus response of
-    Just 200 -> Right (httpResponseBody response)
-    Just status -> Left ("HTTP status " <> Text.pack (show status))
-    Nothing -> Left "HTTP response missing status"
-
-httpResponseStatus :: Text -> Maybe Int
-httpResponseStatus response =
-  case Text.words <$> listToMaybe (Text.lines response) of
-    Just (_version : statusText : _) -> readMaybe (Text.unpack statusText)
-    _ -> Nothing
-
-httpResponseBody :: Text -> Text
-httpResponseBody response =
-  case Text.splitOn "\r\n\r\n" response of
-    _headers : bodyParts -> Text.intercalate "\r\n\r\n" bodyParts
-    [] -> ""
-
-readCacheHitRate :: Text -> Either Text Text
-readCacheHitRate body = do
-  hits <-
-    maybe (Left "jitml_jit_cache_hits missing") Right (prometheusMetricInt "jitml_jit_cache_hits" body)
-  misses <-
-    maybe
-      (Left "jitml_jit_cache_misses missing")
-      Right
-      (prometheusMetricInt "jitml_jit_cache_misses" body)
-  let total = hits + misses
-  if total <= 0
-    then Left "jit cache counters are empty"
-    else
-      let rate = fromIntegral hits / (fromIntegral total :: Double)
-       in Right $
-            "prometheus="
-              <> Text.pack (show rate)
-              <> " hits="
-              <> Text.pack (show hits)
-              <> " misses="
-              <> Text.pack (show misses)
-
-prometheusMetricInt :: Text -> Text -> Maybe Int
-prometheusMetricInt metricName body =
-  firstMatch (Text.lines body)
- where
-  firstMatch [] = Nothing
-  firstMatch (line : rest)
-    | "#" `Text.isPrefixOf` Text.stripStart line = firstMatch rest
-    | otherwise =
-        case Text.words line of
-          metric : value : _
-            | metric == metricName -> readMaybe (Text.unpack value)
-          _ -> firstMatch rest

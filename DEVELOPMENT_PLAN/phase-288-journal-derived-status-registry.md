@@ -11,11 +11,21 @@
 
 ⏸️ **Blocked**. Blocked by Phase 285 (Sprint 285.1).
 
+The journal-derived registry is implemented and `jitml docs status` derives the
+counts, open chain, and unmet obligations from committed evidence; closure waits on
+Sprint `285.1`.
+
 ## Sprint 288.1: Journal-Derived Status Registry [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Product/PhaseStatus.hs`,
-`src/JitML/Docs/Check.hs`, `src/JitML/Lint/Docs.hs`, `test/unit/Main.hs`
+`src/JitML/Product/StatusEvidence.hs`, `src/JitML/Product/StatusLoader.hs`,
+`src/JitML/Product/PlanDoc.hs`, `src/JitML/Product/SourceDigest.hs`,
+`src/JitML/Product/ValidationRecord.hs`, `src/JitML/Test/ValidationEvidence.hs`,
+`src/JitML/Test/Command.hs`, `src/JitML/Test/ProductLaneJournal.hs`,
+`src/JitML/Docs/Check.hs`, `src/JitML/Lint/Docs.hs`, `src/JitML/App.hs`,
+`src/JitML/CLI/Spec.hs`, `test/unit/JournalDerivedStatus.hs`,
+`test/unit/Main.hs`
 **Blocked by**: Sprint `285.1`
 **Docs to update**: `../README.md`, `README.md`, `00-overview.md`,
 `development_plan_standards.md`, `../documents/documentation_standards.md`,
@@ -48,14 +58,39 @@ docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
+### Current Partial Validation
+
+- 2026-09-30: `PhaseStatus.hs` is a catalogue, not a status literal. Each sprint
+  carries either a frozen legacy attestation (**63** sprints, shrink-only, never
+  able to mint a Done) or the obligations that must be proven (lane journals, the
+  aggregate, gate transcripts, pending-control emptiness, the deletion ledger,
+  upstream sprints, external context). `StatusLoader` reads only committed
+  evidence, `StatusEvidence` projects `Proven | Unproven` per obligation and a
+  `ClosureVerdict` that refuses on any missing, stale, mismatched, failed, or
+  incomplete evidence, and `jitml docs check` now enforces the registry against the
+  phase-document headers, Blocked-by edges, Remaining Work, and a **60**-line cap on
+  the README's Closure Status section (`closureStatusLineCap`; the narrative moved
+  to the historical diary). `jitml test` writes a versioned `jitml-validation-record` per
+  invocation to `.build/runtime/validation/`; the human copies it under
+  `DEVELOPMENT_PLAN/attestations/validation/`. The derived registry reproduces
+  **63 Done / 1 Active / 0 Planned / 6 Blocked** and the open chain
+  `278 → 280 → 281 → 282 → 285 → 288 → 289`. A gate transcript proves its
+  obligation only for the gate's standing invocation; the `jitml-e2e` gate also
+  requires that invocation to have been the `--live` run (recorded by its `nice`
+  wrapper), so the non-live suite cannot stand for the live measurement glue. No record
+  is written when the environment sets a run-altering `TASTY_*` variable
+  (`TASTY_PATTERN`, `TASTY_TIMEOUT`, `TASTY_QUICKCHECK_*`, …): the recorded command
+  cannot show it, and a diagnostic live run on 2026-10-05 excluded one test through
+  `TASTY_PATTERN` and still produced a passing record with the standing command. Four
+  unit cases cover the guard, and disabling it turns two of them red.
 ### Remaining Work
 
-- Blocked until Sprint `285.1` emits contract-derived per-model evidence for the
-  standing status gate.
-- Replace the literal status registry with journal projections over versioned
-  evidence and explicit unmet/blocked obligations.
-- Re-run the complete standing evidence gate before restoring any product
-  closure claim.
+- Blocked until Sprint `285.1` closes, which waits on Sprint `278.1`.
+- Run the Validation commands in the `linux-cpu` container lane on the final tree
+  and commit the `jitml-unit` and `jitml-negative-controls` validation records; a
+  missing transcript is `Unproven`, never Done.
+- Reopening a legacy-attested sprint after an audit finding converts its catalogue
+  entry to an evidenced one and shrinks the frozen set.
 
 ## Documentation Requirements
 

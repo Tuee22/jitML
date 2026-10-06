@@ -11,22 +11,45 @@
 
 ## Current Status
 
-The bar discipline above is the contract; two parts of it are not yet enforced,
-so this section states the boundary rather than letting the target read as
-implemented.
+The bar discipline below is the contract. Its anchoring invariant is enforced by
+two predicates and a source lint (first point); what a literal constant's origin
+is cannot be enforced mechanically (second point), so this section states that
+boundary rather than letting the target read as implemented.
 
-- **The no-self-referential-threshold invariant is only half enforced.**
-  `ExternalBars.barIsSelfReferential` currently tests slack positivity and
-  discards its measured-value argument, so a positive-slack bar set equal to the
-  value it grades is accepted, and the frozen-anchor test matches any cohort's
-  anchor rather than the observation's own.
-- **Positive slack does not by itself make a bar meaningful.** Some committed
-  cohorts carry slack wide enough that the resulting bar is not a real assertion
-  against its environment.
+- **The no-self-referential-threshold invariant is enforced at three points.**
+  `ExternalBars.assertProductBarExternal` rejects a bar with non-positive slack,
+  non-finite fields, or a threshold that is not the target moved by its slack.
+  `ExternalBars.assertConvergenceObservationsAgainstBar` grades a completed
+  observation set against the ProductRow's *own* bar: exactly one observation of
+  the row's metric, carrying the bar's goal and threshold, the value the bar was
+  evaluated with, and a verdict re-derived from that value rather than trusted.
+  The source lint (`JitML.Lint.ProductTruth`) rejects a bar target, slack, or
+  threshold that mentions a measured value directly or through bindings, and any
+  numeric bar argument that is neither a literal nor a projection of the
+  canonical threshold tables (a selector applied as the whole argument); see
+  [Product Completion Contract](product_completion_contract.md#realness-completion-bar-2026-07-05)
+  for its coverage and limits.
+- **Provenance of a literal is not something a predicate can establish.** A
+  positive slack does not prove the target came from an external source, and a
+  literal constant is accepted whatever its origin: the lint shows that a bar is
+  not *computed* from a measurement, not that its constants were chosen
+  independently of one. Positive slack also does not by itself make a bar
+  meaningful: some committed cohorts carry slack wide enough that the resulting
+  bar is not a real assertion against its environment.
 
-Both are owned by
+The second point is owned by
 [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md),
 which is where the current status and the closing work are tracked.
+
+Per-model completed-run evidence has its own stated boundary. The
+`jitml-model-convergence` stanza
+([Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md))
+grades opaque evidence minted only from the retained, pinned lane journals, so
+it is exactly as current as those journals and fails closed on a stale one. The
+journals retain no per-iteration learning curve, no per-episode evaluation set,
+and no served-artifact inference measurement, and every current ProductRow plans
+a singleton seed cohort; see
+[Per-Model Completed-Run Evidence](#per-model-completed-run-evidence).
 
 ## Invariants
 
@@ -128,7 +151,12 @@ validation, and test split sizes, positive examples seen and throughput,
 finite non-negative train/validation losses, a finite held-out test metric, a
 finite literature target/slack bar, and a finite positive gradient norm. It
 also rejects smoke-threshold evidence and deliberately underpowered two-step
-evidence whose held-out metric fails the row's literature/slack bar.
+evidence whose held-out metric fails the row's literature/slack bar. Those
+records are forgeable, hand-built values kept for the toy-configuration
+canonical stanzas and the negative-control fixtures; completed ProductRow
+evidence is graded through the opaque `ModelRowEvidence` described under
+[Per-Model Completed-Run Evidence](#per-model-completed-run-evidence), for which
+`RowAssertions.assertCompletedRowEvidence` is the entry point.
 
 Dataset-read provenance is not an upload-time promise. Product and generic supervised-graph
 training obtain artifact bytes through the verified read boundary, record the
@@ -232,25 +260,31 @@ closure evidence subsequently closed through Phases `240`–`246`.
   from, or set equal to, the measured accuracy**. Regression rows use the declared
   regression metric rather than accuracy. Cross-entropy / MSE training loss and
   held-out validation loss are reported per run. The ProductScenario integration
-  journal measures each row end-to-end from a real random initialization. The
-  current `jitml-model-convergence` stanza is only the lightweight case-registry
-  guard; [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
-  owns making each of its cases consume that opaque completed-run evidence.
-- **Performance** — a **non-wall-clock** throughput metric (examples/sec). Wall-clock latency
-  is excluded from the determinism contract (see [determinism_contract.md](determinism_contract.md)),
-  so the performance metric is a distinct, deterministic, non-timing measure.
-  Sprint `24.2` treats the deterministic examples-seen count emitted by
-  `JitML.SL.Architecture.SlRunMetrics` as the row throughput evidence; it is
-  positive and reproducible for the same fixed budget and split. The throughput
-  **floor** the metric is graded against is a committed constant in
-  `JitML.Product.ExternalBars`
-  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)),
-  never derived from the measured throughput. Binding every row's non-wall-clock
-  inference measurement and same-seed reproducibility check to its exact trained
-  artifact remains the contract-driven
-  [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
-  obligation; the current lightweight stanza validates only its declared case
-  metadata.
+  journal measures each row end-to-end from a real random initialization, and the
+  retained lane journal is that run's committed completed-run evidence. The
+  `jitml-model-convergence` stanza
+  ([Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md))
+  grades every row's opaque completed-run evidence against a criterion
+  re-derived independently from `JitML.SL.ConvergenceThresholds`
+  (classification) or the `rmse` bar (regression), never from the row's own
+  registry bar.
+- **Performance** — a **non-wall-clock** work count, never a rate. Wall-clock
+  latency is excluded from the determinism contract (see
+  [determinism_contract.md](determinism_contract.md)), so the performance metric
+  is a distinct, deterministic, non-timing measure: `examples_seen`, the
+  training examples the run consumed, which is the observed epoch count times
+  the plan's fixed training-split size (every example is consumed exactly once
+  per epoch). The committed bound is `AtLeast (epochs × training examples)` in
+  `JitML.Product.ExternalBars`, built from the plan's exact planned quantities
+  and never from the measured count. The trainer-observed optimizer-update
+  count is graded separately, as learning telemetry, against the plan's exact
+  `epochs × ceil(training / batch)`. The measurement is bound to the plan,
+  experiment, and admitted manifest identity of the same lane-journal row; the
+  stanza executes no inference, and the journals retain no served-artifact
+  inference measurement. Because lane admission refines exact budget units, the
+  observed epoch count of a retained row equals the plan, so this bound guards
+  the evidence boundary rather than measuring a run (see
+  [Per-Model Completed-Run Evidence](#per-model-completed-run-evidence)).
 
 | Canonical SL model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
@@ -275,10 +309,12 @@ closure evidence subsequently closed through Phases `240`–`246`.
   ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   and tabulated by `JitML.RL.ConvergenceThresholds`, never derived from the
   measured return. The measured return is a **trained-policy rollout** — the learned policy
-  acting in the environment — not a scripted expert controller. Current
-  ProductScenario execution records the trained-policy result; Phase `285`
-  migrates the per-model `jitml-model-convergence` cases from metadata checks to
-  that completed-run evidence.
+  acting in the environment — not a scripted expert controller. ProductScenario
+  execution records the trained-policy result, and Phase `285` grades it: each
+  per-model `jitml-model-convergence` case consumes that completed-run evidence
+  from the retained lane journal and checks its median final reward against a
+  criterion re-derived from the RL cohort table (and the HER and AlphaZero
+  tables), not from the registry bar.
 - **Trainer-owned counters** — every successful traditional trainer returns
   opaque positive `MeasuredEnvironmentTransitions` and
   `MeasuredOptimizerUpdates` values from the loop that executed the work.
@@ -317,14 +353,21 @@ closure evidence subsequently closed through Phases `240`–`246`.
   device evidence, initialized-only checkpoints, and failed convergence.
 - **AlphaZero** — convergence is measured by **arena win-rate** against the prior best
   network (a deliberate non-return metric), not an episode-return threshold.
-- **Performance** — a non-wall-clock RL performance metric (sample efficiency, i.e.
-  env-steps-to-threshold), graded against a committed **ceiling** in
-  `JitML.Product.ExternalBars`
-  ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)) that
-  is never derived from the measured value. The Phase `285` contract-driven
-  per-model case owns exercising that measurement from the exact completed
-  artifact and proving same-seed reproducibility; the current stanza checks only
-  the registered metric and positive floor.
+- **Performance** — a non-wall-clock RL sample-efficiency count,
+  `environment_transitions`: the physical transitions the trainer counted for
+  the completed run, graded against a committed **ceiling** in
+  `JitML.Product.ExternalBars`, `AtMost` the plan's environment-transition
+  budget, that is never derived from the measured value. A lane journal retains
+  no per-iteration curve, so a steps-to-threshold figure cannot be recovered from
+  it; the tightest ceiling a final-only journal can prove is the exact budget
+  the run consumed, and the Phase `285` case grades that count from the exact
+  completed run, bound to its plan and admitted manifest identity. Because
+  lane admission refines the exact transition budget, a retained row's count
+  equals the plan and the ceiling guards the evidence boundary rather than
+  measuring a run (see
+  [Per-Model Completed-Run Evidence](#per-model-completed-run-evidence)). The
+  same-seed reproducibility assertions stay in `jitml-rl-canonicals` and
+  `jitml-backends`.
 
 | RL / self-play model | Fixed budget unit | Stand-alone convergence metric |
 |---|---|---|
@@ -335,6 +378,149 @@ closure evidence subsequently closed through Phases `240`–`246`.
 | HER | training: goal-conditioned environment transitions; evaluation: keyed episodes with an episode-step horizon | goal success rate and mean achieved-goal distance |
 | AlphaZero Connect 4, Othello, Hex, Gomoku | self-play generations, MCTS simulations per move, and arena games | arena win-rate against the baseline/prior checkpoint plus legal-move rate |
 | Hyperparameter tuning | fixed trial count or fixed scheduler-rung budget | best validation objective at the completed budget plus replayable sampler state |
+
+## Per-Model Completed-Run Evidence
+
+[Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
+makes every per-model assertion of `jitml-model-convergence` consume an opaque,
+kind-indexed `ModelRowEvidence` (`JitML.Test.ModelEvidence`) instead of a
+registry declaration. The value is completed-run evidence, not a claim that the
+run passed: it can carry a below-bar measurement, and the assertions grade it.
+
+**Where it comes from.** The lane journals
+(`DEVELOPMENT_PLAN/attestations/<lane>-product-lane-journal.json`, pinned in
+`JitML.Test.ProductAggregation.productLaneInputs`) are the committed,
+authenticated, versioned completed-run evidence. `admitModelEvidence` reads the
+selected lane's registered journal (`JITML_SUBSTRATE`, default `linux-cpu`),
+admits it against the current validated projection with the production reader,
+and mints one evidence value per ProductRow through a typed join that mirrors
+the report join (`Missing`, `Duplicate`, `Orphan`, `WrongPlan`, `WrongLane`,
+`StaleContract`). A stale, missing, altered, or inadmissible journal is a typed
+failure of every lane-dependent case, by design: loading reports
+`LaneJournalNotRegistered`, `LaneJournalUnreadable`, `LaneProjectionRejected`,
+or `LaneJournalRejected` (the pinned production reader's own typed reason, such
+as a digest mismatch), and a journal that admits but does not join reports
+`LaneEvidenceRejected`.
+
+The raw, forgeable view of a journal row, the refinement that mints evidence
+from it, and the loader with its pins and registry as arguments
+(`loadLaneJournalIn`, which lets a control offer a tampered, missing, or
+unregistered journal to the same fail-closed path) are kept in
+`JitML.Test.ModelEvidence.Raw`. The cabal library exposes that module, because
+the evidence types are shared by the library modules `JitML.Test.RowAssertions`
+and `JitML.Test.ModelConvergence` and by the stanza, so a barrier around it is
+enforced by the compiler and then by scans rather than by visibility. The
+module carries a `WARNING in "x-model-evidence-raw"`, so every importer is
+reported whatever its import syntax, and the
+`cabal build all --ghc-options=-Werror` pass that `jitml check-code` runs turns
+the report into an error for any library or executable module that has not
+opted out with an explicit `{-# OPTIONS_GHC -Wno-x-model-evidence-raw #-}`. The
+stanza asserts that exactly its four control modules import `Raw` and exactly
+those opt out, and that only the two evidence facades import the hidden
+`Internal` module. The scan is tokenising: comments, pragmas, and string or
+character literals are skipped; a package string, a `SOURCE` pragma, `safe`, a
+post-positive `qualified`, and an import split across lines are all seen; and
+sources are read as UTF-8 whatever the locale. Its reach is that of the stanza:
+it runs only when the stanza runs, a stanza built without `-Werror` sees the
+report as a warning, and a blanket `-w` silences the report, which only the
+import scan detects.
+
+**Identity binding.** Minting re-checks, against the validated projection, the
+row id, `PlanId`, lane, experiment hash, admitted and inference manifest
+identities, the report contract digest, the completion's own plan, experiment,
+invocation, and device-witness identities, and that the measured digest is the
+digest of the completion the values were read from. Any difference is a typed
+`BindingMismatch`, not a silent repair.
+
+**Seed cohorts.** Evidence must cover `runPlanSeeds` exactly: a gap, a
+duplicate, an extra seed, or an empty cohort is a typed seed-coverage failure,
+and every measurement must be finite. The cohort statistic of each criterion is
+the median across seeds (the mean of the two middle values for an even cohort).
+Every ProductRow plans a singleton cohort today, so for real rows the statistic
+is the single value. The k > 1 path is exercised end to end against a real
+three-seed plan cohort resolved through the plan contract: per-seed refinement
+(`refineSeedCohort`: coverage, finiteness, channel) and cohort grading, with each
+defect naming its seed. It is not exercised through a ProductRow, because
+expanding a cohort would change every `PlanId` and invalidate the pinned journals.
+
+**Independent criterion.** `JitML.Product.ExternalBars.externalCriteriaFor`
+re-derives each row's criterion directly from the canonical tables (SL cohort
+table, the `rmse` bar for regression, the RL cohort table, the HER goal metric
+with its achieved-goal-distance companion, the AlphaZero arena threshold with
+its all-draw exclusion, and the tuning objective), keyed by row identity. The
+recorded criterion of each seed (metric name, rule, exclusion parameters,
+threshold) must equal it, each required metric must appear exactly once, no
+other metric may appear, and the cohort statistic must satisfy it; the registry
+bar must also agree with it. These are separate typed failures
+(`MissingMetric`, `DuplicateMetric`, `UnexpectedMetric`, `CriterionMismatch`,
+`BelowBar`, `RegistryBarDrift`).
+
+**RL learning telemetry versus final quality.** `LearningTelemetry` (observed
+budget units, optimizer-update count, weight-hash delta) and `FinalQuality` (the
+final-evaluation criterion observations) are distinct types, checked by
+distinct assertions (`assertModelLearning`, `assertModelConvergence`) with
+distinct failure sums, and neither can stand in for the other. The compiler
+prevents passing one where the other is expected; at the raw boundary every
+payload declares its channel and a payload offered in the wrong slot, such as a
+transition counter that numerically clears the reward bar, is a typed
+`RowChannelSubstituted`. `LearningCurve` (strictly ordered iteration summaries)
+and `EvaluationSet` (the exact keyed final cohort) remain the per-iteration and
+per-episode forms of the two channels; the lane journals retain only their
+scalar summaries.
+
+**Deterministic performance bounds.** Bounds live in
+`JitML.Product.ExternalBars` as `PerformanceBound` (`AtLeast` | `AtMost`) values
+built from the plan's exact planned quantities; nothing the run reports is an
+input. The measured quantities are counts the completed evidence records:
+
+| Family | Metric | Measured from the completed run | Committed bound |
+|---|---|---|---|
+| Supervised | `examples_seen` | observed epochs × plan training examples per epoch | `AtLeast` plan epochs × plan training examples |
+| RL, HER | `environment_transitions` | physical transitions the trainer counted | `AtMost` plan environment-transition budget |
+| AlphaZero | `alphazero_optimizer_updates` | trainer-observed optimizer applications | `AtLeast` plan generations × optimizer updates per generation |
+| Tuning | `promoted_trial_optimizer_updates` | trainer-observed optimizer applications of the promoted trial | `AtLeast` and `AtMost` the plan's per-trial optimizer-update ceiling |
+
+A rate or a quantity the completed evidence does not record is not a
+performance metric: `examples_per_second` is a rate, `env_steps_to_threshold`
+needs the per-iteration curve, and `arena_nodes_per_inference` and
+`objective_evaluations_per_trial` have no measured source, so none of them is
+used, and no literal `1.0` floor stands in for a bound. Each performance
+measurement is emitted as a receipt bound to the row's `PlanId`, experiment
+hash, and admitted manifest identity from the same journal row, never to a
+latest pointer.
+
+**What a bound can and cannot catch on retained evidence.** Lane admission
+refines each embedded `CompletedTraining` (`Budget.parseCompletedTraining`), and
+that refinement requires the observed budget units to equal the plan's target
+exactly. On an admitted row the observed-unit counts therefore equal the plan by
+construction, so the supervised `examples_seen` floor, the RL and HER
+`environment_transitions` ceiling, and the learning check's exact-unit
+comparison cannot fail on retained evidence; they guard the evidence boundary (a
+raw or forged view, or a journal version that stopped refining exact units), and
+each has a control that violates it. The optimizer-update counts differ in kind:
+the trainer records them, the issuing scenario's completion projection requires
+them to equal the plan (supervised, AlphaZero, and the tuning ceiling), and lane
+admission does not re-check them, so the update-count comparison and the
+AlphaZero and tuning bounds are the independent re-check of that quantity on
+retained evidence. None of these is a measured performance figure. No inference
+is executed and no served-artifact measurement is retained, so the receipt
+binding compares a receipt with the `PlanId`, experiment hash, and admitted
+manifest identity of the journal row it was built from (`assertReceiptBinding`,
+one identity at a time): it detects a receipt attached to another row, plan,
+experiment, or manifest, not a differently measured artifact.
+
+**What the lane journals cannot carry.** A lane journal retains the refined
+`CompletedTraining` of each row: observed units, optimizer-update count,
+initial and final weight hashes, dataset digest, the passed cohort measurements,
+and the invocation, digest, and device-witness bindings. It retains no
+per-iteration learning curve, no per-episode evaluation set, no checkpoint bytes,
+and no inference measurement of the served artifact. Consequently the stanza
+grades only what those records prove: it cannot compute steps-to-threshold,
+re-derive a median from episodes, recompute a served metric, or execute
+inference, and it runs no rerun. Same-seed determinism assertions remain where
+they were, in `jitml-sl-canonicals`, `jitml-rl-canonicals`, and
+`jitml-backends`. Capturing those quantities would need new journal fields,
+which re-issues every lane journal.
 
 ## Status
 

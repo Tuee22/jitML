@@ -9,10 +9,16 @@
 
 ## Phase State
 
-✅ **Done** (2026-09-24 UTC). The CPU-only join admits the three pinned lane
+✅ **Done** (2026-09-24 UTC) on its retained join surface. The CPU-only join admits the three pinned lane
 journals and projects the exact **55-row / 165-cell** aggregate. All listed
 validation gates passed on the live `linux-cpu` lane; neither accelerator was
-rerun.
+rerun. That closure evidence is historical for the three pins and the retained
+aggregate it names: Phase `278` tightened three convergence bars, re-issued the
+`linux-cuda` and `linux-cpu` journals under them, and leaves the
+`apple-silicon` journal and `attestations/product-aggregate.json` stale until a
+Mac re-issues the former and the aggregate is regenerated, so the nine
+aggregation cases of this phase stay red until then. The join mechanism itself
+is unchanged.
 
 ## Sprint 276.1: Journal-Derived Product Aggregation [✅ Done]
 

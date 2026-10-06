@@ -55,7 +55,7 @@ productLaneInputs =
   [ ProductLaneInput
       LinuxCPU
       "DEVELOPMENT_PLAN/attestations/linux-cpu-product-lane-journal.json"
-      "f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273"
+      "438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff"
   , ProductLaneInput
       LinuxCUDA
       "DEVELOPMENT_PLAN/attestations/linux-cuda-product-lane-journal.json"
