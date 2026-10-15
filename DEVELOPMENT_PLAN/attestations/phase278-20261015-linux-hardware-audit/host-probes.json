@@ -1,0 +1,100 @@
+{
+  "kind": "DiagnosticHostProbes",
+  "scope": "Phase 278 Linux hardware stopping condition; not a GateTranscript, lane test, kernel execution, or journal admission",
+  "records": [
+    {
+      "argv": [
+        "uname",
+        "-srm"
+      ],
+      "started_at": "2026-10-15T19:33:02.150256+00:00",
+      "finished_at": "2026-10-15T19:33:02.151397+00:00",
+      "exit_code": 0,
+      "stdout": "Linux 7.0.0-38-generic x86_64\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "docker",
+        "info",
+        "--format",
+        "{{.OperatingSystem}} {{.OSType}} {{.Architecture}} memory={{.MemTotal}} cpus={{.NCPU}}{{range $name, $runtime := .Runtimes}} runtime={{$name}}{{end}}"
+      ],
+      "started_at": "2026-10-15T19:33:02.151403+00:00",
+      "finished_at": "2026-10-15T19:33:02.197089+00:00",
+      "exit_code": 0,
+      "stdout": "Ubuntu 24.04.5 LTS linux x86_64 memory=67280592896 cpus=16 runtime=io.containerd.runc.v2 runtime=nvidia runtime=runc\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nvidia-smi",
+        "--query-gpu=name,driver_version,memory.total,compute_cap",
+        "--format=csv,noheader"
+      ],
+      "started_at": "2026-10-15T19:33:02.197103+00:00",
+      "finished_at": "2026-10-15T19:33:02.222157+00:00",
+      "exit_code": 0,
+      "stdout": "NVIDIA GeForce RTX 3090, 595.99.02, 24576 MiB, 8.6\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--gpus",
+        "all",
+        "nvidia/cuda:13.3.0-cudnn-devel-ubuntu24.04",
+        "nvidia-smi",
+        "--query-gpu=name,memory.total",
+        "--format=csv,noheader"
+      ],
+      "started_at": "2026-10-15T19:33:02.222168+00:00",
+      "finished_at": "2026-10-15T19:33:02.610748+00:00",
+      "exit_code": 0,
+      "stdout": "\n==========\n== CUDA ==\n==========\n\nCUDA Version 13.3.0\n\nContainer image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n\nThis container image and its contents are governed by the NVIDIA Deep Learning Container License.\nBy pulling and using the container, you accept the terms and conditions of this license:\nhttps://developer.nvidia.com/ngc/nvidia-deep-learning-container-license\n\nA copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.\n\nNVIDIA GeForce RTX 3090, 24576 MiB\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "./bootstrap/apple-silicon.sh",
+        "doctor"
+      ],
+      "started_at": "2026-10-15T19:33:02.610761+00:00",
+      "finished_at": "2026-10-15T19:33:02.619455+00:00",
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "{\"level\":\"error\",\"component\":\"bootstrap\",\"message\":\"apple-silicon bootstrap requires macOS; detected 'Linux'\"}\n"
+    },
+    {
+      "argv": [
+        "docker",
+        "image",
+        "inspect",
+        "jitml:local",
+        "--format",
+        "{{.Id}}"
+      ],
+      "started_at": "2026-10-15T19:33:02.619465+00:00",
+      "finished_at": "2026-10-15T19:33:02.633441+00:00",
+      "exit_code": 1,
+      "stdout": "\n",
+      "stderr": "Error response from daemon: No such image: jitml:local\n"
+    },
+    {
+      "argv": [
+        "docker",
+        "compose",
+        "ps",
+        "--all"
+      ],
+      "started_at": "2026-10-15T19:33:02.633454+00:00",
+      "finished_at": "2026-10-15T19:33:02.678092+00:00",
+      "exit_code": 0,
+      "stdout": "NAME      IMAGE     COMMAND   SERVICE   CREATED   STATUS    PORTS\n",
+      "stderr": ""
+    }
+  ]
+}

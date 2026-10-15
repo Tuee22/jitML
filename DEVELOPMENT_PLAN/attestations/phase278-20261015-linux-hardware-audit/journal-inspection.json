@@ -1,0 +1,40 @@
+{
+  "kind": "DiagnosticRetainedJournalComparison",
+  "scope": "Byte hashes, row inventory and cross-file contract comparison only; does not run the current Haskell contract projection or admission",
+  "observed_at": "2026-10-15T19:33:02.680772+00:00",
+  "lanes": {
+    "linux-cpu": {
+      "path": "DEVELOPMENT_PLAN/attestations/linux-cpu-product-lane-journal.json",
+      "sha256": "438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff",
+      "hash_literal_present_in_aggregation_source": true,
+      "rows": 55,
+      "substrate": "linux-cpu"
+    },
+    "linux-cuda": {
+      "path": "DEVELOPMENT_PLAN/attestations/linux-cuda-product-lane-journal.json",
+      "sha256": "5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48",
+      "hash_literal_present_in_aggregation_source": true,
+      "rows": 55,
+      "substrate": "linux-cuda"
+    },
+    "apple-silicon": {
+      "path": "DEVELOPMENT_PLAN/attestations/apple-silicon-product-lane-journal.json",
+      "sha256": "1496c8632bb62d616ea99990774b2c5c2e2d95e148834a3932b6aae5e31d7621",
+      "hash_literal_present_in_aggregation_source": true,
+      "rows": 55,
+      "substrate": "apple-silicon"
+    }
+  },
+  "contract_differences_from_retained_linux_cpu": {
+    "linux-cuda": [],
+    "apple-silicon": [
+      "PPO/key-door-grid",
+      "A2C/key-door-grid",
+      "TRPO/cartpole"
+    ]
+  },
+  "source_files": {
+    "src/JitML/Test/ProductAggregation.hs": "bc6808d8be9290445e91d7b00d4fd4530db0bbb72cd18b1474b8792aaf354cc9",
+    "src/JitML/Product/PhaseStatus.hs": "864248c1a4cd612c60e42c03b37face20732d052556868e051509cb191e91b37"
+  }
+}

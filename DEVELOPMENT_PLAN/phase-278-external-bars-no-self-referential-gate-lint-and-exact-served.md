@@ -15,15 +15,50 @@ CPU backend, docs, and code-quality gates pass. Real generic CLI and focused
 daemon execution plus Store re-admission validate compiled-plan binding. Open:
 independently reviewed supervised anchors, the `apple-silicon` journal re-issue,
 aggregate regeneration, a passing full unit gate, and final standing integration
-evidence on the reviewed contracts (see Remaining Work). The Mac review below
-reaches the requested hardware stopping condition: independently repairing the
-supervised bars requires fresh CUDA evidence, which this host cannot execute.
-No phase validation or closure is claimed by that review.
+evidence on the reviewed contracts (see Remaining Work). The current Linux
+hardware audit reaches the requested stopping condition: the required fresh
+Apple journal needs real Metal execution on a Mac. RTX 3090 container visibility
+does not supply that evidence. Neither hardware audit claims phase validation
+or closure.
 Phase `276` / Sprint `276.1` remains Done on its retained join mechanism.
+
+### Linux Hardware Boundary
+
+The 2026-10-15 Linux host cannot fully validate Phase `278` because it cannot
+execute the required `apple-silicon` journal refresh. Execution stops at this
+first open phase under the user's hardware stopping condition. Sprint `278.1`
+stays Active; the six dependent open sprints stay Blocked. No work on those
+later sprints begins in this session.
+
+- [Host probes](attestations/phase278-20261015-linux-hardware-audit/host-probes.json)
+  retain command arguments, UTC timestamps, both streams, and exit codes. The
+  host is x86_64 Linux; Docker exposes 16 CPUs and 62.7 GiB RAM. The RTX 3090
+  reports 24 GiB VRAM, compute capability 8.6, and driver `595.99.02`; a cached
+  CUDA container's GPU query succeeds. `./bootstrap/apple-silicon.sh doctor`
+  exits `2` at its macOS requirement. These are capability diagnostics, not
+  jitML backend tests or kernel execution evidence.
+- The [retained-journal comparison](attestations/phase278-20261015-linux-hardware-audit/journal-inspection.json)
+  reproduces all three SHA-256 pins and inventories 55 rows per file. The
+  retained CPU and CUDA contract maps agree; the Apple map differs on exactly
+  `PPO/key-door-grid`, `A2C/key-door-grid`, and `TRPO/cartpole`. This comparison
+  does not execute the current Haskell contract projection or journal admission.
+  The catalogue still explicitly requires an Apple journal and Apple execution
+  context, so the missing hardware is an existing obligation independent of
+  any further supervised-policy repair.
+- No source, threshold, contract, journal, aggregate, validation record, or
+  evidence guard changes. No project image or `.build` cache is present; no
+  cold build, cluster, daemon, or phase validation gate is started after the
+  hardware stopping condition is established. The earlier Linux results retain
+  their original scope and are not current-host validation.
+- Resume with independent policy and split-baseline review, reconcile per-lane
+  repair ownership under standards `M(b)`/`M(d)`, and freeze contracts before
+  spending full lane runs. A real Mac must supply the Apple diagnostics and
+  complete journal described in Remaining Work. The prior Mac review's missing
+  NVIDIA hardware does not describe this Linux host.
 
 ### Mac Hardware Boundary
 
-The 2026-10-15 Mac session reaches the user's stopping condition of the first
+The earlier 2026-10-15 Mac session reaches the user's stopping condition of the first
 phase that cannot be fully validated with the available hardware. Phase `278`
 stays Active, and the later open phases stay Blocked; their execution has not
 begun. The [independent review and handoff](attestations/phase278-20261015-mac-review/README.md)
@@ -457,8 +492,11 @@ below retain their original scope. Current source-bound results are recorded in
 
 ### Remaining Work
 
-- **Hardware handoff after contract review.** The [Mac review](attestations/phase278-20261015-mac-review/README.md)
-  establishes available Apple/CPU execution and unavailable NVIDIA execution.
+- **Hardware handoff after contract review.** The current
+  [Linux hardware audit](#linux-hardware-boundary) establishes NVIDIA container
+  visibility and unavailable Apple execution. The earlier
+  [Mac review](attestations/phase278-20261015-mac-review/README.md) establishes
+  that separate host's available Apple/CPU execution and unavailable NVIDIA execution.
   Repair the independently unproven supervised bars and split-baseline criteria
   before refreshing journals. Changed row contracts require new CPU, CUDA, and
   Apple journals; arrange a real CUDA host for that validation. The current

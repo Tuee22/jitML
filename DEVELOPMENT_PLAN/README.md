@@ -26,11 +26,14 @@ across 70 sprints. The open chain is
 `278 → 280 → 281 → 282 → 285 → 288 → 289`; later phases stay Blocked under
 standards rule `M(c)`.
 
-**Current hardware boundary.** The Mac audit confirms an M1 Max Metal GPU,
-64 GiB host RAM, and a working Apple stage-0 doctor. Docker reports ARM Linux; its CPU lane is not validated in this audit. Its
-GPU request fails with exit `125` because no NVIDIA driver/runtime is available. Apple execution is supported here. The existing CPU/CUDA journals
-remain admissible under their current contracts; the hardware gap arises when
-correcting the supervised bars, rather than from their present admission.
+**Current hardware boundary.** The Linux audit confirms x86_64 Linux, 16 CPUs,
+62.7 GiB Docker-visible RAM, and an RTX 3090 with 24 GiB VRAM visible inside a
+GPU container. Apple stage-0 doctor exits `2` because this host is not macOS.
+Phase `278` already requires a fresh real-Metal Apple journal under the current
+contracts. That obligation cannot be validated here, so execution stops at this
+phase under the user's hardware stopping condition; later phases do not begin.
+The earlier [Mac review](attestations/phase278-20261015-mac-review/README.md)
+records that separate host's capabilities.
 
 **Independent-anchor review.** The Tiny ImageNet bar is explicitly selected to
 clear an observed result in its source comment. It cannot close the independent
@@ -39,15 +42,17 @@ rows' floors. The review records a concrete additional anti-trivial policy and
 split-selection concerns; it does not substitute that policy for published-model
 convergence. Correcting an affected row's bar changes its contract digest and
 requires new complete journals on all three lanes, including a real NVIDIA host.
-This reaches the requested hardware stopping condition within Phase `278`.
+Per-lane repair ownership also remains to be reconciled with standards `M(b)`/`M(d)`.
 
 **Retained Linux validation (2026-10-14–15).** The prior Ubuntu VM run passes
 **1,503 / 1,512** unit cases; all nine failures reject the stale Apple journal.
 CPU backends pass **38 / 38**, and docs/code-quality pass. Generic RL CLI and
 focused daemon execution plus exact Store re-admission are completed scoped
 checks. They do not establish a full standing integration GateTranscript.
-No new phase validation passed in the Mac audit. Its cold native and container
-builds were stopped with exit `130` after the hardware boundary was established.
+Neither hardware audit runs a phase validation gate. The current Linux audit
+retains host probes and a diagnostic journal comparison: all three files match
+their pins, CPU/CUDA contracts agree, and Apple differs on exactly three RL rows.
+It does not run Haskell journal admission, a kernel test, or a standing gate.
 
 **Next steps, in order.** Resolve the independent supervised convergence policy
 and actual split baselines before changing bars or spending another full lane.
@@ -57,8 +62,10 @@ journals, regenerate the aggregate, pass all four Phase `278` Validation command
 and final full standing integration gate, and advance the remaining phases in
 numerical order. No status guard or evidence pin is waived.
 
-**Evidence.** The [Mac review and raw hardware probes](attestations/phase278-20261015-mac-review/README.md)
-record the findings and resumption commands. Prior Linux command streams,
+**Evidence.** The current [Linux host probes](attestations/phase278-20261015-linux-hardware-audit/host-probes.json)
+and [journal comparison](attestations/phase278-20261015-linux-hardware-audit/journal-inspection.json)
+record the stopping boundary. The [Mac review](attestations/phase278-20261015-mac-review/README.md)
+records policy findings and resumption commands. Prior Linux command streams,
 checkpoints, and inspectors remain under
 [attestations/phase278-20261014-linux-cpu/](attestations/phase278-20261014-linux-cpu/).
 Owned closing work remains in

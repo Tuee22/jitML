@@ -73,7 +73,7 @@ correction of the independently unproven supervised bars also requires fresh
 per-lane journals under the changed row contracts, including real NVIDIA
 execution. Neither the Mac refresh alone nor a Linux-only session closes those
 obligations; the current hardware boundary and review are owned by
-[Phase 278 → Mac Hardware Boundary](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#mac-hardware-boundary).
+[Phase 278 → Linux Hardware Boundary](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#linux-hardware-boundary).
 Apple closure evidence lives in
 [Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).
 

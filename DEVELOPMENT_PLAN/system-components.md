@@ -28,10 +28,11 @@ The Phase `19`–`34` product-sprint checkpoint is
 **63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from the typed registry.
 The exact open chain is
 `278 → 280 → 281 → 282 → 285 → 288 → 289`.
-The [Phase 278 hardware handoff](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#mac-hardware-boundary)
-distinguishes available Mac/CPU execution from the real NVIDIA execution
-required after supervised contract repair. Component availability does not waive
-the independent-anchor or final gate obligations.
+The [Phase 278 hardware handoff](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#linux-hardware-boundary)
+records the current Linux host's RTX 3090 container visibility and unavailable
+Apple execution. The fresh Apple journal already required by the current
+contracts cannot be issued here. Component visibility does not establish lane
+validation or waive the independent-anchor and final gate obligations.
 
 Validation evidence lives in
 [Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).

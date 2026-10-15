@@ -1,0 +1,23 @@
+{
+  "kind": "DiagnosticPlanScan",
+  "scope": "Documentation-only hardware handoff; not a standing phase validation",
+  "argv": [
+    "docker",
+    "run",
+    "--rm",
+    "--pull=never",
+    "--entrypoint",
+    "python3",
+    "-i",
+    "-v",
+    "/home/matt/jitML:/workspace:ro",
+    "tuee22/hostbootstrap:basecontainer-cpu-amd64",
+    "-"
+  ],
+  "stdin": "\nfrom pathlib import Path\nimport re,json,collections\nroot=Path('/workspace'); plan=root/'DEVELOPMENT_PLAN'\nbackward=[]; dual=[]; aggregating=[]; missing=[]; sprints=[]\naggregation_numbers={203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,274,275,276,285,286,287,288,289}\nfor p in sorted(plan.glob('phase-*.md')):\n number=int(p.name.split('-')[1]); text=p.read_text()\n for block in re.split(r'(?=^## Sprint )',text,flags=re.M)[1:]:\n  heading=block.splitlines()[0]\n  status=re.search(r'^\\*\\*Status\\*\\*: (.*)',block,re.M)\n  if number>=220 and status: sprints.append((number,status.group(1)))\n  for edge in re.findall(r'^\\*\\*Blocked by\\*\\*: ([^\\n]*(?:\\n(?!\\n|\\*\\*|#)[^\\n]*)*)',block,re.M):\n   refs=re.findall(r'\\b(\\d+)\\.\\d+\\b|Phase\\s+`?(\\d+)`?',edge)\n   for a,b in refs:\n    if int(a or b)>number: backward.append([p.name,a or b])\n  gates=re.findall(r'^### Validation\\s*\\n(.*?)(?=^#{1,3} |\\Z)',block,re.M|re.S)\n  if number>=220 and not gates: missing.append(p.name)\n  for gate in gates:\n   # Each fenced command group is an independent gate; historical prose is excluded.\n   commands=re.findall(r'```(?:bash|sh|shell)?\\n(.*?)```',gate,re.S)\n   if not commands: commands=[gate]\n   for command in commands:\n    cuda=bool(re.search(r'--linux-cuda|linux-cuda\\.sh|-fcuda',command))\n    apple=bool(re.search(r'--apple-silicon|apple-silicon\\.sh',command))\n    if cuda and apple: dual.append(p.name)\n    if number in aggregation_numbers and (cuda or apple): aggregating.append(p.name)\nreadme=(plan/'README.md').read_text()\nsection=readme.split('## Closure Status\\n',1)[1].split('\\n## ',1)[0]\nchanged=['DEVELOPMENT_PLAN/README.md','DEVELOPMENT_PLAN/00-overview.md','DEVELOPMENT_PLAN/system-components.md','DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md']\nbad_links=[]\nfor file in changed:\n p=root/file\n for link in re.findall(r'\\[[^\\]]*\\]\\(([^\\s)]+)\\)',p.read_text()):\n  path=link.split('#',1)[0]\n  if not path or '://' in path or path.startswith('mailto:'): continue\n  if not (p.parent/path).exists(): bad_links.append([file,link])\nreport=dict(scope='Diagnostic plan scans only; not jitml docs check, check-code or a GateTranscript',phase_files=len(list(plan.glob('phase-*.md'))),backward_edges=backward,dual_accelerator_gates=dual,aggregation_accelerator_reruns=aggregating,missing_registered_product_validation_sections=missing,aggregation_phase_numbers_checked=sorted(aggregation_numbers),closure_status_lines=len(section.splitlines()),closure_status_limit=60,product_sprint_document_status_counts=dict(collections.Counter(s for _,s in sprints)),changed_document_missing_link_targets=bad_links)\nprint(json.dumps(report,indent=2))\nraise SystemExit(bool(backward or dual or aggregating or missing or bad_links or len(section.splitlines())>60))\n",
+  "started_at": "2026-10-15T19:34:57.623075+00:00",
+  "finished_at": "2026-10-15T19:34:58.018081+00:00",
+  "exit_code": 0,
+  "stdout": "{\n  \"scope\": \"Diagnostic plan scans only; not jitml docs check, check-code or a GateTranscript\",\n  \"phase_files\": 290,\n  \"backward_edges\": [],\n  \"dual_accelerator_gates\": [],\n  \"aggregation_accelerator_reruns\": [],\n  \"missing_registered_product_validation_sections\": [],\n  \"aggregation_phase_numbers_checked\": [\n    203,\n    204,\n    205,\n    206,\n    207,\n    208,\n    209,\n    210,\n    211,\n    212,\n    213,\n    214,\n    215,\n    216,\n    217,\n    218,\n    219,\n    274,\n    275,\n    276,\n    285,\n    286,\n    287,\n    288,\n    289\n  ],\n  \"closure_status_lines\": 52,\n  \"closure_status_limit\": 60,\n  \"product_sprint_document_status_counts\": {\n    \"Done\": 63,\n    \"Active\": 1,\n    \"Blocked\": 6\n  },\n  \"changed_document_missing_link_targets\": []\n}\n",
+  "stderr": ""
+}
