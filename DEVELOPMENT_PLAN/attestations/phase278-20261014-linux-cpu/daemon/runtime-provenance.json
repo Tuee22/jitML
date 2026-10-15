@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-10-14T23:27:33.283145+00:00",
+  "cli_sha256": "3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5",
+  "production_source_sha256": "73fa2c7df49e76e706afd11d29c63bc646bf92e8da8ddbfe155e900012ad01dd",
+  "validation_source_sha256": "9c183b299d6038b13b0d7661b98a00cf3834cdad3b58b7ac14942f73a377eb6d",
+  "snapshot_sha256": "13eaccdc5951597c13b9bcecd95f29c7be61c47775b6ecb627bcbfec6fdee59f",
+  "snapshot_file_count": 925,
+  "compiled_cuda_flag": false,
+  "source_root": "/home/ubuntu/jitML",
+  "image_source_root": "/jitml",
+  "compiled_cli_origin": "jitml-phase278-validation-cabal-20261014",
+  "test_only_override": "Current frozen guest source, including qualified Bifunctor.first backend test correction",
+  "base_image_id": "sha256:73ca611984c1b1b664166b2959ea445d234ccd60bdb0c331d67bf3990d0fa8df",
+  "resealed_at": "2026-10-14T23:30:15.239959+00:00",
+  "docker_plugins_sha256": {
+    "docker-buildx": "5d20d03c2f9bfe7cbb249ee7ae75c4a77904a111e38ff1f7bccc317cb675c483",
+    "docker-compose": "40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a"
+  }
+}

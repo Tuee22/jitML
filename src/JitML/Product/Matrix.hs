@@ -113,9 +113,10 @@ import JitML.Product.Convergence
   ( ConvergenceBar
   , ConvergenceBarError
   , ValidatedConvergenceBar
+  , canonicalRegressionRmseBar
+  , canonicalTuningObjectiveBar
   , classificationAccuracyBar
   , mkConvergenceBar
-  , regressionRmseBar
   , validateConvergenceBar
   , validatedConvergenceBar
   )
@@ -750,7 +751,7 @@ supervisedRow problem =
       Just threshold ->
         classificationAccuracyBar "test_accuracy" threshold
       Nothing ->
-        regressionRmseBar "rmse" 0.90 0.10
+        canonicalRegressionRmseBar "rmse"
 
 -- | The fixed product budget is the one source of truth for the publisher.
 -- CIFAR ResNet-20/56 and ViT use forty epochs, Tiny ImageNet uses fifteen,
@@ -842,7 +843,7 @@ tuningRow =
     "JitML.Tune.Catalog"
     "experiments/mnist-tune.dhall"
     (staticBudget TuningTrialBudget 128 (Just 1729))
-    (mkConvergenceBar "best_objective" MetricMaximise 1.0 0.05)
+    (canonicalTuningObjectiveBar "best_objective")
     TuningPromotedTraining
     "hyperparameter-sweep"
 

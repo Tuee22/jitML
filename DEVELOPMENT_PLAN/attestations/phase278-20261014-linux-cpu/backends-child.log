@@ -1,0 +1,3 @@
+Test suite jitml-backends: RUNNING...
+Test suite jitml-backends: PASS
+Test suite logged to: /jitml/./dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-backends/test/jitml-0.1.0.0-jitml-backends.log

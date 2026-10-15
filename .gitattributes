@@ -1,0 +1,3 @@
+# Linux/macOS scripts and content-addressed evidence retain their checked-in bytes
+# when the repository is checked out on Windows.
+* text=auto eol=lf

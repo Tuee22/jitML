@@ -5,6 +5,8 @@ module JitML.Product.Convergence
   , ConvergenceBarError (..)
   , MeasuredMetrics (..)
   , ValidatedConvergenceBar
+  , canonicalRegressionRmseBar
+  , canonicalTuningObjectiveBar
   , classificationAccuracyBar
   , evaluateConvergence
   , mkConvergenceBar
@@ -137,6 +139,16 @@ classificationAccuracyBar metricName threshold =
 regressionRmseBar :: Text -> Double -> Double -> ConvergenceBar
 regressionRmseBar metricName =
   mkConvergenceBar metricName MetricMinimise
+
+-- | Current shared regression policy. Its target and slack remain project
+-- constants pending independent review; neither is taken from a measurement.
+canonicalRegressionRmseBar :: Text -> ConvergenceBar
+canonicalRegressionRmseBar metricName = regressionRmseBar metricName 0.90 0.10
+
+-- | Current shared tuning-objective policy, with the caller's metric name.
+-- These project constants do not establish a published convergence target.
+canonicalTuningObjectiveBar :: Text -> ConvergenceBar
+canonicalTuningObjectiveBar metricName = mkConvergenceBar metricName MetricMaximise 1.0 0.05
 
 evaluateConvergence :: ConvergenceBar -> MeasuredMetrics -> Either Text ConvergenceObservation
 evaluateConvergence bar (MeasuredMetrics metrics) =

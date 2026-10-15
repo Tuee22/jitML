@@ -43,6 +43,20 @@ exact stable-address read and commit/descriptor/payload-object binding. Pipeline
 opaque Store result and cannot promote a caller-built or merely decoded
 manifest.
 
+Generic RL completions use the nested `RawCompletedTraining` V3 DTO to carry
+their canonical compiled-plan transport. Refinement recompiles that transport
+and verifies its `PlanId` and physical transition count against the completion;
+structural admission grades exactly that plan's own cohort criteria, including
+both HER goal metrics. Missing identity and another cohort's easier bar reject.
+The bound cohort applies independently of the manifest's experiment name.
+Unbound canonical RL completions match the exact row projection's `PlanId` and
+budget for the completion's measured device substrate, even before a
+ProductScenario invocation is attached. RL policy manifests require an
+environment-transition completion budget.
+Completions without this generic RL binding keep their exact V2 tuple encoding,
+so existing ProductRow journal completion digests remain stable. The nested
+completion DTO version does not alter the checkpoint envelope or payload sum.
+
 **Real trained weights only.** Checkpoint payloads carry weights produced by the
 declared training workflow with correct per-tensor shapes; synthetic,
 zero-padded, byte-identical-across-models, randomly initialized, or untrained

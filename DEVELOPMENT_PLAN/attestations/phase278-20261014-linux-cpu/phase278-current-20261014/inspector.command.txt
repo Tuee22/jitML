@@ -1,0 +1,1 @@
+docker compose run --rm jitml bash .build/phase278-inspector/run-generic-rl-inspector.sh .build/phase278-generic-rl/checkpoints 7c057009b7a87e438b26d35d683f0029fcc358a81bdc7379866aa3c412e66aad 42 0bebdba14ee9b836f15083fedf73323c88fc732bd55e9dc964ccb774c2965b44 

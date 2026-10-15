@@ -1,0 +1,10 @@
+#!/bin/bash
+set -uo pipefail
+run_dir=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+date -u --iso-8601=seconds > "$run_dir/bootstrap.started-at.txt"
+printf '%s\n' '/home/ubuntu/jitml-validation/phase278-cpu-runtime/start-bootstrap.sh' > "$run_dir/bootstrap.command.txt"
+/home/ubuntu/jitml-validation/phase278-cpu-runtime/start-bootstrap.sh > "$run_dir/bootstrap.stdout.log" 2> "$run_dir/bootstrap.stderr.log" < /dev/null
+bootstrap_exit=$?
+printf '%s\n' "$bootstrap_exit" > "$run_dir/bootstrap.exit.txt"
+date -u --iso-8601=seconds > "$run_dir/bootstrap.finished-at.txt"
+exit "$bootstrap_exit"

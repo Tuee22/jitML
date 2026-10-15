@@ -254,7 +254,10 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
             metrics
             (TrainerExecution.trainedArtifactEvidence artifact) of
             Left err -> exitWithError (InvalidConfig err)
-            Right value -> pure value
+            Right value ->
+              case traverse (TrainingBudget.bindCompletedTrainingToRlPlan plan) value of
+                Left err -> exitWithError (InvalidConfig err)
+                Right bound -> pure bound
         pure
           ( metrics
           , observedTransitions

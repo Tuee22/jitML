@@ -1,0 +1,146 @@
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings #-}
+module Main (main) where
+import Codec.Serialise (Serialise, deserialiseOrFail)
+import Control.Monad (forM, unless)
+import Data.Aeson (encode, object, (.=))
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
+import Data.List (sort)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import System.Directory (createDirectoryIfMissing, listDirectory)
+import System.Environment (getArgs)
+import System.FilePath ((</>), takeBaseName)
+import Text.Read (readMaybe)
+import JitML.Checkpoint.Format qualified as Format
+import JitML.Checkpoint.Store qualified as Store
+import JitML.Plan.Plan (planIdText)
+import JitML.Product.DeviceWitness qualified as Witness
+import JitML.Product.ExternalBars qualified as Bars
+import JitML.Product.ValidationRecord (sha256Hex)
+import JitML.Proto.Rl qualified as Proto
+import JitML.RL.ProductBudget qualified as Plan
+import JitML.Service.Workload qualified as Workload
+import JitML.Substrate (Substrate(..))
+import JitML.Training.Budget qualified as Budget
+
+require :: Bool -> String -> IO ()
+require condition message = unless condition (fail message)
+main :: IO ()
+main = do
+  args <- getArgs
+  case args of
+    [root, experimentString, output] -> inspect root (T.pack experimentString) output 2048 200
+    [root, experimentString, output, maxSteps, evalEpisodes] -> do
+      expectedMaxSteps <- parseField "expected maximum episode steps" (T.pack maxSteps)
+      expectedEvalEpisodes <- parseField "expected evaluation episodes" (T.pack evalEpisodes)
+      require (expectedMaxSteps > 0 && expectedEvalEpisodes > 0) "expected request counts must be positive"
+      inspect root (T.pack experimentString) output expectedMaxSteps expectedEvalEpisodes
+    _ -> fail "usage: inspector CHECKPOINT_ROOT EXACT_EXPERIMENT OUTPUT_DIR [EXPECTED_MAX_EPISODE_STEPS EXPECTED_EVAL_EPISODES]"
+
+inspect :: FilePath -> Text -> FilePath -> Int -> Int -> IO ()
+inspect root experiment output expectedMaxSteps expectedEvalEpisodes = do
+  -- Physical Store admission is valid for generic experiments. The canonical
+  -- ProductRow-only AdmittedCompletedCheckpoint refinement is intentionally not
+  -- used: this proof is physical admission plus structural generic completion.
+  latest <- Store.admitLocalLatestCheckpoint root experiment >>= either (fail . show) pure
+  admitted <- Store.admitLocalCheckpointAt root experiment (Store.admittedCheckpointManifestSha latest) >>= either (fail . show) pure
+  require (Store.admittedCheckpointManifestSha admitted == Store.admittedCheckpointManifestSha latest) "exact-address re-admission changed the manifest identity"
+  let manifest = Store.admittedCheckpointManifest admitted
+      manifestSha = Store.admittedCheckpointManifestSha admitted
+  validation <- either (fail . show) pure (Format.validateCheckpointCompletion manifest)
+  let completed = Format.validatedCheckpointCompletedTraining validation
+  device <- either (fail . T.unpack) (maybe (fail "completion lacks a measured device witness") pure) (Budget.completedTrainingDeviceWitness completed)
+  bound <- maybe (fail "completion lacks its actual compiled RL plan") pure (Budget.completedTrainingRlPlan completed)
+  expected <- either (fail . T.unpack) pure (Workload.rlPlanForStart Proto.StartRLRun
+    { Proto.srlExperimentHash = experiment
+    , Proto.srlAlgorithm = "PPO"
+    , Proto.srlEnvironment = "cartpole"
+    , Proto.srlSubstrate = LinuxCPU
+    , Proto.srlSeed = 42
+    , Proto.srlMaxSteps = fromIntegral expectedMaxSteps
+    , Proto.srlEvalEpisodes = fromIntegral expectedEvalEpisodes
+    })
+  require (bound == expected) "persisted compiled plan differs from the fresh daemon request"
+  let expectedPlanId = Plan.compiledRlPlanId expected
+      budget = Budget.completedTrainingBudget completed
+  schedule <- maybe (fail "compiled daemon plan has no training schedule") pure (Plan.compiledRlSchedule expected)
+  let expectedSteps = Plan.scheduleObservedEnvironmentSteps schedule
+  require (planIdText (Budget.completedTrainingPlanId completed) == expectedPlanId) "completion PlanId differs"
+  require (Budget.trainingBudgetTargetUnits budget == expectedSteps && Budget.completedTrainingObservedUnits completed == expectedSteps) "declared or observed transition count differs from the compiled plan"
+  require (Budget.completedTrainingUpdateCount completed > 0) "no observed optimizer updates"
+  require (Budget.completedTrainingInitialWeightHash completed /= Budget.completedTrainingFinalWeightHash completed) "weights did not move"
+  require (Format.manifestExperiment manifest == experiment) "wrong stored experiment"
+  require (Witness.witnessSubstrate device == LinuxCPU) "wrong measured device substrate"
+  require (null (Bars.assertRlConvergenceObservationsExternal bound (Budget.completedTrainingMetrics completed))) "stored metrics reject against their own compiled cohort"
+  manifestPath <- either (fail . T.unpack) pure (Store.objectPathForKey root (Format.manifestKey experiment manifestSha))
+  manifestBytes <- BS.readFile manifestPath
+  addressed <- either (fail . show) pure (Format.decodeAddressedManifestCbor (LBS.fromStrict manifestBytes))
+  require (Format.addressedManifestSha addressed == manifestSha) "retained envelope address differs from Store admission"
+  require (Format.addressedManifest addressed == manifest) "retained envelope manifest differs from Store admission"
+  envelope <- (decodeCbor (LBS.fromStrict manifestBytes) :: IO Format.RawCheckpointEnvelope)
+  body <- (decodeCbor (LBS.fromStrict (Format.rawCheckpointBodyBytes envelope)) :: IO Format.RawCheckpointBody)
+  rawManifest <- case body of
+    Format.RawWeightOnlyBody rawManifest -> pure rawManifest
+    Format.RawSupervisedGraphBody _ -> fail "generic PPO checkpoint has a supervised graph payload"
+  raw <- maybe (fail "persisted envelope lacks nested completion") pure (Format.rawManifestCompletedTraining rawManifest)
+  require (Budget.rawCompletedTrainingVersion raw == 3) "producer did not persist the nested V3 DTO"
+  require (Budget.rawCompletedTrainingRlPlan raw == Just (Plan.renderCompiledRlPlanTransport bound)) "persisted nested plan differs from the admitted plan"
+  let trajectoryDirectory = root </> "jitml-checkpoints" </> T.unpack experiment </> "artifacts" </> "rl-trajectory"
+  trajectories <- listDirectory trajectoryDirectory
+  trajectoryName <- case trajectories of
+    [name] -> pure name
+    _ -> fail "fresh exact experiment does not have exactly one trajectory artifact"
+  trajectoryBytes <- BS.readFile (trajectoryDirectory </> trajectoryName)
+  require (T.pack (takeBaseName trajectoryName) == sha256Hex trajectoryBytes) "trajectory bytes differ from their content address"
+  trajectoryText <- TIO.readFile (trajectoryDirectory </> trajectoryName)
+  let rows = T.lines trajectoryText
+  keys <- traverse (parseField "episode key") [value | row <- rows, Just value <- [T.stripPrefix "episode: " row]] :: IO [Int]
+  rewards <- traverse (parseField "episode reward") [value | row <- rows, Just value <- [T.stripPrefix "episode-reward: " row]] :: IO [Double]
+  require (keys == [0..expectedEvalEpisodes-1] && length rewards == expectedEvalEpisodes) "trajectory does not retain the exact requested evaluation cohort"
+  require (all (\value -> not (isNaN value || isInfinite value)) rewards) "trajectory rewards are not finite"
+  let ordered = sort rewards
+      middle = expectedEvalEpisodes `div` 2
+      independentlyDerivedMedian = if odd expectedEvalEpisodes then ordered !! middle else ordered !! (middle - 1) / 2 + ordered !! middle / 2
+      storedMedians = [Budget.coMetricValue metric | metric <- Budget.completedTrainingMetrics completed, Budget.coMetricName metric == "median_final_reward"]
+  require (storedMedians == [independentlyDerivedMedian]) "stored median differs from the actual retained evaluation cohort"
+  createDirectoryIfMissing True output
+  BS.writeFile (output </> "manifest.cbor") manifestBytes
+  BS.writeFile (output </> "completion.cbor") (Budget.encodeCompletedTraining completed)
+  BS.writeFile (output </> "trajectory.txt") trajectoryBytes
+  physicalWeights <- forM (zip [0 :: Int ..] (Store.admittedCheckpointWeights admitted)) $ \(ordinal, weight) -> do
+    let name = "weight-" <> show ordinal <> ".jmw1"
+        bytes = Store.loadedWeightJmw1Bytes weight
+    BS.writeFile (output </> name) bytes
+    pure (object ["file" .= name, "sha256" .= sha256Hex bytes])
+  let result = object
+        [ "experiment" .= experiment
+        , "manifest_sha256" .= manifestSha
+        , "manifest_body_sha256" .= Store.admittedCheckpointManifestBodySha admitted
+        , "nested_completion_version" .= Budget.rawCompletedTrainingVersion raw
+        , "compiled_plan_id" .= expectedPlanId
+        , "compiled_plan_transport" .= Plan.renderCompiledRlPlanTransport bound
+        , "observed_environment_transitions" .= Budget.completedTrainingObservedUnits completed
+        , "planned_environment_transitions" .= expectedSteps
+        , "optimizer_updates" .= Budget.completedTrainingUpdateCount completed
+        , "initial_weights_sha256" .= Budget.completedTrainingInitialWeightHash completed
+        , "final_weights_sha256" .= Budget.completedTrainingFinalWeightHash completed
+        , "measured_device" .= Witness.renderDeviceExecutionWitness device
+        , "evaluation_episode_keys" .= keys
+        , "evaluation_rewards" .= rewards
+        , "independently_recomputed_median" .= independentlyDerivedMedian
+        , "trajectory_sha256" .= sha256Hex trajectoryBytes
+        , "physical_weights" .= physicalWeights
+        , "scope" .= ("physical Store admission plus structural generic completion and exact evaluation cohort; not a standing integration record" :: Text)
+        ]
+  LBS.writeFile (output </> "inspection.json") (encode result <> "\n")
+  LBS.putStr (encode result <> "\n")
+
+parseField :: Read value => String -> Text -> IO value
+parseField label = maybe (fail ("invalid " <> label)) pure . readMaybe . T.unpack
+
+decodeCbor :: Serialise value => LBS.ByteString -> IO value
+decodeCbor = either (fail . show) pure . deserialiseOrFail
+

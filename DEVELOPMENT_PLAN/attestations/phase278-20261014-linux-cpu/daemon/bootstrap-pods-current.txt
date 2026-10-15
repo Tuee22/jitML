@@ -1,0 +1,4 @@
+NAME                        READY   STATUS      RESTARTS   AGE   IP           NODE                     NOMINATED NODE   READINESS GATES
+minio-657b4c5494-r5mfr      1/1     Running     0          29s   10.244.1.2   jitml-linux-cpu-worker   <none>           <none>
+minio-provisioning-trhnq    0/1     Completed   0          17s   10.244.1.3   jitml-linux-cpu-worker   <none>           <none>
+registry-7db7dbb85c-8qx4p   0/1     Running     0          5s    10.244.1.4   jitml-linux-cpu-worker   <none>           <none>

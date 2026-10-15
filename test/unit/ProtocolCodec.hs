@@ -891,6 +891,7 @@ rawCompletion budgetKind unitLabel target metric threshold measurement =
           , TrainingBudget.tbrScalarTags = [metric]
           }
     , TrainingBudget.rawCompletedTrainingProductScenarioInvocation = Nothing
+    , TrainingBudget.rawCompletedTrainingRlPlan = Nothing
     }
 
 trainingEvidence :: ProductEvidence.TrainingEvidence

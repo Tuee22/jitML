@@ -1,0 +1,14 @@
+Loaded package environment from /jitml/dist-newstyle/tmp/environment.-8/.ghc.environment.x86_64-linux-9.12.4
+[1 of 2] Compiling Main             ( .build/phase278-inspector/InspectGenericRL.hs, .build/phase278-inspector/obj/Main.o )
+[2 of 2] Linking .build/phase278-inspector/inspect-generic-rl
+result: passed
+scope: Store physical admission plus generic structural completion
+manifest-sha: 0bebdba14ee9b836f15083fedf73323c88fc732bd55e9dc964ccb774c2965b44
+nested-completion-version: 3
+cohort: PPO/cartpole
+seed: 42
+environment-transitions: 1228800
+optimizer-updates: 192000
+median-final-reward: 500.0
+plan-id: 0c94b0598515ee50d77ceddb926072261fd913d93047b14a4320b322827ded9c
+compiled-plan: plan-id=0c94b0598515ee50d77ceddb926072261fd913d93047b14a4320b322827ded9c|transport-version=1|kind=rl-compiled-plan|trainer-kind=70706f|environment=63617274706f6c65|seed=42|max-episode-steps=200|training-episode-floor=20|vector-environments=none|requested-transition-floor=none|exact-transition-target=none|evaluation-episodes=4

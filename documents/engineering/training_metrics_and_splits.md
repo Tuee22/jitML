@@ -29,6 +29,16 @@ boundary rather than letting the target read as implemented.
   canonical threshold tables (a selector applied as the whole argument); see
   [Product Completion Contract](product_completion_contract.md#realness-completion-bar-2026-07-05)
   for its coverage and limits.
+- **Generic RL convergence is bound to the executed cohort.** The completion
+  carries the canonical compiled RL plan whose `PlanId` and exact physical
+  transition count match the completion. Admission looks up that plan's own
+  algorithm/environment threshold, requires exactly one observation of each
+  criterion, and rejects borrowed thresholds, unrelated metrics, and missing or
+  duplicate observations. HER requires both of its goal criteria. A reward
+  observation without a bound compiled plan cannot pass generic completion
+  admission. Unbound canonical RL completions additionally match the row's
+  projected `PlanId` and exact budget on the measured device substrate;
+  a canonical experiment name alone supplies no cohort identity.
 - **Provenance of a literal is not something a predicate can establish.** A
   positive slack does not prove the target came from an external source, and a
   literal constant is accepted whatever its origin: the lint shows that a bar is
@@ -72,6 +82,11 @@ a singleton seed cohort; see
   ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   owns the anchoring invariant; the target and slack tables live in
   `JitML.SL.ConvergenceThresholds` and `JitML.RL.ConvergenceThresholds`.
+  Regression and tuning share their current policy constructors in
+  `JitML.Product.Convergence` between ProductRows and generic metric admission;
+  those constants remain project policy pending independent review. Generic
+  HER success and AlphaZero arena metrics read the canonical RL anchors, with
+  the exact ProductRow bar parity checked by the unit provenance controls.
 - **Fixed terminating budgets.** A model is not trained "until converged."
   Each canonical model has a pure, reproducible, finite, unit-indexed training
   plan declared before execution. Training must perform exactly that budget

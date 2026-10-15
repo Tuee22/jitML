@@ -395,7 +395,7 @@ productStatusCatalogue =
       "DEVELOPMENT_PLAN/phase-277-negative-control-suite.md"
       "Closure Evidence"
   , -- Validation: jitml-unit on linux-cpu (docs check and check-code are computed). The lane
-    -- journals, the aggregate, and the Apple execution context are what keeps it open.
+    -- journals, aggregate, and independently reviewed supervised anchors remain owned gaps.
     evidencedPhase
       278
       "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
@@ -407,7 +407,10 @@ productStatusCatalogue =
              , LaneJournal AppleSilicon
              , Aggregate
              , GateTranscript JitmlUnit LinuxCPU
+             , GateTranscript JitmlBackends LinuxCPU
              , ExternalContext "Apple Silicon execution context"
+             , ExternalContext "Independent supervised convergence-anchor review"
+             , ExternalContext "Live generic RL CLI and daemon validation"
              ]
       )
   , legacyPhase

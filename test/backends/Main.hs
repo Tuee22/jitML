@@ -4,10 +4,12 @@ module Main where
 
 import Data.Foldable (for_)
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Control.Exception qualified
+import Data.Bifunctor qualified as Bifunctor
 import Data.Bits qualified as Bits
 import Data.ByteString qualified as ByteString
 import Data.Either (isRight, lefts)
@@ -53,7 +55,7 @@ import JitML.Engines.MetalLocal qualified as Metal
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
-import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Env.Build (GlobalFlags (globalCacheDir), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env, envCacheDir)
 import JitML.Numerics.FamilyReference (familyReference, unweightedFamilyReference)
 import JitML.Numerics.LayerGraph qualified as LayerGraph
@@ -89,6 +91,7 @@ import JitML.Numerics.MlpOneDnn
   , mlpForwardOneDnn
   , mlpInputGradientBatchOneDnn
   )
+import JitML.Numerics.MlpOneDnn qualified as MlpOneDnn
 import JitML.RL.Algorithms.ContinuousTrainer
   ( ContinuousIterationStat (..)
   , ContinuousTrainConfig (..)
@@ -140,9 +143,10 @@ import JitML.RL.AlphaZero (initialConnect4)
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.Substrate qualified as Substrate
 import Path (toFilePath)
-import System.Directory (listDirectory)
+import System.Directory (doesFileExist, getModificationTime, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 
 expectRight :: String -> Either Text.Text a -> IO a
 expectRight label result =
@@ -643,6 +647,57 @@ main =
                 [1.0]
                 [1.0]
             weighted @?= Left "apple-silicon Metal device not visible: device_visible=no"
+      , testCase
+          "linux-cpu MLP cold-cache compile/load/run honors a custom cache directory"
+          $ withSystemTempDirectory "jitml-mlp-custom-cache"
+          $ \temporaryRoot -> do
+            env <- buildEnv defaultGlobalFlags {globalCacheDir = Just (temporaryRoot </> "custom cache")}
+            let source = MlpOneDnn.mlpOneDnnRuntimeSource
+                hash = MlpOneDnn.mlpOneDnnHash
+                hashName = Text.unpack (Cache.hashHex hash)
+                cacheRoot = toFilePath (envCacheDir env)
+                expectedArtifact = cacheRoot </> "jit" </> "linux-cpu" </> hashName <> ".so"
+                expectedSources = cacheRoot </> "jit-src" </> "linux-cpu" </> hashName
+                ensureArtifact = do
+                  result <- Loader.ensureKernelArtifact env (Engine.engineForSubstrate Substrate.LinuxCPU) source hash
+                  expectRight
+                    "custom-cache MLP artifact"
+                    (Bifunctor.first Loader.renderKernelArtifactError result)
+                shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                reference = mlpForward params input
+            existsBefore <- doesFileExist expectedArtifact
+            assertBool "the custom cache starts without an MLP artifact" (not existsBefore)
+            cold <- ensureArtifact
+            assertBool "the cold custom cache compiles the MLP artifact" (Loader.kernelArtifactCompiled cold)
+            let handle = Loader.kernelArtifactHandle cold
+            Engine.kernelHandleArtifactPath handle @?= Text.pack expectedArtifact
+            case Loader.kernelArtifactStatus cold of
+              Engine.JitCacheMiss _ _ -> pure ()
+              status -> assertFailure ("expected a custom-cache miss, got " <> show status)
+            artifactBytes <- ByteString.readFile expectedArtifact
+            assertBool
+              "the custom cache contains a compiled shared library"
+              (not (ByteString.null artifactBytes))
+            artifactModified <- getModificationTime expectedArtifact
+            for_ (RuntimeSource.runtimeSourceFiles source) $ \sourceFile -> do
+              contents <- Text.IO.readFile (expectedSources </> sourceRelativePath sourceFile)
+              contents @?= sourceContents sourceFile
+            first <- expectRight "custom-cache MLP forward" =<< mlpForwardOneDnn env params input
+            assertBool
+              "the custom-cache device output matches the pure MLP reference"
+              (approxEqualVec 1.0e-3 (forwardOutput first) (forwardOutput reference))
+            second <- expectRight "custom-cache repeated MLP forward" =<< mlpForwardOneDnn env params input
+            second @?= first
+            warm <- ensureArtifact
+            assertBool
+              "the repeated operation reuses the custom-cache artifact"
+              (not (Loader.kernelArtifactCompiled warm))
+            Loader.kernelArtifactHandle warm @?= handle
+            Loader.kernelArtifactStatus warm @?= Engine.JitCacheHit handle
+            ByteString.readFile expectedArtifact >>= (@?= artifactBytes)
+            getModificationTime expectedArtifact >>= (@?= artifactModified)
       , testCase
           "linux-cpu MLP forward kernel matches the pure-Haskell network (Phase 2 rebalance)"
           $ do

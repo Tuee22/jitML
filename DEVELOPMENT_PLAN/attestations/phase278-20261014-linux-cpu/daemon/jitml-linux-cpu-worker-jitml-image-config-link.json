@@ -1,0 +1,10 @@
+{
+  "architecture": "amd64",
+  "cli_sha256_label": "3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5",
+  "config_digest": "sha256:038da0f26ff9b8657d248e7b9fb2c56769d9dba9cc018d884dd76d0496b37c8b",
+  "crictl_image_id": "sha256:038da0f26ff9b8657d248e7b9fb2c56769d9dba9cc018d884dd76d0496b37c8b",
+  "docker_index_digest": "sha256:f709538736db832ed6e1cdec444399543f198708a570f3a61c6bcf4f97eb5b71",
+  "node": "jitml-linux-cpu-worker",
+  "os": "linux",
+  "platform_manifest_digest": "sha256:a9241a8132a95b143d0c2a35c90685eeb894c73895c4c29de46faf0ab96125ec"
+}

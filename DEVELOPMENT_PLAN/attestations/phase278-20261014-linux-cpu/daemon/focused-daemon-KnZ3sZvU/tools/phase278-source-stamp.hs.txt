@@ -1,0 +1,11 @@
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings #-}
+import Data.Aeson (encode, object, (.=))
+import Data.ByteString.Lazy qualified as LBS
+import Data.Text qualified as T
+import JitML.Product.SourceDigest qualified as Source
+main :: IO ()
+main = do
+  stamp <- Source.computeSourceStamp >>= either (fail . T.unpack) pure
+  LBS.putStr (encode (object ["algorithm" .= Source.stampAlgorithm stamp, "sha256" .= Source.stampSha256 stamp]) <> "\n")
+

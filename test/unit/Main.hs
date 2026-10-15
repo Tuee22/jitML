@@ -7461,10 +7461,23 @@ unitTestMain =
             Just row -> do
               fixtureWitness <-
                 expectRightText =<< DeviceWitnessFixture.fixtureDeviceExecutionWitness
-              let experimentHash = ProductMatrix.productRowExperimentHash row
-                  budget = ProductMatrix.trainingBudget row
+              projection <-
+                case ProductMatrix.projectProductRow
+                  (DeviceWitness.witnessSubstrate fixtureWitness)
+                  row of
+                  RunPlan.Success
+                    ( ProductMatrix.SomeProductProjection
+                        RunPlan.ReinforcementLearningWitness
+                        exactProjection
+                      ) -> pure exactProjection
+                  RunPlan.Success _ ->
+                    assertFailure "GC root fixture did not project as reinforcement learning" >> fail "unreachable"
+                  RunPlan.Failure errors ->
+                    assertFailure ("GC root fixture projection failed: " <> show errors) >> fail "unreachable"
+              let experimentHash = ProductMatrix.productProjectionExperimentHash projection
+                  budget = ProductMatrix.productProjectionTrainingBudget projection
                   observedUnits = TrainingBudget.trainingBudgetTargetUnits budget
-                  convergenceBar = ProductMatrix.convergenceBar row
+                  convergenceBar = ProductMatrix.productProjectionConvergenceBar projection
                   metrics =
                     [
                       ( ProductConvergence.convergenceMetricName convergenceBar
@@ -7476,7 +7489,7 @@ unitTestMain =
                       (error . Text.unpack)
                       id
                       ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
-                          unitFixturePlanId
+                          (ProductMatrix.productProjectionPlanId projection)
                           budget
                           row
                           "unit-product-dataset"
@@ -7502,6 +7515,7 @@ unitTestMain =
                       (CheckpointStore.LastN 0)
                       [manifest]
                       []
+              _ <- journalExpectRight (Checkpoint.validateCheckpointCompletion manifest)
               CheckpointStore.gcKeptManifestShas plan
                 @?= [Checkpoint.manifestContentSha manifest]
               CheckpointStore.gcReapEvents plan @?= []
@@ -12047,19 +12061,19 @@ unitTestMain =
               assertBool
                 "a hidden target helper must not enter the canonical table"
                 (any ((== "product-truth.nonliteral-bar") . findingKey) findings)
-          , testCase "RL reward observation without a cohort is held to a frozen cohort anchor" $ do
+          , testCase "RL reward observation without a compiled cohort rejects every threshold" $ do
               observation <-
                 eitherAssert
                   (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 451 500)
               assertBool
-                "a generic reward threshold must be a frozen external cohort anchor"
+                "a generic reward requires its own compiled cohort"
                 (not (null (ProductExternalBars.assertConvergenceObservationsExternal [observation])))
               anchored <-
                 eitherAssert
                   (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMaximise 435 500)
               assertBool
-                "a generic reward observation at a frozen cohort anchor is accepted without borrowing a bar"
-                (null (ProductExternalBars.assertConvergenceObservationsExternal [anchored]))
+                "a frozen anchor does not establish a generic reward's cohort"
+                (not (null (ProductExternalBars.assertConvergenceObservationsExternal [anchored])))
               minimising <-
                 eitherAssert
                   (TrainingBudget.measureCriterion "median_final_reward" TrainingBudget.MetricMinimise 435 100)

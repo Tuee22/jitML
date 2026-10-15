@@ -1,0 +1,1 @@
+{"desired_input_fingerprint":"347c10485379f0c4d5baa4624734a92a244815fc2996cbdd638400974b8f8269","edge_port":9091,"repo_app_image_ids":{"jitml-demo:local":"sha256:f709538736db832ed6e1cdec444399543f198708a570f3a61c6bcf4f97eb5b71","jitml:local":"sha256:f709538736db832ed6e1cdec444399543f198708a570f3a61c6bcf4f97eb5b71"},"substrate":"linux-cpu","version":1}

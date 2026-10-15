@@ -1,0 +1,13 @@
++ run=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
++ helper=/home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh
++ pod=jitml-rl-livecv1792022249-kbwn6
++ expected=3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig get pod jitml-rl-livecv1792022249-kbwn6 -n platform -o json
++ python3 -c 'import sys,json; j=json.load(sys.stdin); print(json.dumps({"pod":j["metadata"]["name"],"pod_uid":j["metadata"]["uid"],"job_owner":[o for o in j["metadata"].get("ownerReferences",[]) if o.get("kind")=="Job"],"node":j["spec"].get("nodeName"),"phase":j["status"].get("phase"),"containers":[{k:v for k,v in c.items() if k in ["name","image","imageID","containerID","ready","restartCount","state"]} for c in j["status"].get("containerStatuses",[]) if c["name"]=="rl"]},sort_keys=True,indent=2))'
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform jitml-rl-livecv1792022249-kbwn6 -c rl -- sha256sum /proc/1/exe
+++ cut -d ' ' -f 1 /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/running-rl-worker-binary-sha256.txt
++ actual=3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5
++ test 3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5 = 3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5
++ cat /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/running-rl-worker-metadata.json
++ cat /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/running-rl-worker-binary-sha256.txt
++ printf 'expected_cli_sha256=%s\n' 3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5

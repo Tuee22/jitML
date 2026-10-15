@@ -18,6 +18,7 @@ module JitML.Engines.Engine
   , KernelOutputs (..)
   , compileLineDeterminism
   , compileSubprocess
+  , compileSubprocessAtSourceDirectory
   , deterministicFlags
   , engineCompileFlagSpecs
   , engineCompileFlags
@@ -469,10 +470,22 @@ engineSourceFileName engine =
 -- cache-key input: the scratch path is measured not to be embedded in the
 -- artifact, and the staging path is measured not to change the emitted bytes.
 compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> FilePath -> FilePath -> Subprocess
-compileSubprocess engine source hash scratchDir stagingPath =
+compileSubprocess engine source hash =
+  compileSubprocessAtSourceDirectory
+    engine
+    source
+    (runtimeSourceRelativeDirectory source hash)
+
+-- | Execute the same compile-argument fold against the directory the source
+-- materializer actually returned. Rendered plans use 'compileSubprocess';
+-- runtime fills supply their resolved cache directory instead of assuming
+-- the default @.build@ root.
+compileSubprocessAtSourceDirectory
+  :: Engine -> RuntimeSource -> FilePath -> FilePath -> FilePath -> Subprocess
+compileSubprocessAtSourceDirectory engine source sourceDirectory scratchDir stagingPath =
   subprocess (Text.unpack (engineCompiler engine)) arguments
  where
-  sourceDir = Text.pack (runtimeSourceRelativeDirectory source hash)
+  sourceDir = Text.pack sourceDirectory
   sourcePath = sourceDir <> "/" <> engineSourceFileName engine
   staging = Text.pack stagingPath
   arguments =

@@ -81,8 +81,8 @@ PureScript frontend. The project-specific rules below extend the lint stack.
 Owned by `src/JitML/Lint/Stack.hs` (Sprint `7.7`). The file lint rejects
 checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, Metal `.metal`, Swift `.swift`,
 and `build.sh` files. Native/JIT source belongs in Haskell `RuntimeSource`
-renderers and is materialized only under
-`./.build/jit-src/<substrate>/<hash>/` on cache miss. There is no checked-in
+renderers and is materialized only under the configured cache root
+(`./.build/jit-src/<substrate>/<hash>/` by default) on cache miss. There is no checked-in
 foreign-language source allowlist; runtime adapter shims must also be generated
 by Haskell into the build/cache tree or supplied outside the repository.
 

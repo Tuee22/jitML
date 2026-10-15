@@ -1,0 +1,8 @@
+set -euo pipefail
+run=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+helper=/home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh
+for pod in jitml-service-58bd5587c7-2fd57 jitml-coordinator-5bb97b8c6-tvvm9 jitml-demo-7f564dc46-hcn6f; do
+  "$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig get pod "$pod" -n platform -o json | python3 -c 'import sys,json; j=json.load(sys.stdin); print(json.dumps({"pod":j["metadata"]["name"],"uid":j["metadata"]["uid"],"node":j["spec"]["nodeName"],"images":[{"name":c["name"],"image":c["image"]} for c in j["spec"]["containers"]],"container_statuses":[{k:v for k,v in c.items() if k in ["name","image","imageID","containerID","ready","restartCount"]} for c in j["status"].get("containerStatuses",[])]},sort_keys=True,indent=2))' > "$run/$pod-provenance.json"
+  "$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform "$pod" -- sha256sum /usr/local/bin/jitml /proc/1/exe > "$run/$pod-binary-sha256.txt"
+  cat "$run/$pod-binary-sha256.txt"
+done

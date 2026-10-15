@@ -1,0 +1,42 @@
+ Container jitml-jitml-run-7864a8907edb Creating 
+ Container jitml-jitml-run-7864a8907edb Created 
+subprocess failed:
+command: /root/.ghcup/cabal/3.16.1.0/cabal test jitml-unit
+exit: 1
+working-directory: (inherited)
+duration-nanoseconds: 50818092268
+stdout: Build profile: -w ghc-9.12.4 -O1
+In order, the following will be built (use -v for more details):
+ - jitml-0.1.0.0 (test:jitml-unit) (file test/unit/Main.hs changed)
+jitml.cabal has been changed. Re-configuring with most recently used options.
+If this fails, please run configure manually.
+Configuring test suite 'jitml-unit' for jitml-0.1.0.0...
+Preprocessing test suite 'jitml-unit' for jitml-0.1.0.0...
+Building test suite 'jitml-unit' for jitml-0.1.0.0...
+[ 1 of 16] Compiling CheckpointV1Admission ( test/unit/CheckpointV1Admission.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/CheckpointV1Admission.o ) [JitML.Checkpoint.Format changed]
+[ 3 of 16] Compiling JournalDerivedStatus ( test/unit/JournalDerivedStatus.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/JournalDerivedStatus.o ) [Source file changed]
+[ 4 of 16] Compiling ProductAggregation ( test/unit/ProductAggregation.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductAggregation.o ) [JitML.Training.Budget changed]
+[ 5 of 16] Compiling ProductExperimentExactness ( test/unit/ProductExperimentExactness.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductExperimentExactness.o ) [JitML.App changed]
+[ 6 of 16] Compiling ProductTruthScanner ( test/unit/ProductTruthScanner.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductTruthScanner.o ) [Source file changed]
+[ 7 of 16] Compiling ProductTuneTranscript ( test/unit/ProductTuneTranscript.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductTuneTranscript.o ) [JitML.Training.Budget changed]
+[ 8 of 16] Compiling ProtocolCodec    ( test/unit/ProtocolCodec.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProtocolCodec.o ) [JitML.Training.Budget changed]
+[11 of 16] Compiling ReportMeasurements ( test/unit/ReportMeasurements.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ReportMeasurements.o ) [JitML.Test.ProductScenarioJournal changed]
+[12 of 16] Compiling SupervisedCheckpointV2 ( test/unit/SupervisedCheckpointV2.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/SupervisedCheckpointV2.o ) [JitML.Checkpoint.Format changed]
+[13 of 16] Compiling ServedMetricVerification ( test/unit/ServedMetricVerification.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ServedMetricVerification.o ) [JitML.Checkpoint.Store changed]
+[14 of 16] Compiling ProductBarProvenance ( test/unit/ProductBarProvenance.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductBarProvenance.o ) [Source file changed]
+[15 of 16] Compiling SupervisedTrainingSeed ( test/unit/SupervisedTrainingSeed.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/SupervisedTrainingSeed.o ) [JitML.Training.Budget changed]
+
+stderr: test/unit/JournalDerivedStatus.hs:3274:22: error: [GHC-88464]
+    Variable not in scope: reasonsOf :: StatusReport -> t2 -> t3 Unmet
+     |
+3274 |               `elem` reasonsOf report "278.1"
+     |                      ^^^^^^^^^
+
+test/unit/JournalDerivedStatus.hs:3293:22: error: [GHC-88464]
+    Variable not in scope: reasonsOf :: StatusReport -> t0 -> t1 Unmet
+     |
+3293 |               `elem` reasonsOf report "278.1"
+     |                      ^^^^^^^^^
+
+
+

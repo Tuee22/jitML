@@ -63,6 +63,13 @@ Generated compiler inputs live alongside the cache under:
 .build/jit-src/<substrate>/<hash>/
 ```
 
+These paths show the default cache root. `--cache-dir` sets `Env.envCacheDir`:
+generated sources, compiled artifacts, toolchain sidecars, staging files, and
+compile scratch directories follow that same root on every substrate. The
+runtime compiler receives the directory returned by the source materializer.
+Diagnostic plans rendered without an execution environment retain the default
+`.build` layout; those rendered defaults do not select runtime file locations.
+
 `src/JitML/Codegen/RuntimeSource.hs` owns the generated-source ADT and
 materialization discipline. `src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` render the
 general per-substrate source bundles. (Phase `239` removed the supervised V2

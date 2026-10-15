@@ -123,6 +123,7 @@ import JitML.Plan.Plan
   , validationToEither
   )
 import JitML.Plan.Workload qualified as WorkloadPlan
+import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence
   ( TrainingEvidence
   , evidenceObservationsMatch
@@ -144,12 +145,14 @@ import JitML.Training.Budget
   , coMetricValue
   , completedTrainingBudget
   , completedTrainingDatasetShaAtRead
+  , completedTrainingDeviceWitness
   , completedTrainingEvidence
   , completedTrainingFinalWeightHash
   , completedTrainingInitialWeightHash
   , completedTrainingMetrics
   , completedTrainingObservedUnits
   , completedTrainingPlanId
+  , completedTrainingRlPlan
   , completedTrainingTensorBoard
   , completedTrainingToRaw
   , completedTrainingUpdateCount
@@ -576,29 +579,7 @@ validateCheckpointCompletion manifest =
                     let supervisedShapeLayoutErrors =
                           validateSupervisedManifestShapeLayout manifest
                         externalBarErrors =
-                          case manifestSupervisedRuntime manifest of
-                            Just payload ->
-                              case find
-                                ( (== RuntimeArtifact.payloadRowId payload)
-                                    . ProductMatrix.rowId
-                                )
-                                ProductMatrix.allProductRows of
-                                Just row ->
-                                  ExternalBars.assertConvergenceObservationsAgainstBar
-                                    (ProductMatrix.convergenceBar row)
-                                    (completedTrainingMetrics completed)
-                                Nothing ->
-                                  ["supervised V2 runtime has no canonical convergence row"]
-                            Nothing ->
-                              case ProductMatrix.productRowForExperimentHash
-                                (manifestExperiment manifest) of
-                                Just row ->
-                                  ExternalBars.assertConvergenceObservationsAgainstBar
-                                    (ProductMatrix.convergenceBar row)
-                                    (completedTrainingMetrics completed)
-                                Nothing ->
-                                  ExternalBars.assertConvergenceObservationsExternal
-                                    (completedTrainingMetrics completed)
+                          validateCompletedExternalBars manifest completed
                      in case filter (not . convergencePassed) (completedTrainingMetrics completed) of
                           []
                             | not (null externalBarErrors) ->
@@ -613,6 +594,76 @@ validateCheckpointCompletion manifest =
                                     }
                           failed ->
                             Left (CompletedTrainingHasFailedMetrics (fmap coMetricName failed))
+
+-- A bound generic RL plan owns its cohort independently of the manifest's
+-- experiment name. An unbound canonical RL completion must prove that its
+-- PlanId and budget are the row projection for its measured device substrate;
+-- the experiment namespace alone never authorizes borrowing the row's bar.
+validateCompletedExternalBars :: CheckpointManifest -> CompletedTraining -> [Text]
+validateCompletedExternalBars manifest completed =
+  familyKindErrors <> namespaceIdentityErrors <> convergenceErrors
+ where
+  observations = completedTrainingMetrics completed
+  isRlCompletion = trainingBudgetKind (completedTrainingBudget completed) == RlEnvironmentStepBudget
+  namedRow = ProductMatrix.productRowForExperimentHash (manifestExperiment manifest)
+  familyKindErrors =
+    [ "RL policy manifest requires an environment-transition completion budget"
+    | manifestModelFamily manifest == ReinforcementLearningPolicyFamily
+        || architectureModelFamily (manifestArchitecture manifest) == ReinforcementLearningPolicyFamily
+    , not isRlCompletion
+    ]
+  namespaceIdentityErrors =
+    case namedRow of
+      Just row
+        | isRlCompletion || ProductMatrix.family row == ProductMatrix.ReinforcementLearning ->
+            canonicalRlIdentityErrors row
+      _ -> []
+  convergenceErrors =
+    case completedTrainingRlPlan completed of
+      Just plan ->
+        ExternalBars.assertRlConvergenceObservationsExternal plan observations
+      Nothing
+        | isRlCompletion ->
+            maybe
+              ["generic RL completion has no PlanId-bound compiled cohort"]
+              rowBarErrors
+              namedRow
+      Nothing ->
+        case manifestSupervisedRuntime manifest of
+          Just payload ->
+            maybe
+              ["supervised V2 runtime has no canonical convergence row"]
+              rowBarErrors
+              ( find
+                  ((== RuntimeArtifact.payloadRowId payload) . ProductMatrix.rowId)
+                  ProductMatrix.allProductRows
+              )
+          Nothing ->
+            case namedRow of
+              Just row -> rowBarErrors row
+              Nothing -> ExternalBars.assertConvergenceObservationsExternal observations
+  rowBarErrors row =
+    ExternalBars.assertConvergenceObservationsAgainstBar
+      (ProductMatrix.convergenceBar row)
+      observations
+  canonicalRlIdentityErrors row
+    | ProductMatrix.family row /= ProductMatrix.ReinforcementLearning =
+        ["RL completion names a non-RL canonical ProductRow"]
+    | otherwise =
+        case completedTrainingDeviceWitness completed of
+          Left err -> ["canonical RL completion device witness rejected: " <> err]
+          Right Nothing -> ["canonical RL completion requires its measured device substrate"]
+          Right (Just witness) ->
+            case validationToEither
+              (ProductMatrix.projectProductRow (DeviceWitness.witnessSubstrate witness) row) of
+              Left errors -> ["canonical RL completion row projection rejected: " <> Text.pack (show errors)]
+              Right (ProductMatrix.SomeProductProjection _ projection) ->
+                [ "canonical RL completion PlanId differs from its row's device-substrate projection"
+                | completedTrainingPlanId completed /= ProductMatrix.productProjectionPlanId projection
+                ]
+                  <> [ "canonical RL completion budget differs from its row's device-substrate projection"
+                     | completedTrainingBudget completed /= ProductMatrix.productProjectionTrainingBudget projection
+                     ]
 
 isInspectionOnlySupervisedV1 :: CheckpointManifest -> Bool
 isInspectionOnlySupervisedV1 manifest =

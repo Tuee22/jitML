@@ -39,6 +39,7 @@ module JitML.Training.Budget
   , completedTrainingObservedUnits
   , completedTrainingPlanId
   , completedTrainingProductScenarioInvocation
+  , completedTrainingRlPlan
   , completedTrainingTensorBoard
   , completedTrainingToRaw
   , completedTrainingUpdateCount
@@ -49,6 +50,7 @@ module JitML.Training.Budget
   , encodeCompletedTraining
   , encodeRawCompletedTraining
   , bindCompletedTrainingToProductScenarioInvocation
+  , bindCompletedTrainingToRlPlan
   , measureCriterion
   , measureCriterionExcluding
   , mkTrainingBudget
@@ -96,7 +98,7 @@ import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (digitToInt, intToDigit, isControl, isHexDigit, ord)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -119,6 +121,7 @@ import JitML.Product.Evidence
   , evidenceUpdateCount
   , mkTrainingEvidence
   )
+import JitML.RL.ProductBudget qualified as RlPlan
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 data BudgetKind
@@ -266,6 +269,7 @@ data CompletedTraining = CompletedTraining
   , completedMeasurementsProof :: !(NonEmpty PassedMeasurement)
   , completedTensorBoardProof :: !TensorBoardRunMetadata
   , completedProductScenarioInvocationProof :: !(Maybe ProductScenarioInvocation)
+  , completedRlPlanProof :: !(Maybe RlPlan.CompiledRlPlan)
   }
   deriving stock (Eq, Show)
 
@@ -301,24 +305,35 @@ data RawCompletedTraining = RawCompletedTraining
   , rawCompletedTrainingMeasurements :: ![RawConvergenceObservation]
   , rawCompletedTrainingTensorBoard :: !TensorBoardRunMetadata
   , rawCompletedTrainingProductScenarioInvocation :: !(Maybe RawProductScenarioInvocation)
+  , rawCompletedTrainingRlPlan :: !(Maybe Text)
   }
   deriving stock (Eq, Generic, Show)
 
 -- Keep the pre-Phase-261 nine-field V1 tuple readable without making it
 -- eligible for a fresh ProductScenario invocation.  Generic @Serialise@
 -- encodes a one-constructor product as @[constructor-tag, fields...]@, so the
--- historical value has list length 10 and V2 has list length 11.  Encoding a
--- decoded V1 raw value reproduces its exact old shape; newly refined domain
--- values are always projected as V2 by 'completedTrainingToRaw'.
+-- historical value has list length 10 and V2 has list length 11. Generic RL
+-- completions bound to their compiled plan use V3, with list length 12. V2
+-- remains byte-identical for existing ProductRow completions and journals.
 instance Serialise RawCompletedTraining where
   encode raw =
-    case (rawCompletedTrainingVersion raw, rawCompletedTrainingProductScenarioInvocation raw) of
-      (1, Nothing) -> encodeRawCompletedTrainingFields 10 raw mempty
-      _ ->
+    case ( rawCompletedTrainingVersion raw
+         , rawCompletedTrainingProductScenarioInvocation raw
+         , rawCompletedTrainingRlPlan raw
+         ) of
+      (1, Nothing, Nothing) -> encodeRawCompletedTrainingFields 10 raw mempty
+      (2, _, Nothing) ->
         encodeRawCompletedTrainingFields
           11
           raw
           (encode (rawCompletedTrainingProductScenarioInvocation raw))
+      _ ->
+        encodeRawCompletedTrainingFields
+          12
+          raw
+          ( encode (rawCompletedTrainingProductScenarioInvocation raw)
+              <> encode (rawCompletedTrainingRlPlan raw)
+          )
 
   decode = do
     encodedLength <- decodeListLen
@@ -327,18 +342,23 @@ instance Serialise RawCompletedTraining where
       fail "unexpected RawCompletedTraining constructor tag"
     case encodedLength of
       10 -> do
-        raw <- decodeRawCompletedTrainingFields (pure Nothing)
+        raw <- decodeRawCompletedTrainingFields (pure Nothing) (pure Nothing)
         when (rawCompletedTrainingVersion raw /= 1) $
           fail "legacy RawCompletedTraining tuple must carry wire version 1"
         pure raw
       11 -> do
-        raw <- decodeRawCompletedTrainingFields decode
+        raw <- decodeRawCompletedTrainingFields decode (pure Nothing)
         when (rawCompletedTrainingVersion raw /= completedTrainingWireVersion) $
-          fail "current RawCompletedTraining tuple must carry the current wire version"
+          fail "V2 RawCompletedTraining tuple must carry wire version 2"
+        pure raw
+      12 -> do
+        raw <- decodeRawCompletedTrainingFields decode decode
+        when (rawCompletedTrainingVersion raw /= rlPlanBoundCompletedTrainingWireVersion) $
+          fail "RL-plan-bound RawCompletedTraining tuple must carry wire version 3"
         pure raw
       _ ->
         fail
-          ( "wrong RawCompletedTraining field count: expected 10 or 11, got "
+          ( "wrong RawCompletedTraining field count: expected 10, 11, or 12, got "
               <> show encodedLength
           )
 
@@ -363,8 +383,9 @@ encodeRawCompletedTrainingFields encodedLength raw encodedInvocation =
 
 decodeRawCompletedTrainingFields
   :: Decoder s (Maybe RawProductScenarioInvocation)
+  -> Decoder s (Maybe Text)
   -> Decoder s RawCompletedTraining
-decodeRawCompletedTrainingFields decodeInvocation =
+decodeRawCompletedTrainingFields decodeInvocation decodeRlPlan =
   RawCompletedTraining
     <$> decode
     <*> decode
@@ -376,9 +397,13 @@ decodeRawCompletedTrainingFields decodeInvocation =
     <*> decode
     <*> decode
     <*> decodeInvocation
+    <*> decodeRlPlan
 
 completedTrainingWireVersion :: Word64
 completedTrainingWireVersion = 2
+
+rlPlanBoundCompletedTrainingWireVersion :: Word64
+rlPlanBoundCompletedTrainingWireVersion = 3
 
 productScenarioInvocationRunId :: ProductScenarioInvocation -> Text
 productScenarioInvocationRunId = invocationRunIdProof
@@ -773,6 +798,9 @@ completedTrainingProductScenarioInvocation
   -> Maybe ProductScenarioInvocation
 completedTrainingProductScenarioInvocation = completedProductScenarioInvocationProof
 
+completedTrainingRlPlan :: CompletedTraining -> Maybe RlPlan.CompiledRlPlan
+completedTrainingRlPlan = completedRlPlanProof
+
 completedTrainingInitialWeightHash :: CompletedTraining -> Text
 completedTrainingInitialWeightHash =
   evidenceInitialWeightHash . completedTrainingEvidence
@@ -823,6 +851,7 @@ completedTraining planId budget observedUnits evidence observations tensorBoard 
       , completedMeasurementsProof = nonEmptyPassed
       , completedTensorBoardProof = tensorBoard
       , completedProductScenarioInvocationProof = Nothing
+      , completedRlPlanProof = Nothing
       }
 
 -- | Attach the command-owned invocation to an otherwise complete proof.  A
@@ -845,11 +874,50 @@ bindCompletedTrainingToProductScenarioInvocation invocation completed
           { completedProductScenarioInvocationProof = Just invocation
           }
 
+-- | Preserve the command's exact generic RL plan across persistence. Recompile
+-- even an in-memory plan, since the compiler DTO's constructors are public;
+-- neither a substituted cohort nor a forged schedule may retain the PlanId.
+bindCompletedTrainingToRlPlan
+  :: RlPlan.CompiledRlPlan
+  -> CompletedTraining
+  -> Either Text CompletedTraining
+bindCompletedTrainingToRlPlan plan completed = do
+  validatedPlan <-
+    RlPlan.parseCompiledRlPlanTransport (RlPlan.renderCompiledRlPlanTransport plan)
+  when (validatedPlan /= plan) $
+    Left "compiled RL plan differs from its recompiled schedule"
+  when (RlPlan.compiledRlPlanId validatedPlan /= planIdText (completedTrainingPlanId completed)) $
+    Left "compiled RL plan PlanId differs from completed training"
+  when (trainingBudgetKind (completedTrainingBudget completed) /= RlEnvironmentStepBudget) $
+    Left "compiled RL plan requires an environment-transition completion budget"
+  case trainingBudgetSeed (completedTrainingBudget completed) of
+    Just seed
+      | toInteger seed /= toInteger (RlPlan.compiledRlSeed validatedPlan) ->
+          Left "compiled RL plan seed differs from completed training budget"
+    _ -> Right ()
+  schedule <-
+    maybe
+      (Left "evaluation-only RL plan cannot bind a completed training checkpoint")
+      Right
+      (RlPlan.compiledRlSchedule validatedPlan)
+  when (RlPlan.scheduleObservedEnvironmentSteps schedule /= completedTrainingObservedUnits completed) $
+    Left "compiled RL plan environment-transition count differs from completed training"
+  case completedTrainingRlPlan completed of
+    Just existing
+      | existing /= validatedPlan ->
+          Left "completed training is already bound to a different compiled RL plan"
+    _ ->
+      Right completed {completedRlPlanProof = Just validatedPlan}
+
 completedTrainingToRaw :: CompletedTraining -> RawCompletedTraining
 completedTrainingToRaw completed =
   let budget = completedTrainingBudget completed
    in RawCompletedTraining
-        { rawCompletedTrainingVersion = completedTrainingWireVersion
+        { rawCompletedTrainingVersion =
+            maybe
+              completedTrainingWireVersion
+              (const rlPlanBoundCompletedTrainingWireVersion)
+              (completedTrainingRlPlan completed)
         , rawCompletedTrainingPlanId = planIdText (completedTrainingPlanId completed)
         , rawCompletedTrainingBudget = trainingBudgetToRaw budget
         , rawCompletedTrainingObservedKind = tbKind budget
@@ -862,15 +930,25 @@ completedTrainingToRaw completed =
         , rawCompletedTrainingProductScenarioInvocation =
             productScenarioInvocationToRaw
               <$> completedTrainingProductScenarioInvocation completed
+        , rawCompletedTrainingRlPlan =
+            RlPlan.renderCompiledRlPlanTransport <$> completedTrainingRlPlan completed
         }
 
 refineCompletedTraining :: RawCompletedTraining -> Either Text CompletedTraining
 refineCompletedTraining raw = do
   case rawCompletedTrainingVersion raw of
-    1 ->
+    1 -> do
       when
         (isJust (rawCompletedTrainingProductScenarioInvocation raw))
         (Left "completed-training V1 cannot carry a ProductScenario invocation")
+      when (isJust (rawCompletedTrainingRlPlan raw)) $
+        Left "completed-training V1 cannot carry a compiled RL plan"
+    2 ->
+      when (isJust (rawCompletedTrainingRlPlan raw)) $
+        Left "completed-training V2 cannot carry a compiled RL plan"
+    3 ->
+      when (isNothing (rawCompletedTrainingRlPlan raw)) $
+        Left "completed-training V3 requires a compiled RL plan"
     version ->
       when (version /= completedTrainingWireVersion) $
         Left
@@ -894,11 +972,16 @@ refineCompletedTraining raw = do
       (rawCompletedTrainingEvidence raw)
       observations
       (rawCompletedTrainingTensorBoard raw)
-  case rawCompletedTrainingProductScenarioInvocation raw of
+  invocationBound <- case rawCompletedTrainingProductScenarioInvocation raw of
     Nothing -> Right completed
     Just rawInvocation -> do
       invocation <- refineProductScenarioInvocation rawInvocation
       bindCompletedTrainingToProductScenarioInvocation invocation completed
+  case rawCompletedTrainingRlPlan raw of
+    Nothing -> Right invocationBound
+    Just transport -> do
+      plan <- RlPlan.parseCompiledRlPlanTransport transport
+      bindCompletedTrainingToRlPlan plan invocationBound
 
 refineRawPlanId :: Text -> Either Text PlanId
 refineRawPlanId raw =

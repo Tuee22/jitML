@@ -1,0 +1,12 @@
+2026-10-14T23:56:12Z
+jitml-validation
+16
+               total        used        free      shared  buff/cache   available
+Mem:     50513092608  6946680832 15399886848    91295744 28874973184 43566411776
+Swap:              0           0           0
+Filesystem        1B-blocks         Used    Available Use% Mounted on
+/dev/vda1      310911414272 131862179840 179032457216  43% /
+/jitml-linux-cpu-control-plane memory=12884901888 nanoCPUs=4000000000 image=sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
+/jitml-linux-cpu-worker memory=12884901888 nanoCPUs=4000000000 image=sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
+jitml-linux-cpu-control-plane cpu=16.73% memory=1.899GiB / 12GiB block=6.67GB / 43.1GB
+jitml-linux-cpu-worker cpu=14.55% memory=3.249GiB / 12GiB block=2.15GB / 52.7GB

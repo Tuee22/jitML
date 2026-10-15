@@ -1,0 +1,7 @@
+set -euo pipefail
+run=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+for node in jitml-linux-cpu-control-plane jitml-linux-cpu-worker; do
+  docker exec "$node" crictl inspecti jitml:local </dev/null | python3 -c 'import sys,json; j=json.load(sys.stdin); print(json.dumps(j.get("status"),sort_keys=True,indent=2))' > "$run/$node-jitml-image-status.json"
+  printf '%s\n' "$node"
+  cat "$run/$node-jitml-image-status.json"
+done

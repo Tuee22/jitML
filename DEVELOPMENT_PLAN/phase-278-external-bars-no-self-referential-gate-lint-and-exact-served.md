@@ -9,24 +9,151 @@
 
 ## Phase State
 
-🔄 **Active** (2026-09-30 UTC). The implementation is complete on the Linux host:
-the external-bar, anti-self-reference, and exact served-byte checks pass their
-unit and container gates, and the `linux-cuda` and `linux-cpu` journals are
-re-issued under the tightened bars. Open: the `apple-silicon` journal re-issue,
-the aggregate regeneration, and the final gates (see Remaining Work). Phase `276`
-/ Sprint `276.1` remains Done on its retained join mechanism.
+🔄 **Active** (2026-10-15 UTC). The final Linux unit run passes 1,503 of 1,512
+cases; its nine failures require the stale Apple journal to be replaced. The
+CPU backend, docs, and code-quality gates pass. Real generic CLI and focused
+daemon execution plus Store re-admission validate compiled-plan binding. Open:
+independently reviewed supervised anchors, the `apple-silicon` journal re-issue,
+aggregate regeneration, a passing full unit gate, and final standing integration
+evidence on the reviewed contracts (see Remaining Work).
+Phase `276` / Sprint `276.1` remains Done on its retained join mechanism.
+
+### Current Execution Checkpoint
+
+- The 2026-10-14–15 session uses a dedicated Ubuntu 24.04 KVM guest inside WSL2 on
+  Windows. Its configured resources are 48 GiB RAM, 16 virtual CPUs pinned to
+  WSL CPUs `0-15`, and a 300 GiB virtual disk. The systemd VM service limits
+  process memory to 50 GiB, CPU time to sixteen CPUs, and swap to zero. Docker
+  and Compose run inside this guest; host language tools are not prerequisites.
+- Windows checkout conversion had changed the retained journal bytes to CRLF.
+  Restoring their original LF bytes reproduces all three registered SHA-256
+  pins exactly. The repository's `.gitattributes` preserves LF on future
+  checkouts, and the VM transfer restores Git-recorded executable modes and LF
+  text before building.
+- Parsed CPU and CUDA journals agree on all 55 row contract digests. The retained
+  Apple journal differs on exactly `PPO/key-door-grid`, `A2C/key-door-grid`, and
+  `TRPO/cartpole`. Its PPO reward is `-2.79` against the current `0.5` bar; its
+  TRPO reward is `188` against `400`. This is a hardware-evidence gap after
+  correcting line endings, not a Windows prerequisite. The Apple journal must
+  be replaced by real passing execution rather than edited to match new digests.
+- The final source's four Linux Validation commands run inside the guest's
+  project container: `jitml test jitml-unit --linux-cpu` passes **1,503 / 1,512**
+  cases in **42.96 s** and exits `1`; all nine failures are the
+  `Journal-derived product aggregation (Phase 276)` cases that reject the stale
+  Apple journal. `jitml test jitml-backends --linux-cpu` passes **38 / 38** in
+  **2.37 s**. `jitml docs check` and `jitml check-code` both exit `0`. This is
+  partial validation, not a passing full unit gate or phase closure.
+- Generic RL cohort binding passes its **27** boundary controls. Its nested
+  V3 completion DTO carries the actual compiled plan; refinement binds PlanId,
+  transition count, and any declared seed. Admission checks the own cohort,
+  RL-policy claims' transition budgets, and canonical namespace identity independently.
+  The controls reject substituted metadata and preserve retained CPU/CUDA V2
+  completion bytes and canonical admission before a ProductScenario invocation.
+- The first real generic CLI attempt exposed a cache-root bug: source materialized
+  under `--cache-dir .build/phase278-generic-rl`, while the compiler and artifact
+  handle still selected `.build`. The shared loader now derives runtime paths
+  from `Env.envCacheDir` and passes the actual materialized source directory to
+  the compiler. Default cache paths remain unchanged. The CPU backend gate includes
+  a real cold-cache MLP compile/load/run under a custom path containing spaces,
+  reference-output parity, and warm artifact reuse; it passes with all 38 cases.
+- The corrected public CLI executes `experiments/cartpole.dhall` on real oneDNN
+  with seed **42**, **1,228,800** environment transitions, **192,000** optimizer
+  updates, and median final reward **500** against its own PPO/cartpole bar of
+  **450**. The inspector passes exact latest-pointer and immutable-address Store
+  admission, structural generic completion validation, fetched nested V3 proof,
+  plan/budget/seed binding, and the physical weight hash. The admitted manifest is
+  `0bebdba14ee9b836f15083fedf73323c88fc732bd55e9dc964ccb774c2965b44`.
+  This receipt validates the generic CLI path and does not establish canonical
+  ProductRow eligibility.
+- Real Linux bootstrap completes at **2026-10-14 23:54:18 UTC**, exits `0`,
+  executes **115** steps, and reports all **8** workloads Ready with edge HTTP
+  `200`. The task runtime image layers the official guest Docker Compose and
+  Buildx plugins onto the base image, which lacks them; this receipt does not
+  establish independent bootstrap success for the unmodified base image.
+- The sole focused daemon PPO invocation completes **1 / 1** cases in
+  **508.66 s**; runtime, systemd service, and inspection all exit `0`. The captured
+  stopped worker's checkpoint passes physical Store admission, exact address
+  re-admission, and bound nested V3 structural completion. Its planned and
+  observed counts both equal **4,915,200** transitions, with **768,000** optimizer
+  updates. Seed **42**, maximum episode steps **2,048**, and **200** evaluation
+  episodes are bound to the compiled plan; episode keys `0-199` each retain reward
+  **2,048**, and the inspector independently derives median **2,048**. The manifest
+  is `541c429b0620636e327c24f565117d98c4b4cb6f2d57d61864af3abb0f4f1d00`,
+  with PlanId `c8cde5d7eb7c023ed9d599fce929389e3e53f954b2dc522b8015e0e59ef22380`.
+  Source digest `924e1535cc42` is identical before and after; the actual worker
+  executable matches CLI SHA-256 `3b126ee3b94b` in runtime image `f709538736db`.
+  Generic completion has no measured device witness by design; actual CPU
+  execution provenance is retained. This is completed scoped validation, not a
+  full standing integration GateTranscript or canonical ProductRow proof.
+  Raw receipts are being retained at
+  `attestations/phase278-20261014-linux-cpu/daemon/focused-daemon-KnZ3sZvU/`.
+- Regression and tuning ProductRow bars now share their policy constructors with
+  the generic metric lookup. Generic HER-success and arena bars select the existing
+  canonical RL anchors. This removes duplicated values without changing numerical
+  policy, threshold arithmetic, or row contracts; the final unit parity controls pass.
+- Commands, both output streams, exit statuses, VM resources, inspector source,
+  and the generic checkpoint snapshot are retained under
+  [attestations/phase278-20261014-linux-cpu/](attestations/phase278-20261014-linux-cpu/).
+  Structured unit and backend records are retained in `attestations/validation/`;
+  the unit record accurately retains the `Failed` outcome. Earlier failed attempts
+  remain diagnostic evidence alongside the final source's results.
+- Phase `278`'s catalogue also carries `Independent supervised convergence-anchor
+  review` and `Live generic RL CLI and daemon validation` as explicit open
+  external-context obligations. The scoped CLI and actual daemon checks are
+  complete, but the live ExternalContext remains Unproven pending replacement
+  with final standing integration evidence on externally reviewed contracts and
+  refreshed lanes. The primary-source review below does not establish replacement
+  anchors; fresh Apple journals and a passing unit gate alone cannot resolve that
+  policy or supply the final full integration GateTranscript.
+  Later open phases remain Blocked under rule `M(c)`.
+
+### External Anchor Review
+
+The 2026-10-14 independent primary-source review finds no published replacement
+bar for the current compact architectures and fixed budgets. Published accuracy
+targets do not establish an acceptance floor for a different graph, dataset
+sample, and training schedule:
+
+- [He et al., Deep Residual Learning](https://arxiv.org/pdf/1512.03385) reports
+  full-dataset CIFAR ResNet results after 64,000 batch-128 iterations. Those
+  results do not justify the current compact graph's 320-update convergence
+  floors.
+- [Dosovitskiy et al., An Image Is Worth 16x16 Words](https://arxiv.org/pdf/2010.11929)
+  evaluates large pretrained vision transformers, rather than the current
+  compact from-scratch CIFAR row.
+- [Le and Yang, Tiny ImageNet Visual Recognition](https://cs231n.stanford.edu/reports/2015/pdfs/yle_project.pdf)
+  evaluates CNN/VGG models, not the current ResNet-50-labelled compact row.
+- [Hernández-Lobato and Adams, Probabilistic Backpropagation](https://proceedings.mlr.press/v37/hernandez-lobatoc15.pdf)
+  includes Boston Housing, not California Housing, and does not establish the
+  current standardized California Housing RMSE target.
+
+For housing, the [held-out R² definition](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html)
+provides an independent zero-skill floor: positive R² requires RMSE strictly
+below the held-out target standard deviation and rejects any constant predictor.
+Dataset and split statistics can establish that floor without consulting a
+model's measurement. Any stronger margin remains an explicitly reviewed project
+policy, and a positive-skill gate alone does not prove convergence to a published
+architecture benchmark. These findings keep the external-anchor obligation
+open; no replacement threshold is selected from the retained measurements.
 
 ## Sprint 278.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [🔄 Active]
 
 **Status**: Active
 **Implementation**: `src/JitML/Product/ExternalBars.hs`,
-`src/JitML/Product/ServedMetric.hs`, `src/JitML/Lint/ProductTruth.hs`,
+`src/JitML/Product/Convergence.hs`, `src/JitML/Product/Matrix.hs`,
+`src/JitML/Product/PhaseStatus.hs`, `test/unit/JournalDerivedStatus.hs`,
+`src/JitML/Product/ServedMetric.hs`, `src/JitML/Training/Budget.hs`,
+`src/JitML/RL/Command.hs`, `src/JitML/Engines/Engine.hs`,
+`src/JitML/Engines/Loader.hs`, `src/JitML/Lint/ProductTruth.hs`,
 `src/JitML/Lint/ProductTruthBars.hs`, `src/JitML/Lint/HaskellTokens.hs`,
 `src/JitML/Checkpoint/Store.hs`, `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Product/Publisher/Supervised.hs`, `test/unit/Main.hs`,
 `test/unit/SupervisedCheckpointV2.hs`, `test/unit/ServedMetricVerification.hs`,
-`test/unit/ProductBarProvenance.hs`, `test/unit/ProductTruthScanner.hs`
+`test/unit/ProductBarProvenance.hs`, `test/unit/ProductTruthScanner.hs`,
+`test/unit/ProtocolCodec.hs`, `test/backends/Main.hs`, `jitml.cabal`
 **Docs to update**: `../documents/engineering/product_completion_contract.md`,
+`../documents/engineering/checkpoint_format.md`,
+`../documents/engineering/jit_codegen_architecture.md`,
 `../documents/engineering/determinism_contract.md`,
 `../documents/engineering/training_metrics_and_splits.md`,
 `../documents/engineering/unit_testing_policy.md`,
@@ -62,6 +189,7 @@ bytes subsequently served.
 
 ```bash
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-backends --linux-cpu
 docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
@@ -74,6 +202,10 @@ docker compose run --rm jitml jitml check-code
   external-bar and no-self-reference grader.
 
 ### Current Partial Validation
+
+**Historical partial results (2026-09-24 through 2026-10-06).** The dated runs
+below retain their original scope. Current source-bound results are recorded in
+[Current Execution Checkpoint](#current-execution-checkpoint).
 
 - On 2026-09-24, the worktree's direct measured-target lint, finite and
   target/slack-consistent bar gate, cohort-specific ProductRow reward check,
@@ -234,15 +366,16 @@ docker compose run --rm jitml jitml check-code
   experiments/cartpole.dhall --substrate linux-cpu` exited `2` after 190 s, and
   the live daemon `StartRLRun` scenario failed the same way; no unit case had
   exercised the generic path because ProductRow completions carry their row's
-  bar. The generic fallback now verifies what it can — the observation maximises
+  bar. At that checkpoint the generic fallback verified what it could — the observation maximised
   the return and its threshold is a frozen external cohort anchor
-  (`literatureTarget - slack`) — but it cannot identify the cohort, so it accepts
+  (`literatureTarget - slack`) — but it could not identify the cohort, so it accepted
   a threshold equal to any frozen anchor, including another cohort's (even the
-  loosest); ProductRow completions remain checked against their own row bar. Unit
+  loosest); ProductRow completions stayed checked against their own row bar. Unit
   coverage pins the accepted anchor, the rejected non-anchor, and the rejected
   minimising goal. A strict generic path would carry `(algorithm, environment)`
-  in the completion so the cohort's own bar applies; that remains open and is
-  recorded in the legacy ledger.
+  in the completion so the cohort's own bar applied; that gap remained open then.
+  The 2026-10-14 implementation and CLI validation above replace this fallback;
+  the 2026-10-15 focused daemon proof completes its scoped runtime validation.
 - The same raw live integration pass was repeated on the corrected tree (image
   rebuilt and reloaded into the Kind cluster): **138** cases in **6,739 s**, **125**
   passed. They include the 8-cell `WorkflowMatrix` (**5,259 s**, `jitml rl train`
@@ -300,29 +433,55 @@ docker compose run --rm jitml jitml check-code
   Metal defect. Issue the journal with the focused route
   `jitml test jitml-integration --apple-silicon --test-options='-p "Phase 261 ProductRow contract-driven integration matrix"'`;
   `bootstrap/apple-silicon.sh test` fail-fasts at the red `jitml-unit` stanza.
-  Then retain and pin the Apple journal the same way as the other lanes. While the
-  Apple cluster is up, also run
+  Then retain and pin the Apple journal the same way as the other lanes. After
+  Phase `278` closes and Phases `280` and `281` validate in order, Phase `282`
+  owns the following live Apple validation:
   `jitml test jitml-integration --apple-silicon --test-options='-p Live'` once: it
   executes the Apple host-forwarding observers of Sprint `282.1`, whose Apple half
   is compile-only on Linux, and its outcome is recorded in Phase `282`.
-- **Exit Definition item 26 residue (owner decision).** Supervised bars that were
+- **Exit Definition item 26 residue.** Supervised bars that were
   set to be cleared by a measured result (for example `tiny-imagenet-resnet50`
   `0.008`, `cifar10-resnet20`, `cifar10-vit`, and California Housing's
-  standardized RMSE `<= 1.0`, which a predict-the-mean model meets), the generic
-  metric literals duplicated in `convergenceBarForMetric`, and the generic RL
-  fallback that cannot identify its cohort remain open. Replacing them with
-  independently reviewed external anchors changes contract digests, so all three
-  lane journals (about 6.2 h, 12.6 h, and 30 h) would be re-issued once afterwards;
-  the owner decides whether this sprint closes on the current bars or waits for
-  that review.
+  standardized RMSE `<= 1.0`, which a predict-the-mean model meets) remain open
+  pending independent policy review. Duplicated shared metric literals are removed
+  without changing their values and their final container parity controls pass.
+  The generic RL fallback is removed by compiled-plan binding; container controls
+  and the real CLI, focused daemon execution, and exact Store inspectors pass.
+  Final full unit and standing integration validation remain open. Replacing
+  the anchors with independently reviewed external anchors changes contract
+  digests, so all three
+  lane journals (about 6.2 h, 12.6 h, and 30 h) would be re-issued once afterwards.
+  These owned obligations must be resolved before closure under standards rule
+  `C`; retaining a threshold calibrated to the measurement it grades is not a
+  substitute for independent external-anchor review. The scoped generic proofs
+  are retained as completed work while the final contract validation remains open.
+- **Evidence-derived guard obligations.** `PhaseStatus.hs` retains
+  `ExternalContext "Independent supervised convergence-anchor review"` until
+  independently reviewed anchors, meaningful trivial-model rejection criteria,
+  and the corresponding real evidence resolve the supervised-bar obligation.
+  `ExternalContext "Live generic RL CLI and daemon validation"` remains Unproven
+  as a temporary formal guard after the public CLI and actual focused daemon
+  checks pass. Their retained exact Store proofs validate that scoped path;
+  they cannot satisfy a full standing integration GateTranscript. After the
+  external-anchor decisions and affected lane refresh, replace the temporary
+  guard with `GateTranscript JitmlIntegration LinuxCPU`, run the full standing
+  `jitml test jitml-integration --linux-cpu` invocation on the final contracts,
+  and retain its authentic result. The focused command does not mint that record.
+  Each guard is removed only alongside the actual resolution and
+  machine-observable evidence requirements that replace it; documenting a
+  review or manually changing status is insufficient. The independent pinned
+  catalogue and regression controls retain these requirements after Apple
+  context removal.
 - **Regenerate the aggregate and close, in this order.** Land every `src/` and
   `test/` edit first, because each validation record binds the source digest of
-  `app/`, `gen/`, `src/`, and `test/`, and a record taken against an older tree is
-  judged `Stale`: pin the Apple journal in `ProductAggregation.hs` and delete the
-  `ExternalContext "Apple Silicon execution context"` obligation in
-  `PhaseStatus.hs`. Then regenerate `attestations/product-aggregate.json` from
+  `app/`, `gen/`, `src/`, `test/`, `cabal.project`, and `jitml.cabal`. A record
+  taken against an older tree is
+  judged `Stale`: pin the passing Apple journal in `ProductAggregation.hs` and
+  remove its execution-context obligation only after the journal is admitted.
+  Resolve both remaining guard obligations above before the final source gates.
+  Then regenerate `attestations/product-aggregate.json` from
   `productAggregationBytes` (`loadProductAggregation`; no committed generator
-  exists) and pass the three Validation commands on that tree: the nine
+  exists) and pass the four Validation commands on that tree: the nine
   `Journal-derived product aggregation (Phase 276)` cases are the only expected
   `jitml-unit` failures today and turn green once all three journals admit. Copy
   the `jitml-unit` record from `.build/runtime/validation/` into
@@ -335,7 +494,17 @@ docker compose run --rm jitml jitml check-code
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `documents/engineering/checkpoint_format.md` — nested completion-plan binding
+  and compatibility with the single checkpoint envelope.
+- `documents/engineering/product_completion_contract.md` — exact generic RL
+  cohort grading and independent canonical namespace checks.
+- `documents/engineering/training_metrics_and_splits.md` — shared metric policy
+  ownership and the boundary between published targets and project policy.
+- `documents/engineering/jit_codegen_architecture.md` — configured cache roots
+  for runtime source, compiler inputs, artifacts, staging, and toolchain sidecars.
+- The other governed documents listed under `Docs to update` retain their
+  external-bar, determinism, and code-quality contracts; reconcile any changed
+  claims before closure.
 
 **Product docs to create/update:**
 

@@ -1,0 +1,12 @@
+set -euo pipefail
+run=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+helper=/home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh
+"$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform jitml-coordinator-5b9dcbf9d6-bd5m7 -- curl --silent --show-error --max-time 5 http://pulsar-broker.platform.svc.cluster.local:8080/admin/v2/persistent/public/default/training.command.linux-cpu/stats > "$run/coordinator-training-topic-stats.json"
+python3 - <<'PY'
+import json
+from pathlib import Path
+j=json.loads(Path('/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/coordinator-training-topic-stats.json').read_text())
+print(json.dumps({'subscriptions':{k:{'consumer_count':len(v.get('consumers',[])),'msgBacklog':v.get('msgBacklog'),'type':v.get('type')} for k,v in j.get('subscriptions',{}).items()}},indent=2))
+PY
+"$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig logs -n platform deployment/jitml-coordinator --tail=50
+"$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform jitml-coordinator-5b9dcbf9d6-bd5m7 -- ps -eo pid,ppid,etime,time,pcpu,comm

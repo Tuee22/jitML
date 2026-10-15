@@ -14,11 +14,12 @@
 --
 -- ProductRow bars are built by 'JitML.Product.Matrix' from the canonical tables
 -- 'JitML.RL.ConvergenceThresholds' and 'JitML.SL.ConvergenceThresholds' (and the
--- literal HER, AlphaZero, regression, and tuning constants beside them); those
--- tables are the single source of external ground truth for a ProductRow. The
+-- HER and AlphaZero anchors beside them). Regression and tuning use the shared
+-- project policies in 'JitML.Product.Convergence', pending independent review.
+-- Those declarations are the single source of convergence bars for a ProductRow. The
 -- per-metric bars in 'convergenceBarForMetric' are a separate fixed fallback for
--- observations that carry no ProductRow identity; they are literals declared in
--- this module, and a unit cross-check pins the ones that overlap a ProductRow bar.
+-- observations that carry no ProductRow identity; overlapping metrics read the
+-- same declarations, and a unit cross-check pins their exact ProductRow parity.
 --
 -- This module adds the invariants a stored bar and observation must satisfy: a
 -- product bar has positive slack and finite, internally consistent fields
@@ -45,6 +46,7 @@ module JitML.Product.ExternalBars
   ( assertProductBarExternal
   , assertConvergenceObservationsAgainstBar
   , assertConvergenceObservationsExternal
+  , assertRlConvergenceObservationsExternal
   , convergenceBarForMetric
   , convergenceObservationForMetric
   , convergenceObservationsForMetrics
@@ -76,6 +78,8 @@ import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Convergence
   ( ConvergenceBar
   , MeasuredMetrics (..)
+  , canonicalRegressionRmseBar
+  , canonicalTuningObjectiveBar
   , convergenceLiteratureTarget
   , convergenceMetricGoal
   , convergenceMetricName
@@ -85,7 +89,9 @@ import JitML.Product.Convergence
   , mkConvergenceBar
   )
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.RL.Algorithms.Registry qualified as RlCohort
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
+import JitML.RL.ProductBudget qualified as RlPlan
 import JitML.SL.ConvergenceThresholds qualified as SLConvergence
 import JitML.Training.Budget qualified as TrainingBudget
 
@@ -148,17 +154,29 @@ convergenceBarForMetric name =
     "validation_accuracy" ->
       Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
     "rmse" ->
-      Just (mkConvergenceBar name TrainingBudget.MetricMinimise 0.90 0.10)
+      Just (canonicalRegressionRmseBar name)
     "best_objective" ->
-      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
+      Just (canonicalTuningObjectiveBar name)
     "objective" ->
-      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.05)
+      Just (canonicalTuningObjectiveBar name)
     "arena_win_rate" ->
-      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.45 0.05)
+      Just
+        ( mkConvergenceBar
+            name
+            TrainingBudget.MetricMaximise
+            (RLConvergence.azTargetWinRate RLConvergence.alphaZeroArenaThreshold)
+            (RLConvergence.azSlack RLConvergence.alphaZeroArenaThreshold)
+        )
     "legal_move_rate" ->
       Just (mkConvergenceBar name TrainingBudget.MetricMaximise 1.0 0.01)
     "goal_success_rate" ->
-      Just (mkConvergenceBar name TrainingBudget.MetricMaximise 0.90 0.05)
+      Just
+        ( mkConvergenceBar
+            name
+            TrainingBudget.MetricMaximise
+            (RLConvergence.literatureTarget RLConvergence.herGoalSuccessThreshold)
+            (RLConvergence.slack RLConvergence.herGoalSuccessThreshold)
+        )
     "achieved_goal_distance" ->
       Just (mkConvergenceBar name TrainingBudget.MetricMinimise 0.04 0.01)
     "train_loss" ->
@@ -205,7 +223,7 @@ assertConvergenceObservationsExternal =
  where
   validateObservation observation
     | TrainingBudget.coMetricName observation == rlMedianFinalRewardMetric =
-        assertFrozenRlRewardObservationExternal observation
+        ["stored RL median_final_reward observation requires its compiled cohort identity"]
     | otherwise =
         case convergenceObservationForMetric
           (TrainingBudget.coMetricName observation, TrainingBudget.coMetricValue observation) of
@@ -220,43 +238,82 @@ assertConvergenceObservationsExternal =
                   /= TrainingBudget.convergencePassed expected
             ]
 
--- | RL final-return convergence uses a per-(algorithm, environment) literature
--- anchor rather than a single universal value, so 'convergenceBarForMetric' has
--- no @median_final_reward@ entry. A generic (non-ProductRow) run has no cohort
--- identity, so the generic fallback verifies only what it can: the observation
--- maximises the environment return and its threshold equals one of the frozen
--- external cohort anchors. It cannot tell which cohort's anchor applies, so a
--- generic run may still claim another cohort's anchor; canonical rows are
--- checked against their own ProductRow bar by
--- 'assertConvergenceObservationsAgainstBar', and the legacy ledger tracks carrying
--- the cohort identity so this fallback can be deleted.
+-- | RL final-return convergence has no context-free metric fallback: its
+-- threshold belongs to one algorithm/environment cohort.
 rlMedianFinalRewardMetric :: Text
 rlMedianFinalRewardMetric = "median_final_reward"
 
-assertFrozenRlRewardObservationExternal
-  :: TrainingBudget.ConvergenceObservation -> [Text]
-assertFrozenRlRewardObservationExternal observation =
-  [ "stored RL "
-      <> rlMedianFinalRewardMetric
-      <> " observation must maximise the environment return"
-  | TrainingBudget.coMetricGoal observation /= TrainingBudget.MetricMaximise
-  ]
-    <> [ "stored RL "
-           <> rlMedianFinalRewardMetric
-           <> " threshold "
-           <> showDouble (TrainingBudget.coThreshold observation)
-           <> " is not a frozen external cohort anchor (literatureTarget - slack)"
-           <> " from JitML.RL.ConvergenceThresholds"
-       | TrainingBudget.coThreshold observation `notElem` frozenRlRewardThresholds
-       ]
-
--- | Every frozen external cohort anchor: the canonical table's literature
--- target less its project-calibrated slack.
-frozenRlRewardThresholds :: [Double]
-frozenRlRewardThresholds =
-  [ RLConvergence.literatureTarget threshold - RLConvergence.slack threshold
-  | (_, threshold) <- RLConvergence.cohortThresholds
-  ]
+-- | Grade a generic RL completion against the cohort in its PlanId-bound
+-- compiled plan. Every own criterion must occur exactly once and pass when
+-- remeasured; unrelated metrics and another cohort's easier threshold reject.
+assertRlConvergenceObservationsExternal
+  :: RlPlan.CompiledRlPlan
+  -> [TrainingBudget.ConvergenceObservation]
+  -> [Text]
+assertRlConvergenceObservationsExternal plan observations =
+  case expectedObservations of
+    Left err -> [err]
+    Right expected ->
+      [ "stored RL convergence observation has no criterion in its own cohort: "
+          <> TrainingBudget.coMetricName observation
+      | observation <- observations
+      , TrainingBudget.coMetricName observation `notElem` fmap TrainingBudget.coMetricName expected
+      ]
+        <> concatMap gradeCriterion expected
+ where
+  expectedObservations = do
+    cohort <-
+      RlCohort.mkCohort
+        (RlPlan.compiledRlTrainerKind plan)
+        (RlPlan.compiledRlEnvironment plan)
+    let algorithm = RlCohort.cohortAlgorithmName cohort
+        environment = RlCohort.cohortEnvironmentName cohort
+    if algorithm == "HER"
+      then
+        if environment == RLConvergence.hgmEnvironment RLConvergence.herGoalMetric
+          then
+            Right
+              [ RLConvergence.hgmSuccessRate RLConvergence.herGoalMetric
+              , RLConvergence.hgmAchievedGoalDistance RLConvergence.herGoalMetric
+              ]
+          else Left ("no HER convergence criteria for " <> environment)
+      else do
+        threshold <-
+          maybe
+            (Left ("no RL convergence threshold for " <> algorithm <> "/" <> environment))
+            Right
+            (RLConvergence.cohortThreshold algorithm environment)
+        observation <-
+          TrainingBudget.measureCriterion
+            rlMedianFinalRewardMetric
+            TrainingBudget.MetricMaximise
+            (RLConvergence.literatureTarget threshold - RLConvergence.slack threshold)
+            (RLConvergence.literatureTarget threshold)
+        Right [observation]
+  gradeCriterion expected =
+    let matching =
+          filter
+            ((== TrainingBudget.coMetricName expected) . TrainingBudget.coMetricName)
+            observations
+     in [ "stored RL convergence requires exactly one observation of "
+            <> TrainingBudget.coMetricName expected
+            <> ", found "
+            <> Text.pack (show (length matching))
+        | length matching /= 1
+        ]
+          <> concatMap (gradeObservation expected) matching
+  gradeObservation expected observation =
+    case TrainingBudget.remeasureCriterion (TrainingBudget.coMetricValue observation) expected of
+      Left err -> [err]
+      Right remeasured ->
+        [ "stored RL convergence observation does not match its own cohort criterion: "
+            <> TrainingBudget.coMetricName observation
+        | not (TrainingBudget.sameConvergenceCriterion observation remeasured)
+        ]
+          <> [ "stored RL convergence observation does not pass its own cohort criterion: "
+                 <> TrainingBudget.coMetricName observation
+             | not (TrainingBudget.convergencePassed remeasured)
+             ]
 
 -- | Grade a completed observation set against one ProductRow's own bar.
 --

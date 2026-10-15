@@ -1,0 +1,14 @@
+#!/bin/bash
+# Run inside the project container after the active build/tests are finished.
+set -euo pipefail
+if [[ $# -lt 3 || $# -gt 4 ]]; then
+  echo 'usage: run-generic-rl-inspector.sh CHECKPOINT_ROOT EXPERIMENT_HASH EXPECTED_SEED [EXPECTED_MANIFEST_SHA]' >&2
+  exit 2
+fi
+artifact_dir=.build/phase278-inspector
+mkdir -p "$artifact_dir/obj"
+cabal exec -- ghc-9.12.4 -O0 -package jitml \
+  -outputdir "$artifact_dir/obj" \
+  "$artifact_dir/InspectGenericRL.hs" \
+  -o "$artifact_dir/inspect-generic-rl"
+exec "$artifact_dir/inspect-generic-rl" "$@"

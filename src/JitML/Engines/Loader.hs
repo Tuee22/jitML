@@ -26,6 +26,7 @@ import Path (toFilePath)
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
+  , getCurrentDirectory
   , removeFile
   , removePathForcibly
   , renameFile
@@ -37,9 +38,11 @@ import System.Posix.DynamicLinker (DL, RTLDFlags (RTLD_NOW), dlopen, dlsym)
 import System.Posix.Process (getProcessID)
 
 import JitML.Cache.Key qualified as Cache
+import JitML.Cache.Layout qualified as CacheLayout
 import JitML.Codegen.RuntimeSource
   ( RuntimeSource (..)
   , materializeRuntimeSource
+  , runtimeSourceDirectory
   )
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CudaRuntime (probeNvccVersion)
@@ -47,10 +50,8 @@ import JitML.Engines.Engine
   ( Engine (..)
   , JitCacheStatus (..)
   , KernelHandle (..)
-  , compileSubprocess
-  , renderedScratchDirectory
-  , renderedStagingPath
-  , resolveKernelCache
+  , compileSubprocessAtSourceDirectory
+  , kernelHandleFor
   )
 import JitML.Env.Env (Env (..))
 import JitML.Sub.Outcome (ProcessFailure, ProcessOutcome (..), renderProcessFailure)
@@ -84,6 +85,37 @@ renderKernelArtifactError (KernelArtifactSemanticError message) = message
 ensureKernelArtifact
   :: Env -> Engine -> RuntimeSource -> Cache.Hash -> IO (Either KernelArtifactError KernelArtifact)
 ensureKernelArtifact env engine source hash = do
+  cwd <- getCurrentDirectory
+  artifactFile <-
+    CacheLayout.cachePath
+      (envCacheDir env)
+      (engineSubstrate engine)
+      hash
+      (Cache.Extension (engineArtifactExtension engine))
+  sourceDirectory <- runtimeSourceDirectory env source hash
+  let artifactPath = FilePath.makeRelative cwd (toFilePath artifactFile)
+      sourcePath = FilePath.makeRelative cwd (FilePath.dropTrailingPathSeparator (toFilePath sourceDirectory))
+      handle =
+        (kernelHandleFor engine hash)
+          { kernelHandleArtifactPath = Text.pack artifactPath
+          }
+      renderedCommand =
+        compileSubprocessAtSourceDirectory
+          engine
+          source
+          sourcePath
+          ( FilePath.makeRelative
+              cwd
+              (toFilePath (envCacheDir env) FilePath.</> "jit-scratch" FilePath.</> "<compile>")
+          )
+          (artifactPath <> ".<compile>.partial")
+      artifactFor status compiled =
+        KernelArtifact
+          { kernelArtifactHandle = handle
+          , kernelArtifactStatus = status
+          , kernelArtifactCompiled = compiled
+          , kernelArtifactCompileCommand = renderSubprocess renderedCommand
+          }
   artifactPresent <- doesFileExist artifactPath
   -- Sprint `78.1`: an artifact is a cache hit only if the toolchain that
   -- produced it is the toolchain present now. The cache key cannot carry the
@@ -93,10 +125,14 @@ ensureKernelArtifact env engine source hash = do
   -- cache-*key* change: the published six-tuple is untouched.
   toolchainCurrent <- artifactToolchainMatches engine artifactPath
   let artifactExists = artifactPresent && toolchainCurrent
-  case resolveKernelCache engine source hash artifactExists of
-    hit@(JitCacheHit hitHandle) ->
-      pure (Right (artifactFor hitHandle hit False))
-    miss@(JitCacheMiss missedHandle _) -> do
+      status =
+        if artifactExists
+          then JitCacheHit handle
+          else JitCacheMiss handle renderedCommand
+  case status of
+    JitCacheHit _ ->
+      pure (Right (artifactFor status False))
+    JitCacheMiss _ _ -> do
       createDirectoryIfMissing True (takeDirectory artifactPath)
       -- Sprint `79.1`: dispatch on the profile's `ArtifactFill` value rather
       -- than on a wildcard over `Substrate`. A fourth substrate now fails the
@@ -111,49 +147,36 @@ ensureKernelArtifact env engine source hash = do
             written <- writeAppleMetalMetadata source stagingPath
             pure $
               case written of
-                Right () -> Right (artifactFor missedHandle miss True)
+                Right () -> Right (artifactFor status True)
                 Left err ->
                   Left
                     ( KernelArtifactSemanticError
                         ( "Apple Silicon Metal source metadata write failed for "
-                            <> kernelHandleArtifactPath missedHandle
+                            <> kernelHandleArtifactPath handle
                             <> ": "
                             <> err
                         )
                     )
           CompileSubprocessFill -> do
-            _sourceDirectory <- materializeRuntimeSource env source hash
+            materializedSourceDirectory <- materializeRuntimeSource env source hash
             withCompileScratchDirectory env hash $ \scratchDir -> do
-              let command = compileSubprocess engine source hash scratchDir stagingPath
+              let command =
+                    compileSubprocessAtSourceDirectory
+                      engine
+                      source
+                      ( FilePath.makeRelative
+                          cwd
+                          (FilePath.dropTrailingPathSeparator (toFilePath materializedSourceDirectory))
+                      )
+                      scratchDir
+                      stagingPath
               outcome <- runStreaming defaultSubprocessEnv command
               case outcome of
                 ProcessFailed failure ->
                   pure (Left (KernelArtifactProcessFailure failure))
                 ProcessSucceeded _ -> do
                   recordArtifactToolchain engine artifactPath
-                  pure (Right (artifactFor missedHandle miss True))
- where
-  handle = case resolveKernelCache engine source hash False of
-    JitCacheMiss missedHandle _ -> missedHandle
-    JitCacheHit hitHandle -> hitHandle
-  artifactPath = Text.unpack (kernelHandleArtifactPath handle)
-  compileCommandText =
-    renderSubprocess
-      ( compileSubprocess
-          engine
-          source
-          hash
-          renderedScratchDirectory
-          (renderedStagingPath engine hash)
-      )
-
-  artifactFor handle' status compiled =
-    KernelArtifact
-      { kernelArtifactHandle = handle'
-      , kernelArtifactStatus = status
-      , kernelArtifactCompiled = compiled
-      , kernelArtifactCompileCommand = compileCommandText
-      }
+                  pure (Right (artifactFor status True))
 
 -- | Run a fill against a per-invocation staging path and publish it by rename.
 --

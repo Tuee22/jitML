@@ -1,0 +1,22 @@
+ Container jitml-jitml-run-df3078a4eecc Creating 
+ Container jitml-jitml-run-df3078a4eecc Created 
+file: DEVELOPMENT_PLAN/attestations/phase278-20261014-linux-cpu/daemon/coordinator-training-topic-stats.json
+key: files.whitespace
+message: trailing whitespace or missing final newline
+remedy: run `jitml lint files --write`
+
+file: DEVELOPMENT_PLAN/attestations/phase278-20261014-linux-cpu/daemon/focused-daemon-KnZ3sZvU/daemon-publication.before.json
+key: files.whitespace
+message: trailing whitespace or missing final newline
+remedy: run `jitml lint files --write`
+
+file: DEVELOPMENT_PLAN/attestations/phase278-20261014-linux-cpu/daemon/ready-cluster-reconcile-stamp.json
+key: files.whitespace
+message: trailing whitespace or missing final newline
+remedy: run `jitml lint files --write`
+
+file: DEVELOPMENT_PLAN/attestations/phase278-20261014-linux-cpu/daemon/ready-cluster-publication.json
+key: files.whitespace
+message: trailing whitespace or missing final newline
+remedy: run `jitml lint files --write`
+

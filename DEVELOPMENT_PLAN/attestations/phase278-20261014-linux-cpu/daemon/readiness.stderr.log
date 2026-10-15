@@ -1,0 +1,25 @@
++ run=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
++ helper=/home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh
++ cp /home/ubuntu/jitML/.build/runtime/cluster-publication.json /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/ready-cluster-publication.json
++ find /home/ubuntu/jitML/.build/runtime -maxdepth 1 -type f -name '*reconcile*' -print
++ date -u +%Y-%m-%dT%H:%M:%SZ
++ hostname
++ nproc
++ free -b
++ df -B1 /home/ubuntu/jitML
++ docker inspect jitml-linux-cpu-control-plane jitml-linux-cpu-worker --format '{{.Name}} memory={{.HostConfig.Memory}} nanoCPUs={{.HostConfig.NanoCpus}} image={{.Image}}'
++ docker stats --no-stream --format '{{.Name}} cpu={{.CPUPerc}} memory={{.MemUsage}} block={{.BlockIO}}' jitml-linux-cpu-control-plane jitml-linux-cpu-worker
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig get deployments -n platform -o json
++ python3 -c 'import sys,json; j=json.load(sys.stdin); print(json.dumps([{"name":d["metadata"]["name"],"replicas":d["spec"].get("replicas"),"readyReplicas":d["status"].get("readyReplicas",0),"availableReplicas":d["status"].get("availableReplicas",0),"images":[c["image"] for c in d["spec"]["template"]["spec"]["containers"]]} for d in j["items"]],sort_keys=True,indent=2))'
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig logs -n platform deployment/jitml-coordinator --tail=120
++ for deployment in jitml-service jitml-coordinator jitml-demo
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform deployment/jitml-service -- sha256sum /usr/local/bin/jitml /proc/1/exe
++ cat /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/jitml-service-ready-binary-sha256.txt
++ for deployment in jitml-service jitml-coordinator jitml-demo
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform deployment/jitml-coordinator -- sha256sum /usr/local/bin/jitml /proc/1/exe
++ cat /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/jitml-coordinator-ready-binary-sha256.txt
++ for deployment in jitml-service jitml-coordinator jitml-demo
++ /home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig exec -n platform deployment/jitml-demo -- sha256sum /usr/local/bin/jitml /proc/1/exe
++ cat /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/jitml-demo-ready-binary-sha256.txt
++ curl --silent --show-error --max-time 10 --fail --output /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/readyz.body.txt --dump-header /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/readyz.headers.txt --write-out 'edge_readyz_http=%{http_code}\n' http://127.0.0.1:9091/readyz
++ cat /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/ready-resource-evidence.txt

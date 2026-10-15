@@ -1,0 +1,21 @@
+{
+  "container_statuses": [
+    {
+      "containerID": "containerd://7d24724c978c9c1217200e2c13dce2f917a79bf70727c733619f4a8d99581140",
+      "image": "docker.io/library/jitml-demo:local",
+      "imageID": "sha256:038da0f26ff9b8657d248e7b9fb2c56769d9dba9cc018d884dd76d0496b37c8b",
+      "name": "jitml-coordinator",
+      "ready": false,
+      "restartCount": 0
+    }
+  ],
+  "images": [
+    {
+      "image": "jitml:local",
+      "name": "jitml-coordinator"
+    }
+  ],
+  "node": "jitml-linux-cpu-worker",
+  "pod": "jitml-coordinator-5bb97b8c6-tvvm9",
+  "uid": "3a07dce2-d3a0-46d9-8ada-bb2563fc4f32"
+}

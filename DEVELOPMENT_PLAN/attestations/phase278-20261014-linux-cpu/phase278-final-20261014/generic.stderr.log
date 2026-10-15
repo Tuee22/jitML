@@ -1,0 +1,12 @@
+ Container jitml-jitml-run-2b2e8fc8d839 Creating 
+ Container jitml-jitml-run-2b2e8fc8d839 Created 
+invalid config: RL substrate device unavailable for trainer ppo: mlp-onednn compile failed: command: g++ -std=c++20 -O2 -fPIC -shared -DJITML_DETERMINISTIC_REDUCTIONS=1 -o .build/jit/linux-cpu/b945148053a10200e73aaca13121deeb46b184d17524ce7869f3140bbde81120.so.1-1.partial .build/jit-src/linux-cpu/b945148053a10200e73aaca13121deeb46b184d17524ce7869f3140bbde81120/kernel.cc -ldnnl
+exit: 1
+working-directory: (inherited)
+duration-nanoseconds: 5457861
+stdout: (none)
+stderr: cc1plus: fatal error: .build/jit-src/linux-cpu/b945148053a10200e73aaca13121deeb46b184d17524ce7869f3140bbde81120/kernel.cc: No such file or directory
+compilation terminated.
+
+
+

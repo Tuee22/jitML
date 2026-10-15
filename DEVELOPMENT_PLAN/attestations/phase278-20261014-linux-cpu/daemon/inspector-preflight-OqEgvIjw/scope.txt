@@ -1,0 +1,1 @@
+Task-only inspector preflight against retained CLI artifact passed; no daemon invocation and no standing integration record.

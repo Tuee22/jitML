@@ -1,0 +1,1 @@
+bash /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014/running-rl-worker-proof.sh

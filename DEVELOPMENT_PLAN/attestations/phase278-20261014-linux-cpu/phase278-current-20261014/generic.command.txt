@@ -1,0 +1,1 @@
+docker compose run --rm jitml jitml --cache-dir .build/phase278-generic-rl rl train experiments/cartpole.dhall --substrate linux-cpu --seed 42 

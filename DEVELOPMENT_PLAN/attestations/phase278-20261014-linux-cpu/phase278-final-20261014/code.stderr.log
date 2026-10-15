@@ -1,0 +1,20 @@
+ Container jitml-jitml-run-b2bf74a007e0 Creating 
+ Container jitml-jitml-run-b2bf74a007e0 Created 
+file: src
+key: haskell.hlint
+message: hlint reported hints
+remedy: command: /opt/jitml-style-tools/bin/hlint --with-group=default --with-group=extra --hint .hlint.yaml src app test
+exit: 1
+working-directory: (inherited)
+duration-nanoseconds: 115719897746
+stdout: test/unit/ProductTruthScanner.hs:(1239,86)-(1240,56): Suggestion: Use >=>
+Found:
+  \ root -> gateFindings root >>= (@?= [(path, measured)])
+Perhaps:
+  (gateFindings Control.Monad.>=> (@?= [(path, measured)]))
+
+1 hint
+
+stderr: (none)
+
+

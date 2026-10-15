@@ -1,0 +1,72 @@
+Build profile: -w ghc-9.12.4 -O1
+In order, the following will be built (use -v for more details):
+ - jitml-0.1.0.0 (lib) (configuration changed)
+ - jitml-0.1.0.0 (exe:jitml) (configuration changed)
+Configuring library for jitml-0.1.0.0...
+Preprocessing library for jitml-0.1.0.0...
+Building library for jitml-0.1.0.0...
+Configuring executable 'jitml' for jitml-0.1.0.0...
+Preprocessing executable 'jitml' for jitml-0.1.0.0...
+Building executable 'jitml' for jitml-0.1.0.0...
+status: 63 Done / 1 Active / 0 Planned / 6 Blocked across 70 sprints
+legacy attested: 63 sprint(s), frozen and shrink-only; legacy attestation never mints a Done
+open chain: 278 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289
+closure: refused (37 unmet obligations)
+docs check and check-code are computed when they run, never attested
+sprint 278.1 Active - External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance
+  work: started
+  proven  lane-journal linux-cpu: DEVELOPMENT_PLAN/attestations/linux-cpu-product-lane-journal.json sha256=438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff
+  proven  lane-journal linux-cuda: DEVELOPMENT_PLAN/attestations/linux-cuda-product-lane-journal.json sha256=5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48
+  unmet   lane-journal apple-silicon: stale: apple-silicon PPO/key-door-grid contract_sha256 expected 585566e8bf901898aa24b2f1c00bc172fb93d262bd049f52b3284b476fafe1ad but evidence carries 8d167dc71213e30263c572f35973d8da8f012b113bd32b1762c53acc378ff0f4
+  unmet   lane-journal apple-silicon: stale: apple-silicon A2C/key-door-grid contract_sha256 expected 5092b347f3e4af249ea2f6bf2e82d841caad821191ce9977d6af008a6f6e45fb but evidence carries 5f7949fb0537df8a71c2243f417fd6de3f1c73fd33c26be941dd0d7c9202cb97
+  unmet   lane-journal apple-silicon: stale: apple-silicon TRPO/cartpole contract_sha256 expected 677b593f8860e54a622891ba031d2bb350a4b753bd7fb241d467bebcd9233355 but evidence carries 5fe2b9ff5173067701b2d5cefd79f750202f97b62da49141c43ab2e8e40648d9
+  unmet   product-aggregate: stale: linux-cpu journal pin embedded in the retained aggregate expected 438931ad8c49e1e7365e441ae519fc02df4443895416c80b599c50f89dac05ff but evidence carries f1bdb6d7941327e44ab9045c45d6f73dfaa96aa37e01234eb4f3969f8e5eb273
+  unmet   product-aggregate: stale: linux-cuda journal pin embedded in the retained aggregate expected 5637c4dc37fdbbecc639572e75ef46887541a0769856289611f2d130faf7dd48 but evidence carries e90dd1cdd633050987775e9566099ea7307abfdd8e2dd0f3a3d0326c85e4e6ea
+  unmet   product-aggregate: stale: apple-silicon PPO/key-door-grid contract_sha256 expected 585566e8bf901898aa24b2f1c00bc172fb93d262bd049f52b3284b476fafe1ad but evidence carries 8d167dc71213e30263c572f35973d8da8f012b113bd32b1762c53acc378ff0f4
+  unmet   product-aggregate: stale: apple-silicon A2C/key-door-grid contract_sha256 expected 5092b347f3e4af249ea2f6bf2e82d841caad821191ce9977d6af008a6f6e45fb but evidence carries 5f7949fb0537df8a71c2243f417fd6de3f1c73fd33c26be941dd0d7c9202cb97
+  unmet   product-aggregate: stale: apple-silicon TRPO/cartpole contract_sha256 expected 677b593f8860e54a622891ba031d2bb350a4b753bd7fb241d467bebcd9233355 but evidence carries 5fe2b9ff5173067701b2d5cefd79f750202f97b62da49141c43ab2e8e40648d9
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+  unmet   external-context: external: Apple Silicon execution context
+  unmet   external-context: external: Independent supervised convergence-anchor review
+  unmet   external-context: external: Live generic RL CLI and daemon validation
+sprint 280.1 Blocked - RunContract Negative Controls - Request and Event Fixtures
+  work: started
+  unmet   upstream-sprint 278.1: awaits sprint 278.1
+  proven  no-pending-controls phase 280: pendingProductionControls (src/JitML/Test/NegativeControls/Pending.hs)
+  unmet   gate-transcript jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+sprint 281.1 Blocked - RunContract Negative Controls - Journal Fixtures and Reducer Properties
+  work: started
+  unmet   upstream-sprint 280.1: awaits sprint 280.1
+  proven  no-pending-controls phase 281: pendingProductionControls (src/JitML/Test/NegativeControls/Pending.hs)
+  unmet   gate-transcript jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+sprint 282.1 Blocked - RunContract Negative Controls - Lifecycle and Per-Row Registration
+  work: started
+  unmet   upstream-sprint 281.1: awaits sprint 281.1
+  proven  no-pending-controls phase 282: pendingProductionControls (src/JitML/Test/NegativeControls/Pending.hs)
+  unmet   gate-transcript jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+sprint 285.1 Blocked - Contract-Driven Per-Model Evidence
+  work: started
+  unmet   upstream-sprint 282.1: awaits sprint 282.1
+  unmet   gate-transcript jitml-model-convergence linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-model-convergence.linux-cpu.json
+  unmet   gate-transcript jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+sprint 288.1 Blocked - Journal-Derived Status Registry
+  work: started
+  unmet   upstream-sprint 285.1: awaits sprint 285.1
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+  unmet   gate-transcript jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+sprint 289.1 Blocked - Evidence-Typed Report Measurements
+  work: started
+  unmet   upstream-sprint 288.1: awaits sprint 288.1
+  unmet   gate-transcript jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+  unmet   gate-transcript jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+  unmet   gate-transcript jitml-model-convergence linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-model-convergence.linux-cpu.json
+  unmet   gate-transcript jitml-e2e linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-e2e.linux-cpu.json
+standing obligations guard the closure verdict:
+  unmet   standing-gate jitml-unit linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-unit.linux-cpu.json
+  unmet   standing-gate jitml-negative-controls linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-negative-controls.linux-cpu.json
+  unmet   standing-gate jitml-model-convergence linux-cpu: missing: DEVELOPMENT_PLAN/attestations/validation/jitml-model-convergence.linux-cpu.json
+  unmet   pending-removal-ledger-clear: incomplete: DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md: 18 row(s) remain in Pending Removal

@@ -1,0 +1,3 @@
+inspector: Uncaught exception ghc-internal:GHC.Internal.IO.Exception.IOException:
+
+user error (completion lacks a measured device witness)

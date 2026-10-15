@@ -1,0 +1,6 @@
+set -euo pipefail
+run=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+helper=/home/ubuntu/jitml-validation/phase278-cpu-runtime/run-sealed.sh
+"$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig logs -n platform deployment/jitml-coordinator --tail=80 > "$run/coordinator-bootstrap-current.log" 2> "$run/coordinator-bootstrap-current.stderr.log"
+cat "$run/coordinator-bootstrap-current.log"
+"$helper" kubectl --kubeconfig /home/ubuntu/jitML/.build/jitml.kubeconfig get events -n platform --sort-by=.metadata.creationTimestamp | tail -n 35

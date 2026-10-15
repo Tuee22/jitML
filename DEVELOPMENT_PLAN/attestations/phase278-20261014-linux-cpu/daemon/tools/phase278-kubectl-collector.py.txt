@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Task-only cleanup hook: retain exact stopped-worker bytes before Job deletion."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+REAL = '/usr/local/bin/kubectl'
+args = sys.argv[1:]
+def option(name, default=None):
+    for index, value in enumerate(args):
+        if value == name and index + 1 < len(args):
+            return args[index + 1]
+        if value.startswith(name + '='):
+            return value[len(name) + 1:]
+    return default
+job = None
+for index in range(len(args) - 2):
+    if args[index:index+2] == ['delete', 'job']:
+        candidate = args[index+2]
+        if re.fullmatch(r'jitml-rl-livecv[a-z0-9]{10}', candidate):
+            job = candidate
+namespace = option('-n', option('--namespace'))
+if job and namespace == 'platform':
+    try:
+        experiment = job[len('jitml-rl-'):]
+        root = Path(os.environ['PHASE278_CAPTURE_ROOT']).resolve()
+        target = root / experiment
+        target.mkdir(parents=True, exist_ok=True)
+        kube = ['--kubeconfig', option('--kubeconfig', './.build/jitml.kubeconfig'), '-n', 'platform']
+        def kubectl_json(*tail):
+            return json.loads(subprocess.check_output([REAL, *kube, *tail, '-o', 'json'], stdin=subprocess.DEVNULL))
+        job_data = kubectl_json('get', 'job', job)
+        pods = kubectl_json('get', 'pods', '-l', 'job-name=' + job)['items']
+        owned = [pod for pod in pods if any(owner.get('uid') == job_data['metadata']['uid'] and owner.get('kind') == 'Job' for owner in pod['metadata'].get('ownerReferences', []))]
+        if len(owned) != 1:
+            raise RuntimeError('expected exactly one Pod owned by the exact Job UID')
+        pod = owned[0]
+        worker_specs = [spec for spec in pod['spec']['containers'] if spec['name'] == 'rl']
+        if len(worker_specs) != 1 or worker_specs[0].get('image') != 'jitml:local' or worker_specs[0].get('command') != ['jitml'] or worker_specs[0].get('args') != ['rl', 'train', experiment]:
+            raise RuntimeError('exact Job does not carry the production generic RL worker invocation')
+        node = pod['spec']['nodeName']
+        if node not in {'jitml-linux-cpu-control-plane', 'jitml-linux-cpu-worker'}:
+            raise RuntimeError('unexpected Kind node')
+        statuses = [status for status in pod['status']['containerStatuses'] if status['name'] == 'rl']
+        if len(statuses) != 1 or statuses[0]['state'].get('terminated', {}).get('exitCode') != 0:
+            raise RuntimeError('RL worker did not terminate successfully')
+        container_id = statuses[0]['containerID'].removeprefix('containerd://')
+        if not re.fullmatch(r'[0-9a-f]{64}', container_id):
+            raise RuntimeError('invalid containerd identity')
+        container = json.loads(subprocess.check_output(['docker', 'exec', node, 'ctr', '-n', 'k8s.io', 'containers', 'info', container_id], stdin=subprocess.DEVNULL))
+        snapshot_key = container.get('SnapshotKey', container.get('snapshot_key'))
+        snapshotter = container.get('Snapshotter', container.get('snapshotter'))
+        if snapshotter != 'overlayfs' or not isinstance(snapshot_key, str) or not snapshot_key:
+            raise RuntimeError('worker is not an identified overlayfs snapshot')
+        # This prints mount metadata; it does not execute the printed mount command.
+        mounts = subprocess.check_output(['docker', 'exec', node, 'ctr', '-n', 'k8s.io', 'snapshots', '--snapshotter', snapshotter, 'mounts', '/jitml-phase278-unmounted-inspection', snapshot_key], stdin=subprocess.DEVNULL, text=True)
+        candidates = re.findall(r'upperdir=(/var/lib/containerd/io\.containerd\.snapshotter\.v1\.overlayfs/snapshots/[0-9]+/fs)(?=[,\s\"\']|$)', mounts)
+        if len(set(candidates)) != 1:
+            raise RuntimeError('cannot identify one exact snapshot upperdir')
+        upperdir = candidates[0]
+        process_cwd = container.get('Spec', {}).get('process', {}).get('cwd')
+        if process_cwd != '/jitml':
+            raise RuntimeError('actual worker cwd is not the verified checkpoint cache root parent')
+        checkpoint_root = upperdir + '/jitml/.build/checkpoints'
+        archive = target / 'producer-checkpoints.tar.gz'
+        with archive.open('wb') as output:
+            subprocess.run(['docker', 'exec', node, 'tar', '-C', checkpoint_root, '-czf', '-', '--', 'jitml-checkpoints/' + experiment], stdin=subprocess.DEVNULL, stdout=output, check=True)
+        config = kubectl_json('get', 'configmap', 'runconfig-' + job)
+        (target / 'RunConfig.dhall').write_text(config['data']['RunConfig.dhall'])
+        provenance = {'experiment': experiment, 'job_name': job, 'job_uid': job_data['metadata']['uid'], 'pod_name': pod['metadata']['name'], 'pod_uid': pod['metadata']['uid'], 'node': node, 'container_id': container_id, 'image_id': statuses[0].get('imageID'), 'requested_image': worker_specs[0]['image'], 'worker_command': worker_specs[0]['command'], 'worker_args': worker_specs[0]['args'], 'actual_process_cwd': process_cwd, 'checkpoint_cache_root': '/jitml/.build/checkpoints', 'terminated': statuses[0]['state']['terminated'], 'snapshot_key': snapshot_key, 'snapshotter': snapshotter, 'snapshot_upperdir': upperdir, 'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(), 'captured_before_job_delete': True}
+        (target / 'producer-provenance.json').write_text(json.dumps(provenance, sort_keys=True) + '\n')
+        (target / 'snapshot-mounts.txt').write_text(mounts)
+        subprocess.run([REAL, *kube, 'logs', 'pod/' + pod['metadata']['name'], '-c', 'rl'], stdin=subprocess.DEVNULL, stdout=(target / 'worker.stdout').open('wb'), stderr=(target / 'worker.stderr').open('wb'), check=True)
+        print('phase278: retained actual producer snapshot for ' + experiment, file=sys.stderr)
+    except Exception as error:
+        print('phase278: collection failed before Job deletion: ' + str(error), file=sys.stderr)
+        sys.exit(74)
+os.execv(REAL, [REAL, *args])
+

@@ -16,6 +16,7 @@
 -- by mutating them.
 module ProductTruthScanner (productTruthScannerTests) where
 
+import Control.Monad ((>=>))
 import Data.Foldable (for_)
 import Data.List (sort)
 import Data.Text (Text)
@@ -1210,6 +1211,7 @@ repositoryTests =
           ( all
               (`elem` sources)
               [ "src/JitML/Product/Matrix.hs"
+              , "src/JitML/Product/Convergence.hs"
               , "src/JitML/RL/ConvergenceThresholds.hs"
               , "src/JitML/SL/ConvergenceThresholds.hs"
               ]
@@ -1222,16 +1224,22 @@ repositoryTests =
         for_ sources $ \path -> do
           source <- Text.IO.readFile path
           fmap findingKey (ProductTruth.scanProductTruthSourceText path source) @?= []
-    , testCase "the real registry is analysed: a measured tuning target is found" $ do
-        let path = "src/JitML/Product/Matrix.hs"
+    , testCase "the real shared tuning policy is analysed: a measured target is found" $ do
+        let path = "src/JitML/Product/Convergence.hs"
+            registryPath = "src/JitML/Product/Matrix.hs"
+        registry <- sourceOf registryPath
+        Text.count "(canonicalTuningObjectiveBar \"best_objective\")" registry @?= 1
         source <- sourceOf path
         fmap findingKey (ProductTruth.scanProductTruthSourceText path source) @?= []
         mutated <-
           replaceOnce
-            "(mkConvergenceBar \"best_objective\" MetricMaximise 1.0 0.05)"
-            "(mkConvergenceBar \"best_objective\" MetricMaximise measuredObjective 0.05)"
+            "mkConvergenceBar metricName MetricMaximise 1.0 0.05"
+            "mkConvergenceBar metricName MetricMaximise measuredObjective 0.05"
             source
         fmap findingKey (ProductTruth.scanProductTruthSourceText path mutated) @?= [measured]
+        withTree
+          [(path, Text.lines mutated), (registryPath, Text.lines registry)]
+          (gateFindings >=> (@?= [(path, measured)]))
     , testCase "the real registry is analysed: a helper-wrapped RL target is found" $ do
         let path = "src/JitML/Product/Matrix.hs"
         source <- sourceOf path

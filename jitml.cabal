@@ -621,6 +621,7 @@ test-suite jitml-backends
         safe-exceptions,
         tasty,
         tasty-hunit,
+        temporary,
         text,
         time,
         vector

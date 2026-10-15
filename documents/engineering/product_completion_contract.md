@@ -288,6 +288,27 @@ transition counters, partial or tail-only evaluation cohorts, missing
 thresholds, initialized-only checkpoints, and generic self-thresholded metric
 fallbacks cannot mint `CompletedTraining` for RL rows.
 
+Generic RL checkpoints carry the actual compiled plan in their completion,
+including the algorithm and environment. `bindCompletedTrainingToRlPlan`
+recompiles its canonical transport and binds its derived `PlanId` and exact
+environment-transition count to the completion, rejecting a contradictory
+budget seed when one is present. Raw completion decoding repeats
+those checks. Structural checkpoint admission then requires exactly the
+cohort's own convergence criteria, rejects another cohort's threshold and
+unrelated or duplicated observations, and re-evaluates each measurement. HER
+requires both goal success and achieved-goal distance. A generic RL completion
+without this plan cannot be admitted as completed. Canonical ProductRows retain
+their independent row-bound bar checks; unbound canonical RL completions also
+require the exact projected `PlanId` and budget for their measured device
+substrate. Renaming an experiment cannot substitute a generic run's cohort or
+authorize canonical row evidence. A manifest that claims an RL policy requires
+an environment-transition completion budget.
+
+The additional plan is carried by the nested `RawCompletedTraining` V3 DTO;
+unbound completions retain their exact V2 encoding, including the completions
+in retained ProductRow lane journals. This completion DTO version does not
+change the single checkpoint envelope or its payload variants.
+
 AlphaZero product rows are game-specific, not a single Connect 4 proxy. Connect
 4, Othello, Hex, and Gomoku each resolve their own initial state, observation
 shape, action count, self-play command (`--game <id>`), MCTS visit distribution

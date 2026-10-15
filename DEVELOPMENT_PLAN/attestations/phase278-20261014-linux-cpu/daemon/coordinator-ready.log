@@ -1,0 +1,102 @@
+service config: /etc/jitml/BootConfig.dhall
+lifecycle:
+  - load
+  - prereq
+  - acquire
+  - ready
+  - serve
+  - drain
+  - exit
+active_role:
+  role: coordinator
+  computes: false
+  owns_topics: true
+  serves_websocket: false
+
+boot_config:
+  { activeRole = < Engine | Coordinator | Webapp >.Coordinator
+  , substrate = "linux-cpu"
+  , residency = < Cluster | Host >.Cluster
+  , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
+  , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
+  , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
+  , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
+  , imageRegistry = "registry.platform.svc.cluster.local:5000/library"
+  , httpListener = Some { host = "0.0.0.0", port = 8080 }
+  , webappPulsarWsUrl = None Text
+  }
+
+live_config:
+  { logLevel = < Debug | Info | Warn | Error >.Info
+  , retryPolicy = < Once | LinearN : { attempts : Natural, delayMillis : Natural } | ExponentialN : { attempts : Natural, baseMillis : Natural, capMillis : Natural } | RetryUntil : { deadlineMillis : Natural } >.ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
+  , inferenceBatchSize = 64
+  , inferenceMaxLatencyMillis = 5000
+  , dedupCacheSize = 4096
+  , dedupCacheTtlSeconds = 3600
+  , drainDeadlineSeconds = 30
+  }
+
+apple_metal_acquire:
+  not_required
+
+client_acquisition:
+  minio_endpoint: http://minio.platform.svc.cluster.local:9000
+  minio_request_path_prefix: (none)
+  pulsar_websocket_endpoint: ws://pulsar-broker.platform.svc.cluster.local:8080/ws
+  pulsar_admin_endpoint: http://pulsar-proxy.platform.svc.cluster.local:80/admin/v2
+  registry_endpoint: registry.platform.svc.cluster.local:5000
+  registry_base_url: http://registry.platform.svc.cluster.local:5000
+  kubectl_kubeconfig: (in-cluster)
+  kubectl_namespace: platform
+
+client_probe_status:
+  - minio:list jitml-checkpoints: ok listed 0 objects
+  - registry:list library: ok listed 0 images
+  - kubectl:get pods: ok received 5601 lines
+
+pulsar_subscriptions:
+  - persistent://public/default/training.command.linux-cpu as jitml-coordinator
+  - persistent://public/default/tune.command.linux-cpu as jitml-coordinator
+  - persistent://public/default/rl.command.linux-cpu as jitml-coordinator
+
+daemon_state:
+  ready reconciled-topics=34 connected-consumers=3 client-probes=3
+
+http_listener:
+  0.0.0.0:8080
+
+routes:
+  - GET /healthz
+  - GET /readyz
+  - GET /metrics
+  - GET /
+
+healthz:
+  status: 200
+  ok
+  
+
+readyz:
+  status: 200
+  ready
+  
+
+metrics:
+  status: 200
+  # HELP jitml_pulsar_consumer_lag Pulsar consumer lag.
+  # TYPE jitml_pulsar_consumer_lag gauge
+  jitml_pulsar_consumer_lag 0
+  # HELP jitml_jit_cache_hits JIT cache hits.
+  # TYPE jitml_jit_cache_hits counter
+  jitml_jit_cache_hits 1
+  # HELP jitml_jit_cache_misses JIT cache misses.
+  # TYPE jitml_jit_cache_misses counter
+  jitml_jit_cache_misses 0
+  
+
+signals:
+  - SIGHUP: reload-live-config
+  - SIGINT: begin-graceful-drain
+  - SIGTERM: begin-graceful-drain
+{"daemonId":"jitml-1-10233468162618","level":"Info","lifecyclePhase":"ready","msg":"role ready: < Engine | Coordinator | Webapp >.Coordinator","ts":"2026-10-14 23:52:20.770963609 UTC"}
+service: listening on 0.0.0.0:8080

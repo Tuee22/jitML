@@ -182,6 +182,13 @@ statusOf :: StatusReport -> Text -> Maybe SprintStatus
 statusOf report sprint =
   projectionStatus <$> List.find ((== sprint) . projectionSprint) (reportProjections report)
 
+reasonsOf :: StatusReport -> Text -> [Unmet]
+reasonsOf report sprint =
+  maybe
+    []
+    (fmap refusalReason . Evidence.projectionOpen)
+    (List.find ((== sprint) . projectionSprint) (reportProjections report))
+
 statuses :: StatusReport -> [(Text, SprintStatus)]
 statuses report = [(projectionSprint p, projectionStatus p) | p <- reportProjections report]
 
@@ -239,6 +246,20 @@ withoutExternalObligations = fmap stripPhase
       _ -> entry
   isExternal (ExternalContext _) = True
   isExternal _ = False
+
+-- | Clear one named external prerequisite while retaining every other owned gap.
+withoutExternalContext :: Text -> [PhaseEntry] -> [PhaseEntry]
+withoutExternalContext description = fmap stripPhase
+ where
+  stripPhase phase = phase {entrySprints = fmap stripSprint (entrySprints phase)}
+  stripSprint entry =
+    case entryClosure entry of
+      Evidence.Evidenced work upstream obligations
+        | Just kept <-
+            NonEmpty.nonEmpty
+              (filter (/= ExternalContext description) (NonEmpty.toList obligations)) ->
+            entry {entryClosure = Evidence.Evidenced work upstream kept}
+      _ -> entry
 
 -- | The projection of the external-free real catalogue over an index.
 projectClosable :: EvidenceIndex -> StatusReport
@@ -424,11 +445,6 @@ statusRelationTests =
             /= Just Done
     ]
  where
-  reasonsOf report sprint =
-    maybe
-      []
-      (fmap refusalReason . Evidence.projectionOpen)
-      (List.find ((== sprint) . projectionSprint) (reportProjections report))
   isExternal (External _) = True
   isExternal _ = False
   isAwaiting (AwaitsSprint _) = True
@@ -1303,7 +1319,10 @@ pinnedEvidencedSprints =
       , LaneJournal AppleSilicon
       , Aggregate
       , GateTranscript JitmlUnit LinuxCPU
+      , GateTranscript JitmlBackends LinuxCPU
       , ExternalContext "Apple Silicon execution context"
+      , ExternalContext "Independent supervised convergence-anchor review"
+      , ExternalContext "Live generic RL CLI and daemon validation"
       ]
     )
   ,
@@ -3240,6 +3259,42 @@ productPhaseStatusRegistryTests =
         -- 278.1 still owns an external prerequisite, so it stays open: the chain
         -- head does not move on lane journals alone.
         take 1 (Evidence.openChain progressed) @?= ["278.1"]
+    , testCase "fresh Apple evidence cannot close unresolved supervised anchors" $ do
+        let catalogue =
+              withoutExternalContext
+                "Apple Silicon execution context"
+                PhaseStatus.productStatusCatalogue
+            report =
+              Evidence.projectStatusReport
+                catalogue
+                PhaseStatus.productStandingObligations
+                allProvenIndex
+        statusOf report "278.1" @?= Just Active
+        statusOf report "280.1" @?= Just Blocked
+        assertBool
+          "the independent anchor review remains an owned unmet obligation"
+          ( External "Independent supervised convergence-anchor review"
+              `elem` reasonsOf report "278.1"
+          )
+    , testCase "fresh journals do not replace generic RL live validation" $ do
+        let catalogue =
+              withoutExternalContext
+                "Independent supervised convergence-anchor review"
+                ( withoutExternalContext
+                    "Apple Silicon execution context"
+                    PhaseStatus.productStatusCatalogue
+                )
+            report =
+              Evidence.projectStatusReport
+                catalogue
+                PhaseStatus.productStandingObligations
+                allProvenIndex
+        statusOf report "278.1" @?= Just Active
+        assertBool
+          "the generic RL live validation remains an owned unmet obligation"
+          ( External "Live generic RL CLI and daemon validation"
+              `elem` reasonsOf report "278.1"
+          )
     , testCase "reports incomplete while any product sprint is open" $ do
         let open = PhaseStatus.productPhaseStatuses (PhaseStatus.projectProductStatus todayIndex)
             closed = PhaseStatus.productPhaseStatuses (projectClosable allProvenIndex)

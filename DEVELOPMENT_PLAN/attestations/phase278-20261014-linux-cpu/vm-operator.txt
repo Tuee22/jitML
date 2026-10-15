@@ -1,0 +1,45 @@
+Dedicated jitML validation VM, created 2026-10-14.
+QEMU/KVM guest inside the existing Ubuntu WSL2 distribution.
+Ubuntu 24.04 LTS official release cloud image, verified SHA256.
+Digest in image-checksum.txt; host evidence in provision-evidence.txt.
+
+Fixed guest RAM 48 GiB, QEMU memory cap 50 GiB, swap disabled.
+16 vCPU; host CPU model; affinity/allowed CPUs 0-15; CPU quota 1600%.
+300 GiB maximum sparse QCOW2 guest disk.
+CPU affinity contains VM work within selected WSL CPUs; CPUs are shared with
+other Windows/WSL processes. Global WSL settings have not been changed.
+SSH is exposed only on 127.0.0.1:2222. Docker runs independently in the guest.
+
+PowerShell invocation prefix: wsl -d Ubuntu -u root --
+Append /var/lib/jitml-validation/ssh hostname for guest hostname.
+Append /var/lib/jitml-validation/sync-repo to copy current source.
+Append /var/lib/jitml-validation/run-script LOCAL_WSL_SCRIPT_PATH for a
+multiline guest script. Scripts are transferred to guest bash via stdin.
+Append systemctl status jitml-validation.service for VM service status.
+Append tail -n 80 /var/lib/jitml-validation/console.log for guest console.
+
+Source destination is /home/ubuntu/jitML and is checked with realpath.
+sync-repo copies source, excludes .git/generated caches, restores executable
+modes from the index, and converts tracked i/lf files to LF in the guest.
+It keeps guest task-only files. The source filesystem is not mounted in guest.
+
+WSL requires an active client to stay alive. A hidden wsl.exe process maintains
+that client, with its initial Windows PID recorded in windows-keepalive.pid.
+After a Windows restart, recreate that hidden client and start the VM service.
+The service is enabled, so it starts when the WSL distribution starts.
+Use guest sudo poweroff for a graceful shutdown.
+
+Official references:
+https://cloud-images.ubuntu.com/releases/noble/release/
+https://www.qemu.org/docs/master/system/invocation.html
+https://docs.docker.com/engine/install/ubuntu/
+https://learn.microsoft.com/en-us/windows/wsl/systemd
+
+2026-10-14 validation update
+Supported Linux CPU bootstrap passed at 23:54:18 UTC using the task-sealed current CPU image. The guest cluster has all eight published components ready with live-readiness evidence and edge /readyz HTTP 200. Each Kind node is capped at 12 GiB RAM and 4 CPU; VM fixed limits remain 48 GiB RAM, 16 CPU, and 300 GiB maximum sparse qcow2 disk.
+Guest raw receipt/provenance directory: /home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+Sealed runtime build/provenance/helpers: /home/ubuntu/jitml-validation/phase278-cpu-runtime
+Ready guest disk free about 167 GiB. Dedicated WSL VM directory currently occupies about 123 GiB physically (sparse disk plus provision files).
+Runtime required jitml:local and jitml-demo:local aliases are the same sealed current CPU image; root's guest .env and external validation Compose override remain intact. Source code and active cache were not changed by bootstrap.
+Guest focused daemon diagnostic is separately owned by plan_audit; bootstrap readiness is not a full integration standing attestation or phase promotion.
+Persistent VM lifecycle remains WSL systemd jitml-validation.service plus existing hidden Windows keepalive process. The keepalive PID location remains /var/lib/jitml-validation/windows-keepalive.pid. No global WSL configuration was changed.

@@ -1,0 +1,66 @@
+Phase 278 Linux work, session started 2026-10-14 UTC.
+
+Scope: partial validation only. No phase is closed by this evidence.
+Final source digest algorithm 1:
+924e1535cc42eacc1c26ef83c8c92bab4807277a5b91b6164705bc3842777e5e
+Invoked current CPU CLI executable SHA-256:
+3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5
+
+Final gate receipts: phase278-final-gates-20261014/.
+Each invocation has command, start/end times, stdout, stderr, and exit status.
+unit: exit 1, 1503/1512 cases pass; nine stale Apple aggregate cases fail.
+backends: exit 0, 38/38 actual linux-cpu cases pass.
+docs: exit 0.
+code: exit 0.
+inspector: exit 0; physical Store admission plus generic completion inspection.
+status: exit 0 means the report printed; closure remains refused.
+
+Typed invocation records are retained byte-for-byte in ../validation/.
+jitml-unit.linux-cpu.json preserves the failed outcome and both complete streams.
+jitml-backends.linux-cpu.json is a passing standing CPU backend invocation.
+Post-retention docs/status checks confirm these are current, not stale records.
+These records do not substitute for any missing later-phase invocation.
+
+phase278-validated-20261014/generic.* retains the successful public RL CLI run.
+generic-checkpoints.tar retains its actual local checkpoint objects.
+The inspector reads fetched CBOR bytes and independently checks own-cohort
+criteria, recompiled PlanId, seed, observed transitions, and physical weights.
+It does not claim canonical ProductRow or generic inference eligibility.
+Experiment: 7c057009b7a87e438b26d35d683f0029fcc358a81bdc7379866aa3c412e66aad
+Manifest: 0bebdba14ee9b836f15083fedf73323c88fc732bd55e9dc964ccb774c2965b44
+PlanId: 0c94b0598515ee50d77ceddb926072261fd913d93047b14a4320b322827ded9c
+Nested completion DTO: V3; unchanged checkpoint envelope version.
+Seed 42; 1228800 environment transitions; 192000 optimizer updates;
+median final reward 500.0, own PPO/cartpole reward criterion >=450.
+
+Older run directories retain failed attempts and superseded diagnostics;
+their gates are not relabeled as final-source passes.
+vm-operator.txt and provision-evidence.txt describe the dedicated VM.
+retained-sha256.txt binds the checkpoint archive and typed records.
+
+Open: independent supervised convergence-anchor review, fresh real Apple lane,
+the resulting aggregate, and final phase closure validation including final
+standing integration evidence for the reviewed contracts.
+
+daemon/focused-daemon-KnZ3sZvU/ retains the authentic focused daemon invocation
+and exact stopped-worker snapshot, collected before its Job was deleted.
+Raw focused test: 1/1 passed in 508.66 seconds; process and inspection exit 0.
+Experiment: livecv1792022249
+Manifest: 541c429b0620636e327c24f565117d98c4b4cb6f2d57d61864af3abb0f4f1d00
+PlanId: c8cde5d7eb7c023ed9d599fce929389e3e53f954b2dc522b8015e0e59ef22380
+Nested completion V3; seed 42; maximum episode steps 2048; eval episodes 200.
+Observed and planned environment transitions: 4915200; optimizer updates: 768000.
+Exact episode keys 0..199; all rewards 2048; independent median 2048 >=450.
+Source stamps before and after match the final source digest above.
+The running worker's actual /proc/1/exe matches the final CLI executable above.
+The optional completion device witness is absent; CPU execution is evidenced
+by the genuine request, Pod/container/image/node identity and running binary.
+Physical admission and generic structural completion pass for the exact bytes.
+MinIO publication is absent; generic ProductRow/inference eligibility is not
+claimed. This focused run is not a standing integration validation record.
+The complete checkpoint objects remain in producer-checkpoints.tar.gz.
+Compiled diagnostic binaries and duplicate extracted checkpoint trees are kept
+in the task VM/external workspace; retained task sources have .txt suffixes.
+Four exact native JSON captures lacking a final newline have .json.raw suffixes;
+their contents are preserved rather than rewritten by whitespace formatting.
+daemon-retained-sha256.txt binds the retained runtime evidence files.

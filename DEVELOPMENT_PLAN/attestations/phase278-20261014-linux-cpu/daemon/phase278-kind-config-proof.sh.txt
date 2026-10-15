@@ -1,0 +1,24 @@
+set -euo pipefail
+python3 - <<'PY'
+import json,subprocess
+from pathlib import Path
+run=Path('/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014')
+index_digest='sha256:f709538736db832ed6e1cdec444399543f198708a570f3a61c6bcf4f97eb5b71'
+cli_sha='3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5'
+for node in ['jitml-linux-cpu-control-plane','jitml-linux-cpu-worker']:
+ def content(digest):
+  return json.loads(subprocess.check_output(['docker','exec',node,'ctr','--namespace','k8s.io','content','get',digest],stdin=subprocess.DEVNULL))
+ index=content(index_digest)
+ platforms=[m for m in index['manifests'] if m.get('platform')=={'architecture':'amd64','os':'linux'}]
+ assert len(platforms)==1
+ manifest_digest=platforms[0]['digest']
+ manifest=content(manifest_digest)
+ config_digest=manifest['config']['digest']
+ config=content(config_digest)
+ status=json.loads((run/f'{node}-jitml-image-status.json').read_text())
+ assert config_digest==status['id']
+ assert config['config']['Labels']['jitml.validation.cli-sha256']==cli_sha
+ result={'node':node,'docker_index_digest':index_digest,'platform_manifest_digest':manifest_digest,'config_digest':config_digest,'crictl_image_id':status['id'],'cli_sha256_label':cli_sha,'os':config['os'],'architecture':config['architecture']}
+ (run/f'{node}-jitml-image-config-link.json').write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
+ print(json.dumps(result,sort_keys=True,indent=2))
+PY

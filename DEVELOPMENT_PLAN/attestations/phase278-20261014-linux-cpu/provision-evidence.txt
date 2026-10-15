@@ -1,0 +1,29 @@
+﻿2026-10-14T21:05:03+00:00
+6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2  ubuntu-24.04-base.img
+ActiveState=active
+MainPID=758
+CPUQuotaPerSecUSec=16s
+AllowedCPUs=0-15
+MemoryMax=53687091200
+MemorySwapMax=0
+CPUAffinity=0-15
+image: guest.qcow2
+file format: qcow2
+virtual size: 300 GiB (322122547200 bytes)
+disk size: 1.58 GiB
+cluster_size: 65536
+backing file: /var/lib/jitml-validation/ubuntu-24.04-base.img
+backing file format: qcow2
+Format specific information:
+    compat: 1.1
+    compression type: zlib
+    lazy refcounts: false
+    refcount bits: 16
+    corrupt: false
+    extended l2: false
+Child node '/file':
+    filename: guest.qcow2
+    protocol type: file
+    file length: 1.58 GiB (1699610624 bytes)
+    disk size: 1.58 GiB
+2.6G	/var/lib/jitml-validation

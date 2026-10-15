@@ -1,0 +1,15 @@
+rl train: livecv1792022249
+algorithms: 15
+environment: cartpole
+trainer: ppo
+episodes: 200
+avg-reward: 2048.0000000000014
+overrides: (none)
+checkpoint-experiment-hash: livecv1792022249
+checkpoint-manifest-sha: 541c429b0620636e327c24f565117d98c4b4cb6f2d57d61864af3abb0f4f1d00
+checkpoint-manifest-body-sha: absent (V1/legacy)
+checkpoint-manifest-key: jitml-checkpoints/livecv1792022249/manifests/541c429b0620636e327c24f565117d98c4b4cb6f2d57d61864af3abb0f4f1d00.cbor
+checkpoint-pointer-key: jitml-checkpoints/livecv1792022249/pointers/latest
+rl-replay-artifact-sha: dbdac64c7224e95096a36bd05dbcf9e9cfb9a64ea09ccfed6e7baf3752761121
+rl-replay-artifact-key: jitml-checkpoints/livecv1792022249/artifacts/rl-trajectory/dbdac64c7224e95096a36bd05dbcf9e9cfb9a64ea09ccfed6e7baf3752761121.txt
+rl-replay-artifact-live-minio: no

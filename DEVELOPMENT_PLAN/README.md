@@ -20,53 +20,60 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-09-30 UTC).** Current status is derived from committed evidence,
-not typed here. `jitml docs status` prints the sprint-status counts, the open
-chain, and every unmet obligation with its evidence pointer, and `jitml docs check`
-refuses a closure claim while any obligation is unmet. At this checkpoint the
-derived registry is **63 Done / 1 Active / 0 Planned / 6 Blocked** across 70
-sprints and the open chain is `278 → 280 → 281 → 282 → 285 → 288 → 289`.
+**🔄 Active (2026-10-15 UTC).** Phase `278` remains the first open owner.
+`jitml docs status` derives the registry from retained evidence; the counts remain
+**63 Done / 1 Active / 0 Planned / 6 Blocked** across 70 sprints. The open chain is
+`278 → 280 → 281 → 282 → 285 → 288 → 289`; later phases stay Blocked under
+standards rule `M(c)`.
 
-**Why the chain is open.** Phase
-[`278`](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)
-(Active) tightened the `PPO/key-door-grid`, `A2C/key-door-grid`, and
-`TRPO/cartpole` bars, which made the retained lane journals stale for those rows'
-contract digests. The `linux-cuda` journal (2026-09-24, pin `5637c4dc…`) and the
-`linux-cpu` journal (2026-09-30, **60 / 60** in 45,478.60 s, pin `438931ad…`) were
-re-issued on the repository's Linux host. The `apple-silicon` journal needs a Mac
-session, so the three-lane aggregate cannot be regenerated and the nine
-`Journal-derived product aggregation (Phase 276)` unit cases stay red until it is.
-Under standards rule `M(c)` the later phases cannot close first, so `280`, `281`,
-`282`, `285`, `288`, and `289` stay Blocked although their implementations are in
-the worktree and pass their own stanzas.
+**Current Linux validation.** A dedicated Ubuntu 24.04 VM inside WSL2 provides
+48 GiB RAM, 16 virtual CPUs, and a 300 GiB virtual disk. On the final source,
+`jitml test jitml-unit --linux-cpu` passes **1,503 / 1,512** cases; all nine failures
+are the `Journal-derived product aggregation (Phase 276)` cases rejecting the
+stale Apple journal. `jitml test jitml-backends --linux-cpu` passes **38 / 38**,
+including a real cold-cache MLP test under a custom cache path. `jitml docs check`
+and `jitml check-code` pass. The unit gate remains failed; phase closure is unproven.
 
-**Next steps, in order.** (1) On a Mac, run the three changed `apple-silicon` rows
-singly, then issue the journal with the focused Phase `261` route
-([Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work)).
-(2) Pin the Apple journal, regenerate `attestations/product-aggregate.json`, and run
-each phase's Validation block in its container lane; the derived registry flips a
-phase only when its transcript records and journals exist. (3) Close `278 → 289` in
-numerical order, re-running the gates on the final tree each time.
+**Generic RL validation.** Compiled-plan binding passes 27 boundary controls and
+preserves retained CPU/CUDA V2 completion bytes. The real CartPole public CLI
+executes **1,228,800** environment transitions and **192,000** optimizer updates,
+with median reward **500** against its own **450** bar. Store re-admission and the
+fetched nested V3 proof pass inspection. Real bootstrap completes at
+**2026-10-14 23:54:18 UTC**: exit `0`, **115** steps, all **8** workloads Ready,
+and edge HTTP `200`. The task image adds the official guest Compose/Buildx plugins
+missing from the base image. The focused real daemon case passes **1 / 1** in
+**508.66 s** with **4,915,200** transitions, **768,000** updates, and independently
+derived median reward **2,048**. Exact captured worker bytes pass Store admission
+and bound V3 inspection; source and actual CLI hashes remain unchanged. These are
+completed scoped CLI/daemon checks, not a full standing integration record.
 
-**Validation at this checkpoint (2026-10-06, final tree).** `jitml test
-jitml-negative-controls --linux-cpu` **578 / 578**; `jitml test
-jitml-model-convergence --linux-cpu` **390 / 390** against the re-issued
-`linux-cpu` journal (the `apple-silicon` lane fails its 222 lane-dependent cases by
-design until a Mac re-issues its journal); `jitml test jitml-e2e --linux-cpu`
-**28 / 28** non-live; `jitml test jitml-unit --linux-cpu` **1,474 / 1,483**, the nine
-failures being the `Journal-derived product aggregation (Phase 276)` cases; `jitml
-docs check` ok, and the image build's embedded `jitml check-code` ok. The complete
-orchestrated live lane on a fresh `linux-cpu` cluster passed **197 / 198** integration
-cases, the one failure being the Apple aggregate case; with that case excluded as a
-diagnostic, Playwright (**77 / 77**) and the Haskell e2e suite (**28 / 28**) also pass
-end to end ([Phase 289](phase-289-evidence-typed-report-measurements.md#current-partial-validation)
-records the runs).
+**Why the chain is open.** Phase `278` tightened `PPO/key-door-grid`,
+`A2C/key-door-grid`, and `TRPO/cartpole`. CPU and CUDA journals were re-issued;
+the Apple journal retains stale contracts and two measurements below the current
+bars. It requires fresh passing execution on a real Mac before the three-lane
+aggregate and nine unit cases can pass. Phase `278` also owns independent
+supervised-anchor review: published results for different architectures and
+budgets do not justify replacement bars for the compact rows. Its explicit guard
+obligations keep that review and final formal validation open. The live
+ExternalContext remains Unproven pending replacement with a final full standing
+integration GateTranscript after contract review and lane refresh. Refreshing the
+Apple journal alone cannot close the phase.
 
-**Evidence and history.** Per-phase results live in the phase documents and the
-`attestations/` directory. The long closure narrative that used to fill this section
-is preserved in the
-[Historical Current-Status Diary](#historical-current-status-diary), moved verbatim
-except for one corrected paragraph.
+**Next steps, in order.** Complete independent anchor review. Re-issue affected
+real lane evidence if row contracts change, and run the three changed Apple rows
+before issuing the full Apple journal. Then pin that journal, regenerate the
+aggregate, and pass all four Phase `278` Validation commands and the full standing
+integration gate on the final source. Only after this phase closes may the
+remaining phases validate and close in numerical order.
+
+**Evidence and history.** Resources, exact commands, output streams, exit statuses,
+and the CLI checkpoint are retained under
+[attestations/phase278-20261014-linux-cpu/](attestations/phase278-20261014-linux-cpu/).
+Current findings and owned closing work are in
+[Phase 278 → Current Execution Checkpoint](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-execution-checkpoint)
+and [Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+Earlier validation narratives remain in the
+[Historical Current-Status Diary](#historical-current-status-diary).
 
 ## Historical Current-Status Diary
 

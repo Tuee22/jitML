@@ -1,0 +1,190 @@
+ Container jitml-jitml-run-6702543dac0d Creating 
+ Container jitml-jitml-run-6702543dac0d Created 
+file: DEVELOPMENT_PLAN/README.md
+key: closure-status.length
+message: the Closure Status section is 62 lines, over the cap of 60; rule N keeps it to status, gate commands, and links
+remedy: move dated narrative below the thin Closure Status section into the historical diary
+
+file: DEVELOPMENT_PLAN/README.md
+key: closure-status.length
+message: the Closure Status section is 62 lines, over the cap of 60; rule N keeps it to status, gate commands, and links
+remedy: move dated narrative below the thin Closure Status section into the historical diary
+
+file: src
+key: haskell.fourmolu
+message: fourmolu reported formatting drift
+remedy: command: /opt/jitml-style-tools/bin/fourmolu --no-cabal --ghc-opt -XGHC2024 --mode check src app test
+exit: 100
+working-directory: (inherited)
+duration-nanoseconds: 10151322441
+stdout: (none)
+stderr: Loaded config from: /jitml/fourmolu.yaml
+src/JitML/Checkpoint/Format.hs
+@@ -123,13 +123,13 @@
+    , validationToEither
+    )
+  import JitML.Plan.Workload qualified as WorkloadPlan
++ import JitML.Product.DeviceWitness qualified as DeviceWitness
+  import JitML.Product.Evidence
+    ( TrainingEvidence
+    , evidenceObservationsMatch
+    , evidenceUpdateCount
+    , mkTrainingEvidence
+    )
+- import JitML.Product.DeviceWitness qualified as DeviceWitness
+  import JitML.Product.ExternalBars qualified as ExternalBars
+  import JitML.Product.Matrix qualified as ProductMatrix
+  import JitML.SL.Canonicals qualified as Canonicals
+src/JitML/Training/Budget.hs
+@@ -317,7 +317,10 @@
+  -- remains byte-identical for existing ProductRow completions and journals.
+  instance Serialise RawCompletedTraining where
+    encode raw =
+-     case (rawCompletedTrainingVersion raw, rawCompletedTrainingProductScenarioInvocation raw, rawCompletedTrainingRlPlan raw) of
++     case ( rawCompletedTrainingVersion raw
++          , rawCompletedTrainingProductScenarioInvocation raw
++          , rawCompletedTrainingRlPlan raw
++          ) of
+        (1, Nothing, Nothing) -> encodeRawCompletedTrainingFields 10 raw mempty
+        (2, _, Nothing) ->
+          encodeRawCompletedTrainingFields
+test/unit/ProductBarProvenance.hs
+@@ -74,7 +74,9 @@
+  admittedLaneRows substrate = do
+    input <-
+      maybe
+-       (assertFailure ("the aggregation registers no " <> show substrate <> " journal") >> fail "unreachable")
++       ( assertFailure ("the aggregation registers no " <> show substrate <> " journal")
++           >> fail "unreachable"
++       )
+        pure
+        (find ((== substrate) . Aggregate.productLaneInputSubstrate) Aggregate.productLaneInputs)
+    bytes <- ByteString.readFile (Aggregate.productLaneInputPath input)
+@@ -342,7 +344,8 @@
+      , testCase "either RL policy family claim rejects a completion with a non-RL budget" $ do
+          planId <- expectRight (refinePlanIdText (Text.replicate 64 "a"))
+          budget <- expectRight (Budget.mkTrainingBudget Budget.TuningTrialBudget 3 Nothing)
+-         evidence <- expectRight (Evidence.mkTrainingEvidence "initial-weights" "trained-weights" 3 "dataset-at-read")
++         evidence <-
++           expectRight (Evidence.mkTrainingEvidence "initial-weights" "trained-weights" 3 "dataset-at-read")
+          loss <- expectRight (ExternalBars.convergenceObservationForMetric ("train_loss", 0.1))
+          ExternalBars.assertConvergenceObservationsExternal [loss] @?= []
+          completed <-
+@@ -369,7 +372,8 @@
+      , testCase "a canonical RL namespace cannot admit a generic-family completion with a tuning budget" $ do
+          planId <- expectRight (refinePlanIdText (Text.replicate 64 "a"))
+          budget <- expectRight (Budget.mkTrainingBudget Budget.TuningTrialBudget 3 Nothing)
+-         evidence <- expectRight (Evidence.mkTrainingEvidence "initial-weights" "trained-weights" 3 "dataset-at-read")
++         evidence <-
++           expectRight (Evidence.mkTrainingEvidence "initial-weights" "trained-weights" 3 "dataset-at-read")
+          borrowed <- measure "median_final_reward" MetricMaximise 435 440
+          completed <-
+            expectRight
+@@ -388,7 +392,8 @@
+                  { Checkpoint.manifestExperiment = Product.productRowExperimentHash a2c
+                  }
+          Checkpoint.manifestModelFamily manifest @?= Checkpoint.GenericModelFamily
+-         Checkpoint.architectureModelFamily (Checkpoint.manifestArchitecture manifest) @?= Checkpoint.GenericModelFamily
++         Checkpoint.architectureModelFamily (Checkpoint.manifestArchitecture manifest)
++           @?= Checkpoint.GenericModelFamily
+          Budget.completedTrainingRlPlan completed @?= Nothing
+          assertManifestRejected manifest
+      , testCase "PPO cannot borrow A2C/cartpole's easier 435 reward threshold" $ do
+@@ -683,7 +688,9 @@
+        (ProductBudget.compiledRlSchedule plan)
+    let target = ProductBudget.scheduleObservedEnvironmentSteps schedule
+    budget <- expectRight (Budget.mkTrainingBudget Budget.RlEnvironmentStepBudget target (Just 7))
+-   evidence <- expectRight (Evidence.mkTrainingEvidence "initial-weights" "trained-weights" 3 "environment-at-read")
++   evidence <-
++     expectRight
++       (Evidence.mkTrainingEvidence "initial-weights" "trained-weights" 3 "environment-at-read")
+    expectRight
+      ( Budget.completedTraining
+          planId
+@@ -691,7 +698,11 @@
+          target
+          evidence
+          observations
+-         (Budget.TensorBoardRunMetadata "generic-rl" "tensorboard/generic-rl" (fmap Budget.coMetricName observations))
++         ( Budget.TensorBoardRunMetadata
++             "generic-rl"
++             "tensorboard/generic-rl"
++             (fmap Budget.coMetricName observations)
++         )
+      )
+
+  genericRlCompletion
+@@ -704,6 +715,7 @@
+  genericRlManifest :: Budget.CompletedTraining -> Checkpoint.CheckpointManifest
+  genericRlManifest completed =
+-   Checkpoint.attachCompletedTraining completed
++   Checkpoint.attachCompletedTraining
++     completed
+      ( (Checkpoint.emptyManifest "generic-rl-checkpoint" "generic-rl-experiment" [])
+          { Checkpoint.manifestStep = Budget.completedTrainingObservedUnits completed
+          }
+@@ -713,6 +725,8 @@
+  retainedRlCompletion substrate name = do
+    rows <- admittedLaneRows substrate
+    maybe
+-     (assertFailure ("missing retained " <> show substrate <> "/" <> Text.unpack name) >> fail "unreachable")
++     ( assertFailure ("missing retained " <> show substrate <> "/" <> Text.unpack name)
++         >> fail "unreachable"
++     )
+      (pure . Lane.productLaneJournalRowCompletedTraining)
+      (find ((== name) . Lane.productLaneJournalRowRowId) rows)
+@@ -746,7 +760,9 @@
+  assertRawCompletionRejected :: Budget.RawCompletedTraining -> Assertion
+  assertRawCompletionRejected raw = do
+    assertLeftResult "raw refinement" (Budget.refineCompletedTraining raw)
+-   assertLeftResult "wire refinement" (Budget.decodeCompletedTraining (Budget.encodeRawCompletedTraining raw))
++   assertLeftResult
++     "wire refinement"
++     (Budget.decodeCompletedTraining (Budget.encodeRawCompletedTraining raw))
+
+  -- Independently pin the historical CBOR shape whose bytes determine retained
+  -- journal completion digests. A V3-only field must not alter any V2 tuple.
+
+
+
+file: src
+key: haskell.hlint
+message: hlint reported hints
+remedy: command: /opt/jitml-style-tools/bin/hlint --with-group=default --with-group=extra --hint .hlint.yaml src app test
+exit: 1
+working-directory: (inherited)
+duration-nanoseconds: 115825983918
+stdout: src/JitML/Checkpoint/Format.hs:(627,13)-(629,86): Suggestion: Replace case with maybe
+Found:
+  case namedRow of
+    Just row -> rowBarErrors row
+    Nothing
+      -> ["generic RL completion has no PlanId-bound compiled cohort"]
+Perhaps:
+  maybe
+    ["generic RL completion has no PlanId-bound compiled cohort"]
+    rowBarErrors namedRow
+
+src/JitML/Checkpoint/Format.hs:(633,13)-(637,83): Suggestion: Replace case with maybe
+Found:
+  case
+      find
+        ((== RuntimeArtifact.payloadRowId payload) . ProductMatrix.rowId)
+        ProductMatrix.allProductRows
+  of
+    Just row -> rowBarErrors row
+    Nothing
+      -> ["supervised V2 runtime has no canonical convergence row"]
+Perhaps:
+  maybe
+    ["supervised V2 runtime has no canonical convergence row"]
+    rowBarErrors
+    (find
+       ((== RuntimeArtifact.payloadRowId payload) . ProductMatrix.rowId)
+       ProductMatrix.allProductRows)
+
+2 hints
+
+stderr: (none)
+
+

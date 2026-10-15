@@ -1,0 +1,4 @@
+{"level":"info","component":"bootstrap","message":"linux-cpu stage-0 doctor: ok"}
+{"level":"info","component":"bootstrap","message":"third-party image pre-pull: 18 pulled, 0 skipped (host docker auth)"}
+ Container jitml-jitml-run-7eb8a34df48a Creating 
+ Container jitml-jitml-run-7eb8a34df48a Created 

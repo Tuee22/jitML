@@ -1,0 +1,31 @@
+ Container jitml-jitml-run-a2e88ceaec5a Creating 
+ Container jitml-jitml-run-a2e88ceaec5a Created 
+file: src
+key: haskell.hlint
+message: hlint reported hints
+remedy: command: /opt/jitml-style-tools/bin/hlint --with-group=default --with-group=extra --hint .hlint.yaml src app test
+exit: 1
+working-directory: (inherited)
+duration-nanoseconds: 113428361961
+stdout: src/JitML/Engines/Engine.hs:(473,1)-(479,15): Warning: Eta reduce
+Found:
+  compileSubprocess engine source hash scratchDir stagingPath
+    = compileSubprocessAtSourceDirectory
+        engine source (runtimeSourceRelativeDirectory source hash)
+        scratchDir stagingPath
+Perhaps:
+  compileSubprocess engine source hash
+    = compileSubprocessAtSourceDirectory
+        engine source (runtimeSourceRelativeDirectory source hash)
+
+test/backends/Main.hs:664:22-75: Warning: Use mapLeft
+Found:
+  either (Left . Loader.renderKernelArtifactError) Right
+Perhaps:
+  mapLeft Loader.renderKernelArtifactError
+
+2 hints
+
+stderr: (none)
+
+

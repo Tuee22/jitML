@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Diagnostic runtime proof only. This never writes a standing integration record.
+repo=/home/ubuntu/jitML
+parent_root=/home/ubuntu/jitml-validation/phase278-generic-daemon-20261014
+run_root=$(mktemp -d "$parent_root/focused-daemon-XXXXXXXX")
+printf '%s\n' "$run_root" > "$parent_root/focused-daemon.latest-path"
+printf '%s\n' "$run_root"
+image=jitml:phase278-cpu-3b126ee3b94b
+expected_image=sha256:f709538736db832ed6e1cdec444399543f198708a570f3a61c6bcf4f97eb5b71
+actual_image=$(docker image inspect "$image" --format '{{.Id}}' </dev/null)
+[[ "$actual_image" == "$expected_image" ]]
+mkdir -p "$run_root/tools" "$run_root/daemon-artifacts"
+for tool in phase278-kubectl-collector.py phase278-inspect-daemon-completion.hs phase278-source-stamp.hs; do
+  cp "$parent_root/tools/$tool" "$run_root/tools/$tool"
+done
+printf '%s\n' "$image" > "$run_root/runtime-image.ref"
+printf '%s\n' "$actual_image" > "$run_root/runtime-image.id"
+sha256sum "$run_root/tools/"* > "$run_root/task-tools.sha256"
+chmod 755 "$run_root/tools/phase278-kubectl-collector.py"
+# The helper is named kubectl only within this task's external evidence directory.
+ln -sfn phase278-kubectl-collector.py "$run_root/tools/kubectl"
+cp "$repo/.build/runtime/cluster-publication.json" "$run_root/daemon-publication.before.json"
+python3 - "$run_root/daemon-publication.before.json" <<'PY'
+import json,sys
+publication=json.load(open(sys.argv[1]))
+assert publication['substrate']=='linux-cpu'
+assert publication.get('evidence') is not None, 'bootstrap publication is not ready'
+PY
+source_stamp() {
+  local stamp_name=$1
+  docker run --rm --network host \
+    --volume "$repo:/jitml" \
+    --volume jitml-phase278-validation-cabal-20261014:/jitml/dist-newstyle \
+    --volume "$run_root:/evidence" \
+    --workdir /jitml "$image" cabal exec -- runghc -package=jitml \
+    /evidence/tools/phase278-source-stamp.hs </dev/null \
+    > "$run_root/$stamp_name.stdout" 2> "$run_root/$stamp_name.stderr"
+  python3 - "$run_root/$stamp_name.stdout" "$run_root/$stamp_name.json" <<'PY'
+import json,re,sys
+stamps=[]
+for line in open(sys.argv[1]):
+    try: value=json.loads(line)
+    except json.JSONDecodeError: continue
+    if isinstance(value,dict) and set(value)=={'algorithm','sha256'}:
+        stamps.append(value)
+assert len(stamps)==1, 'expected exactly one canonical SourceStamp in retained stdout'
+stamp=stamps[0]
+assert stamp['algorithm']==1 and re.fullmatch(r'[0-9a-f]{64}',stamp['sha256'])
+with open(sys.argv[2],'w') as output:
+    output.write(json.dumps(stamp,sort_keys=True)+'\n')
+PY
+}
+source_stamp source-stamp.before
+start=$(date +%s)
+date --utc +%FT%TZ > "$run_root/daemon.started"
+daemon_command=(docker run --rm --network host \
+  --volume "$repo:/jitml" \
+  --volume "$repo:$repo" \
+  --volume jitml-phase278-validation-cabal-20261014:/jitml/dist-newstyle \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --volume "$run_root:/evidence" \
+  --workdir /jitml \
+  --env COMPOSE_FILE=/home/ubuntu/jitML/compose.yaml \
+  --env JITML_SUBSTRATE=linux-cpu \
+  --env PHASE278_CAPTURE_ROOT=/evidence/daemon-artifacts \
+  "$image" /bin/bash -c '
+    set -euo pipefail
+    export PATH="/evidence/tools:$PATH"
+    cabal test jitml-integration --test-show-details=direct \
+      --test-options='"'"'-p "live PPO cartpole convergence through daemon dispatch clears the literature threshold"'"'"'
+  ')
+printf '%q ' "${daemon_command[@]}" > "$run_root/daemon.command"
+printf '\n' >> "$run_root/daemon.command"
+set +e
+"${daemon_command[@]}" </dev/null > "$run_root/daemon.stdout" 2> "$run_root/daemon.stderr"
+status=$?
+set -e
+printf '%s\n' "$status" > "$run_root/daemon.exit"
+date --utc +%FT%TZ > "$run_root/daemon.finished"
+printf '%s\n' "$(( $(date +%s) - start ))" > "$run_root/daemon.duration-seconds"
+[[ "$status" == 0 ]]
+source_stamp source-stamp.after
+python3 - "$run_root/source-stamp.before.json" "$run_root/source-stamp.after.json" <<'PY'
+import json,sys
+assert json.load(open(sys.argv[1]))==json.load(open(sys.argv[2])), 'production source stamp changed during the focused runtime'
+PY
+sudo chown -R "$(id -u):$(id -g)" "$run_root"
+mapfile -t archives < <(find "$run_root/daemon-artifacts" -mindepth 2 -maxdepth 2 -name producer-checkpoints.tar.gz -type f)
+[[ ${#archives[@]} == 1 ]]
+artifact_dir=$(dirname "${archives[0]}")
+experiment=$(basename "$artifact_dir")
+[[ "$experiment" =~ ^livecv[a-z0-9]{10}$ ]]
+mkdir -p "$artifact_dir/checkpoints" "$artifact_dir/admitted"
+tar -xzf "${archives[0]}" --no-same-owner -C "$artifact_dir/checkpoints"
+set +e
+docker run --rm --network host \
+  --volume "$repo:/jitml" \
+  --volume jitml-phase278-validation-cabal-20261014:/jitml/dist-newstyle \
+  --volume "$run_root:/evidence" \
+  --workdir /jitml \
+  "$image" cabal exec -- runghc -package=jitml \
+  /evidence/tools/phase278-inspect-daemon-completion.hs \
+  "/evidence/daemon-artifacts/$experiment/checkpoints" "$experiment" \
+  "/evidence/daemon-artifacts/$experiment/admitted" </dev/null \
+  > "$run_root/daemon-inspection.stdout" 2> "$run_root/daemon-inspection.stderr"
+inspection_status=$?
+set -e
+printf '%s\n' "$inspection_status" > "$run_root/daemon-inspection.exit"
+[[ "$inspection_status" == 0 ]]
+printf '%s\n' 'raw focused runtime + exact producer snapshot + physical Store admission and structural generic completion; no standing integration attestation' > "$run_root/daemon-evidence.scope"
+

@@ -1,0 +1,135 @@
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+-- Task-only inspector. Physically admit a generic checkpoint through Store,
+-- then validate its structural completion; this does not claim ProductRow
+-- eligibility or use Store's canonical-product-only completion type.
+module Main (main) where
+
+import Codec.Serialise (Serialise, deserialiseOrFail)
+import Control.Monad (unless)
+import Data.ByteString.Lazy qualified as Lazy
+import Data.Maybe (isNothing)
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Word (Word64)
+import System.Environment (getArgs)
+import System.Exit (die)
+import Text.Read (readMaybe)
+
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as Store
+import JitML.Checkpoint.WeightCodec qualified as Weights
+import JitML.Plan.Plan (planIdText)
+import JitML.Product.ExternalBars qualified as Bars
+import JitML.Product.Matrix qualified as Matrix
+import JitML.RL.Algorithms.Registry qualified as Cohort
+import JitML.RL.ProductBudget qualified as RlPlan
+import JitML.Training.Budget qualified as Budget
+
+main :: IO ()
+main = do
+  args <- getArgs
+  case args of
+    [root, experiment, seed] -> inspect root (Text.pack experiment) seed Nothing
+    [root, experiment, seed, sha] -> inspect root (Text.pack experiment) seed (Just (Text.pack sha))
+    _ -> die "usage: inspect-generic-rl CHECKPOINT_ROOT EXPERIMENT_HASH EXPECTED_SEED [EXPECTED_MANIFEST_SHA]"
+
+inspect :: FilePath -> Text -> String -> Maybe Text -> IO ()
+inspect root experiment seedArgument expectedSha = do
+  expectedSeed <-
+    maybe (die "expected seed must be a Word64") pure (readMaybe seedArgument :: Maybe Word64)
+  check "generic experiment must not claim a canonical ProductRow" (isNothing (Matrix.productRowForExperimentHash experiment))
+
+  -- This route performs exact P1/envelope/P2 and committed physical-byte binding.
+  latest <- Store.admitLocalLatestCheckpoint root experiment >>= expect "Store latest admission"
+  let sha = Store.admittedCheckpointManifestSha latest
+  case expectedSha of
+    Nothing -> pure ()
+    Just expected -> check "admitted latest SHA differs from the CLI receipt" (sha == expected)
+
+  -- Re-admit the exact immutable address returned above without following a pointer.
+  admitted <- Store.admitLocalCheckpointAt root experiment sha >>= expect "Store address admission"
+  check "address admission changed the manifest SHA" (Store.admittedCheckpointManifestSha admitted == sha)
+  let manifest = Store.admittedCheckpointManifest admitted
+  validation <- expect "structural completion of Store-admitted manifest" (Checkpoint.validateCheckpointCompletion manifest)
+  let completed = Checkpoint.validatedCheckpointCompletedTraining validation
+      budget = Budget.completedTrainingBudget completed
+      observations = Budget.completedTrainingMetrics completed
+  plan <- require "bound compiled RL plan is missing" (Budget.completedTrainingRlPlan completed)
+  schedule <- require "bound plan has no executable training schedule" (RlPlan.compiledRlSchedule plan)
+  cohort <- expect "compiled algorithm/environment cohort" (Cohort.mkCohort (RlPlan.compiledRlTrainerKind plan) (RlPlan.compiledRlEnvironment plan))
+  check "expected PPO/cartpole cohort" (Cohort.cohortAlgorithmName cohort == "PPO" && Cohort.cohortEnvironmentName cohort == "cartpole")
+  check "compiled plan seed differs from requested seed" (toInteger (RlPlan.compiledRlSeed plan) == toInteger expectedSeed)
+  check "completion carries a contradictory budget seed" (maybe True (== expectedSeed) (Budget.trainingBudgetSeed budget))
+  check "completion is not an RL environment-transition budget" (Budget.trainingBudgetKind budget == Budget.RlEnvironmentStepBudget)
+  let observed = Budget.completedTrainingObservedUnits completed
+      planned = RlPlan.scheduleObservedEnvironmentSteps schedule
+  check "plan, budget, completion, and manifest transition counts differ"
+    (observed == planned && Budget.trainingBudgetTargetUnits budget == planned && Checkpoint.manifestStep manifest == planned)
+  check "compiled PlanId differs from completion" (RlPlan.compiledRlPlanId plan == planIdText (Budget.completedTrainingPlanId completed))
+  check "manifest PlanId differs from completion" (Checkpoint.manifestPlanId manifest == Just (Budget.completedTrainingPlanId completed))
+  check "stored measurements do not pass the own cohort predicate" (null (Bars.assertRlConvergenceObservationsExternal plan observations))
+  reward <-
+    case observations of
+      [observation] -> do
+        check "unexpected metric" (Budget.coMetricName observation == "median_final_reward")
+        check "unexpected reward criterion" (Budget.coMetricGoal observation == Budget.MetricMaximise && Budget.coThreshold observation == 450)
+        check "PPO/cartpole median reward is below 450" (Budget.coMetricValue observation >= 450)
+        pure (Budget.coMetricValue observation)
+      _ -> die "PPO/cartpole must carry exactly one reward criterion"
+
+  -- Inspect the nested DTO from the fetched envelope bytes, not a re-encoding
+  -- of its refined completion, to prove that the producer actually persisted V3.
+  bytes <- Store.readObject root (Checkpoint.manifestKey experiment sha) >>= expect "read addressed envelope"
+  addressed <- expect "canonical addressed envelope decode" (Checkpoint.decodeAddressedManifestCbor bytes)
+  check "fetched envelope address differs from Store admission" (Checkpoint.addressedManifestSha addressed == sha)
+  check "Store/fetched manifests differ" (Checkpoint.addressedManifest addressed == manifest)
+  envelope <- (decodeCbor "outer envelope" bytes :: IO Checkpoint.RawCheckpointEnvelope)
+  check "generic checkpoint envelope changed its weight-only version" (Checkpoint.rawCheckpointVersion envelope == Checkpoint.checkpointWireVersion)
+  body <- (decodeCbor "envelope body" (Lazy.fromStrict (Checkpoint.rawCheckpointBodyBytes envelope)) :: IO Checkpoint.RawCheckpointBody)
+  rawManifest <-
+    case body of
+      Checkpoint.RawWeightOnlyBody raw -> pure raw
+      Checkpoint.RawSupervisedGraphBody _ -> die "generic RL checkpoint carried a supervised graph body"
+  rawCompletion <- require "fetched checkpoint has no raw completion" (Checkpoint.rawManifestCompletedTraining rawManifest)
+  check "producer did not persist nested completion V3" (Budget.rawCompletedTrainingVersion rawCompletion == 3)
+  check "fetched raw compiled plan differs from admitted proof"
+    (Budget.rawCompletedTrainingRlPlan rawCompletion == Just (RlPlan.renderCompiledRlPlanTransport plan))
+  recompiled <- expect "recompile fetched canonical plan" (RlPlan.parseCompiledRlPlanTransport (RlPlan.renderCompiledRlPlanTransport plan))
+  check "recompiled plan differs from admitted plan" (recompiled == plan)
+  check "completion encode/decode loses its plan proof"
+    (Budget.decodeCompletedTraining (Budget.encodeCompletedTraining completed) == Right completed)
+
+  case Store.admittedCheckpointWeights admitted of
+    [loaded] -> do
+      check "expected a PPO physical weight tensor" (Checkpoint.tensorName (Store.loadedWeightTensor loaded) == "rl-ppo-weights")
+      check "physical weight payload is empty" (not (null (Store.loadedWeightValues loaded)))
+      let physicalSha = Weights.jmw1ContentSha (Lazy.fromStrict (Store.loadedWeightJmw1Bytes loaded))
+      check "exact Store-fetched weight bytes differ from completed final hash" (physicalSha == Budget.completedTrainingFinalWeightHash completed)
+    _ -> die "generic PPO checkpoint must bind exactly one physical weight tensor"
+  check "training has no positive optimizer updates" (Budget.completedTrainingUpdateCount completed > 0)
+  check "trained and initial weight identities are identical" (Budget.completedTrainingInitialWeightHash completed /= Budget.completedTrainingFinalWeightHash completed)
+  putStrLn "result: passed"
+  putStrLn "scope: Store physical admission plus generic structural completion"
+  putStrLn ("manifest-sha: " <> Text.unpack sha)
+  putStrLn "nested-completion-version: 3"
+  putStrLn "cohort: PPO/cartpole"
+  putStrLn ("seed: " <> show expectedSeed)
+  putStrLn ("environment-transitions: " <> show observed)
+  putStrLn ("optimizer-updates: " <> show (Budget.completedTrainingUpdateCount completed))
+  putStrLn ("median-final-reward: " <> show reward)
+  putStrLn ("plan-id: " <> Text.unpack (RlPlan.compiledRlPlanId plan))
+  putStrLn ("compiled-plan: " <> Text.unpack (RlPlan.renderCompiledRlPlanTransport plan))
+
+check :: String -> Bool -> IO ()
+check label condition = unless condition (die label)
+
+require :: String -> Maybe value -> IO value
+require label = maybe (die label) pure
+
+expect :: Show error => String -> Either error value -> IO value
+expect label = either (die . ((label <> ": ") <>) . show) pure
+
+decodeCbor :: Serialise value => String -> Lazy.ByteString -> IO value
+decodeCbor label = expect label . deserialiseOrFail

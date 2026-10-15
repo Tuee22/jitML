@@ -1,0 +1,7 @@
+ Container jitml-jitml-run-86557db421af Creating 
+ Container jitml-jitml-run-86557db421af Created 
+file: DEVELOPMENT_PLAN/README.md
+key: closure-status.length
+reason: the Closure Status section is 62 lines, over the cap of 60; rule N keeps it to status, gate commands, and links
+remedy: move dated narrative below the thin Closure Status section into the historical diary
+

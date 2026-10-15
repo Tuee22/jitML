@@ -1,0 +1,33 @@
+{
+  "containers": [
+    {
+      "containerID": "containerd://1eb4971ca0ba8187e86266156011d5a9d53f7d4dcecd474910f879ecfdb9947a",
+      "image": "docker.io/library/jitml-demo:local",
+      "imageID": "sha256:038da0f26ff9b8657d248e7b9fb2c56769d9dba9cc018d884dd76d0496b37c8b",
+      "name": "rl",
+      "ready": true,
+      "restartCount": 0,
+      "state": {
+        "running": {
+          "startedAt": "2026-10-14T23:57:30Z"
+        }
+      }
+    }
+  ],
+  "job_owner": [
+    {
+      "apiVersion": "batch/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Job",
+      "name": "jitml-rl-livecv1792022249",
+      "uid": "83f533ea-f060-4203-8a99-134ad9ce7cd5"
+    }
+  ],
+  "node": "jitml-linux-cpu-worker",
+  "phase": "Running",
+  "pod": "jitml-rl-livecv1792022249-kbwn6",
+  "pod_uid": "0e181dfb-5772-418a-afa9-b1769f274097"
+}
+3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5  /proc/1/exe
+expected_cli_sha256=3b126ee3b94bd2853b500a3d2a506531f296fae93204b6e20febe930adc01fe5

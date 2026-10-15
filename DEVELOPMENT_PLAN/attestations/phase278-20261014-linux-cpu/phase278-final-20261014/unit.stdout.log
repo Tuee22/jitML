@@ -1,0 +1,103 @@
+Build profile: -w ghc-9.12.4 -O1
+In order, the following will be built (use -v for more details):
+ - jitml-0.1.0.0 (lib) (file src/JitML/Training/Budget.hs changed)
+ - jitml-0.1.0.0 (exe:jitml) (dependency rebuilt)
+jitml.cabal has been changed. Re-configuring with most recently used options.
+If this fails, please run configure manually.
+Configuring library for jitml-0.1.0.0...
+Preprocessing library for jitml-0.1.0.0...
+Building library for jitml-0.1.0.0...
+[130 of 337] Compiling JitML.Product.PhaseStatus ( src/JitML/Product/PhaseStatus.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Product/PhaseStatus.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Product/PhaseStatus.dyn_o ) [Source file changed]
+[194 of 337] Compiling JitML.Training.Budget ( src/JitML/Training/Budget.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Training/Budget.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Training/Budget.dyn_o ) [Source file changed]
+[248 of 337] Compiling JitML.Checkpoint.Format ( src/JitML/Checkpoint/Format.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Checkpoint/Format.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Checkpoint/Format.dyn_o ) [Source file changed]
+[252 of 337] Compiling JitML.Checkpoint.Store ( src/JitML/Checkpoint/Store.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Checkpoint/Store.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Checkpoint/Store.dyn_o ) [JitML.Checkpoint.Format changed]
+[259 of 337] Compiling JitML.Test.Report ( src/JitML/Test/Report.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/Report.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/Report.dyn_o ) [JitML.Checkpoint.Store changed]
+[261 of 337] Compiling JitML.Test.ProductScenarioRunner ( src/JitML/Test/ProductScenarioRunner.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/ProductScenarioRunner.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/ProductScenarioRunner.dyn_o ) [JitML.Test.Report changed]
+[262 of 337] Compiling JitML.Test.ProductScenarioJournal ( src/JitML/Test/ProductScenarioJournal.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/ProductScenarioJournal.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/ProductScenarioJournal.dyn_o ) [JitML.Test.Report changed]
+[272 of 337] Compiling JitML.Test.ContractFixtures ( src/JitML/Test/ContractFixtures.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/ContractFixtures.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/ContractFixtures.dyn_o ) [JitML.Checkpoint.Store changed]
+[274 of 337] Compiling JitML.Test.NegativeControls.PerRow ( src/JitML/Test/NegativeControls/PerRow.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/NegativeControls/PerRow.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/NegativeControls/PerRow.dyn_o ) [JitML.Test.ContractFixtures changed]
+[277 of 337] Compiling JitML.Test.RunContract ( src/JitML/Test/RunContract.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/RunContract.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/RunContract.dyn_o ) [JitML.Test.ContractFixtures changed]
+[280 of 337] Compiling JitML.Test.JournalFixtures ( src/JitML/Test/JournalFixtures.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/JournalFixtures.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/JournalFixtures.dyn_o ) [JitML.Test.ContractFixtures changed]
+[283 of 337] Compiling JitML.Product.StatusLoader ( src/JitML/Product/StatusLoader.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Product/StatusLoader.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Product/StatusLoader.dyn_o ) [JitML.Product.PhaseStatus changed]
+[284 of 337] Compiling JitML.Test.NegativeControls.Journal ( src/JitML/Test/NegativeControls/Journal.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/NegativeControls/Journal.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/NegativeControls/Journal.dyn_o ) [JitML.Checkpoint.Store changed]
+[285 of 337] Compiling JitML.Test.NegativeControls ( src/JitML/Test/NegativeControls.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/NegativeControls.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/NegativeControls.dyn_o ) [JitML.Test.NegativeControls.Journal changed]
+[286 of 337] Compiling JitML.Product.BrowserCatalogue ( src/JitML/Product/BrowserCatalogue.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Product/BrowserCatalogue.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Product/BrowserCatalogue.dyn_o ) [JitML.Checkpoint.Store changed]
+[287 of 337] Compiling JitML.Test.Command ( src/JitML/Test/Command.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/Command.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/Command.dyn_o ) [JitML.Test.ProductScenarioJournal changed]
+[294 of 337] Compiling JitML.Checkpoint.Writer ( src/JitML/Checkpoint/Writer.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Checkpoint/Writer.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Checkpoint/Writer.dyn_o ) [JitML.Checkpoint.Format changed]
+[307 of 337] Compiling JitML.Service.Workload ( src/JitML/Service/Workload.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Service/Workload.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Service/Workload.dyn_o ) [JitML.Checkpoint.Store changed]
+[309 of 337] Compiling JitML.Service.Runtime ( src/JitML/Service/Runtime.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Service/Runtime.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Service/Runtime.dyn_o ) [JitML.Service.Workload changed]
+[312 of 337] Compiling JitML.RL.Command.AlphaZero ( src/JitML/RL/Command/AlphaZero.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/RL/Command/AlphaZero.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/RL/Command/AlphaZero.dyn_o ) [JitML.Checkpoint.Writer changed]
+[313 of 337] Compiling JitML.RL.Command ( src/JitML/RL/Command.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/RL/Command.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/RL/Command.dyn_o ) [JitML.Checkpoint.Writer changed]
+[322 of 337] Compiling JitML.Docs.Check ( src/JitML/Docs/Check.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Docs/Check.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Docs/Check.dyn_o ) [JitML.Product.PhaseStatus changed]
+[323 of 337] Compiling JitML.Lint.Stack ( src/JitML/Lint/Stack.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Lint/Stack.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Lint/Stack.dyn_o ) [JitML.Docs.Check changed]
+[326 of 337] Compiling JitML.Service.Command ( src/JitML/Service/Command.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Service/Command.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Service/Command.dyn_o ) [JitML.Checkpoint.Writer changed]
+[327 of 337] Compiling JitML.App        ( src/JitML/App.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/App.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/App.dyn_o ) [JitML.Checkpoint.Store changed]
+[328 of 337] Compiling JitML.Test.HostWorkloadRegistry ( src/JitML/Test/HostWorkloadRegistry.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/HostWorkloadRegistry.o, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/build/JitML/Test/HostWorkloadRegistry.dyn_o ) [JitML.App changed]
+jitml.cabal has been changed. Re-configuring with most recently used options.
+If this fails, please run configure manually.
+Configuring executable 'jitml' for jitml-0.1.0.0...
+Preprocessing executable 'jitml' for jitml-0.1.0.0...
+Building executable 'jitml' for jitml-0.1.0.0...
+[1 of 1] Compiling Main             ( app/Main.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml-tmp/Main.o ) [JitML.App changed]
+[2 of 2] Linking dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml [Objects changed]
+jitML POC report card
+knobs:
+  sl_epochs: 5
+  sl_batch: 64
+  rl_steps: 100000
+  rl_eval_episodes: 25
+  alphazero_games: 200
+  alphazero_sims: 400
+  tune_trials: 64
+  tune_budget_per_trial: 1000
+  xcluster_kind_nodes: 2
+stanzas:
+  jitml-unit: FAIL
+cabal_test:
+  status: failed
+  passed: 0
+  failed: 1
+  not_run: 0
+  duration_seconds: 50.818092268
+  duration_nanoseconds: 50818092268
+invocation_journal:
+  - stanza: jitml-unit
+    command: /root/.ghcup/cabal/3.16.1.0/cabal test jitml-unit
+    status: failed
+    exit: 1
+    working_directory: (inherited)
+    duration_nanoseconds: 50818092268
+    stdout:
+      Build profile: -w ghc-9.12.4 -O1
+      In order, the following will be built (use -v for more details):
+       - jitml-0.1.0.0 (test:jitml-unit) (file test/unit/Main.hs changed)
+      jitml.cabal has been changed. Re-configuring with most recently used options.
+      If this fails, please run configure manually.
+      Configuring test suite 'jitml-unit' for jitml-0.1.0.0...
+      Preprocessing test suite 'jitml-unit' for jitml-0.1.0.0...
+      Building test suite 'jitml-unit' for jitml-0.1.0.0...
+      [ 1 of 16] Compiling CheckpointV1Admission ( test/unit/CheckpointV1Admission.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/CheckpointV1Admission.o ) [JitML.Checkpoint.Format changed]
+      [ 3 of 16] Compiling JournalDerivedStatus ( test/unit/JournalDerivedStatus.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/JournalDerivedStatus.o ) [Source file changed]
+      [ 4 of 16] Compiling ProductAggregation ( test/unit/ProductAggregation.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductAggregation.o ) [JitML.Training.Budget changed]
+      [ 5 of 16] Compiling ProductExperimentExactness ( test/unit/ProductExperimentExactness.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductExperimentExactness.o ) [JitML.App changed]
+      [ 6 of 16] Compiling ProductTruthScanner ( test/unit/ProductTruthScanner.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductTruthScanner.o ) [Source file changed]
+      [ 7 of 16] Compiling ProductTuneTranscript ( test/unit/ProductTuneTranscript.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductTuneTranscript.o ) [JitML.Training.Budget changed]
+      [ 8 of 16] Compiling ProtocolCodec    ( test/unit/ProtocolCodec.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProtocolCodec.o ) [JitML.Training.Budget changed]
+      [11 of 16] Compiling ReportMeasurements ( test/unit/ReportMeasurements.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ReportMeasurements.o ) [JitML.Test.ProductScenarioJournal changed]
+      [12 of 16] Compiling SupervisedCheckpointV2 ( test/unit/SupervisedCheckpointV2.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/SupervisedCheckpointV2.o ) [JitML.Checkpoint.Format changed]
+      [13 of 16] Compiling ServedMetricVerification ( test/unit/ServedMetricVerification.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ServedMetricVerification.o ) [JitML.Checkpoint.Store changed]
+      [14 of 16] Compiling ProductBarProvenance ( test/unit/ProductBarProvenance.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/ProductBarProvenance.o ) [Source file changed]
+      [15 of 16] Compiling SupervisedTrainingSeed ( test/unit/SupervisedTrainingSeed.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-unit/build/jitml-unit/jitml-unit-tmp/SupervisedTrainingSeed.o ) [JitML.Training.Budget changed]
+    stderr:
+      test/unit/JournalDerivedStatus.hs:3274:22: error: [GHC-88464]
+          Variable not in scope: reasonsOf :: StatusReport -> t2 -> t3 Unmet
+           |
+      3274 |               `elem` reasonsOf report "278.1"
+           |                      ^^^^^^^^^
+      
+      test/unit/JournalDerivedStatus.hs:3293:22: error: [GHC-88464]
+          Variable not in scope: reasonsOf :: StatusReport -> t0 -> t1 Unmet
+           |
+      3293 |               `elem` reasonsOf report "278.1"
+           |                      ^^^^^^^^^
+      

@@ -1,0 +1,86 @@
+Up to date
+jitML POC report card
+knobs:
+  sl_epochs: 5
+  sl_batch: 64
+  rl_steps: 100000
+  rl_eval_episodes: 25
+  alphazero_games: 200
+  alphazero_sims: 400
+  tune_trials: 64
+  tune_budget_per_trial: 1000
+  xcluster_kind_nodes: 2
+stanzas:
+  jitml-backends: PASS
+cabal_test:
+  status: passed
+  passed: 1
+  failed: 0
+  not_run: 0
+  duration_seconds: 43.557380931
+  duration_nanoseconds: 43557380931
+invocation_journal:
+  - stanza: jitml-backends
+    command: /root/.ghcup/cabal/3.16.1.0/cabal test jitml-backends --test-options '-p linux-cpu'
+    status: passed
+    exit: 0
+    working_directory: (inherited)
+    duration_nanoseconds: 43557380931
+    stdout:
+      Build profile: -w ghc-9.12.4 -O1
+      In order, the following will be built (use -v for more details):
+       - jitml-0.1.0.0 (test:jitml-backends) (first run)
+      Configuring test suite 'jitml-backends' for jitml-0.1.0.0...
+      Preprocessing test suite 'jitml-backends' for jitml-0.1.0.0...
+      Building test suite 'jitml-backends' for jitml-0.1.0.0...
+      [1 of 1] Compiling Main             ( test/backends/Main.hs, dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-backends/build/jitml-backends/jitml-backends-tmp/Main.o )
+      [2 of 2] Linking dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-backends/build/jitml-backends/jitml-backends
+      Running 1 test suites...
+      Test suite jitml-backends: RUNNING...
+      jitml-backends
+        linux-cpu JIT compile/load/run executes the generated identity kernel:                                                          OK (0.71s)
+        linux-cpu reduction family compiles through the generated FFI path:                                                             OK (0.71s)
+        linux-cpu family scaffolds compile/load/run through the generated FFI path:                                                     OK (5.95s)
+        linux-cpu HasEngine boundary dispatches generated family kernels:                                                               OK (0.01s)
+        linux-cpu runs representative oneDNN reduction, matmul, and convolution primitives:                                             OK (0.05s)
+        linux-cpu kernel output is bit-equal across repeated runs (Sprint 7.6):                                                         OK
+        linux-cpu weighted Dense2D kernel runs real GEMM bit-deterministically (Sprint 13.11):                                          OK (0.03s)
+        linux-cpu weighted Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding bodies compile and run deterministically (Sprint 13.11): OK (0.12s)
+        linux-cpu weighted families match the pure reference within 1e-3 (Phase 1 rebalance):                                           OK (0.08s)
+        linux-cpu MLP cold-cache compile/load/run honors a custom cache directory:                                                      OK (0.28s)
+        linux-cpu MLP forward kernel matches the pure-Haskell network (Phase 2 rebalance):                                              OK (0.26s)
+        linux-cpu MLP backward kernel matches the pure-Haskell gradient (Phase 2 rebalance):                                            OK
+        linux-cpu LayerGraph oneDNN training kernels match the pure oracle and record device evidence (Sprint 23.2):                    OK (1.61s)
+        linux-cpu real 3-D convolution executes its own oneDNN device kernel (Phase 241):                                               OK
+        linux-cpu batched LayerGraph oneDNN gradient matches the per-example summed oracle (Phase 234):                                 OK
+        linux-cpu LayerGraph classification training reduces cross-entropy loss (Sprint 235.1):                                         OK (0.02s)
+        linux-cpu Phase 241 oneDNN spatial Conv2D device kernel matches the pure oracle:                                                OK (0.02s)
+        linux-cpu Phase 241 oneDNN Norm (LayerNorm) device kernel matches the pure oracle:                                              OK
+        linux-cpu Phase 241 oneDNN Norm (GroupNorm) device kernel matches the pure oracle:                                              OK
+        linux-cpu Phase 241 oneDNN GeGLU device kernel matches the pure oracle:                                                         OK
+        linux-cpu Phase 241 oneDNN multi-head Attention device kernel matches the pure oracle:                                          OK
+        linux-cpu Phase 241 oneDNN Patch-embed device kernel matches the pure oracle:                                                   OK
+        linux-cpu Phase 241 oneDNN Residual device kernel matches the pure oracle:                                                      OK
+        linux-cpu Phase 241/242 oneDNN BlockOp device backward matches the pure blockBackward oracle:                                   OK (0.03s)
+        linux-cpu Phase 241 mixed correct-operator graph trains on device and matches the oracle:                                       OK (0.02s)
+        linux-cpu MLP kernels are bit-deterministic across repeated runs (Phase 2 rebalance):                                           OK
+        linux-cpu batched MLP gradient matches the pure summed gradient (Phase 2 rebalance):                                            OK
+        linux-cpu batched MLP forward matches the pure per-sample forward (Phase 2 rebalance):                                          OK
+        linux-cpu batched MLP input-gradient matches the pure mlpInputGradient (Phase 2 rebalance):                                     OK
+        linux-cpu benchmark candidate runner measures generated FFI output (Sprint 7.6):                                                OK (0.70s)
+        linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Sprint 13.15):                                     OK (0.70s)
+        linux-cpu layer-training artifact is byte-identical across two independent compiles (Phase 78):                                 OK (3.17s)
+        linux-cpu on-policy PPO trainer trains through the batched device path (Phase 4 rebalance):                                     OK (0.02s)
+        linux-cpu DQN trainer trains through the batched device path (Phase 4 rebalance):                                               OK (0.09s)
+        linux-cpu QR-DQN trainer trains through the batched device path (Phase 4 rebalance):                                            OK (0.11s)
+        linux-cpu HER trainer trains through the batched device path (Phase 4 rebalance):                                               OK (0.44s)
+        linux-cpu continuous actor-critic (DDPG) trains through the batched device path (Phase 4 rebalance):                            OK (0.09s)
+        linux-cpu AlphaZero PolicyValueNet trains on the device and reduces loss (Phase 4 rebalance):                                   OK
+      
+      All 38 tests passed (15.25s)
+      Test suite jitml-backends: PASS
+      Test suite logged to:
+      /jitml/./dist-newstyle/build/x86_64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-backends/test/jitml-0.1.0.0-jitml-backends.log
+      1 of 1 test suites (1 of 1 test cases) passed.
+    stderr:
+      (none)

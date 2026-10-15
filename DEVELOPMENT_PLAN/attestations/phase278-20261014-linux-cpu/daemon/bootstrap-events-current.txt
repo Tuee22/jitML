@@ -1,0 +1,25 @@
+LAST SEEN   TYPE     REASON              OBJECT                           MESSAGE
+29s         Normal   ScalingReplicaSet   deployment/minio                 Scaled up replica set minio-657b4c5494 from 0 to 1
+29s         Normal   Pulling             pod/minio-657b4c5494-r5mfr       Pulling image "docker.io/bitnamilegacy/minio:2024.11.7-debian-12-r0"
+29s         Normal   SuccessfulCreate    replicaset/minio-657b4c5494      Created pod: minio-657b4c5494-r5mfr
+29s         Normal   Scheduled           pod/minio-657b4c5494-r5mfr       Successfully assigned platform/minio-657b4c5494-r5mfr to jitml-linux-cpu-worker
+29s         Normal   NoPods              poddisruptionbudget/minio        No matching pods found
+26s         Normal   Pulled              pod/minio-657b4c5494-r5mfr       Successfully pulled image "docker.io/bitnamilegacy/minio:2024.11.7-debian-12-r0" in 2.942s (2.942s including waiting). Image size: 97241391 bytes.
+26s         Normal   Created             pod/minio-657b4c5494-r5mfr       Created container: minio
+26s         Normal   Started             pod/minio-657b4c5494-r5mfr       Started container minio
+17s         Normal   Scheduled           pod/minio-provisioning-trhnq     Successfully assigned platform/minio-provisioning-trhnq to jitml-linux-cpu-worker
+17s         Normal   Pulled              pod/minio-provisioning-trhnq     Container image "docker.io/bitnamilegacy/minio:2024.11.7-debian-12-r0" already present on machine
+17s         Normal   SuccessfulCreate    job/minio-provisioning           Created pod: minio-provisioning-trhnq
+16s         Normal   Started             pod/minio-provisioning-trhnq     Started container wait-for-available-minio
+16s         Normal   Created             pod/minio-provisioning-trhnq     Created container: wait-for-available-minio
+15s         Normal   Started             pod/minio-provisioning-trhnq     Started container minio
+15s         Normal   Created             pod/minio-provisioning-trhnq     Created container: minio
+15s         Normal   Pulled              pod/minio-provisioning-trhnq     Container image "docker.io/bitnamilegacy/minio:2024.11.7-debian-12-r0" already present on machine
+5s          Normal   Completed           job/minio-provisioning           Job completed
+5s          Normal   Scheduled           pod/registry-7db7dbb85c-8qx4p    Successfully assigned platform/registry-7db7dbb85c-8qx4p to jitml-linux-cpu-worker
+5s          Normal   SuccessfulCreate    replicaset/registry-7db7dbb85c   Created pod: registry-7db7dbb85c-8qx4p
+5s          Normal   ScalingReplicaSet   deployment/registry              Scaled up replica set registry-7db7dbb85c from 0 to 1
+4s          Normal   Pulling             pod/registry-7db7dbb85c-8qx4p    Pulling image "registry:2"
+3s          Normal   Pulled              pod/registry-7db7dbb85c-8qx4p    Successfully pulled image "registry:2" in 1.151s (1.151s including waiting). Image size: 10131312 bytes.
+3s          Normal   Created             pod/registry-7db7dbb85c-8qx4p    Created container: registry
+3s          Normal   Started             pod/registry-7db7dbb85c-8qx4p    Started container registry
