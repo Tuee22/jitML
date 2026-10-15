@@ -1,0 +1,64 @@
+{
+  "kind": "DiagnosticReviewChecks",
+  "scope": "Dataset analysis, whitespace, unchanged production/test source, and runtime cleanup; not a GateTranscript or lane journal",
+  "records": [
+    {
+      "argv": [
+        "python3",
+        "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-review/calculate-supervised-anchor-inputs.py",
+        ".build/phase278-anchor-review/datasets"
+      ],
+      "started_at": "2026-10-15T18:46:03.245423+00:00",
+      "finished_at": "2026-10-15T18:46:03.299681+00:00",
+      "exit_code": 0,
+      "stdout": "{\n  \"california_housing\": {\n    \"best_constant_rmse_standardized\": 0.43237401093012334,\n    \"evaluation_examples\": 1000,\n    \"held_out_target_mean_standardized\": -0.2512410878696854,\n    \"positive_r_squared_requires\": \"rmse strictly below best_constant_rmse_standardized\",\n    \"training_examples\": 7000,\n    \"training_mean_constant_rmse_standardized\": 0.5000693647502769,\n    \"training_target_mean_raw\": 197415.45657142857,\n    \"training_target_scale_raw\": 115643.3321388044\n  },\n  \"classification_held_out_prefixes\": {\n    \"Fashion-MNIST\": {\n      \"counts\": {\n        \"0\": 107,\n        \"1\": 105,\n        \"2\": 111,\n        \"3\": 93,\n        \"4\": 115,\n        \"5\": 87,\n        \"6\": 97,\n        \"7\": 95,\n        \"8\": 95,\n        \"9\": 95\n      },\n      \"examples\": 1000,\n      \"maximum_class_count\": 115,\n      \"proposed_additional_anti_trivial_minimum_correct\": 135,\n      \"represented_classes\": 10\n    },\n    \"MNIST\": {\n      \"counts\": {\n        \"0\": 85,\n        \"1\": 126,\n        \"2\": 116,\n        \"3\": 107,\n        \"4\": 110,\n        \"5\": 87,\n        \"6\": 87,\n        \"7\": 99,\n        \"8\": 89,\n        \"9\": 94\n      },\n      \"examples\": 1000,\n      \"maximum_class_count\": 126,\n      \"proposed_additional_anti_trivial_minimum_correct\": 135,\n      \"represented_classes\": 10\n    }\n  },\n  \"scope\": \"dataset-only independent review; no trained outputs, gate invocation, or policy change\",\n  \"uniform_random_exact_binomial_controls\": [\n    {\n      \"accuracy_floor\": 0.135,\n      \"classes\": 10,\n      \"comparisons\": 30,\n      \"examples\": 1000,\n      \"familywise_alpha\": \"1/100\",\n      \"minimum_correct\": 135,\n      \"per_comparison_alpha\": \"1/3000\",\n      \"tail_at_floor\": 0.00024394550714750528,\n      \"tail_one_below\": 0.00034860984831358187\n    },\n    {\n      \"accuracy_floor\": 0.023,\n      \"classes\": 100,\n      \"comparisons\": 30,\n      \"examples\": 1000,\n      \"familywise_alpha\": \"1/100\",\n      \"minimum_correct\": 23,\n      \"per_comparison_alpha\": \"1/3000\",\n      \"tail_at_floor\": 0.0002721563481729341,\n      \"tail_one_below\": 0.0006518251382730439\n    },\n    {\n      \"accuracy_floor\": 0.015,\n      \"classes\": 200,\n      \"comparisons\": 30,\n      \"examples\": 1000,\n      \"familywise_alpha\": \"1/100\",\n      \"minimum_correct\": 15,\n      \"per_comparison_alpha\": \"1/3000\",\n      \"tail_at_floor\": 0.00021580336348481794,\n      \"tail_one_below\": 0.0006718712299623575\n    }\n  ],\n  \"verified_artifacts\": {\n    \"cal_housing.tgz\": {\n      \"bytes\": 441963,\n      \"sha256\": \"aaa5c9a6afe2225cc2aed2723682ae403280c4a3695a2ddda4ffb5d8215ea681\"\n    },\n    \"fashion-test-labels.gz\": {\n      \"bytes\": 5148,\n      \"sha256\": \"67da17c76eaffca5446c3361aaab5c3cd6d1c2608764d35dfb1850b086bf8dd5\"\n    },\n    \"mnist-test-labels.gz\": {\n      \"bytes\": 4542,\n      \"sha256\": \"f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6\"\n    }\n  }\n}\n",
+      "stderr": "",
+      "byte_identical_to_retained_json": true,
+      "retained_json_sha256": "7d24a893d5b94bc0dce1d5b8689d0a4d8b6ce3d618e2136e38f9def275903eb6"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "started_at": "2026-10-15T18:46:03.299854+00:00",
+      "finished_at": "2026-10-15T18:46:03.315988+00:00",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--exit-code",
+        "--",
+        "app",
+        "gen",
+        "src",
+        "test",
+        "cabal.project",
+        "jitml.cabal"
+      ],
+      "started_at": "2026-10-15T18:46:03.316011+00:00",
+      "finished_at": "2026-10-15T18:46:03.322521+00:00",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "docker",
+        "ps",
+        "--format",
+        "{{.Names}} {{.Status}}"
+      ],
+      "started_at": "2026-10-15T18:46:03.322614+00:00",
+      "finished_at": "2026-10-15T18:46:03.338735+00:00",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}

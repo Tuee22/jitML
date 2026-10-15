@@ -1,0 +1,100 @@
+{
+  "california_housing": {
+    "best_constant_rmse_standardized": 0.43237401093012334,
+    "evaluation_examples": 1000,
+    "held_out_target_mean_standardized": -0.2512410878696854,
+    "positive_r_squared_requires": "rmse strictly below best_constant_rmse_standardized",
+    "training_examples": 7000,
+    "training_mean_constant_rmse_standardized": 0.5000693647502769,
+    "training_target_mean_raw": 197415.45657142857,
+    "training_target_scale_raw": 115643.3321388044
+  },
+  "classification_held_out_prefixes": {
+    "Fashion-MNIST": {
+      "counts": {
+        "0": 107,
+        "1": 105,
+        "2": 111,
+        "3": 93,
+        "4": 115,
+        "5": 87,
+        "6": 97,
+        "7": 95,
+        "8": 95,
+        "9": 95
+      },
+      "examples": 1000,
+      "maximum_class_count": 115,
+      "proposed_additional_anti_trivial_minimum_correct": 135,
+      "represented_classes": 10
+    },
+    "MNIST": {
+      "counts": {
+        "0": 85,
+        "1": 126,
+        "2": 116,
+        "3": 107,
+        "4": 110,
+        "5": 87,
+        "6": 87,
+        "7": 99,
+        "8": 89,
+        "9": 94
+      },
+      "examples": 1000,
+      "maximum_class_count": 126,
+      "proposed_additional_anti_trivial_minimum_correct": 135,
+      "represented_classes": 10
+    }
+  },
+  "scope": "dataset-only independent review; no trained outputs, gate invocation, or policy change",
+  "uniform_random_exact_binomial_controls": [
+    {
+      "accuracy_floor": 0.135,
+      "classes": 10,
+      "comparisons": 30,
+      "examples": 1000,
+      "familywise_alpha": "1/100",
+      "minimum_correct": 135,
+      "per_comparison_alpha": "1/3000",
+      "tail_at_floor": 0.00024394550714750528,
+      "tail_one_below": 0.00034860984831358187
+    },
+    {
+      "accuracy_floor": 0.023,
+      "classes": 100,
+      "comparisons": 30,
+      "examples": 1000,
+      "familywise_alpha": "1/100",
+      "minimum_correct": 23,
+      "per_comparison_alpha": "1/3000",
+      "tail_at_floor": 0.0002721563481729341,
+      "tail_one_below": 0.0006518251382730439
+    },
+    {
+      "accuracy_floor": 0.015,
+      "classes": 200,
+      "comparisons": 30,
+      "examples": 1000,
+      "familywise_alpha": "1/100",
+      "minimum_correct": 15,
+      "per_comparison_alpha": "1/3000",
+      "tail_at_floor": 0.00021580336348481794,
+      "tail_one_below": 0.0006718712299623575
+    }
+  ],
+  "verified_artifacts": {
+    "cal_housing.tgz": {
+      "bytes": 441963,
+      "sha256": "aaa5c9a6afe2225cc2aed2723682ae403280c4a3695a2ddda4ffb5d8215ea681"
+    },
+    "fashion-test-labels.gz": {
+      "bytes": 5148,
+      "sha256": "67da17c76eaffca5446c3361aaab5c3cd6d1c2608764d35dfb1850b086bf8dd5"
+    },
+    "mnist-test-labels.gz": {
+      "bytes": 4542,
+      "sha256": "f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6"
+    }
+  }
+}

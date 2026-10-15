@@ -15,8 +15,49 @@ CPU backend, docs, and code-quality gates pass. Real generic CLI and focused
 daemon execution plus Store re-admission validate compiled-plan binding. Open:
 independently reviewed supervised anchors, the `apple-silicon` journal re-issue,
 aggregate regeneration, a passing full unit gate, and final standing integration
-evidence on the reviewed contracts (see Remaining Work).
+evidence on the reviewed contracts (see Remaining Work). The Mac review below
+reaches the requested hardware stopping condition: independently repairing the
+supervised bars requires fresh CUDA evidence, which this host cannot execute.
+No phase validation or closure is claimed by that review.
 Phase `276` / Sprint `276.1` remains Done on its retained join mechanism.
+
+### Mac Hardware Boundary
+
+The 2026-10-15 Mac session reaches the user's stopping condition of the first
+phase that cannot be fully validated with the available hardware. Phase `278`
+stays Active, and the later open phases stay Blocked; their execution has not
+begun. The [independent review and handoff](attestations/phase278-20261015-mac-review/README.md)
+retain the policy findings, source references, and exact resumption commands.
+
+- The host is an M1 Max with a 32-core Metal GPU and 64 GiB RAM. Apple stage-0
+  doctor passes. Docker reports ARM Linux with only `runc` runtimes;
+  `docker run --rm --pull=never --gpus all ubuntu:24.04 true` exits `125`
+  (`could not select device driver "" with capabilities: [[gpu]]`). Raw
+  commands, timestamps, both streams, and statuses are retained in
+  [host-probes.json](attestations/phase278-20261015-mac-review/host-probes.json).
+- The currently retained CPU/CUDA journals still admit under the unchanged row
+  contracts. NVIDIA execution becomes necessary when repairing the supervised
+  bars: the Tiny ImageNet source explicitly sets its threshold to clear a prior
+  measured result, so retaining that floor cannot resolve the independent-anchor
+  obligation. A changed bar invalidates its affected row in each substrate's
+  journal, and each replacement journal requires the full fresh 55-row run.
+  This host can supply Apple and Docker CPU execution, but cannot supply the
+  resulting CUDA revalidation. The independent policy decision remains open
+  separately from this hardware limitation.
+- Cold `./bootstrap/apple-silicon.sh build` and `docker compose build jitml`
+  were started, then intentionally interrupted with terminal status `130` after
+  establishing that boundary. No cluster or daemon was started. No unit,
+  backend, live integration, `docs check`, or `check-code` gate ran in this Mac
+  session. A `docker compose run --rm --pull never jitml jitml docs check`
+  attempt began an automatic image build, also stopped with exit `130` before
+  the validator started; its streams are retained with the hardware probes.
+  The retained Linux results below keep their original scope.
+- No threshold, training recipe, product source, journal, aggregate, validation
+  record, or evidence guard changes in this audit. The label-only anti-trivial
+  criteria in the review are recommendations to bind before fresh runs; they
+  do not certify published-model convergence or resolve the external-context
+  obligation. Finalize the contracts before spending a full Apple lane, then
+  arrange real CUDA execution and finish this phase before proceeding.
 
 ### Current Execution Checkpoint
 
@@ -415,6 +456,18 @@ below retain their original scope. Current source-bound results are recorded in
   The first live e2e attempt is recorded in Phase `289`.
 
 ### Remaining Work
+
+- **Hardware handoff after contract review.** The [Mac review](attestations/phase278-20261015-mac-review/README.md)
+  establishes available Apple/CPU execution and unavailable NVIDIA execution.
+  Repair the independently unproven supervised bars and split-baseline criteria
+  before refreshing journals. Changed row contracts require new CPU, CUDA, and
+  Apple journals; arrange a real CUDA host for that validation. The current
+  CPU/CUDA evidence is retained intact and is not claimed stale before a contract
+  change. The Mac audit does not complete the independent-policy obligation.
+  The current all-lane repair requirement also needs explicit per-lane ownership
+  reconciled with standards `M(b)`/`M(d)` (one accelerator and one host per phase)
+  before resuming closure. No second accelerator gate or forward blocker is
+  added to this phase's Validation block to conceal that scope problem.
 
 - **`apple-silicon` lane journal re-issue (Mac host only).** The retained Apple
   journal (SHA-256 `1496c863…`) carries the pre-tightening contract digests for

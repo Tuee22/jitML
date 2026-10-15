@@ -68,10 +68,12 @@ full **198 / 198** live integration gate and the other listed validation.
 [Phase 276 → Closure Evidence](phase-276-journal-derived-product-aggregation.md#closure-evidence)
 records the result. Phase `278` is the first open owner. Every later
 phase in the chain validates in the `linux-cpu` lane but cannot close before
-Phase `278` does, and Phase `278` itself cannot close on a Linux host: the
-tightened bars invalidated the retained Apple Silicon journal, so its closure needs
-one more Mac-specific lane run and a regenerated three-lane aggregate (see Sprint
-`278.1` Remaining Work).
+Phase `278` does. Its retained Apple journal needs a real Mac refresh, while
+correction of the independently unproven supervised bars also requires fresh
+per-lane journals under the changed row contracts, including real NVIDIA
+execution. Neither the Mac refresh alone nor a Linux-only session closes those
+obligations; the current hardware boundary and review are owned by
+[Phase 278 → Mac Hardware Boundary](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#mac-hardware-boundary).
 Apple closure evidence lives in
 [Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).
 

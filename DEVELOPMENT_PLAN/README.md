@@ -21,59 +21,49 @@ maintenance rules that govern this plan suite.
 ## Closure Status
 
 **🔄 Active (2026-10-15 UTC).** Phase `278` remains the first open owner.
-`jitml docs status` derives the registry from retained evidence; the counts remain
-**63 Done / 1 Active / 0 Planned / 6 Blocked** across 70 sprints. The open chain is
+The retained evidence derives **63 Done / 1 Active / 0 Planned / 6 Blocked**
+across 70 sprints. The open chain is
 `278 → 280 → 281 → 282 → 285 → 288 → 289`; later phases stay Blocked under
 standards rule `M(c)`.
 
-**Current Linux validation.** A dedicated Ubuntu 24.04 VM inside WSL2 provides
-48 GiB RAM, 16 virtual CPUs, and a 300 GiB virtual disk. On the final source,
-`jitml test jitml-unit --linux-cpu` passes **1,503 / 1,512** cases; all nine failures
-are the `Journal-derived product aggregation (Phase 276)` cases rejecting the
-stale Apple journal. `jitml test jitml-backends --linux-cpu` passes **38 / 38**,
-including a real cold-cache MLP test under a custom cache path. `jitml docs check`
-and `jitml check-code` pass. The unit gate remains failed; phase closure is unproven.
+**Current hardware boundary.** The Mac audit confirms an M1 Max Metal GPU,
+64 GiB host RAM, and a working Apple stage-0 doctor. Docker reports ARM Linux; its CPU lane is not validated in this audit. Its
+GPU request fails with exit `125` because no NVIDIA driver/runtime is available. Apple execution is supported here. The existing CPU/CUDA journals
+remain admissible under their current contracts; the hardware gap arises when
+correcting the supervised bars, rather than from their present admission.
 
-**Generic RL validation.** Compiled-plan binding passes 27 boundary controls and
-preserves retained CPU/CUDA V2 completion bytes. The real CartPole public CLI
-executes **1,228,800** environment transitions and **192,000** optimizer updates,
-with median reward **500** against its own **450** bar. Store re-admission and the
-fetched nested V3 proof pass inspection. Real bootstrap completes at
-**2026-10-14 23:54:18 UTC**: exit `0`, **115** steps, all **8** workloads Ready,
-and edge HTTP `200`. The task image adds the official guest Compose/Buildx plugins
-missing from the base image. The focused real daemon case passes **1 / 1** in
-**508.66 s** with **4,915,200** transitions, **768,000** updates, and independently
-derived median reward **2,048**. Exact captured worker bytes pass Store admission
-and bound V3 inspection; source and actual CLI hashes remain unchanged. These are
-completed scoped CLI/daemon checks, not a full standing integration record.
+**Independent-anchor review.** The Tiny ImageNet bar is explicitly selected to
+clear an observed result in its source comment. It cannot close the independent
+anchor obligation. Published full-model results do not justify the compact
+rows' floors. The review records a concrete additional anti-trivial policy and
+split-selection concerns; it does not substitute that policy for published-model
+convergence. Correcting an affected row's bar changes its contract digest and
+requires new complete journals on all three lanes, including a real NVIDIA host.
+This reaches the requested hardware stopping condition within Phase `278`.
 
-**Why the chain is open.** Phase `278` tightened `PPO/key-door-grid`,
-`A2C/key-door-grid`, and `TRPO/cartpole`. CPU and CUDA journals were re-issued;
-the Apple journal retains stale contracts and two measurements below the current
-bars. It requires fresh passing execution on a real Mac before the three-lane
-aggregate and nine unit cases can pass. Phase `278` also owns independent
-supervised-anchor review: published results for different architectures and
-budgets do not justify replacement bars for the compact rows. Its explicit guard
-obligations keep that review and final formal validation open. The live
-ExternalContext remains Unproven pending replacement with a final full standing
-integration GateTranscript after contract review and lane refresh. Refreshing the
-Apple journal alone cannot close the phase.
+**Retained Linux validation (2026-10-14–15).** The prior Ubuntu VM run passes
+**1,503 / 1,512** unit cases; all nine failures reject the stale Apple journal.
+CPU backends pass **38 / 38**, and docs/code-quality pass. Generic RL CLI and
+focused daemon execution plus exact Store re-admission are completed scoped
+checks. They do not establish a full standing integration GateTranscript.
+No new phase validation passed in the Mac audit. Its cold native and container
+builds were stopped with exit `130` after the hardware boundary was established.
 
-**Next steps, in order.** Complete independent anchor review. Re-issue affected
-real lane evidence if row contracts change, and run the three changed Apple rows
-before issuing the full Apple journal. Then pin that journal, regenerate the
-aggregate, and pass all four Phase `278` Validation commands and the full standing
-integration gate on the final source. Only after this phase closes may the
-remaining phases validate and close in numerical order.
+**Next steps, in order.** Resolve the independent supervised convergence policy
+and actual split baselines before changing bars or spending another full lane.
+Re-issue affected-contract evidence on the real CPU, CUDA, and Apple lanes; run
+the three changed Apple RL rows before its full journal. Then pin the admitted
+journals, regenerate the aggregate, pass all four Phase `278` Validation commands
+and final full standing integration gate, and advance the remaining phases in
+numerical order. No status guard or evidence pin is waived.
 
-**Evidence and history.** Resources, exact commands, output streams, exit statuses,
-and the CLI checkpoint are retained under
+**Evidence.** The [Mac review and raw hardware probes](attestations/phase278-20261015-mac-review/README.md)
+record the findings and resumption commands. Prior Linux command streams,
+checkpoints, and inspectors remain under
 [attestations/phase278-20261014-linux-cpu/](attestations/phase278-20261014-linux-cpu/).
-Current findings and owned closing work are in
-[Phase 278 → Current Execution Checkpoint](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-execution-checkpoint)
-and [Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
-Earlier validation narratives remain in the
-[Historical Current-Status Diary](#historical-current-status-diary).
+Owned closing work remains in
+[Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+Earlier narratives remain in the [Historical Current-Status Diary](#historical-current-status-diary).
 
 ## Historical Current-Status Diary
 

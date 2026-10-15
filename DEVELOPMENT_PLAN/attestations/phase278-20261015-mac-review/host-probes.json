@@ -1,0 +1,172 @@
+{
+  "kind": "DiagnosticHostProbes",
+  "scope": "Phase 278 host capability audit; not a GateTranscript or lane journal",
+  "records": [
+    {
+      "argv": [
+        "uname",
+        "-sm"
+      ],
+      "started_at": "2026-10-15T18:40:55.220513+00:00",
+      "finished_at": "2026-10-15T18:40:55.223948+00:00",
+      "exit_code": 0,
+      "stdout": "Darwin arm64\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "sw_vers"
+      ],
+      "started_at": "2026-10-15T18:40:55.224005+00:00",
+      "finished_at": "2026-10-15T18:40:55.233005+00:00",
+      "exit_code": 0,
+      "stdout": "ProductName:\t\tmacOS\nProductVersion:\t\t26.6.2\nBuildVersion:\t\t25G83\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "sysctl",
+        "-n",
+        "hw.memsize",
+        "hw.physicalcpu"
+      ],
+      "started_at": "2026-10-15T18:40:55.233055+00:00",
+      "finished_at": "2026-10-15T18:40:55.236081+00:00",
+      "exit_code": 0,
+      "stdout": "68719476736\n10\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "system_profiler",
+        "SPDisplaysDataType"
+      ],
+      "started_at": "2026-10-15T18:40:55.236130+00:00",
+      "finished_at": "2026-10-15T18:40:57.955871+00:00",
+      "exit_code": 0,
+      "stdout": "Graphics/Displays:\n\n    Apple M1 Max:\n\n      Chipset Model: Apple M1 Max\n      Type: GPU\n      Bus: Built-In\n      Total Number of Cores: 32\n      Vendor: Apple (0x106b)\n      Metal Support: Metal 4\n      Displays:\n        XB273K GP:\n          Resolution: 3840 x 2160 (2160p/4K UHD 1 - Ultra High Definition)\n          UI Looks like: 1920 x 1080 @ 120.00Hz\n          Main Display: Yes\n          Mirror: Off\n          Online: Yes\n          Rotation: Supported\n          Display Asleep: Yes\n        Color LCD:\n          Display Type: Built-in Liquid Retina XDR Display\n          Resolution: 3456 x 2234 Retina\n          Mirror: Off\n          Online: Yes\n          Automatically Adjust Brightness: Yes\n          Display Asleep: Yes\n          Connection Type: Internal\n        XB273K GP:\n          Resolution: 3840 x 2160 (2160p/4K UHD 1 - Ultra High Definition)\n          UI Looks like: 1920 x 1080 @ 30.00Hz\n          Mirror: Off\n          Online: Yes\n          Rotation: Supported\n          Display Asleep: Yes\n\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ghc",
+        "--numeric-version"
+      ],
+      "started_at": "2026-10-15T18:40:57.955989+00:00",
+      "finished_at": "2026-10-15T18:40:58.105962+00:00",
+      "exit_code": 0,
+      "stdout": "9.12.4\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "cabal",
+        "--numeric-version"
+      ],
+      "started_at": "2026-10-15T18:40:58.106067+00:00",
+      "finished_at": "2026-10-15T18:40:58.168582+00:00",
+      "exit_code": 0,
+      "stdout": "3.16.1.0\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "./bootstrap/apple-silicon.sh",
+        "doctor"
+      ],
+      "started_at": "2026-10-15T18:40:58.168664+00:00",
+      "finished_at": "2026-10-15T18:40:58.275214+00:00",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "{\"level\":\"info\",\"component\":\"bootstrap\",\"message\":\"apple-silicon stage-0 doctor: ok\"}\n"
+    },
+    {
+      "argv": [
+        "docker",
+        "info",
+        "--format",
+        "{{.OSType}} {{.Architecture}} memory={{.MemTotal}} cpus={{.NCPU}}{{range $name, $runtime := .Runtimes}} runtime={{$name}}{{end}}"
+      ],
+      "started_at": "2026-10-15T18:40:58.275290+00:00",
+      "finished_at": "2026-10-15T18:40:58.339783+00:00",
+      "exit_code": 0,
+      "stdout": "linux aarch64 memory=33585680384 cpus=9 runtime=io.containerd.runc.v2 runtime=runc\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "ubuntu:24.04",
+        "sh",
+        "-c",
+        "uname -m; if test -e /dev/nvidiactl; then ls -l /dev/nvidia*; else printf \"No NVIDIA device nodes in Docker VM\\n\"; fi; if test -d /proc/driver/nvidia; then ls /proc/driver/nvidia; else printf \"No NVIDIA kernel driver in Docker VM\\n\"; fi"
+      ],
+      "started_at": "2026-10-15T18:40:58.340042+00:00",
+      "finished_at": "2026-10-15T18:40:58.537714+00:00",
+      "exit_code": 0,
+      "stdout": "aarch64\nNo NVIDIA device nodes in Docker VM\nNo NVIDIA kernel driver in Docker VM\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "--gpus",
+        "all",
+        "ubuntu:24.04",
+        "true"
+      ],
+      "started_at": "2026-10-15T18:40:58.537861+00:00",
+      "finished_at": "2026-10-15T18:40:58.592794+00:00",
+      "exit_code": 125,
+      "stdout": "",
+      "stderr": "docker: Error response from daemon: could not select device driver \"\" with capabilities: [[gpu]]\n\nRun 'docker run --help' for more information\n"
+    },
+    {
+      "argv": [
+        "docker",
+        "compose",
+        "run",
+        "--rm",
+        "--pull",
+        "never",
+        "--no-build",
+        "jitml",
+        "jitml",
+        "docs",
+        "check"
+      ],
+      "started_at": "2026-10-15T18:43:56.404000+00:00",
+      "finished_at": "2026-10-15T18:43:56.436668+00:00",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "unknown flag: --no-build\n",
+      "scope": "Invalid Compose option rejected before container startup; no gate ran"
+    },
+    {
+      "argv": [
+        "docker",
+        "compose",
+        "run",
+        "--rm",
+        "--pull",
+        "never",
+        "jitml",
+        "jitml",
+        "docs",
+        "check"
+      ],
+      "started_at": "2026-10-15T18:44:04.688323+00:00",
+      "finished_at": "2026-10-15T18:44:29.275598+00:00",
+      "exit_code": 130,
+      "stdout": "#1 [internal] load local bake definitions\n#1 reading from stdin 501B done\n#1 DONE 0.0s\n\n#2 [internal] load build definition from Dockerfile\n#2 transferring dockerfile: 10.02kB done\n#2 WARN: UndefinedVar: Usage of undefined variable '$LD_LIBRARY_PATH' (line 29)\n#2 DONE 0.0s\n\n#3 [internal] load metadata for docker.io/library/ubuntu:24.04\n#3 DONE 0.0s\n\n#4 [internal] load .dockerignore\n#4 transferring context: 428B done\n#4 DONE 0.0s\n\n#5 [ 1/12] FROM docker.io/library/ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3\n#5 resolve docker.io/library/ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3 0.0s done\n#5 DONE 0.0s\n\n#6 [ 2/12] RUN apt-get update     && apt-get install -y --no-install-recommends         ca-certificates         clang         cmake         curl         docker.io         g++         gcc         git         gnupg         libffi-dev         libdnnl-dev         libgmp-dev         libncurses-dev         libnuma-dev         llvm         make         nodejs         npm         python3         python3-pip         pkg-config         unzip         wget         zlib1g-dev     && rm -rf /var/lib/apt/lists/*\n#6 CACHED\n\n#7 [ 3/12] RUN git init /tmp/arcade-learning-environment     && cd /tmp/arcade-learning-environment     && git remote add origin         https://github.com/Farama-Foundation/Arcade-Learning-Environment.git     && git fetch --depth 1 origin \"94c24368664b8539c53857522e50652ddcc44b20\"     && git checkout --detach FETCH_HEAD     && test \"$(git rev-parse HEAD)\" = \"94c24368664b8539c53857522e50652ddcc44b20\"     && cmake -S . -B build         -DCMAKE_BUILD_TYPE=Release         -DBUILD_CPP_LIB=ON         -DBUILD_PYTHON_LIB=OFF         -DBUILD_VECTOR_LIB=OFF         -DBUILD_VECTOR_XLA_LIB=OFF         -DBUILD_WASM_LIB=OFF         -DSDL_SUPPORT=OFF     && cmake --build build --target install --parallel 2     && ldconfig     && rm -rf /tmp/arcade-learning-environment\n#7 CACHED\n\n#8 [internal] load build context\n#8 transferring context: 924.74kB 0.1s done\n#8 DONE 0.1s\n\n#9 [ 4/12] RUN case \"arm64\" in         amd64) cuda_arch=x86_64 ;;         arm64 | aarch64) cuda_arch=sbsa ;;         *) echo \"unsupported TARGETARCH=arm64\" >&2; exit 1 ;;       esac     && wget -qO /tmp/cuda-keyring.deb         \"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${cuda_arch}/cuda-keyring_1.1-1_all.deb\"     && dpkg -i /tmp/cuda-keyring.deb     && rm -f /tmp/cuda-keyring.deb     && apt-get update     && apt-get install -y --no-install-recommends         cuda-compiler-12-8 cuda-libraries-dev-12-8 cuda-nvrtc-dev-12-8 cuda-nvml-dev-12-8         libcudnn9-dev-cuda-12     && rm -rf /var/lib/apt/lists/*     && ln -sf /usr/local/cuda-12.8 /usr/local/cuda     && printf '/usr/local/cuda/lib64\\n' > /etc/ld.so.conf.d/cuda.conf     && ldconfig\n#9 0.535 Selecting previously unselected package cuda-keyring.\n#9 0.565 (Reading database ... 48377 files and directories currently installed.)\n#9 0.566 Preparing to unpack /tmp/cuda-keyring.deb ...\n#9 0.567 Unpacking cuda-keyring (1.1-1) ...\n#9 0.580 Setting up cuda-keyring (1.1-1) ...\n#9 0.713 Get:1 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  InRelease [1576 B]\n#9 0.817 Get:2 http://ports.ubuntu.com/ubuntu-ports noble InRelease [256 kB]\n#9 0.940 Get:3 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  Packages [1765 kB]\n#9 1.035 Get:4 http://ports.ubuntu.com/ubuntu-ports noble-updates InRelease [126 kB]\n#9 1.096 Get:5 http://ports.ubuntu.com/ubuntu-ports noble-backports InRelease [126 kB]\n#9 1.154 Get:6 http://ports.ubuntu.com/ubuntu-ports noble-security InRelease [126 kB]\n#9 1.212 Get:7 http://ports.ubuntu.com/ubuntu-ports noble/multiverse arm64 Packages [274 kB]\n#9 1.246 Get:8 http://ports.ubuntu.com/ubuntu-ports noble/restricted arm64 Packages [113 kB]\n#9 1.265 Get:9 http://ports.ubuntu.com/ubuntu-ports noble/main arm64 Packages [1776 kB]\n#9 1.361 Get:10 http://ports.ubuntu.com/ubuntu-ports noble/universe arm64 Packages [19.0 MB]\n#9 1.616 Get:11 http://ports.ubuntu.com/ubuntu-ports noble-updates/restricted arm64 Packages [3251 kB]\n#9 1.658 Get:12 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 Packages [1786 kB]\n#9 1.686 Get:13 http://ports.ubuntu.com/ubuntu-ports noble-updates/multiverse arm64 Packages [104 kB]\n#9 1.687 Get:14 http://ports.ubuntu.com/ubuntu-ports noble-updates/universe arm64 Packages [2212 kB]\n#9 1.714 Get:15 http://ports.ubuntu.com/ubuntu-ports noble-backports/universe arm64 Packages [36.3 kB]\n#9 1.715 Get:16 http://ports.ubuntu.com/ubuntu-ports noble-backports/main arm64 Packages [49.0 kB]\n#9 1.715 Get:17 http://ports.ubuntu.com/ubuntu-ports noble-backports/multiverse arm64 Packages [669 B]\n#9 1.715 Get:18 http://ports.ubuntu.com/ubuntu-ports noble-security/multiverse arm64 Packages [99.1 kB]\n#9 1.717 Get:19 http://ports.ubuntu.com/ubuntu-ports noble-security/restricted arm64 Packages [3129 kB]\n#9 1.750 Get:20 http://ports.ubuntu.com/ubuntu-ports noble-security/universe arm64 Packages [1636 kB]\n#9 1.776 Get:21 http://ports.ubuntu.com/ubuntu-ports noble-security/main arm64 Packages [1475 kB]\n#9 2.534 Fetched 37.4 MB in 2s (19.4 MB/s)\n#9 2.534 Reading package lists...\n#9 3.158 Reading package lists...\n#9 3.764 Building dependency tree...\n#9 3.908 Reading state information...\n#9 4.089 The following additional packages will be installed:\n#9 4.089   build-essential bzip2 cuda-cccl-12-8 cuda-crt-12-8 cuda-cudart-12-8\n#9 4.089   cuda-cudart-dev-12-8 cuda-cuobjdump-12-8 cuda-cuxxfilt-12-8\n#9 4.089   cuda-driver-dev-12-8 cuda-nvcc-12-8 cuda-nvprune-12-8 cuda-nvrtc-12-8\n#9 4.089   cuda-nvvm-12-8 cuda-profiler-api-12-8 cuda-toolkit-12-8-config-common\n#9 4.089   cuda-toolkit-12-config-common cuda-toolkit-config-common dpkg-dev\n#9 4.089   libcublas-12-8 libcublas-dev-12-8 libcudnn9-cuda-12\n#9 4.089   libcudnn9-headers-cuda-12 libcufft-12-8 libcufft-dev-12-8 libcufile-12-8\n#9 4.089   libcufile-dev-12-8 libcurand-12-8 libcurand-dev-12-8 libcusolver-12-8\n#9 4.090   libcusolver-dev-12-8 libcusparse-12-8 libcusparse-dev-12-8 libdpkg-perl\n#9 4.090   libnpp-12-8 libnpp-dev-12-8 libnvfatbin-12-8 libnvfatbin-dev-12-8\n#9 4.090   libnvjitlink-12-8 libnvjitlink-dev-12-8 libnvjpeg-12-8 libnvjpeg-dev-12-8\n#9 4.090   lto-disabled-list patch xz-utils\n#9 4.091 Suggested packages:\n#9 4.091   bzip2-doc debian-keyring bzr ed diffutils-doc\n#9 4.091 Recommended packages:\n#9 4.091   fakeroot libalgorithm-merge-perl libfile-fcntllock-perl\n#9 4.091   liblocale-gettext-perl\n#9 4.149 The following NEW packages will be installed:\n#9 4.149   build-essential bzip2 cuda-cccl-12-8 cuda-compiler-12-8 cuda-crt-12-8\n#9 4.149   cuda-cudart-12-8 cuda-cudart-dev-12-8 cuda-cuobjdump-12-8 cuda-cuxxfilt-12-8\n#9 4.149   cuda-driver-dev-12-8 cuda-libraries-dev-12-8 cuda-nvcc-12-8\n#9 4.149   cuda-nvml-dev-12-8 cuda-nvprune-12-8 cuda-nvrtc-12-8 cuda-nvrtc-dev-12-8\n#9 4.149   cuda-nvvm-12-8 cuda-profiler-api-12-8 cuda-toolkit-12-8-config-common\n#9 4.149   cuda-toolkit-12-config-common cuda-toolkit-config-common dpkg-dev\n#9 4.149   libcublas-12-8 libcublas-dev-12-8 libcudnn9-cuda-12 libcudnn9-dev-cuda-12\n#9 4.149   libcudnn9-headers-cuda-12 libcufft-12-8 libcufft-dev-12-8 libcufile-12-8\n#9 4.149   libcufile-dev-12-8 libcurand-12-8 libcurand-dev-12-8 libcusolver-12-8\n#9 4.149   libcusolver-dev-12-8 libcusparse-12-8 libcusparse-dev-12-8 libdpkg-perl\n#9 4.149   libnpp-12-8 libnpp-dev-12-8 libnvfatbin-12-8 libnvfatbin-dev-12-8\n#9 4.149   libnvjitlink-12-8 libnvjitlink-dev-12-8 libnvjpeg-12-8 libnvjpeg-dev-12-8\n#9 4.150   lto-disabled-list patch xz-utils\n#9 4.234 0 upgraded, 49 newly installed, 0 to remove and 4 not upgraded.\n#9 4.234 Need to get 3044 MB of archives.\n#9 4.234 After this operation, 7366 MB of additional disk space will be used.\n#9 4.234 Get:1 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-cccl-12-8 12.8.90-1 [966 kB]\n#9 4.368 Get:2 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-cuobjdump-12-8 12.8.90-1 [198 kB]\n#9 4.376 Get:3 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-cuxxfilt-12-8 12.8.90-1 [179 kB]\n#9 4.394 Get:4 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 xz-utils arm64 5.6.1+really5.4.5-1ubuntu0.3 [268 kB]\n#9 4.561 Get:5 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-toolkit-config-common 13.4.92-1 [17.4 kB]\n#9 4.827 Get:6 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-toolkit-12-config-common 12.9.79-1 [16.6 kB]\n#9 4.985 Get:7 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 libdpkg-perl all 1.22.6ubuntu6.6 [268 kB]\n#9 5.064 Get:8 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 bzip2 arm64 1.0.8-5.1ubuntu0.1 [34.0 kB]\n#9 5.086 Get:9 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-toolkit-12-8-config-common 12.8.90-1 [16.5 kB]\n#9 5.095 Get:10 http://ports.ubuntu.com/ubuntu-ports noble/main arm64 patch arm64 2.7.6-7build3 [101 kB]\n#9 5.125 Get:11 http://ports.ubuntu.com/ubuntu-ports noble/main arm64 lto-disabled-list all 47 [12.4 kB]\n#9 5.130 Get:12 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 dpkg-dev all 1.22.6ubuntu6.6 [1074 kB]\n#9 5.243 Get:13 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-cudart-12-8 12.8.90-1 [172 kB]\n#9 5.309 Get:14 http://ports.ubuntu.com/ubuntu-ports noble/main arm64 build-essential arm64 12.10ubuntu1 [4932 B]\n#9 6.456 Get:15 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-driver-dev-12-8 12.8.90-1 [30.5 kB]\n#9 6.512 Get:16 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-cudart-dev-12-8 12.8.90-1 [1251 kB]\n#9 6.734 Get:17 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-nvvm-12-8 12.8.93-1 [39.2 MB]\n#9 7.381 Get:18 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-crt-12-8 12.8.93-1 [81.1 kB]\n#9 7.398 Get:19 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-nvcc-12-8 12.8.93-1 [31.9 MB]\n#9 7.733 Get:20 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-nvprune-12-8 12.8.90-1 [52.1 kB]\n#9 7.737 Get:21 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-compiler-12-8 12.8.2-1 [2510 B]\n#9 7.742 Get:22 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-profiler-api-12-8 12.8.90-1 [18.7 kB]\n#9 7.746 Get:23 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-nvrtc-12-8 12.8.93-1 [28.4 MB]\n#9 8.047 Get:24 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  cuda-nvrtc-dev-12-8 12.8.93-1 [24.2 MB]\n#9 8.310 Get:25 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  libcublas-12-8 12.8.5.5-1 [463 MB]\n#9 14.28 Get:26 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa  libcublas-dev-12-8 12.8.5.5-1 [485 MB]\n",
+      "stderr": " Image jitml:local Building \n\n",
+      "scope": "Gate not run: Compose automatically began building the absent image; build intentionally interrupted with SIGINT before the documentation validator started"
+    }
+  ]
+}
